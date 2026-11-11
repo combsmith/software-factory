@@ -27,7 +27,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILL = ROOT / ".claude" / "skills" / "cut-a-release" / "SKILL.md"
 # The skill's section "When the Factory cannot approve", word for word (decision 0194): what it says of who approves,
 # and by what, changes only with this line.
-CANNOT_APPROVE_SHA256 = "19f1740b27dad5336e4146d94cc2746332f7e7072070d6e8eb6827ca7d03cfe0"
+CANNOT_APPROVE_SHA256 = "1646dc151e34cc7491e7c852dbbac6be237550469d1b7f08d048c74dfe38b910"
 REPO = "combsmith/software-factory"
 A, B, C, D = ("a" * 40, "b" * 40, "c" * 40, "d" * 40)
 NEXT, STABLE = "factory/v0-next", "factory/v0-stable"
@@ -1014,12 +1014,13 @@ class Skill(unittest.TestCase):
         self.assertIn("It needs no Release, no Run and no stored token;", section)
         self.assertIn("A session stops before the hand approval and hands him the steps", section)
         self.assertIn("It approves nothing, signs in to no account, and sets no variable.", section)
-        # A change the Factory may not approve is taken out of the queue by the Kernel's own Decision, which nothing
-        # carries out while no queue account is named: the day one is, the section's "no Pause is needed" is over.
+        # A change the Factory may not approve is taken out of the queue by the Kernel's own Decision; the section
+        # says when a Pause is needed for it, on either side of the day a queue account is named.
         self.assertIn("While `accounts.queue` in\n`config/controller.json` is null, nothing carries that Decision out", section)
-        self.assertIsNone(json.loads((ROOT / "config" / "controller.json").read_text())["accounts"]["queue"])
-        # A hand approval alarms, and the section says so.
+        self.assertIn("Once it names an account,\nthe Maintainer sets the Pause before the enqueue", section)
+        # A hand approval alarms, the section says so, and every entry of the alert is read while it stands.
         self.assertIn("The next pass raises the alert `write_unmatched` for it", section)
+        self.assertIn("so every entry is read for as long as it stands", section)
         # It gives nothing to run, in a fence, an indented block or a span; and beyond these, word for word it is the
         # text this file names, so a command put in any other way, or any other change, fails here until it is read.
         self.assertNotRegex(section, r"```|~~~|``")

@@ -113,7 +113,8 @@ the Maintainer sets the Pause before the enqueue and lifts it after the merge.
 
 1. **Pause.** The Maintainer sets the repo variable `FACTORY_PAUSED` to `true`. Read the next pass: its record holds
    the Pause, and an item on which a Run or an act was due gives the code `paused`. Under a Pause the Factory admits
-   no Run, approves nothing, and puts nothing into the merge queue or takes it out.
+   no Run, approves nothing, and puts nothing into the merge queue or takes it out. What else is in the queue is then
+   his to stop: read the queue before the Pause is set, and each pass while it stands.
 2. **Roll `next` back.** If an earlier Release served, the rollback above moves `next` to it, with no eval gate and
    under the Pause. He lifts the Pause, and that Release reviews and approves the fix.
 3. **The hand approval.** Only when no Release can serve. The Pause stays while the fix merges and a Release is cut
@@ -124,7 +125,9 @@ the Maintainer sets the Pause before the enqueue and lifts it after the merge.
 signed in to that account, and his login enqueues it. It needs no Release, no Run and no stored token; `verify` on
 the merge group is still required. The next pass raises the alert `write_unmatched` for it, since no Effect records
 it (decision 0061), and its merge may read `merged_by_override`. He matches the alert's entry, which names the
-review, to the approval he gave: that match is what tells his own act from another's use of the login.
+review, to the approval he gave: that match is what tells his own act from another's use of the login. It is one
+alert however many writes it holds, so every entry is read for as long as it stands. An entry that is not his
+approval is another's use of the login, and asks for the token's rotation.
 
 A session stops before the hand approval and hands him the steps: the pull request, its head, and the reads to make
 before and after. It approves nothing, signs in to no account, and sets no variable.
