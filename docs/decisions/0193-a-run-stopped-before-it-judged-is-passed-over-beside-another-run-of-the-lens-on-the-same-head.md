@@ -1,0 +1,26 @@
+# 0193. A run stopped before it judged is passed over beside another run of the Lens on the same head
+
+Status: accepted. The Factory Builder's rulings of 2026-11-11 on issue 681, a Lens's cancelled run beside a later one on the same head: option (B) of its plan, rulings (a) to (c), and ruling (B) on its facts. It amends decision 0026's row "Every check a Lens's own App and workflow file report under its name is read, never the last alone".
+
+## Decision
+
+| What | Decided | Because |
+|---|---|---|
+| A stopped run | A check of a Lens from a run whose check suite concluded `cancelled` or `timed_out` gives no verdict where another run of the same Lens on the head has a suite that did not, completed or still running. Runs are told apart by `run_id` alone, and never ordered by it | A cancelled run's `if: always()` judging check concludes `failure` while its suite concludes `cancelled` (`trials/P-65.json`), and a person's cancel, a push back to a head, a reopening and a re-run each leave one beside a later run that judged. A run's id, its number and its suite follow the order runs were created, and a re-run keeps all three, so no id says which run is later |
+| A timeout | Read as a cancel: a job stopped at its own `timeout-minutes` concludes `cancelled` (`trials/P-42.json`), and a suite concluded `timed_out` is read the same | Ruling (b) |
+| Every run stopped | The Lens is unreadable: a wait, never a pass and never a failure. The Lifecycle's stale limits bound a Lens that always stops | Ruling (a); nothing here makes a Lens pass that would not before |
+| A suite not concluded | A failing check whose suite has not concluded (`suite_conclusion` null) is a wait, not a failure. A suite that never concludes is caught by the stale limit | Each judging check concluded about a second before its suite (`trials/P-65.json`); read in that second, a cancelled run would read as a failure and admit a fix Run |
+| What still sticks | A completed failure in a run whose suite did not stop still fails the Lens, beside any later run that passed; and every check of a run that did not stop is read, so a failing duplicate job fails the Lens beside its passing twin (decision 0104) | Option (A), the latest run alone, would let a re-trigger escape a flaky failure, and reopen the duplicate-job hole P-35 showed |
+| Absent fields | `run_id` and `suite_conclusion` are optional in `facts/1`. A check that lacks either, or whose run is null (no workflow ran it), is never passed over and never passes another over: it reads as before. Either field in any form but its own leaves the Lens unreadable | The held-out cases, which carry `facts/1`, cannot be changed by a lane, and absence reads fail-closed: a missing field can never make a Lens pass or supersede anything (ruling (B)). The live port always writes both (`adapters/checks.py`) |
+| What remains | Someone who can cancel runs (`actions: write`) could cancel a failing run and re-trigger it to escape a flaky failure; the merge group runs `verify` again regardless. A concurrency group's cancel was not tried by P-65 | Narrow, and named |
+
+## Why
+
+Decision 0026 reads every check of a Lens's own App and file, never the last alone, so that a passing duplicate cannot hide a failure. A run cancelled before it judged leaves a failing check that is no judgement at all, and today only a push clears it. Passing over a stopped run beside one that did not stop removes that, and nothing else: every run that judged is still read whole.
+
+## Boundaries
+
+| Boundary | Check |
+|---|---|
+| A stopped run's checks give no verdict beside another run of the Lens that did not stop, of a lower id too; every run stopped is unreadable; a failing check in a suite not concluded is a wait; a completed failure not stopped sticks; a duplicate failing job fails the Lens; a run never passes itself over, nor stopped runs each other; a check without both fields, or with a null run, reads as before; a field in another form is unreadable | `tests/test_decide.py::test_a_cancelled_runs_checks_are_superseded_by_another_run_of_the_lens_on_the_head`, `kernel/derive.py`, `kernel/terms.py`, mutant: "a stopped run is never passed over", mutant: "a stopped run is passed over for its own run", mutant: "a stopped run is passed over for another stopped run", mutant: "every run stopped reads as before", mutant: "a check without a run counts toward every run stopped", mutant: "a run stopped at its timeout is no stop", mutant: "a failing check in a suite not concluded fails", mutant: "a failing check in a concluded suite is a wait", mutant: "a check no workflow ran is read as a run", mutant: "a check lacking its suite is read as a run", mutant: "a field in another form is read as none", mutant: "a run of 0 is read", mutant: "a run of any type is read", mutant: "an empty suite is read" |
+| The port gives each check its run's id and its suite's conclusion, both always where GitHub gives them | `tests/test_adapters.py::test_each_check_is_given_its_runs_id_and_its_suites_conclusion`, `adapters/checks.py`, mutant: "a check's run id is not written", mutant: "a check's suite conclusion is not written", mutant: "an answer that leaves out the suite's conclusion is written as none" |
