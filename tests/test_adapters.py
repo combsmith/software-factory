@@ -2225,6 +2225,14 @@ class Checks(unittest.TestCase):
         # facts/1 holds them so: an id of 1 at least, a conclusion lower-cased, each counter-example refused.
         from tools import check_examples
         self.assertEqual([p for p in check_examples.run() if p.startswith(("facts.", "invalid/facts."))], [])
+        from tools.jsonschema_lite import validate
+        schemas = {f.name[: -len(".schema.json")]: json.loads(f.read_text()) for f in (ROOT / "schemas").glob("*.schema.json")}
+        example = json.loads((ROOT / "examples" / "facts.json").read_text())
+        for value, ok in ((("run_id", 1), True), (("run_id", None), True), (("run_id", 1.5), False), (("run_id", "1"), False),
+                          (("suite_conclusion", None), True), (("suite_conclusion", "cancelled"), True), (("suite_conclusion", 1), False)):
+            given = copy.deepcopy(example)
+            given["checks"][0][value[0]] = value[1]
+            self.assertEqual(validate(given, schemas["facts"], schemas=schemas) == [], ok, value)
         for suite in ({"conclusion": "cancelled now"}, {"conclusion": "CANCELLED NOW"}, {"conclusion": 1}, {"conclusion": ""},
                       {"workflowRun": {"databaseId": 0, "file": None}}, {"workflowRun": {"databaseId": "7", "file": None}},
                       {"workflowRun": {"databaseId": True, "file": None}}, {"workflowRun": {"databaseId": None, "file": None}}):
