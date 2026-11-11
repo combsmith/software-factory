@@ -659,8 +659,12 @@ class Pause(unittest.TestCase):
                 ([(200, ["false"], {})], [own()], ["org"]),
                 # A next page after a page short of a full one, or after every entry the count names, contradicts the
                 # count: a list not read whole, never one read whole that does not name it (the Claude review).
-                ([(200, {"total_count": 1, "variables": [entry("OTHER")]}, nxt)], [own()], ["org"]),
+                # Each alone: a short page with entries still owed, and a full page that holds every entry counted. And
+                # each with the Pause named on the page read, which is no Pause read while the list is not whole (Carbon).
+                ([(200, {"total_count": 2, "variables": [entry("OTHER")]}, nxt)], [own()], ["org"]),
                 ([(200, {"total_count": pause.PAGE, "variables": full}, nxt)], [own()], ["org"]),
+                ([(200, {"total_count": 2, "variables": [entry(pause.NAME)]}, nxt)], [own()], ["org"]),
+                ([(200, {"total_count": pause.PAGE, "variables": [entry(pause.NAME)] + full[1:]}, nxt)], [own()], ["org"]),
                 # A 403 that is GitHub's rate limit, with no request left or a time to wait, is no refusal of a grant.
                 ([(403, {}, {"x-ratelimit-remaining": "0"})], [own()], ["org"]),
                 ([(403, {}, {"retry-after": "60"})], [own()], ["org"]),
@@ -676,6 +680,7 @@ class Pause(unittest.TestCase):
                 (named, [own(403, {"message": "Resource not accessible by personal access token"})], ["repo_refused"]),
                 (named, [own(401, {})], ["repo"]), (named, [own(500, {})], ["repo"]), (named, [(None, None, None)], ["repo"]),
                 (named, [own(200, {"name": "OTHER", "value": "false"})], ["repo"]),
+                (named, [own(200, {"name": pause.NAME, "value": 1})], ["repo"]), (named, [own(200, ["false"])], ["repo"]),
                 # Both: the org's first, as they are read.
                 ([(403, {}, {})], [own(403, {})], ["org_refused", "repo_refused"]),
                 ([whole(entry("OTHER"))], [own(500, {})], ["org_unnamed", "repo"])):
