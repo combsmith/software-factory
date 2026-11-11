@@ -1236,7 +1236,8 @@ class Apps(unittest.TestCase):
         self.assertTrue(jsonschema_lite.validate(bad, schemas["consumer"], schemas=schemas))
         # The rest of the entry is held whole too: each field there, each in its shape, nothing beside them.
         for where, wrong in ((("repo",), "markets"), (("ring",), "canary"), (("owner_role",), "devops-"), (("ci_workflows",), []),
-                             (("ci_workflows",), ["CI", "CI"]), (("verify", "setup"), "/bin/sh"), (("verify", "test"), "../t.sh"),
+                             (("ci_workflows",), ["CI", "CI"]), (("ci_workflows",), [""]), (("verify", "setup"), "/bin/sh"),
+                             (("verify", "test"), "../t.sh"), (("verify", "test"), "scripts/factory-*.sh"),
                              (("reviewers",), ["cubic", "cubic"]), (("reviewers",), ["Cubic"]), (("extra",), True),
                              (("verify", "extra"), True)):
             bad = copy.deepcopy(entry)
