@@ -16,7 +16,7 @@ import shlex
 import tempfile
 import unittest
 
-from adapters import github, tags
+from adapters import effects, github, tags
 from harness import eval as eval_gate
 from release import current, cut, move
 from tools import check_release, check_rulesets
@@ -490,8 +490,11 @@ class Fixture(unittest.TestCase):
         ruleset = body("%s/rulesets/%d" % (api, event["ruleset"]))
         recorded = json.loads((ROOT / "config" / "rulesets.json").read_text())["rulesets"]["main"]
         counted, = [r["parameters"] for r in ruleset["rules"] if r["type"] == "pull_request"]
-        self.assertEqual((ruleset["id"], ruleset["name"], ruleset["enforcement"], ruleset["bypass_actors"]),
-                         (recorded["id"], "main", "active", []))
+        self.assertEqual((ruleset["id"], ruleset["name"], ruleset["target"], ruleset["enforcement"], ruleset["bypass_actors"]),
+                         (recorded["id"], "main", "branch", "active", []))
+        # It covers the default branch, which the pull request's base is, and leaves no branch out.
+        self.assertEqual(ruleset["conditions"]["ref_name"], {"include": recorded["include"], "exclude": []})
+        self.assertEqual(recorded["include"], ["~DEFAULT_BRANCH"])
         self.assertEqual(counted, {k: recorded["rules"]["pull_request"][k] for k in counted})
         self.assertEqual((counted["required_approving_review_count"], counted["require_code_owner_review"],
                           counted["require_last_push_approval"], counted["dismiss_stale_reviews_on_push"]), (1, True, True, True))
@@ -596,14 +599,13 @@ class Fixture(unittest.TestCase):
         status = body("%s/commits/%s/check-runs?check_name=%s" % (api, event["head"], defaults["status_on_item"]))
         self.assertEqual(status["total_count"], 1)
         shown, = status["check_runs"]
-        self.assertEqual((shown["name"], shown["app"]["slug"], shown["conclusion"], shown["head_sha"], shown["output"]["title"]),
-                         (defaults["status_on_item"], apps["controller"]["name"], "neutral", event["head"],
-                          "%s: %s" % (steps[-1]["state"], steps[-1]["reason"])))
-        lines = shown["output"]["summary"].split("\n")
-        said = dict(line.split(": ", 1) for line in lines)
-        self.assertEqual(len(said), len(lines), "each line of the status is said once")
-        last = {k: "null" if steps[-1][k] is None else steps[-1][k] for k in ("attention", "outcome", "action", "content_id")}
-        self.assertEqual(said, dict(last, **{"next_actor": said["next_actor"], "pass": steps[-1]["pass"], "release": event["release"]}))
+        self.assertEqual((shown["name"], shown["app"]["slug"], shown["conclusion"], shown["head_sha"]),
+                         (defaults["status_on_item"], apps["controller"]["name"], "neutral", event["head"]))
+        # Word for word what the effects port writes for the last step's Decision under this pass and Release, who
+        # acts next among it, as `config/feed.json` gives it.
+        feed = json.loads((ROOT / "config" / "feed.json").read_text())
+        self.assertEqual(shown["output"], effects.status_output(dict(steps[-1], evidence=[]),
+                                                                {"pass": steps[-1]["pass"], "release": event["release"]}, feed))
 
     def test_a_rollback_with_no_earlier_release_was_refused_and_moved_nothing(self):
         # Run 42405016612 asked a rollback on 2026-11-07 while factory/v0.1.0 was the one Release: the step was refused,
