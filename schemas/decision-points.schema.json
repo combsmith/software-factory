@@ -1,0 +1,118 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "decision-points/1: each moment at which the Maintainer records continue or stop (design section 9.2), with what he was shown beforehand. A data file: its path is its identity and the commit its Release. A session fills in `shown`; he writes `decided`, `day` and `by` himself, and until he has, all three are null. That only he decides, on or after the day he was shown the counts, that a point is recorded once, and that a share is no greater than its whole, are tools/check_release.py's to hold. Slice 3 adds the second point, the first Consumer repo served, with its own measures.",
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "schema",
+  "points"
+ ],
+ "properties": {
+  "schema": {
+   "const": "decision-points/1"
+  },
+  "points": {
+   "type": "array",
+   "minItems": 1,
+   "items": {
+    "$ref": "#/$defs/point"
+   }
+  }
+ },
+ "$defs": {
+  "point": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "point",
+    "release",
+    "shown",
+    "decided",
+    "day",
+    "by"
+   ],
+   "properties": {
+    "point": {
+     "description": "Which decision point: `first_release_on_next`, the first Release on next that serves the Factory's repo",
+     "enum": [
+      "first_release_on_next"
+     ]
+    },
+    "release": {
+     "description": "The Release the point is of",
+     "type": "string",
+     "pattern": "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "shown": {
+     "description": "What the Maintainer is shown before he decides: the pull requests merged into main before the point's event, against the design's starting figure",
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "read_on",
+      "before",
+      "starting_figure",
+      "merged",
+      "the_maintainers",
+      "touched_protected"
+     ],
+     "properties": {
+      "read_on": {
+       "description": "The day the counts were read",
+       "type": "string",
+       "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$"
+      },
+      "before": {
+       "description": "The event's merge: a pull request merged before it is counted",
+       "type": "string",
+       "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+      },
+      "starting_figure": {
+       "description": "The figure the count is read against; passing it stops nothing",
+       "type": "integer",
+       "minimum": 1
+      },
+      "merged": {
+       "description": "The pull requests merged into main before the event",
+       "type": "integer",
+       "minimum": 0
+      },
+      "the_maintainers": {
+       "description": "Of those, how many the Maintainer authored, and so read and merged himself",
+       "type": "integer",
+       "minimum": 0
+      },
+      "touched_protected": {
+       "description": "Of those, how many changed a protected path of config/hooks.json",
+       "type": "integer",
+       "minimum": 0
+      }
+     }
+    },
+    "decided": {
+     "description": "The Maintainer's decision, in his own hand; null until he has made it",
+     "enum": [
+      "continue",
+      "stop",
+      null
+     ]
+    },
+    "day": {
+     "description": "The day he decided; null until then",
+     "type": [
+      "string",
+      "null"
+     ],
+     "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$"
+    },
+    "by": {
+     "description": "The login that decided, which is the Maintainer's as config/hooks.json names him; null until then",
+     "type": [
+      "string",
+      "null"
+     ],
+     "pattern": "^[A-Za-z0-9](-?[A-Za-z0-9])*$"
+    }
+   }
+  }
+ }
+}

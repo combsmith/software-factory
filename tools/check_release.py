@@ -8,6 +8,11 @@ no credential and no header a trial's fixture may not keep, by `tools/check_tria
 run, of `release.yml` and its conclusion, its one job, and the step's inputs and last line as that job's log shows them,
 a log that keeps the step's lines alone (ruling 9′, as amended on 2026-11-03). The rules that cut and move, `release/cut.py`, and that name a commit's Release,
 `release/current.py`, are pure: they import nothing but each other, and name nothing that reads, writes or runs.
+
+The decision points, `release/decision-points.json`, validate as `decision-points/1` there too; held here is what no
+schema can say (decision 0193): a point is recorded once; what the Maintainer writes of it, `decided`, `day` and `by`,
+is written whole or not at all, by the login `config/hooks.json` names him by and no other, on or after the day the
+counts were read; and no share of the merged pull requests is greater than their count.
 """
 from __future__ import annotations
 
@@ -36,6 +41,12 @@ SCHEMAS = ("release-fixture", "trial")
 PURE = ("release/cut.py", "release/current.py")
 # What the rules may import: the future's annotations, and each other, never the CLI that reads files.
 ALLOWED_IMPORTS = {"__future__"} | {"release." + pathlib.PurePath(rel).stem for rel in PURE}
+POINTS = "release/decision-points.json"
+HOOKS = "config/hooks.json"
+# What the Maintainer writes of a decision point, in his own hand: all three, or none.
+DECISION = ("decided", "day", "by")
+# What is counted of the pull requests merged before a point's event: each a share of them.
+SHARES = ("the_maintainers", "touched_protected")
 
 
 def ring_problems(value) -> list:
@@ -56,6 +67,53 @@ def ring_problems(value) -> list:
     majors = {tag.split("/v", 1)[1].split("-")[0] for tag in tags if isinstance(tag, str) and "/v" in tag}
     if len(majors) > 1:
         problems.append("channels: name majors %s; both Channels are of one major" % ", ".join(sorted(majors)))
+    return problems
+
+
+def maintainer(root: pathlib.Path = ROOT):
+    """The login `config/hooks.json` names the Maintainer by, or None: the file is not read, or names none."""
+    try:
+        named = json.loads((root / HOOKS).read_text())
+    except (OSError, ValueError):
+        return None
+    named = named.get("maintainer") if isinstance(named, dict) else None
+    login = named.get("login") if isinstance(named, dict) else None
+    return login if isinstance(login, str) and login else None
+
+
+def _count(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def point_problems(value, maintainer) -> list:
+    """What is wrong with the decision points that their schema let through: nothing, or each sentence. `maintainer`
+    is the login `config/hooks.json` names, or None, and then nobody's decision counts."""
+    problems, seen = [], []
+    points = value.get("points") if isinstance(value, dict) else None
+    for i, point in enumerate(points if isinstance(points, list) else []):
+        if not isinstance(point, dict):
+            continue
+        if point.get("point") in seen:
+            problems.append("points[%d]: %s is recorded twice; a decision point is recorded once" % (i, point.get("point")))
+        seen.append(point.get("point"))
+        shown = point.get("shown") if isinstance(point.get("shown"), dict) else {}
+        for share in SHARES:
+            if _count(shown.get("merged")) and _count(shown.get(share)) and shown[share] > shown["merged"]:
+                problems.append("points[%d]: shown.%s is %d of %d merged; a share is no greater than its whole"
+                                % (i, share, shown[share], shown["merged"]))
+        written = [point.get(field) is not None for field in DECISION]
+        if any(written) and not all(written):
+            problems.append("points[%d]: decided, day and by are written together, or none is" % i)
+        if not all(written):
+            continue
+        by, day, read_on = point["by"], point["day"], shown.get("read_on")
+        # GitHub names a login whatever its case: one login spelled two ways is one account.
+        if not (isinstance(by, str) and isinstance(maintainer, str) and by.casefold() == maintainer.casefold()):
+            problems.append("points[%d]: decided by %s; only the Maintainer %s names records continue or stop"
+                            % (i, by, HOOKS))
+        # A day is one text format, so days compare as text: he decides on what he was shown, never before it.
+        if isinstance(day, str) and isinstance(read_on, str) and day < read_on:
+            problems.append("points[%d]: decided on %s, before the counts were read on %s" % (i, day, read_on))
     return problems
 
 
@@ -183,6 +241,13 @@ def run(root: pathlib.Path = ROOT) -> list:
     for rel in PURE:
         path = root / rel
         problems += _impure(path, rel) if path.is_file() else ["%s is missing" % rel]
+    points = root / POINTS
+    if not points.is_file():
+        return problems + ["%s is missing; the first decision point is recorded from slice 1's event" % POINTS]
+    try:
+        problems += ["%s: %s" % (POINTS, p) for p in point_problems(json.loads(points.read_text()), maintainer(root))]
+    except ValueError as err:
+        problems.append("%s is not JSON: %s" % (POINTS, err))
     return problems
 
 

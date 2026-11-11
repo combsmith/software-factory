@@ -19,7 +19,8 @@ import unittest
 from adapters import effects, github, tags
 from harness import eval as eval_gate
 from release import current, cut, move
-from tools import check_release, check_rulesets
+from tools import check_examples, check_release, check_rulesets
+from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILL = ROOT / ".claude" / "skills" / "cut-a-release" / "SKILL.md"
@@ -779,11 +780,126 @@ class Rings(unittest.TestCase):
                                ("import release.current\n", 0)):
             with self.subTest(planted=planted), tempfile.TemporaryDirectory() as scratch:
                 root = pathlib.Path(scratch)
-                for rel in (check_release.RINGS,) + check_release.PURE:
+                for rel in (check_release.RINGS, check_release.POINTS, check_release.HOOKS) + check_release.PURE:
                     (root / rel).parent.mkdir(parents=True, exist_ok=True)
                     (root / rel).write_text((ROOT / rel).read_text())
                 (root / "release" / "cut.py").write_text(planted)
                 self.assertEqual(len(check_release.run(root)), found)
+
+
+class Points(unittest.TestCase):
+    """The Maintainer's continue or stop, and what he was shown before it (decision 0193)."""
+    FIRST = "first_release_on_next"
+
+    def live(self) -> dict:
+        return json.loads((ROOT / check_release.POINTS).read_text())
+
+    def test_the_first_decision_point_is_of_slice_1s_event_and_its_count_is_read_against_the_designs_figure(self):
+        first, = [p for p in self.live()["points"] if p["point"] == self.FIRST]
+        event = json.loads((ROOT / "release" / "fixtures" / "event.slice-1.json").read_text())["event"]
+        shown = first["shown"]
+        # The Release is the one that reviewed the event's pull request, and what is counted merged before it did.
+        self.assertEqual(first["release"], event["release"])
+        self.assertEqual(shown["before"], event["merged"]["at"])
+        self.assertGreaterEqual(shown["read_on"], event["merged"]["at"][:10])
+        design = (ROOT / "docs" / "architecture" / "software-factory-design.md").read_text()
+        self.assertIn("against a starting figure of %d |" % shown["starting_figure"], design)
+        self.assertEqual([p for p in check_examples.run() if "decision-points" in p], [])
+
+    def test_a_point_is_decided_by_the_maintainer_alone_whole_once_and_on_what_he_was_shown(self):
+        who = check_release.maintainer()
+        self.assertEqual(who, json.loads((ROOT / check_release.HOOKS).read_text())["maintainer"]["login"])
+        open_ = dict(self.live()["points"][0], decided=None, day=None, by=None)
+        shown = open_["shown"]
+        read = datetime.date.fromisoformat(shown["read_on"])
+        decided = dict(open_, decided="continue", day=shown["read_on"], by=who)
+
+        def found(*points, by=who) -> int:
+            return len(check_release.point_problems({"schema": "decision-points/1", "points": list(points)}, by))
+
+        # Not yet decided, and decided by him on the day he was shown the counts or after: nothing is wrong.
+        self.assertEqual(found(open_), 0)
+        self.assertEqual(found(decided), 0)
+        self.assertEqual(found(dict(decided, decided="stop", day=(read + datetime.timedelta(days=1)).isoformat())), 0)
+        self.assertEqual(found(dict(decided, day=(read - datetime.timedelta(days=1)).isoformat())), 1)
+        # Another's decision is none, the machine user's among them; a login is one account whatever its case.
+        for other in ("donpetry-bot", who + "x", who[:-1]):
+            self.assertEqual(found(dict(decided, by=other)), 1, other)
+        self.assertEqual(found(dict(decided, by=who.upper())), 0)
+        # With no Maintainer named, nobody's decision counts, and a point not decided is still nothing wrong.
+        self.assertEqual(found(decided, by=None), 1)
+        self.assertEqual(found(open_, by=None), 0)
+        # What he writes is written whole: each one or two of the three alone is one problem, whoever is named.
+        for kept in (("decided",), ("day",), ("by",), ("decided", "day"), ("decided", "by"), ("day", "by")):
+            with self.subTest(kept=kept):
+                self.assertEqual(found(dict(open_, **{name: decided[name] for name in kept})), 1)
+        # A point is recorded once, decided or not.
+        self.assertEqual(found(open_, dict(open_)), 1)
+        self.assertEqual(found(decided, dict(decided, decided="stop")), 1)
+        # A share is at most the count it is of, and a count is a number: true is not one.
+        for share in ("the_maintainers", "touched_protected"):
+            with self.subTest(share=share):
+                self.assertEqual(found(dict(open_, shown=dict(shown, **{share: shown["merged"]}))), 0)
+                self.assertEqual(found(dict(open_, shown=dict(shown, **{share: shown["merged"] + 1}))), 1)
+        self.assertEqual(found(dict(open_, shown=dict(shown, merged=True, the_maintainers=0, touched_protected=0))), 0)
+        self.assertEqual(found(dict(open_, shown=dict(shown, merged=True, the_maintainers=2, touched_protected=0))), 0)
+        # What the schema refuses is said there; this rule reads it without failing.
+        for odd in ({}, [], {"points": None}, {"points": ["x"]}, {"points": [{"point": ["x"], "shown": 3}]},
+                    {"points": [dict(decided, shown=None, day=3)]}):
+            with self.subTest(points=odd):
+                self.assertEqual(check_release.point_problems(odd, who), [])
+
+    def test_each_counter_example_is_wrong_in_its_one_way(self):
+        schema = json.loads((ROOT / "schemas" / "decision-points.schema.json").read_text())
+        who = check_release.maintainer()
+        self.assertEqual(validate(self.live(), schema), [])
+        # A decision another login wrote is one the schema takes, and the check refuses for that alone.
+        another = json.loads((ROOT / "examples" / "invalid" / "decision-points.decided-by-another.json").read_text())
+        self.assertEqual(validate(another, schema), [])
+        self.assertEqual(len(check_release.point_problems(another, who)), 1)
+        his = dict(another, points=[dict(another["points"][0], by=who)])
+        self.assertEqual(check_release.point_problems(his, who), [])
+        # A point with no count is refused by the schema, and has the shares the live file has.
+        bare = json.loads((ROOT / "examples" / "invalid" / "decision-points.no-count.json").read_text())
+        self.assertEqual(len(validate(bare, schema)), 1)
+        self.assertEqual(validate(dict(bare, points=[dict(bare["points"][0], shown=dict(bare["points"][0]["shown"], merged=387))]),
+                                  schema), [])
+
+    def test_the_check_reads_the_points_and_the_maintainer_of_the_tree_it_is_given(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = pathlib.Path(scratch)
+            for rel in (check_release.RINGS, check_release.POINTS, check_release.HOOKS) + check_release.PURE:
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / rel).write_text((ROOT / rel).read_text())
+            self.assertEqual(check_release.run(root), [])
+            live = self.live()
+            day = live["points"][0]["shown"]["read_on"]
+
+            def decided_by(login: str) -> list:
+                held = dict(live, points=[dict(live["points"][0], decided="continue", day=day, by=login)])
+                (root / check_release.POINTS).write_text(json.dumps(held))
+                return check_release.run(root)
+
+            # The Maintainer is the one this tree's hooks file names, not the one the check's own tree does.
+            (root / check_release.HOOKS).write_text(json.dumps({"maintainer": {"login": "someone-else"}}))
+            self.assertEqual(check_release.maintainer(root), "someone-else")
+            self.assertEqual(decided_by("someone-else"), [])
+            self.assertEqual(len(decided_by(check_release.maintainer())), 1)
+            # A hooks file that names nobody, is not JSON, or is not there names no Maintainer, and nobody decides.
+            for text in ('{"maintainer": {"login": ""}}', '{"maintainer": {"login": ["someone-else"]}}',
+                         '{"maintainer": "someone-else"}', '["someone-else"]', "{", None):
+                with self.subTest(hooks=text):
+                    if text is None:
+                        (root / check_release.HOOKS).unlink()
+                    else:
+                        (root / check_release.HOOKS).write_text(text)
+                    self.assertIsNone(check_release.maintainer(root))
+                    self.assertEqual(len(decided_by("someone-else")), 1)
+            # Points that are not JSON, or not there, are one problem each, named.
+            (root / check_release.POINTS).write_text("{")
+            self.assertEqual([p.split(" ")[0] for p in check_release.run(root)], [check_release.POINTS])
+            (root / check_release.POINTS).unlink()
+            self.assertEqual([p.split(" ")[0] for p in check_release.run(root)], [check_release.POINTS])
 
 
 class Apps(unittest.TestCase):
@@ -839,6 +955,17 @@ class Skill(unittest.TestCase):
         self.assertEqual(sorted(commands), sorted(plans + dispatches))
         for command in commands:
             self.assertNotRegex(command, r"auth token|--show-token|\.pem|git (tag|push)|-X |--method")
+
+    def test_when_the_factory_cannot_approve_the_skill_pauses_rolls_back_and_only_then_hands_over_the_approval(self):
+        text = SKILL.read_text()
+        section = text[text.index("## When the Factory cannot approve"):text.index("## Verify, then hand over")]
+        steps = re.findall(r"^([0-9])\. \*\*(.+?)\*\*", section, re.M)
+        self.assertEqual(steps, [("1", "Pause."), ("2", "Roll `next` back."), ("3", "The hand approval.")])
+        # The approval is the Maintainer's hand alone: the section prints nothing to run, and a session stops before it.
+        self.assertNotIn("```", section)
+        self.assertIn("Only when no Release can serve.", section)
+        self.assertIn("A session stops before the hand approval", section)
+        self.assertIn("It approves nothing, signs in to no account, and sets no variable.", section)
 
 
 if __name__ == "__main__":

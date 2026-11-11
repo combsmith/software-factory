@@ -96,6 +96,23 @@ The fallback is the Maintainer's own admin login, at his terminal, which records
 the `next` ref with `force`, then the same read-back. No dispatch input skips the eval gate; this is the only way
 past it, and it is his.
 
+## When the Factory cannot approve
+
+`main` merges only on a code owner's approval of the last push (decision 0191). The Maintainer authors every pull
+request, so the approval that counts is the machine user's, which the Factory's approving act gives. When the Release
+on `next` cannot give it, a fix still has to merge (decision 0193). Take these in order, and stop at the first that serves:
+
+1. **Pause.** The Maintainer sets the repo variable `FACTORY_PAUSED` to `true`. Read the next pass: it records the
+   Pause, and the status on each item gives the code `paused`. A Pause stops the Factory's writes; it approves nothing.
+2. **Roll `next` back.** If an earlier Release served, the rollback above moves `next` to it, with no eval gate and
+   under the Pause. He lifts the Pause, and that Release reviews and approves the fix.
+3. **The hand approval.** Only when no Release can serve. He approves the fix's head by hand as the machine user, in
+   a browser signed in to that account, and his login enqueues it. It needs no Release, no Run and no stored token;
+   `verify` on the merge group is still required. He lifts the Pause once a Release serves again.
+
+A session stops before the hand approval and hands him the steps: the pull request, its head, and the reads to make
+before and after. It approves nothing, signs in to no account, and sets no variable.
+
 ## Verify, then hand over
 
 Run `make checks`, and let CI's `make verify` pass. A fixture of a cut or a rollback is kept under release/, redacted as a trial's is.
