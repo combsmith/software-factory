@@ -1,7 +1,7 @@
 {
   "schema": "rulesets/1",
   "repo": "combsmith/software-factory",
-  "read_on": "2026-11-09",
+  "read_on": "2026-11-11",
   "rulesets": {
     "main": {
       "id": 24886320,
@@ -16,15 +16,15 @@
         "deletion": {},
         "non_fast_forward": {},
         "pull_request": {
-          "required_approving_review_count": 0,
-          "dismiss_stale_reviews_on_push": false,
+          "required_approving_review_count": 1,
+          "dismiss_stale_reviews_on_push": true,
           "required_reviewers": [],
-          "require_code_owner_review": false,
+          "require_code_owner_review": true,
           "dismissal_restriction": {
             "enabled": false,
             "allowed_actors": []
           },
-          "require_last_push_approval": false,
+          "require_last_push_approval": true,
           "required_review_thread_resolution": true,
           "require_extra_approval_for_unattributed_changes": false,
           "allowed_merge_methods": [
