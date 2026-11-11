@@ -145,8 +145,7 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
     number = parts["item"]["number"]
     # The threads are held to what the item's Lenses recorded, read from their Runs (adapters/applied.py, issue 338).
     with reading("run_records"):
-        listed = records.runs(transport, home, branch, facts_.run_files_of(controller), facts_.dispatcher_of(controller),
-                              began={}, on=parts["item"])
+        listed = records.runs(transport, home, branch, facts_.run_files_of(controller), facts_.dispatcher_of(controller))
     with reading("lens_records"):
         found = applied.recorded(transport, home, listed, [number], set(config["kernel"]["required_lenses"]["model"]),
                                  config["authority"])

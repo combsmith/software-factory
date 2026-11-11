@@ -295,9 +295,9 @@ class Reader(unittest.TestCase):
         # What the opening Runs recorded is read for the configured Role and handed to the snapshot (issue 342).
         self.assertEqual((calls["opened"], calls["opened_role"]), ([True], ["dev-lead"]))
         # Of the run list of both Role workflows, the model Lenses' Runs on this item, held to the authority table.
-        # The port is asked when this item's Runs began, with nothing kept, and no other item's (decision 0193).
-        self.assertEqual(calls["listed"], [(["run.yml", "approve.yml"], {
-            "began": {}, "on": {"repo": HOME, "type": "pull_request", "number": 42}})])
+        # No job is asked: this read hands the Kernel no run record, so when a Run began is nothing to it, and jobs
+        # that could not be read would refuse a Task for nothing (decision 0194).
+        self.assertEqual(calls["listed"], [(["run.yml", "approve.yml"], {})])
         self.assertEqual(calls["asked"], [{"repo": HOME, "numbers": [42], "lenses": {"pr-review"}, "authority": AUTHORITY}])
         # A list read short holds them to nothing recorded, not whole: the Task is refused rather than built on it.
         self.assertEqual(self.go(complete=False)[4]["recorded"], [({}, False, [])])
@@ -1108,8 +1108,8 @@ class Reread(unittest.TestCase):
                         asked.append((org, list(repos))), paused)[1]):
                 self.assertIs(reread.item("t", config, 42, support.NOW, lambda: support.NOW)[3]["paused"], want, paused)
         self.assertEqual(asked[:2], [["run.yml", "approve.yml"], ("combsmith", [HOME])])
-        # Each read asks the records port when this item's Runs began, with nothing kept, and no other item's, so
-        # that a Run reads its item's records as the pass does (decision 0193).
+        # The read asks the records port when this item's Runs began, with nothing kept, and no other item's, so
+        # that the act decides on its item's records as the pass does (decision 0194).
         self.assertEqual(began[0], {"began": {}, "on": {"repo": HOME, "type": "pull_request", "number": 42}})
         # Asked for the Pause by name, a Pause the port could not read is raised as a read of the `pause` stage, its
         # part the port's for the first scope unreadable, the org's before the repo's (decision 0192). Not asked, as
