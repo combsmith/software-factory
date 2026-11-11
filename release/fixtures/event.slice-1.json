@@ -1,19 +1,34 @@
 {
-  "read": "slice 1's event, as GitHub answers of it afterwards: pull request 730 of combsmith/software-factory, which a Release on next reviewed and the machine user approved, and which merged through the queue; beside each pass whose Decision on its merged head differed from the pass before, as that pass's record holds it. Read through the Maintainer's gh login, writing nothing",
-  "ran_at": "2026-11-11T04:59:25Z",
+  "read": "slice 1's event, as GitHub answers of it afterwards: pull request 730 of combsmith/software-factory, the record of the ruleset switch, which a Release on next reviewed and the machine user approved, and which merged through the queue on that approval; beside each pass whose Decision on its merged head differed from the pass before, as that pass's record holds it. It is taken as the event because it is the pull request issue 198's rulings name for it, the switch's own record; it was not the first to merge on the approval: pull requests 726 and 729 did, minutes before. Read through the Maintainer's gh login, writing nothing",
+  "ran_at": "2026-11-11T05:14:02Z",
   "repo": "combsmith/software-factory",
   "event": {
     "pull_request": 730,
     "head": "8fc5492746b7c88a73069e86c59d8d95e555e2ef",
     "release": "factory/v0.1.6",
     "release_commit": "48687f2a79b6f4091326a0fa88556d5795e8478a",
+    "ruleset": 24886320,
     "review_run": {
       "run": "r_E5STJHH7444RK8CD0GSW",
-      "github_run": 42954100593
+      "github_run": 42954100593,
+      "outcome": {
+        "artifact": 13826785353,
+        "digest": "sha256:cda1d0695e555a32fa8e0ec675a43867b83664020583db78ebd5c49bb767da89",
+        "release": "factory/v0.1.6",
+        "outcome": null,
+        "reason": null
+      }
     },
     "approving_run": {
       "run": "r_30NM6EQZNDRTMQSS6Z3P",
-      "github_run": 42954498618
+      "github_run": 42954498618,
+      "outcome": {
+        "artifact": 13826960102,
+        "digest": "sha256:aea3216b40d8ff0e3e7aeebaa2195fb4cf38d3e66986fb4b60b0758abc216cd6",
+        "release": "factory/v0.1.6",
+        "outcome": null,
+        "reason": null
+      }
     },
     "approval": {
       "review": 5853546913,
@@ -100,6 +115,64 @@
           "name": "don-petry"
         },
         "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/rulesets/24886320 (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 11 Nov 2026 05:14:07 GMT"
+        },
+        "body": {
+          "id": 24886320,
+          "name": "main",
+          "target": "branch",
+          "enforcement": "active",
+          "updated_at": "2026-11-10T20:18:03.373-06:00",
+          "bypass_actors": [],
+          "rules": [
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "non_fast_forward"
+            },
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 1,
+                "require_code_owner_review": true,
+                "require_last_push_approval": true,
+                "dismiss_stale_reviews_on_push": true,
+                "required_reviewers": []
+              }
+            },
+            {
+              "type": "required_status_checks",
+              "parameters": {}
+            },
+            {
+              "type": "merge_queue",
+              "parameters": {}
+            },
+            {
+              "type": "code_scanning",
+              "parameters": {}
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
         "call": "GET /repos/combsmith/software-factory/pulls/730 (gh api --include)",
         "headers": {
           "accept": "application/vnd.github+json"
@@ -109,8 +182,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:25 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:08 GMT"
         },
         "body": {
           "number": 730,
@@ -149,8 +221,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:26 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:08 GMT"
         },
         "body": [
           {
@@ -204,8 +275,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:26 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:09 GMT"
         },
         "body": [
           {
@@ -292,8 +362,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:27 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:09 GMT"
         },
         "body": {
           "data": {
@@ -353,8 +422,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:27 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:10 GMT"
         },
         "body": {
           "ref": "refs/tags/factory/v0-next",
@@ -381,8 +449,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:28 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:10 GMT"
         },
         "body": {
           "ref": "refs/tags/factory/v0.1.6",
@@ -409,8 +476,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:28 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:11 GMT"
         },
         "body": {
           "sha": "48687f2a79b6f4091326a0fa88556d5795e8478a",
@@ -436,8 +502,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:28 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:11 GMT"
         },
         "body": {
           "id": 42952273146,
@@ -469,8 +534,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:29 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:11 GMT"
         },
         "body": {
           "total_count": 2,
@@ -478,14 +542,12 @@
             {
               "id": 13825263112,
               "name": "written",
-              "size_in_bytes": 498,
               "digest": "sha256:5c986568108543f9ac57795aeba120735154e4d8791794b280d98c791a4d45d2",
               "expired": false
             },
             {
               "id": 13824829359,
               "name": "pass",
-              "size_in_bytes": 8475,
               "digest": "sha256:a6de965387551d21737f54ed1b301f93cb510574a7098fc52a16faf201a49d59",
               "expired": false
             }
@@ -509,8 +571,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:29 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:12 GMT"
         },
         "body": {
           "id": 42953764561,
@@ -542,8 +603,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:29 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:12 GMT"
         },
         "body": {
           "total_count": 2,
@@ -551,14 +611,12 @@
             {
               "id": 13826501626,
               "name": "written",
-              "size_in_bytes": 504,
               "digest": "sha256:bf7ddb256f0b841b6395c7540e423ef0ed91d5ee9ec201e86b06716144a0ed20",
               "expired": false
             },
             {
               "id": 13825664068,
               "name": "pass",
-              "size_in_bytes": 8842,
               "digest": "sha256:c4ad8590e5e092512f464cb747befd1f59dd522a96b5d33112a0a5871b10f8df",
               "expired": false
             }
@@ -582,8 +640,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:30 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:12 GMT"
         },
         "body": {
           "id": 42954327712,
@@ -615,8 +672,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:30 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:13 GMT"
         },
         "body": {
           "total_count": 2,
@@ -624,14 +680,12 @@
             {
               "id": 13826830370,
               "name": "written",
-              "size_in_bytes": 505,
               "digest": "sha256:b8d9488d98bfd94e240590b9abe09d5ac9e3c2fbca068ab58cbeb955d29ada65",
               "expired": false
             },
             {
               "id": 13826716379,
               "name": "pass",
-              "size_in_bytes": 8968,
               "digest": "sha256:e9bd58cdf848a098387f0e2db7382c9e5bb23404f1ab22341e432e258bd76da2",
               "expired": false
             }
@@ -655,8 +709,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:31 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:13 GMT"
         },
         "body": {
           "id": 42954572505,
@@ -688,8 +741,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:31 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:13 GMT"
         },
         "body": {
           "total_count": 2,
@@ -697,14 +749,12 @@
             {
               "id": 13826652165,
               "name": "written",
-              "size_in_bytes": 446,
               "digest": "sha256:b91937785421d371373a915f8ccb502cd57b389aaec79f7a6ed5e653b2d10bae",
               "expired": false
             },
             {
               "id": 13826128637,
               "name": "pass",
-              "size_in_bytes": 9055,
               "digest": "sha256:3857a8b6f1c7b280cff35a2719468f957e846b8d069c6751a338f43452a6bf7d",
               "expired": false
             }
@@ -728,8 +778,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:32 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:14 GMT"
         },
         "body": {
           "id": 42954100593,
@@ -761,8 +810,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:32 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:15 GMT"
         },
         "body": {
           "total_count": 4,
@@ -770,28 +818,24 @@
             {
               "id": 13826785353,
               "name": "outcome",
-              "size_in_bytes": 238,
               "digest": "sha256:cda1d0695e555a32fa8e0ec675a43867b83664020583db78ebd5c49bb767da89",
               "expired": false
             },
             {
               "id": 13825992519,
               "name": "result",
-              "size_in_bytes": 804,
               "digest": "sha256:07af35d42b9259356a14e8b70d219c02707474eea9f03b8d1c2335f9326973d2",
               "expired": false
             },
             {
               "id": 13825987467,
               "name": "verdict",
-              "size_in_bytes": 302,
               "digest": "sha256:20e39ebec3c1bee6c649573d09ffa30d51af7fde667fa1692c7b3892751e3491",
               "expired": false
             },
             {
               "id": 13825439716,
               "name": "applied",
-              "size_in_bytes": 345,
               "digest": "sha256:0c0e3656903206cf211b40da9562d8468c1a453d09dd74bfba00dc84532e79f0",
               "expired": false
             }
@@ -815,8 +859,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:33 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:16 GMT"
         },
         "body": {
           "id": 42954498618,
@@ -848,8 +891,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:33 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:16 GMT"
         },
         "body": {
           "total_count": 2,
@@ -857,14 +899,12 @@
             {
               "id": 13826960102,
               "name": "outcome",
-              "size_in_bytes": 238,
               "digest": "sha256:aea3216b40d8ff0e3e7aeebaa2195fb4cf38d3e66986fb4b60b0758abc216cd6",
               "expired": false
             },
             {
               "id": 13826597411,
               "name": "applied",
-              "size_in_bytes": 334,
               "digest": "sha256:f4a2fca9d56018513d4844ef3436341da49d673a3840928859278cd68bbb9ba6",
               "expired": false
             }
@@ -888,8 +928,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 11 Nov 2026 04:59:33 GMT"
+          "date": "Wed, 11 Nov 2026 05:14:17 GMT"
         },
         "body": {
           "total_count": 1,
@@ -916,12 +955,13 @@
     }
   ],
   "removed": [
-    "exchanges[*].response.headers: every header but content-type and date",
-    "exchanges[0..2].response.body: every field of the pull request, of each of its commits and of each review but those kept, each body and each URL among them",
-    "exchanges[3]: the query asks for the three kinds of timeline item that tell of the queue and the merge, and no other",
-    "exchanges[4..6].response.body: of a tag's ref and of the cut commit, every field but the ref, the sha, its type and the committer's date",
-    "exchanges[7..18].response.body: every field of a run but those kept, its head commit and its actor among them; and of each artifact every field but its id, name, size, digest and whether it expired",
-    "exchanges[19].response.body: every field of the check run but those kept",
-    "the files themselves: no pass record, outcome, applied, result or verdict is kept, only each artifact's id and digest. `steps` holds of each pass record its id, its time, its Release and its Decision on this pull request, as read from that artifact on the day; a pass whose Decision on the merged head was the pass before's is left out, and so is every pass on an earlier head"
+    "exchanges[*].response.headers: every header but date",
+    "the ruleset's read: every field but its id, name, target, enforcement, the time it was last changed and who may bypass it, and of its rules each one's type and the pull request rule's five values that say how an approval is counted",
+    "the pull request, its commits and its reviews: every field but those kept, each body and each URL among them",
+    "the timeline's query asks for the three kinds of item that tell of the queue and the merge, and no other",
+    "a tag's ref and the cut commit: every field but the ref, the sha, its type and the committer's date; `next` is read once, afterwards, and where it stood at each pass is that pass's own word",
+    "each run: every field but those kept, its head commit and its actor among them; each artifact: every field but its id, name, digest and whether it expired",
+    "the check run: every field but those kept",
+    "the files themselves: no pass record, applied, result or verdict is kept, only each artifact's id and digest. `steps` holds of each pass record its id, its time, its Release and its Decision on this pull request, transcribed from that artifact on the day; a pass whose Decision on the merged head was the pass before's is left out, and so is every pass on an earlier head. A step's id, State and codes rest on its record's digest: only the last step's are shown again by a read, the status on the item. Each Run's outcome is transcribed whole but for its schema and its Run id, which the Run's name carries"
   ]
 }
