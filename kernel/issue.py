@@ -274,16 +274,10 @@ def readable_close_events(entry: dict, config: dict) -> bool:
     # after closedAt at times, as it did an issue's in trials/P-48.json (the Claude review).
     # With no limit that can be read, only a close in closed_at's own second is read; the limit itself defers where the
     # wait is asked (row 1).
-    bound = close_lag(config)
+    lag = config.get("limits", {}).get("max_close_lag_seconds") if isinstance(config.get("limits"), dict) else None
+    bound = lag if type(lag) is int and 1 <= lag else 1
     return (last is not None and last["action"] == CLOSED
             and 0 <= seconds(last["at"]) - seconds(entry["closed_at"]) < bound)
-
-
-def close_lag(config: dict) -> int:
-    """How many seconds after a pull request's close GitHub may date its event: max_close_lag_seconds, or with no limit
-    that can be read, only the close's own second."""
-    lag = config.get("limits", {}).get("max_close_lag_seconds") if isinstance(config.get("limits"), dict) else None
-    return lag if type(lag) is int and 1 <= lag else 1
 
 
 def closed_before(entry: dict, when: str) -> bool:
@@ -296,16 +290,18 @@ def closed_before(entry: dict, when: str) -> bool:
 def closed_by_a_person_after(entry: dict, when: str, config: dict) -> bool:
     """Whether a person closed a pull request after `when`'s second, by a close that was not its merge's: a person's
     close of a rival after the first merge releases the hold its link made, for good, as an unlinking does, so a
-    reopening since moves nothing (issue 552, ruling (2) (a)). A close in that second carries no order against it, and
-    the merge's own close, the one in or after its merge's second, is no release, whoever enqueued it (trials/P-48.json).
-    GitHub may date a close's event up to max_close_lag_seconds after the close (readable_close_events), so its close now
-    is timed by its closed_at, and one a reopening undid, which keeps no closed_at, counts only with its event that long
-    after `when`, so that no close in that second reads as after it (Muse)."""
-    merged, events = entry["merged_at"], entry["close_events"]
+    reopening since, by anyone, moves nothing (issue 552, ruling (2) (a)). A close in that second carries no order
+    against it, and the merge's own close, the one in or after its merge's second, is no release, whoever enqueued it
+    (trials/P-48.json). GitHub may date a close's event up to max_close_lag_seconds after the close
+    (readable_close_events), so a close counts only with its event that long after `when`, no close in that second
+    reading as after it (Muse). Its event is its one time that no later fact changes: closed_at, which a reopening
+    clears, would let a reopening undo a release (Astra). With no limit that can be read, no close releases."""
+    lag = config.get("limits", {}).get("max_close_lag_seconds") if isinstance(config.get("limits"), dict) else None
+    if not (type(lag) is int and 1 <= lag):
+        return False
+    merged = entry["merged_at"]
     return any(ev["action"] == CLOSED and is_person(ev["by"]) and (merged is None or ev["at"] < merged)
-               and (entry["closed_at"] > when if i == len(events) - 1 and entry["closed_at"] is not None
-                    else seconds(ev["at"]) - seconds(when) >= close_lag(config))
-               for i, ev in enumerate(events))
+               and seconds(ev["at"]) - seconds(when) >= lag for ev in entry["close_events"])
 
 
 def linked_by_hand_before(entry: dict, when: str) -> bool:

@@ -1145,20 +1145,32 @@ class Done(unittest.TestCase):
                         closed_at=(shut_at or when(last[2])) if shut else None,
                         close_events=[{"action": action, "by": dict(who), "at": when(m)} for action, who, m in closes])
 
-        # GitHub may date a close's event up to max_close_lag_seconds (300 here) after the close: a close now is timed by
-        # its closed_at, and one a reopening undid counts only with its event that long after the merge's second.
-        for released in (rival([("closed", WRITER, 7)]), rival([("closed", WRITER, "2026-10-11T12:05:01Z")]),
+        # GitHub may date a close's event up to max_close_lag_seconds (300 here) after the close, so a close counts only
+        # with its event that long after the merge's second: a reopening since, by anyone, moves nothing.
+        for released in (rival([("closed", WRITER, 10)]), rival([("closed", WRITER, 12)]),
                          rival([("closed", WRITER, 10), ("reopened", WRITER, 11)]),
+                         rival([("closed", WRITER, 10), ("reopened", OUTSIDER, 11)]),
+                         rival([("closed", WRITER, 10), ("reopened", AUTHOR_APP, 11)]),
                          rival([("closed", WRITER, 10), ("reopened", WRITER, 11), ("closed", AUTHOR_APP, 12)]),
                          # A person's close after an App's and a reopening still releases it.
-                         rival([("closed", AUTHOR_APP, 7), ("reopened", WRITER, 8), ("closed", WRITER, 9)]),
-                         rival([("closed", WRITER, 7)], spans=[], links=[("connected", 3)])):
+                         rival([("closed", AUTHOR_APP, 7), ("reopened", WRITER, 8), ("closed", WRITER, 10)]),
+                         rival([("closed", WRITER, 10)], spans=[], links=[("connected", 3)])):
             d = derive(facts(linked=[own, released], **closed))
             self.assertEqual((d["state"], d["reason"], d["evidence"]), ("done", "merged", ["11"]), released)
         # A person's close releases it for good, so the rival's own merge since, after a reopening, moves nothing back.
         merged_since = rival([("closed", WRITER, 11), ("reopened", WRITER, 12), ("closed", WRITER, 13)], merged=13, closed_issue=None)
         d = derive(facts(linked=[own, merged_since], **closed))
         self.assertEqual((d["state"], d["reason"]), ("done", "merged"))
+        # With no limit that can be read, no close releases it: none can be told from one in the merge's second.
+        for bad in (None, 0, "300"):
+            cfg = config()
+            if bad is None:
+                del cfg["limits"]["max_close_lag_seconds"]
+            else:
+                cfg["limits"]["max_close_lag_seconds"] = bad
+            undone = rival([("closed", WRITER, "2026-10-11T12:05:01Z"), ("reopened", WRITER, 6)])
+            d = derive(facts(linked=[own, undone], **closed), cfg=cfg)
+            self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"), bad)
         # The other side: a close by anyone but a person releases nothing, nor does a person's reopening of a close
         # that did not; a close in the merge's second carries no order against it, so it stood, as a close there does;
         # and the rival's own merge after it is no close that releases, nor the first merge's own close.
@@ -1170,13 +1182,14 @@ class Done(unittest.TestCase):
                         rival([("closed", dict(WRITER, can_write=False), 7)]),
                         rival([("closed", AUTHOR_APP, 7), ("reopened", WRITER, 8)]),
                         rival([("closed", WRITER, 5)]),
-                        # Closed in the merge's second, its event dated a second after (Muse), or a close undone whose
-                        # event is less than the lag after the merge's second: either may have been in that second.
+                        # A close whose event is less than the lag after the merge's second may have been in that
+                        # second: dated a second after it (Muse), or later, standing or undone since, it releases nothing.
                         rival([("closed", WRITER, "2026-10-11T12:05:01Z")], shut_at=at(5)),
+                        rival([("closed", WRITER, "2026-10-11T12:09:59Z")]),
                         rival([("closed", WRITER, "2026-10-11T12:09:59Z"), ("reopened", WRITER, 11)]),
                         rival([("closed", WRITER, 7), ("reopened", WRITER, 8), ("closed", AUTHOR_APP, 13)]),
-                        rival([("closed", WRITER, 7)], merged=7, closed_issue=None),
-                        rival([("closed", WRITER, 7)], spans=[], links=[("connected", 3)], merged=7, closed_issue=None)):
+                        rival([("closed", WRITER, 11)], merged=11, closed_issue=None),
+                        rival([("closed", WRITER, 11)], spans=[], links=[("connected", 3)], merged=11, closed_issue=None)):
             d = derive(facts(linked=[own, holding], **closed))
             self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "merged_while_held", ["11", "12"]), holding)
         # Two queue merges in one second, each a person's queue merge, still leave it held: each close is in that second.
@@ -1185,7 +1198,7 @@ class Done(unittest.TestCase):
         self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "merged_while_held", ["11", "12"]))
         # A third link that stood keeps it held when a person closes one rival: fewer than two must stand.
         third = pr(number=13, spans=[(4, None)])
-        d = derive(facts(linked=[own, rival([("closed", WRITER, 7)]), third], **closed))
+        d = derive(facts(linked=[own, rival([("closed", WRITER, 10)]), third], **closed))
         self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "merged_while_held", ["11", "13"]))
 
     def test_an_empty_merge_is_not_done(self):
