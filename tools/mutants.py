@@ -8438,6 +8438,8 @@ MUTANTS = ISSUE + [
      '"required_approving_review_count": 1,\n          "dismiss_stale_reviews_on_push": true,\n          "required_reviewers": [],\n          "require_code_owner_review": true,\n          "dismissal_restriction": {\n            "enabled": false,\n            "allowed_actors": []\n          },\n          "require_last_push_approval": true,',
      '"required_approving_review_count": 0,\n          "dismiss_stale_reviews_on_push": false,\n          "required_reviewers": [],\n          "require_code_owner_review": false,\n          "dismissal_restriction": {\n            "enabled": false,\n            "allowed_actors": []\n          },\n          "require_last_push_approval": false,',
      ('tests.test_tools.Rulesets.test_main_counts_the_machine_users_approval_as_the_switch_left_it',)),
+    ("the record of main was read before the switch", 'config/rulesets.json',
+     '"read_on": "2026-11-11"', '"read_on": "2026-11-09"', ('tests.test_tools.Rulesets.test_main_counts_the_machine_users_approval_as_the_switch_left_it',)),
     ("a changed rule is no drift", "tools/rulesets_drift.py",
      '                    if want["rules"].get(rule) != got["rules"].get(rule):\n', "                    if False:\n",
      ("tests.test_tools.RulesetsDrift.test_a_changed_rule_is_drift",)),

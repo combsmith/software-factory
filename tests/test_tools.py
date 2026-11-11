@@ -13073,11 +13073,12 @@ class Rulesets(unittest.TestCase):
         self.assertEqual(self.run_on(), [])
 
     def test_main_counts_the_machine_users_approval_as_the_switch_left_it(self):  # decision 0192
-        # Issue 198's switch was made on 2026-11-11, once a Release on `next` had reviewed a pull request and the
-        # machine user's approval had merged it through the queue. The record is of `main` as GitHub answered after it:
-        # one approval, a code owner's, of the last push, a stale one dismissed, no required reviewer, and nobody
-        # bypassing it. `tools/check_rulesets.py` holds the shape and would let a record that counts none through; a
-        # record that counts none again is the switch undone, a decision's to make and never an edit's.
+        # Issue 198's switch was made on 2026-11-11, once a Release on `next` had reviewed a pull request, the Factory's
+        # approving act had given the machine user's approval, and it had merged. The record is of `main` as GitHub
+        # answered after it: one approval, a code owner's, of the last push, a stale one dismissed, no required
+        # reviewer, and nobody bypassing it. `tools/check_rulesets.py` holds the shape and would let a record that
+        # counts none through; a record that counts none again is the switch undone, a decision's to make and never an
+        # edit's.
         main = self.rulesets["rulesets"]["main"]
         review = main["rules"]["pull_request"]
         self.assertEqual((review["required_approving_review_count"], review["require_code_owner_review"],
@@ -13085,6 +13086,8 @@ class Rulesets(unittest.TestCase):
                           review["required_reviewers"], review["require_extra_approval_for_unattributed_changes"]),
                          (1, True, True, True, [], False))
         self.assertEqual((main["id"], main["enforcement"], main["bypass_actors"]), (24886320, "active", []))
+        # Read on the day of the switch or after: a record dated before it is no read of what the switch left.
+        self.assertGreaterEqual(self.rulesets["read_on"], "2026-11-11")
         # And the code owners whose approval it counts are the machine user's team on every path.
         self.assertEqual(self.run_on(), [])
 
