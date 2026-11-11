@@ -114,8 +114,9 @@ the Maintainer sets the Pause before the enqueue and lifts it after the merge.
 
 1. **Pause.** The Maintainer sets the repo variable `FACTORY_PAUSED` to `true`. Read the next pass: its record holds
    the Pause, and an item on which a Run or an act was due gives the code `paused`. Under a Pause the Factory admits
-   no Run, approves nothing, and puts nothing into the merge queue or takes it out. What else is in the queue is then
-   his to stop: read the queue before the Pause is set, and each pass while it stands.
+   no Run, approves nothing, and puts nothing into the merge queue or takes it out. A job that began before the
+   Pause was set may still land its write, so that pass is read before the next step is taken. What else is in the
+   queue is then his to stop: read the queue before the Pause is set, and each pass while it stands.
 2. **Roll `next` back.** If an earlier Release served, the rollback above moves `next` to it, with no eval gate and
    under the Pause. He lifts the Pause, and that Release reviews and approves the fix.
 3. **The hand approval.** Only when no Release can serve. The Pause stays while the fix merges and a Release is cut

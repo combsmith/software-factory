@@ -27,7 +27,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILL = ROOT / ".claude" / "skills" / "cut-a-release" / "SKILL.md"
 # The skill's section "When the Factory cannot approve", word for word (decision 0195): what it says of who approves,
 # and by what, changes only with this line.
-CANNOT_APPROVE_SHA256 = "909f0b3cf62dc82fe2ce236d1254e9ccfa2987bb0e40b9d688fafd35e73e0d24"
+CANNOT_APPROVE_SHA256 = "3af12654c0969b1e2628d9c235e1577f44b57e92b42c465b6630d58695c282a1"
 REPO = "combsmith/software-factory"
 A, B, C, D = ("a" * 40, "b" * 40, "c" * 40, "d" * 40)
 NEXT, STABLE = "factory/v0-next", "factory/v0-stable"
