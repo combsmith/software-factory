@@ -1239,6 +1239,8 @@ class Apps(unittest.TestCase):
                              (("ci_workflows",), ["CI", "CI"]), (("ci_workflows",), [""]), (("verify", "setup"), "/bin/sh"),
                              (("verify", "test"), "../t.sh"), (("verify", "test"), "scripts/factory-*.sh"),
                              (("reviewers",), ["cubic", "cubic"]), (("reviewers",), ["Cubic"]), (("extra",), True),
+                             (("owner_role",), None), (("repo",), 1), (("reviewers",), "cubic"), (("ci_workflows",), "CI"),
+                             (("verify",), "scripts/"), (("verify", "protected_paths"), "CODEOWNERS"), (("verify", "setup"), 1),
                              (("verify", "extra"), True)):
             bad = copy.deepcopy(entry)
             parent = bad
@@ -1258,6 +1260,7 @@ class Apps(unittest.TestCase):
         self.assertEqual(check_examples._unprotected(entry), [])
         for paths, said in ((["scripts/factory-setup.sh"], "protects neither its own scripts/factory-test.sh"),
                             (["CODEOWNERS"], "protects neither its own scripts/factory-setup.sh nor scripts/factory-test.sh"),
+                            (["scripts/factory-test.sh"], "protects neither its own scripts/factory-setup.sh"),
                             (["scripts/*-setup.sh", "SCRIPTS/"], "")):
             bad = copy.deepcopy(entry)
             bad["verify"]["protected_paths"] = paths
