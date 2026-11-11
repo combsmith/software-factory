@@ -1127,6 +1127,47 @@ class Done(unittest.TestCase):
         d = derive(facts(linked=[late, pr(number=12, spans=[(3, None)])], **closed))
         self.assertEqual((d["state"], d["reason"]), ("done", "merged"))
 
+    def test_a_persons_close_of_the_rival_after_the_merge_releases_the_hold(self):  # issue 552, ruling (2) (a)
+        # Two links stood at the merge, so the issue is held. A person's close of the rival after the merge's second
+        # releases it for good, as an unlinking by hand does: reopened since, it holds nothing. Its keyword or its link by
+        # hand, either way.
+        closed = dict(state="closed", closed_first_at=at(5))
+        own = agents(number=11, is_open=False, merged=5, spans=[(2, None)])
+
+        def rival(closes, **over):
+            """The rival, linked before the merge, closed and reopened as `closes` says, by whom, as (action, who, minute)."""
+            last = closes[-1]
+            shut = last[0] == "closed"
+            return dict(pr(**dict({"number": 12, "spans": [(3, None)]}, **over)), open=not shut,
+                        closed_at=at(last[2]) if shut else None,
+                        close_events=[{"action": action, "by": dict(who), "at": at(minute)} for action, who, minute in closes])
+
+        for released in (rival([("closed", WRITER, 7)]), rival([("closed", WRITER, 6)]),
+                         rival([("closed", WRITER, 7), ("reopened", WRITER, 8)]),
+                         rival([("closed", WRITER, 7), ("reopened", WRITER, 8), ("closed", AUTHOR_APP, 9)]),
+                         rival([("closed", WRITER, 7)], spans=[], links=[("connected", 3)])):
+            d = derive(facts(linked=[own, released], **closed))
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("done", "merged", ["11"]), released)
+        # The other side: a close by anyone but a person releases nothing, nor does a person's reopening of a close
+        # that did not; a close in the merge's second carries no order against it, so it stood, as a close there does;
+        # and the rival's own merge after it is no close that releases, nor the first merge's own close.
+        for holding in (rival([("closed", AUTHOR_APP, 7)]), rival([("closed", OUTSIDER, 7)]),
+                        rival([("closed", MACHINE, 7)]), rival([("closed", CONTROLLER, 7)]),
+                        rival([("closed", AUTHOR_APP, 7), ("reopened", WRITER, 8)]),
+                        rival([("closed", WRITER, 5)]),
+                        rival([("closed", WRITER, 7)], merged=7, closed_issue=None),
+                        rival([("closed", WRITER, 7)], spans=[], links=[("connected", 3)], merged=7, closed_issue=None)):
+            d = derive(facts(linked=[own, holding], **closed))
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "merged_while_held", ["11", "12"]), holding)
+        # Two queue merges in one second, each a person's queue merge, still leave it held: neither close is a release.
+        other = agents(number=12, is_open=False, merged=5, spans=[(3, None)])
+        d = derive(facts(linked=[own, other], **closed))
+        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "merged_while_held", ["11", "12"]))
+        # A third link that stood keeps it held when a person closes one rival: fewer than two must stand.
+        third = pr(number=13, spans=[(4, None)])
+        d = derive(facts(linked=[own, rival([("closed", WRITER, 7)]), third], **closed))
+        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "merged_while_held", ["11", "13"]))
+
     def test_an_empty_merge_is_not_done(self):
         self.assertEqual(state(facts(linked=[pr(is_open=False, merged=5, empty=True)])), "new")
         self.assertEqual(state(facts(linked=[pr(is_open=False, merged=5, empty=False)])), "done")

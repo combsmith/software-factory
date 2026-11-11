@@ -287,6 +287,16 @@ def closed_before(entry: dict, when: str) -> bool:
     return bool(before) and before[-1]["action"] == CLOSED
 
 
+def closed_by_a_person_after(entry: dict, when: str) -> bool:
+    """Whether a person closed a pull request after `when`'s second, by a close that was not its merge's: a person's
+    close of a rival after the first merge releases the hold its link made, for good, as an unlinking does, so a
+    reopening since moves nothing (issue 552, ruling (2) (a)). A close in that second carries no order against it, and
+    the merge's own close, the one in or after its merge's second, is no release, whoever enqueued it (trials/P-48.json)."""
+    merged = entry["merged_at"]
+    return any(ev["action"] == CLOSED and ev["at"] > when and is_person(ev["by"])
+               and (merged is None or ev["at"] < merged) for ev in entry["close_events"])
+
+
 def linked_by_hand_before(entry: dict, when: str) -> bool:
     """Whether a pull request stood linked to the issue by hand before `when`'s second: its last link or unlinking
     before it is a link. One linked in that second, or by a closing keyword alone, carries no order against it."""
@@ -679,11 +689,13 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         # seen gone before it (issue 552): the port keeps listing a pull request once a pass saw its keyword, so no edit
         # after the merge moves the issue, and a keyword first seen after it, or taken out before it and put back after,
         # reaches back to nothing. A link in the merge's second, or one no pass timed, reads as before: the Factory's merge
-        # beside another in its second is done (decision 0132).
+        # beside another in its second is done (decision 0132). A person's close of a rival after the merge's second
+        # releases it for good, as an unlinking does; anyone else's close, and a merge, release nothing (ruling (2) (a)).
         stood = [str(p["number"]) for p in facts["linked"] if is_linked(as_of(p, first))
                  and (linked_by_hand_before(p, first)
                       and not any(ev["action"] != CONNECTED and ev["at"] >= first for ev in p["link_events"])
                       or keyword_stood(p, first))
+                 and not closed_by_a_person_after(p, first)
                  and not closed_before(p, first)]
         # A person's hands-off that stood beside them excuses them, as it excuses a Hold: the issue stood not served then
         # (row 3 before row 4), and the hands-off, removed since, lets the merge read on.
