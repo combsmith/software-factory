@@ -20,6 +20,7 @@ from unittest import mock
 
 from adapters import acceptance, applied, artifacts, checks, edits, effects, facts, github, heldout, items, passes, pull, records, \
     pause, rules, texts, threads, timeline
+from controller import shared
 from harness import task
 from kernel import brakes
 from tests.support import pending
@@ -1331,6 +1332,7 @@ class Records(unittest.TestCase):
                              ("2026-11-10T19:44:48Z", "2026-10-18T01:29:07Z", True), status)
         record, whole = self.began("completed", jobs_read("P-44", 23, gid))
         self.assertEqual((record["began_at"], whole), (None, True))
+        self.assertEqual(shared.errors(record, "run-record"), [])     # null is a run record's to hold
         # A runner's name alone tells a completed job that ran, and a job in progress needs none.
         for name in ("", None, 7):
             self.assertEqual(self.began("completed", jobs_read("P-64", 33, gid, runner_name=name)), (record, True), name)
@@ -1343,8 +1345,14 @@ class Records(unittest.TestCase):
         # Of several jobs, the earliest that began; one that waits beside it says nothing.
         both = jobs_read("P-64", 33, gid)
         both["response"]["body"].update(total_count=3, jobs=[
-            dict(ran, started_at="2026-11-10T19:45:00Z"), ran, dict(waiting, started_at="2026-11-10T19:40:00Z")])
+            dict(ran, id=1, started_at="2026-11-10T19:45:00Z"), ran, dict(waiting, id=2, started_at="2026-11-10T19:40:00Z")])
         self.assertEqual(self.began("in_progress", both)[0]["began_at"], "2026-11-10T19:44:48Z")
+        # A job listed twice may stand where another was left out, and one start that is no time is no read of any.
+        both["response"]["body"]["jobs"][0]["id"] = ran["id"]
+        self.assertEqual(self.began("in_progress", both)[1], False)
+        both["response"]["body"]["jobs"][0].update(id=1, started_at="2026-02-30T19:45:00Z")
+        record, whole = self.began("in_progress", both)
+        self.assertEqual(("began_at" in record, whole), (False, False))
         # A Run not yet started, or a caller that asks for none, has no job read: the replay holds no answer to one.
         record, whole = self.began("queued")
         self.assertEqual(("began_at" in record, whole), (False, True))
@@ -1373,6 +1381,7 @@ class Records(unittest.TestCase):
                 ("in_progress", changed(18, jobs=["lane"], total_count=1), {}),
                 ("in_progress", jobs_read("P-64", 18, gid, run_attempt=2), {}),
                 ("in_progress", jobs_read("P-64", 18, gid, run_attempt=True), {}),
+                ("in_progress", jobs_read("P-64", 18, gid, id=[]), {}), ("in_progress", jobs_read("P-64", 18, gid, id="7"), {}),
                 ("in_progress", jobs_read("P-64", 18, gid, run_attempt=1.0), {}),
                 ("in_progress", jobs_read("P-64", 18, gid), {"run_attempt": True}),
                 ("in_progress", jobs_read("P-64", 18, gid), {"run_attempt": None}),
@@ -1462,7 +1471,7 @@ class Records(unittest.TestCase):
         # runs, in no trial): the earliest, before the attempt's own start, is what the record says.
         carried = jobs_read("P-64", 33, 700)
         carried["response"]["body"].update(total_count=2, jobs=[
-            dict(exchanges("P-64")[33]["response"]["body"]["jobs"][0], started_at="2026-10-20T23:50:00Z"),
+            dict(exchanges("P-64")[33]["response"]["body"]["jobs"][0], id=1, started_at="2026-10-20T23:50:00Z"),
             dict(exchanges("P-64")[33]["response"]["body"]["jobs"][0], started_at="2026-10-21T00:00:05Z")])
         got, _ = read(rows, carried, *jobs[1:], began={})
         self.assertEqual((got["runs"][0]["began_at"], got["runs"][0]["started_at"]),
@@ -1478,6 +1487,7 @@ class Records(unittest.TestCase):
         # One Run's jobs that cannot be read leave the list not whole, whatever the Runs after it give.
         got, asked = read(rows, dict(jobs[0], response=dict(jobs[0]["response"], status=404)), *jobs[1:], began={})
         self.assertEqual(([r.get("began_at", "none") for r in got["runs"]], got["complete"]), (["none"] + began[1:] + ["none"], False))
+        self.assertEqual(records.JOBS, 50)
         # What is kept is still said of a Run listed after one the cap left unasked.
         with mock.patch.object(records, "JOBS", 1):
             got, asked = read(rows, jobs[0], began={k: v for k, v in kept.items() if k[0] == "r_000002Z"})
