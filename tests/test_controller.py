@@ -1154,13 +1154,6 @@ class Entry(unittest.TestCase):
         served = [dict(before["pull_requests"][0], facts=dict(before["pull_requests"][0]["facts"], item=dict(
             before["pull_requests"][0]["facts"]["item"], number=n))) for n in (7, 9)]
         before["pull_requests"] = served
-        # When a Run began, as the record before read it from its jobs, is handed to the records port (decision 0193).
-        before["runs"][0]["began_at"] = "2026-10-11T12:05:04Z"
-        listed = entry.records.runs
-
-        def runs(*args, **kw):
-            efforts["began"] = kw["began"]
-            return listed(*args, **kw)
         before["reconciled"] = {"runs": [{"id": "r_01JA00", "at": "2026-10-12T11:00:00Z"}],
                                 "passes": [{"id": 40, "attempt": 1, "at": "2026-10-12T11:00:00Z"}], "keys": [], "items": [],
                                 "dispatched": [], "owed": [11]}
@@ -1176,11 +1169,9 @@ class Entry(unittest.TestCase):
                 unittest.mock.patch.object(entry.passes, "records", lambda *a: [older, before]), \
                 unittest.mock.patch.object(entry.seen_, "read", read), unittest.mock.patch.object(entry.seen_, "pushes", pushes), \
                 unittest.mock.patch.object(entry.applied, "effects", applied_read), \
-                unittest.mock.patch.object(entry.records, "runs", runs), \
                 unittest.mock.patch.object(entry.passes, "written", written_read):
             code, _, files, _ = self.run_entry(Hub(table))
         self.assertEqual(code, 0)
-        self.assertEqual(efforts["began"], {("r_01JA6Z", "2026-10-11T12:05:00Z"): "2026-10-11T12:05:04Z"})
         since = "2026-10-11T06:00:00Z"
         item = lambda n: {"repo": self.HOME, "type": "pull_request", "number": n}
         identities, apps = spied[0][2], spied[0][3]

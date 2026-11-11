@@ -230,34 +230,6 @@ def _began(transport, repo: str, github_id: int, attempt, done: bool) -> tuple:
     return ({"began_at": None}, True) if all(j.get("status") == "completed" for j in jobs) else ({}, False)
 
 
-def begun(previous: list) -> dict:
-    """When each Run began, as the pass records before this one read it from its jobs, by its Run id and when its
-    attempt started: the last two at most, and the earlier's word only for a Run the later does not list. A time is
-    kept for any Run, since a job's start stands once given (P-64), and null for a completed Run alone, whose jobs
-    change no more. A key a record lists twice, with a beginning or without, is kept from neither listing, and
-    nothing is kept from a record that is not a `pass/1` record's runs. A re-run starts again, at another time, and
-    is asked afresh."""
-    def read(record) -> tuple:
-        runs_ = record.get("runs") if isinstance(record, dict) else None
-        if not isinstance(runs_, list):
-            return {}, []
-        found, listed = {}, []
-        for r in runs_:
-            key = (r.get("run"), r.get("started_at")) if isinstance(r, dict) else (None, None)
-            if not all(isinstance(part, str) for part in key):
-                continue
-            listed.append(key)
-            if "began_at" in r and (_time(r["began_at"]) or (r["began_at"] is None and r.get("status") == "completed")):
-                found[key] = r["began_at"]
-        return {key: found[key] for key in found if listed.count(key) == 1}, listed
-    kept = {}
-    for record in (list(previous[-2:]) if isinstance(previous, list) else []):
-        found, listed = read(record)
-        kept = {key: kept[key] for key in kept if key not in listed}
-        kept.update(found)
-    return kept
-
-
 def known(previous: list) -> dict:
     """The outcomes the pass records before this one read, each by its Run id and when its attempt started, from the
     records `controller/pass_.earlier` placed before the pass, held to `pass/1` by `controller/reads.previous_records`,
@@ -307,8 +279,8 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     GitHub run its name names (issue 338). Nothing calls `known` until
     the pass's entry, the effects port's next part (#193), hands it the records it placed.
 
-    `began` is what `begun` read from the pass records before, and None asks no job: no record then says when it
-    began. Given, each Run in progress or completed has its jobs read for `began_at` (`_began`), but one `began`
+    `began` is when each Run began as its caller kept it, by its Run id and when its attempt started, and None asks
+    no job: no record then says when it began. Given, each Run in progress or completed has its jobs read for `began_at` (`_began`), but one `began`
     holds, for a row that names when its attempt started, once in this list. A Run past the `JOBS` asked, or whose
     jobs cannot be read, has no `began_at` and leaves the list not whole."""
     kept = kept or {}
