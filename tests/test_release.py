@@ -496,7 +496,9 @@ class Fixture(unittest.TestCase):
         self.assertEqual(ruleset["conditions"]["ref_name"], {"include": recorded["include"], "exclude": []})
         self.assertEqual(recorded["include"], ["~DEFAULT_BRANCH"])
         self.assertEqual(body(api), {"full_name": REPO, "default_branch": pull["base"]["ref"]})
-        self.assertEqual(counted, {k: recorded["rules"]["pull_request"][k] for k in counted})
+        self.assertEqual(counted, {k: recorded["rules"]["pull_request"][k] for k in (
+            "required_approving_review_count", "require_code_owner_review", "require_last_push_approval",
+            "dismiss_stale_reviews_on_push", "required_reviewers")})
         self.assertEqual((counted["required_approving_review_count"], counted["require_code_owner_review"],
                           counted["require_last_push_approval"], counted["dismiss_stale_reviews_on_push"]), (1, True, True, True))
         utc = lambda at: datetime.datetime.fromisoformat(at.replace("Z", "+00:00")).astimezone(datetime.timezone.utc)
@@ -554,6 +556,8 @@ class Fixture(unittest.TestCase):
         for key in ("pass", "poller_run", "artifact", "digest"):
             self.assertEqual(len({s[key] for s in steps}), len(steps), key)
         self.assertLess(pushed[-1]["commit"]["committer"]["date"], steps[0]["now"])
+        # Each pass read the head that merged: a commit's date is its author's word, the head a pass read is the pass's.
+        self.assertEqual({s["head"] for s in steps}, {event["head"]})
         for s in steps:
             with self.subTest(step=s["pass"]):
                 ran = body("%s/actions/runs/%d" % (api, s["poller_run"]))

@@ -1,6 +1,6 @@
 {
   "read": "slice 1's event, as GitHub answers of it afterwards: pull request 730 of combsmith/software-factory, the record of the ruleset switch, which a Release on next reviewed and the machine user approved, and which merged through the queue on that approval; beside each pass whose Decision on its merged head differed from the pass before, as that pass's record holds it. It is taken as the event because it is the pull request issue 198's rulings name for it, the switch's own record; it was not the first to merge on the approval: pull requests 726 and 729 did, minutes before. Read through the Maintainer's gh login, writing nothing",
-  "ran_at": "2026-11-11T05:32:47Z",
+  "ran_at": "2026-11-11T05:38:48Z",
   "repo": "combsmith/software-factory",
   "event": {
     "pull_request": 730,
@@ -50,6 +50,7 @@
       "pass": "p_KQ88EB3ZFFWPE132C4EK",
       "now": "2026-11-11T03:26:49Z",
       "release": "factory/v0.1.6",
+      "head": "8fc5492746b7c88a73069e86c59d8d95e555e2ef",
       "poller_run": 42952273146,
       "artifact": 13824829359,
       "digest": "sha256:a6de965387551d21737f54ed1b301f93cb510574a7098fc52a16faf201a49d59",
@@ -65,6 +66,7 @@
       "pass": "p_NANTVRFXGVRZ0YMK958X",
       "now": "2026-11-11T03:38:29Z",
       "release": "factory/v0.1.6",
+      "head": "8fc5492746b7c88a73069e86c59d8d95e555e2ef",
       "poller_run": 42953764561,
       "artifact": 13825664068,
       "digest": "sha256:c4ad8590e5e092512f464cb747befd1f59dd522a96b5d33112a0a5871b10f8df",
@@ -80,6 +82,7 @@
       "pass": "p_3RBP88Z3BEKDSTMRXSDX",
       "now": "2026-11-11T03:42:19Z",
       "release": "factory/v0.1.6",
+      "head": "8fc5492746b7c88a73069e86c59d8d95e555e2ef",
       "poller_run": 42954327712,
       "artifact": 13826716379,
       "digest": "sha256:e9bd58cdf848a098387f0e2db7382c9e5bb23404f1ab22341e432e258bd76da2",
@@ -95,6 +98,7 @@
       "pass": "p_11GYAWVG130RGYV4Y1X1",
       "now": "2026-11-11T03:45:08Z",
       "release": "factory/v0.1.6",
+      "head": "8fc5492746b7c88a73069e86c59d8d95e555e2ef",
       "poller_run": 42954572505,
       "artifact": 13826128637,
       "digest": "sha256:3857a8b6f1c7b280cff35a2719468f957e846b8d069c6751a338f43452a6bf7d",
@@ -124,7 +128,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:32:55 GMT"
+          "date": "Wed, 11 Nov 2026 05:38:56 GMT"
         },
         "body": {
           "id": 24886320,
@@ -190,7 +194,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:32:55 GMT"
+          "date": "Wed, 11 Nov 2026 05:38:56 GMT"
         },
         "body": {
           "full_name": "combsmith/software-factory",
@@ -214,7 +218,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:32:56 GMT"
+          "date": "Wed, 11 Nov 2026 05:38:57 GMT"
         },
         "body": {
           "number": 730,
@@ -253,7 +257,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:32:56 GMT"
+          "date": "Wed, 11 Nov 2026 05:38:58 GMT"
         },
         "body": [
           {
@@ -307,7 +311,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:32:57 GMT"
+          "date": "Wed, 11 Nov 2026 05:38:58 GMT"
         },
         "body": [
           {
@@ -394,7 +398,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:32:58 GMT"
+          "date": "Wed, 11 Nov 2026 05:38:59 GMT"
         },
         "body": {
           "data": {
@@ -454,7 +458,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:32:59 GMT"
+          "date": "Wed, 11 Nov 2026 05:38:59 GMT"
         },
         "body": {
           "ref": "refs/tags/factory/v0-next",
@@ -481,7 +485,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:32:59 GMT"
+          "date": "Wed, 11 Nov 2026 05:39:00 GMT"
         },
         "body": {
           "ref": "refs/tags/factory/v0.1.6",
@@ -508,7 +512,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:33:00 GMT"
+          "date": "Wed, 11 Nov 2026 05:39:00 GMT"
         },
         "body": {
           "sha": "48687f2a79b6f4091326a0fa88556d5795e8478a",
@@ -534,19 +538,16 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:33:00 GMT"
+          "date": "Wed, 11 Nov 2026 05:39:01 GMT"
         },
         "body": {
           "id": 42952273146,
-          "name": "sf-poller",
           "path": ".github/workflows/poller.yml",
-          "event": "workflow_run",
           "status": "completed",
           "conclusion": "success",
           "created_at": "2026-11-11T03:22:01Z",
           "updated_at": "2026-11-11T03:27:00Z",
-          "head_branch": "main",
-          "run_attempt": 1
+          "head_branch": "main"
         }
       }
     },
@@ -566,7 +567,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:33:02 GMT"
+          "date": "Wed, 11 Nov 2026 05:39:02 GMT"
         },
         "body": {
           "total_count": 2,
@@ -603,19 +604,16 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:33:02 GMT"
+          "date": "Wed, 11 Nov 2026 05:39:04 GMT"
         },
         "body": {
           "id": 42953764561,
-          "name": "sf-poller",
           "path": ".github/workflows/poller.yml",
-          "event": "workflow_run",
           "status": "completed",
           "conclusion": "success",
           "created_at": "2026-11-11T03:35:29Z",
           "updated_at": "2026-11-11T03:38:39Z",
-          "head_branch": "main",
-          "run_attempt": 1
+          "head_branch": "main"
         }
       }
     },
@@ -635,7 +633,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:33:02 GMT"
+          "date": "Wed, 11 Nov 2026 05:39:04 GMT"
         },
         "body": {
           "total_count": 2,
@@ -672,19 +670,16 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:33:03 GMT"
+          "date": "Wed, 11 Nov 2026 05:39:05 GMT"
         },
         "body": {
           "id": 42954327712,
-          "name": "sf-poller",
           "path": ".github/workflows/poller.yml",
-          "event": "workflow_dispatch",
           "status": "completed",
           "conclusion": "success",
           "created_at": "2026-11-11T03:40:43Z",
           "updated_at": "2026-11-11T03:42:28Z",
-          "head_branch": "main",
-          "run_attempt": 1
+          "head_branch": "main"
         }
       }
     },
@@ -704,7 +699,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:33:04 GMT"
+          "date": "Wed, 11 Nov 2026 05:39:06 GMT"
         },
         "body": {
           "total_count": 2,
@@ -741,19 +736,16 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:33:04 GMT"
+          "date": "Wed, 11 Nov 2026 05:39:06 GMT"
         },
         "body": {
           "id": 42954572505,
-          "name": "sf-poller",
           "path": ".github/workflows/poller.yml",
-          "event": "workflow_dispatch",
           "status": "completed",
           "conclusion": "success",
           "created_at": "2026-11-11T03:43:05Z",
           "updated_at": "2026-11-11T03:45:14Z",
-          "head_branch": "main",
-          "run_attempt": 1
+          "head_branch": "main"
         }
       }
     },
@@ -773,7 +765,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:33:05 GMT"
+          "date": "Wed, 11 Nov 2026 05:39:07 GMT"
         },
         "body": {
           "total_count": 2,
@@ -810,7 +802,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:33:06 GMT"
+          "date": "Wed, 11 Nov 2026 05:39:08 GMT"
         },
         "body": {
           "id": 42954100593,
@@ -842,7 +834,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:33:07 GMT"
+          "date": "Wed, 11 Nov 2026 05:39:08 GMT"
         },
         "body": {
           "total_count": 4,
@@ -891,7 +883,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:33:10 GMT"
+          "date": "Wed, 11 Nov 2026 05:39:12 GMT"
         },
         "body": {
           "id": 42954498618,
@@ -923,7 +915,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:33:12 GMT"
+          "date": "Wed, 11 Nov 2026 05:39:12 GMT"
         },
         "body": {
           "total_count": 2,
@@ -960,7 +952,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:33:13 GMT"
+          "date": "Wed, 11 Nov 2026 05:39:14 GMT"
         },
         "body": {
           "total_count": 1,
@@ -994,6 +986,6 @@
     "a tag's ref and the cut commit: every field but the ref, the sha, its type and the committer's date; `next` is read once, afterwards, and where it stood at each pass is that pass's own word",
     "each run: every field but those kept, its head commit and its actor among them; each artifact: every field but its id, name, digest and whether it expired",
     "the check run: every field but those kept",
-    "the files themselves: no pass record, applied, result or verdict is kept, only each artifact's id and digest. `steps` holds of each pass record its id, its time, its Release and its Decision on this pull request, transcribed from that artifact on the day; a pass whose Decision on the merged head was the pass before's is left out, and so is every pass on an earlier head. A step's id, State and codes rest on its record's digest: only the last step's are shown again by a read, the status on the item. Each Run's outcome is transcribed whole but for its schema and its Run id, which the Run's name carries"
+    "the files themselves: no pass record, applied, result or verdict is kept, only each artifact's id and digest. `steps` holds of each pass record its id, its time, its Release, the head it read and its Decision on this pull request, transcribed from that artifact on the day; a pass whose Decision on the merged head was the pass before's is left out, and so is every pass on an earlier head. A step's id, State and codes rest on its record's digest: only the last step's are shown again by a read, the status on the item. Each Run's outcome is transcribed whole but for its schema and its Run id, which the Run's name carries"
   ]
 }
