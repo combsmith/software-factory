@@ -849,6 +849,13 @@ class Points(unittest.TestCase):
         self.assertEqual(found(dict(open_, shown=dict(shown, read_on=event.isoformat()))), 0)
         self.assertEqual(found(dict(open_, shown=dict(shown, read_on=(event - datetime.timedelta(days=1)).isoformat()))), 1)
         self.assertEqual(found(dict(open_, shown=dict(shown, read_on=(event + datetime.timedelta(days=1)).isoformat()))), 0)
+        # A day is a day of the calendar, wherever one is written: the schema's pattern lets a 31st of November by.
+        month = shown["read_on"][:8]
+        self.assertEqual(found(dict(decided, day=month + "31")), 1 if month.endswith("-11-") else 0)
+        self.assertEqual(found(dict(decided, day="2099-02-30")), 1)
+        self.assertEqual(found(dict(open_, shown=dict(shown, read_on="2099-02-30"))), 1)
+        self.assertEqual(found(dict(open_, shown=dict(shown, before="2000-02-30T00:00:00Z"))), 1)
+        self.assertEqual(found(dict(decided, day="2096-02-29", shown=dict(shown, before="2000-02-29T00:00:00Z"))), 0)
         # A share is at most the count it is of, and a count is a number: true is not one.
         for share in ("the_maintainers", "touched_protected"):
             with self.subTest(share=share):
@@ -875,8 +882,12 @@ class Points(unittest.TestCase):
         another = json.loads((ROOT / "examples" / "invalid" / "decision-points.decided-by-another.json").read_text())
         self.assertEqual(validate(another, schema), [])
         self.assertEqual(len(check_release.point_problems(another, who)), 1)
-        his = dict(another, points=[dict(another["points"][0], by=who)])
-        self.assertEqual(check_release.point_problems(his, who), [])
+        # Either decision, in his name, is one the schema and the check both take.
+        for decided in ("continue", "stop"):
+            his = dict(another, points=[dict(another["points"][0], by=who, decided=decided)])
+            self.assertEqual(validate(his, schema), [], decided)
+            self.assertEqual(check_release.point_problems(his, who), [], decided)
+        self.assertEqual(len(validate(dict(his, points=[dict(his["points"][0], decided="pause")]), schema)), 1)
         # A point with no count is refused by the schema, for that alone: the rest is the live file's, and the check's
         # own rule finds nothing in it.
         bare = json.loads((ROOT / "examples" / "invalid" / "decision-points.no-count.json").read_text())

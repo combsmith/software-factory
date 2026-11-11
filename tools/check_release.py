@@ -18,6 +18,7 @@ requests is greater than their count. Whose hand wrote it, no check here can say
 from __future__ import annotations
 
 import ast
+import datetime
 import json
 import pathlib
 import re
@@ -86,6 +87,14 @@ def _count(value) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def _day(text: str) -> bool:
+    """Whether `text` is a day of the calendar: the schema's pattern lets a 31st of November through."""
+    try:
+        return bool(datetime.date.fromisoformat(text))
+    except ValueError:
+        return False
+
+
 def point_problems(value, maintainer) -> list:
     """What is wrong with the decision points that their schema let through: nothing, or each sentence. `maintainer`
     is the login `config/hooks.json` names, or None, and then nobody's decision counts."""
@@ -107,6 +116,9 @@ def point_problems(value, maintainer) -> list:
         # is read on the event's day or after.
         if isinstance(read_on, str) and isinstance(before, str) and read_on < before[:10]:
             problems.append("points[%d]: the counts were read on %s, before the event they stop at, %s" % (i, read_on, before))
+        for name, day in (("shown.read_on", read_on), ("shown.before", before), ("day", point.get("day"))):
+            if isinstance(day, str) and not _day(day[:10]):
+                problems.append("points[%d]: %s is %s, which is no day of the calendar" % (i, name, day[:10]))
         written = [point.get(field) is not None for field in DECISION]
         if any(written) and not all(written):
             problems.append("points[%d]: decided, day and by are written together, or none is" % i)
