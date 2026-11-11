@@ -1,6 +1,6 @@
 # 0194. A browser's approval is dated at its own time only where a record of the item began before it, by its jobs
 
-Status: accepted. The Factory Builder's ruling of 2026-11-11 on issue 724, "A record's start is read from its job's started_at, trusted only once the job is in progress or ran (P-64)". It amends three rows of `docs/decisions/0168-the-simulators-world-dates-an-approval-by-the-acts-run-and-the-kernels-anchor-takes-the-records-always.md`: "A browser's approval", "One nothing anchors" and "The residuals", whose second residual it closes. The rest of 0168 stands. It reads the field `docs/decisions/0193-when-a-run-began-is-read-from-its-jobs-trusted-only-once-a-job-is-in-progress-or-ran-and-kept-by-the-pass-records.md` gave the run record.
+Status: accepted. The Factory Builder's ruling of 2026-11-11 on "A record's start is read from its job's started_at, trusted only once the job is in progress or ran (P-64)" (issue 724). It amends three rows of `docs/decisions/0168-the-simulators-world-dates-an-approval-by-the-acts-run-and-the-kernels-anchor-takes-the-records-always.md`: "A browser's approval", "One nothing anchors" and "The residuals", whose second residual it closes. The rest of 0168 stands. It reads the field `docs/decisions/0193-when-a-run-began-is-read-from-its-jobs-trusted-only-once-a-job-is-in-progress-or-ran-and-kept-by-the-pass-records.md` gave the run record.
 
 ## Decision
 
