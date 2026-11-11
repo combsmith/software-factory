@@ -293,8 +293,10 @@ def run(role="pr-review", intent="review-change", content="sha256:aaaa", status=
         conclusion="success", outcome=None, at="2026-10-11T12:10:00Z", name="r1") -> dict:
     if status == "in_progress":
         conclusion = None
-    return {"run": name, "item": dict(ITEM), "role": role, "intent": intent, "content_id": content,
-            "status": status, "conclusion": conclusion, "outcome": outcome, "started_at": at}
+    # A Run that is not waiting began when it started here: one that waited in its lane is said so by its test.
+    began = {} if status == "queued" else {"began_at": at}
+    return dict({"run": name, "item": dict(ITEM), "role": role, "intent": intent, "content_id": content,
+                 "status": status, "conclusion": conclusion, "outcome": outcome, "started_at": at}, **began)
 
 
 def context(**over) -> dict:

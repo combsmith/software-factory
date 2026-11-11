@@ -4052,6 +4052,7 @@ class Contract(unittest.TestCase):
         recorded, rows = rows, rows + [dict(r, event="workflow_dispatch") for r in rows]
         p43 = exchanges("P-43")
         queued = Records().read(listing("P-17", 3, rows={"name": NAME}))[0]
+        gid = exchanges("P-17")[3]["response"]["body"]["workflow_runs"][0]["id"]
         # A list GitHub counts past the 1,000 runs it serves, as P-43 counted one, read through the port page by page:
         # the port stops at the 1,000th and reads the list short.
         counted = p43[26]["response"]["body"]["total_count"]
@@ -4157,6 +4158,14 @@ class Contract(unittest.TestCase):
                 p43[27]["response"]["body"]["workflow_runs"] == [] and counted > records.SERVED
                 and stopped["complete"] is False and len(stopped["runs"]) == records.SERVED),
             "a_run_waits_its_turn": ({"P-44"}, waiting is not None and waiting[0]["status"] == "queued"),
+            # While its job waited, pending, the port gives no beginning; in progress and completed, the job's start,
+            # 53 s after the run's own, which stayed its creation.
+            "a_run_begins_with_its_job": ({"P-64"},
+                "began_at" not in Records().began("in_progress", jobs_read("P-64", 9, gid))[0]
+                and [Records().began(status, jobs_read("P-64", at, gid))[0]["began_at"]
+                     for status, at in (("in_progress", 18), ("completed", 33))] == ["2026-11-10T19:44:48Z"] * 2
+                and {e["response"]["body"]["workflow_runs"][0]["run_started_at"] for e in exchanges("P-64")[7:32:3]}
+                == {"2026-11-10T19:43:55Z"}),
             # A list whose page names a next one is read on, and one that then ends in no list is read short: the
             # timeline's and the reviews'.
             "a_short_list_says_so": ({"P-43"}, short_events[1] is False and len(short_events[0]) == 1

@@ -1017,13 +1017,14 @@ def made_at(run: dict):
 def approval_anchor(review: dict, runs):
     """When a machine user's approval last read the description: when the approving act's Run on its content was made,
     the latest made at or before it, as the act reads the description after that (issue 195); else, where a record of
-    this item started before it or in its second, the approval's own time, as a person approving in the browser reads
+    this item began before it or in its second, the approval's own time, as a person approving in the browser reads
     as they approve (decision 0046); else "", before every time, as nothing shows when it read. So too where an act on
     its content started after it with no dispatch read, a re-run or one whose attempt cannot be read, which may be the
     act that read, and where a record's start, or both its times, cannot be read: an unreadable fact holds. Records expire oldest first, and an act's Run is made before its approval: it is not
-    gone while a record made before it stays. A Run made while the act ran waits in the item's lane, but its record's
-    start is when it was made (trials/P-44.json), so it may reach back once the act's Run is past retention: a residual
-    the record names."""
+    gone while a record made before it stays. A Run made while the act ran waits in the item's lane, and its record's
+    start is when it was made (trials/P-44.json): so a record reaches back by when its jobs began, its `began_at`
+    (trials/P-64.json, decision 0194), and one that has not begun, never began or whose jobs were not read does not.
+    Nor does one said to have begun before it was made, which no run does."""
     at = review["submitted_at"]
     if any(made_at(r) is None or not is_time(r["started_at"]) for r in runs):
         return ""
@@ -1035,7 +1036,7 @@ def approval_anchor(review: dict, runs):
     acts = [made_at(r) for r in mine if made_at(r) <= at]
     if acts:
         return max(acts)
-    return at if any(r["started_at"] <= at for r in runs) else ""
+    return at if any(is_time(r.get("began_at")) and made_at(r) <= r["began_at"] <= at for r in runs) else ""
 
 
 def description_anchor(facts: dict, edited: str, *, runs: list):
