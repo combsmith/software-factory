@@ -1056,7 +1056,7 @@ class Records(unittest.TestCase):
         slept = []
         got = records.runs(github.Replay(list(found)), canary(), "main", [WORKFLOW], kw.get("dispatcher", DISPATCHER),
                            per_page=kw.get("per_page", 10), sleep=slept.append, kept=kw.get("kept"),
-                           began=kw.get("began"), on=kw.get("on"))
+                           began=kw.get("began"))
         return got, slept
 
     def test_a_run_listed_under_its_workflows_name_is_unidentified_after_one_more_read(self):
@@ -1310,11 +1310,9 @@ class Records(unittest.TestCase):
         return got["runs"][0], got["complete"]
 
     def test_a_run_began_when_a_job_of_it_did(self):
-        # trials/P-64.json: the second run's job waited 53 s in its lane. While it waited, `pending`, the jobs API gave
-        # its `started_at` as its creation, as the run's `run_started_at` is at every read; once in progress, and
-        # completed, it gave 19:44:48Z. trials/P-44.json: a job cancelled while it waited ends completed with no
-        # runner, its `started_at` its creation still. So only a job in progress, or completed with a runner named,
-        # says when its Run began (decision 0193).
+        # trials/P-64.json: a job that waited 53 s in its lane gave its creation as its `started_at` while `pending`,
+        # and 19:44:48Z once in progress and completed. trials/P-44.json: one cancelled while it waited ends completed
+        # with no runner. So only a job in progress, or completed with a runner, says when its Run began (0193).
         gid = exchanges("P-17")[3]["response"]["body"]["workflow_runs"][0]["id"]
         waiting, running, ran = (exchanges("P-64")[at]["response"]["body"]["jobs"][0] for at in (9, 18, 33))
         gone = exchanges("P-44")[23]["response"]["body"]["jobs"][0]
@@ -1323,8 +1321,8 @@ class Records(unittest.TestCase):
                          [("pending", True, False), ("in_progress", False, True), ("completed", False, True),
                           ("completed", True, False)])
         self.assertEqual((running["started_at"], ran["started_at"]), ("2026-11-10T19:44:48Z",) * 2)
-        # The four sides: pending, nothing yet; in progress and completed with a runner, the job's start; completed
-        # with none, null, since it never began. `started_at` stays the run's own, as every other reader takes it.
+        # Pending, nothing yet; in progress or completed with a runner, the job's start; completed with none, null.
+        # `started_at` stays the run's own.
         record, whole = self.began("in_progress", jobs_read("P-64", 9, gid))
         self.assertEqual(("began_at" in record, whole), (False, True))
         for status, at in (("in_progress", 18), ("completed", 33)):
@@ -1394,8 +1392,8 @@ class Records(unittest.TestCase):
         self.assertEqual(("began_at" in record, whole), (False, True))
 
     def test_when_a_run_began_is_asked_once_and_kept(self):
-        # A job's start stands at every read after the first that gives it (P-64, part 3), and a completed run's
-        # jobs change no more: what a pass record holds is not asked again. A Run that has not begun is asked again.
+        # A job's start stands once given (P-64), and a completed run's jobs change no more: what a pass record
+        # holds is not asked again. A Run that has not begun is.
         rows = listing("P-17", 3, rows={"status": "completed", "conclusion": "success", "run_attempt": 1})
         template = rows["response"]["body"]["workflow_runs"][0]
         names = [NAME.replace("r_01JA6Z", "r_%06dZ" % n) for n in range(4)]
@@ -1449,9 +1447,8 @@ class Records(unittest.TestCase):
         got, asked = read(early, late, *jobs, began={}, sleep=lambda s: None)
         self.assertEqual(([r.get("began_at", "none") for r in got["runs"]], asked),
                          (began + ["none"], [700, 701, 702, 703]))
-        # A re-run of some jobs lists the others as an earlier attempt ran them, under the new attempt and with their
-        # old starts (seen on runs of this repo and the canary, in no trial): the earliest is a start of the same run,
-        # before the attempt's own, and is what the record says.
+        # A re-run of some jobs lists the others with the starts an earlier attempt gave them (seen on this repo's
+        # runs, in no trial): the earliest, before the attempt's own start, is what the record says.
         carried = jobs_read("P-64", 33, 700)
         carried["response"]["body"].update(total_count=2, jobs=[
             dict(exchanges("P-64")[33]["response"]["body"]["jobs"][0], started_at="2026-10-20T23:50:00Z"),
@@ -1467,19 +1464,6 @@ class Records(unittest.TestCase):
                              (began[:2] + ["none", "none"], False, [700, 701]))
             rest, asked = read(rows, jobs[2], jobs[3], began=records.begun([record(capped)]))
             self.assertEqual((rest["runs"], rest["complete"], asked), (first["runs"], True, [702, 703]))
-        self.assertEqual(records.JOBS, 50)
-        # Asked of one item's Runs alone, as a Run reading its own item asks: another item's say nothing, and are no
-        # part of the read.
-        other = copy.deepcopy(rows)
-        other["response"]["body"]["workflow_runs"][0]["name"] = names[0].replace("#264", "#265")
-        got, asked = read(other, jobs[1], jobs[2], jobs[3], began={}, on=first["runs"][1]["item"])
-        self.assertEqual(([r.get("began_at", "none") for r in got["runs"]], got["complete"], asked),
-                         (["none"] + began[1:] + ["none"], True, [701, 702, 703]))
-        # And all of them, past the cap: a Run keeps nothing from one read to the next, so a cap on its item's
-        # Runs would never be worked off, and its item would never be read whole again.
-        with mock.patch.object(records, "JOBS", 2):
-            got, asked = read(rows, *jobs, began={}, on=first["runs"][0]["item"])
-            self.assertEqual((got["runs"], got["complete"], asked), (first["runs"], True, [700, 701, 702, 703]))
         # The last two records are read, the later's word standing; null is kept for a completed Run alone, and
         # nothing from a key a record lists twice, a start that is no time, or what is no pass record's runs.
         one = first["runs"][0]

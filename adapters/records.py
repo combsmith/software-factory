@@ -16,12 +16,9 @@ counted run's outcome read (L-53). A Run that did not succeed has its outcome re
 leaves the list not whole, so that no failed Run is ever read as no attempt.
 
 When a Run began is read from its jobs, for a caller that asks (decision 0193): `run_started_at` is the run's
-creation even while it waits in its item's lane (trials/P-44.json), and a job's `started_at` is its creation too until
-the job is `in_progress`, or `completed` with a runner named (trials/P-64.json). `began_at` is the earliest such start
-among the jobs GitHub lists for the latest attempt, null for a completed Run none of whose jobs began, and absent where
-it has not begun or was not read. A re-run may list a job an earlier attempt ran, with its start: that is a start of
-the same run, and may be earlier than the record's `started_at`. A start, once given, stands at every later read (P-64), so what the pass records before kept is not
-asked again, and no more than `JOBS` Runs are asked in one read: what is left unasked leaves the list not whole.
+creation even while it waits in its item's lane, and so is a job's `started_at` until the job is `in_progress`, or
+`completed` with a runner named (trials/P-64.json). `began_at` is the earliest such start among the latest attempt's
+jobs, null for a completed Run none of whose jobs began, and absent where it has not begun or was not read.
 """
 from __future__ import annotations
 
@@ -296,7 +293,7 @@ def known(previous: list) -> dict:
 
 
 def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, per_page: int = PAGE,
-         sleep=time.sleep, kept=None, began=None, on=None) -> dict:
+         sleep=time.sleep, kept=None, began=None) -> dict:
     """The run records of the Factory's Role workflows, the ids of counted Runs not yet named, whether the list was
     read whole, and each read's date and age for the pass record. `dispatcher` is the pass job's own token's account,
     by its id and type, `(id, "Bot")`: only a run it dispatched is a Run.
@@ -312,9 +309,8 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
 
     `began` is what `begun` read from the pass records before, and None asks no job: no record then says when it
     began. Given, each Run in progress or completed has its jobs read for `began_at` (`_began`), but one `began`
-    holds, for a row that names when its attempt started, once in this list; `on`, an item, asks only that item's
-    Runs, as a Run reading its own item does, and all of them: it keeps nothing, so a cap would never be worked
-    off. A Run past the `JOBS` asked, or whose jobs cannot be read, has no `began_at` and leaves the list not whole."""
+    holds, for a row that names when its attempt started, once in this list. A Run past the `JOBS` asked, or whose
+    jobs cannot be read, has no `began_at` and leaves the list not whole."""
     kept = kept or {}
     roles = {".github/workflows/%s" % name for name in workflows}
 
@@ -361,15 +357,13 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
         whole = whole and read_whole
     asked = 0
     for record, github_id, attempt, keyed in ran if began is not None else []:
-        if on is not None and record["item"] != on:
-            continue
         if keyed and (record["run"], record["started_at"]) in began:
             record["began_at"] = began[(record["run"], record["started_at"])]
             # Null is a completed Run's alone: a list that gives the Run as running still asks its jobs again.
             if record["began_at"] is not None or record["status"] == "completed":
                 continue
             del record["began_at"]
-        if asked == JOBS and on is None:
+        if asked == JOBS:
             whole = False
             continue
         asked += 1
