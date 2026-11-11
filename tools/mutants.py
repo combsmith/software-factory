@@ -9097,7 +9097,7 @@ MUTANTS = ISSUE + [
     ('the canary prints a healthy CLI', 'harness/eval/canary.py', 'if done.returncode != 0:', 'if True:',
      ("tests.test_evals.EvalJob.test_the_canary_is_red_unless_the_cli_answered",)),
     ('the job installs from an index it did not read', 'tools/check_workflows.py',
-     '                   "sudo apt-get update -q",\n', '',
+     '                   "sudo apt-get update -q -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2",\n', '',
      ("tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone",)),
     ('the canary hides what the CLI said', 'harness/eval/canary.py',
      'told(call), clock, pathlib.Path(unpacked))', 'call, clock, pathlib.Path(unpacked))', ("tests.test_evals.EvalJob.test_the_canary_is_red_unless_the_cli_answered",)),
