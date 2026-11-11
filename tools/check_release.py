@@ -11,8 +11,9 @@ a log that keeps the step's lines alone (ruling 9′, as amended on 2026-11-03).
 
 The decision points, `release/decision-points.json`, validate as `decision-points/1` there too; held here is what no
 schema can say (decision 0193): a point is recorded once; what the Maintainer writes of it, `decided`, `day` and `by`,
-is written whole or not at all, by the login `config/hooks.json` names him by and no other, on or after the day the
-counts were read; and no share of the merged pull requests is greater than their count.
+is written whole or not at all, in the name `config/hooks.json` gives him and no other, on or after the day the
+counts were read; the counts are read on the day of the event they stop at, or after; and no share of the merged pull
+requests is greater than their count. Whose hand wrote it, no check here can say.
 """
 from __future__ import annotations
 
@@ -101,17 +102,22 @@ def point_problems(value, maintainer) -> list:
             if _count(shown.get("merged")) and _count(shown.get(share)) and shown[share] > shown["merged"]:
                 problems.append("points[%d]: shown.%s is %d of %d merged; a share is no greater than its whole"
                                 % (i, share, shown[share], shown["merged"]))
+        read_on, before = shown.get("read_on"), shown.get("before")
+        # A day is one text format, in UTC, so days compare as text. What is counted merged before the event, so it
+        # is read on the event's day or after.
+        if isinstance(read_on, str) and isinstance(before, str) and read_on < before[:10]:
+            problems.append("points[%d]: the counts were read on %s, before the event they stop at, %s" % (i, read_on, before))
         written = [point.get(field) is not None for field in DECISION]
         if any(written) and not all(written):
             problems.append("points[%d]: decided, day and by are written together, or none is" % i)
         if not all(written):
             continue
-        by, day, read_on = point["by"], point["day"], shown.get("read_on")
+        by, day = point["by"], point["day"]
         # GitHub names a login whatever its case: one login spelled two ways is one account.
         if not (isinstance(by, str) and isinstance(maintainer, str) and by.casefold() == maintainer.casefold()):
             problems.append("points[%d]: decided by %s; only the Maintainer %s names records continue or stop"
                             % (i, by, HOOKS))
-        # A day is one text format, so days compare as text: he decides on what he was shown, never before it.
+        # He decides on what he was shown, never before it.
         if isinstance(day, str) and isinstance(read_on, str) and day < read_on:
             problems.append("points[%d]: decided on %s, before the counts were read on %s" % (i, day, read_on))
     return problems

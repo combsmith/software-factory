@@ -1,6 +1,6 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "title": "decision-points/1: each moment at which the Maintainer records continue or stop (design section 9.2), with what he was shown beforehand. A data file: its path is its identity and the commit its Release. A session fills in `shown`; he writes `decided`, `day` and `by` himself, and until he has, all three are null. That only he decides, on or after the day he was shown the counts, that a point is recorded once, and that a share is no greater than its whole, are tools/check_release.py's to hold. Slice 3 adds the second point, the first Consumer repo served, with its own measures.",
+ "title": "decision-points/1: each moment at which the Maintainer records continue or stop (design section 9.2), with what he was shown beforehand. A data file: its path is its identity and the commit its Release. A session fills in `shown`; he writes `decided`, `day` and `by` himself, and until he has, all three are null. A day is a day in UTC. That the three are written together or not at all, in his name alone, on or after the day the counts were read; that the counts are read on the event's day or after; that a point is recorded once; and that a share is no greater than its whole, are tools/check_release.py's to hold. Slice 3 adds the second point, the first Consumer repo served, with its own measures.",
  "type": "object",
  "additionalProperties": false,
  "required": [
@@ -57,7 +57,7 @@
      ],
      "properties": {
       "read_on": {
-       "description": "The day the counts were read",
+       "description": "The day the counts were read, in UTC",
        "type": "string",
        "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$"
       },
@@ -97,7 +97,7 @@
      ]
     },
     "day": {
-     "description": "The day he decided; null until then",
+     "description": "The day he decided, in UTC; null until then",
      "type": [
       "string",
       "null"

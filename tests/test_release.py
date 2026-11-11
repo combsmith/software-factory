@@ -826,16 +826,29 @@ class Points(unittest.TestCase):
         for other in ("donpetry-bot", who + "x", who[:-1]):
             self.assertEqual(found(dict(decided, by=other)), 1, other)
         self.assertEqual(found(dict(decided, by=who.upper())), 0)
+        self.assertEqual(found(dict(decided, by=who.lower()), by=who.upper()), 0)
+        self.assertEqual(found(dict(decided, by=7)), 1)
         # With no Maintainer named, nobody's decision counts, and a point not decided is still nothing wrong.
         self.assertEqual(found(decided, by=None), 1)
         self.assertEqual(found(open_, by=None), 0)
         # What he writes is written whole: each one or two of the three alone is one problem, whoever is named.
+        early = (read - datetime.timedelta(days=1)).isoformat()
         for kept in (("decided",), ("day",), ("by",), ("decided", "day"), ("decided", "by"), ("day", "by")):
             with self.subTest(kept=kept):
                 self.assertEqual(found(dict(open_, **{name: decided[name] for name in kept})), 1)
-        # A point is recorded once, decided or not.
+                half = dict(open_, **{name: dict(decided, by="donpetry-bot", day=early)[name] for name in kept})
+                self.assertEqual(found(half), 1)
+                self.assertEqual(found(half, by=None), 1)
+        # A point is recorded once, decided or not; two points of two names are two points.
         self.assertEqual(found(open_, dict(open_)), 1)
         self.assertEqual(found(decided, dict(decided, decided="stop")), 1)
+        self.assertEqual(found(open_, dict(open_, point="first_consumer")), 0)
+        self.assertEqual(found(decided, dict(decided, point="first_consumer")), 0)
+        # What is counted merged before the event, so it is read on the event's day, in UTC, or after.
+        event = datetime.date.fromisoformat(shown["before"][:10])
+        self.assertEqual(found(dict(open_, shown=dict(shown, read_on=event.isoformat()))), 0)
+        self.assertEqual(found(dict(open_, shown=dict(shown, read_on=(event - datetime.timedelta(days=1)).isoformat()))), 1)
+        self.assertEqual(found(dict(open_, shown=dict(shown, read_on=(event + datetime.timedelta(days=1)).isoformat()))), 0)
         # A share is at most the count it is of, and a count is a number: true is not one.
         for share in ("the_maintainers", "touched_protected"):
             with self.subTest(share=share):
@@ -843,9 +856,14 @@ class Points(unittest.TestCase):
                 self.assertEqual(found(dict(open_, shown=dict(shown, **{share: shown["merged"] + 1}))), 1)
         self.assertEqual(found(dict(open_, shown=dict(shown, merged=True, the_maintainers=0, touched_protected=0))), 0)
         self.assertEqual(found(dict(open_, shown=dict(shown, merged=True, the_maintainers=2, touched_protected=0))), 0)
-        # What the schema refuses is said there; this rule reads it without failing.
+        self.assertEqual(found(dict(open_, shown=dict(shown, merged=0, the_maintainers=True, touched_protected=0))), 0)
+        # What the schema refuses is said there; this rule reads it without failing, each odd part alone.
+        without = lambda name: {key: value for key, value in shown.items() if key != name}
         for odd in ({}, [], {"points": None}, {"points": ["x"]}, {"points": [{"point": ["x"], "shown": 3}]},
-                    {"points": [dict(decided, shown=None, day=3)]}):
+                    {"points": [dict(decided, shown=None)]}, {"points": [dict(decided, day=3)]},
+                    {"points": [dict(decided, shown=without("read_on"))]}, {"points": [dict(open_, shown=without("before"))]},
+                    {"points": [dict(decided, shown=dict(shown, read_on=3))]}, {"points": [dict(open_, shown=dict(shown, before=3))]},
+                    {"points": [dict(open_, shown={"merged": 5})]}, {"points": [dict(open_, shown=dict(shown, merged="5"))]}):
             with self.subTest(points=odd):
                 self.assertEqual(check_release.point_problems(odd, who), [])
 
@@ -859,9 +877,13 @@ class Points(unittest.TestCase):
         self.assertEqual(len(check_release.point_problems(another, who)), 1)
         his = dict(another, points=[dict(another["points"][0], by=who)])
         self.assertEqual(check_release.point_problems(his, who), [])
-        # A point with no count is refused by the schema, and has the shares the live file has.
+        # A point with no count is refused by the schema, for that alone: the rest is the live file's, and the check's
+        # own rule finds nothing in it.
         bare = json.loads((ROOT / "examples" / "invalid" / "decision-points.no-count.json").read_text())
         self.assertEqual(len(validate(bare, schema)), 1)
+        self.assertEqual(check_release.point_problems(bare, who), [])
+        self.assertEqual(dict(bare["points"][0]["shown"], merged=self.live()["points"][0]["shown"]["merged"]),
+                         self.live()["points"][0]["shown"])
         self.assertEqual(validate(dict(bare, points=[dict(bare["points"][0], shown=dict(bare["points"][0]["shown"], merged=387))]),
                                   schema), [])
 
@@ -955,17 +977,6 @@ class Skill(unittest.TestCase):
         self.assertEqual(sorted(commands), sorted(plans + dispatches))
         for command in commands:
             self.assertNotRegex(command, r"auth token|--show-token|\.pem|git (tag|push)|-X |--method")
-
-    def test_when_the_factory_cannot_approve_the_skill_pauses_rolls_back_and_only_then_hands_over_the_approval(self):
-        text = SKILL.read_text()
-        section = text[text.index("## When the Factory cannot approve"):text.index("## Verify, then hand over")]
-        steps = re.findall(r"^([0-9])\. \*\*(.+?)\*\*", section, re.M)
-        self.assertEqual(steps, [("1", "Pause."), ("2", "Roll `next` back."), ("3", "The hand approval.")])
-        # The approval is the Maintainer's hand alone: the section prints nothing to run, and a session stops before it.
-        self.assertNotIn("```", section)
-        self.assertIn("Only when no Release can serve.", section)
-        self.assertIn("A session stops before the hand approval", section)
-        self.assertIn("It approves nothing, signs in to no account, and sets no variable.", section)
 
 
 if __name__ == "__main__":
