@@ -93,7 +93,7 @@ def _unread(facts, head, runs, context):
     that gave it, in the order `harness/reread.py` reads them, as `shared.unread` names a read that failed. The run
     records; the snapshot, its facts and the head it was held to; then the context, and in it the Pause, which its port
     hands back unread and never raises (`adapters/pause.py`). A Pause the port could not read never comes this far:
-    the read again, asked by name, raised it by the port's part (decision 0191). What is named here is a Pause the port
+    the read again, asked by name, raised it by the port's part (decision 0192). What is named here is a Pause the port
     read that is no Pause, or a context built some other way."""
     if not isinstance(runs, list) or any(shared.errors(r, "run-record") for r in runs):
         return "run_records_unreadable"

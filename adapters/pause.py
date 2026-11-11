@@ -13,7 +13,7 @@ shared with that repo (decision 0077); so is a list not read whole, an answer th
 be read (issue 362, "Pause: read the org's FACTORY_PAUSED through the repo's list of org variables, as P-52 found").
 
 `explained` hands back, beside the same read, why each scope it could not read was unreadable, a code of this port's
-own and never what GitHub said, for a caller that names its Pause by it: the approving act does (decision 0191). The
+own and never what GitHub said, for a caller that names its Pause by it: the approving act does (decision 0192). The
 read itself is unchanged, and so is what the Controller reads of it."""
 from __future__ import annotations
 

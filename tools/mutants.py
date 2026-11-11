@@ -12074,7 +12074,7 @@ MUTANTS = ISSUE + [
     ("with no transport the org's Pause alone is named", 'adapters/pause.py',
      '                [ORG_UNREAD] + [REPO_UNREAD for repo in repos])', '                [ORG_UNREAD])', ('tests.test_effects.Pause.test_a_pause_not_read_says_which_read_and_why',)),
     # The approving act names a Pause the port could not read by the port's part (#688's seventh dry run, decision
-    # 0191).
+    # 0192).
     ("the read again, asked by name, raises no Pause the port could not read", 'harness/reread.py',
      '    if unread and context["paused"] is None:', '    if False:', ('tests.test_steps.Reread.test_the_item_is_read_again',)),
     ("the read again raises an unread scope though another pauses", 'harness/reread.py',
