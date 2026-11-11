@@ -10,7 +10,7 @@ a log that keeps the step's lines alone (ruling 9′, as amended on 2026-11-03).
 `release/current.py`, are pure: they import nothing but each other, and name nothing that reads, writes or runs.
 
 The decision points, `release/decision-points.json`, validate as `decision-points/1` there too; held here is what no
-schema can say (decision 0193): a point is recorded once; what the Maintainer writes of it, `decided`, `day` and `by`,
+schema can say (decision 0194): a point is recorded once; what the Maintainer writes of it, `decided`, `day` and `by`,
 is written whole or not at all, in the name `config/hooks.json` gives him and no other, on or after the day the
 counts were read; the counts are read on the day of the event they stop at, or after; and no share of the merged pull
 requests is greater than their count. Whose hand wrote it, no check here can say.

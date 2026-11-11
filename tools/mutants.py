@@ -13818,7 +13818,7 @@ MUTANTS = ISSUE + [
      'for n in ast.walk(fn) if isinstance(n, (ast.Import, ast.ImportFrom))', 'for n in own if isinstance(n, (ast.Import, ast.ImportFrom))', ('tests.test_tools.Writes.test_a_writer_is_reached_by_any_name_it_goes_by',)),
     ("the mutation runner's own load by name fails", 'tools/check_writes.py',
      '        if mod.rel not in NAME_LOADERS:\n', '        if True:\n', ('tests.test_tools.Writes.test_on_main_only_the_callers_listed_reach_a_write_and_each_what_it_lists',)),
-    # Decision 0193: the Maintainer's continue or stop, and what he was shown before it.
+    # Decision 0194: the Maintainer's continue or stop, and what he was shown before it.
     ('a decision point recorded twice passes', 'tools/check_release.py',
      '        if isinstance(name, str) and name in seen:',
      '        if False:', POINT_RULE),

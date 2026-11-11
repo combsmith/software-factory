@@ -1,4 +1,4 @@
-# 0193. The Maintainer's continue or stop is recorded in a file, and a decision counts only in his name
+# 0194. The Maintainer's continue or stop is recorded in a file, and a decision counts only in his name
 
 Status: accepted. Working ruling 7 on "The ruleset switch: main requires the machine user's approval of the most recent commit, and slice 1's event is recorded" (issue 198), which stands until the Maintainer overturns it.
 

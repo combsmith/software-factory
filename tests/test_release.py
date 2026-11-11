@@ -793,7 +793,7 @@ class Rings(unittest.TestCase):
 
 
 class Points(unittest.TestCase):
-    """The Maintainer's continue or stop, and what he was shown before it (decision 0193)."""
+    """The Maintainer's continue or stop, and what he was shown before it (decision 0194)."""
     FIRST = "first_release_on_next"
 
     def live(self) -> dict:
