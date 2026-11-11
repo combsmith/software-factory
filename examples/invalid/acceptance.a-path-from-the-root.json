@@ -27,6 +27,7 @@
   ],
   "protected_paths": [
     "/acceptance/512.json",
-    "tests/acceptance/test_availability.py"
+    "tests/acceptance/test_availability.py",
+    "tests/acceptance/**/fixtures/"
   ]
 }
