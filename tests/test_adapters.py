@@ -1470,6 +1470,11 @@ class Records(unittest.TestCase):
         got, asked = read(other, jobs[1], jobs[2], jobs[3], began={}, on=first["runs"][1]["item"])
         self.assertEqual(([r.get("began_at", "none") for r in got["runs"]], got["complete"], asked),
                          (["none"] + began[1:] + ["none"], True, [701, 702, 703]))
+        # And all of them, past the cap: a Run keeps nothing from one read to the next, so a cap on its item's
+        # Runs would never be worked off, and its item would never be read whole again.
+        with mock.patch.object(records, "JOBS", 2):
+            got, asked = read(rows, *jobs, began={}, on=first["runs"][0]["item"])
+            self.assertEqual((got["runs"], got["complete"], asked), (first["runs"], True, [700, 701, 702, 703]))
         # The last two records are read, the later's word standing; null is kept for a completed Run alone, and
         # nothing from a key a record lists twice, a start that is no time, or what is no pass record's runs.
         one = first["runs"][0]
