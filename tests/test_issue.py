@@ -1153,6 +1153,10 @@ class Done(unittest.TestCase):
         # and the rival's own merge after it is no close that releases, nor the first merge's own close.
         for holding in (rival([("closed", AUTHOR_APP, 7)]), rival([("closed", OUTSIDER, 7)]),
                         rival([("closed", MACHINE, 7)]), rival([("closed", CONTROLLER, 7)]),
+                        rival([("closed", {"kind": "lens", "name": "pr-review", "can_write": True}, 7)]),
+                        rival([("closed", {"kind": "queue", "name": "combsmith-sf-queue[bot]", "can_write": True}, 7)]),
+                        # A writer's login with no write access read is no person.
+                        rival([("closed", dict(WRITER, can_write=False), 7)]),
                         rival([("closed", AUTHOR_APP, 7), ("reopened", WRITER, 8)]),
                         rival([("closed", WRITER, 5)]),
                         rival([("closed", WRITER, 7)], merged=7, closed_issue=None),
