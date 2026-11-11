@@ -53,10 +53,11 @@ def _named(repo: str) -> bool:
 
 def _refused(answer: dict, statuses) -> bool:
     """Whether GitHub refused the token the read: one of `statuses`, and no rate limit's, which GitHub answers 403 too,
-    with no request left or a time to wait. A limit is no grant's fault, and is anything else."""
+    with no request left or a time to wait. A limit is no grant's fault, and is anything else; so is a refusal on the
+    last request left, which the port cannot tell from one. A 404 is never a limit's, whatever is left."""
     headers = answer.get("headers") or {}
-    return answer["status"] in statuses and str(headers.get("x-ratelimit-remaining")) != "0" \
-        and "retry-after" not in headers
+    limited = answer["status"] == 403 and (str(headers.get("x-ratelimit-remaining")) == "0" or "retry-after" in headers)
+    return answer["status"] in statuses and not limited
 
 
 def _org_value(transport, org: str, repo):

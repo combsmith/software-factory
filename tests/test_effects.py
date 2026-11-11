@@ -665,6 +665,10 @@ class Pause(unittest.TestCase):
                 ([(403, {}, {"x-ratelimit-remaining": "0"})], [own()], ["org"]),
                 ([(403, {}, {"retry-after": "60"})], [own()], ["org"]),
                 ([(403, {}, {"x-ratelimit-remaining": "4999"})], [own()], ["org_refused"]),
+                # A 404 is never a limit's: one answered on the last request left is a refusal still (Astra's read).
+                ([(404, {}, {"x-ratelimit-remaining": "0"})], [own()], ["org_refused"]),
+                ([(404, {}, {"retry-after": "60"})], [own()], ["org_refused"]),
+                (named, [(404, {}, {"x-ratelimit-remaining": "0"})], []),
                 (named, [(403, {}, {"x-ratelimit-remaining": "0"})], ["repo"]),
                 (named, [(403, {}, {"retry-after": "60"})], ["repo"]),
                 (named, [(403, {}, {"x-ratelimit-remaining": "10"})], ["repo_refused"]),
