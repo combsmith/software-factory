@@ -116,6 +116,7 @@ SURPLUS_BAR = ("tests.test_evals.EvalJob.test_the_gate_holds_each_kinds_bar_and_
 CUT_FIXTURE = ("tests.test_release.Fixture.test_the_first_cut_moved_next_and_its_release_is_neither_moved_nor_cut_again",)
 NEXT_CUT_FIXTURE = ("tests.test_release.Fixture.test_the_next_cut_moved_next_on",)
 ROLLBACK_FIXTURE = ("tests.test_release.Fixture.test_a_rollback_with_no_earlier_release_was_refused_and_moved_nothing",)
+EVENT_FIXTURE = ("tests.test_release.Fixture.test_the_slice_1_event_is_whole",)
 BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_of_tests",)
 NAMED_MUTANTS = ("tests.test_tools.Decisions.test_a_new_or_changed_row_names_the_mutant_its_test_kills",)
 MAIN_ROWS = ("tests.test_tools.Decisions.test_a_row_main_holds_names_no_mutant_until_its_check_changes",)
@@ -4604,6 +4605,48 @@ MUTANTS = ISSUE + [
      NEXT_CUT_FIXTURE),
     ('the eval workflow ran another run on the seventh cut commit', 'release/fixtures/cut.v0-1-6.json',
      '\n                  "id": 42923463050,', '\n                  "id": 42923463051,', NEXT_CUT_FIXTURE),
+    # Slice 1's event (issue 198's ruling 6): the approval is the machine user's, of the head the queue took, under one
+    # Release on `next` cut before the change, and each step is its pass's own record.
+    ("the event's approval is of an earlier commit", 'release/fixtures/event.slice-1.json',
+     '"state": "APPROVED",\n            "commit_id": "8fc5492746b7c88a73069e86c59d8d95e555e2ef"',
+     '"state": "APPROVED",\n            "commit_id": "924fb48674af0509ffa0a63dc5c9a39553797757"', EVENT_FIXTURE),
+    ("the event's approval is another account's", 'release/fixtures/event.slice-1.json',
+     '"id": 5853546913,\n            "user": {\n              "login": "donpetry-bot"',
+     '"id": 5853546913,\n            "user": {\n              "login": "don-petry"', EVENT_FIXTURE),
+    ("the event's approval is an App's", 'release/fixtures/event.slice-1.json',
+     '"login": "donpetry-bot",\n              "type": "User"', '"login": "donpetry-bot",\n              "type": "Bot"', EVENT_FIXTURE),
+    ("the event was enqueued by another than the Maintainer's login", 'release/fixtures/event.slice-1.json',
+     '"enqueuer": {\n                        "login": "don-petry"', '"enqueuer": {\n                        "login": "combsmith-sf-queue"',
+     EVENT_FIXTURE),
+    ("the event's merge is another commit's", 'release/fixtures/event.slice-1.json',
+     '"oid": "d9eeb542c1e88ba6999f4bf7620efc807121a6a9"', '"oid": "be4992d7df62b8e9678b11705d7e9bb9378b5ff2"', EVENT_FIXTURE),
+    ("a step of the event ran under another Release", 'release/fixtures/event.slice-1.json',
+     '"pass": "p_3RBP88Z3BEKDSTMRXSDX",\n      "now": "2026-11-11T03:42:19Z",\n      "release": "factory/v0.1.6"',
+     '"pass": "p_3RBP88Z3BEKDSTMRXSDX",\n      "now": "2026-11-11T03:42:19Z",\n      "release": "factory/v0.1.5"', EVENT_FIXTURE),
+    ("next was on another commit than the event's Release", 'release/fixtures/event.slice-1.json',
+     '"ref": "refs/tags/factory/v0-next",\n          "object": {\n            "sha": "48687f2a79b6f4091326a0fa88556d5795e8478a"',
+     '"ref": "refs/tags/factory/v0-next",\n          "object": {\n            "sha": "26d6c67eab11023366515196f4c83ad31f36a364"', EVENT_FIXTURE),
+    ("the event's Release was cut after the change began", 'release/fixtures/event.slice-1.json',
+     '"date": "2026-11-10T23:08:57Z"', '"date": "2026-11-11T03:08:57Z"', EVENT_FIXTURE),
+    ("a step's pass record is another artifact", 'release/fixtures/event.slice-1.json',
+     '"digest": "sha256:e9bd58cdf848a098387f0e2db7382c9e5bb23404f1ab22341e432e258bd76da2",\n      "state"',
+     '"digest": "sha256:e9bd58cdf848a098387f0e2db7382c9e5bb23404f1ab22341e432e258bd76da3",\n      "state"', EVENT_FIXTURE),
+    ("the event's review Run was of another item", 'release/fixtures/event.slice-1.json',
+     '"name": "sf combsmith/software-factory#730 review-change', '"name": "sf combsmith/software-factory#729 review-change',
+     EVENT_FIXTURE),
+    ("the event's approving act failed", 'release/fixtures/event.slice-1.json',
+     '"path": ".github/workflows/approve.yml",\n          "event": "workflow_dispatch",\n          "status": "completed",\n          "conclusion": "success"',
+     '"path": ".github/workflows/approve.yml",\n          "event": "workflow_dispatch",\n          "status": "completed",\n          "conclusion": "failure"',
+     EVENT_FIXTURE),
+    ("the event's approving act approved another content", 'release/fixtures/event.slice-1.json',
+     'issue-approval pr-review sha256:860a6960', 'issue-approval pr-review sha256:0a2438d6', EVENT_FIXTURE),
+    ("the status on the item is an earlier step's", 'release/fixtures/event.slice-1.json',
+     '"title": "queued: in_merge_queue"', '"title": "converged: approval_due"', EVENT_FIXTURE),
+    ("the status on the item names another pass", 'release/fixtures/event.slice-1.json',
+     'pass: p_11GYAWVG130RGYV4Y1X1\\nrelease', 'pass: p_3RBP88Z3BEKDSTMRXSDX\\nrelease', EVENT_FIXTURE),
+    ("the event's steps are out of the order they were decided in", 'release/fixtures/event.slice-1.json',
+     '"pass": "p_NANTVRFXGVRZ0YMK958X",\n      "now": "2026-11-11T03:38:29Z"', '"pass": "p_NANTVRFXGVRZ0YMK958X",\n      "now": "2026-11-11T03:44:29Z"',
+     EVENT_FIXTURE),
     ('a Release tag may be moved', 'release/fixtures/cut.v0-1-0.json',
      '"enforcement": "active"', '"enforcement": "evaluate"', CUT_FIXTURE),
     ('an admin may force a Release tag to another commit', 'release/fixtures/cut.v0-1-0.json',

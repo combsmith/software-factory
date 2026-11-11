@@ -326,6 +326,7 @@ class Fixture(unittest.TestCase):
     SIXTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-5.json"
     SEVENTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-6.json"
     ROLLBACK = ROOT / "release" / "fixtures" / "rollback.refused.json"
+    EVENT = ROOT / "release" / "fixtures" / "event.slice-1.json"
 
     def item(self, fixture, name):
         found = [item for item in fixture["items"] if item["item"] == name]
@@ -462,6 +463,94 @@ class Fixture(unittest.TestCase):
                                           self.NEXT_CUT, self.CUT])):
             with self.subTest(cut=path.name):
                 self.a_later_cut_moved_next_on(path, eval_run, earlier)
+
+    def test_the_slice_1_event_is_whole(self):  # issue 198's ruling 6
+        # Slice 1's event: a pull request the Maintainer opened after `main` began to count an approval (decision
+        # 0191), which a Release on `next` reviewed, whose head the Factory's approving act approved as the machine
+        # user, and which merged through the queue on that approval. The fixture holds what GitHub answered of it
+        # afterwards, and each pass whose Decision on the merged head differed from the pass before's. The Maintainer's
+        # login enqueued it, as it enqueues every pull request; no enqueue by the Factory's queue step is claimed.
+        fixture = json.loads(self.EVENT.read_text())
+        self.assertEqual(check_release.fixture_problems(fixture, "event.slice-1.json"), [])
+        event, steps, api = fixture["event"], fixture["steps"], "/repos/%s" % fixture["repo"]
+        body = lambda path, method="GET": (lambda answer: self.assertEqual(answer["status"], 200, path) or answer["body"])(
+            self.answered(fixture, path, method))
+        defaults = json.loads((ROOT / "config" / "defaults.json").read_text())
+        maintainer = json.loads((ROOT / "config" / "hooks.json").read_text())["maintainer"]["login"]
+        pull = body("%s/pulls/%d" % (api, event["pull_request"]))
+        self.assertEqual((pull["number"], pull["merged"], pull["base"]["ref"], pull["head"]["sha"], pull["merge_commit_sha"]),
+                         (event["pull_request"], True, "main", event["head"], event["merged"]["commit"]))
+        # Its author is the Maintainer, whose own approval GitHub does not count: the one that counted is the approver's.
+        self.assertEqual((pull["user"]["login"], pull["user"]["type"]), (maintainer, "User"))
+        approved = [r for r in body("%s/pulls/%d/reviews" % (api, event["pull_request"])) if r["state"] == "APPROVED"]
+        self.assertEqual([(r["id"], r["user"]["login"], r["user"]["type"], r["commit_id"], r["submitted_at"]) for r in approved],
+                         [(event["approval"]["review"], defaults["approver"], "User", pull["head"]["sha"], event["approval"]["at"])])
+        self.assertEqual((event["approval"]["by"], event["approval"]["commit"]), (defaults["approver"], event["head"]))
+        # The queue took the head the approval is of, after it, and the merge is the pull request's own.
+        told = body("/graphql", "POST")["data"]["repository"]["pullRequest"]["timelineItems"]["nodes"]
+        self.assertEqual([n["__typename"] for n in told],
+                         ["AddedToMergeQueueEvent", "MergedEvent", "RemovedFromMergeQueueEvent"])
+        queued, merged, left = told
+        self.assertEqual((queued["enqueuer"]["login"], queued["actor"]["__typename"], queued["createdAt"]),
+                         (maintainer, "User", event["enqueued"]["at"]))
+        self.assertEqual(event["enqueued"]["by"], maintainer)
+        self.assertEqual((merged["commit"]["oid"], merged["createdAt"], left["reason"]),
+                         (event["merged"]["commit"], pull["merged_at"], "merged"))
+        self.assertEqual(event["merged"]["at"], pull["merged_at"])
+        # One Release, on `next`, at every step, and cut before the change existed (FR-50).
+        self.assertEqual({s["release"] for s in steps}, {event["release"]})
+        channel = move.next_channel(json.loads(move.RINGS.read_text()))
+        for tag in (channel, event["release"]):
+            self.assertEqual(body("%s/git/ref/tags/%s" % (api, tag))["object"]["sha"], event["release_commit"], tag)
+        cut_at = body("%s/git/commits/%s" % (api, event["release_commit"]))["committer"]["date"]
+        first = body("%s/pulls/%d/commits" % (api, event["pull_request"]))[0]["commit"]["committer"]["date"]
+        self.assertLess(cut_at, first, "the Release was cut before the pull request's first commit")
+        # Each step is one pass's Decision, in the order the passes ran, and its record is the artifact GitHub lists.
+        self.assertEqual([(s["state"], s["reason"], s["outcome"], s["action"]) for s in steps],
+                         [("verifying", "awaiting_checks", "nothing", None), ("verifying", "awaiting_review", "admit", None),
+                          ("converged", "approval_due", "act", "issue_approval"), ("queued", "in_merge_queue", "nothing", None)])
+        self.assertEqual([s["now"] for s in steps], sorted(s["now"] for s in steps))
+        self.assertEqual(len({s["pass"] for s in steps}), len(steps))
+        for s in steps:
+            with self.subTest(step=s["pass"]):
+                ran = body("%s/actions/runs/%d" % (api, s["poller_run"]))
+                self.assertEqual((ran["path"], ran["conclusion"], ran["head_branch"]),
+                                 (".github/workflows/poller.yml", "success", "main"))
+                self.assertTrue(ran["created_at"] <= s["now"] <= ran["updated_at"], s)
+                held = [a for a in body("%s/actions/runs/%d/artifacts" % (api, s["poller_run"]))["artifacts"] if a["name"] == "pass"]
+                self.assertEqual([(a["id"], a["digest"], a["expired"]) for a in held], [(s["artifact"], s["digest"], False)])
+        # The review Run and the approving act are the Runs those passes admitted, by the name each carries: the item,
+        # its Intent, the Role and the Run's id, and for the act the content the Decision approved. Each succeeded.
+        admitted, acted = steps[1], steps[2]
+        self.assertEqual((event["review_run"]["run"], event["approving_run"]["run"]), (admitted["run"], acted["run"]))
+        item = "sf %s#%d" % (fixture["repo"], event["pull_request"])
+        for which, step, path, intent in (("review_run", admitted, "run.yml", "review-change"),
+                                          ("approving_run", acted, "approve.yml", "issue-approval")):
+            with self.subTest(run=which):
+                ran = body("%s/actions/runs/%d" % (api, event[which]["github_run"]))
+                self.assertEqual((ran["path"], ran["event"], ran["conclusion"], ran["run_attempt"]),
+                                 (".github/workflows/" + path, "workflow_dispatch", "success", 1))
+                name = ran["name"].split(" ")
+                self.assertEqual((" ".join(name[:2]), name[2], name[3], name[-1]), (item, intent, defaults["owner_role"], step["run"]))
+                self.assertLessEqual(step["now"], ran["created_at"])
+                names = [a["name"] for a in body("%s/actions/runs/%d/artifacts" % (api, event[which]["github_run"]))["artifacts"]]
+                self.assertEqual((names.count("outcome"), names.count("applied")), (1, 1))
+        act = body("%s/actions/runs/%d" % (api, event["approving_run"]["github_run"]))
+        self.assertEqual(act["name"].split(" ")[4], acted["content_id"])
+        self.assertTrue(act["created_at"] <= event["approval"]["at"] <= act["updated_at"])
+        review = body("%s/actions/runs/%d" % (api, event["review_run"]["github_run"]))
+        self.assertLessEqual(review["updated_at"], acted["now"])
+        self.assertLess(event["approval"]["at"], event["enqueued"]["at"])
+        self.assertLess(event["enqueued"]["at"], steps[-1]["now"])
+        self.assertLess(steps[-1]["now"], event["merged"]["at"])
+        # The status on the item, read back after the merge, is the last step's: its State and code, never a sentence.
+        status = body("%s/commits/%s/check-runs?check_name=%s" % (api, event["head"], defaults["status_on_item"]))
+        self.assertEqual(status["total_count"], 1)
+        shown, = status["check_runs"]
+        self.assertEqual((shown["name"], shown["conclusion"], shown["head_sha"], shown["output"]["title"]),
+                         (defaults["status_on_item"], "neutral", event["head"], "%s: %s" % (steps[-1]["state"], steps[-1]["reason"])))
+        said = dict(line.split(": ", 1) for line in shown["output"]["summary"].split("\n"))
+        self.assertEqual((said["pass"], said["release"]), (steps[-1]["pass"], event["release"]))
 
     def test_a_rollback_with_no_earlier_release_was_refused_and_moved_nothing(self):
         # Run 42405016612 asked a rollback on 2026-11-07 while factory/v0.1.0 was the one Release: the step was refused,

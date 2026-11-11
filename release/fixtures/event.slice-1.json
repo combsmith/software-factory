@@ -1,0 +1,927 @@
+{
+  "read": "slice 1's event, as GitHub answers of it afterwards: pull request 730 of combsmith/software-factory, which a Release on next reviewed and the machine user approved, and which merged through the queue; beside each pass whose Decision on its merged head differed from the pass before, as that pass's record holds it. Read through the Maintainer's gh login, writing nothing",
+  "ran_at": "2026-11-11T04:59:25Z",
+  "repo": "combsmith/software-factory",
+  "event": {
+    "pull_request": 730,
+    "head": "8fc5492746b7c88a73069e86c59d8d95e555e2ef",
+    "release": "factory/v0.1.6",
+    "release_commit": "48687f2a79b6f4091326a0fa88556d5795e8478a",
+    "review_run": {
+      "run": "r_E5STJHH7444RK8CD0GSW",
+      "github_run": 42954100593
+    },
+    "approving_run": {
+      "run": "r_30NM6EQZNDRTMQSS6Z3P",
+      "github_run": 42954498618
+    },
+    "approval": {
+      "review": 5853546913,
+      "by": "donpetry-bot",
+      "commit": "8fc5492746b7c88a73069e86c59d8d95e555e2ef",
+      "at": "2026-11-11T03:42:56Z"
+    },
+    "enqueued": {
+      "by": "don-petry",
+      "at": "2026-11-11T03:43:04Z"
+    },
+    "merged": {
+      "commit": "d9eeb542c1e88ba6999f4bf7620efc807121a6a9",
+      "at": "2026-11-11T03:57:41Z"
+    }
+  },
+  "steps": [
+    {
+      "pass": "p_KQ88EB3ZFFWPE132C4EK",
+      "now": "2026-11-11T03:26:49Z",
+      "release": "factory/v0.1.6",
+      "poller_run": 42952273146,
+      "artifact": 13824829359,
+      "digest": "sha256:a6de965387551d21737f54ed1b301f93cb510574a7098fc52a16faf201a49d59",
+      "state": "verifying",
+      "reason": "awaiting_checks",
+      "outcome": "nothing",
+      "action": null,
+      "attention": "review",
+      "run": null,
+      "content_id": null
+    },
+    {
+      "pass": "p_NANTVRFXGVRZ0YMK958X",
+      "now": "2026-11-11T03:38:29Z",
+      "release": "factory/v0.1.6",
+      "poller_run": 42953764561,
+      "artifact": 13825664068,
+      "digest": "sha256:c4ad8590e5e092512f464cb747befd1f59dd522a96b5d33112a0a5871b10f8df",
+      "state": "verifying",
+      "reason": "awaiting_review",
+      "outcome": "admit",
+      "action": null,
+      "attention": "review",
+      "run": "r_E5STJHH7444RK8CD0GSW",
+      "content_id": null
+    },
+    {
+      "pass": "p_3RBP88Z3BEKDSTMRXSDX",
+      "now": "2026-11-11T03:42:19Z",
+      "release": "factory/v0.1.6",
+      "poller_run": 42954327712,
+      "artifact": 13826716379,
+      "digest": "sha256:e9bd58cdf848a098387f0e2db7382c9e5bb23404f1ab22341e432e258bd76da2",
+      "state": "converged",
+      "reason": "approval_due",
+      "outcome": "act",
+      "action": "issue_approval",
+      "attention": "ready",
+      "run": "r_30NM6EQZNDRTMQSS6Z3P",
+      "content_id": "sha256:860a6960bdff0c97f64c56e5e489079e9ab2c68f35af05cb8ab5ff73f7806032"
+    },
+    {
+      "pass": "p_11GYAWVG130RGYV4Y1X1",
+      "now": "2026-11-11T03:45:08Z",
+      "release": "factory/v0.1.6",
+      "poller_run": 42954572505,
+      "artifact": 13826128637,
+      "digest": "sha256:3857a8b6f1c7b280cff35a2719468f957e846b8d069c6751a338f43452a6bf7d",
+      "state": "queued",
+      "reason": "in_merge_queue",
+      "outcome": "nothing",
+      "action": null,
+      "attention": "ready",
+      "run": null,
+      "content_id": null
+    }
+  ],
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/pulls/730 (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:25 GMT"
+        },
+        "body": {
+          "number": 730,
+          "state": "closed",
+          "merged": true,
+          "created_at": "2026-11-11T03:13:04Z",
+          "merged_at": "2026-11-11T03:57:41Z",
+          "merge_commit_sha": "d9eeb542c1e88ba6999f4bf7620efc807121a6a9",
+          "user": {
+            "login": "don-petry",
+            "type": "User"
+          },
+          "head": {
+            "sha": "8fc5492746b7c88a73069e86c59d8d95e555e2ef",
+            "ref": "claude/rulesets-record-the-switch"
+          },
+          "base": {
+            "ref": "main"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/pulls/730/commits (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:26 GMT"
+        },
+        "body": [
+          {
+            "sha": "d207d86745abbe6b253e81da70e0f8c9ec99a51f",
+            "commit": {
+              "committer": {
+                "date": "2026-11-11T02:24:43Z"
+              }
+            }
+          },
+          {
+            "sha": "a04c41906f95ee807227b3a248deaa9d1e7a6aae",
+            "commit": {
+              "committer": {
+                "date": "2026-11-11T02:48:51Z"
+              }
+            }
+          },
+          {
+            "sha": "924fb48674af0509ffa0a63dc5c9a39553797757",
+            "commit": {
+              "committer": {
+                "date": "2026-11-11T03:12:42Z"
+              }
+            }
+          },
+          {
+            "sha": "8fc5492746b7c88a73069e86c59d8d95e555e2ef",
+            "commit": {
+              "committer": {
+                "date": "2026-11-11T03:23:33Z"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/pulls/730/reviews (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:26 GMT"
+        },
+        "body": [
+          {
+            "id": 5853272862,
+            "user": {
+              "login": "cubic-dev-ai[bot]",
+              "type": "Bot"
+            },
+            "state": "COMMENTED",
+            "commit_id": "924fb48674af0509ffa0a63dc5c9a39553797757",
+            "submitted_at": "2026-11-11T03:17:13Z"
+          },
+          {
+            "id": 5853342554,
+            "user": {
+              "login": "don-petry",
+              "type": "User"
+            },
+            "state": "COMMENTED",
+            "commit_id": "8fc5492746b7c88a73069e86c59d8d95e555e2ef",
+            "submitted_at": "2026-11-11T03:23:51Z"
+          },
+          {
+            "id": 5853343088,
+            "user": {
+              "login": "don-petry",
+              "type": "User"
+            },
+            "state": "COMMENTED",
+            "commit_id": "8fc5492746b7c88a73069e86c59d8d95e555e2ef",
+            "submitted_at": "2026-11-11T03:23:54Z"
+          },
+          {
+            "id": 5853343543,
+            "user": {
+              "login": "don-petry",
+              "type": "User"
+            },
+            "state": "COMMENTED",
+            "commit_id": "8fc5492746b7c88a73069e86c59d8d95e555e2ef",
+            "submitted_at": "2026-11-11T03:23:56Z"
+          },
+          {
+            "id": 5853525067,
+            "user": {
+              "login": "combsmith-sf-pr-review[bot]",
+              "type": "Bot"
+            },
+            "state": "COMMENTED",
+            "commit_id": "8fc5492746b7c88a73069e86c59d8d95e555e2ef",
+            "submitted_at": "2026-11-11T03:40:33Z"
+          },
+          {
+            "id": 5853546913,
+            "user": {
+              "login": "donpetry-bot",
+              "type": "User"
+            },
+            "state": "APPROVED",
+            "commit_id": "8fc5492746b7c88a73069e86c59d8d95e555e2ef",
+            "submitted_at": "2026-11-11T03:42:56Z"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql --include)",
+        "headers": {},
+        "body": {
+          "query": "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){timelineItems(first:20,itemTypes:[ADDED_TO_MERGE_QUEUE_EVENT,REMOVED_FROM_MERGE_QUEUE_EVENT,MERGED_EVENT]){nodes{__typename ... on AddedToMergeQueueEvent{createdAt actor{login __typename} enqueuer{login}} ... on RemovedFromMergeQueueEvent{createdAt reason} ... on MergedEvent{createdAt actor{login __typename} commit{oid} mergeRefName}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory",
+            "n": 730
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:27 GMT"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "AddedToMergeQueueEvent",
+                      "createdAt": "2026-11-11T03:43:04Z",
+                      "actor": {
+                        "login": "don-petry",
+                        "__typename": "User"
+                      },
+                      "enqueuer": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "MergedEvent",
+                      "createdAt": "2026-11-11T03:57:41Z",
+                      "actor": {
+                        "login": "don-petry",
+                        "__typename": "User"
+                      },
+                      "commit": {
+                        "oid": "d9eeb542c1e88ba6999f4bf7620efc807121a6a9"
+                      },
+                      "mergeRefName": "main"
+                    },
+                    {
+                      "__typename": "RemovedFromMergeQueueEvent",
+                      "createdAt": "2026-11-11T03:57:41Z",
+                      "reason": "merged"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/git/ref/tags/factory/v0-next (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:27 GMT"
+        },
+        "body": {
+          "ref": "refs/tags/factory/v0-next",
+          "object": {
+            "sha": "48687f2a79b6f4091326a0fa88556d5795e8478a",
+            "type": "commit"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/git/ref/tags/factory/v0.1.6 (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:28 GMT"
+        },
+        "body": {
+          "ref": "refs/tags/factory/v0.1.6",
+          "object": {
+            "sha": "48687f2a79b6f4091326a0fa88556d5795e8478a",
+            "type": "commit"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/git/commits/48687f2a79b6f4091326a0fa88556d5795e8478a (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:28 GMT"
+        },
+        "body": {
+          "sha": "48687f2a79b6f4091326a0fa88556d5795e8478a",
+          "committer": {
+            "date": "2026-11-10T23:08:57Z"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/runs/42952273146 (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:28 GMT"
+        },
+        "body": {
+          "id": 42952273146,
+          "name": "sf-poller",
+          "path": ".github/workflows/poller.yml",
+          "event": "workflow_run",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-11-11T03:22:01Z",
+          "updated_at": "2026-11-11T03:27:00Z",
+          "head_branch": "main",
+          "run_attempt": 1
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/runs/42952273146/artifacts (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:29 GMT"
+        },
+        "body": {
+          "total_count": 2,
+          "artifacts": [
+            {
+              "id": 13825263112,
+              "name": "written",
+              "size_in_bytes": 498,
+              "digest": "sha256:5c986568108543f9ac57795aeba120735154e4d8791794b280d98c791a4d45d2",
+              "expired": false
+            },
+            {
+              "id": 13824829359,
+              "name": "pass",
+              "size_in_bytes": 8475,
+              "digest": "sha256:a6de965387551d21737f54ed1b301f93cb510574a7098fc52a16faf201a49d59",
+              "expired": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/runs/42953764561 (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:29 GMT"
+        },
+        "body": {
+          "id": 42953764561,
+          "name": "sf-poller",
+          "path": ".github/workflows/poller.yml",
+          "event": "workflow_run",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-11-11T03:35:29Z",
+          "updated_at": "2026-11-11T03:38:39Z",
+          "head_branch": "main",
+          "run_attempt": 1
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/runs/42953764561/artifacts (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:29 GMT"
+        },
+        "body": {
+          "total_count": 2,
+          "artifacts": [
+            {
+              "id": 13826501626,
+              "name": "written",
+              "size_in_bytes": 504,
+              "digest": "sha256:bf7ddb256f0b841b6395c7540e423ef0ed91d5ee9ec201e86b06716144a0ed20",
+              "expired": false
+            },
+            {
+              "id": 13825664068,
+              "name": "pass",
+              "size_in_bytes": 8842,
+              "digest": "sha256:c4ad8590e5e092512f464cb747befd1f59dd522a96b5d33112a0a5871b10f8df",
+              "expired": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/runs/42954327712 (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:30 GMT"
+        },
+        "body": {
+          "id": 42954327712,
+          "name": "sf-poller",
+          "path": ".github/workflows/poller.yml",
+          "event": "workflow_dispatch",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-11-11T03:40:43Z",
+          "updated_at": "2026-11-11T03:42:28Z",
+          "head_branch": "main",
+          "run_attempt": 1
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/runs/42954327712/artifacts (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:30 GMT"
+        },
+        "body": {
+          "total_count": 2,
+          "artifacts": [
+            {
+              "id": 13826830370,
+              "name": "written",
+              "size_in_bytes": 505,
+              "digest": "sha256:b8d9488d98bfd94e240590b9abe09d5ac9e3c2fbca068ab58cbeb955d29ada65",
+              "expired": false
+            },
+            {
+              "id": 13826716379,
+              "name": "pass",
+              "size_in_bytes": 8968,
+              "digest": "sha256:e9bd58cdf848a098387f0e2db7382c9e5bb23404f1ab22341e432e258bd76da2",
+              "expired": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/runs/42954572505 (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:31 GMT"
+        },
+        "body": {
+          "id": 42954572505,
+          "name": "sf-poller",
+          "path": ".github/workflows/poller.yml",
+          "event": "workflow_dispatch",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-11-11T03:43:05Z",
+          "updated_at": "2026-11-11T03:45:14Z",
+          "head_branch": "main",
+          "run_attempt": 1
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/runs/42954572505/artifacts (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:31 GMT"
+        },
+        "body": {
+          "total_count": 2,
+          "artifacts": [
+            {
+              "id": 13826652165,
+              "name": "written",
+              "size_in_bytes": 446,
+              "digest": "sha256:b91937785421d371373a915f8ccb502cd57b389aaec79f7a6ed5e653b2d10bae",
+              "expired": false
+            },
+            {
+              "id": 13826128637,
+              "name": "pass",
+              "size_in_bytes": 9055,
+              "digest": "sha256:3857a8b6f1c7b280cff35a2719468f957e846b8d069c6751a338f43452a6bf7d",
+              "expired": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/runs/42954100593 (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:32 GMT"
+        },
+        "body": {
+          "id": 42954100593,
+          "name": "sf combsmith/software-factory#730 review-change pr-review sha256:860a6960bdff0c97f64c56e5e489079e9ab2c68f35af05cb8ab5ff73f7806032 r_E5STJHH7444RK8CD0GSW",
+          "path": ".github/workflows/run.yml",
+          "event": "workflow_dispatch",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-11-11T03:38:33Z",
+          "updated_at": "2026-11-11T03:40:46Z",
+          "head_branch": "main",
+          "run_attempt": 1
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/runs/42954100593/artifacts (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:32 GMT"
+        },
+        "body": {
+          "total_count": 4,
+          "artifacts": [
+            {
+              "id": 13826785353,
+              "name": "outcome",
+              "size_in_bytes": 238,
+              "digest": "sha256:cda1d0695e555a32fa8e0ec675a43867b83664020583db78ebd5c49bb767da89",
+              "expired": false
+            },
+            {
+              "id": 13825992519,
+              "name": "result",
+              "size_in_bytes": 804,
+              "digest": "sha256:07af35d42b9259356a14e8b70d219c02707474eea9f03b8d1c2335f9326973d2",
+              "expired": false
+            },
+            {
+              "id": 13825987467,
+              "name": "verdict",
+              "size_in_bytes": 302,
+              "digest": "sha256:20e39ebec3c1bee6c649573d09ffa30d51af7fde667fa1692c7b3892751e3491",
+              "expired": false
+            },
+            {
+              "id": 13825439716,
+              "name": "applied",
+              "size_in_bytes": 345,
+              "digest": "sha256:0c0e3656903206cf211b40da9562d8468c1a453d09dd74bfba00dc84532e79f0",
+              "expired": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/runs/42954498618 (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:33 GMT"
+        },
+        "body": {
+          "id": 42954498618,
+          "name": "sf combsmith/software-factory#730 issue-approval pr-review sha256:860a6960bdff0c97f64c56e5e489079e9ab2c68f35af05cb8ab5ff73f7806032 r_30NM6EQZNDRTMQSS6Z3P",
+          "path": ".github/workflows/approve.yml",
+          "event": "workflow_dispatch",
+          "status": "completed",
+          "conclusion": "success",
+          "created_at": "2026-11-11T03:42:23Z",
+          "updated_at": "2026-11-11T03:43:08Z",
+          "head_branch": "main",
+          "run_attempt": 1
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/runs/42954498618/artifacts (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:33 GMT"
+        },
+        "body": {
+          "total_count": 2,
+          "artifacts": [
+            {
+              "id": 13826960102,
+              "name": "outcome",
+              "size_in_bytes": 238,
+              "digest": "sha256:aea3216b40d8ff0e3e7aeebaa2195fb4cf38d3e66986fb4b60b0758abc216cd6",
+              "expired": false
+            },
+            {
+              "id": 13826597411,
+              "name": "applied",
+              "size_in_bytes": 334,
+              "digest": "sha256:f4a2fca9d56018513d4844ef3436341da49d673a3840928859278cd68bbb9ba6",
+              "expired": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/commits/8fc5492746b7c88a73069e86c59d8d95e555e2ef/check-runs?check_name=factory (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 11 Nov 2026 04:59:33 GMT"
+        },
+        "body": {
+          "total_count": 1,
+          "check_runs": [
+            {
+              "id": 130300881780,
+              "name": "factory",
+              "status": "completed",
+              "conclusion": "neutral",
+              "head_sha": "8fc5492746b7c88a73069e86c59d8d95e555e2ef",
+              "started_at": "2026-11-11T03:26:55Z",
+              "completed_at": "2026-11-11T03:26:55Z",
+              "app": {
+                "slug": "combsmith-sf-controller"
+              },
+              "output": {
+                "title": "queued: in_merge_queue",
+                "summary": "attention: ready\noutcome: nothing\naction: null\nnext_actor: platform\ncontent_id: null\npass: p_11GYAWVG130RGYV4Y1X1\nrelease: factory/v0.1.6"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[*].response.headers: every header but content-type and date",
+    "exchanges[0..2].response.body: every field of the pull request, of each of its commits and of each review but those kept, each body and each URL among them",
+    "exchanges[3]: the query asks for the three kinds of timeline item that tell of the queue and the merge, and no other",
+    "exchanges[4..6].response.body: of a tag's ref and of the cut commit, every field but the ref, the sha, its type and the committer's date",
+    "exchanges[7..18].response.body: every field of a run but those kept, its head commit and its actor among them; and of each artifact every field but its id, name, size, digest and whether it expired",
+    "exchanges[19].response.body: every field of the check run but those kept",
+    "the files themselves: no pass record, outcome, applied, result or verdict is kept, only each artifact's id and digest. `steps` holds of each pass record its id, its time, its Release and its Decision on this pull request, as read from that artifact on the day; a pass whose Decision on the merged head was the pass before's is left out, and so is every pass on an earlier head"
+  ]
+}
