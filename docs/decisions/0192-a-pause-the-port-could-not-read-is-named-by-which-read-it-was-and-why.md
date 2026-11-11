@@ -1,6 +1,6 @@
 # 0192. A Pause the port could not read is named by which read it was and why
 
-Status: accepted. The Factory Builder's ruling of 2026-11-10, after slice 1's seventh dry run, on pull request 688, "AGENTS.md: say what is built; drop the model claim no check holds", stopped in the approving act at `pause_unreadable`: the first Run to say which read it was (decision 0187), and still not which of the Pause's two reads, or how it failed. It amends 0179's row "The parts", which were the snapshot's alone, and 0187's row "A part not as its schema holds it", for the Pause.
+Status: accepted. The Factory Builder's ruling of 2026-11-10, after slice 1's seventh dry run, on "AGENTS.md: say what is built; drop the model claim no check holds" (pull request 688), stopped in the approving act at `pause_unreadable`: the first Run to say which read it was (decision 0187), and still not which of the Pause's two reads, or how it failed. It amends 0179's row "The parts", which were the snapshot's alone, and 0187's row "A part not as its schema holds it", for the Pause.
 
 ## Decision
 
