@@ -214,7 +214,8 @@ def _began(transport, repo: str, github_id: int, attempt, done: bool) -> tuple:
     a start. Not whole: an answer that is no list of every job counted, each once, of the attempt the list gave, its runner a name or none, and in a
     status GitHub gives a job, a start that is no time, or a job not yet completed of a run that is, which an answer
     older than the list would give."""
-    answer = transport.send(request("GET", "/repos/%s/actions/runs/%d/jobs" % (repo, github_id), headers=FRESH))
+    answer = transport.send(request("GET", "/repos/%s/actions/runs/%d/jobs?per_page=%d" % (repo, github_id, PAGE),
+                                    headers=FRESH))
     body = answer["body"] if answer["status"] == 200 and isinstance(answer["body"], dict) else {}
     jobs = body.get("jobs")
     if not isinstance(jobs, list) or type(body.get("total_count")) is not int or body["total_count"] != len(jobs) \
