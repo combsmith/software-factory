@@ -121,6 +121,7 @@ POINT_RULE = ("tests.test_release.Points.test_a_point_is_decided_by_the_maintain
 POINT_TREE = ("tests.test_release.Points.test_the_check_reads_the_points_and_the_maintainer_of_the_tree_it_is_given",)
 POINT_FIRST = ("tests.test_release.Points.test_the_first_decision_point_is_of_slice_1s_event_and_its_count_is_read_against_the_designs_figure",)
 POINT_EACH = ("tests.test_release.Points.test_each_counter_example_is_wrong_in_its_one_way",)
+CANNOT_APPROVE = ("tests.test_release.Skill.test_when_the_factory_cannot_approve_the_skill_leaves_the_approval_to_the_maintainers_hand_and_runs_nothing",)
 BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_of_tests",)
 NAMED_MUTANTS = ("tests.test_tools.Decisions.test_a_new_or_changed_row_names_the_mutant_its_test_kills",)
 MAIN_ROWS = ("tests.test_tools.Decisions.test_a_row_main_holds_names_no_mutant_until_its_check_changes",)
@@ -13954,6 +13955,39 @@ MUTANTS = ISSUE + [
     ('the counter-example with no count has one', 'examples/invalid/decision-points.no-count.json',
      '    "starting_figure": 40,\n',
      '    "starting_figure": 40,\n    "merged": 387,\n', POINT_EACH),
+    # Decision 0194: when the Factory cannot or may not approve, the approval is the Maintainer's hand.
+    ('the skill hands over the approval before a rollback', '.claude/skills/cut-a-release/SKILL.md',
+     '2. **Roll `next` back.**',
+     '4. **Roll `next` back.**', CANNOT_APPROVE),
+    ('the skill hands over the approval while a Release can serve', '.claude/skills/cut-a-release/SKILL.md',
+     '3. **The hand approval.** Only when no Release can serve.',
+     '3. **The hand approval.**', CANNOT_APPROVE),
+    ('the skill lets a session approve', '.claude/skills/cut-a-release/SKILL.md',
+     'It approves nothing, signs in to no account, and sets no variable.',
+     'It signs in to no account, and sets no variable.', CANNOT_APPROVE),
+    ('the skill has a session set the Pause', '.claude/skills/cut-a-release/SKILL.md',
+     '1. **Pause.** The Maintainer sets the repo variable',
+     '1. **Pause.** Set the repo variable', CANNOT_APPROVE),
+    ('the skill has the Maintainer approve from any account', '.claude/skills/cut-a-release/SKILL.md',
+     'he approves the head by hand as the machine user',
+     'he approves the head by hand', CANNOT_APPROVE),
+    ('the skill gives the hand approval a stored token', '.claude/skills/cut-a-release/SKILL.md',
+     'It needs no Release, no Run and no stored token;',
+     "It needs the machine user's stored token;", CANNOT_APPROVE),
+    ('the skill needs no Pause for a change the Kernel takes out of the queue, whoever takes it out', '.claude/skills/cut-a-release/SKILL.md',
+     'is null, nothing carries that Decision out and no Pause is needed. Once it names an account,\nthe Maintainer sets the Pause before the enqueue and lifts it after the merge.',
+     'is null or not, no Pause is needed.', CANNOT_APPROVE),
+    ('the skill is silent on the alert a hand approval raises', '.claude/skills/cut-a-release/SKILL.md',
+     'The next pass raises the alert `write_unmatched` for it, since no Effect records\nit (decision 0061), and its merge',
+     'Its merge', CANNOT_APPROVE),
+    ('the skill prints the approval as a command in backticks', '.claude/skills/cut-a-release/SKILL.md',
+     'and his login enqueues it. It needs',
+     'and his login enqueues it: `gh pr review --approve`. It needs', CANNOT_APPROVE),
+    ('the skill prints the approval as a command in prose', '.claude/skills/cut-a-release/SKILL.md',
+     'and his login enqueues it. It needs',
+     'and his login enqueues it, or a session runs gh pr review --approve. It needs', CANNOT_APPROVE),
+    ('a queue account is named while the skill says a hand merge needs no Pause', 'config/controller.json',
+     '    "queue": null,\n', '    "queue": {"login": "combsmith-sf-queue[bot]", "id": 1, "type": "Bot"},\n', CANNOT_APPROVE),
     ('a repo and family served by two Channels passes', 'tools/check_release.py',
      '        if key in served and served[key] != line.get("channel"):',
      '        if False:', ('tests.test_release.Rings.test_no_repo_and_family_is_served_by_two_channels_and_both_are_of_one_major',)),

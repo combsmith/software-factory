@@ -1,6 +1,6 @@
 ---
 name: cut-a-release
-description: Cut a Release of the Factory, factory/vX.Y.Z, from main and move the next Channel to it, or roll next back to an earlier Release, through the release workflow and its eval gate. Use when a story or the Maintainer asks for a Release, a move of next, or a rollback, or to read why a cut was refused.
+description: Cut a Release of the Factory, factory/vX.Y.Z, from main and move the next Channel to it, or roll next back to an earlier Release, through the release workflow and its eval gate. Use when a story or the Maintainer asks for a Release, a move of next, or a rollback, to read why a cut was refused, or when a change must merge that the Factory cannot or may not approve.
 ---
 
 # Cut a Release
@@ -95,6 +95,39 @@ FR-49's 15 minutes.
 The fallback is the Maintainer's own admin login, at his terminal, which records itself as his act: one update of
 the `next` ref with `force`, then the same read-back. No dispatch input skips the eval gate; this is the only way
 past it, and it is his.
+
+## When the Factory cannot approve
+
+`main` merges only on a code owner's approval of the last push (decision 0191). The Maintainer authors every pull
+request, so the approval that counts is the machine user's, which the Factory's approving act gives. Two cases leave
+that act out, and the change still has to merge (decision 0194).
+
+**A change the Factory may not approve.** A change to a model Lens's input, `harness/` among them, waits in
+`model_lens_input_needs_person` whatever Release serves (decision 0052). Keep it small and alone in its pull request.
+No rollback helps it: it goes to the hand approval once `verify` is green and its threads are resolved. In the merge
+queue the Kernel's Decision on it is still to take it out, and only a Pause stops that. While `accounts.queue` in
+`config/controller.json` is null, nothing carries that Decision out and no Pause is needed. Once it names an account,
+the Maintainer sets the Pause before the enqueue and lifts it after the merge.
+
+**A Release that cannot approve.** Take these in order. The third is only for when the second cannot serve.
+
+1. **Pause.** The Maintainer sets the repo variable `FACTORY_PAUSED` to `true`. Read the next pass: its record holds
+   the Pause, and an item on which a Run or an act was due gives the code `paused`. Under a Pause the Factory admits
+   no Run, approves nothing, and puts nothing into the merge queue or takes it out.
+2. **Roll `next` back.** If an earlier Release served, the rollback above moves `next` to it, with no eval gate and
+   under the Pause. He lifts the Pause, and that Release reviews and approves the fix.
+3. **The hand approval.** Only when no Release can serve. The Pause stays while the fix merges and a Release is cut
+   from it: a cut he dispatches himself runs under a Pause, and here it does not wait for one to lift. He lifts the
+   Pause once `next` is on that Release.
+
+**The hand approval** is the Maintainer's alone: he approves the head by hand as the machine user, in a browser
+signed in to that account, and his login enqueues it. It needs no Release, no Run and no stored token; `verify` on
+the merge group is still required. The next pass raises the alert `write_unmatched` for it, since no Effect records
+it (decision 0061), and its merge may read `merged_by_override`. He matches the alert's entry, which names the
+review, to the approval he gave: that match is what tells his own act from another's use of the login.
+
+A session stops before the hand approval and hands him the steps: the pull request, its head, and the reads to make
+before and after. It approves nothing, signs in to no account, and sets no variable.
 
 ## Verify, then hand over
 
