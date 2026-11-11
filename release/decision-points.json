@@ -1,0 +1,20 @@
+{
+ "schema": "decision-points/1",
+ "points": [
+  {
+   "point": "first_release_on_next",
+   "release": "factory/v0.1.6",
+   "shown": {
+    "read_on": "2026-11-11",
+    "before": "2026-11-11T03:57:41Z",
+    "starting_figure": 40,
+    "merged": 387,
+    "the_maintainers": 387,
+    "touched_protected": 165
+   },
+   "decided": null,
+   "day": null,
+   "by": null
+  }
+ ]
+}
