@@ -14,6 +14,13 @@ only when every page was read, each run once, as many as the count GitHub gives,
 counted run's outcome read (L-53). A Run that did not succeed has its outcome read from its artifact by
 `adapters/artifacts.py`, once the list is final, and for no other Run (decisions 0039 and 0049): one it cannot read
 leaves the list not whole, so that no failed Run is ever read as no attempt.
+
+When a Run began is read from its jobs, for a caller that asks (decision 0193): `run_started_at` is the run's
+creation even while it waits in its item's lane (trials/P-44.json), and a job's `started_at` is its creation too until
+the job is `in_progress`, or `completed` with a runner named (trials/P-64.json). `began_at` is the earliest such start
+among the latest attempt's jobs, null for a completed Run none of whose jobs began, and absent where it has not begun
+or was not read. A start, once given, stands at every later read (P-64), so what the pass records before kept is not
+asked again, and no more than `JOBS` Runs are asked in one read: what is left unasked leaves the list not whole.
 """
 from __future__ import annotations
 
@@ -29,6 +36,7 @@ from kernel import terms
 PAGE = 100           # runs on one page of a workflow's list
 SERVED = 1000        # the most of a list's runs GitHub serves, however many it counts (L-53)
 WAIT = 5             # seconds before the one second read of a list holding an unidentified Run (decision 0036)
+JOBS = 50            # the most Runs whose jobs one read of the records asks for (decision 0193)
 NAME = re.compile(r"sf ([A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100})#([1-9][0-9]{0,8}) ([a-z][a-z-]{0,60}[a-z]) "
                   r"([a-z][a-z-]{0,60}[a-z]) (sha256:[0-9a-f]{4,64}) (r_[0-9A-Z]{6,26})")
 # The Intents a pull request's Runs carry, as kernel/decide.py admits them, and an issue's, as kernel/issue.py does.
@@ -50,6 +58,7 @@ CONCLUDED = {"item", "capacity", "environment", "superseded"}
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 HTTP_DATE = re.compile(r"(Mon|Tue|Wed|Thu|Fri|Sat|Sun), ([0-9]{2}) ([A-Z][a-z]{2}) ([0-9]{4}) "
                        r"([0-9]{2}:[0-9]{2}:[0-9]{2}) GMT")
+TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 
 
 def named(name: str):
@@ -187,6 +196,65 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
     return (record, None)
 
 
+def _time(value) -> bool:
+    """Whether `value` is a UTC time to the second on a day the calendar has, as a run record holds one."""
+    if not (isinstance(value, str) and TIME.fullmatch(value)):
+        return False
+    try:
+        datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return False
+    return True
+
+
+def _began(answer: dict, attempt, done: bool) -> tuple:
+    """`(found, whole)` from one read of a run's jobs: `found` is `{"began_at": time}`, the earliest start among the jobs
+    that are in progress, or completed with a runner named; `{"began_at": None}` for a run that is `done`, every job
+    of it completed and none begun; and `{}` where it has not begun yet or cannot be read. A job that waits gives its
+    creation as its start, and one cancelled or skipped while it waited ends with no runner (P-64, P-44): neither is
+    a start. Not whole: an answer that is no list of every job counted, each of the attempt the list gave, a start
+    that is no time, or a job not yet completed of a run that is, which an answer older than the list would give."""
+    body = answer["body"] if answer["status"] == 200 and isinstance(answer["body"], dict) else {}
+    jobs = body.get("jobs")
+    if not isinstance(jobs, list) or type(body.get("total_count")) is not int or body["total_count"] != len(jobs) \
+            or type(attempt) is not int or any(not isinstance(j, dict) or j.get("run_attempt") != attempt for j in jobs):
+        return {}, False
+    starts = [j.get("started_at") for j in jobs if j.get("status") == "in_progress"
+              or (j.get("status") == "completed" and isinstance(j.get("runner_name"), str) and j["runner_name"] != "")]
+    if not all(_time(start) for start in starts):
+        return {}, False
+    if starts:
+        return {"began_at": min(starts)}, True
+    if not done:
+        return {}, True
+    return ({"began_at": None}, True) if all(j.get("status") == "completed" for j in jobs) else ({}, False)
+
+
+def begun(previous: list) -> dict:
+    """When each Run began, as the pass records before this one read it from its jobs, by its Run id and when its
+    attempt started: the last two at most, the later's word where both give one. A time is kept for any Run, since a
+    job's start stands once given (P-64), and null for a completed Run alone, whose jobs change no more. A key a
+    record lists twice is kept from neither listing, and nothing is kept from a record that is not a `pass/1`
+    record's runs. A re-run starts again, at another time, and is asked afresh."""
+    def read(record) -> dict:
+        runs_ = record.get("runs") if isinstance(record, dict) else None
+        if not isinstance(runs_, list):
+            return {}
+        found, listed = {}, []
+        for r in runs_:
+            key = (r.get("run"), r.get("started_at")) if isinstance(r, dict) else (None, None)
+            if not all(isinstance(part, str) for part in key):
+                continue
+            listed.append(key)
+            if "began_at" in r and (_time(r["began_at"]) or (r["began_at"] is None and r.get("status") == "completed")):
+                found[key] = r["began_at"]
+        return {key: found[key] for key in found if listed.count(key) == 1}
+    kept = {}
+    for record in (list(previous[-2:]) if isinstance(previous, list) else []):
+        kept.update(read(record))
+    return kept
+
+
 def known(previous: list) -> dict:
     """The outcomes the pass records before this one read, each by its Run id and when its attempt started, from the
     records `controller/pass_.earlier` placed before the pass, held to `pass/1` by `controller/reads.previous_records`,
@@ -222,7 +290,7 @@ def known(previous: list) -> dict:
 
 
 def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, per_page: int = PAGE,
-         sleep=time.sleep, kept=None) -> dict:
+         sleep=time.sleep, kept=None, began=None, on=None) -> dict:
     """The run records of the Factory's Role workflows, the ids of counted Runs not yet named, whether the list was
     read whole, and each read's date and age for the pass record. `dispatcher` is the pass job's own token's account,
     by its id and type, `(id, "Bot")`: only a run it dispatched is a Run.
@@ -234,12 +302,18 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     outcome is listed, downloaded, so the pass record says how many outcomes a pass read. `github_ids` names each Run
     id's GitHub runs, which no run record holds, so that `adapters/applied.py` reads a Run's `applied/1` by the one
     GitHub run its name names (issue 338). Nothing calls `known` until
-    the pass's entry, the effects port's next part (#193), hands it the records it placed."""
+    the pass's entry, the effects port's next part (#193), hands it the records it placed.
+
+    `began` is what `begun` read from the pass records before, and None asks no job: no record then says when it
+    began. Given, each Run in progress or completed has its jobs read for `began_at` (`_began`), but one `began`
+    holds, for a row that names when its attempt started, once in this list; `on`, an item, asks only that item's
+    Runs, as a Run reading its own item does. A Run past the `JOBS` asked, or whose jobs cannot be read, has no
+    `began_at` and leaves the list not whole."""
     kept = kept or {}
     roles = {".github/workflows/%s" % name for name in workflows}
 
     def read() -> tuple:
-        records, unnamed, reads, whole, failed = [], [], [], True, []
+        records, unnamed, reads, whole, failed, ran = [], [], [], True, [], []
         attempts, ids = {}, {}
         for workflow in workflows:
             rows, got, complete = _list(transport, repo, workflow, branch, per_page)
@@ -258,15 +332,18 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
                     ids.setdefault(record["run"], []).append(row["id"])
                     if record["status"] == "completed" and record["conclusion"] != "success":
                         failed.append((record, row["id"], bool(row.get("run_started_at"))))
+                    if record["status"] != "queued":
+                        ran.append((record, row["id"], row.get("run_attempt"), bool(row.get("run_started_at"))))
                 if unidentified is not None:
                     unnamed.append(unidentified)
         return records, unnamed, reads, whole, [(r, i, timed and attempts[(r["run"], r["started_at"])] == 1)
-                                                for r, i, timed in failed], ids
+                                                for r, i, timed in failed], ids, [
+            (r, i, attempt, timed and attempts[(r["run"], r["started_at"])] == 1) for r, i, attempt, timed in ran]
 
-    records, unnamed, reads, whole, failed, ids = read()
+    records, unnamed, reads, whole, failed, ids, ran = read()
     if unnamed:
         sleep(WAIT)
-        records, unnamed, again, whole, failed, ids = read()
+        records, unnamed, again, whole, failed, ids, ran = read()
         reads += again
     for record, github_id, keyed in failed:
         if keyed and (record["run"], record["started_at"]) in kept:
@@ -276,4 +353,20 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
             transport, repo, github_id, record["run"],
             lambda answer: reads.append(dict(read_at(answer), read="outcome")))
         whole = whole and read_whole
+    asked = 0
+    for record, github_id, attempt, keyed in ran if began is not None else []:
+        if on is not None and record["item"] != on:
+            continue
+        if keyed and (record["run"], record["started_at"]) in began:
+            record["began_at"] = began[(record["run"], record["started_at"])]
+            continue
+        if asked == JOBS:
+            whole = False
+            continue
+        asked += 1
+        found, answered = _began(
+            transport.send(request("GET", "/repos/%s/actions/runs/%d/jobs" % (repo, github_id), headers=FRESH)),
+            attempt, record["status"] == "completed")
+        record.update(found)
+        whole = whole and answered
     return {"runs": records, "unidentified": unnamed, "complete": whole, "reads": reads, "github_ids": ids}
