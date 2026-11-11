@@ -1450,6 +1450,11 @@ class Records(unittest.TestCase):
         stale["response"]["body"]["workflow_runs"][1].update(status="in_progress", conclusion=None)
         got, asked = read(stale, jobs_read("P-64", 9, 701), jobs[3], began=kept)
         self.assertEqual(("began_at" in got["runs"][1], asked), (False, [701, 703]))
+        # What is kept is said of no Run the list gives as not yet started, which has no job asked either.
+        early = copy.deepcopy(rows)
+        early["response"]["body"]["workflow_runs"][0].update(status="queued", conclusion=None)
+        got, asked = read(early, jobs[3], began=kept)
+        self.assertEqual(("began_at" in got["runs"][0], asked), (False, [703]))
         # A re-run starts again, at another time, and a row that names no start of its attempt, or a key listed twice,
         # is asked whatever is kept.
         rerun = copy.deepcopy(rows)
@@ -1489,6 +1494,11 @@ class Records(unittest.TestCase):
                              (began[:2] + ["none", "none"], False, [700, 701]))
             rest, asked = read(rows, jobs[2], jobs[3], began=record(capped))
             self.assertEqual((rest["runs"], rest["complete"], asked), (first["runs"], True, [702, 703]))
+        # What is kept is still said of a Run listed after one the cap left unasked.
+        with mock.patch.object(records, "JOBS", 1):
+            got, asked = read(rows, jobs[0], began={k: v for k, v in kept.items() if k[0] == "r_000002Z"})
+            self.assertEqual(([r.get("began_at", "none") for r in got["runs"]], got["complete"], asked),
+                             ([began[0], "none", began[2], "none"], False, [700]))
 
     def test_a_status_or_a_conclusion_github_would_not_give_a_run_makes_the_list_short(self):
         self.assertEqual(self.read(listing("P-17", 3, rows={"name": NAME, "status": "waiting"}))[0]["runs"][0]["status"],
