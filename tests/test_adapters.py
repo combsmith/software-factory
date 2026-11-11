@@ -3189,8 +3189,8 @@ class DescriptionEdits(unittest.TestCase):
         # its editedAt and a deletedAt, and moves neither lastEditedAt nor the count, so the port reads the same time
         # before the deletion and after it, and refuses neither. Two later edits stood above it, so this holds the shape
         # the port is answered, not the time: test_the_last_edit_is_told_by_its_edited_at_never_its_created_at holds
-        # that a deleted node's time counts, on a shape no trial recorded, since the browser offered no deletion of the
-        # newest revision.
+        # that a deleted node's time counts, on a shape no trial recorded: the Maintainer found the browser to offer no
+        # deletion of the newest revision.
         canary101 = {"number": 101, "base": {"repo": {"full_name": canary()}}}
         before, after, later = exchanges("P-58.deleted")[2:]
         for found, time in ((before, "2026-11-10T20:48:14Z"), (after, "2026-11-10T20:48:14Z"), (later, "2026-11-10T23:13:57Z")):
