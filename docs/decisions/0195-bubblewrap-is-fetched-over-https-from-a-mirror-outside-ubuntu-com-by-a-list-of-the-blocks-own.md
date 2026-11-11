@@ -1,4 +1,4 @@
-# 0193. Bubblewrap is fetched over HTTPS from a mirror outside ubuntu.com, by a list of the block's own
+# 0195. Bubblewrap is fetched over HTTPS from a mirror outside ubuntu.com, by a list of the block's own
 
 Status: accepted. The Factory Builder's rulings of 2026-11-11 on "A Run's CLI install fails whole when the runner's Ubuntu mirror cannot be resolved" (issue 743), and on the reviewers' threads of the change that fixed it. It amends decision 0106's rows "The fix", "The exception to 'nothing is installed'" and "Its limits", where they name the source; the rest of each row stands: the scrub stays on, `tools/check_repo.py` is unchanged, and the `install` rule is met by the block being held word for word.
 
