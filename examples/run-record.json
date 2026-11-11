@@ -11,5 +11,6 @@
   "status": "completed",
   "conclusion": "success",
   "outcome": null,
-  "started_at": "2026-10-11T12:05:00Z"
+  "started_at": "2026-10-11T12:05:00Z",
+  "began_at": "2026-10-11T12:05:04Z"
 }
