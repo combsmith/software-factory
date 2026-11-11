@@ -1,6 +1,6 @@
 {
   "read": "slice 1's event, as GitHub answers of it afterwards: pull request 730 of combsmith/software-factory, the record of the ruleset switch, which a Release on next reviewed and the machine user approved, and which merged through the queue on that approval; beside each pass whose Decision on its merged head differed from the pass before, as that pass's record holds it. It is taken as the event because it is the pull request issue 198's rulings name for it, the switch's own record; it was not the first to merge on the approval: pull requests 726 and 729 did, minutes before. Read through the Maintainer's gh login, writing nothing",
-  "ran_at": "2026-11-11T05:26:57Z",
+  "ran_at": "2026-11-11T05:32:47Z",
   "repo": "combsmith/software-factory",
   "event": {
     "pull_request": 730,
@@ -124,7 +124,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:04 GMT"
+          "date": "Wed, 11 Nov 2026 05:32:55 GMT"
         },
         "body": {
           "id": 24886320,
@@ -181,6 +181,30 @@
           "name": "don-petry"
         },
         "via": "rest",
+        "call": "GET /repos/combsmith/software-factory (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 11 Nov 2026 05:32:55 GMT"
+        },
+        "body": {
+          "full_name": "combsmith/software-factory",
+          "default_branch": "main"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
         "call": "GET /repos/combsmith/software-factory/pulls/730 (gh api --include)",
         "headers": {
           "accept": "application/vnd.github+json"
@@ -190,7 +214,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:05 GMT"
+          "date": "Wed, 11 Nov 2026 05:32:56 GMT"
         },
         "body": {
           "number": 730,
@@ -229,7 +253,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:06 GMT"
+          "date": "Wed, 11 Nov 2026 05:32:56 GMT"
         },
         "body": [
           {
@@ -283,7 +307,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:07 GMT"
+          "date": "Wed, 11 Nov 2026 05:32:57 GMT"
         },
         "body": [
           {
@@ -370,7 +394,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:08 GMT"
+          "date": "Wed, 11 Nov 2026 05:32:58 GMT"
         },
         "body": {
           "data": {
@@ -430,7 +454,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:08 GMT"
+          "date": "Wed, 11 Nov 2026 05:32:59 GMT"
         },
         "body": {
           "ref": "refs/tags/factory/v0-next",
@@ -457,7 +481,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:09 GMT"
+          "date": "Wed, 11 Nov 2026 05:32:59 GMT"
         },
         "body": {
           "ref": "refs/tags/factory/v0.1.6",
@@ -484,7 +508,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:09 GMT"
+          "date": "Wed, 11 Nov 2026 05:33:00 GMT"
         },
         "body": {
           "sha": "48687f2a79b6f4091326a0fa88556d5795e8478a",
@@ -510,7 +534,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:10 GMT"
+          "date": "Wed, 11 Nov 2026 05:33:00 GMT"
         },
         "body": {
           "id": 42952273146,
@@ -542,7 +566,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:11 GMT"
+          "date": "Wed, 11 Nov 2026 05:33:02 GMT"
         },
         "body": {
           "total_count": 2,
@@ -579,7 +603,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:14 GMT"
+          "date": "Wed, 11 Nov 2026 05:33:02 GMT"
         },
         "body": {
           "id": 42953764561,
@@ -611,7 +635,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:14 GMT"
+          "date": "Wed, 11 Nov 2026 05:33:02 GMT"
         },
         "body": {
           "total_count": 2,
@@ -648,7 +672,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:15 GMT"
+          "date": "Wed, 11 Nov 2026 05:33:03 GMT"
         },
         "body": {
           "id": 42954327712,
@@ -680,7 +704,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:15 GMT"
+          "date": "Wed, 11 Nov 2026 05:33:04 GMT"
         },
         "body": {
           "total_count": 2,
@@ -717,7 +741,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:16 GMT"
+          "date": "Wed, 11 Nov 2026 05:33:04 GMT"
         },
         "body": {
           "id": 42954572505,
@@ -749,7 +773,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:16 GMT"
+          "date": "Wed, 11 Nov 2026 05:33:05 GMT"
         },
         "body": {
           "total_count": 2,
@@ -786,7 +810,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:19 GMT"
+          "date": "Wed, 11 Nov 2026 05:33:06 GMT"
         },
         "body": {
           "id": 42954100593,
@@ -818,7 +842,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:19 GMT"
+          "date": "Wed, 11 Nov 2026 05:33:07 GMT"
         },
         "body": {
           "total_count": 4,
@@ -867,7 +891,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:22 GMT"
+          "date": "Wed, 11 Nov 2026 05:33:10 GMT"
         },
         "body": {
           "id": 42954498618,
@@ -899,7 +923,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:22 GMT"
+          "date": "Wed, 11 Nov 2026 05:33:12 GMT"
         },
         "body": {
           "total_count": 2,
@@ -936,7 +960,7 @@
       "response": {
         "status": 200,
         "headers": {
-          "date": "Wed, 11 Nov 2026 05:27:24 GMT"
+          "date": "Wed, 11 Nov 2026 05:33:13 GMT"
         },
         "body": {
           "total_count": 1,
@@ -964,7 +988,7 @@
   ],
   "removed": [
     "exchanges[*].response.headers: every header but date",
-    "the ruleset's read: every field but its id, name, target, enforcement, the branches it covers, the time it was last changed and who may bypass it, and of its rules each one's type and the pull request rule's five values that say how an approval is counted",
+    "the repository's read: every field but its name and its default branch. The ruleset's read: every field but its id, name, target, enforcement, the branches it covers, the time it was last changed and who may bypass it, and of its rules each one's type and the pull request rule's five values that say how an approval is counted",
     "the pull request, its commits and its reviews: every field but those kept, each body and each URL among them",
     "the timeline's query asks for the three kinds of item that tell of the queue and the merge, and no other",
     "a tag's ref and the cut commit: every field but the ref, the sha, its type and the committer's date; `next` is read once, afterwards, and where it stood at each pass is that pass's own word",

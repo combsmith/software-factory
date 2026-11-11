@@ -495,6 +495,7 @@ class Fixture(unittest.TestCase):
         # It covers the default branch, which the pull request's base is, and leaves no branch out.
         self.assertEqual(ruleset["conditions"]["ref_name"], {"include": recorded["include"], "exclude": []})
         self.assertEqual(recorded["include"], ["~DEFAULT_BRANCH"])
+        self.assertEqual(body(api), {"full_name": REPO, "default_branch": pull["base"]["ref"]})
         self.assertEqual(counted, {k: recorded["rules"]["pull_request"][k] for k in counted})
         self.assertEqual((counted["required_approving_review_count"], counted["require_code_owner_review"],
                           counted["require_last_push_approval"], counted["dismiss_stale_reviews_on_push"]), (1, True, True, True))
