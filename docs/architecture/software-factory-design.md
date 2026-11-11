@@ -1068,10 +1068,11 @@ verify:
 reviewers: [coderabbit, cubic, gemini-code-assist, sonarqube-cloud]
 ```
 
-Its `protected_paths` are in the one syntax of `config/hooks.json`, matched by the one matcher the Kernel and the
-session hooks share: a final `/` is the directory and everything below it, `*` is any part of one name, `**` as a
-whole name any run of names, and case is ignored. `schemas/consumer.schema.json` holds them to it ("Consumer entry:
-its protected_paths in the hooks' syntax", issue 141).
+Its `protected_paths` are in the one syntax of `config/hooks.json`, read alike by the Kernel's matcher and the session
+hooks': a final `/` is the directory and everything below it, `*` is any part of one name, `**` as a
+whole name any run of names, and case is ignored. So `.github/*` leaves `.github/workflows/` open, and `CODEOWNERS`
+leaves `.github/CODEOWNERS`. They name the setup and test scripts. `schemas/consumer.schema.json` and
+`tools/check_examples.py` hold them to it ("Consumer entry: its protected_paths in the hooks' syntax", issue 141).
 
 Adopting the Factory is more than this entry. The repo also needs the two scripts, a ruleset that
 matches, the machine user as a code owner, and its Advisory reviewers configured. A **readiness
@@ -2188,7 +2189,7 @@ Run by `factory / verify` over the manifests and the authority table.
 - An Intent that decides a gate and owns no category of Finding, as the readiness Intent does, has a promotion record of its own before any Effect of it is applied.
 - A Role named `owner` of a category has a promotion record. A `shadow` Role's decision is never
   read by the gate.
-- Every Consumer entry names an owner Role, a setup command, a test command and protected paths.
+- Every Consumer entry names an owner Role, a setup script, a test script and protected paths that name both.
 
 The interaction matrix in §5.1 is generated from this data in the Factory repo. A stale copy fails
 the check.

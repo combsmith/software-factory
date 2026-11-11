@@ -4717,7 +4717,17 @@ MUTANTS = ISSUE + [
     ('a preflight case keeps no mark in the ledger', 'harness/eval/__init__.py',
      '                                alternates=beside, surplus=away, usages=spent)["cases"]]',
      '                                usages=spent)["cases"]]', ('tests.test_evals.EvalJob.test_a_preflight_case_keeps_its_marks_in_the_ledger_as_the_sets_do',)),
-    # Issue 141: a Consumer entry's protected paths are in the hooks' syntax, one at least, each once.
+    # Issue 141: a Consumer entry's protected paths are in the hooks' syntax, one at least, each once as written, and
+    # name its setup and test scripts.
+    ("a Consumer's script may be any string", 'schemas/consumer.schema.json',
+     '  "file": {\n   "type": "string",\n   "pattern": "^(?!.*(^|/)\\\\.{1,2}(/|$))[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$"\n  }',
+     '  "file": {\n   "type": "string"\n  }', ('tests.test_tools.Apps.test_a_consumer_entrys_protected_paths_are_in_the_hooks_syntax_and_read_by_one_matcher',)),
+    ("a Consumer entry may leave its scripts unprotected", 'tools/check_examples.py',
+     '        errors = errors or (_unprotected(value) if kind == "consumer" else [])\n', '', ('tests.test_tools.Apps.test_a_consumer_entrys_protected_paths_are_in_the_hooks_syntax_and_read_by_one_matcher',)),
+    ("a counter-example Consumer entry is not held to its scripts", 'tools/check_examples.py',
+     '        if kind == "consumer" and not errors:\n            errors = _unprotected(value)\n', '', ('tests.test_tools.Apps.test_a_consumer_entrys_protected_paths_are_in_the_hooks_syntax_and_read_by_one_matcher',)),
+    ("a Consumer entry protecting one of its scripts protects both", 'tools/check_examples.py',
+     'if not any(derive.matches(p, verify[k]) for p in verify["protected_paths"])]', 'if not any(derive.matches(p, verify[j]) for p in verify["protected_paths"] for j in ("setup", "test"))]', ('tests.test_tools.Apps.test_a_consumer_entrys_protected_paths_are_in_the_hooks_syntax_and_read_by_one_matcher',)),
     ("a Consumer's protected path may be in any syntax", 'schemas/consumer.schema.json',
      '"$ref": "hooks.schema.json#/$defs/path"', '"type": "string"', ('tests.test_tools.Apps.test_a_consumer_entrys_protected_paths_are_in_the_hooks_syntax_and_read_by_one_matcher',)),
     ("a Consumer may protect no path", 'schemas/consumer.schema.json',

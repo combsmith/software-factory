@@ -1234,6 +1234,18 @@ class Apps(unittest.TestCase):
         bad = copy.deepcopy(entry)
         del bad["verify"]["protected_paths"]
         self.assertTrue(jsonschema_lite.validate(bad, schemas["consumer"], schemas=schemas))
+        # Its setup and test scripts are among its protected paths, read by the Kernel's matcher, in an example as in a
+        # counter-example, or an author could weaken the tests it is judged by.
+        self.assertEqual(check_examples._unprotected(entry), [])
+        for paths, said in ((["scripts/factory-setup.sh"], "protects neither its own scripts/factory-test.sh"),
+                            (["CODEOWNERS"], "protects neither its own scripts/factory-setup.sh nor scripts/factory-test.sh"),
+                            (["scripts/*-setup.sh", "SCRIPTS/"], "")):
+            bad = copy.deepcopy(entry)
+            bad["verify"]["protected_paths"] = paths
+            self.assertEqual(check_examples._unprotected(bad), ["$.verify: " + said] if said else [], paths)
+        bad["verify"]["protected_paths"] = ["scripts/factory-setup.sh"]
+        root = clone({"examples/consumer.json": json.dumps(bad)})
+        self.assertTrue(caught(check_examples.run(root), "consumer.json: $.verify: protects neither its own scripts/factory-test.sh"))
         # Each the schema lets through is one the Kernel reads, and each the Kernel refuses the schema refuses too.
         for pattern in patterns + ["*/__init__.*", "a/**/b/", "**"]:
             self.assertTrue(derive.readable_pattern(pattern), pattern)
