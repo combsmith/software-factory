@@ -152,9 +152,10 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     """Everything the pass reads after the wait, as `pass_.run` takes it."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
-    kept = records.known(pass_.earlier(reads_.previous_records(previous), now) or [])
+    earlier = pass_.earlier(reads_.previous_records(previous), now) or []
     try:
-        runs = records.runs(transport, home, branch, run_files(controller), dispatcher(controller), kept=kept)
+        runs = records.runs(transport, home, branch, run_files(controller), dispatcher(controller),
+                            kept=records.known(earlier), began=records.begun(earlier))
     except Unanswered:
         runs = None
     try:
