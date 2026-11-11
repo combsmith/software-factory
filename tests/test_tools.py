@@ -1234,6 +1234,24 @@ class Apps(unittest.TestCase):
         bad = copy.deepcopy(entry)
         del bad["verify"]["protected_paths"]
         self.assertTrue(jsonschema_lite.validate(bad, schemas["consumer"], schemas=schemas))
+        # The rest of the entry is held whole too: each field there, each in its shape, nothing beside them.
+        for where, wrong in ((("repo",), "markets"), (("ring",), "canary"), (("owner_role",), "devops-"), (("ci_workflows",), []),
+                             (("ci_workflows",), ["CI", "CI"]), (("verify", "setup"), "/bin/sh"), (("verify", "test"), "../t.sh"),
+                             (("reviewers",), ["cubic", "cubic"]), (("reviewers",), ["Cubic"]), (("extra",), True),
+                             (("verify", "extra"), True)):
+            bad = copy.deepcopy(entry)
+            parent = bad
+            for key in where[:-1]:
+                parent = parent[key]
+            parent[where[-1]] = wrong
+            self.assertTrue(jsonschema_lite.validate(bad, schemas["consumer"], schemas=schemas), (where, wrong))
+        for where in (("repo",), ("ring",), ("owner_role",), ("ci_workflows",), ("verify",), ("reviewers",), ("verify", "setup"), ("verify", "test")):
+            bad = copy.deepcopy(entry)
+            parent = bad
+            for key in where[:-1]:
+                parent = parent[key]
+            del parent[where[-1]]
+            self.assertTrue(jsonschema_lite.validate(bad, schemas["consumer"], schemas=schemas), where)
         # Its setup and test scripts are among its protected paths, read by the Kernel's matcher, in an example as in a
         # counter-example, or an author could weaken the tests it is judged by.
         self.assertEqual(check_examples._unprotected(entry), [])
