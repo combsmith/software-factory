@@ -2168,10 +2168,11 @@ class Checks(unittest.TestCase):
                 n["detailsUrl"] = "https://github.com/combsmith/software-factory/actions/runs/%d/job/%d" % (1000 + i, i)
         got = checks.read(github.Replay([checks_answer(node)]), as_pull(node))
         self.assertEqual(len(got["checks"]), len([n for n in nodes if n["__typename"] == "CheckRun"]))
+        # P-32 asked no suite its conclusion, so none is given; each run's id is, as given above.
         self.assertEqual(got["checks"][0], {"name": "Analyze (actions)", "app_id": 15368, "workflow": None,
-                                            "conclusion": "success", "completed_at": "2026-10-20T00:51:22Z"})
-        self.assertIn({"name": "checks", "app_id": 15368, "workflow": ".github/workflows/verify.yml",
-                       "conclusion": "success", "completed_at": "2026-10-20T01:01:25Z"}, got["checks"])
+                                            "conclusion": "success", "completed_at": "2026-10-20T00:51:22Z", "run_id": 1001})
+        self.assertIn("checks", [c["name"] for c in got["checks"] if c["workflow"] == ".github/workflows/verify.yml"
+                                 and c["conclusion"] == "success" and c["completed_at"] == "2026-10-20T01:01:25Z"])
         self.assertEqual((got["complete"], got["queue"]), (True, True))
 
     def test_a_check_still_running_gives_its_status_and_no_time(self):
@@ -2187,6 +2188,42 @@ class Checks(unittest.TestCase):
                        {"checkSuite": {"app": {"databaseId": 1}, "workflowRun": {"file": "verify.yml"}}}):
             with self.assertRaises(github.Unanswered, msg=broken):
                 checks.check(dict(node, **broken))
+
+    def test_each_check_is_given_its_runs_id_and_its_suites_conclusion(self):  # issue 681, trials/P-65.json
+        # trials/P-65.json: the rollup asked as QUERY asks gives each check run its suite's conclusion and its workflow
+        # run's id. The port writes both, the conclusion null while the suite has not concluded, and the id null for a
+        # check no workflow ran: a cancelled run's failed judging check is told from a later run's on the same head.
+        self.assertIn("checkSuite { conclusion app { databaseId } workflowRun { databaseId file { path } } }", checks.QUERY)
+        trial = exchanges("P-65")[1]["response"]["body"]["data"]["repository"]["pullRequest"]
+        nodes = trial["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
+        got = [checks.check(n) for n in nodes]
+        mine = [c for c in got if c["run_id"] == 43034844965 and c["name"] == "p65 / verify"]
+        self.assertEqual([{k: c[k] for k in ("app_id", "workflow", "conclusion", "suite_conclusion")} for c in mine],
+                         [{"app_id": 15368, "workflow": ".github/workflows/p65-cancel.yml", "conclusion": "failure",
+                           "suite_conclusion": "cancelled"}])
+        verdicts = {(c["name"], c["run_id"]): (c["conclusion"], c["suite_conclusion"]) for c in got}
+        self.assertEqual(verdicts[("p65 / verify", 43035866555)], ("failure", "cancelled"))
+        self.assertEqual(verdicts[("p65 / verify", 43035042206)], ("success", "success"))
+        self.assertEqual(verdicts[("p65 / work", 43034844965)], ("cancelled", "cancelled"))
+        self.assertTrue(all("run_id" in c and "suite_conclusion" in c for c in got))
+        running = {"__typename": "CheckRun", "name": "verify", "conclusion": None, "status": "IN_PROGRESS", "completedAt": None,
+                   "checkSuite": {"conclusion": None, "app": {"databaseId": 15368}, "workflowRun": {"databaseId": 7, "file": None}}}
+        self.assertEqual((checks.check(running)["run_id"], checks.check(running)["suite_conclusion"]), (7, None))
+        apps = dict(running, checkSuite={"conclusion": "SUCCESS", "app": {"databaseId": 57789}, "workflowRun": None})
+        self.assertEqual((checks.check(apps)["run_id"], checks.check(apps)["suite_conclusion"]), (None, "success"))
+        # An answer that leaves one out, as a trial's recorded before QUERY asked it, leaves the field out; one given in
+        # any form but its own is refused, never read as none.
+        self.assertNotIn("suite_conclusion", checks.check(dict(running, checkSuite={"app": {"databaseId": 15368}, "workflowRun": None})))
+        self.assertNotIn("run_id", checks.check(dict(running, checkSuite={"conclusion": None, "app": {"databaseId": 15368},
+                                                                          "workflowRun": {"file": None}})))
+        # facts/1 holds them so: an id of 1 at least, a conclusion lower-cased, each counter-example refused.
+        from tools import check_examples
+        self.assertEqual([p for p in check_examples.run() if p.startswith(("facts.", "invalid/facts."))], [])
+        for suite in ({"conclusion": "cancelled now"}, {"conclusion": 1}, {"conclusion": ""},
+                      {"workflowRun": {"databaseId": 0, "file": None}}, {"workflowRun": {"databaseId": "7", "file": None}},
+                      {"workflowRun": {"databaseId": True, "file": None}}, {"workflowRun": {"databaseId": None, "file": None}}):
+            with self.assertRaises(github.Unanswered, msg=suite):
+                checks.check(dict(running, checkSuite=dict(running["checkSuite"], **suite)))
 
     def test_a_check_whose_app_github_does_not_show_reads_as_no_app(self):  # decision 0181, pull request 688
         # Another App's token is not shown a private App, such as the Controller's on its own check: GitHub gives that
