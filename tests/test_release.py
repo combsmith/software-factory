@@ -25,9 +25,9 @@ from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILL = ROOT / ".claude" / "skills" / "cut-a-release" / "SKILL.md"
-# The skill's section "When the Factory cannot approve", word for word (decision 0194): what it says of who approves,
+# The skill's section "When the Factory cannot approve", word for word (decision 0195): what it says of who approves,
 # and by what, changes only with this line.
-CANNOT_APPROVE_SHA256 = "1646dc151e34cc7491e7c852dbbac6be237550469d1b7f08d048c74dfe38b910"
+CANNOT_APPROVE_SHA256 = "6f75eb20f53061e10798a8a327666dbb8edee65718262749fbdd16f748677fa1"
 REPO = "combsmith/software-factory"
 A, B, C, D = ("a" * 40, "b" * 40, "c" * 40, "d" * 40)
 NEXT, STABLE = "factory/v0-next", "factory/v0-stable"
