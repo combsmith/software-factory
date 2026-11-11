@@ -478,6 +478,12 @@ App, so it is not taken for a check that was cancelled. A check run cannot be
 deleted, so it stays on that head, and only a push clears it. Every check from the Lens's own App is
 read, never the last alone: any that fails fails the Lens; failing none, any that gave no verdict
 leaves it unreadable; then any still running is a wait. The Lens passes only when every one passes.
+One exception, for a run stopped before it judged (issue 681, `trials/P-65.json`): a check from a
+run whose suite concluded `cancelled`, or `timed_out`, gives no verdict where another run of the
+Lens on the head has a suite that did not, finished or still running, never by which run is later,
+which no id tells; every run of it stopped, the Lens is unreadable; and a failing check whose suite
+has not concluded is a wait. The Lifecycle's stale limits bound a Lens that always stops or never
+concludes. A check that carries no run or no suite reads as above.
 The status on the item, the Controller's own check run, has one fixed name, `status_on_item` in the
 configuration, and `tools/check_authority.py` refuses it if it is a required Lens's name or its
 check's, deterministic or model, ignoring case and the space around it: it would speak for that Lens.
