@@ -356,8 +356,11 @@ jobs:
           echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c
           chmod 0755 /tmp/claude
           sudo mv /tmp/claude /usr/local/bin/claude
-          sudo apt-get update -q
-          sudo apt-get install -y --no-install-recommends bubblewrap
+          echo 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://archive.ubuntu.com/ubuntu noble main' > /tmp/ubuntu.list
+          echo 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://archive.ubuntu.com/ubuntu noble-updates main' >> /tmp/ubuntu.list
+          echo 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://security.ubuntu.com/ubuntu noble-security main' >> /tmp/ubuntu.list
+          sudo apt-get update -q -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2
+          sudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- bubblewrap
       - name: Read what the Task is built from
         id: read
         env:
@@ -720,8 +723,11 @@ CLI_INSTALL_RUN = ['url="https://downloads.claude.ai/claude-code-releases/${CLI_
                    'echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c',
                    "chmod 0755 /tmp/claude",
                    "sudo mv /tmp/claude /usr/local/bin/claude",
-                   "sudo apt-get update -q",
-                   "sudo apt-get install -y --no-install-recommends bubblewrap"]
+                   "echo 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://archive.ubuntu.com/ubuntu noble main' > /tmp/ubuntu.list",
+                   "echo 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://archive.ubuntu.com/ubuntu noble-updates main' >> /tmp/ubuntu.list",
+                   "echo 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://security.ubuntu.com/ubuntu noble-security main' >> /tmp/ubuntu.list",
+                   "sudo apt-get update -q -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2",
+                   "sudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- bubblewrap"]
 EVAL_JOB_KEYS = {"runs-on", "timeout-minutes", "permissions", "environment", "outputs", "steps"}
 # The job's one output, the sealed ledger's sha256, which the seal step alone sets, under the one id a step may take: the
 # Maintainer's ruling on issue 612 keeps it for whatever stores the ciphertext, once that is decided.
