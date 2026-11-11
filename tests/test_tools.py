@@ -13064,10 +13064,28 @@ class Rulesets(unittest.TestCase):
         self.main = self.rulesets["rulesets"]["main"]["rules"]
 
     def run_on(self) -> list:
+        # Beside the repo's own code owners, which the check reads once `main` counts an approval (decision 0192).
         return check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets), "config/apps.json": (ROOT / "config" / "apps.json").read_text(),
-                                        "config/defaults.json": json.dumps(self.defaults)}))
+                                        "config/defaults.json": json.dumps(self.defaults),
+                                        ".github/CODEOWNERS": (ROOT / ".github" / "CODEOWNERS").read_text()}))
 
     def test_this_repos_rulesets_agree_with_its_lenses(self):
+        self.assertEqual(self.run_on(), [])
+
+    def test_main_counts_the_machine_users_approval_as_the_switch_left_it(self):  # decision 0192
+        # Issue 198's switch was made on 2026-11-11, once a Release on `next` had reviewed a pull request and the
+        # machine user's approval had merged it through the queue. The record is of `main` as GitHub answered after it:
+        # one approval, a code owner's, of the last push, a stale one dismissed, no required reviewer, and nobody
+        # bypassing it. `tools/check_rulesets.py` holds the shape and would let a record that counts none through; a
+        # record that counts none again is the switch undone, a decision's to make and never an edit's.
+        main = self.rulesets["rulesets"]["main"]
+        review = main["rules"]["pull_request"]
+        self.assertEqual((review["required_approving_review_count"], review["require_code_owner_review"],
+                          review["require_last_push_approval"], review["dismiss_stale_reviews_on_push"],
+                          review["required_reviewers"], review["require_extra_approval_for_unattributed_changes"]),
+                         (1, True, True, True, [], False))
+        self.assertEqual((main["id"], main["enforcement"], main["bypass_actors"]), (24886320, "active", []))
+        # And the code owners whose approval it counts are the machine user's team on every path.
         self.assertEqual(self.run_on(), [])
 
     def test_no_branch_may_stand_where_a_channels_tag_should(self):  # decision 0124
