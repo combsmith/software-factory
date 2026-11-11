@@ -1382,6 +1382,8 @@ class Records(unittest.TestCase):
                 ("completed", jobs_read("P-64", 33, gid, started_at=None), {}),
                 ("completed", jobs_read("P-64", 9, gid), {}), ("completed", jobs_read("P-64", 18, gid), {}),
                 ("in_progress", jobs_read("P-64", 18, gid, status=None), {}),
+                ("in_progress", jobs_read("P-64", 18, gid, status=[]), {}),
+                ("in_progress", changed(18, total_count=0), {}),
                 ("in_progress", jobs_read("P-64", 9, gid, status="odd"), {})):
             record, whole = self.began(status, found, rows=rows)
             self.assertEqual(("began_at" in record, whole), (False, False), (status, found["response"], rows))
@@ -1403,7 +1405,9 @@ class Records(unittest.TestCase):
         names = [NAME.replace("r_01JA6Z", "r_%06dZ" % n).replace("#264", "#%d" % (265 if n == 0 else 264)) for n in range(4)]
         rows["response"]["body"].update(total_count=4, workflow_runs=[
             dict(template, id=700 + n, name=names[n], run_started_at="2026-10-21T0%d:00:00Z" % n) for n in range(4)])
-        jobs = [jobs_read("P-64", 33, 700 + n) for n in range(4)]
+        for row in rows["response"]["body"]["workflow_runs"][1:]:     # the item's Runs are in progress, the other's done
+            row.update(status="in_progress", conclusion=None)
+        jobs = [jobs_read("P-64", 33 if n < 1 else 18, 700 + n) for n in range(4)]
         item = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 264}
         with mock.patch.object(records, "JOBS", 2):
             sent = Recording(github.Replay([rows] + jobs[1:]))
@@ -1494,6 +1498,9 @@ class Records(unittest.TestCase):
                              (began[:2] + ["none", "none"], False, [700, 701]))
             rest, asked = read(rows, jobs[2], jobs[3], began=record(capped))
             self.assertEqual((rest["runs"], rest["complete"], asked), (first["runs"], True, [702, 703]))
+        # One Run's jobs that cannot be read leave the list not whole, whatever the Runs after it give.
+        got, asked = read(rows, dict(jobs[0], response=dict(jobs[0]["response"], status=404)), *jobs[1:], began={})
+        self.assertEqual(([r.get("began_at", "none") for r in got["runs"]], got["complete"]), (["none"] + began[1:] + ["none"], False))
         # What is kept is still said of a Run listed after one the cap left unasked.
         with mock.patch.object(records, "JOBS", 1):
             got, asked = read(rows, jobs[0], began={k: v for k, v in kept.items() if k[0] == "r_000002Z"})
