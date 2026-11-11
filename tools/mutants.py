@@ -9061,9 +9061,8 @@ MUTANTS = ISSUE + [
     ('a case with no facts is filled', 'harness/eval/__init__.py',
      '        if isinstance(case, dict) and "facts" in case:\n            case = dict(case, facts',
      '        if isinstance(case, dict):\n            case = dict(case, facts', ("tests.test_evals.EvalJob.test_a_case_whose_facts_are_not_current_says_so_by_a_code_alone",)),
-    # Decision 0106: the CLI runs with its scrub on, and the check that says so runs what the jobs hold.
-    # Issue 743: bubblewrap is fetched from Ubuntu's own hosts by a list of the block's own, never through the image's
-    # mirror list, whose Azure mirror stalls each lookup 20 s; the index is still held by Ubuntu's keyring.
+    # Issue 743: bubblewrap is fetched by a list of the block's own, from a mirror outside ubuntu.com, whose names the
+    # runners could not resolve on 2026-11-11, never through the image's mirror list; Ubuntu's keyring still holds the index.
     ("apt reads the image's mirror list", 'tools/check_workflows.py',
      '"sudo apt-get update -q -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2",',
      '"sudo apt-get update -q -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Acquire::Retries=2",', ('tests.test_tools.Workflows.test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome', 'tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone')),
@@ -9071,10 +9070,11 @@ MUTANTS = ISSUE + [
      '"sudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- bubblewrap"]',
      '"sudo apt-get install -y --no-install-recommends bubblewrap"]', ('tests.test_tools.Workflows.test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome', 'tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone')),
     ("the list is held by no keyring", 'tools/check_workflows.py',
-     '"echo \'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://archive.ubuntu.com/ubuntu noble main\' > /tmp/ubuntu.list",',
-     '"echo \'deb [trusted=yes] http://archive.ubuntu.com/ubuntu noble main\' > /tmp/ubuntu.list",', ('tests.test_tools.Workflows.test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome', 'tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone')),
-    ("apt retries nothing", 'tools/check_workflows.py',
+     '"echo \'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://mirrors.edge.kernel.org/ubuntu noble main\' > /tmp/ubuntu.list",',
+     '"echo \'deb [trusted=yes] http://mirrors.edge.kernel.org/ubuntu noble main\' > /tmp/ubuntu.list",', ('tests.test_tools.Workflows.test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome', 'tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone')),
+    ("apt retries at its default, 3", 'tools/check_workflows.py',
      '-o Dir::Etc::sourceparts=- -o Acquire::Retries=2",', '-o Dir::Etc::sourceparts=-",', ('tests.test_tools.Workflows.test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome', 'tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone')),
+    # Decision 0106: the CLI runs with its scrub on, and the check that says so runs what the jobs hold.
     ('the eval job installs no bubblewrap', 'tools/check_workflows.py',
      '"sudo apt-get update -q -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2",\n                   "sudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- bubblewrap"]',
      '"sudo apt-get update -q -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2"]', ("tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone",)),
