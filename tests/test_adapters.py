@@ -2209,6 +2209,8 @@ class Checks(unittest.TestCase):
         running = {"__typename": "CheckRun", "name": "verify", "conclusion": None, "status": "IN_PROGRESS", "completedAt": None,
                    "checkSuite": {"conclusion": None, "app": {"databaseId": 15368}, "workflowRun": {"databaseId": 7, "file": None}}}
         self.assertEqual((checks.check(running)["run_id"], checks.check(running)["suite_conclusion"]), (7, None))
+        first = dict(running, checkSuite=dict(running["checkSuite"], workflowRun={"databaseId": 1, "file": None}))
+        self.assertEqual(checks.check(first)["run_id"], 1)
         apps = dict(running, checkSuite={"conclusion": "SUCCESS", "app": {"databaseId": 57789}, "workflowRun": None})
         self.assertEqual((checks.check(apps)["run_id"], checks.check(apps)["suite_conclusion"]), (None, "success"))
         # An answer that leaves one out, as a trial's recorded before QUERY asked it, leaves the field out; one given in
@@ -2216,10 +2218,11 @@ class Checks(unittest.TestCase):
         self.assertNotIn("suite_conclusion", checks.check(dict(running, checkSuite={"app": {"databaseId": 15368}, "workflowRun": None})))
         self.assertNotIn("run_id", checks.check(dict(running, checkSuite={"conclusion": None, "app": {"databaseId": 15368},
                                                                           "workflowRun": {"file": None}})))
+        self.assertNotIn("run_id", checks.check(dict(running, checkSuite={"conclusion": None, "app": {"databaseId": 15368}})))
         # facts/1 holds them so: an id of 1 at least, a conclusion lower-cased, each counter-example refused.
         from tools import check_examples
         self.assertEqual([p for p in check_examples.run() if p.startswith(("facts.", "invalid/facts."))], [])
-        for suite in ({"conclusion": "cancelled now"}, {"conclusion": 1}, {"conclusion": ""},
+        for suite in ({"conclusion": "cancelled now"}, {"conclusion": "CANCELLED NOW"}, {"conclusion": 1}, {"conclusion": ""},
                       {"workflowRun": {"databaseId": 0, "file": None}}, {"workflowRun": {"databaseId": "7", "file": None}},
                       {"workflowRun": {"databaseId": True, "file": None}}, {"workflowRun": {"databaseId": None, "file": None}}):
             with self.assertRaises(github.Unanswered, msg=suite):

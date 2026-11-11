@@ -141,7 +141,7 @@ def check(node: dict) -> dict:
     # (trials/P-65.json, issue 681). QUERY asks both, so GitHub gives both; an answer that leaves one out, as a trial's
     # recorded before QUERY asked it, leaves the field out too, which the Kernel reads as no supersession at all (the
     # Factory Builder's ruling (B)). One given in any form but its own is refused, never read as none.
-    if run is None or "databaseId" in run:
+    if "workflowRun" in suite and (run is None or "databaseId" in run):
         run_id = run["databaseId"] if run else None
         if run is not None and not (type(run_id) is int and run_id > 0):
             raise Unanswered("a check run's workflow run's id cannot be read")
