@@ -1382,6 +1382,8 @@ class Records(unittest.TestCase):
                 ("completed", jobs_read("P-64", 33, gid, started_at=None), {}),
                 ("completed", jobs_read("P-64", 9, gid), {}), ("completed", jobs_read("P-64", 18, gid), {}),
                 ("in_progress", jobs_read("P-64", 18, gid, status=None), {}),
+                ("in_progress", jobs_read("P-64", 18, gid, status=[]), {}),
+                ("in_progress", changed(18, total_count=0), {}),
                 ("in_progress", jobs_read("P-64", 9, gid, status="odd"), {})):
             record, whole = self.began(status, found, rows=rows)
             self.assertEqual(("began_at" in record, whole), (False, False), (status, found["response"], rows))
@@ -1473,6 +1475,9 @@ class Records(unittest.TestCase):
                              (began[:2] + ["none", "none"], False, [700, 701]))
             rest, asked = read(rows, jobs[2], jobs[3], began=record(capped))
             self.assertEqual((rest["runs"], rest["complete"], asked), (first["runs"], True, [702, 703]))
+        # One Run's jobs that cannot be read leave the list not whole, whatever the Runs after it give.
+        got, asked = read(rows, dict(jobs[0], response=dict(jobs[0]["response"], status=404)), *jobs[1:], began={})
+        self.assertEqual(([r.get("began_at", "none") for r in got["runs"]], got["complete"]), (["none"] + began[1:] + ["none"], False))
         # What is kept is still said of a Run listed after one the cap left unasked.
         with mock.patch.object(records, "JOBS", 1):
             got, asked = read(rows, jobs[0], began={k: v for k, v in kept.items() if k[0] == "r_000002Z"})
@@ -1484,8 +1489,9 @@ class Records(unittest.TestCase):
         # pass records before hold, by Run id and when the attempt started, for the port not to ask again (0193).
         one = json.loads((ROOT / "examples" / "run-record.json").read_text())
         key, began = (one["run"], one["started_at"]), one["began_at"]
-        self.assertEqual(records.begun([{"runs": [one, dict(one, run="r_000001Z", began_at=None)]}]),
-                         {key: began, ("r_000001Z", one["started_at"]): None})
+        running = dict(one, run="r_000002Z", status="in_progress", conclusion=None)
+        self.assertEqual(records.begun([{"runs": [one, dict(one, run="r_000001Z", began_at=None), running]}]),
+                         {key: began, ("r_000001Z", one["started_at"]): None, ("r_000002Z", one["started_at"]): began})
         # The last two records are read; the earlier's word stands only for a Run the later does not list: one the
         # later lists with another beginning, with none, or twice, takes the later's word, or is asked afresh.
         older, newer = {"runs": [dict(one, began_at="2026-11-10T00:00:00Z")]}, {"runs": [one]}

@@ -221,7 +221,8 @@ def _began(transport, repo: str, github_id: int, attempt, done: bool) -> tuple:
             or type(attempt) is not int or any(not isinstance(j, dict) or type(j.get("run_attempt")) is not int
                                                or j["run_attempt"] != attempt for j in jobs):
         return {}, False
-    if any(j.get("status") not in JOB_STATUSES or (done and j["status"] != "completed") for j in jobs):
+    if any(not isinstance(j.get("status"), str) or j["status"] not in JOB_STATUSES
+           or (done and j["status"] != "completed") for j in jobs):
         return {}, False
     starts = [j.get("started_at") for j in jobs if j.get("status") == "in_progress"
               or (j.get("status") == "completed" and isinstance(j.get("runner_name"), str) and j["runner_name"] != "")]
