@@ -1445,6 +1445,8 @@ class Records(unittest.TestCase):
             self.assertEqual(read({}, [item(264)], jobs[1], unread)[:2], (["none", began, "none", "none", "none"], False))
             # No item given asks no job, of a list that is whole; none said asks every Run, to the cap.
             self.assertEqual(read({}, []), (["none"] * 5, True, []))
+            # An issue of the same repo and number is another item: none of the pull request's Runs is asked.
+            self.assertEqual(read({}, [dict(item(264), type="issue")]), (["none"] * 5, True, []))
             self.assertEqual(read({}, None, jobs[0], jobs[1]), ([began, began, "none", "none", "none"], False, ["700", "701"]))
 
     def test_when_a_run_began_is_asked_once_and_kept(self):
