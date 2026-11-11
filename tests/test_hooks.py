@@ -3873,9 +3873,14 @@ class RulesChanged(unittest.TestCase):
         # What the Kernel is given: the model Lens's own inputs, then each person-only path, once; and with no model
         # Lens named, the person-only paths still.
         self.assertEqual(protected.model_lens_inputs(["pr-review"]), own + persons)
-        self.assertEqual(protected.model_inputs_of(held, []), persons)
         both = protected.parse(json.dumps(dict(data, person_only=data["person_only"] + [{"path": own[0], "is": "x"}])))
         self.assertEqual(protected.model_inputs_of(both, ["pr-review"]), own + persons)
+        twice = protected.parse(json.dumps(dict(data, person_only=data["person_only"] + [dict(data["person_only"][0], **{"is": "x"})])))
+        self.assertEqual(protected.model_inputs_of(twice, ["pr-review"]), own + persons)
+        # Where no model Lens's input is named the Kernel is given nothing, and defers on that as it did (decision
+        # 0052): a person-only path never stands in for one, so the two files disagreeing on a Lens's name is not passed.
+        for models in ([], ["no-such-lens"], ["verify"][:0]):
+            self.assertEqual(protected.model_inputs_of(held, models), [], models)
         # Each is protected too, so an edit is asked of the person, and a Role's push may not touch it, once.
         for path in persons:
             self.assertIn(path, [p for p, _ in held["protected"]])
@@ -3888,6 +3893,7 @@ class RulesChanged(unittest.TestCase):
         # A list that is there and is no list of at least one path and what it is, is not the shape the hooks read.
         for value in ([], None, "release/", {}, ["release/x.json"], [{"path": "release/x.json"}], [{"is": "x"}],
                       [{"path": "", "is": "x"}], [{"path": 5, "is": "x"}],
+                      [{"path": "release/x.json", "is": ""}], [{"path": "release/x.json", "is": 5}], [{"path": "release/x.json", "is": None}],
                       [{"path": "release/../x.json", "is": "x"}], [{"path": "release/**", "is": "x"}],
                       [{"path": "release\\x.json", "is": "x"}], [{"path": "release/\x00x.json", "is": "x"}]):
             with self.subTest(person_only=value):

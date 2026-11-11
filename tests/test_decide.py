@@ -4314,11 +4314,15 @@ class TheFactorysOwnRules(unittest.TestCase):
                 d = go(dict(f, reviews=[review(kind="human", name="a-colleague")]), REVIEWED)
                 self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approval_due", "issue_approval"))
             # The Maintainer's own change to it: his approval is its author's, and the machine user's is nobody's, so
-            # the Factory never converges it. It merges by his hand, outside the Factory (decision 0194).
+            # on those the Factory never converges it, and it merges by his hand, outside the Factory (decision 0194).
             own = changing(changed_paths=[path])
             for reviews in ([], [review()], [review(kind="human", name="don-petry")],
                             [review(), review(kind="human", name="don-petry")]):
                 self.waits_for_a_person(dict(own, reviews=reviews))
+            # Another person's approval passes it, his own change too: the rule is 0052's, any person with write
+            # access but the author and the last pusher, and not the Maintainer's alone.
+            d = go(dict(own, reviews=[review(kind="human", name="a-colleague")]), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approval_due", "issue_approval"))
             # In the merge queue on the machine user's approval, it is taken out; a person's approval keeps it there.
             d = go(dict(own, queue=True, reviews=[review()]), REVIEWED)
             self.assertEqual((d["reason"], d["action"]), ("model_lens_input_needs_person", "dequeue"))

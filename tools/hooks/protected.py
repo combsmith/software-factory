@@ -238,7 +238,8 @@ def parse(text: str) -> dict:
     paths = protected + reported + persons
     words = [p for p, _ in paths] + [branch] + [w for group in lists.values() for v in group.values() for w in v]
     words += [lens for lens, _, _ in inputs] + [w for v in sessions.values() for w in v]
-    if not protected or not inputs or ("person_only" in data and not persons) or not all(sessions.values()) or not all(
+    if not protected or not inputs or ("person_only" in data and not persons) or not all(
+            isinstance(what, str) and what for _, what in persons) or not all(sessions.values()) or not all(
             isinstance(w, str) and w for w in words) or any(".." in p.split("/") for p, _ in paths):
         raise Unreadable("config/hooks.json does not have the shape the hook reads")
     # Where a command writes below a directory, Rules.where reads each name of a path as one name, so a `**` there would
@@ -275,9 +276,12 @@ def model_lens_inputs(models: list, path: pathlib.Path = ROOT / "config" / "hook
 
 
 def model_inputs_of(data: dict, models: list) -> list:
-    """model_lens_inputs() of data load() or parse() read: the model Lenses' inputs, then the person-only paths."""
+    """model_lens_inputs() of data load() or parse() read: the model Lenses' inputs, then the person-only paths, each
+    once. Where no model Lens's input is named the list is empty, on which the Kernel defers (decision 0052): a
+    person-only path never stands in for one."""
     own = [p for lens, p, _ in data["lens_inputs"] if lens in models]
-    return own + [p for p, _ in data["person_only"] if p not in own]
+    persons = [p for p in dict.fromkeys(p for p, _ in data["person_only"]) if p not in own]
+    return own + persons if own else []
 
 
 def push_of(data: dict, models: list) -> list:
