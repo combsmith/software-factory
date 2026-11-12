@@ -4139,33 +4139,40 @@ class Workflows(unittest.TestCase):
             self.assertTrue(caught(check_workflows.shim_problems("other.yml", "name: x\non:\n  pull_request:\njobs:\n" + text),
                                    "which only queue-job.yml names"), text)
 
-    def test_the_cli_install_reads_only_signed_sources_over_https_by_its_own_list(self):  # issue 743, decision 0106
-        # Bubblewrap is fetched as root, so the block is held to what it may say, not to words it may not: three sources
-        # of Ubuntu's, each held by Ubuntu's keyring and read over HTTPS, written to the block's own list; and two apt
+    def test_the_cli_install_reads_only_signed_sources_over_https_by_its_own_list(self):  # issues 743 and 774, decision 0106
+        # Bubblewrap is fetched as root, so the block is held to what it may say, not to words it may not: Ubuntu's
+        # sources, each held by Ubuntu's keyring and read over HTTPS, written to the block's own list; and two apt
         # lines that read that list alone, never the image's mirror list, each with exactly the options it is given:
         # retries capped and each connection's wait bounded (a name that never resolves is not, which the step's own
         # timeout ends). Read from the one block both workflows hold word for word.
         import shlex
         block = check_workflows.CLI_INSTALL_RUN
-        self.assertEqual(len(block), 10)
+        self.assertEqual(len(block), 8)
         self.assertEqual(block[:5], ['url="https://downloads.claude.ai/claude-code-releases/${CLI_VERSION}/linux-x64/claude"',
                                      "curl -sSfL --proto '=https' --proto-redir '=https' -o /tmp/claude \"${url}\"",
                                      'echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c', "chmod 0755 /tmp/claude",
                                      "sudo mv /tmp/claude /usr/local/bin/claude"])
-        # The mirror is the one record 0106's amendment names, matched literally; the first line starts the list and the
-        # others add to it, so nothing an earlier step left in it is read (cubic, on #748).
-        source = re.compile(r"echo 'deb \[signed-by=/usr/share/keyrings/ubuntu-archive-keyring\.gpg\] "
-                            r"https://mirrors\.edge\.kernel\.org/ubuntu (noble|noble-updates|noble-security) main' (>>?) /tmp/ubuntu\.list")
-        found = [source.fullmatch(line) for line in block[5:8]]
-        self.assertTrue(all(found), block[5:8])
-        self.assertEqual(sorted(m.group(1) for m in found), ["noble", "noble-security", "noble-updates"])
-        self.assertEqual([m.group(2) for m in found], [">", ">>", ">>"])
-        given = ["Dir::Etc::sourcelist=/tmp/ubuntu.list", "Dir::Etc::sourceparts=-", "Acquire::Retries=2", "Acquire::https::Timeout=10"]
-        for line, words in ((block[8], ["sudo", "apt-get", "update", "-q"]), (block[9], ["sudo", "apt-get", "install", "-y", "--no-install-recommends"])):
+        # One line writes the whole list, so nothing an earlier step left in it is read: each of Ubuntu's three suites
+        # from each of two mirrors of different operators, named literally, each held by Ubuntu's keyring over HTTPS
+        # (issue 774; cubic, on #748). Either mirror unreachable, apt warns and takes the package from the other (the
+        # canary repo's trial run 43141154752; record 0197).
+        # Byte for byte, so no quoting, escape or line break can pass for the redirection or a source (Carbon).
+        self.assertEqual(block[5], "printf '%s\\n' " + " ".join(
+            "'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://%s/ubuntu %s main'" % (host, suite)
+            for host in ("azure.archive.ubuntu.com", "mirrors.edge.kernel.org")
+            for suite in ("noble", "noble-updates", "noble-security")) + " > /tmp/ubuntu.list")
+        # The update tries each mirror once, since the other mirror is its retry, so a stalled name cannot spend the
+        # step's three minutes on retries; the install keeps two. The update's exit is not the step's: one mirror that
+        # answers an error, not a lost connection, makes it exit 100 though the other's index is good, and apt keeps no
+        # index it could not verify, so the install still fails closed with no package to take (issue 774).
+        self.assertTrue(block[6].endswith(" || true"), block[6])
+        given = ["Dir::Etc::sourcelist=/tmp/ubuntu.list", "Dir::Etc::sourceparts=-", "Acquire::Retries=%d", "Acquire::https::Timeout=10"]
+        for line, words, retries in ((block[6][:-len(" || true")], ["sudo", "apt-get", "update", "-q"], 0),
+                                     (block[7], ["sudo", "apt-get", "install", "-y", "--no-install-recommends"], 2)):
             said = shlex.split(line)
             options = [said[k + 1] for k, w in enumerate(said) if w == "-o"]
             rest = [w for k, w in enumerate(said) if w != "-o" and (k == 0 or said[k - 1] != "-o")]
-            self.assertEqual(options, given, line)
+            self.assertEqual(options, [g.replace("%d", str(retries)) for g in given], line)
             self.assertEqual(rest, words + (["bubblewrap"] if "install" in words else []), line)
 
     def test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome(self):
