@@ -122,6 +122,8 @@ POINT_TREE = ("tests.test_release.Points.test_the_check_reads_the_points_and_the
 POINT_FIRST = ("tests.test_release.Points.test_the_first_decision_point_is_of_slice_1s_event_and_its_count_is_read_against_the_designs_figure",)
 POINT_EACH = ("tests.test_release.Points.test_each_counter_example_is_wrong_in_its_one_way",)
 CANNOT_APPROVE = ("tests.test_release.Skill.test_when_the_factory_cannot_approve_the_skill_leaves_the_approval_to_the_maintainers_hand_and_runs_nothing",)
+PERSON_KERNEL = ("tests.test_decide.TheFactorysOwnRules.test_a_change_to_a_path_only_a_person_decides_waits_for_a_person",)
+PERSON_READ = ("tests.test_hooks.RulesChanged.test_a_path_only_a_person_decides_is_read_with_the_lists_and_given_after_a_model_lenss_inputs",)
 BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_of_tests",)
 NAMED_MUTANTS = ("tests.test_tools.Decisions.test_a_new_or_changed_row_names_the_mutant_its_test_kills",)
 MAIN_ROWS = ("tests.test_tools.Decisions.test_a_row_main_holds_names_no_mutant_until_its_check_changes",)
@@ -9346,8 +9348,8 @@ MUTANTS = ISSUE + [
      '    "run_unreadable", "model_lens_input_needs_person",\n',
      '    "run_unreadable",\n', ('tests.test_decide.TheFactorysOwnRules.test_a_change_to_a_model_lenss_own_input_waits_for_a_person',)),
     ("every Lens's input is a model Lens's", 'tools/hooks/protected.py',
-     '    return [p for lens, p, _ in data["lens_inputs"] if lens in models]\n',
-     '    return [p for lens, p, _ in data["lens_inputs"]]\n', ('tests.test_decide.TheFactorysOwnRules.test_a_change_to_a_model_lenss_own_input_waits_for_a_person',)),
+     '    own = [p for lens, p, _ in data["lens_inputs"] if lens in models]\n',
+     '    own = [p for lens, p, _ in data["lens_inputs"]]\n', ('tests.test_decide.TheFactorysOwnRules.test_a_change_to_a_model_lenss_own_input_waits_for_a_person',)),
     ('a held-out case of another hash is read', 'adapters/heldout.py',
      '    if hashlib.sha256(data).hexdigest() != entry["sha256"]:\n        return None, "hash_differs"\n',
      '', ('tests.test_adapters.Heldout.test_a_held_out_case_not_read_whole_says_why',)),
@@ -14357,6 +14359,43 @@ MUTANTS = ISSUE + [
     ('the skill leaves the queue to itself under a Pause', '.claude/skills/cut-a-release/SKILL.md',
      ' What else is in the\n   queue is then his to stop: read the queue before the Pause is set, and each pass while it stands.',
      '', CANNOT_APPROVE),
+    # Decision 0200: a path only a person decides, listed apart from a Lens's inputs and given to the Kernel after them.
+    ('a path only a person decides is not given to the Kernel', 'tools/hooks/protected.py',
+     '    return own + persons if own else []\n',
+     '    return own\n', PERSON_KERNEL),
+    ('a path on both lists is given to the Kernel twice', 'tools/hooks/protected.py',
+     ' if p not in own]\n    return own + persons',
+     ']\n    return own + persons', PERSON_READ),
+    ("the person-only paths are given before a model Lens's inputs", 'tools/hooks/protected.py',
+     '    return own + persons if own else []\n',
+     '    return persons + own if own else []\n', PERSON_READ),
+    ('a file with no person-only list cannot be read', 'tools/hooks/protected.py',
+     ' if "person_only" in data else []\n',
+     '\n', PERSON_READ),
+    ('a person-only list of nothing is read as none', 'tools/hooks/protected.py',
+     ' or ("person_only" in data and not persons)',
+     '', PERSON_READ),
+    ('the hooks hand on no person-only path', 'tools/hooks/protected.py',
+     '"lens_inputs": inputs, "person_only": persons,',
+     '"lens_inputs": inputs, "person_only": [],', PERSON_READ),
+    ("a path listed twice as a person's is given to the Kernel twice", 'tools/hooks/protected.py',
+     'dict.fromkeys(p for p, _ in data["person_only"])',
+     '[p for p, _ in data["person_only"]]', PERSON_READ),
+    ("a person-only path stands in where no model Lens's input is named", 'tools/hooks/protected.py',
+     '    return own + persons if own else []\n',
+     '    return own + persons\n', PERSON_READ),
+    ('a person-only path may say nothing of what it is', 'tools/hooks/protected.py',
+     ' or not all(\n            isinstance(what, str) and what for _, what in persons)',
+     '', PERSON_READ),
+    ('a person-only path need not be protected', 'tools/hooks/protected.py',
+     ' or not all(\n            p in [q for q, _ in protected] for p, _ in persons)',
+     '', PERSON_READ),
+    ('only the first person-only path is given to the Kernel', 'tools/hooks/protected.py',
+     'dict.fromkeys(p for p, _ in data["person_only"])',
+     'dict.fromkeys(p for p, _ in data["person_only"][:1])', PERSON_READ),
+    ('the person-only list names another protected path, and not the decision points', 'config/hooks.json',
+     '    {"path": "release/decision-points.json", "is": "the Maintainer\'s continue or stop: a decision no Lens judges"}',
+     '    {"path": "config/apps.json", "is": "the Maintainer\'s continue or stop: a decision no Lens judges"}', PERSON_KERNEL),
     ('a repo and family served by two Channels passes', 'tools/check_release.py',
      '        if key in served and served[key] != line.get("channel"):',
      '        if False:', ('tests.test_release.Rings.test_no_repo_and_family_is_served_by_two_channels_and_both_are_of_one_major',)),
