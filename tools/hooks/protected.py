@@ -209,7 +209,7 @@ def load(path: pathlib.Path = ROOT / "config" / "hooks.json") -> dict:
     """The data the hook asks from. Raises Unreadable when it is missing or has not the shape the hook reads.
 
     A Lens's input is reported, as a stop lists it, and never asked about: `lens_inputs` keeps each with its Lens.
-    `person_only` is each path only a person decides (decision 0195), or none where the file has no such list, as
+    `person_only` is each path only a person decides (decision 0200), or none where the file has no such list, as
     a commit before that decision has none.
     """
     try:
@@ -269,7 +269,7 @@ def protected_of(data: dict) -> list:
 def model_lens_inputs(models: list, path: pathlib.Path = ROOT / "config" / "hooks.json") -> list:
     """What the Kernel is given as `model_lens_inputs`: each Lens's input whose Lens is one of `models`, the model
     Lenses config/defaults.json names, as a pattern in the one syntax of config/hooks.json, and then each path only a
-    person decides, which no Lens reads (decision 0195). The same list as protected_paths, read by the same load(),
+    person decides, which no Lens reads (decision 0200). The same list as protected_paths, read by the same load(),
     so the two never drift: a change to one of these converges only once a person has approved its head as well
     (issue 140). Raises Unreadable as load() does."""
     return model_inputs_of(load(path), models)

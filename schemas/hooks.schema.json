@@ -106,7 +106,7 @@
       }
     },
     "person_only": {
-      "description": "Each path only a person decides, which no Lens reads, in the syntax of the paths above. The Kernel is given them after the model Lenses' own inputs, as model_lens_inputs: a change to one converges only once a person other than its author and last pusher has approved its head (decision 0195). A file with no such list names none.",
+      "description": "Each path only a person decides, which no Lens reads, in the syntax of the paths above. The Kernel is given them after the model Lenses' own inputs, as model_lens_inputs: a change to one converges only once a person other than its author and last pusher has approved its head (decision 0200). A file with no such list names none.",
       "$ref": "#/$defs/paths"
     },
     "merging": {

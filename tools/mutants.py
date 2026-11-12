@@ -14276,7 +14276,7 @@ MUTANTS = ISSUE + [
     ('the skill leaves the queue to itself under a Pause', '.claude/skills/cut-a-release/SKILL.md',
      ' What else is in the\n   queue is then his to stop: read the queue before the Pause is set, and each pass while it stands.',
      '', CANNOT_APPROVE),
-    # Decision 0195: a path only a person decides, listed apart from a Lens's inputs and given to the Kernel after them.
+    # Decision 0200: a path only a person decides, listed apart from a Lens's inputs and given to the Kernel after them.
     ('a path only a person decides is not given to the Kernel', 'tools/hooks/protected.py',
      '    return own + persons if own else []\n',
      '    return own\n', PERSON_KERNEL),

@@ -3864,7 +3864,7 @@ class RulesChanged(unittest.TestCase):
             broken.write_text(json.dumps(dict(data, lens_inputs=value)))
             self.assertRaises(protected.Unreadable, protected.load, broken)
 
-    def test_a_path_only_a_person_decides_is_read_with_the_lists_and_given_after_a_model_lenss_inputs(self):  # decision 0195
+    def test_a_path_only_a_person_decides_is_read_with_the_lists_and_given_after_a_model_lenss_inputs(self):  # decision 0200
         data = json.loads((ROOT / "config" / "hooks.json").read_text())
         held = protected.load()
         self.assertEqual(held["person_only"], [(e["path"], e["is"]) for e in data["person_only"]])

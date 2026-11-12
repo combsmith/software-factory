@@ -4243,7 +4243,7 @@ class TheFactorysOwnRules(unittest.TestCase):
     # Issue 140: with one model family, the only judge of a change to a model Lens's own inputs that is not the Lens is a
     # person. The review still counts, and none suffices.
     OWN = [e["path"] for e in HOOKS["lens_inputs"] if e["lens"] in CONFIG["required_lenses"]["model"]]
-    # Decision 0195: the paths only a person decides, which no Lens reads, given to the Kernel after a model Lens's own.
+    # Decision 0200: the paths only a person decides, which no Lens reads, given to the Kernel after a model Lens's own.
     PERSONS = [e["path"] for e in HOOKS["person_only"]]
 
     def waits_for_a_person(self, f, runs=REVIEWED, cfg=None):
@@ -4300,7 +4300,7 @@ class TheFactorysOwnRules(unittest.TestCase):
         # The job's modules stay on the list, through the Harness (decision 0052).
         self.assertEqual(self.waits_for_a_person(changing(**AGENT, changed_paths=["harness/eval/run.py"]))["evidence"], ["harness/"])
 
-    def test_a_change_to_a_path_only_a_person_decides_waits_for_a_person(self):  # decision 0195
+    def test_a_change_to_a_path_only_a_person_decides_waits_for_a_person(self):  # decision 0200
         self.assertEqual(self.PERSONS, ["release/decision-points.json"])
         for path in self.PERSONS:
             self.assertNotIn(path, self.OWN)
@@ -4314,7 +4314,7 @@ class TheFactorysOwnRules(unittest.TestCase):
                 d = go(dict(f, reviews=[review(kind="human", name="a-colleague")]), REVIEWED)
                 self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approval_due", "issue_approval"))
             # The Maintainer's own change to it: his approval is its author's, and the machine user's is nobody's, so
-            # on those the Factory never converges it, and it merges by his hand, outside the Factory (decision 0194).
+            # on those the Factory never converges it, and it merges by his hand, outside the Factory (decision 0198).
             own = changing(changed_paths=[path])
             for reviews in ([], [review()], [review(kind="human", name="don-petry")],
                             [review(), review(kind="human", name="don-petry")]):
