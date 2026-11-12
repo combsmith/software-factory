@@ -8,6 +8,7 @@ import contextlib
 import copy
 import datetime
 import email.utils
+import hashlib
 import io
 import json
 import pathlib
@@ -24,6 +25,9 @@ from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILL = ROOT / ".claude" / "skills" / "cut-a-release" / "SKILL.md"
+# The skill's section "When the Factory cannot approve", word for word (decision 0198): what it says of who approves,
+# and by what, changes only with this line.
+CANNOT_APPROVE_SHA256 = "29fcbc9374f77f49fc0bd45d81107ec13497b48320a5add6d8676918527b1fda"
 REPO = "combsmith/software-factory"
 A, B, C, D = ("a" * 40, "b" * 40, "c" * 40, "d" * 40)
 NEXT, STABLE = "factory/v0-next", "factory/v0-stable"
@@ -328,6 +332,7 @@ class Fixture(unittest.TestCase):
     SEVENTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-6.json"
     EIGHTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-7.json"
     NINTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-8.json"
+    TENTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-9.json"
     ROLLBACK = ROOT / "release" / "fixtures" / "rollback.refused.json"
     EVENT = ROOT / "release" / "fixtures" / "event.slice-1.json"
 
@@ -455,7 +460,8 @@ class Fixture(unittest.TestCase):
         # had passed, #717's merge, after the fifth and the sixth; run 43026745268 cut factory/v0.1.7 on 2026-11-11 at
         # the commit eval run 43024260112 had passed, #731's merge, after the seventh; run 43110557016 cut factory/v0.1.8
         # on 2026-11-11 at the commit eval run 43107717326 had passed, #748's merge, after the runners' Ubuntu mirrors stopped
-        # resolving (#743).
+        # resolving (#743); run 43173763017 cut factory/v0.1.9 on 2026-11-12 at the commit eval run 43171810453 had passed,
+        # #775's merge, which fetches the CLI's sandbox from two mirrors (#774).
         for path, eval_run, earlier in ((self.NEXT_CUT, 42694638100, [self.CUT]),
                                         (self.THIRD_CUT, 42739717534, [self.NEXT_CUT, self.CUT]),
                                         (self.FOURTH_CUT, 42753588971, [self.THIRD_CUT, self.NEXT_CUT, self.CUT]),
@@ -472,7 +478,11 @@ class Fixture(unittest.TestCase):
                                           self.THIRD_CUT, self.NEXT_CUT, self.CUT]),
                                         (self.NINTH_CUT, 43107717326,
                                          [self.EIGHTH_CUT, self.SEVENTH_CUT, self.SIXTH_CUT, self.FIFTH_CUT,
-                                          self.FOURTH_CUT, self.THIRD_CUT, self.NEXT_CUT, self.CUT])):
+                                          self.FOURTH_CUT, self.THIRD_CUT, self.NEXT_CUT, self.CUT]),
+                                        (self.TENTH_CUT, 43171810453,
+                                         [self.NINTH_CUT, self.EIGHTH_CUT, self.SEVENTH_CUT, self.SIXTH_CUT,
+                                          self.FIFTH_CUT, self.FOURTH_CUT, self.THIRD_CUT, self.NEXT_CUT,
+                                          self.CUT])):
             with self.subTest(cut=path.name):
                 self.a_later_cut_moved_next_on(path, eval_run, earlier)
 
@@ -1001,6 +1011,36 @@ class Skill(unittest.TestCase):
         self.assertEqual(sorted(commands), sorted(plans + dispatches))
         for command in commands:
             self.assertNotRegex(command, r"auth token|--show-token|\.pem|git (tag|push)|-X |--method")
+
+    def test_when_the_factory_cannot_approve_the_skill_leaves_the_approval_to_the_maintainers_hand_and_runs_nothing(self):
+        text = SKILL.read_text()
+        section = text[text.index("## When the Factory cannot approve"):text.index("## Verify, then hand over")]
+        # A Release that cannot approve: the Pause, the rollback, the hand approval last, and no other step or bullet.
+        items = re.findall(r"^[ \t]*([0-9]+[.)]|[-*+])[ \t]+(.*)$", section, re.M)
+        self.assertEqual([mark for mark, _ in items], ["1.", "2.", "3."])
+        self.assertEqual([said.split("**")[1] for _, said in items], ["Pause.", "Roll `next` back.", "The hand approval."])
+        self.assertIn("3. **The hand approval.** Only when no Release can serve.", section)
+        # The Pause is a person's, the approval is the Maintainer's hand as the machine user, and no token is stored.
+        self.assertIn("1. **Pause.** The Maintainer sets the repo variable `FACTORY_PAUSED` to `true`.", section)
+        self.assertIn("he approves the head by hand as the machine user, in a browser\nsigned in to that account", section)
+        self.assertIn("It needs no Release, no Run and no stored token;", section)
+        self.assertIn("A session stops before the hand approval and hands him the steps", section)
+        self.assertIn("It approves nothing, signs in to no account, and sets no variable.", section)
+        # A change the Factory may not approve is taken out of the queue by the Kernel's own Decision; the section
+        # says when a Pause is needed for it, on either side of the day a queue account is named.
+        self.assertIn("While `accounts.queue` in\n`config/controller.json` is null, nothing carries that Decision out", section)
+        self.assertIn("Once it names an account,\nthe Maintainer sets the Pause before the enqueue", section)
+        # A hand approval alarms, the section says so, and every entry of the alert is read while it stands.
+        self.assertIn("The next pass raises the alert `write_unmatched` for it", section)
+        self.assertIn("so every entry is read for as long as it stands", section)
+        self.assertIn("The match clears nothing else", section)
+        self.assertIn("No session rotates or revokes the token.", section)
+        # It gives nothing to run, in a fence, an indented block or a span; and beyond these, word for word it is the
+        # text this file names, so a command put in any other way, or any other change, fails here until it is read.
+        self.assertNotRegex(section, r"```|~~~|``")
+        self.assertIsNone(re.search(r"^(?: {4}|\t)", section, re.M))
+        self.assertEqual([span for span in re.findall(r"`([^`]*)`", section) if re.search(r"\s", span)], [])
+        self.assertEqual(hashlib.sha256(section.encode()).hexdigest(), CANNOT_APPROVE_SHA256)
 
 
 if __name__ == "__main__":

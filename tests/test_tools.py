@@ -1158,6 +1158,34 @@ class Authority(unittest.TestCase):
         self.assertTrue(caught(problems, "needs a Role as owner") and caught(problems, "cannot shadow itself"))
 
 
+class Acceptance(unittest.TestCase):
+    def test_an_acceptance_contracts_protected_paths_are_in_the_hooks_syntax_and_read_alike(self):  # issue 740
+        # A contract's protected paths are config/hooks.json's own paths (decision 0020): the schema holds each to that
+        # syntax, and the Kernel's matcher and the session hooks' read each alike.
+        self.assertEqual([p for p in check_examples.run(ROOT) if "acceptance" in p], [])
+        schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text()) for p in (ROOT / "schemas").glob("*.schema.json")}
+        contract = json.loads((ROOT / "examples" / "acceptance.json").read_text())
+        patterns = contract["protected_paths"]
+        for wrong in ([], ["/acceptance/512.json"], ["../acceptance/512.json"], ["tests//a.py"], ["./a.py"], ["tests/a?.py"],
+                      ["tests/{a,b}.py"], ["a b.py"], [""], [1], "acceptance/512.json"):
+            bad = copy.deepcopy(contract)
+            bad["protected_paths"] = wrong
+            self.assertTrue(validate(bad, schemas["acceptance"], schemas=schemas), wrong)
+        # Each the schema lets through is one the Kernel reads, and each the Kernel refuses the schema refuses too.
+        for pattern in patterns:
+            self.assertTrue(derive.readable_pattern(pattern), pattern)
+        for pattern in ("/acceptance/512.json", "../acceptance/512.json", "tests//a.py", "./a.py"):
+            self.assertFalse(derive.readable_pattern(pattern), pattern)
+        hooks = protected.entries([(p, "") for p in patterns])
+        for path, want in (("acceptance/512.json", ["acceptance/512.json"]), ("ACCEPTANCE/512.JSON", ["acceptance/512.json"]),
+                           ("tests/acceptance/test_availability.py", ["tests/acceptance/test_availability.py"]),
+                           ("acceptance/513.json", []), ("tests/acceptance/test_availability.pyc", []), ("x/acceptance/512.json", []),
+                           ("tests/acceptance/fixtures/a.json", ["tests/acceptance/**/fixtures/"]),
+                           ("tests/acceptance/x/y/Fixtures", ["tests/acceptance/**/fixtures/"]), ("tests/fixtures/a.json", [])):
+            self.assertEqual([p for p in patterns if derive.matches(p, path)], want, path)
+            self.assertEqual([p for p, _, _, whole in hooks if whole.match(path.casefold())], want, path)
+
+
 class Apps(unittest.TestCase):
     def setUp(self):
         self.table = json.loads((ROOT / "config" / "apps.json").read_text())
@@ -1216,6 +1244,72 @@ class Apps(unittest.TestCase):
         self.assertEqual([p for p in check_examples.run(ROOT) if "machine-user" in p], [])
         names = {path.name for path in (ROOT / "examples" / "invalid").glob("machine-user.*.json")}
         self.assertEqual(len(names), 6)
+
+    def test_a_consumer_entrys_protected_paths_are_in_the_hooks_syntax_and_read_by_one_matcher(self):  # issue 141
+        # A Consumer entry's protected paths are config/hooks.json's own paths (decision 0020): the schema holds each
+        # to that syntax and refuses a list with none, and the Kernel and the session hooks read each alike.
+        from tools import jsonschema_lite
+        from tools.hooks import protected
+        self.assertEqual([p for p in check_examples.run(ROOT) if "consumer" in p], [])
+        schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text()) for p in (ROOT / "schemas").glob("*.schema.json")}
+        entry = json.loads((ROOT / "examples" / "consumer.json").read_text())
+        patterns = entry["verify"]["protected_paths"]
+        for wrong in ([], ["CODEOWNERS", "CODEOWNERS"], ["/CODEOWNERS"], ["scripts/factory-?.sh"], ["../CODEOWNERS"],
+                      ["docs//CODEOWNERS"], ["./CODEOWNERS"], ["scripts/{a,b}.sh"], ["C:\\scripts"]):
+            bad = copy.deepcopy(entry)
+            bad["verify"]["protected_paths"] = wrong
+            self.assertTrue(jsonschema_lite.validate(bad, schemas["consumer"], schemas=schemas), wrong)
+        bad = copy.deepcopy(entry)
+        del bad["verify"]["protected_paths"]
+        self.assertTrue(jsonschema_lite.validate(bad, schemas["consumer"], schemas=schemas))
+        # The rest of the entry is held whole too: each field there, each in its shape, nothing beside them.
+        for where, wrong in ((("repo",), "markets"), (("ring",), "canary"), (("owner_role",), "devops-"), (("ci_workflows",), []),
+                             (("ci_workflows",), ["CI", "CI"]), (("ci_workflows",), [""]), (("verify", "setup"), "/bin/sh"),
+                             (("verify", "test"), "../t.sh"), (("verify", "test"), "scripts/factory-*.sh"),
+                             (("reviewers",), ["cubic", "cubic"]), (("reviewers",), ["Cubic"]), (("reviewers",), []), (("extra",), True),
+                             (("owner_role",), None), (("repo",), 1), (("reviewers",), "cubic"), (("ci_workflows",), "CI"),
+                             (("verify",), "scripts/"), (("verify", "protected_paths"), "CODEOWNERS"), (("verify", "setup"), 1),
+                             (("verify", "extra"), True)):
+            bad = copy.deepcopy(entry)
+            parent = bad
+            for key in where[:-1]:
+                parent = parent[key]
+            parent[where[-1]] = wrong
+            self.assertTrue(jsonschema_lite.validate(bad, schemas["consumer"], schemas=schemas), (where, wrong))
+        for where in (("repo",), ("ring",), ("owner_role",), ("ci_workflows",), ("verify",), ("reviewers",), ("verify", "setup"), ("verify", "test")):
+            bad = copy.deepcopy(entry)
+            parent = bad
+            for key in where[:-1]:
+                parent = parent[key]
+            del parent[where[-1]]
+            self.assertTrue(jsonschema_lite.validate(bad, schemas["consumer"], schemas=schemas), where)
+        # Its setup and test scripts are among its protected paths, read by the Kernel's matcher, in an example as in a
+        # counter-example, or an author could weaken the tests it is judged by.
+        self.assertEqual(check_examples._unprotected(entry), [])
+        for paths, said in ((["scripts/factory-setup.sh"], "does not protect its own scripts/factory-test.sh"),
+                            (["CODEOWNERS"], "protects neither its own scripts/factory-setup.sh nor scripts/factory-test.sh"),
+                            (["scripts/factory-test.sh"], "does not protect its own scripts/factory-setup.sh"),
+                            (["scripts/*-setup.sh", "SCRIPTS/"], "")):
+            bad = copy.deepcopy(entry)
+            bad["verify"]["protected_paths"] = paths
+            self.assertEqual(check_examples._unprotected(bad), ["$.verify: " + said] if said else [], paths)
+        bad["verify"]["protected_paths"] = ["scripts/factory-setup.sh"]
+        root = clone({"examples/consumer.json": json.dumps(bad)})
+        self.assertTrue(caught(check_examples.run(root), "consumer.json: $.verify: does not protect its own scripts/factory-test.sh"))
+        # Each the schema lets through is one the Kernel reads, and each the Kernel refuses the schema refuses too.
+        for pattern in patterns + ["*/__init__.*", "a/**/b/", "**"]:
+            self.assertTrue(derive.readable_pattern(pattern), pattern)
+        for pattern in ("/CODEOWNERS", "../CODEOWNERS", "docs//CODEOWNERS", "./CODEOWNERS"):
+            self.assertFalse(derive.readable_pattern(pattern), pattern)
+        # One matcher: what the Kernel finds each path to be, the session hooks find it to be, in any case.
+        hooks = protected.entries([(p, "") for p in patterns])
+        for path, want in (("scripts/factory-setup.sh", ["scripts/factory-setup.sh"]), ("SCRIPTS/Factory-Test.sh", ["scripts/factory-test.sh"]),
+                           (".github/workflows/ci.yml", [".github/"]), (".github", [".github/"]), ("CODEOWNERS", ["CODEOWNERS"]),
+                           ("tests/conftest.py", ["tests/**/conftest.py"]),
+                           ("tests/a/b/conftest.py", ["tests/**/conftest.py"]), ("poetry.lock", ["**/*.lock"]),
+                           ("a/b/poetry.lock", ["**/*.lock"]), ("docs/CODEOWNERS", ["docs/CODEOWNERS"]), ("scripts/other.sh", []), (".githubx/a", [])):
+            self.assertEqual([p for p in patterns if derive.matches(p, path)], want, path)
+            self.assertEqual([p for p, _, _, whole in hooks if whole.match(path.casefold())], want, path)
 
     def machine_users_live_answers(self, held: dict) -> list:
         """What GitHub answers when nothing has drifted: the org's repos hold the two left out, an archived one and an
@@ -4045,27 +4139,40 @@ class Workflows(unittest.TestCase):
             self.assertTrue(caught(check_workflows.shim_problems("other.yml", "name: x\non:\n  pull_request:\njobs:\n" + text),
                                    "which only queue-job.yml names"), text)
 
-    def test_the_cli_install_reads_only_signed_sources_over_https_by_its_own_list(self):  # issue 743, decision 0106
-        # Bubblewrap is fetched as root, so the block is held to what it may say, not to words it may not: three sources
-        # of Ubuntu's, each held by Ubuntu's keyring and read over HTTPS, written to the block's own list; and two apt
+    def test_the_cli_install_reads_only_signed_sources_over_https_by_its_own_list(self):  # issues 743 and 774, decision 0106
+        # Bubblewrap is fetched as root, so the block is held to what it may say, not to words it may not: Ubuntu's
+        # sources, each held by Ubuntu's keyring and read over HTTPS, written to the block's own list; and two apt
         # lines that read that list alone, never the image's mirror list, each with exactly the options it is given:
         # retries capped and each connection's wait bounded (a name that never resolves is not, which the step's own
         # timeout ends). Read from the one block both workflows hold word for word.
         import shlex
         block = check_workflows.CLI_INSTALL_RUN
-        self.assertEqual(len(block), 10)
-        source = re.compile(r"echo 'deb \[signed-by=/usr/share/keyrings/ubuntu-archive-keyring\.gpg\] https://[a-z0-9.-]+/ubuntu "
-                            r"(noble|noble-updates|noble-security) main' >>? /tmp/ubuntu\.list")
-        found = [source.fullmatch(line) for line in block[5:8]]
-        self.assertTrue(all(found), block[5:8])
-        self.assertEqual(sorted(m.group(1) for m in found), ["noble", "noble-security", "noble-updates"])
-        self.assertIn(" > /tmp/ubuntu.list", block[5])
-        given = ["Dir::Etc::sourcelist=/tmp/ubuntu.list", "Dir::Etc::sourceparts=-", "Acquire::Retries=2", "Acquire::https::Timeout=10"]
-        for line, words in ((block[8], ["sudo", "apt-get", "update", "-q"]), (block[9], ["sudo", "apt-get", "install", "-y", "--no-install-recommends"])):
+        self.assertEqual(len(block), 8)
+        self.assertEqual(block[:5], ['url="https://downloads.claude.ai/claude-code-releases/${CLI_VERSION}/linux-x64/claude"',
+                                     "curl -sSfL --proto '=https' --proto-redir '=https' -o /tmp/claude \"${url}\"",
+                                     'echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c', "chmod 0755 /tmp/claude",
+                                     "sudo mv /tmp/claude /usr/local/bin/claude"])
+        # One line writes the whole list, so nothing an earlier step left in it is read: each of Ubuntu's three suites
+        # from each of two mirrors of different operators, named literally, each held by Ubuntu's keyring over HTTPS
+        # (issue 774; cubic, on #748). Either mirror unreachable, apt warns and takes the package from the other (the
+        # canary repo's trial run 43141154752; record 0197).
+        # Byte for byte, so no quoting, escape or line break can pass for the redirection or a source (Carbon).
+        self.assertEqual(block[5], "printf '%s\\n' " + " ".join(
+            "'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://%s/ubuntu %s main'" % (host, suite)
+            for host in ("azure.archive.ubuntu.com", "mirrors.edge.kernel.org")
+            for suite in ("noble", "noble-updates", "noble-security")) + " > /tmp/ubuntu.list")
+        # The update tries each mirror once, since the other mirror is its retry, so a stalled name cannot spend the
+        # step's three minutes on retries; the install keeps two. The update's exit is not the step's: one mirror that
+        # answers an error, not a lost connection, makes it exit 100 though the other's index is good, and apt keeps no
+        # index it could not verify, so the install still fails closed with no package to take (issue 774).
+        self.assertTrue(block[6].endswith(" || true"), block[6])
+        given = ["Dir::Etc::sourcelist=/tmp/ubuntu.list", "Dir::Etc::sourceparts=-", "Acquire::Retries=%d", "Acquire::https::Timeout=10"]
+        for line, words, retries in ((block[6][:-len(" || true")], ["sudo", "apt-get", "update", "-q"], 0),
+                                     (block[7], ["sudo", "apt-get", "install", "-y", "--no-install-recommends"], 2)):
             said = shlex.split(line)
             options = [said[k + 1] for k, w in enumerate(said) if w == "-o"]
             rest = [w for k, w in enumerate(said) if w != "-o" and (k == 0 or said[k - 1] != "-o")]
-            self.assertEqual(options, given, line)
+            self.assertEqual(options, [g.replace("%d", str(retries)) for g in given], line)
             self.assertEqual(rest, words + (["bubblewrap"] if "install" in words else []), line)
 
     def test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome(self):
