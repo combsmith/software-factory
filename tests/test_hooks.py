@@ -3899,7 +3899,7 @@ class RulesChanged(unittest.TestCase):
         # A list that is there and is no list of at least one path and what it is, is not the shape the hooks read.
         for value in ([], None, "release/", {}, ["release/x.json"], [{"path": "release/x.json"}], [{"is": "x"}],
                       [{"path": "", "is": "x"}], [{"path": 5, "is": "x"}],
-                      [{"path": "release/x.json", "is": ""}], [{"path": "release/x.json", "is": 5}], [{"path": "release/x.json", "is": None}],
+                      [{"path": persons[0], "is": ""}], [{"path": persons[0], "is": 5}], [{"path": persons[0], "is": None}],
                       [{"path": "release/../x.json", "is": "x"}], [{"path": "release/**", "is": "x"}],
                       [{"path": "release\\x.json", "is": "x"}], [{"path": "release/\x00x.json", "is": "x"}]):
             with self.subTest(person_only=value):
