@@ -3,7 +3,9 @@ rollup (design section 3.3; P-32's read gives the shape).
 
 Every check run the head's rollup lists is given with its name exactly as GitHub gives it, the id of the App that
 reported it, the path of the workflow file that ran it, null where GitHub names none, its conclusion, or its status
-while it has not concluded, in GitHub's own word, lower-cased, and when it completed; the port drops, merges and renames
+while it has not concluded, in GitHub's own word, lower-cased, and when it completed, with its workflow run's id, null
+for a check no workflow ran, and its check suite's conclusion, lower-cased, null while the suite has not concluded
+(trials/P-65.json, issue 681); the port drops, merges and renames
 none (decisions 0015, 0018, 0022, 0026), and an Actions check with no file where its details are not its own job's (decision 0104). Whether the rollup itself keeps every check suite's run, and a re-run's alone
 replaces an earlier one, is GitHub's, which P-42 asks. A status context, which is not a check run and names no App, is no
 check. The list is whole only when its last page says there is no next one and every context it counts was read; read
@@ -44,7 +46,7 @@ QUERY = """query FactsChecks($owner: String!, $name: String!, $number: Int!, $af
                   ... on StatusContext { id }
                   ... on CheckRun {
                     id databaseId name conclusion status startedAt completedAt detailsUrl
-                    checkSuite { app { databaseId } workflowRun { databaseId file { path } } }
+                    checkSuite { conclusion app { databaseId } workflowRun { databaseId file { path } } }
                   }
                 }
               }
@@ -132,8 +134,24 @@ def check(node: dict) -> dict:
     # to a Lens a workflow runs, and the Kernel leaves that Lens unreadable, for the Maintainer, with no new fact. Another
     # App's keeps what its suite names, so one that names a file stays foreign to a Lens no workflow runs (decision 0104).
     own = own_job(node.get("detailsUrl"), node.get("databaseId"), run.get("databaseId") if run else None)
-    return {"name": name, "app_id": app, "workflow": None if app == ACTIONS_APP and not own else path,
-            "conclusion": word.lower(), "completed_at": done}
+    out = {"name": name, "app_id": app, "workflow": None if app == ACTIONS_APP and not own else path,
+           "conclusion": word.lower(), "completed_at": done}
+    # Its workflow run's id, null for a check no workflow ran, and its suite's conclusion, null while the suite has not
+    # concluded, so that the Kernel can tell a cancelled run's checks from a later run's on the same head
+    # (trials/P-65.json, issue 681). QUERY asks both, so GitHub gives both; an answer that leaves one out, as a trial's
+    # recorded before QUERY asked it, leaves the field out too, which the Kernel reads as no supersession at all (the
+    # Factory Builder's ruling (B)). One given in any form but its own is refused, never read as none.
+    if "workflowRun" in suite and (run is None or "databaseId" in run):
+        run_id = run["databaseId"] if run else None
+        if run is not None and not (type(run_id) is int and run_id > 0):
+            raise Unanswered("a check run's workflow run's id cannot be read")
+        out["run_id"] = run_id
+    if "conclusion" in suite:
+        said = suite["conclusion"]
+        if said is not None and not (isinstance(said, str) and WORD.fullmatch(said)):
+            raise Unanswered("a check run's suite's conclusion cannot be read")
+        out["suite_conclusion"] = None if said is None else said.lower()
+    return out
 
 
 def read(transport, pull: dict, kept=None) -> dict:
