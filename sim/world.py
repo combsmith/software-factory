@@ -1419,13 +1419,14 @@ class World:
         before it reads, and a run of the item is as old as the approval by the other (decision 0195). The
         world's act starts in its approval's own second, so it reads its approval's own time. The Kernel's reading has
         branches the world needs none of, as it makes no such record: a dispatch, a re-run, another item, a start that is
-        no time, a beginning that is no time or is before the Run was made."""
+        no time, a beginning that is no time. A run said to have begun before it was made is not as old as the approval,
+        as the Kernel reads it."""
         at = review["submitted_at"]
         acts = [r["started_at"] for r in self.runs if r["intent"] == t.ISSUE_APPROVAL
                 and r["content_id"] == review["content_id"] and r["started_at"] <= at]
         if acts:
             return max(acts)
-        return at if any(r.get("began_at") is not None and r["began_at"] <= at for r in self.runs) else ""
+        return at if any(r.get("began_at") is not None and r["started_at"] <= r["began_at"] <= at for r in self.runs) else ""
 
     def verdict(self):
         """The Maintainer's latest verdict, dismissed or not, or None. A comment is none, dismissed or not.

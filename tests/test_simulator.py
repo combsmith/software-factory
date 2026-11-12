@@ -95,7 +95,7 @@ class Simulation(unittest.TestCase):
         # approving act and the queue App's resolution wait in no lane here: they begin as they are made.
         seen, at_once = set(), (terms.ISSUE_APPROVAL, terms.RESOLVE_THREAD)
         for seed in SEEDS:
-            w = World(seed)
+            w, said = World(seed), {}
             for _ in range(250):
                 waited = {r["run"] for r in w.runs if r["status"] == "queued"}
                 w.step()
@@ -105,6 +105,9 @@ class Simulation(unittest.TestCase):
                             else "at once" if r["intent"] in at_once else "superseded" if r["outcome"] == "superseded"
                             else "began")
                     seen.add(kind)
+                    # What a Run's record once says of its beginning, it says at every later step.
+                    if "began_at" in r:
+                        self.assertEqual(said.setdefault(r["run"], r["began_at"]), r["began_at"], (seed, r))
                     if kind == "waiting":
                         self.assertNotIn("began_at", r, (seed, r))
                     elif kind == "never":
@@ -650,6 +653,8 @@ class Simulation(unittest.TestCase):
                 ([run(5, intent="review-change", began=None)], 10, True),
                 ([run(5, intent="review-change", began="unread")], 10, True),
                 ([run(5, intent="review-change", began=15)], 10, False),
+                # One said to have begun before it was made, as no run does, is not as old as it either.
+                ([run(16, intent="review-change", began=15)], 10, True),
                 ([], 10, True),
                 ([run(16)], 10, True)):
             self.assertEqual(self.read([review(machine, 15)], edited, runs), (held, held), (runs, edited))
