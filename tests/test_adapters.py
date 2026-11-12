@@ -1338,27 +1338,22 @@ class Records(unittest.TestCase):
                        {"name": NAME, "status": "in_progress", "conclusion": None}):
             got, _ = self.read(listing("P-17", 3, rows=change), engines={key: False})
             self.assertNotIn("engine_started", got["runs"][0], change)
-        # What the records before said: the later's word, the earlier's for a Run the later does not list; a true or a
-        # false alone; and from neither for a Run a record lists twice.
+        # What the last record before said, and no earlier record's word: a true or a false alone, and nothing for a Run
+        # it lists twice.
         run = {"run": key[0], "started_at": key[1], "status": "completed", "conclusion": "failure",
                "outcome": "environment"}
         other = dict(run, run="r_01JA70")
         later = {"runs": [dict(run, engine_started=True)]}
         self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, later]), {key: True})
-        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, {"runs": [other]}]),
-                         {key: False})
-        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, {"runs": [run]}]), {})
-        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, {"runs": []}, later]),
-                         {key: True})
-        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, {"runs": []}]), {key: False})
-        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, {"runs": []}, {"runs": []}]), {})
+        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, {"runs": [other]}]), {})
+        self.assertEqual(records.engines([later, {"runs": [run]}]), {})
         for said in (None, "false", 0, 1):
             self.assertEqual(records.engines([{"runs": [dict(run, engine_started=said)]}]), {}, said)
         self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)] * 2}]), {})
         for change in ({"run": None}, {"started_at": None}):
             self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False, **change)]}]), {}, change)
         self.assertEqual((records.engines(None), records.engines({"runs": [run]}), records.engines([{"runs": None}]),
-                          records.engines([{"runs": ["x"]}])), ({}, {}, {}, {}))
+                          records.engines([{"runs": ["x"]}]), records.engines([])), ({}, {}, {}, {}, {}))
 
     def began(self, status, *jobs, **kw):
         """`(the one record, whether the list was whole)` of a Run GitHub lists with `status`, its jobs read as given."""
@@ -1694,6 +1689,9 @@ class Artifacts(unittest.TestCase):
                                            "o/r", 7, self.RUN, started=told), ("item", True))
         self.assertEqual(told, [])
         self.assertEqual(self.read(outcome_zip(dict(outcome_of(self.RUN, "item"), engine_started="no"))), (None, False))
+        # A caller that does not ask is told nothing, and the outcome is read all the same.
+        self.assertEqual(self.read(outcome_zip(dict(outcome_of(self.RUN, "environment"), engine_started=False))),
+                         ("environment", True))
         # A listing that gives no digest is read by its size alone.
         zipped = outcome_zip(outcome_of(self.RUN, "item"))
         self.assertEqual(self.read(zipped, digest=None), ("item", True))

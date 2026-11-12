@@ -300,10 +300,11 @@ def known(previous: list) -> dict:
 
 
 def engines(previous: list) -> dict:
-    """Whether each Run's Engine step started, as the pass records before this one read it with its outcome, by its
-    Run id and when its attempt started (issue 757): the last two at most, and the earlier's word only for a Run the
-    later does not list. Only a true or a false is kept: an outcome is written once, so what it said stands for its
-    attempt. A key a record lists twice is kept from neither listing, and nothing from what lists no runs."""
+    """Whether each Run's Engine step started, as the last pass record before this one read it with its outcome, by
+    its Run id and when its attempt started (issue 757). It is read only beside an outcome `known` keeps, and `known`
+    keeps a fault from the last record alone, so no earlier record's word is needed. Only a true or a false is kept:
+    an outcome is written once, so what it said stands for its attempt. A key the record lists twice is not kept, and
+    nothing is kept from what lists no runs."""
     def said_in(record) -> tuple:
         rows = record.get("runs") if isinstance(record, dict) else None
         if not isinstance(rows, list):
@@ -317,12 +318,7 @@ def engines(previous: list) -> dict:
             if type(row.get("engine_started")) is bool:
                 said[key] = row["engine_started"]
         return {key: started for key, started in said.items() if keys.count(key) == 1}, keys
-    held = {}
-    for record in (previous[-2:] if isinstance(previous, list) else []):
-        said, keys = said_in(record)
-        held = {key: started for key, started in held.items() if key not in keys}
-        held.update(said)
-    return held
+    return said_in(previous[-1])[0] if isinstance(previous, list) and previous else {}
 
 
 def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, per_page: int = PAGE,
