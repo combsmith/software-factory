@@ -13955,7 +13955,7 @@ MUTANTS = ISSUE + [
     ('the counter-example with no count has one', 'examples/invalid/decision-points.no-count.json',
      '    "starting_figure": 40,\n',
      '    "starting_figure": 40,\n    "merged": 387,\n', POINT_EACH),
-    # Decision 0195: when the Factory cannot or may not approve, the approval is the Maintainer's hand.
+    # Decision 0196: when the Factory cannot or may not approve, the approval is the Maintainer's hand.
     ('the skill hands over the approval at its second step', '.claude/skills/cut-a-release/SKILL.md',
      '2. **Roll `next` back.**',
      '2. **The hand approval.**', CANNOT_APPROVE),
