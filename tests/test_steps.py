@@ -249,7 +249,7 @@ class Reader(unittest.TestCase):
                 unittest.mock.patch.object(read.steps, "commit", commit if callable(commit) else lambda: commit), \
                 unittest.mock.patch.object(read.tags, "read", tags_read), \
                 unittest.mock.patch.object(read.records, "runs",
-                                           lambda *a, **k: calls["listed"].append(a[3]) or copy.deepcopy(listed)), \
+                                           lambda *a, **k: calls["listed"].append((a[3], k)) or copy.deepcopy(listed)), \
                 recorded_spy(read, calls["asked"]), \
                 unittest.mock.patch.object(read.facts_, "snapshot", snapshot), \
                 unittest.mock.patch.object(read.facts_, "opener_of", lambda *told: (12, "Bot")), \
@@ -295,7 +295,9 @@ class Reader(unittest.TestCase):
         # What the opening Runs recorded is read for the configured Role and handed to the snapshot (issue 342).
         self.assertEqual((calls["opened"], calls["opened_role"]), ([True], ["dev-lead"]))
         # Of the run list of both Role workflows, the model Lenses' Runs on this item, held to the authority table.
-        self.assertEqual(calls["listed"], [["run.yml", "approve.yml"]])
+        # No job is asked: this read hands the Kernel no run record, so when a Run began is nothing to it, and jobs
+        # that could not be read would refuse a Task for nothing (decision 0199).
+        self.assertEqual(calls["listed"], [(["run.yml", "approve.yml"], {})])
         self.assertEqual(calls["asked"], [{"repo": HOME, "numbers": [42], "lenses": {"pr-review"}, "authority": AUTHORITY}])
         # A list read short holds them to nothing recorded, not whole: the Task is refused rather than built on it.
         self.assertEqual(self.go(complete=False)[4]["recorded"], [({}, False, [])])
@@ -1095,7 +1097,9 @@ class Reread(unittest.TestCase):
 
         def runs(transport, repo, branch, workflows, dispatcher, **k):
             asked.append(workflows)
+            began.append(k)
             return copy.deepcopy(listed)
+        began = []
         for paused, want in (({"org": "true", "repos": {HOME: None}}, True), ({"org": None, "repos": {HOME: "true"}}, True),
                              ({"org": None, "repos": {HOME: "maybe"}}, None)):
             with unittest.mock.patch.object(reread.records, "runs", runs), \
@@ -1104,6 +1108,9 @@ class Reread(unittest.TestCase):
                         asked.append((org, list(repos))), paused)[1]):
                 self.assertIs(reread.item("t", config, 42, support.NOW, lambda: support.NOW)[3]["paused"], want, paused)
         self.assertEqual(asked[:2], [["run.yml", "approve.yml"], ("combsmith", [HOME])])
+        # The read asks the records port when this item's Runs began, with nothing kept, and no other item's, so
+        # that the act decides on its item's records as the pass does (decision 0199).
+        self.assertEqual(began[0], {"began": {}, "on": {"repo": HOME, "type": "pull_request", "number": 42}})
         # Asked for the Pause by name, a Pause the port could not read is raised as a read of the `pause` stage, its
         # part the port's for the first scope unreadable, the org's before the repo's (decision 0192). Not asked, as
         # apply reads it, the same Pause is the context's and nothing is raised.
