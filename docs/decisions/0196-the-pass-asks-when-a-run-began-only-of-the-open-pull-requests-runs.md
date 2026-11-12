@@ -1,4 +1,4 @@
-# 0195. The pass asks when a Run began only of the open pull requests' Runs
+# 0196. The pass asks when a Run began only of the open pull requests' Runs
 
 Status: accepted. The Factory Builder's ruling of 2026-11-11 on "A record's start is read from its job's started_at, trusted only once the job is in progress or ran (P-64)" (issue 724). It amends two rows of `docs/decisions/0193-when-a-run-began-is-read-from-its-jobs-trusted-only-once-a-job-is-in-progress-or-ran-and-kept-by-the-pass-records.md`. "What is asked" said each Run in progress or completed; for the pass it is now each such Run of an open pull request. "The cap" gave a count of the Factory's Runs that was wrong, and is corrected here. The rest of 0193 stands.
 

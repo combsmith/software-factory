@@ -1414,7 +1414,7 @@ class Records(unittest.TestCase):
 
     def test_the_asking_is_bounded_to_the_items_given(self):
         # The pass asks when a Run began only of the open pull requests' Runs: what the list holds of items long
-        # closed is history, and asking it would spend the cap on nothing (decision 0195). Another item's Run is not
+        # closed is history, and asking it would spend the cap on nothing (decision 0196). Another item's Run is not
         # asked, says what was kept of it and no more, and leaves the list whole. The cap holds among those given.
         rows = listing("P-17", 3, rows={"status": "in_progress", "conclusion": None, "run_attempt": 1})
         template = rows["response"]["body"]["workflow_runs"][0]

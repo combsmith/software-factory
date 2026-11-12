@@ -320,7 +320,7 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     jobs cannot be read, has no `began_at` and leaves the list not whole. `of`, a list of items, bounds the asking
     to their Runs: another item's Run is not asked, says what `began` holds of it and no more, and leaves the list
     whole. The pass hands the open pull requests, so what it asks is its live work, not the list's history
-    (decision 0195)."""
+    (decision 0196)."""
     kept = kept or {}
     roles = {".github/workflows/%s" % name for name in workflows}
 

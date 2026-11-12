@@ -1185,7 +1185,7 @@ class Entry(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(efforts["began"], {("r_01JA6Z", "2026-10-11T12:05:00Z"): "2026-10-11T12:05:04Z",
                                             ("r_01JA5Y", "2026-10-11T12:05:00Z"): "2026-10-11T12:05:09Z"})
-        # The port asks when a Run began only of the open pull requests' Runs, which are listed first (decision 0195).
+        # The port asks when a Run began only of the open pull requests' Runs, which are listed first (decision 0196).
         self.assertEqual(efforts["of"], [{"repo": self.HOME, "type": "pull_request", "number": n} for n in (7, 8)])
         since = "2026-10-11T06:00:00Z"
         item = lambda n: {"repo": self.HOME, "type": "pull_request", "number": n}
