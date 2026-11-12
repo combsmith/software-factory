@@ -165,6 +165,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     try:
         runs = records.runs(transport, home, branch, run_files(controller), dispatcher(controller),
                             kept=records.known(earlier), began=records.begun(earlier),
+                            engines=records.engines(earlier),
                             of=[{"repo": home, "type": "pull_request", "number": number} for number in numbers])
     except Unanswered:
         runs = None

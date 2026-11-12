@@ -68,6 +68,26 @@ def needs_met(needs) -> tuple:
     return None
 
 
+def engine_started(needs):
+    """Whether the `run` job's Engine step started, by the outcome the job hands on for it (issue 757), or None.
+
+    GitHub skips the step once a step before it failed, as the CLI's install or the read did: then the Run spent no
+    model, and this is False. True for an outcome it gives a step that ran. Anything else, an output missing or not
+    one of these, says nothing, and the Run is read as one that may have reached the model."""
+    try:
+        said = json.loads(needs) if isinstance(needs, str) else None
+    except ValueError:
+        said = None
+    run = said.get("run") if isinstance(said, dict) else None
+    outputs = run.get("outputs") if isinstance(run, dict) else None
+    engine = outputs.get("engine") if isinstance(outputs, dict) else None
+    if engine == "skipped":
+        return False
+    if engine in ("success", "failure", "cancelled"):
+        return True
+    return None
+
+
 def written(argv: list, environ: dict, base, clock, connect) -> tuple:
     """`(applied/1, outcome/1)` of the Run."""
     name, item, pass_id, found, _ = argv
@@ -170,6 +190,9 @@ def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
         raise Stop("usage: python3 -m harness.apply_step NAME ITEM PASS RESULT OUT")
     folder = steps.new_folder(base, argv[4])
     done, ended = written(argv, environ, base, clock, connect)
+    started = engine_started(environ.get("NEEDS"))
+    if started is not None:
+        ended = dict(ended, engine_started=started)
     if shared.errors(done, "applied") or shared.errors(ended, "outcome"):
         raise Stop("records_unreadable")
     steps.write(folder, "applied.json", done)

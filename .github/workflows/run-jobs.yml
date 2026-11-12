@@ -26,6 +26,7 @@ jobs:
     outputs:
       commit: ${{ steps.commit.outputs.commit }}
       digest: ${{ steps.engine.outputs.digest }}
+      engine: ${{ steps.engine.outcome }}
       artifact: ${{ steps.result.outputs.artifact-id }}
       reader: ${{ steps.reader.outputs.artifact-id }}
     steps:

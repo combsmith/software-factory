@@ -1157,10 +1157,12 @@ class Entry(unittest.TestCase):
         # When a Run began, as the records before read it from its jobs, is handed to the records port (decision 0193):
         # the last record's word, and the one before's for a Run the last does not list.
         before["runs"][0]["began_at"] = "2026-10-11T12:05:04Z"
+        # So is whether each failed Run's Engine step started, as the records before read it with its outcome (issue 757).
+        before["runs"][0].update(conclusion="failure", outcome="environment", engine_started=False)
         listed = entry.records.runs
 
         def runs(*args, **kw):
-            efforts["began"], efforts["of"] = kw["began"], kw["of"]
+            efforts["began"], efforts["engines"], efforts["of"] = kw["began"], kw["engines"], kw["of"]
             return listed(*args, **kw)
         before["reconciled"] = {"runs": [{"id": "r_01JA00", "at": "2026-10-12T11:00:00Z"}],
                                 "passes": [{"id": 40, "attempt": 1, "at": "2026-10-12T11:00:00Z"}], "keys": [], "items": [],
@@ -1168,8 +1170,8 @@ class Entry(unittest.TestCase):
         # The last of two records says what has left: the one before it names another that has not been served since.
         older = dict(before, now="2026-10-12T10:00:00Z", reconciled=dict(before["reconciled"], owed=[], runs=[]),
                      pull_requests=[dict(served[0], facts=dict(served[0]["facts"], item=dict(served[0]["facts"]["item"], number=12)))],
-                     runs=[dict(before["runs"][0], began_at="2026-10-11T12:05:01Z"),
-                           dict(before["runs"][0], run="r_01JA5Y", began_at="2026-10-11T12:05:09Z")])
+                     runs=[dict(before["runs"][0], began_at="2026-10-11T12:05:01Z", engine_started=True),
+                           dict(before["runs"][0], run="r_01JA5Y", began_at="2026-10-11T12:05:09Z", engine_started=True)])
         table = self.table(numbers=[7, 8])
         pull = copy.deepcopy(exchanges("P-17")[4]["response"])
         pull["headers"] = {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}
@@ -1185,6 +1187,7 @@ class Entry(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(efforts["began"], {("r_01JA6Z", "2026-10-11T12:05:00Z"): "2026-10-11T12:05:04Z",
                                             ("r_01JA5Y", "2026-10-11T12:05:00Z"): "2026-10-11T12:05:09Z"})
+        self.assertEqual(efforts["engines"], {("r_01JA6Z", "2026-10-11T12:05:00Z"): False})
         # The port asks when a Run began only of the open pull requests' Runs, which are listed first (decision 0196).
         self.assertEqual(efforts["of"], [{"repo": self.HOME, "type": "pull_request", "number": n} for n in (7, 8)])
         since = "2026-10-11T06:00:00Z"
@@ -1259,7 +1262,7 @@ class Entry(unittest.TestCase):
         # Beginnings are kept from pass records alone, each from before this pass. With one that is neither, or with
         # none, the port is still asked, with nothing kept: every Run's jobs are read afresh.
         for held in ([older, dict(before, now="2026-10-12T12:00:00Z")], [older, dict(before, release=7)], None):
-            del efforts["began"]
+            del efforts["began"], efforts["engines"]
             with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
                     unittest.mock.patch.object(entry.passes, "records", lambda *a: held), \
                     unittest.mock.patch.object(entry.seen_, "read", whole), unittest.mock.patch.object(entry.seen_, "pushes", pushes), \
@@ -1268,6 +1271,7 @@ class Entry(unittest.TestCase):
                     unittest.mock.patch.object(entry.passes, "written", written_read):
                 self.run_entry(Hub(self.table(numbers=[7])))
             self.assertEqual(efforts["began"], {}, held and held[1]["now"])
+            self.assertEqual(efforts["engines"], {}, held and held[1]["now"])
         # With no record before it, nothing is known, so everything in the window is read.
         with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
                 unittest.mock.patch.object(entry.passes, "records", lambda *a: None), \
