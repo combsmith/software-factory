@@ -1,4 +1,4 @@
-# 0197. When the Factory cannot or may not approve, the Maintainer approves by hand as the machine user
+# 0198. When the Factory cannot or may not approve, the Maintainer approves by hand as the machine user
 
 Status: accepted. Working ruling 5 on "The ruleset switch: main requires the machine user's approval of the most recent commit, and slice 1's event is recorded" (issue 198), and the Maintainer's ruling of 2026-11-11, as the Factory Builder relayed it, that a change to a model Lens's input goes through by his hand: he approves its head as the machine user in a browser, and it is enqueued through his login. It says what 0008's "The Maintainer's own approval never depends on the Factory running" and 0052's "the Maintainer's merge by hand outside the Factory" mean while he authors every pull request, and carries out 0191's row "What is not shown yet" as far as a record can. It changes no row of 0052 or of 0055: what the Kernel counts as a person's approval, and what the approving act does with the machine user's token, are as they were.
 
