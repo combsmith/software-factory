@@ -8,6 +8,7 @@ import contextlib
 import copy
 import datetime
 import email.utils
+import hashlib
 import io
 import json
 import pathlib
@@ -24,6 +25,9 @@ from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILL = ROOT / ".claude" / "skills" / "cut-a-release" / "SKILL.md"
+# The skill's section "When the Factory cannot approve", word for word (decision 0198): what it says of who approves,
+# and by what, changes only with this line.
+CANNOT_APPROVE_SHA256 = "29fcbc9374f77f49fc0bd45d81107ec13497b48320a5add6d8676918527b1fda"
 REPO = "combsmith/software-factory"
 A, B, C, D = ("a" * 40, "b" * 40, "c" * 40, "d" * 40)
 NEXT, STABLE = "factory/v0-next", "factory/v0-stable"
@@ -1007,6 +1011,36 @@ class Skill(unittest.TestCase):
         self.assertEqual(sorted(commands), sorted(plans + dispatches))
         for command in commands:
             self.assertNotRegex(command, r"auth token|--show-token|\.pem|git (tag|push)|-X |--method")
+
+    def test_when_the_factory_cannot_approve_the_skill_leaves_the_approval_to_the_maintainers_hand_and_runs_nothing(self):
+        text = SKILL.read_text()
+        section = text[text.index("## When the Factory cannot approve"):text.index("## Verify, then hand over")]
+        # A Release that cannot approve: the Pause, the rollback, the hand approval last, and no other step or bullet.
+        items = re.findall(r"^[ \t]*([0-9]+[.)]|[-*+])[ \t]+(.*)$", section, re.M)
+        self.assertEqual([mark for mark, _ in items], ["1.", "2.", "3."])
+        self.assertEqual([said.split("**")[1] for _, said in items], ["Pause.", "Roll `next` back.", "The hand approval."])
+        self.assertIn("3. **The hand approval.** Only when no Release can serve.", section)
+        # The Pause is a person's, the approval is the Maintainer's hand as the machine user, and no token is stored.
+        self.assertIn("1. **Pause.** The Maintainer sets the repo variable `FACTORY_PAUSED` to `true`.", section)
+        self.assertIn("he approves the head by hand as the machine user, in a browser\nsigned in to that account", section)
+        self.assertIn("It needs no Release, no Run and no stored token;", section)
+        self.assertIn("A session stops before the hand approval and hands him the steps", section)
+        self.assertIn("It approves nothing, signs in to no account, and sets no variable.", section)
+        # A change the Factory may not approve is taken out of the queue by the Kernel's own Decision; the section
+        # says when a Pause is needed for it, on either side of the day a queue account is named.
+        self.assertIn("While `accounts.queue` in\n`config/controller.json` is null, nothing carries that Decision out", section)
+        self.assertIn("Once it names an account,\nthe Maintainer sets the Pause before the enqueue", section)
+        # A hand approval alarms, the section says so, and every entry of the alert is read while it stands.
+        self.assertIn("The next pass raises the alert `write_unmatched` for it", section)
+        self.assertIn("so every entry is read for as long as it stands", section)
+        self.assertIn("The match clears nothing else", section)
+        self.assertIn("No session rotates or revokes the token.", section)
+        # It gives nothing to run, in a fence, an indented block or a span; and beyond these, word for word it is the
+        # text this file names, so a command put in any other way, or any other change, fails here until it is read.
+        self.assertNotRegex(section, r"```|~~~|``")
+        self.assertIsNone(re.search(r"^(?: {4}|\t)", section, re.M))
+        self.assertEqual([span for span in re.findall(r"`([^`]*)`", section) if re.search(r"\s", span)], [])
+        self.assertEqual(hashlib.sha256(section.encode()).hexdigest(), CANNOT_APPROVE_SHA256)
 
 
 if __name__ == "__main__":
