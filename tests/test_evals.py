@@ -2137,7 +2137,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(canary.install({"PATH": "/bin"}, run), 7)
         (args, env, check), = calls
         self.assertEqual(args, ["bash", "-e", "-c", "\n".join(check_workflows.CLI_INSTALL_RUN)])
-        self.assertIn("sudo apt-get update -q -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10\nsudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap", args[3])
+        self.assertIn("sudo apt-get update -q -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=0 -o Acquire::https::Timeout=10\nsudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap", args[3])
         self.assertEqual(env, {"PATH": "/bin", "CLI_VERSION": pin, "CLI_CHECKSUM": check_workflows.CLI_CHECKSUMS[pin]})
         self.assertFalse(check)
 

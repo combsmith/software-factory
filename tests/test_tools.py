@@ -4154,19 +4154,22 @@ class Workflows(unittest.TestCase):
                                      "sudo mv /tmp/claude /usr/local/bin/claude"])
         # One line writes the whole list, so nothing an earlier step left in it is read: each of Ubuntu's three suites
         # from each of two mirrors of different operators, named literally, each held by Ubuntu's keyring over HTTPS
-        # (issue 774; cubic, on #748). Either mirror down, apt warns and takes the package from the other (the canary
-        # repo's trial run 43141154752).
+        # (issue 774; cubic, on #748). Either mirror unreachable, apt warns and takes the package from the other (the
+        # canary repo's trial run 43141154752; record 0197).
         said = shlex.split(block[5])
         self.assertEqual(said[:2] + said[-2:], ["printf", "%s\\n", ">", "/tmp/ubuntu.list"])
         self.assertEqual(said[2:-2], ["deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://%s/ubuntu %s main"
                                       % (host, suite) for host in ("azure.archive.ubuntu.com", "mirrors.edge.kernel.org")
                                       for suite in ("noble", "noble-updates", "noble-security")])
-        given = ["Dir::Etc::sourcelist=/tmp/ubuntu.list", "Dir::Etc::sourceparts=-", "Acquire::Retries=2", "Acquire::https::Timeout=10"]
-        for line, words in ((block[6], ["sudo", "apt-get", "update", "-q"]), (block[7], ["sudo", "apt-get", "install", "-y", "--no-install-recommends"])):
+        # The update tries each mirror once, since the other mirror is its retry, so a stalled name cannot spend the
+        # step's three minutes on retries; the install keeps two (issue 774).
+        given = ["Dir::Etc::sourcelist=/tmp/ubuntu.list", "Dir::Etc::sourceparts=-", "Acquire::Retries=%d", "Acquire::https::Timeout=10"]
+        for line, words, retries in ((block[6], ["sudo", "apt-get", "update", "-q"], 0),
+                                     (block[7], ["sudo", "apt-get", "install", "-y", "--no-install-recommends"], 2)):
             said = shlex.split(line)
             options = [said[k + 1] for k, w in enumerate(said) if w == "-o"]
             rest = [w for k, w in enumerate(said) if w != "-o" and (k == 0 or said[k - 1] != "-o")]
-            self.assertEqual(options, given, line)
+            self.assertEqual(options, [g.replace("%d", str(retries)) for g in given], line)
             self.assertEqual(rest, words + (["bubblewrap"] if "install" in words else []), line)
 
     def test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome(self):
