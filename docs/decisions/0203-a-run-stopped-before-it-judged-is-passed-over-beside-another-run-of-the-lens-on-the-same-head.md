@@ -1,4 +1,4 @@
-# 0200. A run stopped before it judged is passed over beside another run of the Lens on the same head
+# 0203. A run stopped before it judged is passed over beside another run of the Lens on the same head
 
 Status: accepted. The Factory Builder's rulings of 2026-11-11 on issue 681, a Lens's cancelled run beside a later one on the same head: option (B) of its plan, rulings (a) to (c), and ruling (B) on its facts. It amends decision 0026's row "Every check a Lens's own App and workflow file report under its name is read, never the last alone".
 
