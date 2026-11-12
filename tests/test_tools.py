@@ -1245,6 +1245,72 @@ class Apps(unittest.TestCase):
         names = {path.name for path in (ROOT / "examples" / "invalid").glob("machine-user.*.json")}
         self.assertEqual(len(names), 6)
 
+    def test_a_consumer_entrys_protected_paths_are_in_the_hooks_syntax_and_read_by_one_matcher(self):  # issue 141
+        # A Consumer entry's protected paths are config/hooks.json's own paths (decision 0020): the schema holds each
+        # to that syntax and refuses a list with none, and the Kernel and the session hooks read each alike.
+        from tools import jsonschema_lite
+        from tools.hooks import protected
+        self.assertEqual([p for p in check_examples.run(ROOT) if "consumer" in p], [])
+        schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text()) for p in (ROOT / "schemas").glob("*.schema.json")}
+        entry = json.loads((ROOT / "examples" / "consumer.json").read_text())
+        patterns = entry["verify"]["protected_paths"]
+        for wrong in ([], ["CODEOWNERS", "CODEOWNERS"], ["/CODEOWNERS"], ["scripts/factory-?.sh"], ["../CODEOWNERS"],
+                      ["docs//CODEOWNERS"], ["./CODEOWNERS"], ["scripts/{a,b}.sh"], ["C:\\scripts"]):
+            bad = copy.deepcopy(entry)
+            bad["verify"]["protected_paths"] = wrong
+            self.assertTrue(jsonschema_lite.validate(bad, schemas["consumer"], schemas=schemas), wrong)
+        bad = copy.deepcopy(entry)
+        del bad["verify"]["protected_paths"]
+        self.assertTrue(jsonschema_lite.validate(bad, schemas["consumer"], schemas=schemas))
+        # The rest of the entry is held whole too: each field there, each in its shape, nothing beside them.
+        for where, wrong in ((("repo",), "markets"), (("ring",), "canary"), (("owner_role",), "devops-"), (("ci_workflows",), []),
+                             (("ci_workflows",), ["CI", "CI"]), (("ci_workflows",), [""]), (("verify", "setup"), "/bin/sh"),
+                             (("verify", "test"), "../t.sh"), (("verify", "test"), "scripts/factory-*.sh"),
+                             (("reviewers",), ["cubic", "cubic"]), (("reviewers",), ["Cubic"]), (("reviewers",), []), (("extra",), True),
+                             (("owner_role",), None), (("repo",), 1), (("reviewers",), "cubic"), (("ci_workflows",), "CI"),
+                             (("verify",), "scripts/"), (("verify", "protected_paths"), "CODEOWNERS"), (("verify", "setup"), 1),
+                             (("verify", "extra"), True)):
+            bad = copy.deepcopy(entry)
+            parent = bad
+            for key in where[:-1]:
+                parent = parent[key]
+            parent[where[-1]] = wrong
+            self.assertTrue(jsonschema_lite.validate(bad, schemas["consumer"], schemas=schemas), (where, wrong))
+        for where in (("repo",), ("ring",), ("owner_role",), ("ci_workflows",), ("verify",), ("reviewers",), ("verify", "setup"), ("verify", "test")):
+            bad = copy.deepcopy(entry)
+            parent = bad
+            for key in where[:-1]:
+                parent = parent[key]
+            del parent[where[-1]]
+            self.assertTrue(jsonschema_lite.validate(bad, schemas["consumer"], schemas=schemas), where)
+        # Its setup and test scripts are among its protected paths, read by the Kernel's matcher, in an example as in a
+        # counter-example, or an author could weaken the tests it is judged by.
+        self.assertEqual(check_examples._unprotected(entry), [])
+        for paths, said in ((["scripts/factory-setup.sh"], "does not protect its own scripts/factory-test.sh"),
+                            (["CODEOWNERS"], "protects neither its own scripts/factory-setup.sh nor scripts/factory-test.sh"),
+                            (["scripts/factory-test.sh"], "does not protect its own scripts/factory-setup.sh"),
+                            (["scripts/*-setup.sh", "SCRIPTS/"], "")):
+            bad = copy.deepcopy(entry)
+            bad["verify"]["protected_paths"] = paths
+            self.assertEqual(check_examples._unprotected(bad), ["$.verify: " + said] if said else [], paths)
+        bad["verify"]["protected_paths"] = ["scripts/factory-setup.sh"]
+        root = clone({"examples/consumer.json": json.dumps(bad)})
+        self.assertTrue(caught(check_examples.run(root), "consumer.json: $.verify: does not protect its own scripts/factory-test.sh"))
+        # Each the schema lets through is one the Kernel reads, and each the Kernel refuses the schema refuses too.
+        for pattern in patterns + ["*/__init__.*", "a/**/b/", "**"]:
+            self.assertTrue(derive.readable_pattern(pattern), pattern)
+        for pattern in ("/CODEOWNERS", "../CODEOWNERS", "docs//CODEOWNERS", "./CODEOWNERS"):
+            self.assertFalse(derive.readable_pattern(pattern), pattern)
+        # One matcher: what the Kernel finds each path to be, the session hooks find it to be, in any case.
+        hooks = protected.entries([(p, "") for p in patterns])
+        for path, want in (("scripts/factory-setup.sh", ["scripts/factory-setup.sh"]), ("SCRIPTS/Factory-Test.sh", ["scripts/factory-test.sh"]),
+                           (".github/workflows/ci.yml", [".github/"]), (".github", [".github/"]), ("CODEOWNERS", ["CODEOWNERS"]),
+                           ("tests/conftest.py", ["tests/**/conftest.py"]),
+                           ("tests/a/b/conftest.py", ["tests/**/conftest.py"]), ("poetry.lock", ["**/*.lock"]),
+                           ("a/b/poetry.lock", ["**/*.lock"]), ("docs/CODEOWNERS", ["docs/CODEOWNERS"]), ("scripts/other.sh", []), (".githubx/a", [])):
+            self.assertEqual([p for p in patterns if derive.matches(p, path)], want, path)
+            self.assertEqual([p for p, _, _, whole in hooks if whole.match(path.casefold())], want, path)
+
     def machine_users_live_answers(self, held: dict) -> list:
         """What GitHub answers when nothing has drifted: the org's repos hold the two left out, an archived one and an
         advisory's fork, and each repo has another team beside the code owners'."""
