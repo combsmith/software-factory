@@ -101,7 +101,7 @@ past it, and it is his.
 
 `main` merges only on a code owner's approval of the last push (decision 0191). The Maintainer authors every pull
 request, so the approval that counts is the machine user's, which the Factory's approving act gives. Two cases leave
-that act out, and the change still has to merge (decision 0196).
+that act out, and the change still has to merge (decision 0197).
 
 **A change the Factory may not approve.** A change to a model Lens's input, `harness/` among them, waits in
 `model_lens_input_needs_person` whatever Release serves (decision 0052). Keep it small and alone in its pull request.
