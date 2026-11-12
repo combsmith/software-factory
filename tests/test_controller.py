@@ -1157,8 +1157,8 @@ class Entry(unittest.TestCase):
         # When a Run began, as the records before read it from its jobs, is handed to the records port (decision 0193):
         # the last record's word, and the one before's for a Run the last does not list.
         before["runs"][0]["began_at"] = "2026-10-11T12:05:04Z"
-        # So is whether each Run's Engine step started, as the records before read it with its outcome (issue 757).
-        before["runs"][0]["engine_started"] = False
+        # So is whether each failed Run's Engine step started, as the records before read it with its outcome (issue 757).
+        before["runs"][0].update(conclusion="failure", outcome="environment", engine_started=False)
         listed = entry.records.runs
 
         def runs(*args, **kw):
