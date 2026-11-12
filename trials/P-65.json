@@ -1,0 +1,852 @@
+{
+  "schema": "trial/1",
+  "trial": "P-65",
+  "question": "When a pull request's run of a workflow is cancelled mid-way, does its check suite, and its workflow run, conclude cancelled while the run's judging job, which needs the cancelled job under if: always(), concludes failure; does the same hold for a re-run attempt, and for the run a close and reopen starts on the same head; does a push back to a head (A, B, then A again) start a new suite on A beside the cancelled one; and does the one GraphQL rollup read of a head's checks give each check run its workflow run's id and its check suite's conclusion?",
+  "pass": "Written 2026-11-11T14:02:59Z, before anything runs (issue 681; section 6): on one canary pull request, p65-cancel.yml (on pull_request, permissions {}, a job \"p65 / work\" that sleeps 240 s and a job \"p65 / verify\" that needs it, runs if: always(), and fails unless needs.work.result is success) runs on a head A; the Maintainer cancels that run while work is in progress (gh run cancel). Then pushes B, and pushes A back (A, B, A); re-runs the cancelled run (gh run rerun) and cancels that attempt mid-way; closes and reopens the pull request and cancels the run that starts. The later run on A that no one cancels (the push back to A) completes. Pass if all hold: (1) each cancelled run's check suite and workflow run conclude cancelled, and its p65 / verify check run concludes failure, p65 / work cancelled; (2) the push back to A, and the reopening, each start a workflow run with a check suite of its own on A, beside the cancelled one's, which stays; (3) a re-run attempt's check runs are told from the first attempt's, and their suite (the same or a new one, as GitHub answers) is named; (4) the uncancelled run on A concludes success, its p65 / verify success; (5) one GraphQL read of A's statusCheckRollup, asking each CheckRun its checkSuite { conclusion databaseId workflowRun { databaseId runNumber } }, answers each check run with its suite's conclusion and its workflow run's id, at no more than the rollup's cost so far plus that field set (its rateLimit cost read). Fail otherwise, naming which. What ran, on canary pull request 102 (head A 5ceb770b52c6, B c66602698417), as the Maintainer: the pull request opened at 14:03:39Z, its run 43034844965 (R1) started, and was cancelled at 14:03:51Z with p65 / work in progress (gh run cancel, which prints a line and no answer); B was pushed at 14:04:25Z and its run 43034968397 cancelled (on another head, not read below); A was pushed back at 14:04:55Z and its run 43035042206 (R3) left to complete; R1 was re-run at 14:09:13Z (gh run rerun) and its second attempt cancelled at 14:09:32Z with p65 / work in progress; the pull request was closed and reopened at 14:10:05Z and the run that started, 43035866555 (R4), cancelled at 14:10:18Z. The reads below were made after every run had concluded; of each answer's headers, date and x-github-request-id alone are kept. Every cancel was by hand. Passed: (1) R1, both its attempts, and R4 each concluded cancelled (attempt 1's suite conclusion was not read on its own: the suite now carries attempt 2's), their check suites 116539483233 and 116542276724 cancelled, p65 / work cancelled and p65 / verify failure; (2) the push back to A started R3 with its own suite, 116540026586, and the reopening R4 with its own, 116542276724, beside R1's, which stayed; (3) the re-run kept R1's workflow run id and its check suite: attempt 2's check runs (130573943616, 130574188756) are new ids in the same suite 116539483233, attempt 1's (130570853056, 130571053085) stay listed under filter=all, the jobs API tells them apart by run_attempt, the run's attempts/1 names the same suite, and the rollup gives only the latest attempt's check runs; (4) R3 concluded success, p65 / verify success; (5) one GraphQL read of the rollup, asking each check run's checkSuite its databaseId, status and conclusion and its workflowRun its runNumber and event, answered each with them at a cost of 1, the same as the port's own query, so P-8's measure stands. So a head can hold a Lens's cancelled run with its judging check failed beside a later run of the same file that passed, each told by its suite's conclusion and its run's id and number (issue 681); but a run's id, number and suite follow when it was created, and a re-run keeps them, so they do not order a re-run attempt against a later run.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-11-11T14:03:39Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the facts port's own query (adapters/checks.py QUERY, PAGE 100) with rateLimit { cost remaining } beside it, of pull request 102 at head A (5ceb770b52c6), after every run had concluded; of the answer, the rate limit, the head, the count and p65-cancel.yml's check runs are kept, every other context left out",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query FactsChecks($owner: String!, $name: String!, $number: Int!, $after: String) {\n  rateLimit { cost remaining }\n  repository(owner: $owner, name: $name) {\n    pullRequest(number: $number) {\n      headRefOid\n      mergeQueueEntry { position }\n      commits(last: 1) {\n        nodes {\n          commit {\n            oid\n            statusCheckRollup {\n              contexts(first: 100, after: $after) {\n                totalCount\n                pageInfo { hasNextPage endCursor }\n                nodes {\n                  __typename\n                  ... on StatusContext { id }\n                  ... on CheckRun {\n                    id databaseId name conclusion status startedAt completedAt detailsUrl\n                    checkSuite { app { databaseId } workflowRun { databaseId file { path } } }\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "number": 102
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 11 Nov 2026 14:11:00 GMT",
+          "x-github-request-id": "C52C:51B1E:63CA93:13D2535:6AF47773"
+        },
+        "body": {
+          "data": {
+            "rateLimit": {
+              "cost": 1,
+              "remaining": 4567
+            },
+            "repository": {
+              "pullRequest": {
+                "headRefOid": "5ceb770b52c60021f0069c8109e1b1198088ed89",
+                "mergeQueueEntry": null,
+                "commits": {
+                  "nodes": [
+                    {
+                      "commit": {
+                        "oid": "5ceb770b52c60021f0069c8109e1b1198088ed89",
+                        "statusCheckRollup": {
+                          "contexts": {
+                            "totalCount": 15,
+                            "pageInfo": {
+                              "hasNextPage": false,
+                              "endCursor": "MTU"
+                            },
+                            "nodes": [
+                              {
+                                "__typename": "CheckRun",
+                                "id": "CR_kwDOVFD6788AAAAeZtBDQA",
+                                "databaseId": 130573943616,
+                                "name": "p65 / work",
+                                "conclusion": "CANCELLED",
+                                "status": "COMPLETED",
+                                "startedAt": "2026-11-11T14:09:23Z",
+                                "completedAt": "2026-11-11T14:09:46Z",
+                                "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/43034844965/job/130573943616",
+                                "checkSuite": {
+                                  "app": {
+                                    "databaseId": 15368
+                                  },
+                                  "workflowRun": {
+                                    "databaseId": 43034844965,
+                                    "file": {
+                                      "path": ".github/workflows/p65-cancel.yml"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "__typename": "CheckRun",
+                                "id": "CR_kwDOVFD6788AAAAeZtb2fw",
+                                "databaseId": 130574382719,
+                                "name": "p65 / work",
+                                "conclusion": "CANCELLED",
+                                "status": "COMPLETED",
+                                "startedAt": "2026-11-11T14:10:10Z",
+                                "completedAt": "2026-11-11T14:10:32Z",
+                                "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/43035866555/job/130574382719",
+                                "checkSuite": {
+                                  "app": {
+                                    "databaseId": 15368
+                                  },
+                                  "workflowRun": {
+                                    "databaseId": 43035866555,
+                                    "file": {
+                                      "path": ".github/workflows/p65-cancel.yml"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "__typename": "CheckRun",
+                                "id": "CR_kwDOVFD6788AAAAeZquQGw",
+                                "databaseId": 130571538459,
+                                "name": "p65 / work",
+                                "conclusion": "SUCCESS",
+                                "status": "COMPLETED",
+                                "startedAt": "2026-11-11T14:05:02Z",
+                                "completedAt": "2026-11-11T14:09:04Z",
+                                "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/43035042206/job/130571538459",
+                                "checkSuite": {
+                                  "app": {
+                                    "databaseId": 15368
+                                  },
+                                  "workflowRun": {
+                                    "databaseId": 43035042206,
+                                    "file": {
+                                      "path": ".github/workflows/p65-cancel.yml"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "__typename": "CheckRun",
+                                "id": "CR_kwDOVFD6788AAAAeZtQA1A",
+                                "databaseId": 130574188756,
+                                "name": "p65 / verify",
+                                "conclusion": "FAILURE",
+                                "status": "COMPLETED",
+                                "startedAt": "2026-11-11T14:09:49Z",
+                                "completedAt": "2026-11-11T14:09:52Z",
+                                "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/43034844965/job/130574188756",
+                                "checkSuite": {
+                                  "app": {
+                                    "databaseId": 15368
+                                  },
+                                  "workflowRun": {
+                                    "databaseId": 43034844965,
+                                    "file": {
+                                      "path": ".github/workflows/p65-cancel.yml"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "__typename": "CheckRun",
+                                "id": "CR_kwDOVFD6788AAAAeZtqT0Q",
+                                "databaseId": 130574619601,
+                                "name": "p65 / verify",
+                                "conclusion": "FAILURE",
+                                "status": "COMPLETED",
+                                "startedAt": "2026-11-11T14:10:35Z",
+                                "completedAt": "2026-11-11T14:10:39Z",
+                                "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/43035866555/job/130574619601",
+                                "checkSuite": {
+                                  "app": {
+                                    "databaseId": 15368
+                                  },
+                                  "workflowRun": {
+                                    "databaseId": 43035866555,
+                                    "file": {
+                                      "path": ".github/workflows/p65-cancel.yml"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "__typename": "CheckRun",
+                                "id": "CR_kwDOVFD6788AAAAeZs4Gvg",
+                                "databaseId": 130573797054,
+                                "name": "p65 / verify",
+                                "conclusion": "SUCCESS",
+                                "status": "COMPLETED",
+                                "startedAt": "2026-11-11T14:09:06Z",
+                                "completedAt": "2026-11-11T14:09:09Z",
+                                "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/43035042206/job/130573797054",
+                                "checkSuite": {
+                                  "app": {
+                                    "databaseId": 15368
+                                  },
+                                  "workflowRun": {
+                                    "databaseId": 43035042206,
+                                    "file": {
+                                      "path": ".github/workflows/p65-cancel.yml"
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the same query asking each check run's checkSuite also its databaseId, status and conclusion, and its workflowRun its runNumber and event, of pull request 102 at head A (5ceb770b52c6), after every run had concluded; of the answer, the rate limit, the head, the count and p65-cancel.yml's check runs are kept, every other context left out",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query FactsChecks($owner: String!, $name: String!, $number: Int!, $after: String) {\n  rateLimit { cost remaining }\n  repository(owner: $owner, name: $name) {\n    pullRequest(number: $number) {\n      headRefOid\n      mergeQueueEntry { position }\n      commits(last: 1) {\n        nodes {\n          commit {\n            oid\n            statusCheckRollup {\n              contexts(first: 100, after: $after) {\n                totalCount\n                pageInfo { hasNextPage endCursor }\n                nodes {\n                  __typename\n                  ... on StatusContext { id }\n                  ... on CheckRun {\n                    id databaseId name conclusion status startedAt completedAt detailsUrl\n                    checkSuite { databaseId status conclusion app { databaseId } workflowRun { databaseId runNumber event file { path } } }\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "number": 102
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 11 Nov 2026 14:11:00 GMT",
+          "x-github-request-id": "C52D:27D11E:AD34C0:227DEA8:6AF47774"
+        },
+        "body": {
+          "data": {
+            "rateLimit": {
+              "cost": 1,
+              "remaining": 4566
+            },
+            "repository": {
+              "pullRequest": {
+                "headRefOid": "5ceb770b52c60021f0069c8109e1b1198088ed89",
+                "mergeQueueEntry": null,
+                "commits": {
+                  "nodes": [
+                    {
+                      "commit": {
+                        "oid": "5ceb770b52c60021f0069c8109e1b1198088ed89",
+                        "statusCheckRollup": {
+                          "contexts": {
+                            "totalCount": 15,
+                            "pageInfo": {
+                              "hasNextPage": false,
+                              "endCursor": "MTU"
+                            },
+                            "nodes": [
+                              {
+                                "__typename": "CheckRun",
+                                "id": "CR_kwDOVFD6788AAAAeZtBDQA",
+                                "databaseId": 130573943616,
+                                "name": "p65 / work",
+                                "conclusion": "CANCELLED",
+                                "status": "COMPLETED",
+                                "startedAt": "2026-11-11T14:09:23Z",
+                                "completedAt": "2026-11-11T14:09:46Z",
+                                "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/43034844965/job/130573943616",
+                                "checkSuite": {
+                                  "databaseId": 116539483233,
+                                  "status": "COMPLETED",
+                                  "conclusion": "CANCELLED",
+                                  "app": {
+                                    "databaseId": 15368
+                                  },
+                                  "workflowRun": {
+                                    "databaseId": 43034844965,
+                                    "runNumber": 1,
+                                    "event": "pull_request",
+                                    "file": {
+                                      "path": ".github/workflows/p65-cancel.yml"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "__typename": "CheckRun",
+                                "id": "CR_kwDOVFD6788AAAAeZtb2fw",
+                                "databaseId": 130574382719,
+                                "name": "p65 / work",
+                                "conclusion": "CANCELLED",
+                                "status": "COMPLETED",
+                                "startedAt": "2026-11-11T14:10:10Z",
+                                "completedAt": "2026-11-11T14:10:32Z",
+                                "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/43035866555/job/130574382719",
+                                "checkSuite": {
+                                  "databaseId": 116542276724,
+                                  "status": "COMPLETED",
+                                  "conclusion": "CANCELLED",
+                                  "app": {
+                                    "databaseId": 15368
+                                  },
+                                  "workflowRun": {
+                                    "databaseId": 43035866555,
+                                    "runNumber": 4,
+                                    "event": "pull_request",
+                                    "file": {
+                                      "path": ".github/workflows/p65-cancel.yml"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "__typename": "CheckRun",
+                                "id": "CR_kwDOVFD6788AAAAeZquQGw",
+                                "databaseId": 130571538459,
+                                "name": "p65 / work",
+                                "conclusion": "SUCCESS",
+                                "status": "COMPLETED",
+                                "startedAt": "2026-11-11T14:05:02Z",
+                                "completedAt": "2026-11-11T14:09:04Z",
+                                "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/43035042206/job/130571538459",
+                                "checkSuite": {
+                                  "databaseId": 116540026586,
+                                  "status": "COMPLETED",
+                                  "conclusion": "SUCCESS",
+                                  "app": {
+                                    "databaseId": 15368
+                                  },
+                                  "workflowRun": {
+                                    "databaseId": 43035042206,
+                                    "runNumber": 3,
+                                    "event": "pull_request",
+                                    "file": {
+                                      "path": ".github/workflows/p65-cancel.yml"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "__typename": "CheckRun",
+                                "id": "CR_kwDOVFD6788AAAAeZtQA1A",
+                                "databaseId": 130574188756,
+                                "name": "p65 / verify",
+                                "conclusion": "FAILURE",
+                                "status": "COMPLETED",
+                                "startedAt": "2026-11-11T14:09:49Z",
+                                "completedAt": "2026-11-11T14:09:52Z",
+                                "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/43034844965/job/130574188756",
+                                "checkSuite": {
+                                  "databaseId": 116539483233,
+                                  "status": "COMPLETED",
+                                  "conclusion": "CANCELLED",
+                                  "app": {
+                                    "databaseId": 15368
+                                  },
+                                  "workflowRun": {
+                                    "databaseId": 43034844965,
+                                    "runNumber": 1,
+                                    "event": "pull_request",
+                                    "file": {
+                                      "path": ".github/workflows/p65-cancel.yml"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "__typename": "CheckRun",
+                                "id": "CR_kwDOVFD6788AAAAeZtqT0Q",
+                                "databaseId": 130574619601,
+                                "name": "p65 / verify",
+                                "conclusion": "FAILURE",
+                                "status": "COMPLETED",
+                                "startedAt": "2026-11-11T14:10:35Z",
+                                "completedAt": "2026-11-11T14:10:39Z",
+                                "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/43035866555/job/130574619601",
+                                "checkSuite": {
+                                  "databaseId": 116542276724,
+                                  "status": "COMPLETED",
+                                  "conclusion": "CANCELLED",
+                                  "app": {
+                                    "databaseId": 15368
+                                  },
+                                  "workflowRun": {
+                                    "databaseId": 43035866555,
+                                    "runNumber": 4,
+                                    "event": "pull_request",
+                                    "file": {
+                                      "path": ".github/workflows/p65-cancel.yml"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "__typename": "CheckRun",
+                                "id": "CR_kwDOVFD6788AAAAeZs4Gvg",
+                                "databaseId": 130573797054,
+                                "name": "p65 / verify",
+                                "conclusion": "SUCCESS",
+                                "status": "COMPLETED",
+                                "startedAt": "2026-11-11T14:09:06Z",
+                                "completedAt": "2026-11-11T14:09:09Z",
+                                "detailsUrl": "https://github.com/combsmith/software-factory-canary/actions/runs/43035042206/job/130573797054",
+                                "checkSuite": {
+                                  "databaseId": 116540026586,
+                                  "status": "COMPLETED",
+                                  "conclusion": "SUCCESS",
+                                  "app": {
+                                    "databaseId": 15368
+                                  },
+                                  "workflowRun": {
+                                    "databaseId": 43035042206,
+                                    "runNumber": 3,
+                                    "event": "pull_request",
+                                    "file": {
+                                      "path": ".github/workflows/p65-cancel.yml"
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/5ceb770b52c60021f0069c8109e1b1198088ed89/check-suites?per_page=100 (of the answer, each suite's id, App, head, status, conclusion, and latest check runs' count are kept, of p65-cancel.yml's suites alone; the total is GitHub's)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 11 Nov 2026 14:11:01 GMT",
+          "x-github-request-id": "C52E:3CF943:AA8BD1:21F1504:6AF47775"
+        },
+        "body": {
+          "total_count": 17,
+          "check_suites": [
+            {
+              "id": 116539483233,
+              "head_branch": "trial/p65-cancel",
+              "head_sha": "5ceb770b52c60021f0069c8109e1b1198088ed89",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "latest_check_runs_count": 2,
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              }
+            },
+            {
+              "id": 116540026586,
+              "head_branch": "trial/p65-cancel",
+              "head_sha": "5ceb770b52c60021f0069c8109e1b1198088ed89",
+              "status": "completed",
+              "conclusion": "success",
+              "latest_check_runs_count": 2,
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              }
+            },
+            {
+              "id": 116542276724,
+              "head_branch": "trial/p65-cancel",
+              "head_sha": "5ceb770b52c60021f0069c8109e1b1198088ed89",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "latest_check_runs_count": 2,
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/5ceb770b52c60021f0069c8109e1b1198088ed89/check-runs?filter=all&per_page=100 (of the answer, each check run's id, name, status, conclusion, details URL, suite and App are kept, of p65-cancel.yml's check runs alone; the total is GitHub's)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 11 Nov 2026 14:11:02 GMT",
+          "x-github-request-id": "C52F:24AD54:6A702B:1512AA4:6AF47775"
+        },
+        "body": {
+          "total_count": 20,
+          "check_runs": [
+            {
+              "id": 130574619601,
+              "name": "p65 / verify",
+              "status": "completed",
+              "conclusion": "failure",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/43035866555/job/130574619601",
+              "check_suite": {
+                "id": 116542276724
+              },
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              }
+            },
+            {
+              "id": 130574382719,
+              "name": "p65 / work",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/43035866555/job/130574382719",
+              "check_suite": {
+                "id": 116542276724
+              },
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              }
+            },
+            {
+              "id": 130574188756,
+              "name": "p65 / verify",
+              "status": "completed",
+              "conclusion": "failure",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/43034844965/job/130574188756",
+              "check_suite": {
+                "id": 116539483233
+              },
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              }
+            },
+            {
+              "id": 130573943616,
+              "name": "p65 / work",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/43034844965/job/130573943616",
+              "check_suite": {
+                "id": 116539483233
+              },
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              }
+            },
+            {
+              "id": 130573797054,
+              "name": "p65 / verify",
+              "status": "completed",
+              "conclusion": "success",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/43035042206/job/130573797054",
+              "check_suite": {
+                "id": 116540026586
+              },
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              }
+            },
+            {
+              "id": 130571538459,
+              "name": "p65 / work",
+              "status": "completed",
+              "conclusion": "success",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/43035042206/job/130571538459",
+              "check_suite": {
+                "id": 116540026586
+              },
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              }
+            },
+            {
+              "id": 130571053085,
+              "name": "p65 / verify",
+              "status": "completed",
+              "conclusion": "failure",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/43034844965/job/130571053085",
+              "check_suite": {
+                "id": 116539483233
+              },
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              }
+            },
+            {
+              "id": 130570853056,
+              "name": "p65 / work",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "details_url": "https://github.com/combsmith/software-factory-canary/actions/runs/43034844965/job/130570853056",
+              "check_suite": {
+                "id": 116539483233
+              },
+              "app": {
+                "id": 15368,
+                "slug": "github-actions"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs?head_sha=5ceb770b52c60021f0069c8109e1b1198088ed89&per_page=100 (of the answer, each run's id, name, path, event, number, attempt, suite, head commit, status, conclusion and times are kept, of p65-cancel.yml's runs alone; the total is GitHub's)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 11 Nov 2026 14:11:03 GMT",
+          "x-github-request-id": "C530:3841EC:AB044D:21E6DA6:6AF47776"
+        },
+        "body": {
+          "total_count": 7,
+          "workflow_runs": [
+            {
+              "id": 43035866555,
+              "name": "p65-cancel",
+              "path": ".github/workflows/p65-cancel.yml",
+              "event": "pull_request",
+              "run_number": 4,
+              "run_attempt": 1,
+              "check_suite_id": 116542276724,
+              "head_sha": "5ceb770b52c60021f0069c8109e1b1198088ed89",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "created_at": "2026-11-11T14:10:07Z",
+              "run_started_at": "2026-11-11T14:10:07Z",
+              "updated_at": "2026-11-11T14:10:40Z"
+            },
+            {
+              "id": 43035042206,
+              "name": "p65-cancel",
+              "path": ".github/workflows/p65-cancel.yml",
+              "event": "pull_request",
+              "run_number": 3,
+              "run_attempt": 1,
+              "check_suite_id": 116540026586,
+              "head_sha": "5ceb770b52c60021f0069c8109e1b1198088ed89",
+              "status": "completed",
+              "conclusion": "success",
+              "created_at": "2026-11-11T14:04:59Z",
+              "run_started_at": "2026-11-11T14:04:59Z",
+              "updated_at": "2026-11-11T14:09:09Z"
+            },
+            {
+              "id": 43034844965,
+              "name": "p65-cancel",
+              "path": ".github/workflows/p65-cancel.yml",
+              "event": "pull_request",
+              "run_number": 1,
+              "run_attempt": 2,
+              "check_suite_id": 116539483233,
+              "head_sha": "5ceb770b52c60021f0069c8109e1b1198088ed89",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "created_at": "2026-11-11T14:03:43Z",
+              "run_started_at": "2026-11-11T14:09:18Z",
+              "updated_at": "2026-11-11T14:09:53Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/43034844965/attempts/1, the first attempt of the run re-run (of the answer, the same fields are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 11 Nov 2026 14:11:03 GMT",
+          "x-github-request-id": "C531:43ADC:AF14B5:22AC6C5:6AF47777"
+        },
+        "body": {
+          "id": 43034844965,
+          "name": "p65-cancel",
+          "path": ".github/workflows/p65-cancel.yml",
+          "event": "pull_request",
+          "run_number": 1,
+          "run_attempt": 1,
+          "check_suite_id": 116539483233,
+          "head_sha": "5ceb770b52c60021f0069c8109e1b1198088ed89",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "created_at": "2026-11-11T14:03:43Z",
+          "run_started_at": "2026-11-11T14:03:43Z",
+          "updated_at": "2026-11-11T14:04:11Z"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/43034844965/attempts/1/jobs (of the answer, each job's id, run, attempt, name, status, conclusion, times, check run and runner are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 11 Nov 2026 14:11:04 GMT",
+          "x-github-request-id": "C532:1D35B7:B2BEE1:23663EE:6AF47777"
+        },
+        "body": {
+          "total_count": 2,
+          "jobs": [
+            {
+              "id": 130570853056,
+              "run_id": 43034844965,
+              "run_attempt": 1,
+              "name": "p65 / work",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "started_at": "2026-11-11T14:03:45Z",
+              "completed_at": "2026-11-11T14:04:05Z",
+              "check_run_url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/130570853056",
+              "runner_name": "GitHub Actions 1000894859"
+            },
+            {
+              "id": 130571053085,
+              "run_id": 43034844965,
+              "run_attempt": 1,
+              "name": "p65 / verify",
+              "status": "completed",
+              "conclusion": "failure",
+              "started_at": "2026-11-11T14:04:07Z",
+              "completed_at": "2026-11-11T14:04:10Z",
+              "check_run_url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/130571053085",
+              "runner_name": "GitHub Actions 1000894861"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/43034844965/attempts/2/jobs (of the answer, each job's id, run, attempt, name, status, conclusion, times, check run and runner are kept)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 11 Nov 2026 14:11:04 GMT",
+          "x-github-request-id": "C533:303E08:6D90D5:15A954D:6AF47778"
+        },
+        "body": {
+          "total_count": 2,
+          "jobs": [
+            {
+              "id": 130573943616,
+              "run_id": 43034844965,
+              "run_attempt": 2,
+              "name": "p65 / work",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "started_at": "2026-11-11T14:09:23Z",
+              "completed_at": "2026-11-11T14:09:46Z",
+              "check_run_url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/130573943616",
+              "runner_name": "GitHub Actions 1000895026"
+            },
+            {
+              "id": 130574188756,
+              "run_id": 43034844965,
+              "run_attempt": 2,
+              "name": "p65 / verify",
+              "status": "completed",
+              "conclusion": "failure",
+              "started_at": "2026-11-11T14:09:49Z",
+              "completed_at": "2026-11-11T14:09:52Z",
+              "check_run_url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/130574188756",
+              "runner_name": "GitHub Actions 1000895027"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
+    "exchanges[6].request.headers.authorization",
+    "exchanges[7].request.headers.authorization"
+  ],
+  "verdict": "pass"
+}

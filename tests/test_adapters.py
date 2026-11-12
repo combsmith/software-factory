@@ -1445,6 +1445,42 @@ class Records(unittest.TestCase):
                 # Asked of every item, the same list stops at the cap and is not whole.
                 got, _ = self.read(rows, jobs[0], jobs[1], began={})
                 self.assertEqual(got["complete"], False, status)
+    def test_the_asking_is_bounded_to_the_items_given(self):
+        # The pass asks when a Run began only of the open pull requests' Runs: what the list holds of items long
+        # closed is history, and asking it would spend the cap on nothing (decision 0196). Another item's Run is not
+        # asked, says what was kept of it and no more, and leaves the list whole. The cap holds among those given.
+        rows = listing("P-17", 3, rows={"status": "in_progress", "conclusion": None, "run_attempt": 1})
+        template = rows["response"]["body"]["workflow_runs"][0]
+        names = [NAME.replace("r_01JA6Z", "r_%06dZ" % n) for n in range(5)]
+        names[0], names[2] = names[0].replace("#264", "#265"), names[2].replace("#264", "#265")
+        names[4] = names[4].replace("software-factory#", "elsewhere#")
+        rows["response"]["body"].update(total_count=5, workflow_runs=[
+            dict(template, id=700 + n, name=names[n], run_started_at="2026-10-21T0%d:00:00Z" % n) for n in range(5)])
+        jobs = [jobs_read("P-64", 18, 700 + n) for n in range(5)]
+        item = lambda number: {"repo": "combsmith/software-factory", "type": "pull_request", "number": number}
+
+        def read(began, of, *answers):
+            sent = Recording(github.Replay([rows] + list(answers)))
+            got = records.runs(sent, canary(), "main", [WORKFLOW], DISPATCHER, per_page=10, began=began, of=of)
+            return ([r.get("began_at", "none") for r in got["runs"]], got["complete"],
+                    [r["path"].split("/")[-2] for r in sent.sent[1:]])
+        began, kept = "2026-11-10T19:44:48Z", {("r_000002Z", "2026-10-21T02:00:00Z"): "2026-10-21T02:00:07Z"}
+        with mock.patch.object(records, "JOBS", 2):
+            # The two Runs of the item given are asked, and the list is whole; the others say nothing, but one what
+            # the records before kept of it.
+            self.assertEqual(read(kept, [item(264)], jobs[1], jobs[3]),
+                             (["none", began, "2026-10-21T02:00:07Z", began, "none"], True, ["701", "703"]))
+            # The cap holds among the items given: the third of their Runs is not asked, and the list is not whole.
+            self.assertEqual(read({}, [item(264), item(265)], jobs[0], jobs[1]),
+                             ([began, began, "none", "none", "none"], False, ["700", "701"]))
+            # One of them whose jobs cannot be read leaves the list not whole.
+            unread = dict(jobs[3], response=dict(jobs[3]["response"], status=404))
+            self.assertEqual(read({}, [item(264)], jobs[1], unread)[:2], (["none", began, "none", "none", "none"], False))
+            # No item given asks no job, of a list that is whole; none said asks every Run, to the cap.
+            self.assertEqual(read({}, []), (["none"] * 5, True, []))
+            # An issue of the same repo and number is another item: none of the pull request's Runs is asked.
+            self.assertEqual(read({}, [dict(item(264), type="issue")]), (["none"] * 5, True, []))
+            self.assertEqual(read({}, None, jobs[0], jobs[1]), ([began, began, "none", "none", "none"], False, ["700", "701"]))
 
     def test_when_a_run_began_is_asked_once_and_kept(self):
         # A job's start stands once given (P-64), and a completed run's jobs change no more: what a pass record
@@ -1534,6 +1570,38 @@ class Records(unittest.TestCase):
             got, asked = read(rows, jobs[0], began={k: v for k, v in kept.items() if k[0] == "r_000002Z"})
             self.assertEqual(([r.get("began_at", "none") for r in got["runs"]], got["complete"], asked),
                              ([began[0], "none", began[2], "none"], False, [700]))
+
+    def test_what_a_pass_record_holds_of_a_beginning_is_kept(self):
+        # A job's start stands once given (P-64), and a completed run's jobs change no more: `begun` reads what the
+        # pass records before hold, by Run id and when the attempt started, for the port not to ask again (0193).
+        one = json.loads((ROOT / "examples" / "run-record.json").read_text())
+        key, began = (one["run"], one["started_at"]), one["began_at"]
+        running = dict(one, run="r_000002Z", status="in_progress", conclusion=None)
+        self.assertEqual(records.begun([{"runs": [one, dict(one, run="r_000001Z", began_at=None), running]}]),
+                         {key: began, ("r_000001Z", one["started_at"]): None, ("r_000002Z", one["started_at"]): began})
+        # The last two records are read; the earlier's word stands only for a Run the later does not list: one the
+        # later lists with another beginning, with none, or twice, takes the later's word, or is asked afresh.
+        older, newer = {"runs": [dict(one, began_at="2026-11-10T00:00:00Z")]}, {"runs": [one]}
+        bare = {k: v for k, v in one.items() if k != "began_at"}
+        self.assertEqual((records.begun([older, newer])[key], records.begun([newer, older])[key],
+                          records.begun([older, newer, {"runs": []}])), (began, "2026-11-10T00:00:00Z", {key: began}))
+        self.assertEqual(records.begun([older, {"runs": []}, {"runs": []}]), {})
+        self.assertEqual(records.begun([older, {"runs": [dict(one, run="r_000009Z")]}]),
+                         {key: "2026-11-10T00:00:00Z", ("r_000009Z", one["started_at"]): began})
+        self.assertEqual((records.begun([older, {"runs": []}]), records.begun([older, {"runs": [bare]}]),
+                          records.begun([older, {"runs": [one, one]}]), records.begun([{"runs": [one, bare]}])),
+                         ({key: "2026-11-10T00:00:00Z"}, {}, {}, {}))
+        # Null is kept for a completed Run alone, and nothing from a key a record lists twice, a beginning that is no
+        # time, a record that names no Run or no start, or what is no pass record's runs.
+        for change in ({"began_at": None, "status": "in_progress"}, {"began_at": None, "status": "queued"},
+                       {"began_at": "soon"}, {"began_at": 7},
+                       {"began_at": "2026-02-30T00:00:00Z"}, {"began_at": "2026-2-3T1:2:3Z"}, {"run": None},
+                       {"started_at": None}):
+            self.assertEqual(records.begun([{"runs": [dict(one, **change)]}]), {}, change)
+        self.assertEqual((records.begun([{"runs": [bare]}]), records.begun([{"runs": [one, dict(one, began_at=None)]}])),
+                         ({}, {}))
+        self.assertEqual((records.begun(None), records.begun({"runs": [one]}), records.begun([{"runs": None}]),
+                          records.begun([{"runs": ["x"]}]), records.begun(["x"])), ({}, {}, {}, {}, {}))
 
     def test_a_status_or_a_conclusion_github_would_not_give_a_run_makes_the_list_short(self):
         self.assertEqual(self.read(listing("P-17", 3, rows={"name": NAME, "status": "waiting"}))[0]["runs"][0]["status"],
@@ -2170,10 +2238,14 @@ class Checks(unittest.TestCase):
                 n["detailsUrl"] = "https://github.com/combsmith/software-factory/actions/runs/%d/job/%d" % (1000 + i, i)
         got = checks.read(github.Replay([checks_answer(node)]), as_pull(node))
         self.assertEqual(len(got["checks"]), len([n for n in nodes if n["__typename"] == "CheckRun"]))
+        # P-32 asked no suite its conclusion, so none is given; each run's id is, as given above.
         self.assertEqual(got["checks"][0], {"name": "Analyze (actions)", "app_id": 15368, "workflow": None,
-                                            "conclusion": "success", "completed_at": "2026-10-20T00:51:22Z"})
-        self.assertIn({"name": "checks", "app_id": 15368, "workflow": ".github/workflows/verify.yml",
-                       "conclusion": "success", "completed_at": "2026-10-20T01:01:25Z"}, got["checks"])
+                                            "conclusion": "success", "completed_at": "2026-10-20T00:51:22Z", "run_id": 1001})
+        verify = [c for c in got["checks"] if c["name"] == "checks" and c["workflow"] == ".github/workflows/verify.yml"]
+        self.assertEqual([{k: v for k, v in c.items() if k != "run_id"} for c in verify],
+                         [{"name": "checks", "app_id": 15368, "workflow": ".github/workflows/verify.yml",
+                           "conclusion": "success", "completed_at": "2026-10-20T01:01:25Z"}])
+        self.assertTrue(all(type(c["run_id"]) is int for c in verify))
         self.assertEqual((got["complete"], got["queue"]), (True, True))
 
     def test_a_check_still_running_gives_its_status_and_no_time(self):
@@ -2189,6 +2261,53 @@ class Checks(unittest.TestCase):
                        {"checkSuite": {"app": {"databaseId": 1}, "workflowRun": {"file": "verify.yml"}}}):
             with self.assertRaises(github.Unanswered, msg=broken):
                 checks.check(dict(node, **broken))
+
+    def test_each_check_is_given_its_runs_id_and_its_suites_conclusion(self):  # issue 681, trials/P-65.json
+        # trials/P-65.json: the rollup asked as QUERY asks gives each check run its suite's conclusion and its workflow
+        # run's id. The port writes both, the conclusion null while the suite has not concluded, and the id null for a
+        # check no workflow ran: a cancelled run's failed judging check is told from a later run's on the same head.
+        self.assertIn("checkSuite { conclusion app { databaseId } workflowRun { databaseId file { path } } }", checks.QUERY)
+        trial = exchanges("P-65")[1]["response"]["body"]["data"]["repository"]["pullRequest"]
+        nodes = trial["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
+        got = [checks.check(n) for n in nodes]
+        mine = [c for c in got if c["run_id"] == 43034844965 and c["name"] == "p65 / verify"]
+        self.assertEqual([{k: c[k] for k in ("app_id", "workflow", "conclusion", "suite_conclusion")} for c in mine],
+                         [{"app_id": 15368, "workflow": ".github/workflows/p65-cancel.yml", "conclusion": "failure",
+                           "suite_conclusion": "cancelled"}])
+        verdicts = {(c["name"], c["run_id"]): (c["conclusion"], c["suite_conclusion"]) for c in got}
+        self.assertEqual(verdicts[("p65 / verify", 43035866555)], ("failure", "cancelled"))
+        self.assertEqual(verdicts[("p65 / verify", 43035042206)], ("success", "success"))
+        self.assertEqual(verdicts[("p65 / work", 43034844965)], ("cancelled", "cancelled"))
+        self.assertTrue(all("run_id" in c and "suite_conclusion" in c for c in got))
+        running = {"__typename": "CheckRun", "name": "verify", "conclusion": None, "status": "IN_PROGRESS", "completedAt": None,
+                   "checkSuite": {"conclusion": None, "app": {"databaseId": 15368}, "workflowRun": {"databaseId": 7, "file": None}}}
+        self.assertEqual((checks.check(running)["run_id"], checks.check(running)["suite_conclusion"]), (7, None))
+        first = dict(running, checkSuite=dict(running["checkSuite"], workflowRun={"databaseId": 1, "file": None}))
+        self.assertEqual(checks.check(first)["run_id"], 1)
+        apps = dict(running, checkSuite={"conclusion": "SUCCESS", "app": {"databaseId": 57789}, "workflowRun": None})
+        self.assertEqual((checks.check(apps)["run_id"], checks.check(apps)["suite_conclusion"]), (None, "success"))
+        # An answer that leaves one out, as a trial's recorded before QUERY asked it, leaves the field out; one given in
+        # any form but its own is refused, never read as none.
+        self.assertNotIn("suite_conclusion", checks.check(dict(running, checkSuite={"app": {"databaseId": 15368}, "workflowRun": None})))
+        self.assertNotIn("run_id", checks.check(dict(running, checkSuite={"conclusion": None, "app": {"databaseId": 15368},
+                                                                          "workflowRun": {"file": None}})))
+        self.assertNotIn("run_id", checks.check(dict(running, checkSuite={"conclusion": None, "app": {"databaseId": 15368}})))
+        # facts/1 holds them so: an id of 1 at least, a conclusion lower-cased, each counter-example refused.
+        from tools import check_examples
+        self.assertEqual([p for p in check_examples.run() if p.startswith(("facts.", "invalid/facts."))], [])
+        from tools.jsonschema_lite import validate
+        schemas = {f.name[: -len(".schema.json")]: json.loads(f.read_text()) for f in (ROOT / "schemas").glob("*.schema.json")}
+        example = json.loads((ROOT / "examples" / "facts.json").read_text())
+        for value, ok in ((("run_id", 1), True), (("run_id", None), True), (("run_id", 1.5), False), (("run_id", "1"), False),
+                          (("suite_conclusion", None), True), (("suite_conclusion", "cancelled"), True), (("suite_conclusion", 1), False)):
+            given = copy.deepcopy(example)
+            given["checks"][0][value[0]] = value[1]
+            self.assertEqual(validate(given, schemas["facts"], schemas=schemas) == [], ok, value)
+        for suite in ({"conclusion": "cancelled now"}, {"conclusion": "CANCELLED NOW"}, {"conclusion": 1}, {"conclusion": ""},
+                      {"workflowRun": {"databaseId": 0, "file": None}}, {"workflowRun": {"databaseId": "7", "file": None}},
+                      {"workflowRun": {"databaseId": True, "file": None}}, {"workflowRun": {"databaseId": None, "file": None}}):
+            with self.assertRaises(github.Unanswered, msg=suite):
+                checks.check(dict(running, checkSuite=dict(running["checkSuite"], **suite)))
 
     def test_a_check_whose_app_github_does_not_show_reads_as_no_app(self):  # decision 0181, pull request 688
         # Another App's token is not shown a private App, such as the Controller's on its own check: GitHub gives that
