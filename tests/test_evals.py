@@ -841,8 +841,9 @@ class TheSet(unittest.TestCase):
             self.assertNotEqual(text, EVAL_WORKFLOW, why)
             self.assertTrue(caught(check_workflows.eval_problems(text), words), why)
         # The install is the one the Run's jobs hold word for word, and a pin with no checksum holds no install at all.
+        pin = load("config/harness.json")["engine"]["version"]
         self.assertIn("\n".join("          " + line for line in check_workflows.CLI_INSTALL_RUN),
-                      check_workflows.RUN_JOBS_FILE)
+                      check_workflows.RUN_JOBS_FILE % {"version": pin, "checksum": check_workflows.CLI_CHECKSUMS[pin]})
         unpinned = clone({"config/harness.json": json.dumps(dict(load("config/harness.json"), engine=dict(
             load("config/harness.json")["engine"], version="9.9.9")))})
         self.assertTrue(caught(check_workflows.eval_problems(EVAL_WORKFLOW, unpinned), "pins no CLI whose checksum"))

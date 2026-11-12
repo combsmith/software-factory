@@ -4140,28 +4140,29 @@ class Workflows(unittest.TestCase):
                                    "which only queue-job.yml names"), text)
 
     def test_the_cli_install_reads_only_signed_sources_over_https_by_its_own_list(self):  # issue 743, decision 0106
-        # Bubblewrap is fetched as root, so the block is held to what it may say, not to words it may not: three sources
-        # of Ubuntu's, each held by Ubuntu's keyring and read over HTTPS, written to the block's own list; and two apt
+        # Bubblewrap is fetched as root, so the block is held to what it may say, not to words it may not: Ubuntu's
+        # sources, each held by Ubuntu's keyring and read over HTTPS, written to the block's own list; and two apt
         # lines that read that list alone, never the image's mirror list, each with exactly the options it is given:
         # retries capped and each connection's wait bounded (a name that never resolves is not, which the step's own
         # timeout ends). Read from the one block both workflows hold word for word.
         import shlex
         block = check_workflows.CLI_INSTALL_RUN
-        self.assertEqual(len(block), 10)
+        self.assertEqual(len(block), 8)
         self.assertEqual(block[:5], ['url="https://downloads.claude.ai/claude-code-releases/${CLI_VERSION}/linux-x64/claude"',
                                      "curl -sSfL --proto '=https' --proto-redir '=https' -o /tmp/claude \"${url}\"",
                                      'echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c', "chmod 0755 /tmp/claude",
                                      "sudo mv /tmp/claude /usr/local/bin/claude"])
-        # The mirror is the one record 0106's amendment names, matched literally; the first line starts the list and the
-        # others add to it, so nothing an earlier step left in it is read (cubic, on #748).
-        source = re.compile(r"echo 'deb \[signed-by=/usr/share/keyrings/ubuntu-archive-keyring\.gpg\] "
-                            r"https://mirrors\.edge\.kernel\.org/ubuntu (noble|noble-updates|noble-security) main' (>>?) /tmp/ubuntu\.list")
-        found = [source.fullmatch(line) for line in block[5:8]]
-        self.assertTrue(all(found), block[5:8])
-        self.assertEqual(sorted(m.group(1) for m in found), ["noble", "noble-security", "noble-updates"])
-        self.assertEqual([m.group(2) for m in found], [">", ">>", ">>"])
+        # One line writes the whole list, so nothing an earlier step left in it is read: each of Ubuntu's three suites
+        # from each of two mirrors of different operators, named literally, each held by Ubuntu's keyring over HTTPS
+        # (issue 774; cubic, on #748). Either mirror down, apt warns and takes the package from the other (the canary
+        # repo's trial run 43141154752).
+        said = shlex.split(block[5])
+        self.assertEqual(said[:2] + said[-2:], ["printf", "%s\\n", ">", "/tmp/ubuntu.list"])
+        self.assertEqual(said[2:-2], ["deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://%s/ubuntu %s main"
+                                      % (host, suite) for host in ("azure.archive.ubuntu.com", "mirrors.edge.kernel.org")
+                                      for suite in ("noble", "noble-updates", "noble-security")])
         given = ["Dir::Etc::sourcelist=/tmp/ubuntu.list", "Dir::Etc::sourceparts=-", "Acquire::Retries=2", "Acquire::https::Timeout=10"]
-        for line, words in ((block[8], ["sudo", "apt-get", "update", "-q"]), (block[9], ["sudo", "apt-get", "install", "-y", "--no-install-recommends"])):
+        for line, words in ((block[6], ["sudo", "apt-get", "update", "-q"]), (block[7], ["sudo", "apt-get", "install", "-y", "--no-install-recommends"])):
             said = shlex.split(line)
             options = [said[k + 1] for k, w in enumerate(said) if w == "-o"]
             rest = [w for k, w in enumerate(said) if w != "-o" and (k == 0 or said[k - 1] != "-o")]
