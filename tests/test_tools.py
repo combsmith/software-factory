@@ -4148,12 +4148,18 @@ class Workflows(unittest.TestCase):
         import shlex
         block = check_workflows.CLI_INSTALL_RUN
         self.assertEqual(len(block), 10)
-        source = re.compile(r"echo 'deb \[signed-by=/usr/share/keyrings/ubuntu-archive-keyring\.gpg\] https://[a-z0-9.-]+/ubuntu "
-                            r"(noble|noble-updates|noble-security) main' >>? /tmp/ubuntu\.list")
+        self.assertEqual(block[:5], ['url="https://downloads.claude.ai/claude-code-releases/${CLI_VERSION}/linux-x64/claude"',
+                                     "curl -sSfL --proto '=https' --proto-redir '=https' -o /tmp/claude \"${url}\"",
+                                     'echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c', "chmod 0755 /tmp/claude",
+                                     "sudo mv /tmp/claude /usr/local/bin/claude"])
+        # The mirror is the one record 0106's amendment names, matched literally; the first line starts the list and the
+        # others add to it, so nothing an earlier step left in it is read (cubic, on #748).
+        source = re.compile(r"echo 'deb \[signed-by=/usr/share/keyrings/ubuntu-archive-keyring\.gpg\] "
+                            r"https://mirrors\.edge\.kernel\.org/ubuntu (noble|noble-updates|noble-security) main' (>>?) /tmp/ubuntu\.list")
         found = [source.fullmatch(line) for line in block[5:8]]
         self.assertTrue(all(found), block[5:8])
         self.assertEqual(sorted(m.group(1) for m in found), ["noble", "noble-security", "noble-updates"])
-        self.assertIn(" > /tmp/ubuntu.list", block[5])
+        self.assertEqual([m.group(2) for m in found], [">", ">>", ">>"])
         given = ["Dir::Etc::sourcelist=/tmp/ubuntu.list", "Dir::Etc::sourceparts=-", "Acquire::Retries=2", "Acquire::https::Timeout=10"]
         for line, words in ((block[8], ["sudo", "apt-get", "update", "-q"]), (block[9], ["sudo", "apt-get", "install", "-y", "--no-install-recommends"])):
             said = shlex.split(line)

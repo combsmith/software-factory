@@ -9355,6 +9355,13 @@ MUTANTS = ISSUE + [
     ("a source is added outside the block's own form", 'tools/check_workflows.py',
      '"echo \'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://mirrors.edge.kernel.org/ubuntu noble-security main\' >> /tmp/ubuntu.list",',
      '"echo \'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://mirrors.edge.kernel.org/ubuntu noble-security main\' >> /tmp/ubuntu.list", "echo \'deb https://evil.example/ubuntu noble main\' >> /tmp/ubuntu.list",', ('tests.test_tools.Workflows.test_the_cli_install_reads_only_signed_sources_over_https_by_its_own_list',)),
+    ("the sources name another mirror", 'tools/check_workflows.py',
+     '"echo \'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://mirrors.edge.kernel.org/ubuntu noble main\' > /tmp/ubuntu.list",',
+     '"echo \'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://mirror.example.org/ubuntu noble main\' > /tmp/ubuntu.list",', ('tests.test_tools.Workflows.test_the_cli_install_reads_only_signed_sources_over_https_by_its_own_list',)),
+    ("the list is added to, not started", 'tools/check_workflows.py',
+     'https://mirrors.edge.kernel.org/ubuntu noble main\' > /tmp/ubuntu.list",', 'https://mirrors.edge.kernel.org/ubuntu noble main\' >> /tmp/ubuntu.list",', ('tests.test_tools.Workflows.test_the_cli_install_reads_only_signed_sources_over_https_by_its_own_list',)),
+    ("a later source starts the list again", 'tools/check_workflows.py',
+     'https://mirrors.edge.kernel.org/ubuntu noble-updates main\' >> /tmp/ubuntu.list",', 'https://mirrors.edge.kernel.org/ubuntu noble-updates main\' > /tmp/ubuntu.list",', ('tests.test_tools.Workflows.test_the_cli_install_reads_only_signed_sources_over_https_by_its_own_list',)),
     # Decision 0106: the CLI runs with its scrub on, and the check that says so runs what the jobs hold.
     ('the eval job installs no bubblewrap', 'tools/check_workflows.py',
      '"sudo apt-get update -q -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10",\n                   "sudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap"]',
