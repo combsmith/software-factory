@@ -3870,10 +3870,10 @@ class RulesChanged(unittest.TestCase):
         self.assertEqual(held["person_only"], [(e["path"], e["is"]) for e in data["person_only"]])
         persons = [e["path"] for e in data["person_only"]]
         own = [e["path"] for e in data["lens_inputs"] if e["lens"] == "pr-review"]
-        # What the Kernel is given: the model Lens's own inputs, then each person-only path, once; and with no model
-        # Lens named, the person-only paths still.
+        # What the Kernel is given: the model Lens's own inputs, then each person-only path, once.
         self.assertEqual(protected.model_lens_inputs(["pr-review"]), own + persons)
-        both = protected.parse(json.dumps(dict(data, person_only=data["person_only"] + [{"path": own[0], "is": "x"}])))
+        shared = [p for p in own if p in [e["path"] for e in data["protected"]]][0]      # a Lens's input, protected too
+        both = protected.parse(json.dumps(dict(data, person_only=data["person_only"] + [{"path": shared, "is": "x"}])))
         self.assertEqual(protected.model_inputs_of(both, ["pr-review"]), own + persons)
         twice = protected.parse(json.dumps(dict(data, person_only=data["person_only"] + [dict(data["person_only"][0], **{"is": "x"})])))
         self.assertEqual(protected.model_inputs_of(twice, ["pr-review"]), own + persons)
@@ -3881,10 +3881,16 @@ class RulesChanged(unittest.TestCase):
         # 0052): a person-only path never stands in for one, so the two files disagreeing on a Lens's name is not passed.
         for models in ([], ["no-such-lens"], ["verify"][:0]):
             self.assertEqual(protected.model_inputs_of(held, models), [], models)
-        # Each is protected too, so an edit is asked of the person, and a Role's push may not touch it, once.
+        # Each is protected too, so an edit is asked of the person, and a Role's push may not touch it, once, whatever
+        # Lens is named; a list that names a path not protected is not read at all.
         for path in persons:
             self.assertIn(path, [p for p, _ in held["protected"]])
-            self.assertEqual(protected.push_of(held, ["pr-review"]).count(path), 1)
+            for models in (["pr-review"], [], ["no-such-lens"]):
+                self.assertEqual(protected.push_of(held, models).count(path), 1)
+        alone = dict(data, person_only=data["person_only"] + [{"path": "release/rings.json", "is": "x"}])
+        self.assertRaises(protected.Unreadable, protected.parse, json.dumps(alone))
+        too = dict(alone, protected=data["protected"] + [{"path": "release/rings.json", "is": "x"}])
+        self.assertEqual(protected.parse(json.dumps(too))["person_only"][-1], ("release/rings.json", "x"))
         # A file with no such list, as a commit before the decision has none, names none, and is read as before.
         before = protected.parse(json.dumps({key: value for key, value in data.items() if key != "person_only"}))
         self.assertEqual(before["person_only"], [])

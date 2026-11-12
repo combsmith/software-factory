@@ -210,7 +210,8 @@ def load(path: pathlib.Path = ROOT / "config" / "hooks.json") -> dict:
 
     A Lens's input is reported, as a stop lists it, and never asked about: `lens_inputs` keeps each with its Lens.
     `person_only` is each path only a person decides (decision 0200), or none where the file has no such list, as
-    a commit before that decision has none.
+    a commit before that decision has none. Each is a protected path too, so an edit to it is asked and no Role's
+    push may touch it, whatever Lens is named; a list that names a path not protected is not read.
     """
     try:
         text = path.read_text()
@@ -235,11 +236,12 @@ def parse(text: str) -> dict:
         sessions = {key: list(data["sessions"][key]) for key in ("programs", "words", "environment")}
     except (ValueError, KeyError, TypeError) as err:
         raise Unreadable("config/hooks.json cannot be read (%s)" % type(err).__name__)
-    paths = protected + reported + persons
+    paths = protected + reported      # a person-only path is one of the protected, held below
     words = [p for p, _ in paths] + [branch] + [w for group in lists.values() for v in group.values() for w in v]
     words += [lens for lens, _, _ in inputs] + [w for v in sessions.values() for w in v]
     if not protected or not inputs or ("person_only" in data and not persons) or not all(
             isinstance(what, str) and what for _, what in persons) or not all(sessions.values()) or not all(
+            p in [q for q, _ in protected] for p, _ in persons) or not all(
             isinstance(w, str) and w for w in words) or any(".." in p.split("/") for p, _ in paths):
         raise Unreadable("config/hooks.json does not have the shape the hook reads")
     # Where a command writes below a directory, Rules.where reads each name of a path as one name, so a `**` there would
