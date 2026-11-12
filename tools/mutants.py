@@ -627,6 +627,13 @@ ISSUE = [
      '                 and (linked_by_hand_before(p, first)\n                      and not any(ev["action"] != CONNECTED and ev["at"] >= first for ev in p["link_events"])\n                      or keyword_stood(p, first))\n',
      '                 and (linked_by_hand_before(p, first) or keyword_stood(p, first))\n                 and not any(ev["action"] != CONNECTED and ev["at"] >= first for ev in p["link_events"])\n',
      ('tests.test_issue.Done.test_a_keyword_link_a_pass_saw_before_the_merge_is_a_link_at_it',)),
+    # Issue 740: an acceptance contract's protected paths are in the hooks' syntax.
+    ("a contract's protected path may be in any syntax", 'schemas/acceptance.schema.json',
+     '"$ref": "hooks.schema.json#/$defs/path"', '"type": "string"', ('tests.test_tools.Acceptance.test_an_acceptance_contracts_protected_paths_are_in_the_hooks_syntax_and_read_alike',)),
+    ("a contract may protect no path", 'schemas/acceptance.schema.json',
+     '      "type": "array",\n      "minItems": 1,\n      "items": {\n        "$ref"', '      "type": "array",\n      "items": {\n        "$ref"', ('tests.test_tools.Acceptance.test_an_acceptance_contracts_protected_paths_are_in_the_hooks_syntax_and_read_alike',)),
+    ("a contract's protected paths may be one string", 'schemas/acceptance.schema.json',
+     '      "type": "array",\n      "minItems": 1,\n      "items": {\n        "$ref"', '      "minItems": 1,\n      "items": {\n        "$ref"', ('tests.test_tools.Acceptance.test_an_acceptance_contracts_protected_paths_are_in_the_hooks_syntax_and_read_alike',)),
     # Issue 554: a draft event before its pull request opened is no chronology.
     ("a draft event before the pull request opened is read", ISSUE_PY,
      '    if events and events[0]["at"] < entry["opened_at"]:\n        return False\n', '',
