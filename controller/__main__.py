@@ -8,7 +8,8 @@ and written to the folder `OUT` for the pass job's next steps (#193's ruling 10 
    began (decision 0043).
 3. It reads what started the pass from its own run, `GITHUB_RUN_ID`; `FACTORY_PAUSED` on the org and the repo; the
    run records, with the outcomes the records before it read (`records.known`) and when their Runs began
-   (`records.begun`), the jobs of the rest asked, 50 at most (decision 0193); the facts of each open pull request;
+   (`records.begun`), the jobs of the rest asked for the open pull requests' Runs alone, 50 at most (decisions 0193
+   and 0196); the facts of each open pull request;
    and, for reconciliation, what each Factory identity wrote and what the Factory recorded (decision 0112). The issues' reads are the issue Lifecycle's port's, not built yet: none is read, and no issue is decided.
 4. It gives the pass what it read and the time after the reads, and writes `pass.json`, `writes.json`, the plan the
    effects step holds to it, and the view's three files under `view/`.
@@ -153,18 +154,20 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     """Everything the pass reads after the wait, as `pass_.run` takes it."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
-    earlier = pass_.earlier(reads_.previous_records(previous), now) or []
-    try:
-        runs = records.runs(transport, home, branch, run_files(controller), dispatcher(controller),
-                            kept=records.known(earlier), began=records.begun(earlier))
-    except Unanswered:
-        runs = None
+    # The open pull requests are listed first: the records port asks when a Run began only of theirs (decision 0196).
     try:
         numbers, whole = items.open_pull_requests(transport, home)
     except Unanswered:
         numbers, whole = [], False
     if not whole:
         raise Stop("pull_requests_unreadable")
+    earlier = pass_.earlier(reads_.previous_records(previous), now) or []
+    try:
+        runs = records.runs(transport, home, branch, run_files(controller), dispatcher(controller),
+                            kept=records.known(earlier), began=records.begun(earlier),
+                            of=[{"repo": home, "type": "pull_request", "number": number} for number in numbers])
+    except Unanswered:
+        runs = None
     identities, approver, lenses, factory = accounts(controller)
     who = timeline.Accounts(transport, home, approver, lenses, factory, queue_of(controller))
     opens = opener(controller, config["kernel"], config["apps"])

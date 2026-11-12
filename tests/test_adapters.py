@@ -1412,6 +1412,43 @@ class Records(unittest.TestCase):
         record, whole = self.began("in_progress", changed(18, jobs=[], total_count=0))
         self.assertEqual(("began_at" in record, whole), (False, True))
 
+    def test_the_asking_is_bounded_to_the_items_given(self):
+        # The pass asks when a Run began only of the open pull requests' Runs: what the list holds of items long
+        # closed is history, and asking it would spend the cap on nothing (decision 0196). Another item's Run is not
+        # asked, says what was kept of it and no more, and leaves the list whole. The cap holds among those given.
+        rows = listing("P-17", 3, rows={"status": "in_progress", "conclusion": None, "run_attempt": 1})
+        template = rows["response"]["body"]["workflow_runs"][0]
+        names = [NAME.replace("r_01JA6Z", "r_%06dZ" % n) for n in range(5)]
+        names[0], names[2] = names[0].replace("#264", "#265"), names[2].replace("#264", "#265")
+        names[4] = names[4].replace("software-factory#", "elsewhere#")
+        rows["response"]["body"].update(total_count=5, workflow_runs=[
+            dict(template, id=700 + n, name=names[n], run_started_at="2026-10-21T0%d:00:00Z" % n) for n in range(5)])
+        jobs = [jobs_read("P-64", 18, 700 + n) for n in range(5)]
+        item = lambda number: {"repo": "combsmith/software-factory", "type": "pull_request", "number": number}
+
+        def read(began, of, *answers):
+            sent = Recording(github.Replay([rows] + list(answers)))
+            got = records.runs(sent, canary(), "main", [WORKFLOW], DISPATCHER, per_page=10, began=began, of=of)
+            return ([r.get("began_at", "none") for r in got["runs"]], got["complete"],
+                    [r["path"].split("/")[-2] for r in sent.sent[1:]])
+        began, kept = "2026-11-10T19:44:48Z", {("r_000002Z", "2026-10-21T02:00:00Z"): "2026-10-21T02:00:07Z"}
+        with mock.patch.object(records, "JOBS", 2):
+            # The two Runs of the item given are asked, and the list is whole; the others say nothing, but one what
+            # the records before kept of it.
+            self.assertEqual(read(kept, [item(264)], jobs[1], jobs[3]),
+                             (["none", began, "2026-10-21T02:00:07Z", began, "none"], True, ["701", "703"]))
+            # The cap holds among the items given: the third of their Runs is not asked, and the list is not whole.
+            self.assertEqual(read({}, [item(264), item(265)], jobs[0], jobs[1]),
+                             ([began, began, "none", "none", "none"], False, ["700", "701"]))
+            # One of them whose jobs cannot be read leaves the list not whole.
+            unread = dict(jobs[3], response=dict(jobs[3]["response"], status=404))
+            self.assertEqual(read({}, [item(264)], jobs[1], unread)[:2], (["none", began, "none", "none", "none"], False))
+            # No item given asks no job, of a list that is whole; none said asks every Run, to the cap.
+            self.assertEqual(read({}, []), (["none"] * 5, True, []))
+            # An issue of the same repo and number is another item: none of the pull request's Runs is asked.
+            self.assertEqual(read({}, [dict(item(264), type="issue")]), (["none"] * 5, True, []))
+            self.assertEqual(read({}, None, jobs[0], jobs[1]), ([began, began, "none", "none", "none"], False, ["700", "701"]))
+
     def test_when_a_run_began_is_asked_once_and_kept(self):
         # A job's start stands once given (P-64), and a completed run's jobs change no more: what a pass record
         # holds is not asked again. A Run that has not begun is.
