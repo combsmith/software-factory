@@ -4139,7 +4139,7 @@ class Workflows(unittest.TestCase):
             self.assertTrue(caught(check_workflows.shim_problems("other.yml", "name: x\non:\n  pull_request:\njobs:\n" + text),
                                    "which only queue-job.yml names"), text)
 
-    def test_the_cli_install_reads_only_signed_sources_over_https_by_its_own_list(self):  # issue 743, decision 0106
+    def test_the_cli_install_reads_only_signed_sources_over_https_by_its_own_list(self):  # issues 743 and 774, decision 0106
         # Bubblewrap is fetched as root, so the block is held to what it may say, not to words it may not: Ubuntu's
         # sources, each held by Ubuntu's keyring and read over HTTPS, written to the block's own list; and two apt
         # lines that read that list alone, never the image's mirror list, each with exactly the options it is given:
