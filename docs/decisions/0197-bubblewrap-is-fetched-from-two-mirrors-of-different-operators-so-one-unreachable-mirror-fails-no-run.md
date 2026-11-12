@@ -1,4 +1,4 @@
-# 0202. Bubblewrap is fetched from two mirrors of different operators, so one unreachable mirror fails no Run
+# 0197. Bubblewrap is fetched from two mirrors of different operators, so one unreachable mirror fails no Run
 
 Status: accepted. The Factory Builder's rulings of 2026-11-12 on "The CLI's install fetches bubblewrap from more than one mirror, so one unreachable mirror does not fail a Run" (issue 774). It amends decision 0195's rows "The fix" and "What it holds and what it does not", where they name one mirror; the rest of each row stands.
 
@@ -15,6 +15,15 @@ Status: accepted. The Factory Builder's rulings of 2026-11-12 on "The CLI's inst
 ## Why
 
 Decision 0195 moved the fetch off a mirror whose names stopped resolving, onto one mirror that later stopped connecting. Each fault was one operator's. Reading both, apt takes the package from whichever answers, and only both down at once stops a Run.
+
+The trial, a workflow in the canary repo, run 43141154752, each case a job of its own on `ubuntu-24.04`:
+
+| Case | The step | Installed from |
+|---|---|---|
+| Both mirrors up | 7 s | Azure's |
+| kernel.org's connections refused | 18 s | Azure's |
+| kernel.org's connections dropped into a black hole | 28 s | Azure's |
+| Azure's connections refused | 37 s | kernel.org's |
 
 ## Boundaries
 
