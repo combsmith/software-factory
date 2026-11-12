@@ -670,6 +670,42 @@
       "bound": "max_environment_runs_per_item"
     },
     {
+      "from": "addressing",
+      "to": "held",
+      "by": "platform",
+      "bound": "max_environment_runs_per_item"
+    },
+    {
+      "from": "adjudicating",
+      "to": "held",
+      "by": "lens",
+      "bound": "max_environment_runs_per_item"
+    },
+    {
+      "from": "adjudicating",
+      "to": "held",
+      "by": "platform",
+      "bound": "max_environment_runs_per_item"
+    },
+    {
+      "from": "converged",
+      "to": "held",
+      "by": "platform",
+      "bound": "max_environment_runs_per_item"
+    },
+    {
+      "from": "queued",
+      "to": "held",
+      "by": "platform",
+      "bound": "max_environment_runs_per_item"
+    },
+    {
+      "from": "held",
+      "to": "adjudicating",
+      "by": "lens",
+      "bound": "max_runs_per_item"
+    },
+    {
       "from": "verifying",
       "to": "merged",
       "by": "platform",

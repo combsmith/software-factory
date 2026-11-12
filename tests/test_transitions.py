@@ -200,6 +200,15 @@ BASES = {
         [reviewed()] + unstarted(LIMITS["max_environment_runs_per_item"] - 1), threads=[thread()]),
     "environment_ceiling, awaiting review, one Run short": base(
         unstarted(LIMITS["max_environment_runs_per_item"] - 1)),
+    # Each State that wants no Run, or an act, sits at the bound apart unheld; a change the platform makes then asks
+    # for a Run the bound forbids.
+    "awaiting_human at the bound apart": base([reviewed(), fix()] + unstarted(LIMITS["max_environment_runs_per_item"]),
+                                              threads=[PERSONS_THREAD]),
+    "resolve_due at the bound apart": base([reviewed(), fix(), ruling()] + unstarted(LIMITS["max_environment_runs_per_item"]),
+                                           threads=[thread(ruling="accepted")]),
+    "approved at the bound apart": base([reviewed()] + unstarted(LIMITS["max_environment_runs_per_item"]), reviews=APPROVED),
+    "in_merge_queue at the bound apart": base([reviewed()] + unstarted(LIMITS["max_environment_runs_per_item"]),
+                                              reviews=APPROVED, queue=True, acts_since_writer=2),
     "environment_ceiling, awaiting checks": base(unstarted(LIMITS["max_environment_runs_per_item"]), checks=PENDING),
     "awaiting_review at the bound apart, with a review Run": base(
         unstarted(LIMITS["max_environment_runs_per_item"] - 1)
