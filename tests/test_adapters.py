@@ -1331,6 +1331,10 @@ class Records(unittest.TestCase):
             self.assertEqual((got["runs"][0]["outcome"], got["runs"][0]["engine_started"]), ("environment", want))
         got, _ = self.read(rows, kept=kept, engines={})
         self.assertNotIn("engine_started", got["runs"][0])
+        # What was said of another Run, or of another attempt of this one, says nothing of this one.
+        for other in (("r_01JA70", key[1]), (key[0], "2026-10-11T12:06:00Z")):
+            got, _ = self.read(rows, kept=kept, engines={other: False})
+            self.assertNotIn("engine_started", got["runs"][0], other)
         got, _ = self.read(rows, kept=kept)
         self.assertNotIn("engine_started", got["runs"][0])
         # A Run that succeeded, or is not done, has no outcome read, and nothing of the Engine.
