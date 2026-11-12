@@ -1,0 +1,24 @@
+{
+  "schema": "consumer/1",
+  "repo": "combsmith/markets",
+  "ring": "next",
+  "owner_role": "devops-lead",
+  "ci_workflows": [
+    "CI"
+  ],
+  "verify": {
+    "setup": "scripts/factory-setup.sh",
+    "test": "scripts/factory-test.sh",
+    "protected_paths": [
+      "scripts/factory-setup.sh",
+      "scripts/factory-test.sh",
+      "scripts/factory-?.sh"
+    ]
+  },
+  "reviewers": [
+    "coderabbit",
+    "cubic",
+    "gemini-code-assist",
+    "sonarqube-cloud"
+  ]
+}
