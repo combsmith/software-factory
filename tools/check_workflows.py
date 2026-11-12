@@ -47,7 +47,7 @@ RULES = {
     "wake": "a workflow on workflow_run wakes on the completion alone of the workflows it names, never its own, takes "
             "no input and reads nothing of the run that woke it",
     "expression": "an expression stands only as the whole of a value under env:, with: or secrets:, or in if:; or as "
-                  "exactly a Run's name, ${{ inputs.name }}, its lane, ${{ inputs.item }}, or a step's output",
+                  "exactly a Run's name, ${{ inputs.name }}, its lane, ${{ inputs.item }}, or a step's output or its outcome",
     "model": "no step sets the CLI's environment scrub, which only the Engine sets, beside --tools \"\", and a step that "
              "holds the model's credential is handed no tool list",
     "lane": "a job that calls the Run's jobs, or an act's, holds its item's lane: its own concurrency group, "
