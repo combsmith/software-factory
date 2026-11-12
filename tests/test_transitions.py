@@ -1160,6 +1160,11 @@ ISSUE_BASES = {
         issue_spent(issue_facts.OPEN, ISSUE_RUNS - 1, "dev-lead")),
     "an outsider's admitted issue, investigated, one Run short": issue_item(
         OUTSIDERS_ISSUE, INVESTIGATED + issue_spent(issue_facts.JUDGE, ISSUE_RUNS - 2, "readiness")),
+    # The bound apart, for an issue as for a pull request (decision 0202): Runs that failed before their Engine step.
+    "an outsider's admitted issue, investigated, one Run short of the bound apart": issue_item(
+        OUTSIDERS_ISSUE, INVESTIGATED + [dict(issue_facts.failed(issue_facts.JUDGE, 4 + i, "u%d" % i, outcome="environment",
+                                                                 role="readiness"), engine_started=False)
+                                         for i in range(LIMITS["max_environment_runs_per_item"] - 1)]),
     "new, one act short": issue_item(issue_facts.facts(acts_since_writer=LIMITS["max_acts_per_item"] - 1)),
     # The act ceiling from new (issue 202): a factory:ready the readiness App added with no Run that judged it does not
     # count, and the Controller's removal of it is the last act.
@@ -1361,6 +1366,15 @@ def admitted_again(item: dict):
     return issue_queues(item, d["admit"])
 
 
+def issue_ends_before_engine(item):
+    """The oldest Run in flight fails for the environment before its Engine step started, or None (decision 0202)."""
+    live = [r for r in item["runs"] if r["status"] != "completed"]
+    if issue_run_ends("environment")(item) is None:
+        return None
+    live[0]["engine_started"] = False
+    return item
+
+
 def issue_run_ends(how: str):
     """The oldest Run in flight ends. One that succeeds passes through `apply`'s question, with its own Run left out
     (I-38): unless the Kernel admits the same Run again, it concludes as superseded, and otherwise its Effects are made."""
@@ -1419,10 +1433,11 @@ ISSUE_MOVES = [Move("a person adds %s" % name, "human", writer_labels(name, "lab
     Move("the oldest Run in flight fails for the issue", "factory", issue_run_ends("item")),
     Move("the oldest Run in flight fails for the environment", "factory", issue_run_ends("environment")),
     Move("the oldest Run in flight fails for capacity", "factory", issue_run_ends("capacity")),
+    Move("the oldest Run in flight fails before its Engine step", "factory", issue_ends_before_engine),
 ]
 # The Holds of the brakes, which are readings: an outsider's edit, after which the issue is not accepted, reads past
 # them, as it never reads past a Hold a label or more than one open link makes.
-BRAKES_HOLDS = {"run_ceiling", "attempts_exhausted", "act_ceiling"}
+BRAKES_HOLDS = {"run_ceiling", "environment_ceiling", "attempts_exhausted", "act_ceiling"}
 # Rows the issue Lifecycle declares that the exploration does not reach, each with why it is kept, as UNREACHED keeps
 # the pull request's. A closed issue is a dead end here (a writer's reopening is a new life, not a transition), and
 # a person cannot merge a draft, so a person brings an issue to done from in review alone.
@@ -1496,6 +1511,9 @@ class AnyLifecycle(unittest.TestCase):
                                     ("held", "run_ceiling", "hold", "needs_you"),
                                     ("new", "acceptance_lapsed", "nothing", "working")])
         self.assertIn(("run_ceiling", "acceptance_lapsed"), made[("held", "new", "stranger")])
+        # An issue reaches the bound apart too, by the Factory's own Hold from triage, which a person alone ends.
+        self.assertIn("environment_ceiling", {after for pairs in made.values() for _, after in pairs})
+        self.assertIn(("triage", "held", "factory"), check_lifecycle.declared(lc))
         # A Run that failed for the environment counts toward the ceiling too, unless it says its Engine step never
         # started: then it spent no model, and is counted apart (issue 757).
         item = ISSUE_BASES[name]
