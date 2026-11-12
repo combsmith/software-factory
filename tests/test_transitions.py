@@ -200,6 +200,13 @@ BASES = {
         [reviewed()] + unstarted(LIMITS["max_environment_runs_per_item"] - 1), threads=[thread()]),
     "environment_ceiling, awaiting review, one Run short": base(
         unstarted(LIMITS["max_environment_runs_per_item"] - 1)),
+    "environment_ceiling, awaiting checks": base(unstarted(LIMITS["max_environment_runs_per_item"]), checks=PENDING),
+    "awaiting_review at the bound apart, with a review Run": base(
+        unstarted(LIMITS["max_environment_runs_per_item"] - 1)
+        + [dict(reviewed(minute=45, name="r9"), status="in_progress", conclusion=None)]),
+    "proposals_await_owner at the bound apart, with a ruling Run": base(
+        [reviewed(), fix()] + unstarted(LIMITS["max_environment_runs_per_item"] - 1)
+        + [dict(ruling(45, "o9"), status="in_progress", conclusion=None)], threads=[thread()]),
     "environment_ceiling, awaiting a ruling, one Run short": base(
         [reviewed(), fix()] + unstarted(LIMITS["max_environment_runs_per_item"] - 1),
         threads=[thread()]),

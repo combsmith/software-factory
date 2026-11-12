@@ -654,8 +654,20 @@
     {
       "from": "verifying",
       "to": "held",
+      "by": "lens",
+      "bound": "max_environment_runs_per_item"
+    },
+    {
+      "from": "verifying",
+      "to": "held",
       "by": "platform",
       "bound": "max_runs_per_item"
+    },
+    {
+      "from": "verifying",
+      "to": "held",
+      "by": "platform",
+      "bound": "max_environment_runs_per_item"
     },
     {
       "from": "verifying",
