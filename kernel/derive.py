@@ -1023,7 +1023,7 @@ def approval_anchor(review: dict, runs):
     act that read, and where a record's start, or both its times, cannot be read: an unreadable fact holds. Records expire oldest first, and an act's Run is made before its approval: it is not
     gone while a record made before it stays. A Run made while the act ran waits in the item's lane, and its record's
     start is when it was made (trials/P-44.json): so a record reaches back by when its jobs began, its `began_at`
-    (trials/P-64.json, decision 0195), and one that has not begun, never began or whose jobs were not read does not.
+    (trials/P-64.json, decision 0204), and one that has not begun, never began or whose jobs were not read does not.
     Nor does one said to have begun before it was made, which no run does."""
     at = review["submitted_at"]
     if any(made_at(r) is None or not is_time(r["started_at"]) for r in runs):

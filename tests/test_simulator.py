@@ -89,7 +89,7 @@ class Simulation(unittest.TestCase):
         self.assertEqual(sorted(made - set(found)), [])
 
     def test_a_run_begins_when_its_lane_starts_it_and_never_if_cancelled_while_it_waited(self):
-        # trials/P-64.json (a_run_begins_with_its_job, decision 0195): a Run's record says when it was made; it says
+        # trials/P-64.json (a_run_begins_with_its_job, decision 0204): a Run's record says when it was made; it says
         # when it began only once its lane has started it, a step after it was made at the least, and null where its
         # group cancelled it while it waited. One that started and found itself superseded began all the same. The
         # approving act and the queue App's resolution wait in no lane here: they begin as they are made.
@@ -648,7 +648,7 @@ class Simulation(unittest.TestCase):
                 # A Run of the item in the approval's own second is as old as it (the Muse read of issue 608's change).
                 ([run(15, intent="review-change")], 10, False),
                 # A Run made before the approval that waited in its lane and began after it, or never began, is not as
-                # old as it (decision 0195, trials/P-64.json); one that began in its second is.
+                # old as it (decision 0204, trials/P-64.json); one that began in its second is.
                 ([run(5, intent="review-change", began=16)], 10, True),
                 ([run(5, intent="review-change", began=None)], 10, True),
                 ([run(5, intent="review-change", began="unread")], 10, True),
