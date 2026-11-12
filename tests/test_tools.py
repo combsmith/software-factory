@@ -4162,9 +4162,12 @@ class Workflows(unittest.TestCase):
             for host in ("azure.archive.ubuntu.com", "mirrors.edge.kernel.org")
             for suite in ("noble", "noble-updates", "noble-security")) + " > /tmp/ubuntu.list")
         # The update tries each mirror once, since the other mirror is its retry, so a stalled name cannot spend the
-        # step's three minutes on retries; the install keeps two (issue 774).
+        # step's three minutes on retries; the install keeps two. The update's exit is not the step's: one mirror that
+        # answers an error, not a lost connection, makes it exit 100 though the other's index is good, and apt keeps no
+        # index it could not verify, so the install still fails closed with no package to take (issue 774).
+        self.assertTrue(block[6].endswith(" || true"), block[6])
         given = ["Dir::Etc::sourcelist=/tmp/ubuntu.list", "Dir::Etc::sourceparts=-", "Acquire::Retries=%d", "Acquire::https::Timeout=10"]
-        for line, words, retries in ((block[6], ["sudo", "apt-get", "update", "-q"], 0),
+        for line, words, retries in ((block[6][:-len(" || true")], ["sudo", "apt-get", "update", "-q"], 0),
                                      (block[7], ["sudo", "apt-get", "install", "-y", "--no-install-recommends"], 2)):
             said = shlex.split(line)
             options = [said[k + 1] for k, w in enumerate(said) if w == "-o"]
