@@ -1415,7 +1415,7 @@ class Records(unittest.TestCase):
     def test_a_read_of_one_items_runs_asks_them_alone_and_all_of_them(self):
         # A Run reading its own item asks when that item's Runs began, and no other's: another item's say nothing,
         # and are no part of the read. It asks all of them, past the cap: it keeps nothing from one read to the
-        # next, so a cap would never be worked off, and its item would never be read whole again (decision 0195).
+        # next, so a cap would never be worked off, and its item would never be read whole again (decision 0199).
         # The others are another number's Run, done, and another repo's of the same number, in progress.
         rows = listing("P-17", 3, rows={"status": "completed", "conclusion": "success", "run_attempt": 1})
         template = rows["response"]["body"]["workflow_runs"][0]

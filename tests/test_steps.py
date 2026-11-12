@@ -296,7 +296,7 @@ class Reader(unittest.TestCase):
         self.assertEqual((calls["opened"], calls["opened_role"]), ([True], ["dev-lead"]))
         # Of the run list of both Role workflows, the model Lenses' Runs on this item, held to the authority table.
         # No job is asked: this read hands the Kernel no run record, so when a Run began is nothing to it, and jobs
-        # that could not be read would refuse a Task for nothing (decision 0195).
+        # that could not be read would refuse a Task for nothing (decision 0199).
         self.assertEqual(calls["listed"], [(["run.yml", "approve.yml"], {})])
         self.assertEqual(calls["asked"], [{"repo": HOME, "numbers": [42], "lenses": {"pr-review"}, "authority": AUTHORITY}])
         # A list read short holds them to nothing recorded, not whole: the Task is refused rather than built on it.
@@ -1109,7 +1109,7 @@ class Reread(unittest.TestCase):
                 self.assertIs(reread.item("t", config, 42, support.NOW, lambda: support.NOW)[3]["paused"], want, paused)
         self.assertEqual(asked[:2], [["run.yml", "approve.yml"], ("combsmith", [HOME])])
         # The read asks the records port when this item's Runs began, with nothing kept, and no other item's, so
-        # that the act decides on its item's records as the pass does (decision 0195).
+        # that the act decides on its item's records as the pass does (decision 0199).
         self.assertEqual(began[0], {"began": {}, "on": {"repo": HOME, "type": "pull_request", "number": 42}})
         # Asked for the Pause by name, a Pause the port could not read is raised as a read of the `pause` stage, its
         # part the port's for the first scope unreadable, the org's before the repo's (decision 0192). Not asked, as

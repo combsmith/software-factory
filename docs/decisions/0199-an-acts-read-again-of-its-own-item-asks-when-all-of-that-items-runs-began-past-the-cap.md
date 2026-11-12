@@ -1,4 +1,4 @@
-# 0195. An act's read again of its own item asks when all of that item's Runs began, past the cap
+# 0199. An act's read again of its own item asks when all of that item's Runs began, past the cap
 
 Status: accepted. Decided for "A record's start is read from its job's started_at, trusted only once the job is in progress or ran (P-64)" (issue 724). It amends two rows of `docs/decisions/0193-when-a-run-began-is-read-from-its-jobs-trusted-only-once-a-job-is-in-progress-or-ran-and-kept-by-the-pass-records.md`. "The cap" holds for a read of every item's Runs, the pass's; for a read of one item's it no longer does. "What does not read it yet" foretold that the Harness's two reads would ask; one does. The rest of 0193 stands.
 
