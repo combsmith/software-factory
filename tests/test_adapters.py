@@ -4347,9 +4347,10 @@ class Contract(unittest.TestCase):
                 and stopped["complete"] is False and len(stopped["runs"]) == records.SERVED),
             "a_run_waits_its_turn": ({"P-44"}, waiting is not None and waiting[0]["status"] == "queued"),
             # While its job waited, pending, the port gives no beginning; in progress and completed, the job's start,
-            # 53 s after the run's own, which stayed its creation.
-            "a_run_begins_with_its_job": ({"P-64"},
+            # 53 s after the run's own, which stayed its creation. P-44's job cancelled while it waited never began.
+            "a_run_begins_with_its_job": ({"P-64", "P-44"},
                 "began_at" not in Records().began("in_progress", jobs_read("P-64", 9, gid))[0]
+                and Records().began("completed", jobs_read("P-44", 23, gid))[0]["began_at"] is None
                 and [Records().began(status, jobs_read("P-64", at, gid))[0]["began_at"]
                      for status, at in (("in_progress", 18), ("completed", 33))] == ["2026-11-10T19:44:48Z"] * 2
                 and {e["response"]["body"]["workflow_runs"][0]["run_started_at"] for e in exchanges("P-64")[7:32:3]}
