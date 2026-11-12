@@ -3891,6 +3891,9 @@ class RulesChanged(unittest.TestCase):
         self.assertRaises(protected.Unreadable, protected.parse, json.dumps(alone))
         too = dict(alone, protected=data["protected"] + [{"path": "release/rings.json", "is": "x"}])
         self.assertEqual(protected.parse(json.dumps(too))["person_only"][-1], ("release/rings.json", "x"))
+        # Each path of the list is given to the Kernel, in the list's order, not the first alone.
+        self.assertEqual(protected.model_inputs_of(protected.parse(json.dumps(too)), ["pr-review"]),
+                         own + persons + ["release/rings.json"])
         # A file with no such list, as a commit before the decision has none, names none, and is read as before.
         before = protected.parse(json.dumps({key: value for key, value in data.items() if key != "person_only"}))
         self.assertEqual(before["person_only"], [])
