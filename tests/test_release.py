@@ -519,9 +519,10 @@ class Fixture(unittest.TestCase):
 
     def test_the_first_rollback_moved_next_back_within_its_time_and_a_move_brought_it_forward_again(self):
         # Issue 197's ruling 9', items 4 and 5. Run 43317751252 rolled `next` back from factory/v0.1.10 to factory/v0.1.9
-        # on 2026-11-12, under a Pause, and run 43317854989 moved it forward again 39 seconds later, on the eval the cut
-        # had passed. Every read was made after both runs, so where `next` stood between them is the rollback's own last
-        # line and the Deployment it recorded; the tags are as the step's port lists them, with `next` on again.
+        # on 2026-11-12, while the repo's Pause stood, and run 43317854989, asked 39 seconds after the rollback was,
+        # moved it forward again on the eval the cut had passed. Every read was made after both runs, so where `next`
+        # stood between them is the rollback's own last line and the Deployment it recorded; the tags are as the step's
+        # port lists them, with `next` on again.
         fixture = json.loads(self.FIRST_ROLLBACK.read_text())
         self.assertEqual(check_release.fixture_problems(fixture, self.FIRST_ROLLBACK.name), [])
         self.assertEqual([item["item"] for item in fixture["items"]], ["rollback", "move_forward_again"])
@@ -534,6 +535,12 @@ class Fixture(unittest.TestCase):
         refs = tags.read(github.Replay([e for e in on["exchanges"] if e["request"]["call"].split(" ")[1] == tags.path(REPO)]), REPO)
         target = refs[left]
         self.assertEqual(refs[channel], target, "`next` is on the Release again")
+        # No Release was made, moved or deleted: every other Release among the tags is one an earlier cut's fixture
+        # records, on the commit that cut left it, and there is no other.
+        cuts = {f["version"]: f for f in (json.loads(p.read_text()) for p in sorted(self.FIRST_ROLLBACK.parent.glob("cut.v*.json")))}
+        self.assertEqual({name: commit for name, commit in refs.items() if current.version(name) and name != left},
+                         {name: self.item(f, "cut_and_move_of_next")["asked"]["cut_commit"] for name, f in cuts.items()
+                          if current.version(name) < current.version(left)})
         # The rollback: asked with no `to`, it moves `next` to the greatest Release below, as the rules plan it from
         # these tags, and writes nothing else: no Release is made, moved or deleted.
         self.assertEqual((back["asked"]["command"], back["asked"]["version"], back["asked"]["to"], back["conclusion"]),
@@ -548,12 +555,13 @@ class Fixture(unittest.TestCase):
         # One action, timed (FR-49): dispatched, it moved `next`, read it back and recorded the Deployment inside the
         # run, which ended within 15 minutes of being asked.
         ran = body(back, "/repos/%s/actions/runs/%d" % (REPO, back["run"]))
-        self.assertEqual(ran["event"], "workflow_dispatch")
+        self.assertEqual((ran["event"], ran["head_branch"], ran["head_sha"]), ("workflow_dispatch", "main", back["asked"]["cut_commit"]))
         took = (at(ran["updated_at"]) - at(ran["created_at"])).total_seconds()
         self.assertTrue(0 <= took <= 15 * 60, took)
         deployed = body(on, "/repos/%s/deployments?environment=factory-next&per_page=4" % REPO)
         ident, = back["printed"]["deployments"]
         self.assertEqual([(d["id"], d["sha"], d["description"]) for d in deployed if d["id"] == ident], [(ident, older, earlier)])
+        self.assertTrue(ran["created_at"] <= deployed[1]["created_at"] <= ran["updated_at"])
         marks = body(back, "/repos/%s/deployments/%d/statuses" % (REPO, ident))
         # Newest first: it succeeded inside the run, and went inactive once `next` moved on again.
         self.assertEqual([m["state"] for m in marks], ["inactive", "success"])
@@ -564,6 +572,19 @@ class Fixture(unittest.TestCase):
         self.assertEqual((on["asked"]["command"], on["asked"]["to"], on["conclusion"], again["event"]),
                          ("move", left, "success", "workflow_dispatch"))
         self.assertLess(ran["updated_at"], again["created_at"])
+        self.assertEqual((again["head_branch"], again["head_sha"]), ("main", on["asked"]["cut_commit"]))
+        self.assertGreaterEqual(marks[0]["created_at"], again["created_at"], "inactive only once `next` moved on")
+        # Both ran while the repo's Pause stood: set before the rollback was asked, and still set when read after both.
+        pause = body(on, "/repos/%s/actions/variables/FACTORY_PAUSED" % REPO)
+        self.assertEqual((pause["name"], pause["value"]), ("FACTORY_PAUSED", "true"))
+        self.assertLess(pause["updated_at"], ran["created_at"])
+        # Every read was made after both runs had ended.
+        ended = at(again["updated_at"]).replace(tzinfo=datetime.timezone.utc)
+        for item in (back, on):
+            self.assertGreater(item["read_at"], again["updated_at"])
+            for exchange in item["exchanges"]:
+                self.assertGreater(email.utils.parsedate_to_datetime(exchange["response"]["headers"]["date"]), ended,
+                                   exchange["request"]["call"])
         step = move.asked({"RELEASE_" + k.upper(): v for k, v in on["asked"].items()}, channel)
         between = dict(refs, **{channel: older})
         facts = {"commit": target, "on_main": True, "verified": True, "gate": cut.PASS, "release": left}
@@ -585,7 +606,11 @@ class Fixture(unittest.TestCase):
         self.assertEqual([(d["id"], d["sha"], d["description"]) for d in deployed[:2]],
                          [(moved, target, left), (ident, older, earlier)])
         self.assertEqual([(d["sha"], d["description"]) for d in deployed[2:]], [(target, left), (older, earlier)])
-        self.assertEqual([m["state"] for m in body(on, "/repos/%s/deployments/%d/statuses" % (REPO, moved))], ["success"])
+        self.assertEqual(deployed[3]["id"], self.item(cuts[earlier], "cut_and_move_of_next")["printed"]["deployments"][0])
+        self.assertTrue(again["created_at"] <= deployed[0]["created_at"] <= again["updated_at"])
+        done, = body(on, "/repos/%s/deployments/%d/statuses" % (REPO, moved))
+        self.assertEqual(done["state"], "success")
+        self.assertTrue(again["created_at"] <= done["created_at"] <= again["updated_at"])
 
     def test_the_slice_1_event_is_whole(self):  # issue 198's ruling 6
         # Slice 1's event: a pull request the Maintainer opened after `main` began to count an approval (decision
