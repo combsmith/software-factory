@@ -336,6 +336,9 @@ class Fixture(unittest.TestCase):
     ELEVENTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-10.json"
     ROLLBACK = ROOT / "release" / "fixtures" / "rollback.refused.json"
     FIRST_ROLLBACK = ROOT / "release" / "fixtures" / "rollback.v0-1-10.json"
+    # The cuts a rollback and a move forward again followed, by the fixture of those two steps: each recorded a
+    # Deployment of its own above the cut's.
+    LATER = {ELEVENTH_CUT: FIRST_ROLLBACK}
     EVENT = ROOT / "release" / "fixtures" / "event.slice-1.json"
 
     def item(self, fixture, name):
@@ -414,13 +417,29 @@ class Fixture(unittest.TestCase):
         self.assertIn("refs/tags/factory/v*.*.*", rules["conditions"]["ref_name"]["include"])
         self.assertEqual(rules["conditions"]["ref_name"]["exclude"], [])
 
-    def a_later_cut_moved_next_on(self, path, eval_run, earlier, later=None):
+    def deployments_after(self, path) -> list:
+        """The Deployments recorded after the cut `path` holds by steps that were no cut, newest first, as the fixture
+        of those steps lists them: a move forward's, of the cut's Release again, above the rollback's before it. None
+        for a cut no such step followed."""
+        if path not in self.LATER:
+            return []
+        steps, cut_ = json.loads(self.LATER[path].read_text()), json.loads(path.read_text())
+        back, on = self.item(steps, "rollback"), self.item(steps, "move_forward_again")
+        answer = self.answered(on, "/repos/%s/deployments?environment=factory-next&per_page=4" % REPO)
+        self.assertEqual(answer["status"], 200)
+        since = [(d["id"], d["sha"], d["description"]) for d in answer["body"][:2]]
+        self.assertEqual([ident for ident, _, _ in since], on["printed"]["deployments"] + back["printed"]["deployments"])
+        self.assertEqual((steps["version"], since[0][1]),
+                         (cut_["version"], self.item(cut_, "cut_and_move_of_next")["asked"]["cut_commit"]))
+        return since
+
+    def a_later_cut_moved_next_on(self, path, eval_run, earlier):
         """The cut `path` records, at the commit eval run `eval_run` had passed, the eval job's own dispatch and its one
         run on that commit, ended before the cut; `next` moved to it with a Deployment of its own, the newest, before
         those of `earlier`, the cuts before it, newest first; the Release before it stayed where its cut left it, and
-        that Release's Deployment went inactive. `later` is the fixture of a rollback and the move forward after it,
-        where the cut was read after both: each recorded a Deployment above the cut's, and `next` had moved off the
-        cut's own, which then reads inactive above its success."""
+        the Deployment `next` moved off went inactive. Where a rollback and a move forward again followed a cut, their
+        two Deployments stand above that cut's (`deployments_after`): a cut read after its own reads its Deployment
+        inactive above its success, `next` having moved off it since."""
         fixture, before = json.loads(path.read_text()), [json.loads(p.read_text()) for p in earlier]
         self.assertEqual(check_release.fixture_problems(fixture, path.name), [])
         made = self.item(fixture, "cut_and_move_of_next")
@@ -443,23 +462,16 @@ class Fixture(unittest.TestCase):
         self.assertEqual(body("/repos/%s/git/ref/tags/%s" % (REPO, before[0]["version"]))["object"]["sha"],
                          cuts[0]["asked"]["cut_commit"])
         deployed = body("/repos/%s/deployments?environment=factory-next" % REPO)
-        since = []
-        if later is not None:
-            steps = json.loads(later.read_text())
-            back, on = self.item(steps, "rollback"), self.item(steps, "move_forward_again")
-            since = [(d["id"], d["sha"], d["description"]) for d in self.answered(
-                on, "/repos/%s/deployments?environment=factory-next&per_page=4" % REPO)["body"][:2]]
-            self.assertEqual([ident for ident, _, _ in since], on["printed"]["deployments"] + back["printed"]["deployments"])
-            self.assertEqual((steps["version"], since[0][1]), (fixture["version"], commit))
-        own = made["printed"]["deployments"][0]
+        since, own = self.deployments_after(path), made["printed"]["deployments"][0]
+        below = [entry for p, c, f in zip(earlier, cuts, before)
+                 for entry in self.deployments_after(p) + [(c["printed"]["deployments"][0], c["asked"]["cut_commit"], f["version"])]]
         self.assertEqual([(d["id"], d["sha"], d["description"]) for d in deployed],
-                         since + [(own, commit, fixture["version"])]
-                         + [(c["printed"]["deployments"][0], c["asked"]["cut_commit"], f["version"])
-                            for c, f in zip(cuts, before)])
+                         since + [(own, commit, fixture["version"])] + below)
         statuses = body("/repos/%s/deployments/%d/statuses" % (REPO, own))
         self.assertEqual([s["state"] for s in statuses], ["inactive", "success"] if since else ["success"])
-        # GitHub marks the Deployment `next` moved off inactive, newest first, beside the success it kept.
-        statuses = body("/repos/%s/deployments/%d/statuses" % (REPO, cuts[0]["printed"]["deployments"][0]))
+        # GitHub marks the Deployment `next` moved off, the newest below the cut's own, inactive, newest first, beside
+        # the success it kept.
+        statuses = body("/repos/%s/deployments/%d/statuses" % (REPO, below[0][0]))
         self.assertEqual([s["state"] for s in statuses], ["inactive", "success"])
 
     def test_the_next_cut_moved_next_on(self):
@@ -497,14 +509,13 @@ class Fixture(unittest.TestCase):
                                         (self.TENTH_CUT, 43171810453,
                                          [self.NINTH_CUT, self.EIGHTH_CUT, self.SEVENTH_CUT, self.SIXTH_CUT,
                                           self.FIFTH_CUT, self.FOURTH_CUT, self.THIRD_CUT, self.NEXT_CUT,
-                                          self.CUT])):
+                                          self.CUT]),
+                                        (self.ELEVENTH_CUT, 43267765670,
+                                         [self.TENTH_CUT, self.NINTH_CUT, self.EIGHTH_CUT, self.SEVENTH_CUT,
+                                          self.SIXTH_CUT, self.FIFTH_CUT, self.FOURTH_CUT, self.THIRD_CUT,
+                                          self.NEXT_CUT, self.CUT])):
             with self.subTest(cut=path.name):
                 self.a_later_cut_moved_next_on(path, eval_run, earlier)
-        with self.subTest(cut=self.ELEVENTH_CUT.name):
-            self.a_later_cut_moved_next_on(
-                self.ELEVENTH_CUT, 43267765670,
-                [self.TENTH_CUT, self.NINTH_CUT, self.EIGHTH_CUT, self.SEVENTH_CUT, self.SIXTH_CUT, self.FIFTH_CUT,
-                 self.FOURTH_CUT, self.THIRD_CUT, self.NEXT_CUT, self.CUT], later=self.FIRST_ROLLBACK)
 
     def test_the_slice_1_event_is_whole(self):  # issue 198's ruling 6
         # Slice 1's event: a pull request the Maintainer opened after `main` began to count an approval (decision
