@@ -5,7 +5,7 @@ import json
 import pathlib
 import re
 
-from kernel import decide, issue
+from kernel import decide, derive, issue
 from kernel.coverage import covered
 from tools import walk
 from tools.jsonschema_lite import ANNOTATIONS, FILE, SchemaError, _resolve, validate
@@ -40,7 +40,7 @@ ENVELOPE = {"task": ("document", "run"), "result": ("document", "run"), "applied
             "config": "data", "hooks": "data", "lifecycle": "data", "authority": "data", "apps": "data", "rubric": "data", "checklist": "data",
             "acceptance": "data", "trial": "data", "role": "data", "feed": "data", "eval-case": "data",
             "eval-set": "data", "context-eval": "data", "controller": "data", "harness": "data", "rulesets": "data", "credential-ages": "data", "machine-user": "data",
-            "rings": "data", "release-fixture": "data", "release-exchanges": "record", "decision-points": "data"}
+            "rings": "data", "consumer": "data", "release-fixture": "data", "release-exchanges": "record", "decision-points": "data"}
 RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # What one Run carries, and what is written from it, holds codes, never text: a string in these schemas is held by an
 # enum, a const or a pattern anchored at both ends, unless it is a property named `body`, or sits under one named
@@ -237,6 +237,17 @@ def _table(feed, decision_schema) -> list:
     return out
 
 
+def _unprotected(value) -> list:
+    """What is wrong with `value`, a Consumer entry valid to its schema: nothing, or its setup or test script that none
+    of its protected paths names, by the Kernel's own matcher, so that an author could weaken the tests it is judged by
+    (design section 3.12, issue 141). One problem, naming each such script."""
+    verify = value["verify"]
+    left = [verify[k] for k in ("setup", "test") if not any(derive.matches(p, verify[k]) for p in verify["protected_paths"])]
+    if len(left) > 1:
+        return ["$.verify: protects neither its own %s nor %s" % tuple(left)]
+    return ["$.verify: does not protect its own %s" % left[0]] if left else []
+
+
 def _uncovered(value, root: pathlib.Path) -> list:
     """What kernel/coverage.py says is wrong with `value`, a coverage example valid to its schema: nothing, or one
     problem naming what it left uncovered, or why it could not be judged."""
@@ -334,6 +345,7 @@ def run(root: pathlib.Path = ROOT) -> list:
             errors = _uncovered(value, root)
         errors = errors or (_reason_unsuited(value) if kind == "result" else [])
         errors = errors or (_held(value) if kind == "eval-set" else [])
+        errors = errors or (_unprotected(value) if kind == "consumer" else [])
         for err in errors:
             problems.append("%s: %s" % (path.name, err))
     for path in sorted((root / "examples" / "invalid").glob("*.json")):
@@ -363,6 +375,8 @@ def run(root: pathlib.Path = ROOT) -> list:
             errors = check_release.fixture_problems(value, "invalid/" + path.name)
         if kind == "result" and not errors:
             errors = _reason_unsuited(value)
+        if kind == "consumer" and not errors:
+            errors = _unprotected(value)
         if not errors:
             problems.append("invalid/%s: was accepted, and must be rejected" % path.name)
         elif len(errors) > 1:
