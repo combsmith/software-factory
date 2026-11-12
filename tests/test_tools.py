@@ -4156,11 +4156,11 @@ class Workflows(unittest.TestCase):
         # from each of two mirrors of different operators, named literally, each held by Ubuntu's keyring over HTTPS
         # (issue 774; cubic, on #748). Either mirror unreachable, apt warns and takes the package from the other (the
         # canary repo's trial run 43141154752; record 0197).
-        said = shlex.split(block[5])
-        self.assertEqual(said[:2] + said[-2:], ["printf", "%s\\n", ">", "/tmp/ubuntu.list"])
-        self.assertEqual(said[2:-2], ["deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://%s/ubuntu %s main"
-                                      % (host, suite) for host in ("azure.archive.ubuntu.com", "mirrors.edge.kernel.org")
-                                      for suite in ("noble", "noble-updates", "noble-security")])
+        # Byte for byte, so no quoting, escape or line break can pass for the redirection or a source (Carbon).
+        self.assertEqual(block[5], "printf '%s\\n' " + " ".join(
+            "'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://%s/ubuntu %s main'" % (host, suite)
+            for host in ("azure.archive.ubuntu.com", "mirrors.edge.kernel.org")
+            for suite in ("noble", "noble-updates", "noble-security")) + " > /tmp/ubuntu.list")
         # The update tries each mirror once, since the other mirror is its retry, so a stalled name cannot spend the
         # step's three minutes on retries; the install keeps two (issue 774).
         given = ["Dir::Etc::sourcelist=/tmp/ubuntu.list", "Dir::Etc::sourceparts=-", "Acquire::Retries=%d", "Acquire::https::Timeout=10"]
