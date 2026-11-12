@@ -1,4 +1,4 @@
-# 0200. A Run's outcome says whether its Engine step started
+# 0201. A Run's outcome says whether its Engine step started
 
 Status: accepted. The Factory Builder's ruling of 2026-11-12 on "A Run that ended environment does not use up the item's run ceiling" (issue 757): before a Run that ended `environment` may be counted apart from the Run ceiling, the run record must say whether the Run reached the model. This record adds that fact alone. What counts toward which bound is the next record's.
 
