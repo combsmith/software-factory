@@ -1463,6 +1463,39 @@ class Records(unittest.TestCase):
         record, whole = self.began("in_progress", changed(18, jobs=[], total_count=0))
         self.assertEqual(("began_at" in record, whole), (False, True))
 
+    def test_a_read_of_one_items_runs_asks_them_alone_and_all_of_them(self):
+        # A Run reading its own item asks when that item's Runs began, and no other's: another item's say nothing,
+        # and are no part of the read. It asks all of them, past the cap: it keeps nothing from one read to the
+        # next, so a cap would never be worked off, and its item would never be read whole again (decision 0199).
+        # The others are another number's Run, done, and another repo's of the same number, in progress.
+        rows = listing("P-17", 3, rows={"status": "completed", "conclusion": "success", "run_attempt": 1})
+        template = rows["response"]["body"]["workflow_runs"][0]
+        names = [NAME.replace("r_01JA6Z", "r_%06dZ" % n) for n in range(5)]
+        names[:2] = [names[0].replace("#264", "#265"), names[1].replace("software-factory#", "elsewhere#")]
+        item = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 264}
+        for status, at in (("in_progress", 18), ("completed", 33)):     # the item's Runs, running or done, are all asked
+            rows["response"]["body"].update(total_count=5, workflow_runs=[
+                dict(template, id=700 + n, name=names[n], run_started_at="2026-10-21T0%d:00:00Z" % n) for n in range(5)])
+            rows["response"]["body"]["workflow_runs"][1].update(status="in_progress", conclusion=None)
+            for row in rows["response"]["body"]["workflow_runs"][2:]:
+                row.update(status=status, conclusion=None if status == "in_progress" else "success")
+            jobs = [jobs_read("P-64", 33, 700), jobs_read("P-64", 18, 701)] + [jobs_read("P-64", at, 700 + n) for n in (2, 3, 4)]
+            with mock.patch.object(records, "JOBS", 2):
+                sent = Recording(github.Replay([rows] + jobs[2:]))
+                got = records.runs(sent, canary(), "main", [WORKFLOW], DISPATCHER, per_page=10, began={}, on=item)
+                self.assertEqual(([r.get("began_at", "none") for r in got["runs"]], got["complete"],
+                                  [r["path"].split("/")[-2] for r in sent.sent[1:]]),
+                                 (["none"] * 2 + ["2026-11-10T19:44:48Z"] * 3, True, ["702", "703", "704"]), status)
+                # One of the item's Runs whose jobs cannot be read, past the cap, has no beginning, and the read is
+                # not whole: the Run defers, as the pass does.
+                unread = dict(jobs[4], response=dict(jobs[4]["response"], status=404))
+                got = records.runs(github.Replay([rows, jobs[2], jobs[3], unread]), canary(), "main", [WORKFLOW], DISPATCHER,
+                                   per_page=10, began={}, on=item)
+                self.assertEqual(([r.get("began_at", "none") for r in got["runs"]], got["complete"]),
+                                 (["none"] * 2 + ["2026-11-10T19:44:48Z"] * 2 + ["none"], False), status)
+                # Asked of every item, the same list stops at the cap and is not whole.
+                got, _ = self.read(rows, jobs[0], jobs[1], began={})
+                self.assertEqual(got["complete"], False, status)
     def test_the_asking_is_bounded_to_the_items_given(self):
         # The pass asks when a Run began only of the open pull requests' Runs: what the list holds of items long
         # closed is history, and asking it would spend the cap on nothing (decision 0196). Another item's Run is not
