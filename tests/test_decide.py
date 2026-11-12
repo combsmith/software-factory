@@ -2910,9 +2910,11 @@ class Ceilings(unittest.TestCase):
         # word GitHub gave beside an outcome, which is the outcome's (decision 0116). So is a Run that ended
         # `environment` after its Engine step started, or that does not say: the item may have slowed it to a timeout,
         # and it may have spent on the model.
+        # Each of these keeps `engine_started` false from `env`, so only `environment` beside it moves a Run apart.
         for other in ({"outcome": "item", "intent": "fix-findings"}, {"outcome": "capacity"}, {"outcome": "superseded"},
+                      {"outcome": None, "conclusion": "cancelled"},
                       {"outcome": "item", "never_ran": "skipped", "intent": "fix-findings"}, {"engine_started": True},
-                      {"outcome": "capacity", "engine_started": False}):
+                      {"engine_started": True, "never_ran": "skipped"}):
             spent = [dict(r, **other) for r in env[:ceiling]]
             d = go(facts(), spent)
             self.assertEqual((d["state"], d["reason"]), ("held", "run_ceiling"), other)
@@ -2924,8 +2926,8 @@ class Ceilings(unittest.TestCase):
         self.assertEqual((d["state"], d["reason"]), ("held", "run_ceiling"))
         # An act's job that did not land is bounded by the Run ceiling whatever its fault: the automatic pause stops no
         # act, so an approval failing for an expired token is not issued for ever (decision 0003).
-        failed = [run(intent="issue-approval", conclusion="failure", outcome="environment", at=at(20 + i), name="a%d" % i)
-                  for i in range(ceiling)]
+        failed = [dict(run(intent="issue-approval", conclusion="failure", outcome="environment", at=at(20 + i),
+                           name="a%d" % i), engine_started=False) for i in range(ceiling)]
         never_landed = [dict(r, conclusion="cancelled", outcome=None, never_ran="startup_failure") for r in failed]
         for jobs in (failed, never_landed):
             d = go(facts(), REVIEWED + jobs[:ceiling - 1])
@@ -2943,6 +2945,9 @@ class Ceilings(unittest.TestCase):
         self.assertEqual((d["state"], d["reason"]), ("held", "run_ceiling"))
         self.assertEqual(go(facts(threads=accepted, acts_since_writer=0), REVIEWED + unresolved[:ceiling - 2])["action"],
                          "resolve_thread")
+        # A person is asked at the bound apart what the Run ceiling asks.
+        rows = {row["reason"]: row for row in json.loads((ROOT / "config" / "feed.json").read_text())["decision_required"]}
+        self.assertEqual(dict(rows["environment_ceiling"], reason=None), dict(rows["run_ceiling"], reason=None))
         # A Role's Runs that spent no model before an approval do not hold the approval at the ceiling.
         self.assertEqual(go(facts(), REVIEWED + env[:ceiling])["action"], "issue_approval")
 

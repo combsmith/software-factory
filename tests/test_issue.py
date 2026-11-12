@@ -1803,6 +1803,15 @@ class Investigation(unittest.TestCase):
         # A person's action renews every count.
         renewed = facts(label_events=ACCEPTED, last_writer_action_at=at(30))
         self.assertEqual(what(decide(renewed, runs)), ("admit", "triage", INVESTIGATE))
+        # A Run that spent no model counts toward a bound of its own, beside the ceiling, and is renewed with it (0202).
+        apart = LIMITS["max_environment_runs_per_item"]
+        outside = [dict(failed(INVESTIGATE, 1 + i, "o%d" % i, outcome="environment"), engine_started=False)
+                   for i in range(apart)]
+        self.assertEqual(what(decide(TRIAGED, outside[:-1])), ("admit", "triage", INVESTIGATE))
+        self.assertEqual(what(decide(TRIAGED, outside)), ("hold", "environment_ceiling", None))
+        self.assertEqual(what(decide(TRIAGED, outside[:-1] + runs[:-1])), ("admit", "triage", INVESTIGATE))
+        self.assertEqual(what(decide(TRIAGED, outside + runs)), ("hold", "run_ceiling", None))
+        self.assertEqual(what(decide(renewed, outside)), ("admit", "triage", INVESTIGATE))
 
     def test_an_issues_run_that_ran_and_left_no_outcome_is_an_attempt(self):  # issue 286's ruling
         # An investigating Run that failed or timed out with no outcome is the item's; one cancelled with none is not.
