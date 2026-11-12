@@ -9418,7 +9418,7 @@ MUTANTS = ISSUE + [
      '"sudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap"]',
      '"sudo apt-get install -y --no-install-recommends bubblewrap"]', ('tests.test_tools.Workflows.test_the_cli_install_reads_only_signed_sources_over_https_by_its_own_list', 'tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone')),
     ("the update retries each mirror", 'tools/check_workflows.py',
-     '-o Dir::Etc::sourceparts=- -o Acquire::Retries=0 -o Acquire::https::Timeout=10",', '-o Dir::Etc::sourceparts=- -o Acquire::https::Timeout=10",', ('tests.test_tools.Workflows.test_the_cli_install_reads_only_signed_sources_over_https_by_its_own_list', 'tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone')),
+     '-o Dir::Etc::sourceparts=- -o Acquire::Retries=0 -o Acquire::https::Timeout=10",', '-o Dir::Etc::sourceparts=- -o Acquire::https::Timeout=10",', ('tests.test_tools.Workflows.test_the_cli_install_reads_only_signed_sources_over_https_by_its_own_list',)),
     ("the install's connections are not bounded", 'tools/check_workflows.py',
      '-o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap"]', '-o Acquire::Retries=2 bubblewrap"]', ('tests.test_tools.Workflows.test_the_cli_install_reads_only_signed_sources_over_https_by_its_own_list',)),
     ("the update's connections are not bounded", 'tools/check_workflows.py',
