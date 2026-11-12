@@ -1157,10 +1157,12 @@ class Entry(unittest.TestCase):
         # When a Run began, as the records before read it from its jobs, is handed to the records port (decision 0193):
         # the last record's word, and the one before's for a Run the last does not list.
         before["runs"][0]["began_at"] = "2026-10-11T12:05:04Z"
+        # So is whether each Run's Engine step started, as the records before read it with its outcome (issue 757).
+        before["runs"][0]["engine_started"] = False
         listed = entry.records.runs
 
         def runs(*args, **kw):
-            efforts["began"] = kw["began"]
+            efforts["began"], efforts["engines"] = kw["began"], kw["engines"]
             return listed(*args, **kw)
         before["reconciled"] = {"runs": [{"id": "r_01JA00", "at": "2026-10-12T11:00:00Z"}],
                                 "passes": [{"id": 40, "attempt": 1, "at": "2026-10-12T11:00:00Z"}], "keys": [], "items": [],
@@ -1168,8 +1170,8 @@ class Entry(unittest.TestCase):
         # The last of two records says what has left: the one before it names another that has not been served since.
         older = dict(before, now="2026-10-12T10:00:00Z", reconciled=dict(before["reconciled"], owed=[], runs=[]),
                      pull_requests=[dict(served[0], facts=dict(served[0]["facts"], item=dict(served[0]["facts"]["item"], number=12)))],
-                     runs=[dict(before["runs"][0], began_at="2026-10-11T12:05:01Z"),
-                           dict(before["runs"][0], run="r_01JA5Y", began_at="2026-10-11T12:05:09Z")])
+                     runs=[dict(before["runs"][0], began_at="2026-10-11T12:05:01Z", engine_started=True),
+                           dict(before["runs"][0], run="r_01JA5Y", began_at="2026-10-11T12:05:09Z", engine_started=True)])
         table = self.table(numbers=[7, 8])
         pull = copy.deepcopy(exchanges("P-17")[4]["response"])
         pull["headers"] = {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}
@@ -1185,6 +1187,8 @@ class Entry(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(efforts["began"], {("r_01JA6Z", "2026-10-11T12:05:00Z"): "2026-10-11T12:05:04Z",
                                             ("r_01JA5Y", "2026-10-11T12:05:00Z"): "2026-10-11T12:05:09Z"})
+        self.assertEqual(efforts["engines"], {("r_01JA6Z", "2026-10-11T12:05:00Z"): False,
+                                              ("r_01JA5Y", "2026-10-11T12:05:00Z"): True})
         since = "2026-10-11T06:00:00Z"
         item = lambda n: {"repo": self.HOME, "type": "pull_request", "number": n}
         identities, apps = spied[0][2], spied[0][3]

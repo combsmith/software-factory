@@ -98,13 +98,14 @@ SHAPED = {"eval.yml": ("shim", "install"), "run-jobs.yml": ("install",), "approv
 WAKES, RUN_WORKFLOW = "poller.yml", "sf-run"
 # The Run's lane (issue 196's ruling 6): one concurrency group for each Work item, on the one job that calls the Run's
 # jobs, so that it holds from run to apply and never cancels what runs. And the three places an expression may stand
-# whole beyond env:, with: and secrets:: the run's name, the lane, and a job's output of one of its steps.
+# whole beyond env:, with: and secrets:: the run's name, the lane, and a job's output of one of its steps: a step's own
+# output, or its outcome, which GitHub gives as one of four words (issue 757).
 RUN_JOBS = "run-jobs.yml"
 APPROVE_JOB = "approve-job.yml"
 QUEUE_JOB = "queue-job.yml"
 LANE = "${{ inputs.item }}"
 RUN_NAME = "${{ inputs.name }}"
-OUTPUT = re.compile(r"^\$\{\{ steps\.[a-z][\w-]*\.outputs\.[a-z][\w-]* \}\}$")
+OUTPUT = re.compile(r"^\$\{\{ steps\.[a-z][\w-]*\.(?:outputs\.[a-z][\w-]*|outcome) \}\}$")
 # The Run's shim, as the ruling gives it in full: its dispatcher is the pass's own token, by the account controller/1
 # names for it, on the run's first attempt alone, since a re-run keeps the dispatcher's id though a person started it;
 # and a Pause of the repo or the org starts no Run, any value but unset or exactly false a Pause (decision 0003; I-34).
@@ -334,6 +335,7 @@ jobs:
     outputs:
       commit: ${{ steps.commit.outputs.commit }}
       digest: ${{ steps.engine.outputs.digest }}
+      engine: ${{ steps.engine.outcome }}
       artifact: ${{ steps.result.outputs.artifact-id }}
       reader: ${{ steps.reader.outputs.artifact-id }}
     steps:

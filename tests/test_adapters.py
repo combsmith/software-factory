@@ -1058,7 +1058,7 @@ class Records(unittest.TestCase):
         slept = []
         got = records.runs(github.Replay(list(found)), canary(), "main", [WORKFLOW], kw.get("dispatcher", DISPATCHER),
                            per_page=kw.get("per_page", 10), sleep=slept.append, kept=kw.get("kept"),
-                           began=kw.get("began"))
+                           began=kw.get("began"), engines=kw.get("engines"))
         return got, slept
 
     def test_a_run_listed_under_its_workflows_name_is_unidentified_after_one_more_read(self):
@@ -1307,6 +1307,58 @@ class Records(unittest.TestCase):
             self.assertEqual(records.known([dict(record(first), runs=[dict(first["runs"][0], **change)])]), {}, change)
         self.assertEqual((records.known(None), records.known(record(first)), records.known([{"runs": None}]),
                           records.known([{"runs": ["x"]}])), ({}, {}, {}, {}))
+
+    def test_whether_the_engine_started_is_read_with_the_outcome_and_kept_by_its_run_and_attempt(self):  # issue 757
+        # A failed Run's outcome says whether its Engine step started; the run record carries it as the outcome said it,
+        # and leaves it out where the outcome said nothing.
+        done = {"name": NAME, "status": "completed", "conclusion": "failure"}
+        rows = listing("P-17", 3, rows=done)
+        github_id = rows["response"]["body"]["workflow_runs"][0]["id"]
+        key = ("r_01JA6Z", rows["response"]["body"]["workflow_runs"][0]["run_started_at"])
+        for said in (False, True):
+            zipped = outcome_zip(dict(outcome_of("r_01JA6Z", "environment", "run_failed"), engine_started=said))
+            got, _ = self.read(rows, *stored(canary(), github_id, zipped))
+            self.assertEqual((got["runs"][0]["outcome"], got["runs"][0]["engine_started"], got["complete"]),
+                             ("environment", said, True), said)
+            self.assertEqual(records.engines([{"runs": got["runs"]}]), {key: said})
+        got, _ = self.read(rows, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "environment"))))
+        self.assertNotIn("engine_started", got["runs"][0])
+        self.assertEqual(records.engines([{"runs": got["runs"]}]), {})
+        # An outcome kept from the records before is not read again, and what they said of the Engine is kept with it.
+        kept = {key: "environment"}
+        for engines, want in (({key: False}, False), ({key: True}, True)):
+            got, _ = self.read(rows, kept=kept, engines=engines)
+            self.assertEqual((got["runs"][0]["outcome"], got["runs"][0]["engine_started"]), ("environment", want))
+        got, _ = self.read(rows, kept=kept, engines={})
+        self.assertNotIn("engine_started", got["runs"][0])
+        got, _ = self.read(rows, kept=kept)
+        self.assertNotIn("engine_started", got["runs"][0])
+        # A Run that succeeded, or is not done, has no outcome read, and nothing of the Engine.
+        for change in ({"name": NAME, "status": "completed", "conclusion": "success"},
+                       {"name": NAME, "status": "in_progress", "conclusion": None}):
+            got, _ = self.read(listing("P-17", 3, rows=change), engines={key: False})
+            self.assertNotIn("engine_started", got["runs"][0], change)
+        # What the records before said: the later's word, the earlier's for a Run the later does not list; a true or a
+        # false alone; and from neither for a Run a record lists twice.
+        run = {"run": key[0], "started_at": key[1], "status": "completed", "conclusion": "failure",
+               "outcome": "environment"}
+        other = dict(run, run="r_01JA70")
+        later = {"runs": [dict(run, engine_started=True)]}
+        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, later]), {key: True})
+        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, {"runs": [other]}]),
+                         {key: False})
+        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, {"runs": [run]}]), {})
+        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, {"runs": []}, later]),
+                         {key: True})
+        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, {"runs": []}]), {key: False})
+        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, {"runs": []}, {"runs": []}]), {})
+        for said in (None, "false", 0, 1):
+            self.assertEqual(records.engines([{"runs": [dict(run, engine_started=said)]}]), {}, said)
+        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)] * 2}]), {})
+        for change in ({"run": None}, {"started_at": None}):
+            self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False, **change)]}]), {}, change)
+        self.assertEqual((records.engines(None), records.engines({"runs": [run]}), records.engines([{"runs": None}]),
+                          records.engines([{"runs": ["x"]}])), ({}, {}, {}, {}))
 
     def began(self, status, *jobs, **kw):
         """`(the one record, whether the list was whole)` of a Run GitHub lists with `status`, its jobs read as given."""
@@ -1629,6 +1681,19 @@ class Artifacts(unittest.TestCase):
     def test_a_runs_outcome_is_read_from_its_one_file_and_held_to_outcome_1(self):
         for fault in ("item", "capacity", "environment", "superseded"):
             self.assertEqual(self.read(outcome_zip(outcome_of(self.RUN, fault))), (fault, True), fault)
+        # Whether its Engine step started is handed to `started`, where it says; an outcome that says it otherwise is no
+        # outcome/1 (issue 757).
+        for said in (True, False):
+            told = []
+            zipped = outcome_zip(dict(outcome_of(self.RUN, "environment"), engine_started=said))
+            self.assertEqual(artifacts.outcome(github.Replay(stored("o/r", 7, zipped)), "o/r", 7, self.RUN, started=told),
+                             ("environment", True))
+            self.assertEqual(told, [said])
+        told = []
+        self.assertEqual(artifacts.outcome(github.Replay(stored("o/r", 7, outcome_zip(outcome_of(self.RUN, "item")))),
+                                           "o/r", 7, self.RUN, started=told), ("item", True))
+        self.assertEqual(told, [])
+        self.assertEqual(self.read(outcome_zip(dict(outcome_of(self.RUN, "item"), engine_started="no"))), (None, False))
         # A listing that gives no digest is read by its size alone.
         zipped = outcome_zip(outcome_of(self.RUN, "item"))
         self.assertEqual(self.read(zipped, digest=None), ("item", True))

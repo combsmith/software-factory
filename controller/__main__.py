@@ -156,7 +156,8 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     earlier = pass_.earlier(reads_.previous_records(previous), now) or []
     try:
         runs = records.runs(transport, home, branch, run_files(controller), dispatcher(controller),
-                            kept=records.known(earlier), began=records.begun(earlier))
+                            kept=records.known(earlier), began=records.begun(earlier),
+                            engines=records.engines(earlier))
     except Unanswered:
         runs = None
     try:

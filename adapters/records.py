@@ -299,8 +299,34 @@ def known(previous: list) -> dict:
     return {k: v for k, v in last.items() if v is not None or (k in before and before[k] is None)}
 
 
+def engines(previous: list) -> dict:
+    """Whether each Run's Engine step started, as the pass records before this one read it with its outcome, by its
+    Run id and when its attempt started (issue 757): the last two at most, and the earlier's word only for a Run the
+    later does not list. Only a true or a false is kept: an outcome is written once, so what it said stands for its
+    attempt. A key a record lists twice is kept from neither listing, and nothing from what lists no runs."""
+    def said_in(record) -> tuple:
+        rows = record.get("runs") if isinstance(record, dict) else None
+        if not isinstance(rows, list):
+            return {}, []
+        said, keys = {}, []
+        for row in rows:
+            key = (row.get("run"), row.get("started_at")) if isinstance(row, dict) else (None, None)
+            if not (isinstance(key[0], str) and isinstance(key[1], str)):
+                continue
+            keys.append(key)
+            if type(row.get("engine_started")) is bool:
+                said[key] = row["engine_started"]
+        return {key: started for key, started in said.items() if keys.count(key) == 1}, keys
+    held = {}
+    for record in (previous[-2:] if isinstance(previous, list) else []):
+        said, keys = said_in(record)
+        held = {key: started for key, started in held.items() if key not in keys}
+        held.update(said)
+    return held
+
+
 def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, per_page: int = PAGE,
-         sleep=time.sleep, kept=None, began=None) -> dict:
+         sleep=time.sleep, kept=None, began=None, engines=None) -> dict:
     """The run records of the Factory's Role workflows, the ids of counted Runs not yet named, whether the list was
     read whole, and each read's date and age for the pass record. `dispatcher` is the pass job's own token's account,
     by its id and type, `(id, "Bot")`: only a run it dispatched is a Run.
@@ -314,11 +340,14 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     GitHub run its name names (issue 338). Nothing calls `known` until
     the pass's entry, the effects port's next part (#193), hands it the records it placed.
 
+    `engine_started`, where a failed Run's outcome says it, is whether its Engine step started; `engines` is what
+    `engines` read of it from the pass records before, kept with an outcome `kept` holds (issue 757).
+
     `began` is what `begun` read from the pass records before, and None asks no job: no record then says when it
     began. Given, each Run in progress or completed has its jobs read for `began_at` (`_began`), but one `began`
     holds, for a row that names when its attempt started, once in this list. A Run past the `JOBS` asked, or whose
     jobs cannot be read, has no `began_at` and leaves the list not whole."""
-    kept = kept or {}
+    kept, engines = kept or {}, engines or {}
     roles = {".github/workflows/%s" % name for name in workflows}
 
     def read() -> tuple:
@@ -357,10 +386,15 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     for record, github_id, keyed in failed:
         if keyed and (record["run"], record["started_at"]) in kept:
             record["outcome"] = kept[(record["run"], record["started_at"])]
+            if (record["run"], record["started_at"]) in engines:
+                record["engine_started"] = engines[(record["run"], record["started_at"])]
             continue
+        told = []
         record["outcome"], read_whole = artifacts.outcome(
             transport, repo, github_id, record["run"],
-            lambda answer: reads.append(dict(read_at(answer), read="outcome")))
+            lambda answer: reads.append(dict(read_at(answer), read="outcome")), told)
+        if told:
+            record["engine_started"] = told[0]
         whole = whole and read_whole
     asked = 0
     for record, github_id, attempt, keyed in ran if began is not None else []:
