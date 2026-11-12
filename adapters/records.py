@@ -300,7 +300,7 @@ def known(previous: list) -> dict:
 
 
 def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, per_page: int = PAGE,
-         sleep=time.sleep, kept=None, began=None, of=None) -> dict:
+         sleep=time.sleep, kept=None, began=None, of=None, on=None) -> dict:
     """The run records of the Factory's Role workflows, the ids of counted Runs not yet named, whether the list was
     read whole, and each read's date and age for the pass record. `dispatcher` is the pass job's own token's account,
     by its id and type, `(id, "Bot")`: only a run it dispatched is a Run.
@@ -320,7 +320,8 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     jobs cannot be read, has no `began_at` and leaves the list not whole. `of`, a list of items, bounds the asking
     to their Runs: another item's Run is not asked, says what `began` holds of it and no more, and leaves the list
     whole. The pass hands the open pull requests, so what it asks is its live work, not the list's history
-    (decision 0196)."""
+    (decision 0196). `on`, an item, asks that item's Runs alone, as an act reading its own item again does, and all
+    of them: a Run keeps nothing from one read to the next, so a cap on its item's Runs would never be worked off."""
     kept = kept or {}
     roles = {".github/workflows/%s" % name for name in workflows}
 
@@ -367,6 +368,8 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
         whole = whole and read_whole
     asked = 0
     for record, github_id, attempt, keyed in ran if began is not None else []:
+        if on is not None and record["item"] != on:
+            continue
         if keyed and (record["run"], record["started_at"]) in began:
             record["began_at"] = began[(record["run"], record["started_at"])]
             # Null is a completed Run's alone: a list that gives the Run as running still asks its jobs again.
@@ -378,7 +381,7 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
         if asked == JOBS:
             whole = False
             continue
-        asked += 1
+        asked += 0 if on is not None else 1     # one item's Runs are all asked: a Run keeps nothing to work a cap off
         found, answered = _began(transport, repo, github_id, attempt, record["status"] == "completed")
         record.update(found)
         whole = whole and answered
