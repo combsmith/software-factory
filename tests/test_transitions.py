@@ -1523,7 +1523,8 @@ class AnyLifecycle(unittest.TestCase):
         for r in item["runs"]:
             if r["outcome"] == "environment":
                 r["engine_started"] = False
-        self.assertEqual(issue_kernel(item)["state"], "triage")
+        self.assertEqual([issue_kernel(item)[k] for k in ("state", "reason", "outcome", "attention")],
+                         ["triage", "triage", "nothing", "working"])
 
     def test_the_queues_merge_from_held_or_not_served_keeps_the_state(self):  # issue 522
         # The queue merges from held and not served too, each case explored: the State a person set stays, and only a

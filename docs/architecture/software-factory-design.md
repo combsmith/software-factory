@@ -945,7 +945,7 @@ Run's jobs stop their own work under a step limit, the steps' together two minut
 a step stopped at its limit concludes `failure`, and its job with it, and a later `if: always()` step
 still runs (`trials/P-42.step-timeout.json`). A Run past its limit is no attempt: `apply` still runs,
 and leaves the outcome `environment`, `run_failed`, for any run job that did not succeed, so the
-automatic pause and the Run ceiling bound it, not the attempts
+automatic pause and the Run ceiling bound it, or the bound apart where its Engine step never started (decision 0202), not the attempts
 (`tests/test_steps.py::test_apply_waits_for_its_jobs`). One the Engine's own limit stops,
 `engine_timeout`, reads `environment` too
 (`tests/test_apply.py::test_a_result_not_the_runs_or_not_completed_writes_nothing`): a timeout cannot
