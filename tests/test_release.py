@@ -517,6 +517,76 @@ class Fixture(unittest.TestCase):
             with self.subTest(cut=path.name):
                 self.a_later_cut_moved_next_on(path, eval_run, earlier)
 
+    def test_the_first_rollback_moved_next_back_within_its_time_and_a_move_brought_it_forward_again(self):
+        # Issue 197's ruling 9', items 4 and 5. Run 43317751252 rolled `next` back from factory/v0.1.10 to factory/v0.1.9
+        # on 2026-11-12, under a Pause, and run 43317854989 moved it forward again 39 seconds later, on the eval the cut
+        # had passed. Every read was made after both runs, so where `next` stood between them is the rollback's own last
+        # line and the Deployment it recorded; the tags are as the step's port lists them, with `next` on again.
+        fixture = json.loads(self.FIRST_ROLLBACK.read_text())
+        self.assertEqual(check_release.fixture_problems(fixture, self.FIRST_ROLLBACK.name), [])
+        self.assertEqual([item["item"] for item in fixture["items"]], ["rollback", "move_forward_again"])
+        back, on = self.item(fixture, "rollback"), self.item(fixture, "move_forward_again")
+        rings = json.loads(move.RINGS.read_text())
+        channel, left = move.next_channel(rings), fixture["version"]
+        body = lambda item, path: (lambda answer: self.assertEqual(answer["status"], 200, path) or answer["body"])(
+            self.answered(item, path))
+        at = lambda text: datetime.datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ")
+        refs = tags.read(github.Replay([e for e in on["exchanges"] if e["request"]["call"].split(" ")[1] == tags.path(REPO)]), REPO)
+        target = refs[left]
+        self.assertEqual(refs[channel], target, "`next` is on the Release again")
+        # The rollback: asked with no `to`, it moves `next` to the greatest Release below, as the rules plan it from
+        # these tags, and writes nothing else: no Release is made, moved or deleted.
+        self.assertEqual((back["asked"]["command"], back["asked"]["version"], back["asked"]["to"], back["conclusion"]),
+                         ("rollback", "", "", "success"))
+        below = max(v for v in cut.releases(refs) if v < current.version(left))
+        earlier = cut.releases(refs)[below]
+        older = refs[earlier]
+        self.assertNotEqual(older, target)
+        step = move.asked({"RELEASE_" + k.upper(): v for k, v in back["asked"].items()}, channel)
+        self.assertEqual(cut.plan(step, refs, {}, move.channels(rings)), ([("move", channel, older)], None))
+        self.assertEqual(back["printed"]["writes"], [["move", channel, older]])
+        # One action, timed (FR-49): dispatched, it moved `next`, read it back and recorded the Deployment inside the
+        # run, which ended within 15 minutes of being asked.
+        ran = body(back, "/repos/%s/actions/runs/%d" % (REPO, back["run"]))
+        self.assertEqual(ran["event"], "workflow_dispatch")
+        took = (at(ran["updated_at"]) - at(ran["created_at"])).total_seconds()
+        self.assertTrue(0 <= took <= 15 * 60, took)
+        deployed = body(on, "/repos/%s/deployments?environment=factory-next&per_page=4" % REPO)
+        ident, = back["printed"]["deployments"]
+        self.assertEqual([(d["id"], d["sha"], d["description"]) for d in deployed if d["id"] == ident], [(ident, older, earlier)])
+        marks = body(back, "/repos/%s/deployments/%d/statuses" % (REPO, ident))
+        # Newest first: it succeeded inside the run, and went inactive once `next` moved on again.
+        self.assertEqual([m["state"] for m in marks], ["inactive", "success"])
+        self.assertTrue(ran["created_at"] <= marks[-1]["created_at"] <= ran["updated_at"])
+        # The move forward: asked after the rollback had ended, to the Release `next` had left, through the eval gate:
+        # the eval job's own dispatch on that commit, its one run there, ended in success before either run.
+        again = body(on, "/repos/%s/actions/runs/%d" % (REPO, on["run"]))
+        self.assertEqual((on["asked"]["command"], on["asked"]["to"], on["conclusion"], again["event"]),
+                         ("move", left, "success", "workflow_dispatch"))
+        self.assertLess(ran["updated_at"], again["created_at"])
+        step = move.asked({"RELEASE_" + k.upper(): v for k, v in on["asked"].items()}, channel)
+        between = dict(refs, **{channel: older})
+        facts = {"commit": target, "on_main": True, "verified": True, "gate": cut.PASS, "release": left}
+        self.assertEqual(cut.plan(step, between, facts, move.channels(rings)), ([("move", channel, target)], None))
+        self.assertEqual(cut.plan(step, between, dict(facts, gate="report_unreadable"), move.channels(rings)),
+                         ([], cut.EVAL_GATE_CLOSED))
+        self.assertEqual(on["printed"]["writes"], [["move", channel, target]])
+        judged = [e["response"]["body"] for e in on["exchanges"]
+                  if e["request"]["call"].split(" ")[1].startswith("/repos/%s/actions/runs/" % REPO)
+                  and e["response"]["body"].get("path") == ".github/workflows/eval.yml"]
+        self.assertEqual(len(judged), 1)
+        self.assertEqual((judged[0]["event"], judged[0]["conclusion"], judged[0]["head_sha"]), ("workflow_dispatch", "success", target))
+        listed = body(on, "/repos/%s/actions/workflows/%d/runs?head_sha=%s" % (REPO, judged[0]["workflow_id"], target))
+        self.assertEqual((listed["total_count"], [r["id"] for r in listed["workflow_runs"]]), (1, [judged[0]["id"]]))
+        self.assertLess(judged[0]["updated_at"], ran["created_at"])
+        # `next`'s Deployments, newest first: the move's, of the Release again, in success; the rollback's; and below
+        # them the two cuts' own, each Release's.
+        moved, = on["printed"]["deployments"]
+        self.assertEqual([(d["id"], d["sha"], d["description"]) for d in deployed[:2]],
+                         [(moved, target, left), (ident, older, earlier)])
+        self.assertEqual([(d["sha"], d["description"]) for d in deployed[2:]], [(target, left), (older, earlier)])
+        self.assertEqual([m["state"] for m in body(on, "/repos/%s/deployments/%d/statuses" % (REPO, moved))], ["success"])
+
     def test_the_slice_1_event_is_whole(self):  # issue 198's ruling 6
         # Slice 1's event: a pull request the Maintainer opened after `main` began to count an approval (decision
         # 0191), which a Release on `next` reviewed, whose head the Factory's approving act approved as the machine
