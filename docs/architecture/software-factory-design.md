@@ -952,7 +952,7 @@ automatic pause and the Run ceiling bound it, not the attempts
 tell a slow provider from a slow item, and reading `item` would count an outage as an attempt on
 every item. The cost is accepted (issue 433): a Task the model cannot finish in time has up to
 `max_runs_per_item` Runs and not `max_attempts`, its spend unrecorded; such a Run reached its Engine step, so it is
-never counted apart with the Runs that spent no model (decision 0201), and two such items in the
+never counted apart with the Runs that spent no model (decision 0202), and two such items in the
 window can raise the automatic pause, which stops no act. No Run has a tool that runs; the review reads
 its head with Read, Grep and Glob alone, confined to it by `--restricted` and kept from the head's own settings
 by `--setting-sources ""` (decision 0138, P-59), each read a turn of the tier's, so an item can slow its Run
@@ -962,7 +962,7 @@ only by what the model reads, within the tier's turns and its cost ceiling. One 
 other way the CLI says it erred stays `environment` (decisions 0122 and 0136). A Run `cancelled`
 with no outcome is no attempt: it is read as `superseded`, and so is a job that never started, `startup_failure`, and a
 first attempt an `if:` skipped, `skipped`, each of which the records port reads as `cancelled`; a job that never
-started spent no model, so it counts toward `max_environment_runs_per_item` and not the Run ceiling (decision 0201). A row `skipped` on a later
+started spent no model, so it counts toward `max_environment_runs_per_item` and not the Run ceiling (decision 0202). A row `skipped` on a later
 attempt reads `failure`, an attempt, since the shim's `if:` skips any re-run and the list shows only the latest
 (decision 0111, `tests/test_adapters.py::test_a_first_attempt_an_if_skipped_is_no_attempt_and_a_later_one_is_an_attempt`).
 The word is read live from `schedule` runs and a canary's `workflow_dispatch` of a shim; a fixture, and a re-run, wait
@@ -998,7 +998,7 @@ record. Every act that lands, the approval among them, is counted from GitHub's 
 `acts_since_writer` (§3.3), and a resolution, which is on no timeline, from its Run (decision 0127).
 So every automated action on an item is either inside a Run, bounded by `max_runs_per_item`, or by
 `max_environment_runs_per_item` for a Role's Run that spent no model, failing before its Engine step or never
-started (decision 0201), or is
+started (decision 0202), or is
 an act, bounded by `max_acts_per_item` (I-8).
 
 Run records and artifacts are kept for 90 days, which is the Factory's own history (PRD FR-40). The
@@ -1599,7 +1599,7 @@ and read from the configuration. The Lifecycle schema and the configuration gain
 |---|---|---|
 | `ready` to `in_progress` and back, when an opening Run ends having opened nothing | `max_attempts`, counted from the run records. The bound is reached, and the Hold placed, long before a record expires | The Kernel holds the issue, as for a pull request. Whether the Controller also adds `factory:hold` for a Hold of the brakes is decided with `controller/`, for both item types (decision 0031) |
 | `in_progress` or `in_review` back to `ready` or `triage`, when a linked pull request closes unmerged | `max_unmerged_closes`, starting at one. The first unmerged close is the retry it allows: the issue goes back to `ready` or `triage` | On the close after that, the Controller adds `factory:hold` and assigns the Maintainer |
-| `triage` to `ready` and back, when the content keeps changing | `max_runs_per_item`: every investigating and readiness Run counts toward the issue's Run ceiling, but one that spent no model, which counts toward `max_environment_runs_per_item` (decision 0201) | The Kernel holds the issue, as for a pull request |
+| `triage` to `ready` and back, when the content keeps changing | `max_runs_per_item`: every investigating and readiness Run counts toward the issue's Run ceiling, but one that spent no model, which counts toward `max_environment_runs_per_item` (decision 0202) | The Kernel holds the issue, as for a pull request |
 | Investigation and verdict within `triage` | One of each for each `content_id` and each action by a person with write access | Nothing more is admitted; the issue waits for a person |
 
 Unmerged closes are counted from the closed linked pull requests themselves, which GitHub keeps,

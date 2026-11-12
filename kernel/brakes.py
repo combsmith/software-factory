@@ -31,7 +31,7 @@ def _attempts(recent: list, intent: str) -> list:
 
 def _outside(recent: list) -> list:
     """The Runs of a Role that spent no model, counted apart toward `max_environment_runs_per_item` (issue 757): one
-    that ended `environment` and says its Engine step never started (`engine_started` false, decision 0200), and one
+    that ended `environment` and says its Engine step never started (`engine_started` false, decision 0201), and one
     GitHub started no job of, with no outcome (decision 0116). A Run that reached the Engine, or does not say, counts
     toward the Run ceiling whatever its reason, since an item can slow its own Run to a timeout. An act's job is none of
     them, whatever its fault: the Run ceiling bounds it, since the automatic pause stops no act."""

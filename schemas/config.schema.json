@@ -200,7 +200,7 @@
           "minimum": 1
         },
         "max_environment_runs_per_item": {
-          "description": "Runs of a Role that spent no model, counted apart from max_runs_per_item since a writer acted: one that ended `environment` before its Engine step started, and one GitHub started no job of (issue 757, decision 0201)",
+          "description": "Runs of a Role that spent no model, counted apart from max_runs_per_item since a writer acted: one that ended `environment` before its Engine step started, and one GitHub started no job of (issue 757, decision 0202)",
           "type": "integer",
           "minimum": 1
         },

@@ -972,7 +972,7 @@ class World:
             if self.rng.random() < 0.8:
                 run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None]))
                 # Every other such fault failed before the Engine step, so GitHub skipped it and no model was spent
-                # (decisions 0200 and 0201); chosen by the count of Runs, so that no seed draws differently.
+                # (decisions 0201 and 0202); chosen by the count of Runs, so that no seed draws differently.
                 if run["outcome"] == "environment" and len(self.runs) % 2 == 0:
                     run["engine_started"] = False
             else:

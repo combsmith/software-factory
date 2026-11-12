@@ -2874,7 +2874,7 @@ class Ceilings(unittest.TestCase):
         self.assertEqual((d["outcome"], d["action"]), ("act", "enqueue"))
 
     def test_a_run_that_spent_no_model_is_counted_apart_from_the_run_ceiling(self):  # FR-39, issue 757
-        # A Role's Run that ended `environment` before its Engine step started (decision 0200), or one GitHub started no
+        # A Role's Run that ended `environment` before its Engine step started (decision 0201), or one GitHub started no
         # job of (decision 0116), spent no model: it counts toward a bound of its own, and not toward the Run ceiling. A
         # writer's action renews both.
         ceiling, apart = LIMITS["max_runs_per_item"], LIMITS["max_environment_runs_per_item"]

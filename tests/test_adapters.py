@@ -1203,7 +1203,7 @@ class Records(unittest.TestCase):
         got, _ = self.read(row, *stored(canary(), ident, outcome_zip(outcome_of("r_01JA6Z", "environment"))))
         self.assertEqual((got["runs"][0]["conclusion"], got["runs"][0]["outcome"]), ("failure", "environment"))
         # A bound counts each, whichever it reads: the Run ceiling, or for a first attempt that ran no Role, the bound
-        # apart of the Runs that spent no model (decision 0201).
+        # apart of the Runs that spent no model (decision 0202).
         got, _ = self.read(listing("P-17", 3, rows=dict(done, run_attempt=1)), stored(canary(), ident, None)[0])
         self.assertEqual(len(brakes._outside(got["runs"])), len(got["runs"]))
         got, _ = self.read(listing("P-17", 3, rows=dict(done, run_attempt=2)), stored(canary(), ident, None)[0])

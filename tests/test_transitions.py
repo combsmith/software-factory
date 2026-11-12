@@ -82,7 +82,7 @@ def failures(count: int, intent="review-change", outcome="item") -> list:
 
 
 def unstarted(count: int) -> list:
-    """`count` Runs that failed for the environment before their Engine step started: each spent no model (0201)."""
+    """`count` Runs that failed for the environment before their Engine step started: each spent no model (0202)."""
     return [dict(r, engine_started=False) for r in failures(count, outcome="environment")]
 
 

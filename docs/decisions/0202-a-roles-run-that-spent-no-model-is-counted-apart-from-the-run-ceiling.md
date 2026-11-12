@@ -1,6 +1,6 @@
-# 0201. A Role's Run that spent no model is counted apart from the Run ceiling
+# 0202. A Role's Run that spent no model is counted apart from the Run ceiling
 
-Status: accepted. The Factory Builder's rulings of 2026-11-12 on "A Run that ended environment does not use up the item's run ceiling" (issue 757): a bound apart, for the Runs that failed before their Engine step started, which `docs/decisions/0200-a-runs-outcome-says-whether-its-engine-step-started.md` makes the run record say. It amends decision 0116's row "Attempts and the ceiling": a Run GitHub started no job of still counts toward the automatic pause, and is no attempt, but it no longer counts toward the Run ceiling. It adds a limit to `config/defaults.json`, so the Maintainer approves it by hand.
+Status: accepted. The Factory Builder's rulings of 2026-11-12 on "A Run that ended environment does not use up the item's run ceiling" (issue 757): a bound apart, for the Runs that failed before their Engine step started, which `docs/decisions/0201-a-runs-outcome-says-whether-its-engine-step-started.md` makes the run record say. It amends decision 0116's row "Attempts and the ceiling": a Run GitHub started no job of still counts toward the automatic pause, and is no attempt, but it no longer counts toward the Run ceiling. It adds a limit to `config/defaults.json`, so the Maintainer approves it by hand.
 
 ## Decision
 
@@ -20,11 +20,11 @@ Status: accepted. The Factory Builder's rulings of 2026-11-12 on "A Run that end
 
 The Run ceiling held a review that never happened. Every Run on four pull requests failed at the CLI install, and each ended `held: run_ceiling` with nothing of its content judged. The automatic pause had already slowed the dispatches to about one an hour. A new head did not renew the count, since a push is no writer's action (`adapters/timeline.py`'s `ACTIONS`), so only a person's comment did.
 
-A first version counted every `environment` Run apart. The security pass showed that an item can cause `environment` itself after the model has read it, so that version would have let a slow or hostile item buy 20 more model Runs. The run record now says whether a Run's Engine step started (decision 0200), and only a Run that never reached it moves apart.
+A first version counted every `environment` Run apart. The security pass showed that an item can cause `environment` itself after the model has read it, so that version would have let a slow or hostile item buy 20 more model Runs. The run record now says whether a Run's Engine step started (decision 0201), and only a Run that never reached it moves apart.
 
 The Lifecycle still terminates. A Run that spent no model makes no transition: it leaves the item where it was, and the Runs it causes are what the bound apart counts. Across items, the automatic pause slows a lasting outage to about one try an hour, so 30 holds an item after about 30 hours of outage, where 10 held it after about 9 (decision 0116). On one item alone, where the pause sees nothing, the bound apart is what ends it.
 
-It costs two things, both accepted. **An item may be dispatched up to 40 times between writers' actions,** 10 toward the ceiling and 30 that spent runner minutes but no model. **A lasting outage still ends in every item's Hold,** now later, and each Hold still needs a writer. A Run whose outcome says nothing of its Engine, as one written before decision 0200, counts toward the ceiling as before.
+It costs two things, both accepted. **An item may be dispatched up to 40 times between writers' actions,** 10 toward the ceiling and 30 that spent runner minutes but no model. **A lasting outage still ends in every item's Hold,** now later, and each Hold still needs a writer. A Run whose outcome says nothing of its Engine, as one written before decision 0201, counts toward the ceiling as before.
 
 ## Boundaries
 
