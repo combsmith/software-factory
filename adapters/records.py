@@ -322,7 +322,7 @@ def engines(previous: list) -> dict:
 
 
 def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, per_page: int = PAGE,
-         sleep=time.sleep, kept=None, began=None, engines=None) -> dict:
+         sleep=time.sleep, kept=None, began=None, of=None, engines=None) -> dict:
     """The run records of the Factory's Role workflows, the ids of counted Runs not yet named, whether the list was
     read whole, and each read's date and age for the pass record. `dispatcher` is the pass job's own token's account,
     by its id and type, `(id, "Bot")`: only a run it dispatched is a Run.
@@ -342,7 +342,10 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     `began` is what `begun` read from the pass records before, and None asks no job: no record then says when it
     began. Given, each Run in progress or completed has its jobs read for `began_at` (`_began`), but one `began`
     holds, for a row that names when its attempt started, once in this list. A Run past the `JOBS` asked, or whose
-    jobs cannot be read, has no `began_at` and leaves the list not whole."""
+    jobs cannot be read, has no `began_at` and leaves the list not whole. `of`, a list of items, bounds the asking
+    to their Runs: another item's Run is not asked, says what `began` holds of it and no more, and leaves the list
+    whole. The pass hands the open pull requests, so what it asks is its live work, not the list's history
+    (decision 0196)."""
     kept, engines = kept or {}, engines or {}
     roles = {".github/workflows/%s" % name for name in workflows}
 
@@ -400,6 +403,8 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
             if record["began_at"] is not None or record["status"] == "completed":
                 continue
             del record["began_at"]
+        if of is not None and record["item"] not in of:
+            continue
         if asked == JOBS:
             whole = False
             continue
