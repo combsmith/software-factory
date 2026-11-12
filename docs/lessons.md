@@ -25,7 +25,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 
 ### L-03 The caps counted failures, and counted them per worker
 **Failure.** The attempt limit counted only failed runs, and the cap on review cycles re-armed itself. Fixes that succeeded took one pull request to 378 commits in four days, for a diff of 18 files.
-**Rule.** Every automated action on a Work item counts toward a ceiling, whether it succeeded or not: a Run toward the Run ceiling, and an act, made with no model, toward the act ceiling. An approval that lands is an act. One that does not land counts toward the Run ceiling, and toward its attempts too when the fault is the item's.
+**Rule.** Every automated action on a Work item counts toward a ceiling, whether it succeeded or not: a Run toward the Run ceiling, or one that spent no model toward a bound of its own (decision 0201), and an act, made with no model, toward the act ceiling. An approval that lands is an act. One that does not land counts toward the Run ceiling, and toward its attempts too when the fault is the item's.
 **Check.** `tools/mutants.py`, `tests/test_simulator.py::test_invariants_hold_under_faults`, `tests/test_decide.py::test_acts_are_bounded`, `tests/test_decide.py::test_an_approval_that_does_not_land_is_bounded`, `tests/test_decide.py::test_an_approval_that_keeps_failing_for_the_environment_is_bounded`, `tests/test_simulator.py::test_a_queue_that_ejects_every_time_is_bounded`, `tests/test_approve.py::test_each_fault_of_the_act_is_classed_as_the_design_classes_it`
 
 ### L-04 Two agents each answered the other

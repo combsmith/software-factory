@@ -16,7 +16,7 @@ SCHEMA = "decision/1"
 WORK_ITEM = "pull_request"      # the Lifecycle this module reads, lifecycle/pull_request.json
 NEEDS_YOU_REASONS = frozenset({
     "human_hold", "outside_not_admitted", "empty_diff", "too_large", "human_finding",
-    "attempts_exhausted", "run_ceiling", "max_rounds", "approver_is_author_or_last_pusher",
+    "attempts_exhausted", "run_ceiling", "environment_ceiling", "max_rounds", "approver_is_author_or_last_pusher",
     "awaiting_human", "act_ceiling", "check_unreadable", "review_unreadable", "thread_unreadable", "label_unreadable",
     "acceptance_unreadable", "paths_unreadable", "protected_paths_unreadable",
     "last_pusher_unreadable",

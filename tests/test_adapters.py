@@ -1202,8 +1202,11 @@ class Records(unittest.TestCase):
         row = listing("P-17", 3, rows=dict(done, run_attempt=2))
         got, _ = self.read(row, *stored(canary(), ident, outcome_zip(outcome_of("r_01JA6Z", "environment"))))
         self.assertEqual((got["runs"][0]["conclusion"], got["runs"][0]["outcome"]), ("failure", "environment"))
-        # The Run ceiling counts each, whichever it reads.
+        # A bound counts each, whichever it reads: the Run ceiling, or for a first attempt that ran no Role, the bound
+        # apart of the Runs that spent no model (decision 0201).
         got, _ = self.read(listing("P-17", 3, rows=dict(done, run_attempt=1)), stored(canary(), ident, None)[0])
+        self.assertEqual(len(brakes._outside(got["runs"])), len(got["runs"]))
+        got, _ = self.read(listing("P-17", 3, rows=dict(done, run_attempt=2)), stored(canary(), ident, None)[0])
         self.assertEqual(len(brakes._spent(got["runs"])), len(got["runs"]))
 
     def test_the_outcome_is_read_for_a_run_that_did_not_succeed_and_for_no_other(self):

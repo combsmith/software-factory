@@ -76,7 +76,7 @@ PAUSE_FOR = 80
 DISMISSES_STALE = (3, 1)
 # The Holds the brakes place at a ceiling. Under a Pause each shows as it would with no Pause, with a Run in flight or
 # none: a Hold is a reading and no act (decision 0003).
-CEILINGS = ("attempts_exhausted", "run_ceiling", "max_rounds", "act_ceiling")
+CEILINGS = ("attempts_exhausted", "run_ceiling", "environment_ceiling", "max_rounds", "act_ceiling")
 # On three seeds in seven the item has an acceptance contract (design §3.13), of this many criteria, by the seed alone.
 # Seeds 1 and 2, which the tests set worlds up from by hand, have none. On an agent's pull request the last of two or
 # more is of kind human, which only a person passes, by approving the content; every other is of kind test.
@@ -1485,8 +1485,15 @@ class World:
         # A landed approval or resolution is an act, counted below; every other Run, a failed approval among them, is spent.
         landed = [r for r in since if r["intent"] in (t.ISSUE_APPROVAL, t.RESOLVE_THREAD) and r["conclusion"] == "success"]
         resolved = [r for r in landed if r["intent"] == t.RESOLVE_THREAD]
-        spent = [r for r in since if r not in landed]
+        # A Role's Run that spent no model, failing before its Engine step or never started, is counted apart (757).
+        outside = [r for r in since if r["intent"] not in (t.ISSUE_APPROVAL, t.RESOLVE_THREAD, t.ENQUEUE_MERGE,
+                                                           t.DEQUEUE_MERGE)
+                   and ((r["outcome"] == "environment" and r.get("engine_started") is False)
+                        or (r.get("never_ran") and r["outcome"] is None))]
+        spent = [r for r in since if r not in landed and r not in outside]
         self.check(len(spent) <= CONFIG["limits"]["max_runs_per_item"] + 1, "run ceiling per item")
+        self.check(len(outside) <= CONFIG["limits"]["max_environment_runs_per_item"] + 1,
+                   "Runs that spent no model per item")
         # I-8: every automated action is inside a Run, bounded above, or is an act, bounded here.
         # Only a dequeue, an act that stops work, takes the count past the ceiling, and by one: once it is there, an
         # enqueue is refused, so nothing can enter the queue to be taken out again.

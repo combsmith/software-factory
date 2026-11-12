@@ -845,7 +845,11 @@ class IssueWorld:
                    "I-8 acts since a writer exceed the ceiling")
         since = [r for r in self.runs if (self.last_writer is None or r["started_at"] > self.last_writer)
                  and r["outcome"] != "superseded"]
-        self.check(len(since) <= LIMITS["max_runs_per_item"] + 1, "run ceiling per item")
+        # A Role's Run that spent no model, failing before its Engine step or never started, is counted apart (757).
+        outside = [r for r in since if (r["outcome"] == "environment" and r.get("engine_started") is False)
+                   or (r.get("never_ran") and r["outcome"] is None)]
+        self.check(len([r for r in since if r not in outside]) <= LIMITS["max_runs_per_item"] + 1, "run ceiling per item")
+        self.check(len(outside) <= LIMITS["max_environment_runs_per_item"] + 1, "Runs that spent no model per item")
 
     def settle(self, steps: int = 400):
         """Stop the faults and the people, and let the Factory finish."""

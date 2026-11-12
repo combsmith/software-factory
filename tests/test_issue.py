@@ -1797,7 +1797,7 @@ class Investigation(unittest.TestCase):
         self.assertEqual(what(decide(TRIAGED, judging[:-1])), ("admit", "triage", JUDGE))
         self.assertEqual(what(decide(TRIAGED, judging)), ("hold", "attempts_exhausted", None))
         ceiling = LIMITS["max_runs_per_item"]
-        runs = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="environment") for i in range(ceiling)]
+        runs = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="capacity") for i in range(ceiling)]
         self.assertEqual(what(decide(TRIAGED, runs[:-1])), ("admit", "triage", INVESTIGATE))
         self.assertEqual(what(decide(TRIAGED, runs)), ("hold", "run_ceiling", None))
         # A person's action renews every count.
@@ -1823,7 +1823,7 @@ class Investigation(unittest.TestCase):
         self.assertEqual(what(decide(TRIAGED, spent + [queued])), ("hold", "attempts_exhausted", None))
         # The Run in flight was admitted under the ceiling: it is not counted against itself.
         ceiling = LIMITS["max_runs_per_item"]
-        runs = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="environment") for i in range(ceiling)]
+        runs = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="capacity") for i in range(ceiling)]
         self.assertEqual(what(decide(TRIAGED, runs[:-1] + [queued])), ("nothing", "triage", None))
         self.assertEqual(what(decide(TRIAGED, runs + [queued])), ("hold", "run_ceiling", None))
         # Under a Pause, a Run in flight is still only working.
@@ -1994,7 +1994,9 @@ class Attention(unittest.TestCase):
     def test_each_reason_and_state_calls_whom_it_should(self):
         tries, ceiling = LIMITS["max_attempts"], LIMITS["max_runs_per_item"]
         spent = [failed(INVESTIGATE, 1 + i, "f%d" % i) for i in range(tries)]
-        worn = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="environment") for i in range(ceiling)]
+        worn = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="capacity") for i in range(ceiling)]
+        outside = [dict(failed(INVESTIGATE, 1 + i, "o%d" % i, outcome="environment"), engine_started=False)
+                   for i in range(LIMITS["max_environment_runs_per_item"])]
         stale = facts(life_started_at=at(5), reopened_last_by="writer", label_events=[labelled(TRIAGE, WRITER, 1)])
         cases = [
             ("human_hold", "needs_you", facts(label_events=[labelled(HOLD)]), [], config()),
@@ -2004,6 +2006,7 @@ class Attention(unittest.TestCase):
              config()),
             ("attempts_exhausted", "needs_you", TRIAGED, spent, config()),
             ("run_ceiling", "needs_you", TRIAGED, worn, config()),
+            ("environment_ceiling", "needs_you", TRIAGED, outside, config()),
             ("act_ceiling", "needs_you", facts(acts_since_writer=LIMITS["max_acts_per_item"]), [], config()),
             ("triage_stands", "needs_you", stale, [], config()),
             ("judged", "needs_you", TRIAGED, [investigated(), run()], config()),
@@ -2127,10 +2130,10 @@ class WantedRun(unittest.TestCase):
         # by a pass that did not see the first (P-22, P-17), and the first failed: the ceiling is reached. Then the
         # outsider edits the issue, its acceptance lapses, and it wants no Run.
         events = [labelled(ADMIT, WRITER, 1), labelled(TRIAGE, CONTROLLER, 2)]
-        settled = [investigated()] + [failed(JUDGE, 4 + i, "j%d" % i, outcome="environment", role="readiness")
+        settled = [investigated()] + [failed(JUDGE, 4 + i, "j%d" % i, outcome="capacity", role="readiness")
                                       for i in range(self.CEILING - 1)]
         queued = run(status="queued", minute=21, name="q1")
-        ended = dict(queued, status="completed", conclusion="failure", outcome="environment")
+        ended = dict(queued, status="completed", conclusion="failure", outcome="capacity")
         before = outsiders(label_events=events, last_writer_action_at=at(1), role_comments=[comment(ANALYST, 3)])
         edited = dict(before, content_id=OTHER, content_changed_at=at(25))
         self.assertEqual(len(settled), self.CEILING)
@@ -2149,10 +2152,10 @@ class WantedRun(unittest.TestCase):
         # As the issue gives it. Its last_writer_action_at cannot happen: the person who removed factory:ready acted
         # at minute 31, after which none of these Runs would count. It stands as a boundary of what the Kernel reads.
         f = facts(label_events=ACCEPTED + [labelled(READY, minute=30), unlabelled(READY, minute=31)])
-        settled = [investigated()] + [failed(JUDGE, 4 + i, "j%d" % i, outcome="environment", role="readiness")
+        settled = [investigated()] + [failed(JUDGE, 4 + i, "j%d" % i, outcome="capacity", role="readiness")
                                       for i in range(self.CEILING - 1)]
         queued = run(status="queued", minute=40, name="q1")
-        ended = dict(queued, status="completed", conclusion="failure", outcome="environment")
+        ended = dict(queued, status="completed", conclusion="failure", outcome="capacity")
         for paused in (False, True, None):
             self.assertEqual(self.reading(f, settled + [queued], ctx=context(paused=paused)),
                              ("triage", "triage", "nothing", "working"), paused)
@@ -2173,14 +2176,14 @@ class WantedRun(unittest.TestCase):
         # An opening Run waiting shows the issue in progress (row 7), but the Run wanted is the one the issue wants
         # without it: a verdict a person overruled, acceptance, or an investigation whose attempts are spent.
         waiting = dict(opening(status="queued"), started_at=at(40), run="q1")
-        settled = [investigated()] + [failed(JUDGE, 4 + i, "j%d" % i, outcome="environment", role="readiness")
+        settled = [investigated()] + [failed(JUDGE, 4 + i, "j%d" % i, outcome="capacity", role="readiness")
                                       for i in range(self.CEILING - 1)]
         overruled = facts(label_events=ACCEPTED + [labelled(READY, minute=30), unlabelled(READY, minute=31)])
         self.assertEqual(self.reading(overruled, settled), ("triage", "ready_removed", "nothing", "needs_you"))
         self.assertEqual(self.reading(overruled, settled + [waiting]), ("in_progress", "opening_run", "nothing", "working"))
         # The other side: a verdict still wanted is held at the Run ceiling while the opening Run waits.
         self.assertEqual(self.reading(TRIAGED, settled + [waiting]), ("held", "run_ceiling", "hold", "needs_you"))
-        spent = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="environment") for i in range(self.CEILING)]
+        spent = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="capacity") for i in range(self.CEILING)]
         self.assertEqual(what(decide(facts(), spent)), ("act", "acceptance_due", "accept"))
         self.assertEqual(self.reading(facts(), spent + [waiting]), ("in_progress", "opening_run", "nothing", "working"))
         tries = [failed(INVESTIGATE, 1 + i, "f%d" % i) for i in range(LIMITS["max_attempts"])]
@@ -2204,13 +2207,13 @@ class WantedRun(unittest.TestCase):
                          ("in_progress", "opening_run", "nothing", "working"))
 
     def test_an_issue_in_new_wants_no_run_while_one_waits(self):
-        spent = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="environment") for i in range(self.CEILING)]
+        spent = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="capacity") for i in range(self.CEILING)]
         queued = investigated(status="queued", minute=20, name="q1")
         self.assertEqual(self.reading(facts(), spent + [queued]), ("new", "acceptance_due", "nothing", "working"))
         self.assertEqual(what(decide(facts(), spent)), ("act", "acceptance_due", "accept"))
 
     def test_the_run_ceiling_holds_no_issue_that_wants_no_run(self):
-        spent = [failed(INVESTIGATE, 4 + i, "e%d" % i, outcome="environment") for i in range(self.CEILING)]
+        spent = [failed(INVESTIGATE, 4 + i, "e%d" % i, outcome="capacity") for i in range(self.CEILING)]
         queued = run(status="queued", minute=20, name="q1")
         verdict = [investigated(), run()] + spent[:-2]
         statementless = outsiders(label_events=[labelled(ADMIT), labelled(READY, minute=2)])

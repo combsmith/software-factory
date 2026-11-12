@@ -924,7 +924,7 @@ class OnlyAPersonEnds(unittest.TestCase):
         d = go(facts(threads=[thread(ruling="accepted")], reviews=[asked]), REVIEWED)
         self.assertNotEqual(d["reason"], "resolve_due")
         # The act is no Run: the Run ceiling, spent, holds no resolution while a Run waits, as it holds no enqueue.
-        spent = [run()] + [run(conclusion="failure", outcome="environment", at=at(10 + i), name="e%d" % i)
+        spent = [run()] + [run(conclusion="failure", outcome="capacity", at=at(10 + i), name="e%d" % i)
                            for i in range(LIMITS["max_runs_per_item"] - 1)]
         d = go(facts(threads=[thread(ruling="accepted")]), spent + [run(status="in_progress", at=at(40), name="w")])
         self.assertEqual((d["reason"], d["outcome"]), ("resolve_due", "nothing"))
@@ -2719,7 +2719,7 @@ class Ceilings(unittest.TestCase):
         # The Run ceiling counts the Runs that completed: the tenth Run, admitted with nine completed, is not held at
         # the ceiling it was admitted under. Ten completed hold the item while another waits.
         ceiling = LIMITS["max_runs_per_item"]
-        spent = [run(conclusion="failure", outcome="environment", at=at(10 + i), name="e%d" % i) for i in range(ceiling)]
+        spent = [run(conclusion="failure", outcome="capacity", at=at(10 + i), name="e%d" % i) for i in range(ceiling)]
         waiting = dict(run(status="in_progress", at=at(40), name="w"), status="queued")
         d = go(facts(), spent[1:] + [waiting])
         self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
@@ -2792,7 +2792,7 @@ class Ceilings(unittest.TestCase):
         # person, who is called for that cause alone. Once a Run is wanted again, the ceiling holds before any is
         # admitted. An approved item's enqueue spends no model, and goes ahead.
         ceiling = LIMITS["max_runs_per_item"]
-        spent = [run(conclusion="failure", outcome="environment", at=at(10 + i), name="e%d" % i) for i in range(ceiling)]
+        spent = [run(conclusion="failure", outcome="capacity", at=at(10 + i), name="e%d" % i) for i in range(ceiling)]
         neutral, failing = with_check(1, "neutral"), with_check(1, "failure")
         for paused in (False, True, None):
             d = go(facts(checks=neutral), spent, ctx=context(paused=paused))
@@ -2806,7 +2806,7 @@ class Ceilings(unittest.TestCase):
 
     def test_the_run_ceiling_holds_no_item_that_wants_no_run_while_a_run_waits(self):  # FR-39, I-2
         ceiling = LIMITS["max_runs_per_item"]
-        spent = [run(conclusion="failure", outcome="environment", at=at(10 + i), name="e%d" % i) for i in range(ceiling)]
+        spent = [run(conclusion="failure", outcome="capacity", at=at(10 + i), name="e%d" % i) for i in range(ceiling)]
         waiting = dict(run(status="in_progress", at=at(40), name="w"), status="queued")
         neutral, failing = with_check(1, "neutral"), with_check(1, "failure")
         for paused in (False, True, None):
@@ -2872,6 +2872,79 @@ class Ceilings(unittest.TestCase):
     def test_an_approval_that_landed_is_enqueued_whatever_failed_before(self):
         d = go(facts(reviews=APPROVED), REVIEWED + approvals(LIMITS["max_attempts"]))
         self.assertEqual((d["outcome"], d["action"]), ("act", "enqueue"))
+
+    def test_a_run_that_spent_no_model_is_counted_apart_from_the_run_ceiling(self):  # FR-39, issue 757
+        # A Role's Run that ended `environment` before its Engine step started (decision 0200), or one GitHub started no
+        # job of (decision 0116), spent no model: it counts toward a bound of its own, and not toward the Run ceiling. A
+        # writer's action renews both.
+        ceiling, apart = LIMITS["max_runs_per_item"], LIMITS["max_environment_runs_per_item"]
+        self.assertGreater(apart, ceiling)
+        env = [dict(run(conclusion="failure", outcome="environment", at=at(10 + i), name="e%d" % i), engine_started=False)
+               for i in range(apart)]
+        never = [dict(run(conclusion="cancelled", at=at(10 + i), name="n%d" % i), never_ran=word)
+                 for i, word in zip(range(apart), ["startup_failure", "skipped"] * apart)]
+        counted = [run(conclusion="cancelled", at=at(40 + i), name="c%d" % i) for i in range(ceiling)]
+        # Ten on one head leave the item admissible once the automatic pause has lapsed, and wait while it holds.
+        for faults in (env, never):
+            d = go(facts(), faults[:ceiling])
+            self.assertEqual((d["state"], d["outcome"], d.get("admit")), ("verifying", "admit", REVIEW_IT))
+            d = go(facts(), faults[:ceiling], context(model_deferred_until="2026-10-11T13:30:00Z"))
+            self.assertEqual((d["outcome"], d["reason"]), ("defer", "capacity"))
+            # Ten Runs that count still hold it at the ceiling, with as many such faults beside them as their bound allows.
+            d = go(facts(), faults[:apart - 1] + counted)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             ("held", "run_ceiling", "hold", "needs_you"))
+            self.assertEqual(go(facts(), faults[:apart - 1] + counted[1:])["admit"], REVIEW_IT)
+            # Their own bound holds the item, so that one cause that never ends, on an item the automatic pause cannot
+            # see alone, is not sent for ever; one fewer does not, and a writer's action renews the count.
+            d = go(facts(), faults + counted[1:])
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"], d["evidence"]),
+                             ("held", "environment_ceiling", "hold", "needs_you", []))
+            self.assertEqual(go(facts(), faults[1:] + counted[1:])["admit"], REVIEW_IT)
+            self.assertEqual(go(facts(last_writer_action_at=at(39)), faults + counted[1:])["admit"], REVIEW_IT)
+        # The two kinds count together toward the bound.
+        mixed = env[:apart // 2] + never[apart // 2:]
+        self.assertEqual(go(facts(), mixed)["reason"], "environment_ceiling")
+        self.assertEqual(go(facts(), mixed[1:])["admit"], REVIEW_IT)
+        # Any other outcome is counted toward the ceiling: the item's, capacity's, a Run superseded, or none; and so is a
+        # word GitHub gave beside an outcome, which is the outcome's (decision 0116). So is a Run that ended
+        # `environment` after its Engine step started, or that does not say: the item may have slowed it to a timeout,
+        # and it may have spent on the model.
+        for other in ({"outcome": "item", "intent": "fix-findings"}, {"outcome": "capacity"}, {"outcome": "superseded"},
+                      {"outcome": "item", "never_ran": "skipped", "intent": "fix-findings"}, {"engine_started": True},
+                      {"outcome": "capacity", "engine_started": False}):
+            spent = [dict(r, **other) for r in env[:ceiling]]
+            d = go(facts(), spent)
+            self.assertEqual((d["state"], d["reason"]), ("held", "run_ceiling"), other)
+        unsaid = [{k: v for k, v in r.items() if k != "engine_started"} for r in env[:ceiling]]
+        self.assertEqual(go(facts(), unsaid)["reason"], "run_ceiling")
+        self.assertEqual(go(facts(), unsaid[1:])["admit"], REVIEW_IT)
+        # Where both bounds are reached, the Run ceiling is the one named.
+        d = go(facts(), env + counted)
+        self.assertEqual((d["state"], d["reason"]), ("held", "run_ceiling"))
+        # An act's job that did not land is bounded by the Run ceiling whatever its fault: the automatic pause stops no
+        # act, so an approval failing for an expired token is not issued for ever (decision 0003).
+        failed = [run(intent="issue-approval", conclusion="failure", outcome="environment", at=at(20 + i), name="a%d" % i)
+                  for i in range(ceiling)]
+        never_landed = [dict(r, conclusion="cancelled", outcome=None, never_ran="startup_failure") for r in failed]
+        for jobs in (failed, never_landed):
+            d = go(facts(), REVIEWED + jobs[:ceiling - 1])
+            self.assertEqual((d["state"], d["reason"]), ("held", "run_ceiling"))
+            self.assertEqual(go(facts(), REVIEWED + jobs[:ceiling - 2])["action"], "issue_approval")
+        # So is an enqueue's or a dequeue's job, toward the Run ceiling a Role's Run is held to.
+        for intent in ("enqueue-merge", "dequeue-merge"):
+            queued = [dict(r, intent=intent, engine_started=False) for r in failed]
+            self.assertEqual(go(facts(), queued)["reason"], "run_ceiling", intent)
+            self.assertEqual(go(facts(), queued[1:])["admit"], REVIEW_IT, intent)
+        # A resolution's job is an act's, as an approval's is.
+        accepted = [thread(ruling="accepted")]
+        unresolved = [dict(r, intent="resolve-thread", engine_started=False) for r in failed]
+        d = go(facts(threads=accepted, acts_since_writer=0), REVIEWED + unresolved[:ceiling - 1])
+        self.assertEqual((d["state"], d["reason"]), ("held", "run_ceiling"))
+        self.assertEqual(go(facts(threads=accepted, acts_since_writer=0), REVIEWED + unresolved[:ceiling - 2])["action"],
+                         "resolve_thread")
+        # A Role's Runs that spent no model before an approval do not hold the approval at the ceiling.
+        self.assertEqual(go(facts(), REVIEWED + env[:ceiling])["action"], "issue_approval")
 
     def test_an_approval_run_does_not_count_toward_the_run_ceiling(self):  # FR-39: the Run ceiling is the cost ceiling
         ceiling = LIMITS["max_runs_per_item"]
