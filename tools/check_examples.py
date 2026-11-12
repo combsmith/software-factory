@@ -5,7 +5,7 @@ import json
 import pathlib
 import re
 
-from kernel import decide, issue
+from kernel import decide, derive, issue
 from kernel.coverage import covered
 from tools import walk
 from tools.jsonschema_lite import ANNOTATIONS, FILE, SchemaError, _resolve, validate
@@ -18,7 +18,8 @@ LIVE = {"lifecycle/pull_request.json": "lifecycle", "lifecycle/issue.json": "lif
         "config/defaults.json": "config", "config/rubric-pr-review.json": "rubric", "config/apps.json": "apps",
         "config/hooks.json": "hooks", "config/feed.json": "feed", "config/controller.json": "controller", "config/harness.json": "harness",
         "config/rulesets.json": "rulesets", "config/credential-ages.json": "credential-ages", "config/machine-user.json": "machine-user",
-        "evals/pr-review/cases.json": "eval-set", "evals/context/task.json": "context-eval", "release/rings.json": "rings"}
+        "evals/pr-review/cases.json": "eval-set", "evals/context/task.json": "context-eval", "release/rings.json": "rings",
+        "release/decision-points.json": "decision-points"}
 # What a coverage example is judged against beyond its schema (decision 0029): the review's rubric, the Finding of
 # examples/finding.json, and the paths examples/facts.json changes. No schema can say every criterion that applies is
 # reported on; kernel/coverage.py does.
@@ -39,7 +40,7 @@ ENVELOPE = {"task": ("document", "run"), "result": ("document", "run"), "applied
             "config": "data", "hooks": "data", "lifecycle": "data", "authority": "data", "apps": "data", "rubric": "data", "checklist": "data",
             "acceptance": "data", "trial": "data", "role": "data", "feed": "data", "eval-case": "data",
             "eval-set": "data", "context-eval": "data", "controller": "data", "harness": "data", "rulesets": "data", "credential-ages": "data", "machine-user": "data",
-            "rings": "data", "release-fixture": "data", "release-exchanges": "record"}
+            "rings": "data", "consumer": "data", "release-fixture": "data", "release-exchanges": "record", "decision-points": "data"}
 RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # What one Run carries, and what is written from it, holds codes, never text: a string in these schemas is held by an
 # enum, a const or a pattern anchored at both ends, unless it is a property named `body`, or sits under one named
@@ -236,6 +237,17 @@ def _table(feed, decision_schema) -> list:
     return out
 
 
+def _unprotected(value) -> list:
+    """What is wrong with `value`, a Consumer entry valid to its schema: nothing, or its setup or test script that none
+    of its protected paths names, by the Kernel's own matcher, so that an author could weaken the tests it is judged by
+    (design section 3.12, issue 141). One problem, naming each such script."""
+    verify = value["verify"]
+    left = [verify[k] for k in ("setup", "test") if not any(derive.matches(p, verify[k]) for p in verify["protected_paths"])]
+    if len(left) > 1:
+        return ["$.verify: protects neither its own %s nor %s" % tuple(left)]
+    return ["$.verify: does not protect its own %s" % left[0]] if left else []
+
+
 def _uncovered(value, root: pathlib.Path) -> list:
     """What kernel/coverage.py says is wrong with `value`, a coverage example valid to its schema: nothing, or one
     problem naming what it left uncovered, or why it could not be judged."""
@@ -333,6 +345,7 @@ def run(root: pathlib.Path = ROOT) -> list:
             errors = _uncovered(value, root)
         errors = errors or (_reason_unsuited(value) if kind == "result" else [])
         errors = errors or (_held(value) if kind == "eval-set" else [])
+        errors = errors or (_unprotected(value) if kind == "consumer" else [])
         for err in errors:
             problems.append("%s: %s" % (path.name, err))
     for path in sorted((root / "examples" / "invalid").glob("*.json")):
@@ -352,12 +365,18 @@ def run(root: pathlib.Path = ROOT) -> list:
             # What no schema can say of a ring file is tools/check_release.py's: a counter-example of it is refused there.
             from tools import check_release
             errors = check_release.ring_problems(value)
+        if kind == "decision-points" and not errors:
+            # Whose decision a point is, and when, is tools/check_release.py's to say: a counter-example is refused there.
+            from tools import check_release
+            errors = check_release.point_problems(value, check_release.maintainer(root))
         if kind == "release-fixture" and not errors:
             # An item that says other than its own exchanges is tools/check_release.py's to refuse.
             from tools import check_release
             errors = check_release.fixture_problems(value, "invalid/" + path.name)
         if kind == "result" and not errors:
             errors = _reason_unsuited(value)
+        if kind == "consumer" and not errors:
+            errors = _unprotected(value)
         if not errors:
             problems.append("invalid/%s: was accepted, and must be rejected" % path.name)
         elif len(errors) > 1:

@@ -1501,6 +1501,38 @@ class Records(unittest.TestCase):
             self.assertEqual(([r.get("began_at", "none") for r in got["runs"]], got["complete"], asked),
                              ([began[0], "none", began[2], "none"], False, [700]))
 
+    def test_what_a_pass_record_holds_of_a_beginning_is_kept(self):
+        # A job's start stands once given (P-64), and a completed run's jobs change no more: `begun` reads what the
+        # pass records before hold, by Run id and when the attempt started, for the port not to ask again (0193).
+        one = json.loads((ROOT / "examples" / "run-record.json").read_text())
+        key, began = (one["run"], one["started_at"]), one["began_at"]
+        running = dict(one, run="r_000002Z", status="in_progress", conclusion=None)
+        self.assertEqual(records.begun([{"runs": [one, dict(one, run="r_000001Z", began_at=None), running]}]),
+                         {key: began, ("r_000001Z", one["started_at"]): None, ("r_000002Z", one["started_at"]): began})
+        # The last two records are read; the earlier's word stands only for a Run the later does not list: one the
+        # later lists with another beginning, with none, or twice, takes the later's word, or is asked afresh.
+        older, newer = {"runs": [dict(one, began_at="2026-11-10T00:00:00Z")]}, {"runs": [one]}
+        bare = {k: v for k, v in one.items() if k != "began_at"}
+        self.assertEqual((records.begun([older, newer])[key], records.begun([newer, older])[key],
+                          records.begun([older, newer, {"runs": []}])), (began, "2026-11-10T00:00:00Z", {key: began}))
+        self.assertEqual(records.begun([older, {"runs": []}, {"runs": []}]), {})
+        self.assertEqual(records.begun([older, {"runs": [dict(one, run="r_000009Z")]}]),
+                         {key: "2026-11-10T00:00:00Z", ("r_000009Z", one["started_at"]): began})
+        self.assertEqual((records.begun([older, {"runs": []}]), records.begun([older, {"runs": [bare]}]),
+                          records.begun([older, {"runs": [one, one]}]), records.begun([{"runs": [one, bare]}])),
+                         ({key: "2026-11-10T00:00:00Z"}, {}, {}, {}))
+        # Null is kept for a completed Run alone, and nothing from a key a record lists twice, a beginning that is no
+        # time, a record that names no Run or no start, or what is no pass record's runs.
+        for change in ({"began_at": None, "status": "in_progress"}, {"began_at": None, "status": "queued"},
+                       {"began_at": "soon"}, {"began_at": 7},
+                       {"began_at": "2026-02-30T00:00:00Z"}, {"began_at": "2026-2-3T1:2:3Z"}, {"run": None},
+                       {"started_at": None}):
+            self.assertEqual(records.begun([{"runs": [dict(one, **change)]}]), {}, change)
+        self.assertEqual((records.begun([{"runs": [bare]}]), records.begun([{"runs": [one, dict(one, began_at=None)]}])),
+                         ({}, {}))
+        self.assertEqual((records.begun(None), records.begun({"runs": [one]}), records.begun([{"runs": None}]),
+                          records.begun([{"runs": ["x"]}]), records.begun(["x"])), ({}, {}, {}, {}, {}))
+
     def test_a_status_or_a_conclusion_github_would_not_give_a_run_makes_the_list_short(self):
         self.assertEqual(self.read(listing("P-17", 3, rows={"name": NAME, "status": "waiting"}))[0]["runs"][0]["status"],
                          "queued")
