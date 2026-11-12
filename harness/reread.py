@@ -31,7 +31,8 @@ def item(transport, config: dict, number: int, now: str, clock, name_pause: bool
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
     with shared.staged("run_records"):
-        listed = records.runs(transport, home, branch, facts_.run_files_of(controller), facts_.dispatcher_of(controller))
+        listed = records.runs(transport, home, branch, facts_.run_files_of(controller), facts_.dispatcher_of(controller),
+                              began={}, on={"repo": home, "type": "pull_request", "number": number})
     identities, approver, lenses, factory = facts_.accounts_of(controller)
     who = timeline.Accounts(transport, home, approver, lenses, factory, facts_.queue_of(controller))
     with shared.staged("lens_records"):
