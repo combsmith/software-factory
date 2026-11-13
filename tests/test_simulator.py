@@ -1355,11 +1355,18 @@ class Simulation(unittest.TestCase):
         self.assertEqual(set(world.MENDS), {"check_failed", "findings_open", "human_finding", "conflict",
                                             "acceptance_failed"})
         # On their own pull request the Maintainer, its author, mends what waits for them, as a writer: on the first seed.
+        pushes, push = [], World.push
+
+        def pushing(w, who, writer):
+            pushes.append((w.trace[-1].endswith("the author mends it"), who, writer))
+            return push(w, who, writer)
+
         w = World(1)
-        for _ in range(250):
-            w.step()
+        with mock.patch.object(World, "push", pushing):
+            for _ in range(250):
+                w.step()
         self.assertEqual(w.cls, "maintainer")
-        self.assertTrue(any(line.endswith("the author mended it") for line in w.trace))
+        self.assertEqual({(who, writer) for mends, who, writer in pushes if mends}, {(world.MAINTAINER["name"], True)})
         # No fix Run is ever admitted on one that names no issue: the world's own invariant says so if one is.
         for w in worlds:
             while not w.runs:

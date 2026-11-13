@@ -16,6 +16,7 @@ the issue is held or declined, and a person none while it is declined: the Contr
 | A rule no trial asks is grounded only once a trial for it is added to section 6 of the design | `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate` |
 | Until then it names that trial, or says in one sentence why none can; `make verify` prints which | `tests/test_tools.py::test_a_rule_no_trial_asks_names_one_or_says_why_none_can` |
 | A grounded rule is read as it states, or named with why not; a recorded refusal is no answer | `tests/test_adapters.py::test_the_port_reads_each_grounded_rule_as_the_fake_assumes_it`, `tests/test_adapters.py::test_a_recorded_refusal_is_no_answer` |
+| Only an agent's pull request names its issue; another rests in addressing only while it waits for its author, and gets no fix Run (decision 0216) | `tests/test_simulator.py::test_only_a_pull_request_the_factory_did_not_open_waits_for_its_author` |
 
 The world is one pull request, paused for a span on some seeds, or with a Pause that cannot be read, and on some with no writer's action yet.
 On those seeds the Pause may begin early, as an approval falls due or a count is spent (`tests/test_simulator.py::test_the_pause_falls_due_with_an_approval`, `..._with_a_spent_count`).
@@ -34,7 +35,6 @@ On every seed a review's Result now and then leaves a criterion of its rubric un
 On another seed in eight a run never takes its name: it defers admissions only inside `max_unnamed_run_seconds`, and is one alert past it (`tests/test_simulator.py::test_the_seeds_list_a_run_that_never_takes_its_name`).
 In each world one Run holds the item's lane and at most one waits behind it; a newer one cancels the one waiting (`tests/test_simulator.py::test_a_newer_run_cancels_the_one_waiting_in_each_world`).
 A rule about anything else is not exercised here, so its boundary cases are all that hold it. An invariant is a call to `check()` with its name. When a seed finds a fault, the fix goes in the Kernel with a boundary case in `tests/test_decide.py`.
-
 On one seed in three the ruleset dismisses stale approvals: a push dismisses each standing approval and names the pusher (`tests/test_simulator.py::test_the_seeds_serve_a_ruleset_that_dismisses_stale_approvals_and_one_that_does_not`).
 On one seed in eleven an upload turns CodeQL neutral (`tests/test_simulator.py::test_the_seeds_upload_under_codeqls_tool`). On one in four a Lens's run stops beside another (`tests/test_simulator.py::test_the_seeds_start_another_run_of_a_lens_on_the_head`).
-An App's write access is the world's own, true, where the port gives a Bot's as false: the Kernel reads an App's only for its type. Known to differ, by `sim/grounding.py`: P-2's queue rules. Only an agent's names its issue, so others wait (0216).
+An App's write access is the world's own, true, where the port gives a Bot's as false: the Kernel reads an App's only for its type. Known to differ, by `sim/grounding.py`: P-2's queue rules.

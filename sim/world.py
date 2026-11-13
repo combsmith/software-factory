@@ -1476,8 +1476,8 @@ class World:
         # On their own pull request, which no Role mends, the Maintainer mends what waits for its author, as a writer.
         if self.cls == "maintainer" and self.rng.random() < 0.5 and self.waits_for_its_author(
                 decide(self.facts(), self.records(), self.unpaused(), CONFIG, self.now())):
+            self.note("the author mends it")
             self.push(MAINTAINER["name"], writer=True)
-            self.note("the author mended it")
             return "human"
         # GitHub refuses a review by the pull request's author: on the Maintainer's own, they do as they always did.
         reviews = self.cls == "agent"
