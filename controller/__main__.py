@@ -136,15 +136,16 @@ def writes_seen(transport, config: dict, numbers: list, kept: dict, before, sinc
     return seen_.seen(parts, since), unread, sorted(newly)
 
 
-def recorded_effects(transport, config: dict, runs, own: int, before, since: str) -> dict:
+def recorded_effects(transport, config: dict, runs, own: int, before, since: str, sleep=time.sleep) -> dict:
     """The Effects the Factory recorded and no record before this pass read: each Run's `applied/1` and each pass's
-    `written/1`, read once, and all of them again where the last record holds none (decision 0112)."""
+    `written/1`, read once, and all of them again where the last record holds none (decision 0112). `sleep` is the
+    entry's, for each port's one wait before its second look (issue 709)."""
     controller = config["controller"]
     home = controller["home"]["repo"]
     known_runs, known_passes = reconcile.known(before)
-    from_runs = applied.effects(transport, home, runs, since, known_runs)
+    from_runs = applied.effects(transport, home, runs, since, known_runs, sleep=sleep)
     from_passes = passes.written(transport, home, controller["home"]["branch"], controller["workflows"]["poller"], own,
-                                 since, known_passes)
+                                 since, known_passes, sleep=sleep)
     return {"applied": from_runs["applied"], "written": from_passes["written"],
             "read": {"runs": from_runs["read"], "passes": from_passes["read"]},
             "at": dict(from_runs["at"], **from_passes["at"]),
@@ -157,8 +158,9 @@ def run_files(controller: dict) -> list:
     return facts_.run_files_of(controller)
 
 
-def read(transport, config: dict, run_id: str, previous, now: str, clock, started) -> dict:
-    """Everything the pass reads after the wait, as `pass_.run` takes it."""
+def read(transport, config: dict, run_id: str, previous, now: str, clock, started, sleep=time.sleep) -> dict:
+    """Everything the pass reads after the wait, as `pass_.run` takes it. Each port that waits waits by `sleep`, the
+    entry's (issue 709)."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
     # The open pull requests are listed first: the records port asks when a Run began only of theirs (decision 0196).
@@ -172,7 +174,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     try:
         runs = records.runs(transport, home, branch, run_files(controller), dispatcher(controller),
                             kept=records.known(earlier), began=records.begun(earlier),
-                            engines=records.engines(earlier),
+                            engines=records.engines(earlier), sleep=sleep,
                             of=[{"repo": home, "type": "pull_request", "number": number} for number in numbers])
     except Unanswered:
         runs = None
@@ -207,7 +209,8 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     seen, unread, gone = writes_seen(transport, config, numbers, kept, before, since, clock, owed)
     return {"started": started, "pause": pause_.read(transport, home.split("/")[0], [home]),
             "records": runs, "pull_requests": pulls, "issues": [], "facts_reads": facts_reads, "usage": {},
-            "seen": seen, "unread": unread, "gone": gone, "effects": recorded_effects(transport, config, runs, int(run_id), before, since)}
+            "seen": seen, "unread": unread, "gone": gone,
+            "effects": recorded_effects(transport, config, runs, int(run_id), before, since, sleep)}
 
 
 def one_pass(transport, config: dict, run_id: str, clock=time.time, sleep=time.sleep) -> dict:
@@ -217,7 +220,7 @@ def one_pass(transport, config: dict, run_id: str, clock=time.time, sleep=time.s
                               controller["workflows"]["poller"], int(run_id))
     started = passes.started(transport, controller["home"]["repo"], run_id)
     sleep(pass_.wait_before_reading(previous, utc(clock), config, started))
-    reads = read(transport, config, run_id, previous, utc(clock), clock, started)
+    reads = read(transport, config, run_id, previous, utc(clock), clock, started, sleep)
     return pass_.run(reads, config, utc(clock), previous, mint_id)
 
 
