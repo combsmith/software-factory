@@ -235,7 +235,8 @@ class Live:
         headers.update(req["headers"])
         if data is not None:
             headers["Content-Type"] = "application/json"
-        sent = urllib.request.Request(url, data=data, headers=headers, method=req["method"])
+        # S7044, a false positive: adapters/heldout.py fullmatches each part of its path (case(), home()); the host is HOST.
+        sent = urllib.request.Request(url, data=data, headers=headers, method=req["method"])  # NOSONAR
         answer, moved = self._open(sent, req["bound"] if req.get("follow") else LARGEST)
         if answer is not None:
             return answer
