@@ -187,8 +187,8 @@ def superseded(read: list, content_id) -> set:
 def held(found: list, whole: bool, recorded_: tuple, content_id=None) -> tuple:
     """`(threads, whole)`: the threads read with each Lens thread's category and severity joined from its Finding, and
     whole only when the read was and every recorded thread is in it, opened by the Lens that recorded it, but for one
-    every Run that recorded it is superseded by a later review of its Lens on `content_id`, the current content. Such
-    a thread still in the read, opened by its Lens, is said `dropped`."""
+    every Run that recorded it is superseded by a later review of its Lens on `content_id`, the current content; such
+    a thread still in the read is said `dropped`."""
     threads, recorded_whole = recorded_[0], recorded_[1]
     later = superseded(recorded_[2] if len(recorded_) > 2 else [], content_id)
     past = {key for key, finding in threads.items()

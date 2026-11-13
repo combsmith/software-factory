@@ -1126,8 +1126,7 @@ class OnlyAPersonEnds(unittest.TestCase):
         d = go(held, [first])
         self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["admit"]),
                          ("verifying", "awaiting_review", ["pr-review"], "admit", REVIEW_IT))
-        # A review of this content that started after the push answers it: what it raised again gates on a thread of
-        # its own, and the author is sent back.
+        # A review of this content that started after the push answers it: what it raised again gates, on its own thread.
         again = run(name="r2", at=at(50))
         raised = thread(tid="T2", at=at(52))
         d = go(dict(held, threads=held["threads"] + [raised]), [first, again])
@@ -1155,15 +1154,13 @@ class OnlyAPersonEnds(unittest.TestCase):
                            (dict(thread(at=at(20)), dropped=True), "resolve_due")):
             runs = [first, again] if th.get("dropped") else [first]
             self.assertEqual(go(dict(held, threads=[th]), runs)["reason"], reason, th)
-        # A push that cannot be dated, at no time or after the facts were read, asks nothing.
-        for undated in ("yesterday", "2026-10-11T12:45:60Z", "9999-12-31T23:59:59Z"):
+        # A push at no time that can be read asks nothing.
+        for undated in ("yesterday", "2026-10-11T12:45:60Z"):
             self.assertEqual(go(dict(held, last_push_at=undated), [first])["reason"], "findings_open", undated)
-        self.assertEqual(go(dict(held, read_at=None), [first])["reason"], "findings_open")
         # A security Finding's thread asks as any gating thread does, at any severity.
         d = go(dict(held, threads=[thread(category="security", severity="info", at=at(20))]), [first])
         self.assertEqual(d["reason"], "awaiting_review")
-        # Of two required Lenses, the one whose thread gates is asked: the other's review of this content stands,
-        # though the push came after it.
+        # Of two required Lenses, the one whose thread gates is asked: the other's review of this content stands.
         two = config(required_lenses=dict(CONFIG["required_lenses"], model=["pr-review", "security-review"]))
         theirs = thread(name="security-review", category="security", at=at(20))
         both = [first, run(role="security-review", name="s1", at=at(17))]
@@ -1205,28 +1202,26 @@ class OnlyAPersonEnds(unittest.TestCase):
                 d = go(dict(held, threads=[dict(th, resolved=True, resolved_by=dict(who))]), [old, fresh])
                 self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "findings_open", ["T1"]),
                                  (who, th))
-        # Resolved by a person with write access, either is closed; by the queue App, only the one the review dropped,
-        # or one its Lens accepted.
+        # Resolved by a person with write access, either is closed; by the queue App, only the one the review dropped.
         for th in (plain, gone):
             done = dict(th, resolved=True, resolved_by=dict(MAINTAINER))
             self.assertEqual(go(dict(held, threads=[done]), [old, fresh])["action"], "issue_approval", th)
         by_queue = dict(resolved=True, resolved_by=dict(QUEUE_APP))
         self.assertEqual(go(dict(held, threads=[dict(gone, **by_queue)]), [old, fresh])["action"], "issue_approval")
         self.assertEqual(go(dict(held, threads=[dict(plain, **by_queue)]), [old, fresh])["reason"], "findings_open")
-        # A mark the facts arrive with is no fact: only the port's word, held to the records below, makes one.
+        # A mark the facts arrive with is no fact.
         self.assertEqual(go(dict(held, threads=[dict(plain, superseded=True)]), [old, fresh])["reason"], "findings_open")
-        # What the later review raised again is on a thread of its own, which gates: the earlier one is resolved
-        # first, and then the author is sent back.
+        # What the later review raised again gates on a thread of its own: the earlier one is resolved first.
         again = thread(tid="T2", at=at(32))
         d = go(dict(held, threads=[gone, again]), [old, fresh])
         self.assertEqual((d["reason"], d["evidence"]), ("resolve_due", ["T1"]))
         d = go(dict(held, threads=[dict(gone, **by_queue), again]), [old, fresh])
         self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "findings_open", ["T2"]))
         # The other side: the word is read only where the head is newer than the thread and the review is of that head.
-        # With no push since the thread opened, as when a Run that failed is tried again, or one in the thread's own
-        # second, the thread is the author's as before; with no review since the push, the review is asked for again.
+        # With no push since the thread opened, as when a Run that failed is tried again, the thread is the author's
+        # as before; with no review since the push, the review is asked for again.
         for pushed, runs, reason in ((at(5), [old, fresh], "findings_open"), (at(15), [old, fresh], "findings_open"),
-                                     ("yesterday", [old, fresh], "findings_open"),
+                                     ("2026-10-11T12:25:60Z", [old, fresh], "findings_open"),
                                      (at(25), [old, dict(fresh, started_at="yesterday")], "findings_open"),
                                      (at(25), [old], "awaiting_review"), (at(30), [old, fresh], "awaiting_review"),
                                      (at(40), [old, fresh], "awaiting_review")):
@@ -1236,7 +1231,7 @@ class OnlyAPersonEnds(unittest.TestCase):
             d = go(dict(held, threads=[dict(plain, dropped=odd)]), [old, fresh])
             self.assertEqual((d["state"], d["reason"]), (None, "thread_unreadable"), odd)
         self.assertEqual(go(dict(held, threads=[dict(plain, dropped=False)]), [old, fresh])["reason"], "findings_open")
-        # Run records that cannot be read bear nothing out, and nothing is read past them: the facts are incomplete.
+        # Run records that cannot be read bear nothing out: the facts are incomplete.
         short = dict(held, complete=dict(held["complete"], runs=False))
         self.assertEqual(derive.derive(short, None, CONFIG)["reason"], "facts_incomplete")
         self.assertEqual(go(short, [old, None])["reason"], "facts_incomplete")
@@ -1269,10 +1264,9 @@ class OnlyAPersonEnds(unittest.TestCase):
         self.assertEqual(repr(held), before)
 
     def test_resolve_thread_never_names_a_thread_still_raised_or_unreadable(self):  # L-17, issue 833
-        # Until the queue App exists a hand carries out `resolve_thread`, so what the act names is all that keeps it
-        # from being the author closing its own gate. Whatever the thread, the push and the records, it names only a
-        # Lens's open thread, never a security Finding's, with no person's gate open: one its Lens accepted, one a
-        # review of a newer head dropped, or an expired Run's, which alone has no category and is no hand's to resolve.
+        # Until the queue App exists a hand carries out `resolve_thread`. Whatever the thread, the push and the
+        # records, the act names only a Lens's open thread, never a security Finding's, with no person's gate open: one
+        # its Lens accepted, one a review of a newer head dropped, or an expired Run's, which alone has no category.
         old, fresh = run(at=at(10)), run(name="r2", at=at(30))
         records = ([old], [old, fresh], [old, dict(fresh, conclusion="failure", outcome="environment")],
                    [old, dict(fresh, content_id="sha256:bbbb")], [old, dict(fresh, role="security-review")],

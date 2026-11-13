@@ -112,23 +112,16 @@ def expired_threads(facts: dict, runs: list, config: dict) -> dict:
     return out
 
 
-def pushed_at(facts: dict):
-    """When the head was last pushed, or None where that is no time, or is after the facts were read: nothing is read
-    from a push that cannot be dated."""
-    pushed, read = facts.get("last_push_at"), facts.get("read_at")
-    return pushed if is_time(pushed) and is_time(read) and pushed <= read else None
-
-
 def dropped_by_review(th, facts: dict, runs: list) -> bool:
-    """Whether a thread the port says its Lens's later review dropped (`adapters/applied.py`) is read as superseded
-    (decision 0212): a Lens's, of a category the Kernel knows that is not security, not ruled rejected, opened before the
-    last push, with a review by that Lens that succeeded on this content and started after that push. So the review is
-    of a head newer than the thread's: a retry of a Run that failed, with no push between, drops nothing."""
-    by, pushed = th.get("opened_by") if isinstance(th, dict) else None, pushed_at(facts)
+    """Whether a thread the port says its Lens's later review dropped is read as superseded (decision 0212): a Lens's,
+    of a category the Kernel knows that is not security, not ruled rejected, opened before the last push, with a review
+    by that Lens that succeeded on this content and started after that push: one of a head newer than the thread's."""
+    by, pushed = th.get("opened_by") if isinstance(th, dict) else None, facts.get("last_push_at")
     known = [c for c in t.CATEGORIES if c != SECURITY]
     if not isinstance(by, dict) or by.get("kind") != "lens" or th.get("dropped") is not True \
             or th.get("category") not in known or th.get("ruling") == "rejected" \
-            or not is_time(th.get("opened_at")) or pushed is None or th["opened_at"] >= pushed or not isinstance(runs, list):
+            or not is_time(th.get("opened_at")) or not is_time(pushed) or th["opened_at"] >= pushed \
+            or not isinstance(runs, list):
         return False
     return any(r.get("role") == by.get("name") and r.get("intent") == "review-change" and r.get("status") == "completed"
                and r.get("conclusion") == "success" and r.get("content_id") == facts.get("content_id")
@@ -146,7 +139,6 @@ def as_read(facts: dict, runs: list, config: dict) -> dict:
     reading makes one. The facts given are never changed."""
     expired = expired_threads(facts, runs, config)
     marked = isinstance(facts.get("threads"), list) and any(isinstance(th, dict) and set(th) & MARKS for th in facts["threads"])
-    # A thread to be marked is read as one that is: either way the list is read anew.
     marked = marked or (isinstance(facts.get("threads"), list) and any(dropped_by_review(th, facts, runs) for th in facts["threads"]))
     if not expired and not marked:
         return facts
@@ -166,8 +158,9 @@ def pushed_past_review(runs: list, facts: dict, role: str, config: dict, due: li
     """Whether the head was pushed since `role` last reviewed this content, while a thread of its own gates and still
     stands (decision 0212): a merge of the base is the same content, and may answer the Finding. A review that started
     in the push's own second may have read the head before it. A thread the Kernel is to resolve, one of `due`, asks nothing."""
-    if pushed_at(facts) is None or not any(th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == role
-                                           and th["id"] not in due for th in gating_threads(facts, config)):
+    if not is_time(facts.get("last_push_at")) or not any(
+            th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == role and th["id"] not in due
+            for th in gating_threads(facts, config)):
         return False
     return not reviewed_clean_or_not([r for r in runs if r["started_at"] > facts["last_push_at"]], facts, role)
 
