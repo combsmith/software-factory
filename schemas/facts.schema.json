@@ -555,6 +555,14 @@
         }
       }
     },
+    "opened_for": {
+      "description": "The issue the Factory opened this pull request for, or null for any other pull request, a person's or a builder's session's. It is the number its branch names, `factory-work/issue-N-K`, read only where the App of the Role that opens pull requests authored it on a branch of that shape in the repo itself, and where every opening Run was read and none names it for another issue, or twice (issues 295 and 342). Where that cannot be told, complete.acceptance is false: the same read gives both. The author Role's fix is admitted only where this is a number. The one fact not required: the port always gives it, and facts made before it, an eval set's among them, are read as they stand, since the Kernel reads its absence as null, which admits no fix (decision 0216)",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
     "complete": {
       "type": "object",
       "additionalProperties": false,

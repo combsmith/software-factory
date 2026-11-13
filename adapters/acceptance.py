@@ -176,6 +176,15 @@ def bound(pull: dict, opener, opened=None):
     return issue
 
 
+def opened_for(pull: dict, opener, opened=None):
+    """The issue the Factory opened the pull request for, as `facts/1` holds it: the number `bound` gives, and None
+    where it gives none, another account's pull request, or cannot tell. What it cannot tell `read` gives as not whole,
+    so the Kernel defers; a truth value is never a number. The Kernel admits the author Role's fix only where this
+    names an issue (decision 0216)."""
+    number = bound(pull, opener, opened)
+    return number if type(number) is int else None
+
+
 def _serving(transport, pull: dict, opener, opened) -> tuple:
     """`(found, issue, whole)`: what `closing` found, the issue the branch binds the pull request to or None, and whether
     those were read whole, which they are not where the base is not the default branch, whose pull requests carry no
