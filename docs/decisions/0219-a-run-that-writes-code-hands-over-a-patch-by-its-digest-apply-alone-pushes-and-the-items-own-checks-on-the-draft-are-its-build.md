@@ -27,5 +27,5 @@ The fix and implement Intents of slice 2 need code run: a build, the tests. Run 
 | Boundary | Check |
 |---|---|
 | `apply`'s push lands exactly the patch the Run handed over, by its digest, on the work's branch, through the Role's own App | waiting on `harness/push.py`, the push's write |
-| `qa-lead`'s opening Run pushes one commit, the contract and its failing tests, and opens the draft through its own App; a retry after a push finds the branch and pushes nothing | waiting on `roles/qa-lead`, its opening Run |
-| `dev-lead`'s implementing Run has no tool, answers with a patch, and pushes nothing itself | waiting on `roles/dev-lead`, its implementing Run |
+| `qa-lead`'s opening Run pushes one commit, the contract and its failing tests, and opens the draft through its own App; a retry after a push finds the branch and pushes nothing | waiting on `harness/push.py`, the push its opening Run makes |
+| `dev-lead`'s implementing Run has no tool, answers with a patch, and pushes nothing itself | waiting on `harness/push.py`, through which alone its patch lands |
