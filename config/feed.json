@@ -76,6 +76,14 @@
       ]
     },
     {
+      "reason": "environment_ceiling",
+      "question": "allowance_spent",
+      "choices": [
+        "renew_allowance",
+        "close"
+      ]
+    },
+    {
       "reason": "max_rounds",
       "question": "allowance_spent",
       "choices": [

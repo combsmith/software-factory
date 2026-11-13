@@ -175,6 +175,7 @@
         "max_attempts",
         "max_rounds",
         "max_runs_per_item",
+        "max_environment_runs_per_item",
         "max_unmerged_closes",
         "org_max_active_runs",
         "max_diff_lines",
@@ -195,6 +196,11 @@
           "minimum": 1
         },
         "max_runs_per_item": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_environment_runs_per_item": {
+          "description": "Runs of a Role that spent no model, counted apart from max_runs_per_item since a writer acted: one that ended `environment` before its Engine step started, and one GitHub started no job of (issue 757, decision 0202)",
           "type": "integer",
           "minimum": 1
         },
