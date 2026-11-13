@@ -6411,7 +6411,7 @@ class Trials(unittest.TestCase):
             (close,) = issue["timelineItems"]["nodes"]
             pull = merges[close["closer"]["mergeCommit"]["oid"]]
             held.append(close["closer"]["__typename"] == "PullRequest" and close["closer"]["number"] == pull["number"]
-                        and "Closes #%d" % issue["number"] in pull["body"]
+                        and re.search(r"(?m)^Closes #%d$" % issue["number"], pull["body"]) is not None
                         and 0 <= (at(issue["closedAt"]) - at(pull["merged_at"])).total_seconds() <= lag)
         self.assertEqual(sorted(i["number"] for i in found), [118, 119])
         self.assertEqual(p67["verdict"], "pass" if held and all(held) else "fail")
