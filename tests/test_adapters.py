@@ -3963,9 +3963,17 @@ class Snapshot(unittest.TestCase):
         self.assertEqual([r["mergeable"] for r in (before, stale, unknown, conflict)], [True, True, None, False])
         self.assertEqual({(r["updated_at"], r["head"]["sha"]) for r in (before, stale, unknown, conflict)},
                          {(before["updated_at"], before["head"]["sha"])})
+        # A last read that repeats the first is no move, and that is all this can see: a first read from before the
+        # base moved and a last one from the stale second after it are one merge state.
         self.assertTrue(pull.unchanged(Answers(stale), before))
-        for was, again in ((stale, unknown), (stale, conflict), (conflict, unknown), (conflict, stale)):
+        self.assertTrue(pull.unchanged(Answers(conflict), conflict))
+        for was, again in ((stale, unknown), (stale, conflict), (conflict, unknown), (conflict, stale),
+                           (stale, dict(stale, mergeable=1)), (conflict, dict(conflict, mergeable=0))):
             self.assertFalse(pull.unchanged(Answers(again), was), (was["mergeable"], again["mergeable"]))
+        # The time is read first: a last read with none is a read GitHub did not answer, whatever its merge state.
+        with self.assertRaises(github.Unanswered) as raised:
+            pull.unchanged(Answers(dict(conflict, updated_at=None)), stale)
+        self.assertNotIsInstance(raised.exception, facts.Moved)
         # A first read that gave no merge state is kept, whatever the last gives: its facts say it is not worked out.
         for again in (unknown, stale, conflict):
             self.assertTrue(pull.unchanged(Answers(again), unknown), again["mergeable"])
