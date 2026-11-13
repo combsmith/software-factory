@@ -4254,11 +4254,6 @@ NOT_READ = {
     # P-36 recorded the check run as a script's lines, not the rollup the port reads. The conclusion is read as any is, and
     # the Kernel's reading of it is held by test_an_upload_turns_codeqls_verdict_neutral_though_it_failed_to_process.
     "an_upload_turns_codeqls_success_neutral": "shape",
-    # The queue's eject and a draft's refusals, read by the Maintainer's own query, not the facts port's (P-2).
-    "the_queue_can_eject": "shape",
-    # The queue's merge with no pass between, read by the trial's REST lists of check runs and its timeline query, not
-    # the rollup the facts port reads (P-2.no-pass).
-    "the_queue_merges_on_its_required_checks": "shape",
 }
 WHY = {"controller", "kernel", "issues_port", "shape"}
 # Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
@@ -4273,6 +4268,8 @@ REFUSALS = {
     # The Maintainer's enqueues naming a head: one stale, and, before the ruleset's change, one for its review; no port
     # enqueues until the queue step is built (P-57, issue 381).
     ("P-57", 3): None, ("P-57", 4): None, ("P-57", 7): None,
+    # The Maintainer's enqueue of a head in conflict with its base, refused; no port enqueues (P-66, issue 812).
+    ("P-66", 11): None,
     # The Maintainer's second enqueue, refused while its required check waited for a runner; no port enqueues (P-48).
     ("P-48", 22): None,
     # Three uploads GitHub would not process, under default setup; no port uploads, and the lint refuses the permission.
@@ -4454,6 +4451,8 @@ class Contract(unittest.TestCase):
             "a_check_is_read_by_name_from_every_app": ({"P-42.rollup", "P-42.port"}, self.every_apps_name_read()),
             "a_rerun_replaces_only_its_own_run": ({"P-42.rollup", "P-42.port"}, self.rerun_replaced_its_own_read()),
             "a_check_can_time_out_or_give_no_verdict": ({"P-42", "P-42.port"}, self.no_verdict_kept_read()),
+            "the_queue_can_eject": ({"P-2.queue", "P-2.port"}, self.eject_read()),
+            "the_queue_merges_on_its_required_checks": ({"P-2.no-pass", "P-2.queue-app", "P-2.port"}, self.queue_merged_read()),
             "a_cancelled_run_stays_beside_a_later_run": ({"P-65"}, self.cancelled_beside_read()),
             "a_description_edit_moves_its_time": ({"P-58", "P-58.reader", "P-58.deleted"}, self.description_edit_read()),
             "an_app_edits_a_description": ({"P-58", "P-58.reader", "P-58.deleted"}, self.app_edit_read()),
@@ -4594,6 +4593,64 @@ class Contract(unittest.TestCase):
                 if c["name"] in ("p42 / timed-out", "p42 / neutral", "p42 / skipped")}
         return "maximum execution time" in said and read["complete"] is True and kept == {
             ("p42 / timed-out", "cancelled"), ("p42 / neutral", "neutral"), ("p42 / skipped", "skipped")}
+
+    def eject_read(self) -> bool:
+        """P-2.queue: the queue ejected pull request 58 on its failed check, unmerged, its approval standing. P-2.port: the
+        timeline port's own read of 58 is whole and holds that removal, by the merge queue's Bot, after the enqueue and with
+        no merge; and its read of 58's reviews, whole, holds the machine user's approval, approved, dismissed by no one."""
+        found = copy.deepcopy(exchanges("P-2.port"))
+        canary58 = {"number": 58, "base": {"repo": {"full_name": canary()}}}
+        events, whole = timeline.events(github.Replay([found[1]]), canary58)
+        queue = [(e["event"], e["id"], timeline.Accounts.account(e["actor"])) for e in events
+                 if e.get("event") in timeline.QUEUE | {"merged"}]
+        replayed = github.Replay(found[2:5])
+        reviews, listed = timeline.reviews(replayed, canary58, events, timeline.Accounts(replayed, canary(), MACHINE, {}),
+                                           found[0]["response"]["body"]["object"]["sha"])
+        removed = [e["id"] for e in exchanges("P-2.queue")[14]["response"]["body"] if e["event"] == "removed_from_merge_queue"]
+        out = next(e["created_at"] for e in events if e.get("event") == "removed_from_merge_queue")
+        return whole and listed and [(event, account[0], account[2]) for event, _, account in queue] == [
+            ("added_to_merge_queue", "don-petry", "User"), ("removed_from_merge_queue", "github-merge-queue[bot]", "Bot")] \
+            and [queue[1][1]] == removed \
+            and [(r["by"]["kind"], r["state"], r["dismissed_by"], r["submitted_at"] < out) for r in reviews] == [
+                ("machine_user", "approved", None, True)]
+
+    def queue_merged_read(self) -> bool:
+        """P-2.no-pass: the Maintainer enqueued pull request 100 and the queue merged it on its required check alone.
+        P-2.queue-app: the queue App enqueued 70 and the queue merged it. P-2.port: the timeline port's own read of each is
+        whole and holds the enqueue, by that account, then the merge, at the time each trial read, with no act of a
+        Factory identity's between: none of the machine user's, none of any App's but the merge queue's own, and no label
+        or queue act. A person's act between stands on 70, the trial's own review while 70 was queued, which fails the
+        sitting's condition as written but not the rule. And the facts port reads each head's required check,
+        p2-queue-check, from its own App and workflow file, concluded success before the merge, whole."""
+        found = copy.deepcopy(exchanges("P-2.port"))
+        merged_at = {100: body("P-2.no-pass", 7)["data"]["repository"]["pullRequest"]["mergedAt"],
+                     70: body("P-2.queue-app", 30)["data"]["repository"]["pullRequest"]["mergedAt"]}
+        held = []
+        for at, number, enqueuer in ((5, 100, ("don-petry", "User")), (7, 70, ("combsmith-sf-queue[bot]", "Bot"))):
+            pull = {"number": number, "base": {"repo": {"full_name": canary()}}}
+            events, whole = timeline.events(github.Replay([found[at]]), pull)
+            kinds = [e.get("event") for e in events]
+            enqueued, merged = kinds.index("added_to_merge_queue"), kinds.index("merged")
+            by = timeline.Accounts.account(events[enqueued]["actor"])
+            actors = [timeline.Accounts.account(e.get("actor") or e.get("user")) for e in events[enqueued + 1:merged]]
+            between = [e for e, (login, ident, kind) in zip(events[enqueued + 1:merged], actors)
+                       if e.get("event") in timeline.LABELS | timeline.QUEUE or (ident, kind) == MACHINE
+                       or (kind == "Bot" and login != "github-merge-queue[bot]")]
+            pr = found[at + 1]["response"]["body"]["data"]["repository"]["pullRequest"]
+            nodes = [n for n in pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
+                     if n.get("name") == "p2-queue-check"]
+            read = checks.read(github.Replay([found[at + 1]]), dict(pull, head={"sha": pr["headRefOid"]}))
+            required = [(c["conclusion"], c["app_id"], c["workflow"]) for c in read["checks"] if c["name"] == "p2-queue-check"]
+            # The approval the ruleset requires stood before the enqueue: on 70 the machine user's, of the head; on 100,
+            # under P-2.no-pass's ruleset, none was required.
+            approved = [e for e in events[:enqueued] if e.get("event") == "reviewed" and e.get("state") == "approved"
+                        and timeline.Accounts.account(e["user"])[1:] == MACHINE and e["commit_id"] == pr["headRefOid"]]
+            held.append(whole and enqueued < merged and (by[0], by[2]) == enqueuer and not between
+                        and (number == 100 or len(approved) == 1)
+                        and events[merged]["created_at"] == merged_at[number] and read["complete"] is True
+                        and required == [("success", 15368, ".github/workflows/p2-queue.yml")]
+                        and len(nodes) == 1 and nodes[0]["completedAt"] < events[merged]["created_at"])
+        return held == [True, True]
 
     def p42_push(self, at: int) -> tuple:
         """P-42.push: canary pull request 113's read `at`: whether the port read it whole, its head, p2-queue-check as the
