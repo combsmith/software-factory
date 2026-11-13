@@ -1987,7 +1987,11 @@ class EvalJob(unittest.TestCase):
                     # Asked more often than it has answers, it says so at once: a case asked again without end fails here.
                     if not self.queue:
                         raise AssertionError("asked more often than the test gave answers")
-                    self.said, self.returncode = self.queue.pop(0)
+                    given_now = self.queue.pop(0)
+                    if isinstance(given_now, BaseException):
+                        self.calls.append({"args": list(args)})
+                        raise given_now
+                    self.said, self.returncode = given_now
                 return super().__call__(args, env, timeout, **given)
 
         def vendor(status):
@@ -2008,7 +2012,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual((result["status"], review.retried, calls, slept), ("completed", {case["id"]: 1}, 2, [step.RETRY_WAIT]))
         self.assertEqual((step.RETRIES, step.RETRY_WAIT), (2, 30))
         # A 5xx, or none, every time: asked RETRIES more times, then left as the Engine failed it, the last call's word kept.
-        for status in (500, 529, None):
+        for status in (500, 529, 599, None):
             result, review, calls, slept = asked(*[vendor(status)] * 4)
             self.assertEqual((result["reason"], review.retried, calls, slept),
                              ("engine_failed", {case["id"]: 2}, 3, [step.RETRY_WAIT] * 2), status)
@@ -2028,6 +2032,46 @@ class EvalJob(unittest.TestCase):
         with mock.patch.object(step, "RETRY_WAIT", step.BUDGET):
             result, review, calls, slept = asked(vendor(529), good)
         self.assertEqual((result["reason"], review.retried, calls), ("engine_failed", {}, 1))
+        # At the bound: with just a wait and the case's time left it is asked again, and with a second less it is not.
+        takes = json.loads((ROOT / "config" / "harness.json").read_text())["limits"]["standard"]["seconds"] + step.VERSION_READS
+        at = step.BUDGET - step.RETRY_WAIT - takes
+        result, review, calls, slept = asked(vendor(529), good, clock=lambda: at)
+        self.assertEqual((result["status"], review.retried), ("completed", {case["id"]: 1}))
+        result, review, calls, slept = asked(vendor(529), good, clock=lambda: at + 1)
+        self.assertEqual((review.retried, calls, slept), ({}, 1, []))
+        # A wait that ran long is read again before the ask: past the case's time, it is not asked again, though it waited.
+        late = []
+        cli = Answers(vendor(529), good)
+        heads = self.temp / "heads"
+        (heads / case["id"]).mkdir(parents=True, exist_ok=True)
+        review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, lambda: step.BUDGET - takes + 1 if late else 0.0, heads,
+                               sleep=late.append)
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            result = review(case)
+        self.assertEqual((result["reason"], review.retried, len(cli.asked()), late), ("engine_failed", {}, 1, [step.RETRY_WAIT]))
+        # Each attempt's use is the case's: the turns, the cost and the seconds of the one the vendor failed are summed with
+        # the answer's, on the answer's Result, its model the one that answered.
+        once, = [asked(good)[0]]
+        result, review, calls, slept = asked(vendor(529), good)
+        self.assertEqual((result["usage"]["turns"], result["usage"]["cost_usd"], result["usage"]["answering_model"]),
+                         (2 * once["usage"]["turns"], 2 * once["usage"]["cost_usd"], once["usage"]["answering_model"]))
+        # A retry judges its own call alone: one whose call cannot be made after a 5xx is the Engine's other fault, its
+        # word that call's, and it is not asked a third time.
+        result, review, calls, slept = asked(vendor(503), OSError("no such file"), good)
+        self.assertEqual((result["reason"], review.retried, calls), ("engine_failed", {case["id"]: 1}, 2))
+        self.assertEqual((review.seen.get("raised"), review.seen.get("terminal_reason")), ("OSError", None))
+        self.assertFalse(job.transient(result, review.seen))
+        # Of a case's several calls, the word kept is the first that did not succeed, the one whose Result the case returns.
+        def joined(the_task, env, config, call, clock, head=None):
+            results = [live_answer(the_task, env, config, call, clock, head=head) for _ in range(2)]
+            return passes.union(results)
+        from harness import passes, run as live_run
+        live_answer = live_run.answer
+        with mock.patch.object(step.live, "answer", joined):
+            result, review, calls, slept = asked(vendor(529), good, good, good)
+            self.assertEqual((result["status"], review.retried, calls), ("completed", {case["id"]: 1}, 4))
+            result, review, calls, slept = asked(vendor(401), vendor(503))
+            self.assertEqual((result["reason"], review.retried, calls, review.seen["api_error_status"]), ("engine_failed", {}, 2, 401))
         # The test is of a failed Result alone: a completed one is never transient, whatever the call said.
         self.assertFalse(job.transient(dict(result, status="completed", reason=None), {"terminal_reason": "api_error"}))
         self.assertFalse(job.transient(dict(result, status="completed"), {"terminal_reason": "api_error"}))
@@ -3001,14 +3045,17 @@ class EvalJob(unittest.TestCase):
 
             def review(case):
                 return result
-            # A case asked first, of the preflight, is counted in nothing of the set's.
-            review.retried = {first: 2, "poc-preflight-not-the-sets": 1}
+            # A case asked first, of the preflight, is marked in the ledger's preflight, and counted in nothing of the set's.
+            ahead = [e["id"] if isinstance(e, dict) else e for e in job.manifest(self.root, "pr-review-gate")[0]["preflight"]]
+            review.retried = {first: 2, ahead[0]: 1}
             self.assertEqual(self.step(job.score, review), "scored 2 of 2 cases, 2 passed")
             written = json.loads((self.work / job.REPORT).read_text())
             self.assertEqual(written["retried"], 1)
             self.assertNotIn(first, (self.work / job.REPORT).read_text())
             ledger = json.loads((self.temp / "heldout" / job.LEDGER).read_text())
             self.assertEqual([c.get("retried") for c in ledger["cases"]], [2, None])
+            self.assertEqual([c.get("retried") for c in ledger["preflight"]], [1] + [None] * (len(ledger["preflight"]) - 1))
+            self.assertEqual(ledger["preflight"][0]["id"], ahead[0])
             self.assertEqual(validate(ledger, load("schemas/eval-ledger.schema.json"), schemas=eval_result.schemas()), [])
             sealed = dict(written, ledger=dict(written["ledger"], sealed_sha256="f" * 64))
             found, digest = job.manifest(self.root, "pr-review-gate")

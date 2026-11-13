@@ -66,22 +66,24 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, he
     def watched(args, env, timeout, **given):
         """The CLI's call, as the Engine makes it, in the case's head where it reads one, with what it said of the case
         kept for its cause: its exit, the subtype its answer names, how it says it ended and the vendor's status, that it
-        timed out, or the class of what the call raised. Nothing of the answer itself is kept."""
-        if args[1:] == ["--version"]:
+        timed out, or the class of what the call raised. Nothing of the answer itself is kept. Of a case's several calls,
+        the first that did not succeed is the one kept, since that is the one whose Result `passes.union` returns."""
+        if args[1:] == ["--version"] or seen.get("erred") is True:
             return asked(args, env=env, timeout=timeout, **given)
         try:
             done = asked(args, env=env, timeout=timeout, **given)
         except subprocess.TimeoutExpired:
-            seen["timed_out"] = True
+            seen.update(timed_out=True, erred=True)
             raise
         except Exception as err:
-            seen["raised"] = type(err).__name__
+            seen.update(raised=type(err).__name__, erred=True)
             raise
         seen["exit"] = done.returncode
         said = engine._answer(done.stdout) if isinstance(done.stdout, str) else None
         seen["subtype"] = said.get("subtype") if isinstance(said, dict) else None
         seen["terminal_reason"] = said.get("terminal_reason") if isinstance(said, dict) else None
         seen["api_error_status"] = said.get("api_error_status") if isinstance(said, dict) else None
+        seen["erred"] = done.returncode != 0 or not (isinstance(said, dict) and said.get("is_error") is False)
         return done
 
     def review(case: dict) -> dict:
@@ -110,13 +112,18 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, he
             raise Stop("unanswered")
         head = os.path.join(str(heads), case["id"]) if heads is not None else None
         try:
-            result = live.answer(the_task, env, config, watched, clock, head=head)
-            while transient(result, seen) and retried.get(case["id"], 0) < RETRIES and deadline - clock() >= RETRY_WAIT + takes:
-                retried[case["id"]] = retried.get(case["id"], 0) + 1
+            attempts = [live.answer(the_task, env, config, watched, clock, head=head)]
+            while transient(attempts[-1], seen) and retried.get(case["id"], 0) < RETRIES \
+                    and deadline - clock() >= RETRY_WAIT + takes:
                 sleep(RETRY_WAIT)
+                # The wait may have run long: another ask starts only with its whole time still left.
+                if deadline - clock() < takes:
+                    break
+                retried[case["id"]] = retried.get(case["id"], 0) + 1
                 seen.clear()
-                result = live.answer(the_task, env, config, watched, clock, head=head)
-            return result
+                attempts.append(live.answer(the_task, env, config, watched, clock, head=head))
+            # What every attempt used is the case's, summed as a case's several calls are, on the last attempt's Result.
+            return attempts[0] if len(attempts) == 1 else dict(attempts[-1], usage=passes._usage(attempts[::-1]))
         finally:
             if head is not None:
                 shutil.rmtree(head, ignore_errors=True)
