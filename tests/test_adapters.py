@@ -5086,6 +5086,9 @@ class EffectsRecorded(unittest.TestCase):
         # asked again, held none is never taken for one that recorded nothing.
         unanswered = [dict(nothing[0], response=dict(nothing[0]["response"], status=302))]
         self.assertEqual(read(one, *unanswered, *nothing, sleep=slept.append), dict(none, whole=False))
+        # Nor is one that succeeded and lists none: it was deleted, and a second look that held none too would read it as
+        # having recorded nothing.
+        self.assertEqual(read(one, *nothing, *nothing, sleep=slept.append), dict(none, whole=False))
         self.assertEqual(slept, [applied.WAIT])
         # Past its retention it recorded nothing that can be read: it is read, and not again.
         self.assertEqual(read(one, *applied_stored("o/r", 39100000000, done, expired=True)[:1]), dict(none, read=[self.RUN]))
