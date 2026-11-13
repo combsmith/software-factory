@@ -25,7 +25,8 @@
     "split_ok",
     "kinds_pass",
     "blocking_pass",
-    "ledger"
+    "ledger",
+    "retried"
   ],
   "properties": {
     "schema": {
@@ -245,6 +246,7 @@
               "task_too_large",
               "rubric_unreadable",
               "head_unreadable",
+              "vendor_unavailable",
               "answer_off_rubric",
               "result_not_completed",
               "finding_not_raised",
@@ -327,6 +329,7 @@
                   "task_too_large",
                   "rubric_unreadable",
                   "head_unreadable",
+                  "vendor_unavailable",
                   "answer_off_rubric",
                   "result_not_completed",
                   "finding_not_raised",
@@ -603,6 +606,11 @@
         "minItems": 2,
         "maxItems": 2
       }
+    },
+    "retried": {
+      "description": "How many of the set's cases were asked again after the vendor or the network failed them (issue 615): never which.",
+      "type": "integer",
+      "minimum": 0
     }
   }
 }

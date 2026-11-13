@@ -29,4 +29,7 @@ A gate set's dispatch asks its preflight first, a few cases of the review Intent
 | A gate set's preflight is three to five of the review Intent's cases, none a gate set's by its id or its hash | `tests/test_evals.py::test_a_gate_sets_preflight_is_of_the_development_set_and_no_gate_sets_case` |
 | The preflight is asked first; a fault in it, or no pass, stops the dispatch before a case of the set is asked, and the gate reads it as faulted | `tests/test_evals.py::test_a_gate_sets_dispatch_asks_its_preflight_first_and_a_broken_one_stops_it` |
 | The Release's gate judges a gate set named in the configuration by every completed dispatch on the commit | `tests/test_release_step.py::test_a_gate_set_is_judged_by_every_dispatch_on_the_commit` |
+| A case the vendor or the network failed, a 5xx or no status, is asked again twice at most, a wait apart, in its time left; a 4xx is not | `tests/test_evals.py::test_a_case_the_vendor_or_the_network_failed_is_asked_again_and_marked` |
+| One still failed is `vendor_unavailable`, an Engine fault apart from `no_answer`; each case asked again is marked | `tests/test_evals.py::test_a_transient_fault_is_reported_apart_and_a_retried_case_is_marked` |
+| A gate set's report counts its cases asked again, never which, and its ledger marks each | `tests/test_evals.py::test_a_gate_sets_report_counts_the_cases_asked_again_and_its_ledger_marks_each` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |

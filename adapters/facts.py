@@ -132,6 +132,7 @@ def _snapshot(transport, repo, number, identities, accounts, runs_whole, clock, 
         "expired_reviews": sorted(r["run"] for r in (recorded[2] if len(recorded) > 2 else ())
                                   if r.get("expired") is True),
         "acceptance": contract,
+        "opened_for": acceptance.opened_for(first, opener, opened),
         "complete": {"acceptance": contract_whole, "reviews": reviews_whole, "threads": threads_whole,
                      "checks": read["complete"], "diff": content["complete"],
                      "changed_paths": paths["complete"], "runs": runs_whole is True, "timeline": timeline_whole},

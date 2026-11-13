@@ -85,6 +85,10 @@ WORD = re.compile(r"[a-z][a-z_]{0,63}")
 # run that failed): any other is `other`, so that whatever a later pin echoes there is never words (the security pass).
 SUBTYPES = ("success", "error_during_execution", "error_max_turns", "error_max_structured_output_retries",
             "error_max_budget_usd")
+# How the CLI says a run ended, as a cause may name it: `api_error` where the vendor's API or the way to it failed,
+# whatever its status (a local probe at 2.1.322, issue 615), and P-13's for a structured output it could not give. Any
+# other is `other`.
+TERMINALS = ("api_error", "structured_output_retry_exhausted")
 MODEL = re.compile(r"[a-z0-9.-]{1,64}")     # a model's id as result/1 holds it, and no longer than a name is
 # What a case the CLI was never asked used: no turn or cost it could report, and no time (issue 616).
 NOT_ASKED = {"turns": None, "cost_usd": None, "seconds": 0}
@@ -359,15 +363,31 @@ def cause_of(err: BaseException) -> dict:
     return said
 
 
+def transient(result, seen) -> bool:
+    """Whether a case's Result failed by the vendor or the network, a fault a later call may not meet: the Engine's
+    `engine_failed`, with the CLI ending at `api_error` and the vendor's status a 5xx, an overload's 529 among them, or
+    none, as a connection that failed gives. A 4xx, a rate limit's 429 among them, is not: asking again would meet it
+    again (issue 615)."""
+    if not (isinstance(result, dict) and result.get("status") == "failed" and result.get("reason") == "engine_failed"
+            and isinstance(seen, dict) and seen.get("terminal_reason") == "api_error"):
+        return False
+    status = seen.get("api_error_status")
+    return status is None or (type(status) is int and 500 <= status <= 599)
+
+
 def seen_of(review) -> dict:
-    """What the CLI said of the last case `review` asked, where it watched the call: its subtype and its exit, or that it
-    timed out; each held to its shape, or left out."""
+    """What the CLI said of the last case `review` asked, where it watched the call: its subtype, how it says it ended
+    and the vendor's status, and its exit, or that it timed out; each held to its shape, or left out."""
     seen = getattr(review, "seen", None)
     if not isinstance(seen, dict):
         return {}
     said = {}
     if isinstance(seen.get("subtype"), str):
         said["subtype"] = seen["subtype"] if seen["subtype"] in SUBTYPES else "other"
+    if isinstance(seen.get("terminal_reason"), str):
+        said["terminal_reason"] = seen["terminal_reason"] if seen["terminal_reason"] in TERMINALS else "other"
+    if type(seen.get("api_error_status")) is int and 100 <= seen["api_error_status"] <= 599:
+        said["api_error_status"] = seen["api_error_status"]
     # A call that could not be made says the class of what it raised.
     if isinstance(seen.get("raised"), str) and CLASS.fullmatch(seen["raised"]):
         said["exception"] = seen["raised"]
@@ -443,7 +463,7 @@ def _fetched(env: dict, workspace: pathlib.Path, transport, heads, found: dict, 
 # The reasons of a failed Result that say the model gave no answer, by the Engine's fault or the Factory's: never the
 # reviewer's. `result_invalid` stays the reviewer's: an answer that could not be held to its schema (decision 0121).
 ENGINE_FAULTS = ("credential_missing", "engine_version", "engine_model", "engine_failed", "engine_timeout", "task_too_large",
-                 "rubric_unreadable", "no_answer", "head_unreadable")
+                 "rubric_unreadable", "no_answer", "head_unreadable", "vendor_unavailable")
 # What stops a run reaching or trusting a case, whatever the rest of the set read: no bar can be held over it. A case's own
 # fault is another matter, one case not passed, which is the bar's to weigh (decision 0120).
 RUN_FAULTS = ("schema", "not_found", "hash_differs", "too_large", "unanswered")
@@ -581,7 +601,10 @@ def assess(found: dict, why: dict, place: pathlib.Path, review, causes: dict = N
         if results is not None:
             results[entry["id"]] = result
         if isinstance(result, dict) and result.get("status") == "failed" and result.get("reason") in ENGINE_FAULTS:
-            assessed[entry["id"]] = ("unreadable", [result["reason"]])
+            # One the vendor or the network failed, still after its retries, is told from the Engine's other faults and
+            # from a model that ran out (issue 615); it is the Engine's, and no answer of the reviewer's, all the same.
+            code = "vendor_unavailable" if transient(result, getattr(review, "seen", None)) else result["reason"]
+            assessed[entry["id"]] = ("unreadable", [code])
             causes[entry["id"]] = seen_of(review)
             continue
         said = eval_result.score(case, result)
@@ -765,19 +788,21 @@ def identity(root: pathlib.Path, role: str) -> dict:
 
 def report(kept: dict, found: dict, assessed: dict, held: bool = None, kinds: dict = None, blocking: bool = None,
            causes: dict = None, alternates: set = None, surplus: dict = None, usages: dict = None,
-           ran: dict = None) -> dict:
+           ran: dict = None, retried: dict = None) -> dict:
     """The `eval-report/1` of this run: the plan's Release, commit and set, the models the CLI said answered and the
     prompt and rubric by `ran`, `identity`'s, each case by id and hash, in the manifest's order, with its verdict and
     codes, what it used and, where one was found, its cause, its mark where it passed at an alternate place alone
-    (decision 0143), and how many gating Findings it drew away from every place (issue 610), whether the set holds
+    (decision 0143), how many gating Findings it drew away from every place (issue 610), and how many times it was asked
+    again after the vendor or the network failed it, where it was (issue 615); whether the set holds
     `split_ok`'s kinds, whether each cleared its bar, and whether every case that expects a blocking Finding passed."""
-    causes, alternates, surplus, usages = causes or {}, alternates or set(), surplus or {}, usages or {}
+    causes, alternates, surplus, usages, retried = causes or {}, alternates or set(), surplus or {}, usages or {}, retried or {}
     ran = ran or {"prompt_sha256": None, "rubric_sha256": None}
     cases = [dict({"id": e["id"], "sha256": e["sha256"], "verdict": assessed[e["id"]][0], "reasons": assessed[e["id"]][1],
                    "usage": used(usages.get(e["id"]))},
                   **({"cause": causes[e["id"]]} if causes.get(e["id"]) else {}),
                   **({"at_alternate": True} if e["id"] in alternates and assessed[e["id"]] == (PASS, []) else {}),
-                  **({"surplus_gating": surplus[e["id"]]} if surplus.get(e["id"]) else {}))
+                  **({"surplus_gating": surplus[e["id"]]} if surplus.get(e["id"]) else {}),
+                  **({"retried": retried[e["id"]]} if retried.get(e["id"]) else {}))
              for e in found["cases"]]
     return {"schema": "eval-report/1", "release": kept["release"], "commit": kept["commit"], "role": found["role"],
             "intent": found["intent"], "set": dict(kept["set"]), "models": models(usages),
@@ -797,21 +822,22 @@ def wilson(passed: int, of: int) -> dict:
 
 
 def ledger_of(kept: dict, found: dict, assessed: dict, causes: dict, alternates: set, results: dict,
-              surplus: dict = None, usages: dict = None, ahead: tuple = None) -> dict:
+              surplus: dict = None, usages: dict = None, ahead: tuple = None, retried: dict = None) -> dict:
     """The `eval-ledger/1` of a gate set's run: each case as `report` would list it, whether it is natural, and the Result
     the review returned for it, under a salt drawn for this run alone, so that its hash in the report tells nothing of
     what it holds; and each case asked first the same way, but for whether it is natural, from `ahead`, `(assessed,
-    causes, usages, results, alternates, surplus)` of them (issue 613). It stays in the scratch for `seal`, and is never uploaded but sealed (issue 612)."""
+    causes, usages, results, alternates, surplus)` of them (issue 613); each marked where it was asked again, by `retried`
+    (issue 615). It stays in the scratch for `seal`, and is never uploaded but sealed (issue 612)."""
     # Each case asked first with its marks, at an alternate place alone or drawing gating Findings away (Muse's read of
     # #646), as the set's are listed.
     asked, told, spent, answers, beside, away = ahead or ({}, {}, {}, {}, set(), {})
     first = [dict(case, **({"result": answers[case["id"]]} if case["id"] in answers else {}))
              for case in report(kept, dict(found, cases=kept.get("preflight", [])), asked, causes=told,
-                                alternates=beside, surplus=away, usages=spent)["cases"]]
+                                alternates=beside, surplus=away, usages=spent, retried=retried)["cases"]]
     natural = {e["id"]: e.get("natural") is True for e in found["cases"]}
     cases = [dict(case, natural=natural[case["id"]], **({"result": results[case["id"]]} if case["id"] in results else {}))
              for case in report(kept, found, assessed, causes=causes, alternates=alternates, surplus=surplus,
-                                   usages=usages)["cases"]]
+                                   usages=usages, retried=retried)["cases"]]
     return {"schema": "eval-ledger/1", "salt": os.urandom(16).hex(), "release": kept["release"], "commit": kept["commit"],
             "role": found["role"], "intent": found["intent"], "set": dict(kept["set"]), "cases": cases, "preflight": first}
 
@@ -861,14 +887,15 @@ def preflight_stops(ahead: dict) -> bool:
 
 
 def aggregate(kept: dict, found: dict, assessed: dict, place: pathlib.Path, results: dict, ledger: bytes,
-              usages: dict = None, ahead: dict = None) -> dict:
+              usages: dict = None, ahead: dict = None, retried: dict = None) -> dict:
     """The `eval-aggregate/1` of a gate set's run: counts alone, with no case id, per-case verdict or a case's code (issue
     612). How many passed; of each kind, its cases, its passes and their Wilson interval, null where `kinds_of` can say
     nothing; the natural cases and those that are not, apart; each code of a case not read, by how many; the usage
     summed; what answered, as the checkout pins it and as `models` says of `usages` (issue 616); the bars applied; the
-    words `verdict` reads; the cases asked first, `ahead`, counted apart; and the ledger's salted sha256, beside which
-    `seal` writes its ciphertext's. Raw counts, so that reports on one commit can be pooled (issue 613)."""
-    ahead = ahead or {}
+    words `verdict` reads; the cases asked first, `ahead`, counted apart; how many of the set's cases were asked again
+    after the vendor or the network failed them (issue 615); and the ledger's salted sha256, beside which `seal` writes
+    its ciphertext's. Raw counts, so that reports on one commit can be pooled (issue 613)."""
+    ahead, retried = ahead or {}, retried or {}
     passed = {case for case, said in assessed.items() if said == (PASS, [])}
     kinds = kinds_of(found, place)
     counted = None if kinds is None else {
@@ -884,7 +911,7 @@ def aggregate(kept: dict, found: dict, assessed: dict, place: pathlib.Path, resu
             "intent": found["intent"], "set": dict(kept["set"]), "passed": len(passed), "kinds": counted,
             "criteria": by_criterion,
             "origin": {name: {"cases": len(ids), "passed": len(ids & passed)} for name, ids in origin.items()},
-            "faults": faults_of(assessed),
+            "faults": faults_of(assessed), "retried": len([e for e in found["cases"] if retried.get(e["id"])]),
             "preflight": {"cases": len(ahead), "passed": len([s for s in ahead.values() if s == (PASS, [])]),
                           "faults": faults_of(ahead)},
             "usage": usage_of(results), "engine": engine_of(found["role"]), "models": models(usages or {}),
@@ -938,7 +965,8 @@ def aggregate_verdict(document, found: dict, digest: str, commit: str, release: 
     if (origin["natural"]["cases"], origin["constructed"]["cases"]) != (natural, found["count"] - natural) \
             or origin["natural"]["passed"] + origin["constructed"]["passed"] != passed \
             or any(o["passed"] > o["cases"] for o in origin.values()) \
-            or passed + sum(fault["count"] for fault in document["faults"]) > found["count"]:
+            or passed + sum(fault["count"] for fault in document["faults"]) > found["count"] \
+            or document["retried"] > found["count"]:
         return "count_differs"
     kinds, words, bars, least = document["kinds"], document["kinds_pass"], bars_of(found), kind_least_of(found)
     if (kinds is None) != (words is None):
@@ -1083,7 +1111,7 @@ def score(env: dict, root: pathlib.Path, workspace: pathlib.Path, review) -> str
     assessed = assess(found, _read(place, "fetched.json"), place, review, causes, alternates, surplus, usages)
     written = report(kept, found, assessed, split_ok(found, place), kinds_pass(found, place, assessed),
                      blocking_pass(found, place, assessed), causes, alternates, surplus, usages,
-                     identity(root, found["role"]))
+                     identity(root, found["role"]), getattr(review, "retried", None))
     return written_out(workspace, found, assessed, written)
 
 
@@ -1110,10 +1138,11 @@ def gate_scored(kept: dict, found: dict, place: pathlib.Path, review, causes: di
     why = {e["id"]: "unanswered" for e in found["cases"]} if preflight_stops(ahead) else _read(place, "fetched.json")
     assessed = assess(found, why, place, review, causes, alternates, surplus, usages, results)
     ledger = (json.dumps(ledger_of(kept, found, assessed, causes, alternates, results, surplus, usages,
-                                   (ahead, told, spent, answers, beside, away)), indent=2, sort_keys=True) + "\n").encode("utf-8")
+                                   (ahead, told, spent, answers, beside, away), getattr(review, "retried", None)),
+                         indent=2, sort_keys=True) + "\n").encode("utf-8")
     with open(os.open(within(place, LEDGER), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
         out.write(ledger)
-    return assessed, aggregate(kept, found, assessed, place, results, ledger, usages, ahead)
+    return assessed, aggregate(kept, found, assessed, place, results, ledger, usages, ahead, getattr(review, "retried", None))
 
 
 def closed_of(document: dict) -> list:

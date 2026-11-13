@@ -40,11 +40,15 @@ the current head, at or after any earlier Run's, and no other order of heads can
 content supersedes nothing. A thread every Run that recorded it is superseded need not be in the read: a fresh review
 releases a pull request held by a thread that is gone, and raises the problem again on a thread of its own if it
 stands. A thread the superseding Run also records is still held to its opener; the join is unchanged.
+
+Such a thread still in the read, opened by its Lens, is said `dropped` (decision 0212), and keeps its category, severity
+and ruling: what it means is the Kernel's to read (`kernel/derive.py`'s `as_read`). Any other thread says nothing of it.
 """
 from __future__ import annotations
 
 import datetime
 import re
+import time
 
 from adapters import artifacts
 from adapters.github import Unanswered
@@ -52,6 +56,7 @@ from adapters.github import Unanswered
 # A Run's start, as the records port reads it.
 TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 READS = 50                      # the records one pass reads of them, inside its step's limit; the next reads on
+WAIT = 5                        # seconds before the one second look at Runs that did not succeed and list none (issue 709)
 APPROVING = "issue-approval"    # the Intent of the approving act, whose record alone vouches for an approval
 REVIEW = "review-change"       # the Intent that reviews the change, and so may supersede an earlier review
 
@@ -182,13 +187,16 @@ def superseded(read: list, content_id) -> set:
 def held(found: list, whole: bool, recorded_: tuple, content_id=None) -> tuple:
     """`(threads, whole)`: the threads read with each Lens thread's category and severity joined from its Finding, and
     whole only when the read was and every recorded thread is in it, opened by the Lens that recorded it, but for one
-    every Run that recorded it is superseded by a later review of its Lens on `content_id`, the current content."""
+    every Run that recorded it is superseded by a later review of its Lens on `content_id`, the current content; such
+    a thread still in the read is said `dropped`."""
     threads, recorded_whole = recorded_[0], recorded_[1]
     later = superseded(recorded_[2] if len(recorded_) > 2 else [], content_id)
+    past = {key for key, finding in threads.items()
+            if finding.get("runs") and all(run in later for run in finding["runs"])}
     whole = whole and recorded_whole
     by_id = {th["id"]: th for th in found}
     for key, finding in threads.items():
-        if finding.get("runs") and all(run in later for run in finding["runs"]):
+        if key in past:
             continue
         th = by_id.get(key)
         if th is None or th["opened_by"] != {"kind": "lens", "name": finding["lens"], "can_write": False}:
@@ -198,6 +206,8 @@ def held(found: list, whole: bool, recorded_: tuple, content_id=None) -> tuple:
         finding = threads.get(th["id"])
         if th["opened_by"]["kind"] == "lens" and finding is not None and finding["lens"] == th["opened_by"]["name"]:
             th = dict(th, category=finding["category"], severity=finding["severity"], ruling=finding.get("ruling"))
+            if th["id"] in past:
+                th["dropped"] = True
         joined.append(th)
     return joined, whole
 
@@ -206,17 +216,27 @@ OPENS = "open-pull-request"       # the Intent whose Run opens a pull request fo
 OPENED = "open_pull_request"      # the Effect that records the pull request it opened
 
 
-def effects(transport, repo: str, runs, since: str, known, most: int = READS) -> dict:
+def effects(transport, repo: str, runs, since: str, known, most: int = READS, sleep=time.sleep) -> dict:
     """What each completed Run the records port lists recorded since `since` and has not been read: `{"applied":
     [applied/1], "read": [each Run], "at": {Run: when it started}, "whole": bool}`, for reconciliation (decisions 0061,
     0112). A Run is read once: `known` is the Runs a record before this one read. One past its retention recorded nothing
     that can be read, and is read. One whose record cannot be read, and any past the `most` a pass reads, are not, so a later
-    pass reads them, and what this one read is not whole. One that did not succeed and lists none may be yet to, so it too
-    is read again, without being short. A record any job could upload could cover a stolen credential's write, so only a
+    pass reads them, and what this one read is not whole. One that did not succeed and lists none is looked at once more,
+    after one wait for them all, each look uncached: a completed run uploads nothing more, so one that lists none again
+    recorded nothing, and is read, as a pass is (decisions 0190 and 0210); a write it made is then matched to no record,
+    which is reconciliation's to alarm on. A record any job could upload could cover a stolen credential's write, so only a
     Run the list names is read, and only the approving act's record vouches for an approval."""
     listed = isinstance(runs, dict) and runs.get("complete") is True and isinstance(runs.get("github_ids"), dict) \
         and isinstance(runs.get("runs"), list)
-    out, tried = {"applied": [], "read": [], "at": {}, "whole": listed}, 0
+    out, tried, again = {"applied": [], "read": [], "at": {}, "whole": listed}, 0, []
+
+    def read(record, kept):
+        out["read"].append(record["run"])
+        if isinstance(kept, dict):
+            if record.get("intent") != APPROVING:
+                kept = dict(kept, effects=[e for e in kept["effects"] if e["type"] != "approve"])
+            out["applied"].append(kept)
+            out["at"][record["run"]] = record["started_at"]
     for record in runs["runs"] if listed else []:
         if record["status"] != "completed" or record["started_at"] < since or record["run"] in known:
             continue
@@ -229,19 +249,29 @@ def effects(transport, repo: str, runs, since: str, known, most: int = READS) ->
             break
         tried += 1
         try:
-            kept, whole = artifacts.applied(transport, repo, github[0], record["run"], required=succeeded)
+            kept, whole = artifacts.applied(transport, repo, github[0], record["run"], required=succeeded, fresh=True)
         except Unanswered:
             kept, whole = None, False
         if not whole:
             out["whole"] = False
-        if kept is None:
+        elif kept is None:
+            if isinstance(record.get("conclusion"), str):  # with none, it does not say it did not succeed: a later pass asks
+                again.append((record, github[0]))
+        else:
+            read(record, kept)
+    # The second look, at each that listed none and may only be lagging in GitHub's list: at most as many looks again as
+    # the first. One that succeeded and lists none was deleted, and is not whole above, so none of these succeeded.
+    if again:
+        sleep(WAIT)
+    for record, github_id in again:
+        try:
+            kept, whole = artifacts.applied(transport, repo, github_id, record["run"], fresh=True)
+        except Unanswered:
+            kept, whole = None, False
+        if not whole:
+            out["whole"] = False
             continue
-        out["read"].append(record["run"])
-        if isinstance(kept, dict):
-            if record.get("intent") != APPROVING:
-                kept = dict(kept, effects=[e for e in kept["effects"] if e["type"] != "approve"])
-            out["applied"].append(kept)
-            out["at"][record["run"]] = record["started_at"]
+        read(record, kept)
     return out
 
 
