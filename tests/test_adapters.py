@@ -5075,6 +5075,10 @@ class EffectsRecorded(unittest.TestCase):
         got = applied.effects(github.Replay(nothing(39100000000) + nothing(39100000001) + refused + nothing(39100000001)),
                               "o/r", two, self.SINCE, set(), sleep=lambda seconds: None)
         self.assertEqual(got, dict(none, read=[other], whole=False))
+        # Past its retention at the second look, it recorded nothing that can be read: it is read.
+        got = applied.effects(github.Replay(nothing(39100000000) + applied_stored("o/r", 39100000000, done, expired=True)[:1]),
+                              "o/r", listed_runs(run(self.RUN, conclusion="failure")), self.SINCE, set(), sleep=lambda seconds: None)
+        self.assertEqual(got, dict(none, read=[self.RUN]))
         # A completed Run with no conclusion does not say it did not succeed: it is not looked at twice and not read, so a
         # later pass asks of it again, and what was read is whole.
         slept = []
