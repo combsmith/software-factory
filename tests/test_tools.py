@@ -926,12 +926,13 @@ class Authority(unittest.TestCase):
         records = "from harness import apply\n\ndef run(t):\n    return apply.opened('e1', 1, 'b', None)\n"
         callers = {step: {opener}}
         self.assertEqual(check_authority.opening_problems(named, tree(opens, records), callers), [])
-        # Each part missing in turn is named. A read of the pulls, a write to one pull request and a method or a path
-        # not written as text open none.
+        # Each part missing in turn is named. A read of the pulls, a write to one pull request, a method or a path not
+        # written as text, and a call that builds no request open none.
         for adapter in ("def open_pull_request(transport, repo):\n    return request('GET', '/repos/%s/pulls' % repo)\n",
                         "def open_pull_request(transport, repo):\n    return request('PATCH', '/repos/%s/pulls/%d' % (repo, 1))\n",
                         "def open_pull_request(transport, repo, verb):\n    return request(verb, '/repos/%s/pulls' % repo)\n",
-                        "def open_pull_request(transport, path):\n    return request('POST', path)\n"):
+                        "def open_pull_request(transport, path):\n    return request('POST', path)\n",
+                        "def open_pull_request(transport, repo):\n    return send('POST', '/repos/%s/pulls' % repo)\n"):
             with self.subTest(adapter=adapter):
                 self.assertTrue(caught(check_authority.opening_problems(named, tree(adapter, records), callers),
                                        "no adapter sends a write"))
