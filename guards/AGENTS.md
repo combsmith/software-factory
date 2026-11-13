@@ -1,6 +1,7 @@
 # guards/
 
 The guards on a Role's own writes, as pure functions. `patch.py` applies a Role's patch to the files it names, byte for byte, and gives what the push writes, or the one reason, a code, why nothing may land.
+`push.py` says what the write of it may send to GitHub.
 A guard binds the Role that writes this repo's code. So it lives here, never in `kernel/` or `adapters/`, where that Role may push; a port hands a guard what it read, and the Harness calls it. A guard reads nothing itself.
 
 | Rule | Held by |
@@ -22,4 +23,10 @@ A guard binds the Role that writes this repo's code. So it lives here, never in 
 | What is not a patch as git writes it is unreadable, never fewer changes | `tests/test_guards.py::test_what_is_not_a_patch_as_git_writes_it_is_unreadable` |
 | A tree or contents in no shape a port gives is the Factory's fault, under its own code, whatever the patch is | `tests/test_guards.py::test_what_is_not_a_patch_as_git_writes_it_is_unreadable` |
 | What it lands is what git itself would, on fixed seeds | `tests/test_guards.py::test_a_patch_as_git_writes_it_lands_what_git_would` |
+| The credential of a Role's write reads the admitted commit and the Run's own branch, in this repo's git data, and nothing else | `tests/test_guards.py::test_the_push_reads_the_admitted_commit_and_its_own_branch_and_nothing_else` |
+| It makes a blob of base64, and says nothing else of one | `tests/test_guards.py::test_a_blob_is_made_of_base64_and_nothing_else_is_said_of_it` |
+| It makes one tree, upon the admitted commit's, that names exactly the paths `applied` gave, each in its mode | `tests/test_guards.py::test_the_one_tree_is_made_upon_the_admitted_one_and_names_exactly_the_changes` |
+| It makes one commit, whose one parent is the admitted commit and whose message is `apply`'s | `tests/test_guards.py::test_the_one_commit_stands_on_the_admitted_commit_alone_and_says_what_apply_says` |
+| It makes the Run's work branch, or moves it forward and never by force; it writes no other ref and deletes nothing (FR-14) | `tests/test_guards.py::test_the_branch_is_made_or_moved_forward_never_forced_and_no_other_ref_is_written` |
+| A write told in part, or wrongly, is permitted nothing: a repo, a work branch, a commit, a tree and changes in `applied`'s shape | `tests/test_guards.py::test_a_push_told_in_part_or_wrongly_is_permitted_nothing` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |

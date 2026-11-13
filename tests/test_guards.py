@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import unittest
 
-from guards import patch
+from guards import patch, push
 
 FILE = "100644"
 OLD = b"a\nb\nc\nd\ne\nf\ng\nh\n"
@@ -515,6 +515,142 @@ class Patch(unittest.TestCase):
                         self.assertEqual(got, snapshot(tree, "../out%d" % turn))
         self.assertEqual(kinds, {"change", "new", "deleted", "rename", "copy"})
         self.assertTrue(copied_with_hunks and lands, (copied_with_hunks, lands))
+
+
+REPO = "combsmith/software-factory"
+BRANCH = "factory-work/issue-838-1"
+PARENT, ROOT_TREE, MADE, BLOB_A, BLOB_N = "a" * 40, "b" * 40, "c" * 40, "d" * 40, "e" * 40
+GIT = "/repos/%s/git/" % REPO
+CHANGES = {"written": {"docs/a.md": (FILE, b"A\n"), "run/n.sh": ("100755", b"x\n")}, "removed": ["tests/t.py"],
+           "read": ["docs/old.md"]}
+PUSH = {"repo": REPO, "branch": BRANCH, "parent": PARENT, "tree": ROOT_TREE, "head": None,
+        "message": "The opening Run's commit for issue 838", "changes": CHANGES}
+ENTRIES = [{"path": "docs/a.md", "mode": FILE, "type": "blob", "sha": BLOB_A},
+           {"path": "run/n.sh", "mode": "100755", "type": "blob", "sha": BLOB_N},
+           {"path": "tests/t.py", "mode": FILE, "type": "blob", "sha": None}]
+NEW_TREE = {"base_tree": ROOT_TREE, "tree": ENTRIES}
+COMMIT = {"message": PUSH["message"], "tree": MADE, "parents": [PARENT]}
+
+
+def told(**changed) -> dict:
+    return dict(PUSH, **changed)
+
+
+def may(method: str, rest: str, body=None, said=None) -> bool:
+    return push.permits(method, GIT + rest, body, PUSH if said is None else said)
+
+
+class Push(unittest.TestCase):
+    def test_the_push_reads_the_admitted_commit_and_its_own_branch_and_nothing_else(self):
+        for rest in ("commits/" + PARENT, "blobs/" + BLOB_A, "trees/" + ROOT_TREE + "?recursive=1", "ref/heads/" + BRANCH):
+            self.assertTrue(may("GET", rest), rest)
+            self.assertFalse(may("GET", rest, {}), rest)
+            self.assertFalse(may("DELETE", rest), rest)
+        for rest in ("commits/" + PARENT[1:], "commits/" + PARENT.upper(), "commits/" + PARENT + "/comments",
+                     "blobs/", "blobs/main", "trees/" + ROOT_TREE, "trees/" + ROOT_TREE + "?recursive=1&x=1",
+                     "trees/main?recursive=1", "ref/heads/main", "ref/heads/" + BRANCH + "0", "ref/heads/" + BRANCH + "/x",
+                     "ref/tags/factory/v0.1.12", "refs/heads/" + BRANCH, "refs", "matching-refs/heads/", "../pulls",
+                     "../contents/config/hooks.json", ""):
+            self.assertFalse(may("GET", rest), rest)
+        # Nothing outside this repo's git data, whatever it begins with.
+        for path in ("/repos/%s/pulls" % REPO, "/repos/%s/contents/x" % REPO, "/repos/%s/git" % REPO,
+                     "/repos/combsmith/other/git/commits/" + PARENT, "/repos/combsmith/software-fictory/git/commits/" + PARENT, "/repos/%s-canary/git/commits/%s" % (REPO, PARENT),
+                     "https://api.github.com" + GIT + "commits/" + PARENT, GIT[1:] + "commits/" + PARENT):
+            self.assertFalse(push.permits("GET", path, None, PUSH), path)
+        self.assertFalse(push.permits(None, GIT + "commits/" + PARENT, None, PUSH))
+        self.assertFalse(push.permits("GET", None, None, PUSH))
+        self.assertFalse(may("get", "commits/" + PARENT))
+
+    def test_a_blob_is_made_of_base64_and_nothing_else_is_said_of_it(self):
+        self.assertTrue(may("POST", "blobs", {"content": "QQo=", "encoding": "base64"}))
+        for body in (None, {"content": "A\n", "encoding": "utf-8"}, {"content": b"QQo=", "encoding": "base64"},
+                     {"content": "QQo="}, {"content": "QQo=", "encoding": "base64", "x": 1}, ["QQo="]):
+            self.assertFalse(may("POST", "blobs", body), body)
+        self.assertFalse(may("POST", "blobs/" + BLOB_A, {"content": "QQo=", "encoding": "base64"}))
+
+    def test_the_one_tree_is_made_upon_the_admitted_one_and_names_exactly_the_changes(self):
+        self.assertTrue(may("POST", "trees", NEW_TREE))
+        self.assertTrue(may("POST", "trees", dict(NEW_TREE, tree=ENTRIES[::-1])))
+        entry = lambda at, **changed: ENTRIES[:at] + [dict(ENTRIES[at], **changed)] + ENTRIES[at + 1:]
+        without = [{k: v for k, v in ENTRIES[0].items() if k != "type"}] + ENTRIES[1:]
+        for said, entries in (
+                ("a path the changes do not hold", entry(0, path="config/hooks.json")),
+                ("a path more", ENTRIES + [dict(ENTRIES[0], path="docs/more.md")]),
+                ("a path fewer", ENTRIES[:2]), ("a path twice", [ENTRIES[0], ENTRIES[0], ENTRIES[2]]),
+                ("a path twice in place of a removal", [ENTRIES[0], ENTRIES[1], ENTRIES[0]]),
+                ("a file in a mode the changes do not give it", entry(0, mode="100755")),
+                ("a link", entry(0, mode="120000")), ("a submodule", entry(0, mode="160000", type="commit")),
+                ("a tree", entry(0, type="tree", mode="040000")), ("a file named a tree", entry(0, type="tree")), ("a file written as no blob", entry(0, sha=None)),
+                ("a blob named by no name", entry(0, sha="main")), ("a removal that names a blob", entry(2, sha=BLOB_A)),
+                ("a removal in no file's mode", entry(2, mode="120000")),
+                ("an entry that says more", entry(0, content="x")), ("an entry that says less", without),
+                ("a path that is no text", entry(0, path=["docs/a.md"])), ("an entry that is none", [None] + ENTRIES[1:]),
+                ("no list", {"docs/a.md": ENTRIES[0]})):
+            self.assertFalse(may("POST", "trees", dict(NEW_TREE, tree=entries)), said)
+        for body in (None, {"tree": ENTRIES}, dict(NEW_TREE, base_tree=MADE), dict(NEW_TREE, base_tree=None),
+                     dict(NEW_TREE, x=1)):
+            self.assertFalse(may("POST", "trees", body), body)
+        self.assertFalse(may("POST", "trees/" + ROOT_TREE, NEW_TREE))
+
+    def test_the_one_commit_stands_on_the_admitted_commit_alone_and_says_what_apply_says(self):
+        self.assertTrue(may("POST", "commits", COMMIT))
+        for body in (None, dict(COMMIT, parents=[]), dict(COMMIT, parents=[MADE]), dict(COMMIT, parents=[PARENT, MADE]),
+                     dict(COMMIT, parents=[PARENT, PARENT]), dict(COMMIT, parents=PARENT), dict(COMMIT, parents=(PARENT,)),
+                     dict(COMMIT, message="Fixes #1"), dict(COMMIT, message=None), dict(COMMIT, tree="main"),
+                     dict(COMMIT, tree=None), dict(COMMIT, author={"name": "Don Petry", "email": "x@example.com"}),
+                     dict(COMMIT, committer={"name": "x", "email": "x@example.com"}), dict(COMMIT, signature="x"),
+                     {"message": COMMIT["message"], "tree": MADE}):
+            self.assertFalse(may("POST", "commits", body), body)
+
+    def test_the_branch_is_made_or_moved_forward_never_forced_and_no_other_ref_is_written(self):
+        made, moved = {"ref": "refs/heads/" + BRANCH, "sha": MADE}, {"sha": MADE, "force": False}
+        here, stands = "refs/heads/" + BRANCH, told(head=PARENT)
+        # Where the Decision admitted no branch it is made, and never moved; where it admitted a head, the reverse.
+        self.assertTrue(may("POST", "refs", made))
+        self.assertFalse(may("PATCH", here, moved))
+        self.assertTrue(may("PATCH", here, moved, stands))
+        self.assertFalse(may("POST", "refs", made, stands))
+        for body in (None, dict(made, ref="refs/heads/main"), dict(made, ref="refs/heads/" + BRANCH + "-2"),
+                     dict(made, ref="refs/tags/factory/v0.1.13"), dict(made, ref=BRANCH), dict(made, sha="main"),
+                     dict(made, force=True), {"ref": "refs/heads/" + BRANCH}):
+            self.assertFalse(may("POST", "refs", body), body)
+        for body in (None, dict(moved, force=True), dict(moved, force=0), dict(moved, force=None), {"sha": MADE},
+                     dict(moved, sha="main"), dict(moved, ref="refs/heads/main")):
+            self.assertFalse(may("PATCH", here, body, stands), body)
+        for rest in ("refs/heads/main", "refs/heads/" + BRANCH + "0", "refs/heads/" + BRANCH + "/x", "refs/heads/",
+                     "refs/tags/factory/v0.1.12", "refs/heads/factory-work/issue-838-2", "refs"):
+            self.assertFalse(may("PATCH", rest, moved, stands), rest)
+        for method in ("DELETE", "PUT", "POST"):
+            self.assertFalse(may(method, here, moved, stands), method)
+            self.assertFalse(may(method, here, None, stands), method)
+
+    def test_a_push_told_in_part_or_wrongly_is_permitted_nothing(self):
+        ask = lambda said: push.permits("GET", "/repos/%s/git/commits/%s" % (said.get("repo"), PARENT), None, said)
+        self.assertTrue(ask(PUSH))
+        self.assertTrue(ask(told(head=MADE, repo="a-b/c_d.e", branch="factory-work/issue-1-10")))
+        for said in ({k: v for k, v in PUSH.items() if k != "head"}, told(more=1), told(repo="combsmith"),
+                     told(repo="combsmith/software-factory/x"), told(repo="combsmith/.."), told(repo="../software-factory"),
+                     told(repo="/software-factory"), told(repo="combsmith/"), told(repo="comb smith/x"), told(repo=None),
+                     told(branch="main"), told(branch="factory-work/issue-838"), told(branch="factory-work/issue-0-1"),
+                     told(branch="factory-work/issue-838-0"), told(branch="factory-work/issue-838-01"),
+                     told(branch="factory-work/issue-838-1/x"), told(branch="factory-work/issue-838-1-1"),
+                     told(branch="factory-work/issue--1"), told(branch="factory-work/issue-838-"),
+                     told(branch="factory/v0.1.12"), told(branch="factory-wurk/issue-838-1"), told(branch="refs/heads/" + BRANCH), told(branch=None),
+                     told(parent="main"), told(parent=None), told(tree=PARENT[1:]), told(tree=None), told(head="main"),
+                     told(head=False), told(message=""), told(message=None), told(message=b"x"), told(changes=None)):
+            self.assertFalse(ask(said), said)
+        self.assertFalse(push.permits("GET", GIT + "commits/" + PARENT, None, None))
+        # Nor changes in any shape but the one `applied` gives: a file's two modes, bytes, and no path both ways.
+        shaped = lambda **changed: told(changes=dict(CHANGES, **changed))
+        for said in (shaped(written={"docs/a.md": ("120000", b"x")}), shaped(written={"docs/a.md": (FILE, "x")}),
+                     shaped(written={"docs/a.md": [FILE, b"x"]}), shaped(written={"docs/a.md": (FILE, b"x", b"y")}),
+                     shaped(written={"tests/t.py": (FILE, b"x")}), shaped(written={1: (FILE, b"x")}),
+                     shaped(written=[("docs/a.md", (FILE, b"x"))]), shaped(removed=("tests/t.py",)),
+                     shaped(removed=["tests/t.py", "tests/t.py"]), shaped(removed=[None]),
+                     shaped(written={}, removed=[])):
+            self.assertFalse(ask(said), said["changes"])
+        self.assertTrue(ask(shaped(written={})))
+        self.assertTrue(ask(shaped(removed=[])))
 
 
 if __name__ == "__main__":
