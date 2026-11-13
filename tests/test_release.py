@@ -573,7 +573,7 @@ class Fixture(unittest.TestCase):
         # A cut's fixture added under release/fixtures/ is read with the rest, in its place by version, and held: here a
         # cut after the last, v0.1.10's fixture under the next version, fails, where every cut before it passes. Asked of
         # the whole list it is refused for that, after factory/v0.1.11, the last that read the whole list; asked of a
-        # page it is refused for what the page holds.
+        # page it passes the page rule and is refused by the checks every cut is held to, here the version its cut asked.
         found = self.cuts()
         major, minor, patch = current.version(json.loads(found[-1].read_text())["version"])
         name = "cut.v%d-%d-%d.json" % (major, minor, patch + 1)
