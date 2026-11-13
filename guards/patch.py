@@ -1,12 +1,19 @@
-"""A Role's patch, read as `git diff` writes it (issue 838; FR-14; decision 0188's residual, "the push's write must land
-exactly that patch, and no other bytes").
+"""A Role's patch, applied byte for byte to the files it names (issue 838; FR-14; decision 0188's residual, "the push's
+write must land exactly that patch, and no other bytes").
 
-`read(patch)` gives a patch's sections in its order, each with the two files it names, its kind, its modes and its
-hunks, or None; `sources(patch)` gives the paths whose bytes applying it needs. Applying it is the next part of issue 838.
+`applied(patch, tree, contents)` gives what a push writes: each path's new bytes and mode, and each path it removes, or
+the one reason, a code, why nothing may land. Nothing is searched for and nothing is guessed: a hunk's lines are the
+file's lines at the place the hunk names, or the patch is not this tree's. So what lands is what the patch says, of the
+commit the Decision admitted, and of no other.
 
-It reads a narrower patch than `harness/bundle.py` does, on purpose, and what it does not read is no patch to it: a name
-is read one way only, unquoted, of the bytes `NAME_BYTES` holds, with no space, so the header alone names both files and
-every other line that names one must agree with it. This reads nothing but the bytes it is given.
+It reads a narrower patch than `harness/bundle.py` does, on purpose, and what it does not read it refuses:
+- a name is read one way only: unquoted, of the bytes `NAME_BYTES` holds, with no space, so the header alone names both
+  files and every other line that names one must agree with it;
+- a file is a file: a link, a submodule, a path under a file, and a mode other than a file's two are refused;
+- no file is written twice, and none is written where the tree holds one the patch does not say it changes.
+
+`tree` is every path the admitted commit holds that is not a directory, with its mode as git writes it; `contents` is
+the bytes of each path `sources` names. Both are the port's reads (`adapters/push.py`); this reads nothing itself.
 """
 from __future__ import annotations
 
@@ -29,6 +36,10 @@ RENAME_TO = b"rename to "
 COPY_FROM = b"copy from "
 COPY_TO = b"copy to "
 INDEX = b"index "
+# A file's two modes. A link's, 120000, and a submodule's, 160000, are no file's: such a change is a person's to push.
+FILE_MODES = ("100644", "100755")
+# The modes of what a tree holds that is no directory: a file's two, a link's and a submodule's.
+TREE_MODES = ("100644", "100755", "120000", "160000")
 DIGITS = b"0123456789"
 HEX = b"0123456789abcdef"
 MOST_DIGITS = b"999999999"      # a count of more digits than this is no count (decision 0188)
@@ -42,6 +53,11 @@ GIT_SHORT = "git~"
 # The modes git writes: a file's two, a link's and a submodule's. No other is a mode to it.
 MODES = (b"100644", b"100755", b"120000", b"160000")
 NUL = b"\x00"
+
+UNREADABLE = "bundle_unreadable"        # no patch this reads: the Role's, as decision 0188 has it
+NOT_APPLIED = "patch_does_not_apply"    # a patch, but not of the admitted commit's files
+NOT_A_FILE = "push_not_a_file"          # it writes what is no file, or through one
+TREE_UNREAD = "push_tree_unreadable"    # the port's reads are in no shape this reads: the Factory's, never the Role's
 
 
 def _number(said):
@@ -247,3 +263,118 @@ def sources(patch):
             named[section["old"]] = True
             out.append(section["old"])
     return out
+
+
+def _content(old: bytes, hunks: list):
+    """The bytes a file holds once `hunks` are applied to `old`, or None where they are not this file's. Each hunk
+    stands where its header says, past the one before it with a line at least between them, as git writes two hunks;
+    each line of its old side is the file's line there, byte for byte; and where the new side begins is where this puts
+    it. git's marker stands on the file's last line exactly where that line has no newline at its end, and on a new
+    line only where nothing follows it: `read` gives a marker in a section's last hunk alone, and here no line of
+    the file follows that hunk's."""
+    held = old.split(b"\n") if old else []
+    bare = bool(held) and held[-1] != b""
+    if held and not bare:
+        held.pop()
+    last = len(held) - 1
+    out, cursor, open_end, stood = [], 0, False, False
+    for hunk in hunks:
+        count = hunk["old_count"]
+        at = hunk["old_start"] - 1 if count else hunk["old_start"]
+        if at < cursor or (stood and at == cursor) or at + count > len(held):
+            return None
+        if at > cursor:
+            out += held[cursor:at]
+            open_end = bare and at > last
+        if hunk["new_start"] != (len(out) + 1 if hunk["new_count"] else len(out)):
+            return None
+        for line in hunk["lines"]:
+            if line["sign"] != b"+":
+                if held[at] != line["text"] or line["bare"] != (bare and at == last):
+                    return None
+                at += 1
+            if line["sign"] != b"-":
+                if open_end:
+                    return None
+                out.append(line["text"])
+                open_end = line["bare"]
+        cursor, stood = at, True
+    if cursor < len(held):
+        if open_end:
+            return None
+        out += held[cursor:]
+        open_end = bare
+    if not out:
+        return b""
+    return b"\n".join(out) + (b"" if open_end else b"\n")
+
+
+def _above(path: str) -> list:
+    """Each directory `path` stands under, the nearest last."""
+    names = path.split("/")
+    return ["/".join(names[:n]) for n in range(1, len(names))]
+
+
+def _placed(path: str, tree: dict, folders: dict) -> bool:
+    """Whether `path` can be a file in `tree`, whose directories are `folders`: nothing above it is a file, and it is no
+    directory there."""
+    return not any(part in tree for part in _above(path)) and path not in folders
+
+
+def applied(patch, tree: dict, contents: dict) -> tuple:
+    """`(changes, None)`, or `(None, reason)` where nothing may land. `changes` is `{"written": {path: (mode, bytes)},
+    "removed": [path], "read": [path]}`: what the push writes, what it removes, and what a rename or a copy read, which
+    `harness/apply.py`'s `push_refusal` is asked about as it is about what is written. A tree or contents in no shape a
+    port gives is the Factory's fault, under its own code; every other reason is the Role's."""
+    if not isinstance(tree, dict) or not isinstance(contents, dict):
+        return None, TREE_UNREAD
+    if not all(isinstance(path, str) and tree[path] in TREE_MODES for path in tree):
+        return None, TREE_UNREAD
+    sections = read(patch)
+    if sections is None:
+        return None, UNREADABLE
+    folders = {}
+    for path in tree:
+        for part in _above(path):
+            folders[part] = True
+    written, removed, gone, taken = {}, [], {}, []
+    for section in sections:
+        kind, old, new = section["kind"], section["old"], section["new"]
+        target = old if kind == "deleted" else new
+        if target in written or target in gone or (kind == "rename" and (old in written or old in gone)):
+            return None, UNREADABLE
+        if kind == "new":
+            before, mode = b"", section["new_mode"]
+            if new in tree:
+                return None, NOT_APPLIED
+        else:
+            before, mode = contents.get(old), tree.get(old)
+            if mode is None:
+                return None, NOT_APPLIED
+            if mode not in FILE_MODES:
+                return None, NOT_A_FILE
+            if not isinstance(before, bytes):
+                return None, NOT_APPLIED
+            if section["old_mode"] not in (None, mode) or section["index_mode"] not in (None, mode):
+                return None, NOT_APPLIED
+            if kind in ("rename", "copy") and new in tree:
+                return None, NOT_APPLIED
+            mode = section["new_mode"] or mode
+        if mode not in FILE_MODES:
+            return None, NOT_A_FILE
+        after = _content(before, section["hunks"])
+        if after is None or (kind == "deleted" and after != b""):
+            return None, NOT_APPLIED
+        if kind in ("deleted", "rename"):
+            removed.append(old)
+            gone[old] = True
+        if kind == "deleted":
+            continue
+        if not _placed(new, tree, folders):
+            return None, NOT_A_FILE
+        written[new] = (mode, after)
+        if kind in ("rename", "copy"):
+            taken.append(old)
+    if any(part in written for path in written for part in _above(path)):
+        return None, NOT_A_FILE
+    return {"written": written, "removed": removed, "read": taken}, None
