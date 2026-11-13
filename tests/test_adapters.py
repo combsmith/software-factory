@@ -5063,9 +5063,30 @@ class EffectsRecorded(unittest.TestCase):
         self.assertEqual(read(listed_runs(old)), none)
         edge = dict(lens_run(self.RUN), started_at=self.SINCE)
         self.assertEqual(read(listed_runs(edge), *applied_stored("o/r", 39100000000, done))["read"], [self.RUN])
-        # A Run that failed and lists none may be yet to, so it is read again, and is not short.
-        failed = listed_runs(run(self.RUN, conclusion="failure"))
-        self.assertEqual(read(failed, *applied_stored("o/r", 39100000000, None)), none)
+        # A Run that failed and lists none is looked at once more, after one wait: listing none again, it recorded
+        # nothing, and is read, not short, so no later pass spends a read on it (issue 709); a record the second look
+        # finds is read; a second look not answered leaves it unread and short.
+        failed, slept = listed_runs(run(self.RUN, conclusion="failure")), []
+        nothing = applied_stored("o/r", 39100000000, None)
+        self.assertEqual(read(failed, *nothing, *nothing, sleep=slept.append), dict(none, read=[self.RUN]))
+        self.assertEqual(slept, [applied.WAIT])
+        self.assertEqual(read(failed, *nothing, *applied_stored("o/r", 39100000000, done), sleep=slept.append),
+                         {"applied": [done], "read": [self.RUN], "at": {self.RUN: "2026-10-11T12:00:00Z"}, "whole": True})
+        self.assertEqual(read(failed, *nothing, sleep=slept.append), dict(none, whole=False))
+        # Two such Runs share the one wait, and each is looked at once more; one that did not fail is not waited for.
+        del slept[:]
+        two = listed_runs(run(self.RUN, conclusion="failure"), run("r_01JA7Q", conclusion="cancelled"))
+        second = applied_stored("o/r", 39100000001, None)
+        self.assertEqual(read(two, *nothing, *second, *nothing, *second, sleep=slept.append),
+                         dict(none, read=[self.RUN, "r_01JA7Q"]))
+        self.assertEqual(slept, [applied.WAIT])
+        read(one, *applied_stored("o/r", 39100000000, done), sleep=slept.append)
+        self.assertEqual(slept, [applied.WAIT])
+        # A read never answered is no first look: it is not looked at again, so a Run that succeeded and whose list,
+        # asked again, held none is never taken for one that recorded nothing.
+        unanswered = [dict(nothing[0], response=dict(nothing[0]["response"], status=302))]
+        self.assertEqual(read(one, *unanswered, *nothing, sleep=slept.append), dict(none, whole=False))
+        self.assertEqual(slept, [applied.WAIT])
         # Past its retention it recorded nothing that can be read: it is read, and not again.
         self.assertEqual(read(one, *applied_stored("o/r", 39100000000, done, expired=True)[:1]), dict(none, read=[self.RUN]))
         # What cannot be read leaves the Run unread, so a later pass reads it again: one that succeeded and lists none, a read
