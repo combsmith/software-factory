@@ -3361,7 +3361,7 @@ class EvalJob(unittest.TestCase):
                   "criteria": {},     # the set floors no criterion (issue 692)
                   "origin": {"natural": {"cases": natural[0], "passed": natural[1]},
                              "constructed": {"cases": count - natural[0], "passed": passed - natural[1]}},
-                  "faults": [{"code": c, "count": n} for c, n in faults],
+                  "faults": [{"code": c, "count": n} for c, n in faults], "retried": 0,
                   "preflight": {"cases": 3, "passed": 3, "faults": []},
                   "usage": {"answered": count, "input_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
                             "output_tokens": 1, "turns": count, "cost_usd": 1.5, "seconds": 60.0},
