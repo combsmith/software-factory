@@ -1586,6 +1586,92 @@ class Content(unittest.TestCase):
             d = go(facts(checks=GREEN[:i] + [check, dict(check)] + GREEN[i + 1:]), REVIEWED)
             self.assertEqual(d["action"], "issue_approval", lens)
 
+    def test_a_cancelled_runs_checks_are_superseded_by_another_run_of_the_lens_on_the_head(self):  # issue 681
+        # trials/P-65.json: a run cancelled mid-way, or stopped at its timeout (P-42), leaves its judging check failed
+        # and its suite cancelled. Its checks give no verdict where another run of the same Lens on the head has a suite
+        # that did not conclude cancelled, finished or still running; never by which run is later, which no id tells.
+        # Every run of the Lens stopped, the Lens is unreadable: a wait, never a pass or a failure. A failing check whose
+        # suite has not concluded is a wait. Everything else reads as before.
+        i, base = next((i, c) for i, c in enumerate(GREEN) if c["workflow"] is not None)
+        lens = LENS_OF[base["name"]]
+
+        def check(conclusion, run, suite):
+            return dict(base, conclusion=conclusion, run_id=run, suite_conclusion=suite)
+
+        def reading(*given):
+            d = go(facts(checks=GREEN[:i] + list(given) + GREEN[i + 1:]), REVIEWED)
+            return d.get("action") if d.get("action") == "issue_approval" else (d["reason"], d["evidence"])
+        cancelled, timed_out = check("failure", 1, "cancelled"), check("failure", 1, "timed_out")
+        for stopped in (cancelled, timed_out, check("cancelled", 1, "cancelled")):
+            for later in (check("success", 3, "success"), check("success", 3, None)):
+                for pair in ((stopped, later), (later, stopped)):
+                    self.assertEqual(reading(*pair), "issue_approval", pair)
+            self.assertEqual(reading(stopped, check("failure", 3, "failure")), ("check_failed", [lens]))
+            self.assertEqual(reading(stopped, check("in_progress", 3, None)), ("awaiting_checks", [lens]))
+            # A run of a lower id than the stopped one supersedes it too: an id orders no runs (trials/P-65.json).
+            self.assertEqual(reading(dict(stopped, run_id=4), check("success", 3, "success")), "issue_approval")
+        # Every run of the Lens stopped: unreadable, alone, beside another stopped run, or in one run with a passing check.
+        for given in ((cancelled,), (cancelled, check("failure", 4, "cancelled")), (cancelled, check("cancelled", 1, "cancelled")),
+                      (check("success", 1, "cancelled"),), (check("success", 1, "timed_out"),), (check("success", 1, "cancelled"), check("success", 4, "timed_out")),
+                      (timed_out, check("failure", 4, "timed_out"))):
+            self.assertEqual(reading(*given), ("check_unreadable", [lens]), given)
+        # A run never passes itself over, and stopped runs never pass each other over: beside a check with no run, two
+        # stopped runs read as before.
+        self.assertEqual(reading(cancelled, check("success", 1, "success")), ("check_unreadable", [lens]))
+        self.assertEqual(reading(cancelled, check("failure", 4, "cancelled"), dict(base)), ("check_failed", [lens]))
+        # A failing check whose suite has not concluded is a wait, beside another run that passed too; concluded, it fails.
+        self.assertEqual(reading(check("failure", 3, None)), ("awaiting_checks", [lens]))
+        self.assertEqual(reading(check("failure", 1, None), check("success", 3, "success")), ("awaiting_checks", [lens]))
+        self.assertEqual(reading(check("failure", 3, "failure")), ("check_failed", [lens]))
+        # A queued item reads past waits, but never past that one: a suite that never concludes would leave the failure
+        # unread in the queue. It leaves the queue as a failure does (decision 0026).
+        queued = go(facts(checks=GREEN[:i] + [check("failure", 3, None)] + GREEN[i + 1:], queue=True, reviews=APPROVED), REVIEWED)
+        self.assertEqual((queued["reason"], queued["evidence"], queued.get("action")), ("check_failed", [lens], "dequeue"))
+        waiting = go(facts(checks=GREEN[:i] + [check("in_progress", 3, None)] + GREEN[i + 1:], queue=True, reviews=APPROVED), REVIEWED)
+        self.assertEqual(waiting["reason"], "in_merge_queue")
+        # A suite word GitHub does not give is no reading of a suite: the Lens is unreadable, never passed.
+        self.assertEqual(reading(cancelled, check("success", 3, "banana")), ("check_unreadable", [lens]))
+        for word in ("success", "failure", "neutral", "action_required", "stale", "skipped", "startup_failure"):
+            self.assertEqual(reading(check("success", 3, word)), "issue_approval", word)
+        # The other side: a completed failure in a run not cancelled still sticks, beside a later run that passed; and a
+        # failing duplicate job in a run not cancelled fails the Lens beside its passing twin (decision 0104).
+        self.assertEqual(reading(check("failure", 1, "failure"), check("success", 3, "success")), ("check_failed", [lens]))
+        self.assertEqual(reading(check("failure", 3, "failure"), check("success", 3, "failure")), ("check_failed", [lens]))
+        # A check that lacks either field is never superseded and never supersedes: it reads as before (the Factory
+        # Builder's ruling (B)). Nor does a check no workflow ran, whose run is null.
+        bare = dict(base, conclusion="failure")
+        no_suite = {k: v for k, v in check("success", 3, "success").items() if k != "suite_conclusion"}
+        no_run = {k: v for k, v in check("success", 3, "success").items() if k != "run_id"}
+        for given in ((bare, check("success", 3, "success")), (cancelled, dict(base)), (cancelled, no_suite), (cancelled, no_run),
+                      (cancelled, check("success", None, "success")), (check("failure", None, "cancelled"), check("success", 3, "success"))):
+            self.assertEqual(reading(*given), ("check_failed", [lens]), given)
+        # A run's suite is shared across Lenses: given two conclusions on the head, under another Lens's check too, it is
+        # no reading of it (Astra).
+        other = next(c for j, c in enumerate(GREEN) if j != i and c["workflow"] is not None)
+        crossed = GREEN[:i] + [cancelled, check("success", 3, "success")] + GREEN[i + 1:]
+        crossed = [dict(other, run_id=1, suite_conclusion="failure") if c is GREEN[GREEN.index(other)] else c for c in crossed]
+        d = go(facts(checks=crossed), REVIEWED)
+        self.assertEqual(d["reason"], "check_unreadable")
+        # A run given two suite conclusions is no reading of it, so no check of it is passed over by another run (Muse).
+        for twin in ("success", None):
+            self.assertEqual(reading(cancelled, check("success", 1, twin), check("success", 5, "success")), ("check_unreadable", [lens]))
+        # A check on the head whose run or suite is in another form, under a name no Lens reads, may be of the stopped
+        # run: no run is passed over beside it (cubic, CodeAnt).
+        work = dict(base, name="work", conclusion="cancelled")
+        for wrong in (dict(work, run_id=1, suite_conclusion="banana"), dict(work, run_id="1", suite_conclusion="cancelled")):
+            self.assertEqual(reading(cancelled, check("success", 3, "success"), wrong), ("check_unreadable", [lens]), wrong)
+        # Only a failing check waits for its suite: one that gave no verdict, its suite not concluded, is unreadable.
+        self.assertEqual(reading(check("neutral", 3, None)), ("check_unreadable", [lens]))
+        # A field in its own form is read first, whatever the other says, a null run among them.
+        for wrong in (dict(base, conclusion="success", run_id=None, suite_conclusion=""), dict(base, conclusion="success", run_id=None, suite_conclusion=1),
+                      {k: v for k, v in check("success", 0, "success").items() if k != "suite_conclusion"},
+                      {k: v for k, v in check("success", 3, "").items() if k != "run_id"}):
+            self.assertEqual(reading(wrong), ("check_unreadable", [lens]), wrong)
+        # Either field in any form but its own leaves the Lens unreadable, never read as none.
+        for wrong in (check("success", 0, "success"), check("success", "3", "success"), check("success", True, "success"),
+                      check("success", 3, ""), check("success", 3, 1)):
+            self.assertEqual(reading(wrong), ("check_unreadable", [lens]), wrong)
+
     def test_a_check_is_matched_to_a_lens_by_its_check_name_alone(self):  # I-13, I-27
         # The facts carry each check run under the name GitHub gives it, and a Lens is the check the configuration
         # names for it, exactly. A job that its own App runs under the Lens's own name, or under the check's name in
@@ -1889,10 +1975,30 @@ class Convergence(unittest.TestCase):
             self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=acted + [odd]), "", odd)
             d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), acted + [odd])
             self.assertEqual(d["reason"], "description_edited_after_approval", odd)
-        # A record reaches back by its start, which the item's lane holds after a running act's end: one dispatched
-        # while an act ran and started after the approval shows nothing of when it read.
+        # A record reaches back by when its jobs began, which the item's lane holds after a running act's end: one
+        # made while an act ran, whose record's start is when it was made (trials/P-44.json), and begun after the
+        # approval (trials/P-64.json), shows nothing of when it read. Nor does one that has not begun, one that never
+        # began, one whose jobs were not read or whose beginning is no time (decision 0204), and none of them raises.
         during = [dict(run(at="2026-10-11T12:16:00Z"), dispatched_at="2026-10-11T12:14:30Z")]
         self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=during), "")
+        made = run(at="2026-10-11T12:14:30Z")
+        for waited in (dict(made, began_at="2026-10-11T12:15:01Z"), dict(made, began_at=None), dict(made, began_at="soon"),
+                       dict(made, began_at=7), dict(made, began_at="2026-10-11T12:14:60Z"), dict(made, began_at="2026-10-11T12:14:00Z"),
+                       {k: v for k, v in made.items() if k != "began_at"}):
+            self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=[waited]), "",
+                             waited)
+            d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), [waited])
+            self.assertEqual((d["outcome"], d["reason"]), ("hold", "description_edited_after_approval"), waited)
+        # One said to have begun before it was made, as no run does, shows nothing either: a record made after the
+        # approval is no record older than the act's. A re-run keeps its dispatch, so its first attempt's job, begun
+        # before its last attempt started, is a beginning (decision 0193).
+        odd = dict(run(at="2026-10-11T12:16:00Z"), began_at="2026-10-11T12:15:00Z")
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=[odd]), "")
+        d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), [odd])
+        self.assertEqual((d["outcome"], d["reason"]), ("hold", "description_edited_after_approval"))
+        again = dict(odd, dispatched_at="2026-10-11T12:14:00Z", rerun_by_dispatcher=False)
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=[again]),
+                         "2026-10-11T12:15:00Z")
         # An act on other content, or one that began after the approval, is not the one that read it: the approval is
         # the browser's, anchored at its own time, so the same edit holds nothing.
         for other in (run(intent="issue-approval", content="sha256:0000", at="2026-10-11T12:14:00Z", name="r2"),
