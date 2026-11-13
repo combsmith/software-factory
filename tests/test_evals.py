@@ -3401,8 +3401,7 @@ class EvalJob(unittest.TestCase):
                 cell("finding", None, False, 10), cell("finding", None, True, 0), cell("finding", "PR-3", False, 10),
                 cell("finding", "PR-3", True, 10), cell("met", None, False, 10), cell("met", None, True, 10)])
             # Every case of the floored criterion natural, and one other finding natural too: the natural cases' passes
-            # less the criterion's are that one case's verdict, though each group the report counts holds ten. The ledger
-            # says which cell it is, and how many each holds.
+            # less the criterion's are that one case's verdict, though each group the report counts holds ten.
             one = [("PR-3", "finding", 10, 10), ("PR-4", "finding", 10, 1), ("PR-1", "met", 20, 0)]
             found, place = self.floored(one)
             cells = job.cells_of(found, place)
@@ -3413,15 +3412,14 @@ class EvalJob(unittest.TestCase):
             # as many cases under the same floor, its cases otherwise spread.
             other = job.cells_of(*self.floored([("PR-3", "finding", 10, 5), ("PR-4", "finding", 10, 5), ("PR-1", "met", 20, 3)]))
             self.assertNotEqual(other, cells)
-            # A count's width is the set's own count's, which the manifest gives, and not its cells': ten cases, no cell
-            # of which holds ten.
+            # A count's width is the set's own count's, not its cells': ten cases, no cell of which holds ten.
             self.assertEqual([c["cases"] for c in job.cells_of(*self.floored([("PR-3", "finding", 4, 2), ("PR-1", "met", 6, 3)]))],
                              ["00", "00", "02", "02", "03", "03"])
             self.assertEqual(len(json.dumps(other, indent=2)), len(json.dumps(cells, indent=2)))
             for name, groups in (("nine natural findings beyond the floor", [("PR-3", "finding", 10, 10), ("PR-4", "finding", 19, 9), ("PR-1", "met", 20, 0)]),
                                  ("nine natural cases of the floored criterion", [("PR-3", "finding", 19, 9), ("PR-1", "met", 20, 10)]),
                                  ("one clean case that is not natural", [("PR-3", "finding", 20, 10), ("PR-1", "met", 21, 20)]),
-                                 # A kind is a cell's: five findings beyond the floor and five clean cases, all natural.
+                                 # A kind is a cell's: five findings beyond the floor, five clean, all natural.
                                  ("a kind apart", [("PR-3", "finding", 20, 10), ("PR-4", "finding", 15, 5), ("PR-1", "met", 15, 5)])):
                 self.assertIs(ok(groups), False, name)
             # Ten is enough, and a cell of no case is not a few.
@@ -3430,8 +3428,7 @@ class EvalJob(unittest.TestCase):
             spread = [("PR-3", "finding", 20, 10), ("PR-4", "finding", 10, 5), ("PR-5", "finding", 10, 5), ("PR-1", "met", 20, 10)]
             self.assertEqual((ok(spread), ok(spread, floors={"PR-3": [1, 2], "PR-4": [1, 2]}), ok(spread, floors={})),
                              (True, False, True))
-            # Each floored criterion's cells are its own: two of them, five natural and five not in each, are four cells
-            # of five, and not two of ten.
+            # Each floored criterion's cells are its own: four cells of five, and not two of ten.
             self.assertEqual(job.cells_of(*self.floored([("PR-3", "finding", 10, 5), ("PR-4", "finding", 10, 5), ("PR-1", "met", 20, 10)],
                                                         floors={"PR-3": [1, 2], "PR-4": [1, 2]})),
                              [cell("finding", None, False, 0), cell("finding", None, True, 0),
@@ -3448,9 +3445,8 @@ class EvalJob(unittest.TestCase):
                               if c["criterion"] == "PR-9"], ["00", "00"])
             # Nor is the criterion of a clean case: a floor counts the cases that expect a Finding on it alone.
             self.assertIs(ok([("PR-3", "finding", 20, 10), ("PR-3", "met", 10, 5), ("PR-1", "met", 10, 5)]), True)
-            # Nothing public says any of it, and nothing is stopped: the report holds no word of the cells, its line is as
-            # it was, and its verdict and the pool's pass. A word that every cell is whole, beside the counts a report
-            # gives and the marks a manifest gives by id, could tell which cases a floored criterion's are.
+            # Nothing public says any of it, and nothing is stopped. A word that every cell is whole, beside the counts
+            # a report gives and the marks a manifest gives by id, could tell which cases a floored criterion's are.
             report = self.written(found, place, set())
             self.assertEqual((job._errors(report, "eval-aggregate"), job.floor_short(found, place)), ([], False))
             self.assertNotIn("cells", json.dumps(report))
@@ -3462,8 +3458,8 @@ class EvalJob(unittest.TestCase):
             self.assertIsNone(job.cells_of(development, place))
             (place / "cases" / "c-0.json").unlink()
             self.assertIsNone(job.cells_of(found, place))
-        # The run writes it into the ledger it seals, and the fetch's line and the judge's say nothing of it. Two natural
-        # cases that expect a Finding, one on the criterion the set floors and one on another: each a cell of one.
+        # The run writes it into the ledger it seals, and the fetch's line and the judge's say nothing of it: two natural
+        # cases, one on the floored criterion and one on another, each a cell of one.
         cases = {ident: json.loads(data) for ident, data in self.cases.items()}
         first, other = (cases[ident]["expected"] for ident in cases)
         other["criterion"] = "PR-4" if first["criterion"] != "PR-4" else "PR-3"
