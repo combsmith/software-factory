@@ -243,7 +243,9 @@ def lens_reading(checks: list, lens: dict, config: dict) -> str:
     if not mine:
         return "pending"
     runs = [run_of(c) for c in mine]
-    if False in runs:
+    # A check on the head of the Lens's own App and file, under another name too, whose run or suite is in another form
+    # may be of one of its runs, which share their file: no run is passed over beside it (cubic, CodeAnt).
+    if any(run_of(c) is False for c in checks if from_its_app(c, lens) and from_its_workflow(c, lens)):
         return "unreadable"
     # One run's checks share its suite, whatever Lens each reports for: a run given two suite conclusions anywhere on the
     # head is no reading of it (Muse, Astra).

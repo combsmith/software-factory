@@ -1632,7 +1632,7 @@ class Content(unittest.TestCase):
         # A suite word GitHub does not give is no reading of a suite: the Lens is unreadable, never passed.
         self.assertEqual(reading(cancelled, check("success", 3, "banana")), ("check_unreadable", [lens]))
         for word in ("success", "failure", "neutral", "action_required", "stale", "skipped", "startup_failure"):
-            self.assertNotEqual(reading(check("success", 3, word)), ("check_unreadable", [lens]), word)
+            self.assertEqual(reading(check("success", 3, word)), "issue_approval", word)
         # The other side: a completed failure in a run not cancelled still sticks, beside a later run that passed; and a
         # failing duplicate job in a run not cancelled fails the Lens beside its passing twin (decision 0104).
         self.assertEqual(reading(check("failure", 1, "failure"), check("success", 3, "success")), ("check_failed", [lens]))
@@ -1655,6 +1655,11 @@ class Content(unittest.TestCase):
         # A run given two suite conclusions is no reading of it, so no check of it is passed over by another run (Muse).
         for twin in ("success", None):
             self.assertEqual(reading(cancelled, check("success", 1, twin), check("success", 5, "success")), ("check_unreadable", [lens]))
+        # A check on the head whose run or suite is in another form, under a name no Lens reads, may be of the stopped
+        # run: no run is passed over beside it (cubic, CodeAnt).
+        work = dict(base, name="work", conclusion="cancelled")
+        for wrong in (dict(work, run_id=1, suite_conclusion="banana"), dict(work, run_id="1", suite_conclusion="cancelled")):
+            self.assertEqual(reading(cancelled, check("success", 3, "success"), wrong), ("check_unreadable", [lens]), wrong)
         # Only a failing check waits for its suite: one that gave no verdict, its suite not concluded, is unreadable.
         self.assertEqual(reading(check("neutral", 3, None)), ("check_unreadable", [lens]))
         # A field in its own form is read first, whatever the other says, a null run among them.

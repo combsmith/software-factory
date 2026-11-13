@@ -661,6 +661,8 @@ ISSUE = [
      'if "run_id" not in check or "suite_conclusion" not in check or', 'if "run_id" not in check or', ('tests.test_decide.Content.test_a_cancelled_runs_checks_are_superseded_by_another_run_of_the_lens_on_the_head',)),
     ("a run in another form is read as none", 'kernel/derive.py',
      'and check["run_id"] >= 1):\n        return False', 'and check["run_id"] >= 1):\n        return None', ('tests.test_decide.Content.test_a_cancelled_runs_checks_are_superseded_by_another_run_of_the_lens_on_the_head',)),
+    ("a run in another form under another name is read", 'kernel/derive.py',
+     'if any(run_of(c) is False for c in checks if', 'if any(run_of(c) is False for c in mine if', ('tests.test_decide.Content.test_a_cancelled_runs_checks_are_superseded_by_another_run_of_the_lens_on_the_head',)),
     ("a suite in another form is read as none", 'kernel/derive.py',
      'in t.SUITE_CONCLUSIONS):\n        return False', 'in t.SUITE_CONCLUSIONS):\n        return None', ('tests.test_decide.Content.test_a_cancelled_runs_checks_are_superseded_by_another_run_of_the_lens_on_the_head',)),
     ("a run given two suite conclusions is read", 'kernel/derive.py',
