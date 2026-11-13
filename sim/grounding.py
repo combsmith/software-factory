@@ -63,9 +63,10 @@ RULES = (
     # trials/P-42.json: neutral, skipped and cancelled each kept an hour after the last post, and a job stopped at its
     # timeout concluded cancelled, with its check run and its run (issue 388; a step's own timeout fails,
     # trials/P-42.step-timeout.json). P-42 saw no timed_out and no stale: the rule below says why they stay (issue 496).
+    # trials/P-42.port.json: the port's own read of that head ten days on gives each the same conclusion (issue 807).
     ("a_check_can_time_out_or_give_no_verdict", "A required check can time out, concluding cancelled, or give no "
      "verdict, neutral or skipped, and keeps that conclusion until the content changes or a person runs it again",
-     ("P-42",), "trials/P-42.port.json", None),
+     ("P-42",), ("trials/P-42.json", "trials/P-42.port.json"), None),
     ("a_check_concludes_timed_out_or_stale", "A required check can conclude timed_out or stale, which the checks API "
      "lists as conclusions", (), None,
      "assumed, no trial can ask it: GitHub concluded a job stopped at its timeout cancelled (trials/P-42.json), and it "
@@ -74,19 +75,22 @@ RULES = (
     # trials/P-42.rollup.json: the status rollup the port reads held the same runs as filter=latest, by id, name, suite
     # and App, five Apps on one head. It left out a run its job's re-run replaced, and a check a job created that a later
     # one created under its name replaced; a job's run and a created check of one name both stayed there, as in
-    # trials/P-35.json (issue 496).
+    # trials/P-35.json (issue 496). trials/P-42.port.json: the port's own read of two such heads, every check run read
+    # with its name and App, against the fixture's own nodes (issue 807).
     ("a_check_is_read_by_name_from_every_app", "Every check run on the head is read with its exact name and the id of "
      "the App that reported it, from every App, never merged or renamed; the status rollup leaves out only a run that "
      "its job's re-run, or a later check created under its name in its suite, replaced", ("P-42",),
-     "trials/P-42.port.json", None),
+     ("trials/P-42.rollup.json", "trials/P-42.port.json"), None),
     # trials/P-42.rollup.json: a re-run replaced its own run in the status rollup and the other suite's run of the name
     # stayed, and a later check a job created under a name replaced the one created earlier in its suite; trials/P-35.json
     # shows a job's run and a created check of one name both kept there, either first. One job's re-run also gave its
     # run's other jobs new check runs with their old conclusions, which changes no verdict (issue 496).
+    # trials/P-42.port.json: the port's own read of that head ten days on holds the re-run's check run, not the one it
+    # replaced, and the other suite's beside it (issue 807).
     ("a_rerun_replaces_only_its_own_run", "A re-run of a job replaces only that job's earlier run, in its own check "
      "suite, and a check a job creates replaces only one created earlier under its name there; a job's run and a "
      "created check of one name both stay, and so do two workflow runs on one commit", ("P-42",),
-     "trials/P-42.port.json", None),
+     ("trials/P-42.rollup.json", "trials/P-42.port.json"), None),
     # trials/P-65.json: on canary pull request 102 each cancelled run's suite and workflow run concluded cancelled, its
     # if: always() judging check failure; the push back to A and the reopening each started a run with a suite of its
     # own beside the cancelled one's, which stayed; a re-run kept its run's id and suite, the rollup giving its latest
@@ -98,9 +102,11 @@ RULES = (
      "if: always() judging check failure, and stays on its head beside a later run of the same file that a push back to "
      "the head, a reopening or a re-run of an earlier run starts; no run's id says which is later", ("P-65",),
      "trials/P-65.json", None),
+    # trials/P-42.json: the pr-review App and an Actions job each posted under p2-queue-check; trials/P-42.port.json: the
+    # port's own read of pull request 65's head, a fortnight on, still holds the job's (issue 807).
     ("any_app_posts_a_check_under_any_name", "Any App with checks: write can post a check run under any name, a "
-     "required Lens's too, and it stays on that head: a check run cannot be deleted", ("P-42",), "trials/P-42.port.json",
-     None),
+     "required Lens's too, and it stays on that head: a check run cannot be deleted", ("P-42",),
+     ("trials/P-42.json", "trials/P-42.port.json"), None),
     ("a_check_is_read_with_its_own_jobs_file", "A check run GitHub Actions reports is read with the path of its check "
      "suite's workflow run only where its details are that job's own, with the permissions the reader and the Controller "
      "hold. A check a job creates with GITHUB_TOKEN lands in the first Actions suite on the head, with that suite's path "

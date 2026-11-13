@@ -4380,10 +4380,10 @@ class Contract(unittest.TestCase):
                 and r["dismissed_by"]["kind"] == "app" for r in reviewed)),
             "a_push_is_new_content": ({"P-29.base"}, before != after),
             "a_check_names_its_run_and_suite": ({"P-65"}, self.run_and_suite_read()),
-            "any_app_posts_a_check_under_any_name": ({"P-42.port"}, self.posted_under_a_name_read()),
-            "a_check_is_read_by_name_from_every_app": ({"P-42.port"}, self.every_apps_name_read()),
-            "a_rerun_replaces_only_its_own_run": ({"P-42.port"}, self.one_of_a_name_in_each_suite_read()),
-            "a_check_can_time_out_or_give_no_verdict": ({"P-42.port"}, self.no_verdict_kept_read()),
+            "any_app_posts_a_check_under_any_name": ({"P-42", "P-42.port"}, self.posted_under_a_name_read()),
+            "a_check_is_read_by_name_from_every_app": ({"P-42.rollup", "P-42.port"}, self.every_apps_name_read()),
+            "a_rerun_replaces_only_its_own_run": ({"P-42.rollup", "P-42.port"}, self.rerun_replaced_its_own_read()),
+            "a_check_can_time_out_or_give_no_verdict": ({"P-42", "P-42.port"}, self.no_verdict_kept_read()),
             "a_cancelled_run_stays_beside_a_later_run": ({"P-65"}, self.cancelled_beside_read()),
             "a_description_edit_moves_its_time": ({"P-58", "P-58.reader", "P-58.deleted"}, self.description_edit_read()),
             "an_app_edits_a_description": ({"P-58", "P-58.reader", "P-58.deleted"}, self.app_edit_read()),
@@ -4465,55 +4465,76 @@ class Contract(unittest.TestCase):
 
     def p42_port(self, number: int) -> tuple:
         """P-42.port: the checks of the head of a canary pull request P-42 or P-65 left, by the port's own read replayed
-        from the fixture, and each check run's node as GitHub gave it (issue 807)."""
+        from the fixture, and, apart from the port, each check run's node as the fixture holds it (issue 807)."""
         found = next(e for e in exchanges("P-42.port") if e["request"]["body"]["variables"]["number"] == number)
-        head = found["response"]["body"]["data"]["repository"]["pullRequest"]["headRefOid"]
-        pull = {"number": number, "base": {"repo": {"full_name": canary()}}, "head": {"sha": head}}
-        kept = {}
-        read = checks.read(github.Replay([found]), pull, kept)
-        return read, kept["check_runs"][0]
+        pr = found["response"]["body"]["data"]["repository"]["pullRequest"]
+        nodes = [n for n in pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
+                 if n["__typename"] == "CheckRun"]
+        pull = {"number": number, "base": {"repo": {"full_name": canary()}}, "head": {"sha": pr["headRefOid"]}}
+        return checks.read(github.Replay([copy.deepcopy(found)]), pull), nodes
+
+    @staticmethod
+    def p42_rollup_ids(at: int, name: str) -> set:
+        """P-42.rollup: the ids of the check runs of `name` its rollup read at exchange `at` held."""
+        return {n["databaseId"] for n in rollup("P-42.rollup", at) if n.get("name") == name}
 
     def posted_under_a_name_read(self) -> bool:
-        """P-42.port: on pull request 65's head, the required check's name is read twice, from its own workflow's run and
-        as a job of another workflow created it, with no file, and it stays."""
+        """P-42: the pr-review App posted under the required check's name, p2-queue-check, beside an Actions job. P-42.port:
+        a fortnight on, pull request 65's head still holds the name twice, from its own workflow's run and as a job of
+        another workflow created it, with no file: it stayed."""
+        posted = {r["app"]["id"] for r in exchanges("P-42")[29]["response"]["body"]["check_runs"] if r["name"] == "p2-queue-check"}
         read, _ = self.p42_port(65)
-        return read["complete"] is True and {(c["app_id"], c["workflow"], c["run_id"]) for c in read["checks"]
-                                              if c["name"] == "p2-queue-check"} == {
+        return posted >= {5364144, 15368} and read["complete"] is True and {
+            (c["app_id"], c["workflow"], c["run_id"]) for c in read["checks"] if c["name"] == "p2-queue-check"} == {
             (15368, ".github/workflows/p2-queue.yml", 40680238410), (15368, None, 40680231375)}
 
     def every_apps_name_read(self) -> bool:
-        """P-42.port: every check run of a head is read with its exact name and its App's id, from every App, none merged
-        or renamed: on 65, three Apps, and on 92, four."""
+        """P-42.port: every check run of each head is read with its exact name and its App's id, from every App, none
+        merged, renamed or left out, against the fixture's own nodes: on 65, three Apps, and on 92, four. P-42.rollup: 92's
+        rollup after the re-run held the same check runs, so it left out only what the re-run replaced."""
         apps = {}
         for number in (65, 92):
             read, nodes = self.p42_port(number)
-            if read["complete"] is not True or len(read["checks"]) != len(nodes):
-                return False
-            if [(c["name"], c["app_id"]) for c in read["checks"]] != [(n["name"], n["checkSuite"]["app"]["databaseId"])
-                                                                      for n in nodes]:
+            if read["complete"] is not True or [(c["name"], c["app_id"]) for c in read["checks"]] != [
+                    (n["name"], n["checkSuite"]["app"]["databaseId"]) for n in nodes]:
                 return False
             apps[number] = {c["app_id"] for c in read["checks"]}
-        return apps == {65: {15368, 57789, 347564}, 92: {15368, 57789, 347564, 12526}}
+        _, nodes = self.p42_port(92)
+        after = {n["databaseId"] for n in rollup("P-42.rollup", 7) if n.get("__typename", "CheckRun") == "CheckRun"}
+        return apps == {65: {15368, 57789, 347564}, 92: {15368, 57789, 347564, 12526}} and \
+            {n["databaseId"] for n in nodes if n["checkSuite"]["app"]["databaseId"] == 15368} <= after
 
-    def one_of_a_name_in_each_suite_read(self) -> bool:
-        """P-42.port: on pull request 92's head, after P-42.rollup's re-run of p42 / timed-out, each name is read once in
-        each workflow run, and both runs of p42-checks.yml on the one commit stay, each with its own id."""
-        read, _ = self.p42_port(92)
-        by_run = {}
-        for c in read["checks"]:
-            by_run.setdefault(c["run_id"], []).append(c["name"])
-        timed_out = {c["run_id"] for c in read["checks"] if c["name"] == "p42 / timed-out"}
-        return (read["complete"] is True and all(len(names) == len(set(names)) for run, names in by_run.items() if run)
-                and timed_out == {41572974588, 41572979188})
+    def rerun_replaced_its_own_read(self) -> bool:
+        """P-42.rollup: the re-run of p42 / timed-out in pull request 92's pull_request run, 41572979188, replaced that
+        run's check run, 125709941739, by 125717225206, and the push run's, 125709927768, stayed. P-42.port: ten days on,
+        the port reads 92's head so, both runs of p42-checks.yml on the one commit each with its own id."""
+        before, after = self.p42_rollup_ids(2, "p42 / timed-out"), self.p42_rollup_ids(7, "p42 / timed-out")
+        read, nodes = self.p42_port(92)
+        timed_out = {(n["databaseId"], c["run_id"]) for n, c in zip(nodes, read["checks"]) if c["name"] == "p42 / timed-out"}
+        return (before == {125709941739, 125709927768} and after == {125717225206, 125709927768} and read["complete"] is True
+                and timed_out == {(125717225206, 41572979188), (125709927768, 41572974588)})
 
     def no_verdict_kept_read(self) -> bool:
-        """P-42.port: on pull request 92's head a fortnight on, the job stopped at its limit is still cancelled, and the
-        neutral and skipped checks still give no verdict, in each run that holds them."""
+        """P-42: the job held to its limit was stopped at it, GitHub's annotation saying so, and concluded cancelled.
+        P-42.port: ten days on, pull request 92's head still reads that job cancelled, and its neutral and skipped checks
+        still give no verdict."""
+        said = json.dumps(exchanges("P-42")[42]["response"]["body"])
         read, _ = self.p42_port(92)
-        said = {(c["name"], c["conclusion"]) for c in read["checks"]
+        kept = {(c["name"], c["conclusion"]) for c in read["checks"]
                 if c["name"] in ("p42 / timed-out", "p42 / neutral", "p42 / skipped")}
-        return read["complete"] is True and said == {("p42 / timed-out", "cancelled"), ("p42 / neutral", "neutral"),
-                                                      ("p42 / skipped", "skipped")}
+        return "maximum execution time" in said and read["complete"] is True and kept == {
+            ("p42 / timed-out", "cancelled"), ("p42 / neutral", "neutral"), ("p42 / skipped", "skipped")}
+
+    def test_each_head_p42_port_read_is_read_whole_by_the_port(self):  # issue 807
+        # Every read the sitting recorded is one the port reads whole, of its own head, every check run in it: 65, 92, 73
+        # and 102, the last as P-65 recorded it.
+        for number in (65, 92, 73, 102):
+            read, nodes = self.p42_port(number)
+            self.assertIs(read["complete"], True, number)
+            self.assertEqual([(c["name"], c["run_id"]) for c in read["checks"]],
+                             [(n["name"], (n["checkSuite"]["workflowRun"] or {}).get("databaseId")) for n in nodes], number)
+        p65 = {(c["name"], c["run_id"], c["conclusion"]) for c in self.p65_read()}
+        self.assertLessEqual(p65, {(c["name"], c["run_id"], c["conclusion"]) for c in self.p42_port(102)[0]["checks"]})
 
     def run_and_suite_read(self) -> bool:
         """P-65: each check run carries its workflow run's id and its suite's conclusion, and the re-run of R1 kept R1's
