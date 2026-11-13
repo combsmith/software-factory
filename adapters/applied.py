@@ -40,6 +40,9 @@ the current head, at or after any earlier Run's, and no other order of heads can
 content supersedes nothing. A thread every Run that recorded it is superseded need not be in the read: a fresh review
 releases a pull request held by a thread that is gone, and raises the problem again on a thread of its own if it
 stands. A thread the superseding Run also records is still held to its opener; the join is unchanged.
+
+Such a thread still in the read, opened by its Lens, is said `dropped` (decision 0212), and keeps its category, severity
+and ruling: what it means is the Kernel's to read (`kernel/derive.py`'s `as_read`). Any other thread says nothing of it.
 """
 from __future__ import annotations
 
@@ -184,13 +187,16 @@ def superseded(read: list, content_id) -> set:
 def held(found: list, whole: bool, recorded_: tuple, content_id=None) -> tuple:
     """`(threads, whole)`: the threads read with each Lens thread's category and severity joined from its Finding, and
     whole only when the read was and every recorded thread is in it, opened by the Lens that recorded it, but for one
-    every Run that recorded it is superseded by a later review of its Lens on `content_id`, the current content."""
+    every Run that recorded it is superseded by a later review of its Lens on `content_id`, the current content; such
+    a thread still in the read is said `dropped`."""
     threads, recorded_whole = recorded_[0], recorded_[1]
     later = superseded(recorded_[2] if len(recorded_) > 2 else [], content_id)
+    past = {key for key, finding in threads.items()
+            if finding.get("runs") and all(run in later for run in finding["runs"])}
     whole = whole and recorded_whole
     by_id = {th["id"]: th for th in found}
     for key, finding in threads.items():
-        if finding.get("runs") and all(run in later for run in finding["runs"]):
+        if key in past:
             continue
         th = by_id.get(key)
         if th is None or th["opened_by"] != {"kind": "lens", "name": finding["lens"], "can_write": False}:
@@ -200,6 +206,8 @@ def held(found: list, whole: bool, recorded_: tuple, content_id=None) -> tuple:
         finding = threads.get(th["id"])
         if th["opened_by"]["kind"] == "lens" and finding is not None and finding["lens"] == th["opened_by"]["name"]:
             th = dict(th, category=finding["category"], severity=finding["severity"], ruling=finding.get("ruling"))
+            if th["id"] in past:
+                th["dropped"] = True
         joined.append(th)
     return joined, whole
 

@@ -1117,6 +1117,190 @@ class OnlyAPersonEnds(unittest.TestCase):
         go(expired, [old, fresh])
         self.assertEqual(repr(expired), before)
 
+    def test_a_push_after_a_lenss_review_while_its_thread_gates_asks_that_review_again(self):  # issue 833
+        # A push that leaves the diff as it was, a merge of the base, is content the Lens has reviewed: while that
+        # Lens's own thread gates, its review is asked for again. As pull request 847 stood: the review started at
+        # minute 16, its thread opened at minute 20, and the base was merged in at minute 45.
+        held = facts(threads=[thread(at=at(20))], last_push_at=at(45))
+        first = run(at=at(16))
+        d = go(held, [first])
+        self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["admit"]),
+                         ("verifying", "awaiting_review", ["pr-review"], "admit", REVIEW_IT))
+        # A review of this content that started after the push answers it: what it raised again gates, on its own thread.
+        again = run(name="r2", at=at(50))
+        raised = thread(tid="T2", at=at(52))
+        d = go(dict(held, threads=held["threads"] + [raised]), [first, again])
+        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "findings_open", ["T1", "T2"]))
+        # The other side: with no push since its review began, the thread is the author's as before.
+        self.assertEqual(go(dict(held, last_push_at=at(15)), [first])["reason"], "findings_open")
+        # A review that began in the push's own second may have read the head before it: it is asked for again.
+        self.assertEqual(go(dict(held, last_push_at=at(16)), [first])["reason"], "awaiting_review")
+        self.assertEqual(go(dict(held, last_push_at=at(50)), [first, again])["reason"], "awaiting_review")
+        # Only that Lens's review of this content that succeeded answers the push; one still running is waited on.
+        for later_run in (dict(again, conclusion="failure", outcome="environment"), dict(again, content_id="sha256:bbbb"),
+                          dict(again, started_at="yesterday"),
+                          dict(again, role="security-review"), dict(again, intent="adjudicate-findings"),
+                          dict(again, item=dict(again["item"], number=again["item"]["number"] + 1))):
+            d = go(held, [first, later_run])
+            self.assertEqual((d["reason"], d["outcome"]), ("awaiting_review", "admit"), later_run)
+        d = go(held, [first, dict(again, status="in_progress", conclusion=None)])
+        self.assertEqual((d["reason"], d["outcome"]), ("awaiting_review", "nothing"))
+        # Only a thread of that Lens that gates and still stands asks.
+        other_lens = thread(kind="lens", name="coderabbit", at=at(20))
+        for th, reason in ((thread(severity="minor", at=at(20)), "approval_due"),
+                           (thread(resolved=True, resolved_by=dict(MAINTAINER), at=at(20)), "approval_due"),
+                           (thread(kind="human", name="don-petry", severity=None, at=at(20)), "human_finding"),
+                           (other_lens, "approval_due"),
+                           (thread(ruling="accepted", at=at(20)), "resolve_due"),
+                           (dict(thread(at=at(20)), dropped=True), "resolve_due")):
+            runs = [first, again] if th.get("dropped") else [first]
+            self.assertEqual(go(dict(held, threads=[th]), runs)["reason"], reason, th)
+        # A push at no time that can be read asks nothing.
+        for undated in ("yesterday", "2026-10-11T12:45:60Z"):
+            self.assertEqual(go(dict(held, last_push_at=undated), [first])["reason"], "findings_open", undated)
+        # A security Finding's thread asks as any gating thread does, at any severity.
+        d = go(dict(held, threads=[thread(category="security", severity="info", at=at(20))]), [first])
+        self.assertEqual(d["reason"], "awaiting_review")
+        # A queued item is never read past its gate for the review: it leaves the queue.
+        d = go(dict(held, queue=True, reviews=APPROVED), [first])
+        self.assertEqual((d["reason"], d.get("action")), ("gate_open", "dequeue"))
+        # The Run ceiling bounds it.
+        spent = [first] + [run(conclusion="failure", outcome="capacity", at=at(17 + i), name="e%d" % i)
+                           for i in range(LIMITS["max_runs_per_item"] - 1)]
+        self.assertEqual(go(held, spent)["reason"], "run_ceiling")
+
+    def test_a_thread_its_lenss_later_review_dropped_is_the_kernels_to_resolve(self):  # issue 833
+        # A Lens's thread the port says a later review of that Lens dropped (`dropped`, by the records and never a
+        # comment's text) is no longer the author's to answer: what still stands, that review raised on a thread of
+        # its own. It is the Kernel's to resolve, as an expired Run's thread is (decisions 0086 and 0125).
+        old, fresh = run(at=at(10)), run(name="r2", at=at(30))
+        gone = dict(thread(at=at(15)), dropped=True)
+        held = facts(threads=[gone], last_push_at=at(25))
+        d = go(held, [old, fresh])
+        self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["action"]),
+                         ("adjudicating", "resolve_due", ["T1"], "act", "resolve_thread"))
+        # Every row of issue 833's table, for a thread the later review dropped and for one it did not.
+        plain = thread(at=at(15))
+        for th, reason in ((plain, "findings_open"), (dict(plain, ruling="rejected"), "findings_open"),
+                           (dict(plain, ruling="accepted"), "resolve_due"), (dict(gone, ruling="accepted"), "resolve_due"),
+                           # One its Lens ruled rejected stands, whatever a review said: the ruling may be the later word.
+                           (dict(gone, ruling="rejected"), "findings_open")):
+            self.assertEqual(go(dict(held, threads=[th]), [old, fresh])["reason"], reason, th)
+        # Resolved by the Lens's own App, the machine user, the author's App or another Lens's, either stays open: no
+        # Role closes a Finding by resolving it (L-17).
+        another_lens = dict(REVIEWER_APP, name="security-review")
+        for who in (REVIEWER_APP, MACHINE, AUTHOR_APP, another_lens, ADVISORY, STRANGER):
+            for th in (plain, gone):
+                d = go(dict(held, threads=[dict(th, resolved=True, resolved_by=dict(who))]), [old, fresh])
+                self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "findings_open", ["T1"]),
+                                 (who, th))
+        # Resolved by a person with write access, either is closed; by the queue App, only the one the review dropped.
+        for th in (plain, gone):
+            done = dict(th, resolved=True, resolved_by=dict(MAINTAINER))
+            self.assertEqual(go(dict(held, threads=[done]), [old, fresh])["action"], "issue_approval", th)
+        by_queue = dict(resolved=True, resolved_by=dict(QUEUE_APP))
+        self.assertEqual(go(dict(held, threads=[dict(gone, **by_queue)]), [old, fresh])["action"], "issue_approval")
+        self.assertEqual(go(dict(held, threads=[dict(plain, **by_queue)]), [old, fresh])["reason"], "findings_open")
+        # A mark the facts arrive with is no fact.
+        self.assertEqual(go(dict(held, threads=[dict(plain, superseded=True)]), [old, fresh])["reason"], "findings_open")
+        # What the later review raised again gates on a thread of its own: the earlier one is resolved first.
+        again = thread(tid="T2", at=at(32))
+        d = go(dict(held, threads=[gone, again]), [old, fresh])
+        self.assertEqual((d["reason"], d["evidence"]), ("resolve_due", ["T1"]))
+        d = go(dict(held, threads=[dict(gone, **by_queue), again]), [old, fresh])
+        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "findings_open", ["T2"]))
+        # The other side: the word is read only where the head is newer than the thread and the review is of that head.
+        # With no push since the thread opened, as when a Run that failed is tried again, the thread is the author's
+        # as before; with no review since the push, the review is asked for again.
+        for pushed, runs, reason in ((at(5), [old, fresh], "findings_open"), (at(15), [old, fresh], "findings_open"),
+                                     ("2026-10-11T12:25:60Z", [old, fresh], "findings_open"),
+                                     (at(25), [old], "awaiting_review"), (at(30), [old, fresh], "awaiting_review"),
+                                     (at(25), [old, dict(fresh, status="in_progress")], "awaiting_review"),
+                                     (at(25), [old, dict(fresh, started_at="yesterday")], "awaiting_review"),
+                                     (at(40), [old, fresh], "awaiting_review")):
+            self.assertEqual(go(dict(held, last_push_at=pushed), runs)["reason"], reason, (pushed, runs))
+        # Nor is a word that is no yes or no read; a no is a thread the review did not drop.
+        for odd in (None, "true", 1, 0, []):
+            d = go(dict(held, threads=[dict(plain, dropped=odd)]), [old, fresh])
+            self.assertEqual((d["state"], d["reason"]), (None, "thread_unreadable"), odd)
+        self.assertEqual(go(dict(held, threads=[dict(plain, dropped=False)]), [old, fresh])["reason"], "findings_open")
+        # Run records that cannot be read bear nothing out: the facts are incomplete.
+        short = dict(held, complete=dict(held["complete"], runs=False))
+        self.assertEqual(derive.derive(short, None, CONFIG)["reason"], "facts_incomplete")
+        self.assertEqual(go(short, [old, None])["reason"], "facts_incomplete")
+        # An opening time that cannot be read is before no push.
+        late = dict(gone, opened_at="2026-10-11T12:15:60Z")
+        self.assertEqual(go(dict(held, threads=[late]), [old, fresh])["reason"], "findings_open")
+        # Nor is a thread whose category cannot be read: it may be a security Finding's, and nothing closes it.
+        for category in (None, "bogus"):
+            unread = dict(gone, category=category, **by_queue)
+            self.assertEqual(go(dict(held, threads=[unread]), [old, fresh])["reason"], "thread_unreadable", category)
+        # A security Finding is never closed on a review that did not raise it again (decisions 0007 and 0086).
+        secure = dict(gone, category="security", severity="minor")
+        d = go(dict(held, threads=[secure]), [old, fresh])
+        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "findings_open", ["T1"]))
+        self.assertEqual(go(dict(held, threads=[dict(secure, **by_queue)]), [old, fresh])["reason"], "findings_open")
+        # Nor is it the Kernel's to resolve on a ruling, were the facts to carry one.
+        accepted = dict(plain, category="security", ruling="accepted")
+        self.assertEqual(go(dict(held, threads=[accepted]), [old, fresh])["reason"], "findings_open")
+        # Only a Lens's thread is dropped by a review: on a person's, or an App's, the word says nothing.
+        person = dict(thread(kind="human", name="don-petry", severity=None, at=at(15)), dropped=True)
+        self.assertEqual(go(dict(held, threads=[person]), [old, fresh])["reason"], "human_finding")
+        # A person's gate comes first, as for any act; and a queued item with the thread open leaves the queue.
+        human = thread(tid="T9", kind="human", name="don-petry", severity=None, at=at(31))
+        self.assertEqual(go(dict(held, threads=[gone, human]), [old, fresh])["reason"], "human_finding")
+        d = go(dict(held, queue=True, reviews=APPROVED), [old, fresh])
+        self.assertEqual((d["reason"], d["evidence"], d.get("action")), ("gate_open", ["T1"], "dequeue"))
+        # What the Kernel was given is not changed by its reading.
+        before = repr(held)
+        go(held, [old, fresh])
+        self.assertEqual(repr(held), before)
+
+    def test_resolve_thread_never_names_a_thread_still_raised_or_unreadable(self):  # L-17, issue 833
+        # Until the queue App exists a hand carries out `resolve_thread`. Whatever the thread, the push and the
+        # records, the act names only a Lens's open thread, never a security Finding's, with no person's gate open: one
+        # its Lens accepted, one a review of a newer head dropped, or an expired Run's, which alone has no category.
+        old, fresh = run(at=at(10)), run(name="r2", at=at(30))
+        records = ([old], [old, fresh], [old, dict(fresh, conclusion="failure", outcome="environment")],
+                   [old, dict(fresh, content_id="sha256:bbbb")], [old, dict(fresh, role="security-review")],
+                   [old, dict(fresh, intent="adjudicate-findings")], [old, dict(fresh, started_at=at(15))],
+                   [old, dict(fresh, started_at="yesterday")], [old, dict(fresh, status="in_progress", conclusion=None)],
+                   [old, dict(fresh, item=dict(fresh["item"], number=fresh["item"]["number"] + 1))])
+
+        def reviewed(runs, pushed) -> bool:
+            return at(15) < pushed and any(
+                r["role"] == "pr-review" and r["intent"] == "review-change" and r["conclusion"] == "success"
+                and r["content_id"] == "sha256:aaaa" and r["item"] == old["item"] and pushed < r["started_at"] < "2027"
+                for r in runs)
+        named = set()
+        for word in ("absent", True, False, "yes"):
+            for category, severity in (("functional", "major"), ("security", "minor"), ("functional", "minor"), (None, None)):
+                for ruling in (None, "accepted", "rejected"):
+                    for by in (None, dict(MAINTAINER), dict(QUEUE_APP)):
+                        th = thread(at=at(15), category=category, severity=severity, ruling=ruling,
+                                    resolved=by is not None, resolved_by=by)
+                        if word != "absent":
+                            th["dropped"] = word
+                        for runs in records:
+                            for others in ([], [thread(tid="T9", kind="human", name="don-petry", severity=None)]):
+                                for pushed in (at(5), at(20), at(40)):
+                                    for gone in ([], ["r1"]) if category is None else ([],):
+                                        d = go(facts(threads=[th] + others, last_push_at=pushed, expired_reviews=gone), runs)
+                                        case = (word, category, ruling, by, runs, pushed, gone)
+                                        if word == "yes":       # no yes or no: nothing is read from the thread
+                                            self.assertEqual(d["reason"], "thread_unreadable", case)
+                                        if d["reason"] != "resolve_due":
+                                            continue
+                                        self.assertEqual((d["evidence"], d["state"], others, by),
+                                                         (["T1"], "adjudicating", [], None), case)
+                                        self.assertNotEqual(category, "security", case)
+                                        dropped = (word is True and category == "functional" and ruling != "rejected"
+                                                   and reviewed(runs, pushed))
+                                        self.assertTrue(ruling == "accepted" or dropped or (category is None and gone), case)
+                                        named.add("accepted" if ruling == "accepted" else "dropped" if dropped else "expired")
+        # The other side: the act is asked for, of each kind.
+        self.assertEqual(named, {"accepted", "dropped", "expired"})
+
     def test_a_thread_whose_resolution_cannot_be_read_defers(self):  # I-13
         # A thread says whether it is resolved, exactly, and a resolved one says who resolved it: without them, a
         # person's thread could be read as closed. One that is not resolved names nobody.

@@ -548,7 +548,9 @@ placed, only a person ends:
   author agent resolving the threads that hold it closes none, and nor does the Lens's own App
   (decision 0086). A thread whose Run's record is past retention has no ruling: the queue App
   closes it once a later review by its Lens has run, and until then it gates at any severity
-  (decision 0125). A thread that gates nothing is closed by whoever resolves it.
+  (decision 0125). So does it close one that a review of a head pushed after the thread opened no
+  longer records, but for a security Finding's, one of a category the Kernel does not know and one
+  its Lens ruled rejected (decision 0212). A thread that gates nothing is closed by whoever resolves it.
 - Only the approver's approval stands, and only a person ends a request for changes.
 - `label_events` carry who added and who removed each label, from the timeline. The port gives them
   as the timeline lists them, and the Kernel reads them by time. Which of two events in the same
