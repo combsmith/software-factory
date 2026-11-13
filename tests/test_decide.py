@@ -4301,7 +4301,7 @@ class TheFactorysOwnRules(unittest.TestCase):
         # The job's modules stay on the list, through the Harness (decision 0052).
         self.assertEqual(self.waits_for_a_person(changing(**AGENT, changed_paths=["harness/eval/run.py"]))["evidence"], ["harness/"])
 
-    def test_a_change_to_a_path_only_a_person_decides_waits_for_a_person(self):  # decisions 0200 and NNNN
+    def test_a_change_to_a_path_only_a_person_decides_waits_for_a_person(self):  # decisions 0200 and 0207
         self.assertEqual(self.PERSONS, ["release/decision-points.json"])
         self.assertEqual(CONFIG["person_only_paths"], self.PERSONS)
         alone = "path_needs_person"
@@ -4355,7 +4355,7 @@ class TheFactorysOwnRules(unittest.TestCase):
             d = go(changing(**AGENT, changed_paths=[path]), REVIEWED)
             self.assertNotIn(d["reason"], (alone, "model_lens_input_needs_person"), path)
 
-    def test_the_wait_is_named_for_a_model_lenss_input_wherever_the_change_touches_one(self):  # decision NNNN
+    def test_the_wait_is_named_for_a_model_lenss_input_wherever_the_change_touches_one(self):  # decision 0207
         person, lens = self.PERSONS[0], "roles/pr-review.json"
         # A person-only path beside a path on no list keeps its own code.
         d = self.waits_for_a_person(changing(**AGENT, changed_paths=["docs/notes.md", person]), reason="path_needs_person")
@@ -4371,21 +4371,17 @@ class TheFactorysOwnRules(unittest.TestCase):
         for paths in ([person], [person, lens]):
             d = go(dict(changing(**AGENT, changed_paths=paths), reviews=[review(kind="human", name="a-colleague")]), REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approval_due", "issue_approval"))
-        # A path the configuration lists as both is one a person decides, and is named so; a Lens's input beside it
-        # that is on the Lens's list alone still gives the Lens's code. Each pattern is named once.
-        both = config(person_only_paths=self.PERSONS + ["harness/"])
-        d = self.waits_for_a_person(changing(**AGENT, changed_paths=["harness/task.py"]), cfg=both, reason="path_needs_person")
-        self.assertEqual(d["evidence"], ["harness/"])
-        d = self.waits_for_a_person(changing(**AGENT, changed_paths=["harness/task.py", lens, person]), cfg=both)
-        self.assertEqual(d["evidence"], ["roles/pr-review.*", "harness/", person])
-        twice = config(person_only_paths=self.PERSONS + self.PERSONS)
-        d = self.waits_for_a_person(changing(**AGENT, changed_paths=[person]), cfg=twice, reason="path_needs_person")
-        self.assertEqual(d["evidence"], [person])
-        # A model Lens's input alone is never named a person-only path.
+        # Each pattern is named once, however often the configuration names it, on either list.
+        for twice in (config(person_only_paths=self.PERSONS + self.PERSONS),
+                      config(model_lens_inputs=self.OWN, person_only_paths=self.PERSONS + self.PERSONS)):
+            d = self.waits_for_a_person(changing(**AGENT, changed_paths=[person]), cfg=twice, reason="path_needs_person")
+            self.assertEqual(d["evidence"], [person])
+        # A model Lens's input alone is never named a person-only path, and no path the change leaves alone is named.
         for pattern in self.OWN:
-            self.waits_for_a_person(changing(**AGENT, changed_paths=[example(pattern)]))
+            d = self.waits_for_a_person(changing(**AGENT, changed_paths=[example(pattern)]))
+            self.assertEqual(d["evidence"], [pattern])
 
-    def test_an_unreadable_list_of_person_only_paths_defers_for_the_maintainer(self):  # decision NNNN, I-13
+    def test_an_unreadable_list_of_person_only_paths_defers_for_the_maintainer(self):  # decision 0207, I-13
         f = changing(**AGENT, changed_paths=["docs/notes.md"])
         for rules in ("missing", None, "release/", {}, [""], [5], ["/"], ["release/../x"], self.PERSONS + [None]):
             cfg = config()

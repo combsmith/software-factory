@@ -294,7 +294,7 @@ def readable_rules(config: dict) -> bool:
     among them: each a list of at least one pattern, each in its shape (readable_pattern). The Controller builds both
     from the base branch's config/hooks.json, never the head's, by one function (decision 0020, issue 140). A list that
     is empty, or not there, would let a change to the Factory's own rules, or to what a model Lens is given, pass as any
-    other (I-13). And the paths only a person decides, by which that wait is named (decision NNNN): a list of patterns
+    other (I-13). And the paths only a person decides, by which that wait is named (decision 0207): a list of patterns
     in the same shape, which may name none, and is never taken as none where it is not there."""
     persons = config.get("person_only_paths")
     return all(isinstance(rules, list) and len(rules) > 0 and all(readable_pattern(p) for p in rules)
@@ -380,7 +380,7 @@ def lens_inputs_touched(facts: dict, config: dict) -> list:
 
 def person_only_touched(facts: dict, config: dict) -> list:
     """Each path only a person decides that this pull request changes, as the configuration names it, once, in its
-    order: no Lens reads one, and a person's approval is the only judgement of it (decisions 0200 and NNNN)."""
+    order: no Lens reads one, and a person's approval is the only judgement of it (decisions 0200 and 0207)."""
     changed = names(facts["changed_paths"])
     return [p for p in dict.fromkeys(config["person_only_paths"]) if any(matches(p, path) for path in changed)]
 
@@ -1303,7 +1303,7 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     # the only judge that is not the Lens is a person (issue 140). It is no wait a queued item is read past.
     # So does a change to a path only a person decides, which no Lens reads (decision 0200). Where such paths are all
     # the change touches of either list, the wait is named for itself; beside a model Lens's input it keeps the
-    # Lens's code (decision NNNN).
+    # Lens's code (decision 0207).
     alone = person_only_touched(facts, config)
     own = lens_inputs_touched(facts, config)
     own = own + [p for p in alone if p not in own]

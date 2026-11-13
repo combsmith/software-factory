@@ -4415,7 +4415,7 @@ class TheList(unittest.TestCase):
         # What is only reported, such as a decision record, is listed at a stop and is not on the Kernel's list.
         self.assertNotIn("docs/decisions/", want)
 
-    def test_the_kernel_is_given_the_paths_only_a_person_decides(self):  # decision NNNN
+    def test_the_kernel_is_given_the_paths_only_a_person_decides(self):  # decision 0207
         # By which a wait is named: the tests' Kernel and the simulator's are given the list as config/hooks.json has it.
         want = [e["path"] for e in self.HOOKS["person_only"]]
         self.assertEqual(want, ["release/decision-points.json"])
