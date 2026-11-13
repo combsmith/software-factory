@@ -20,7 +20,13 @@
       "login": "donpetry-bot",
       "id": 281750570
     },
-    "lenses": [],
+    "lenses": [
+      {
+        "lens": "pr-review",
+        "login": "combsmith-sf-pr-review[bot]",
+        "id": 344166014
+      }
+    ],
     "agents": [],
     "dependencies": [
       {

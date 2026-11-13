@@ -3538,6 +3538,34 @@ class Recorded(unittest.TestCase):
                                ({"PRRT_7": {"lens": "pr-review", "category": None, "severity": None}}, True))
         self.assertEqual((whole, derive.unreadable_threads(dict(facts_, threads=got), config)), (True, ["PRRT_7"]))
 
+    def test_a_thread_the_required_reviewers_own_app_opened_is_its_lenss_by_the_configured_accounts(self):  # issue 828
+        # The pass tells a Lens's App by the accounts controller/1 lists as the Lenses'. A model Lens the configuration
+        # requires, whose Role's App has an account on record, is listed by that account. One left out reads as any App:
+        # the thread its Run recorded is then not its Lens's, the threads are not whole, and every pass defers.
+        from adapters import facts as facts_
+        from kernel import derive
+        controller = json.loads((ROOT / "config" / "controller.json").read_text())
+        config = dict(json.loads((ROOT / "config" / "defaults.json").read_text()), approver=APPROVER)
+        roles, lenses = controller["accounts"]["roles"], facts_.accounts_of(controller)[2]
+        required = [name for name in config["required_lenses"]["model"] if roles.get(name)]
+        self.assertEqual(required, ["pr-review"])
+        self.assertEqual([dict(a, type="Bot") for a in controller["accounts"]["lenses"]],
+                         [dict(roles[name], lens=name) for name in required])
+        for name in required:
+            # As GraphQL names a Bot: its login has no [bot] (the thread of this issue, read on 2026-11-13).
+            own = (roles[name]["login"][:-len("[bot]")], roles[name]["id"], "Bot")
+            recorded_ = ({"PRRT_7": {"lens": name, "category": "requirements", "severity": "major"}}, True)
+            got, whole = self.held([thread_node("PRRT_7", own)], recorded_, lenses)
+            self.assertEqual((whole, got[0]["opened_by"], got[0]["category"], got[0]["severity"]),
+                             (True, {"kind": "lens", "name": name, "can_write": False}, "requirements", "major"))
+            facts = {"threads": got, "class": "maintainer", "author": "don-petry", "complete": {}}
+            self.assertEqual(derive.unreadable_threads(facts, config), [])
+            # An App the configuration does not list is no Lens, whatever it is named and whatever a Run recorded of
+            # its thread: by another id under the Lens's own login, or where another account is listed for the Lens.
+            for opener, listed in ((APP, lenses), ((own[0], own[1] + 1, "Bot"), lenses), (own, {LENS[1:]: name})):
+                got, whole = self.held([thread_node("PRRT_7", opener)], recorded_, listed)
+                self.assertEqual((whole, got[0]["opened_by"]["kind"], got[0]["category"]), (False, "app", None), opener)
+
     def p49(self, reply=None) -> tuple:
         """trials/P-49.json's threads, its App taken for the Lens that recorded both, the deleted comment's reply
         written by `reply` where given, read through the port and held to the record."""
