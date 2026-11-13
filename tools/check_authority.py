@@ -20,6 +20,7 @@ MODEL_JUDGED = {"functional", "security", "architecture", "delivery", "reliabili
 # request (decision 0097). The writer of "Acceptance: a pull request the Factory opens is bound to its issue by the Run
 # that opened it" (issue 342) is what makes all three true.
 OPENS = re.compile(r"/repos/%s/pulls")
+CREATES = "PO" + "ST"      # the one write that opens a pull request; spelt apart, as tools/check_writes.py spells its verbs
 
 
 def _folded(name: str) -> str:
@@ -58,43 +59,73 @@ def _functions(tree):
                     yield "%s.%s" % (node.name, item.name), item
 
 
+def _written(node, scopes: tuple, depth: int = 0):
+    """A method or a path as text, or None: a literal, one formatted with `%`, an f-string with each hole read as `%s`,
+    or a name bound once, to one of those, in the function or else at its module's top level."""
+    node = node.left if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod) else node
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        return "".join(v.value if isinstance(v, ast.Constant) else "%s" for v in node.values)
+    if isinstance(node, ast.Name) and depth < 4:
+        for scope in scopes:
+            bound = [n.value for n in (ast.walk(scope) if isinstance(scope, ast.AST) and not isinstance(scope, ast.Module)
+                                       else scope.body) if isinstance(n, ast.Assign) and len(n.targets) == 1
+                     and isinstance(n.targets[0], ast.Name) and n.targets[0].id == node.id]
+            if bound:
+                return _written(bound[0], scopes, depth + 1) if len(bound) == 1 else None
+    return None
+
+
+def _given(call: ast.Call, at: int, name: str):
+    """A call's argument by its place or its keyword, or None."""
+    return call.args[at] if len(call.args) > at else next((k.value for k in call.keywords if k.arg == name), None)
+
+
 def openers(root: pathlib.Path = None) -> set:
     """The adapter functions that open a pull request, as `adapters.module:function`: each builds a request whose method
-    is a write, one of tools/check_writes.py's VERBS, and whose path is written as text, a repo's pulls and nothing
-    after it. A method or a path that is not text is no opening: what is not read is not counted as the writer."""
-    from tools.check_writes import VERBS
+    is the write that creates, CREATES, and whose path is text (`_written`), a repo's pulls and nothing
+    after it. A method or a path that cannot be read as text is no opening: what is not read is not counted as the
+    writer."""
     found = set()
     for path in sorted(((ROOT if root is None else root) / "adapters").glob("*.py")):
         tree = _parsed(path)
         for name, fn in _functions(tree) if tree is not None else ():
-            for call in (n for n in ast.walk(fn) if isinstance(n, ast.Call) and len(n.args) >= 2):
+            for call in (n for n in ast.walk(fn) if isinstance(n, ast.Call)):
                 called = call.func.id if isinstance(call.func, ast.Name) else getattr(call.func, "attr", None)
-                verb, where = call.args[0], call.args[1]
-                where = where.left if isinstance(where, ast.BinOp) and isinstance(where.op, ast.Mod) else where
-                if (called == "request" and isinstance(verb, ast.Constant) and verb.value in VERBS
-                        and isinstance(where, ast.Constant) and isinstance(where.value, str) and OPENS.fullmatch(where.value)):
+                verb, where = _given(call, 0, "method"), _given(call, 1, "path")
+                if called != "request" or verb is None or where is None:
+                    continue
+                verb, where = _written(verb, (fn, tree)), _written(where, (fn, tree))
+                if verb == CREATES and where is not None and OPENS.fullmatch(where):
                     found.add("adapters.%s:%s" % (path.stem, name))
     return found
 
 
 def records_the_opening(tree, rel: str) -> bool:
     """Whether a module calls harness/apply.py's `opened`: by that name imported from harness.apply, as an attribute of
-    harness.apply however it is imported, or, in harness/apply.py, by its own name."""
-    names, modules = {"opened"} if rel == "harness/apply.py" else set(), set()
+    harness.apply however it is imported, relatively from the Harness too, or, in harness/apply.py, by its own name.
+    `harness.apply.opened` counts only where `import harness.apply` binds it."""
+    names, modules, whole = {"opened"} if rel == "harness/apply.py" else set(), set(), False
+    inside = rel.startswith("harness/")
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module == "harness.apply":
+        module = node.module if isinstance(node, ast.ImportFrom) and node.level == 0 else None
+        if isinstance(node, ast.ImportFrom) and node.level == 1 and inside:
+            module = "harness" if node.module is None else "harness." + node.module
+        if module == "harness.apply":
             names |= {a.asname or a.name for a in node.names if a.name == "opened"}
-        elif isinstance(node, ast.ImportFrom) and node.module == "harness":
+        elif module == "harness":
             modules |= {a.asname or a.name for a in node.names if a.name == "apply"}
         elif isinstance(node, ast.Import):
             modules |= {a.asname for a in node.names if a.name == "harness.apply" and a.asname}
+            whole = whole or any(a.name == "harness.apply" and not a.asname for a in node.names)
     for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
         f = call.func
         if isinstance(f, ast.Name) and f.id in names:
             return True
         if isinstance(f, ast.Attribute) and f.attr == "opened" and (
                 isinstance(f.value, ast.Name) and f.value.id in modules
-                or isinstance(f.value, ast.Attribute) and f.value.attr == "apply"
+                or whole and isinstance(f.value, ast.Attribute) and f.value.attr == "apply"
                 and isinstance(f.value.value, ast.Name) and f.value.value.id == "harness"):
             return True
     return False
