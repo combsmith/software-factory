@@ -5252,6 +5252,14 @@ class GateSets(unittest.TestCase):
             found.update(gate=True, criterion_bars={name: [1, 2] for name in floors})
         return json.dumps(dict(found, **over))
 
+    @classmethod
+    def planted(cls) -> list:
+        """What the check finds of a floor moved with the cases as main holds them, in a pull request's job or a merge
+        group's: the fault `FAILS` plants."""
+        with mock.patch.dict(os.environ):
+            os.environ.pop("GITHUB_EVENT_NAME", None)
+            return check_gate_sets.run(edited(history({cls.SET: cls.manifest()}), {cls.SET: cls.manifest(floors=("PR-4",))}))
+
     def main(self, *held) -> pathlib.Path:
         """A repo whose main held the set as each of `held` in turn, None for a commit that took it away."""
         root = history({self.SET: held[0]})
@@ -5275,6 +5283,8 @@ class GateSets(unittest.TestCase):
         base, floors, marks = self.manifest(), self.FLOORS, self.MARKS
         self.assertIn(("gate sets", check_gate_sets.run), verify.CHECKS)
         self.assertEqual(self.found(base, base), [])
+        with mock.patch.dict(os.environ, {"GITHUB_EVENT_NAME": "merge_group"}):
+            self.assertTrue(caught(self.planted(), floors))     # the planted fault is the moved floor in either job
         for commit in (False, True):        # in the working tree, or committed on the branch
             # The floor moved from PR-3 to PR-4: the findings on neither are what the two reports' counts leave.
             self.assertTrue(caught(self.found(self.manifest(floors=("PR-4",)), base, commit=commit), floors))
@@ -10825,8 +10835,7 @@ FAILS = {
     "check_release": lambda: check_release.run(clone({"release/current.py": "import os\n"})),
     "check_writes": lambda: check_writes.run(clone({"harness/sneak.py": Writes.SNEAK})),
     "check_decisions": lambda: check_decisions.run(edited(history(), {FIRST: RECORD.replace("one thing.", "x.")})),
-    "check_gate_sets": lambda: check_gate_sets.run(edited(history({GateSets.SET: GateSets.manifest()}),
-                                                          {GateSets.SET: GateSets.manifest(floors=("PR-4",))})),
+    "check_gate_sets": lambda: GateSets.planted(),
 }
 
 
