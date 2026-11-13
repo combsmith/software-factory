@@ -4527,7 +4527,8 @@ class Contract(unittest.TestCase):
     def p42_push(self, at: int) -> tuple:
         """P-42.push: canary pull request 113's read `at`: whether the port read it whole, its head, p2-queue-check as the
         port reads it, a status while it has not concluded, and, apart from the port, that check run's node as the fixture
-        holds it and the read's own date (issue 807)."""
+        holds it and the read's own date (issue 807). Whole only where every p2-queue-check is its own App's, from its own
+        workflow file."""
         found = exchanges("P-42.push")[at]
         pr = found["response"]["body"]["data"]["repository"]["pullRequest"]
         pull = {"number": 113, "base": {"repo": {"full_name": canary()}}, "head": {"sha": pr["headRefOid"]}}
@@ -4535,8 +4536,11 @@ class Contract(unittest.TestCase):
         nodes = [n for n in pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
                  if n.get("name") == "p2-queue-check"]
         when = email.utils.parsedate_to_datetime(found["response"]["headers"]["date"])
-        return (read["complete"] is True, pr["headRefOid"], [c["conclusion"] for c in read["checks"] if c["name"] == "p2-queue-check"],
-                nodes, when)
+        # The required check is its own App's, from its own workflow file, as the Kernel reads a Lens's (kernel/derive.py).
+        own = all((c["app_id"], c["workflow"]) == (15368, ".github/workflows/p2-queue.yml")
+                  for c in read["checks"] if c["name"] == "p2-queue-check")
+        return (read["complete"] is True and own, pr["headRefOid"],
+                [c["conclusion"] for c in read["checks"] if c["name"] == "p2-queue-check"], nodes, when)
 
     def pushed_pending_read(self) -> bool:
         """P-42.push: p2-queue-check had concluded success on head A; read after head B was pushed, it is on B and queued,
