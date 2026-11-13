@@ -8,6 +8,7 @@ import contextlib
 import copy
 import datetime
 import email.utils
+import hashlib
 import io
 import json
 import pathlib
@@ -24,6 +25,9 @@ from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILL = ROOT / ".claude" / "skills" / "cut-a-release" / "SKILL.md"
+# The skill's section "When the Factory cannot approve", word for word (decision 0198): what it says of who approves,
+# and by what, changes only with this line.
+CANNOT_APPROVE_SHA256 = "29fcbc9374f77f49fc0bd45d81107ec13497b48320a5add6d8676918527b1fda"
 REPO = "combsmith/software-factory"
 A, B, C, D = ("a" * 40, "b" * 40, "c" * 40, "d" * 40)
 NEXT, STABLE = "factory/v0-next", "factory/v0-stable"
@@ -328,7 +332,13 @@ class Fixture(unittest.TestCase):
     SEVENTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-6.json"
     EIGHTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-7.json"
     NINTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-8.json"
+    TENTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-9.json"
+    ELEVENTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-10.json"
     ROLLBACK = ROOT / "release" / "fixtures" / "rollback.refused.json"
+    FIRST_ROLLBACK = ROOT / "release" / "fixtures" / "rollback.v0-1-10.json"
+    # The cuts a rollback and a move forward again followed, by the fixture of those two steps: each recorded a
+    # Deployment of its own above the cut's.
+    LATER = {ELEVENTH_CUT: FIRST_ROLLBACK}
     EVENT = ROOT / "release" / "fixtures" / "event.slice-1.json"
 
     def item(self, fixture, name):
@@ -407,11 +417,29 @@ class Fixture(unittest.TestCase):
         self.assertIn("refs/tags/factory/v*.*.*", rules["conditions"]["ref_name"]["include"])
         self.assertEqual(rules["conditions"]["ref_name"]["exclude"], [])
 
+    def deployments_after(self, path) -> list:
+        """The Deployments recorded after the cut `path` holds by steps that were no cut, newest first, as the fixture
+        of those steps lists them: a move forward's, of the cut's Release again, above the rollback's before it. An
+        empty list for a cut no such step followed."""
+        if path not in self.LATER:
+            return []
+        steps, cut_ = json.loads(self.LATER[path].read_text()), json.loads(path.read_text())
+        back, on = self.item(steps, "rollback"), self.item(steps, "move_forward_again")
+        answer = self.answered(on, "/repos/%s/deployments?environment=factory-next&per_page=4" % REPO)
+        self.assertEqual(answer["status"], 200)
+        since = [(d["id"], d["sha"], d["description"]) for d in answer["body"][:2]]
+        self.assertEqual([ident for ident, _, _ in since], on["printed"]["deployments"] + back["printed"]["deployments"])
+        self.assertEqual((steps["version"], since[0][1]),
+                         (cut_["version"], self.item(cut_, "cut_and_move_of_next")["asked"]["cut_commit"]))
+        return since
+
     def a_later_cut_moved_next_on(self, path, eval_run, earlier):
         """The cut `path` records, at the commit eval run `eval_run` had passed, the eval job's own dispatch and its one
         run on that commit, ended before the cut; `next` moved to it with a Deployment of its own, the newest, before
         those of `earlier`, the cuts before it, newest first; the Release before it stayed where its cut left it, and
-        that Release's Deployment went inactive."""
+        the Deployment `next` moved off went inactive. Where a rollback and a move forward again followed a cut, their
+        two Deployments stand above that cut's (`deployments_after`): a cut read after its own reads its Deployment
+        inactive above its success, `next` having moved off it since."""
         fixture, before = json.loads(path.read_text()), [json.loads(p.read_text()) for p in earlier]
         self.assertEqual(check_release.fixture_problems(fixture, path.name), [])
         made = self.item(fixture, "cut_and_move_of_next")
@@ -434,14 +462,16 @@ class Fixture(unittest.TestCase):
         self.assertEqual(body("/repos/%s/git/ref/tags/%s" % (REPO, before[0]["version"]))["object"]["sha"],
                          cuts[0]["asked"]["cut_commit"])
         deployed = body("/repos/%s/deployments?environment=factory-next" % REPO)
+        since, own = self.deployments_after(path), made["printed"]["deployments"][0]
+        below = [entry for p, c, f in zip(earlier, cuts, before)
+                 for entry in self.deployments_after(p) + [(c["printed"]["deployments"][0], c["asked"]["cut_commit"], f["version"])]]
         self.assertEqual([(d["id"], d["sha"], d["description"]) for d in deployed],
-                         [(made["printed"]["deployments"][0], commit, fixture["version"])]
-                         + [(c["printed"]["deployments"][0], c["asked"]["cut_commit"], f["version"])
-                            for c, f in zip(cuts, before)])
-        statuses = body("/repos/%s/deployments/%d/statuses" % (REPO, deployed[0]["id"]))
-        self.assertEqual([s["state"] for s in statuses], ["success"])
-        # GitHub marks the Deployment `next` moved off inactive, newest first, beside the success it kept.
-        statuses = body("/repos/%s/deployments/%d/statuses" % (REPO, deployed[1]["id"]))
+                         since + [(own, commit, fixture["version"])] + below)
+        statuses = body("/repos/%s/deployments/%d/statuses" % (REPO, own))
+        self.assertEqual([s["state"] for s in statuses], ["inactive", "success"] if since else ["success"])
+        # GitHub marks the Deployment `next` moved off, the newest below the cut's own, inactive, newest first, beside
+        # the success it kept.
+        statuses = body("/repos/%s/deployments/%d/statuses" % (REPO, below[0][0]))
         self.assertEqual([s["state"] for s in statuses], ["inactive", "success"])
 
     def test_the_next_cut_moved_next_on(self):
@@ -455,7 +485,10 @@ class Fixture(unittest.TestCase):
         # had passed, #717's merge, after the fifth and the sixth; run 43026745268 cut factory/v0.1.7 on 2026-11-11 at
         # the commit eval run 43024260112 had passed, #731's merge, after the seventh; run 43110557016 cut factory/v0.1.8
         # on 2026-11-11 at the commit eval run 43107717326 had passed, #748's merge, after the runners' Ubuntu mirrors stopped
-        # resolving (#743).
+        # resolving (#743); run 43173763017 cut factory/v0.1.9 on 2026-11-12 at the commit eval run 43171810453 had passed,
+        # #775's merge, which fetches the CLI's sandbox from two mirrors (#774); run 43270689165 cut factory/v0.1.10 on
+        # 2026-11-12 at the commit eval run 43267765670 had passed, #760's merge, and its fixture was read after the
+        # first rollback and the move forward again, whose two Deployments stand above the cut's.
         for path, eval_run, earlier in ((self.NEXT_CUT, 42694638100, [self.CUT]),
                                         (self.THIRD_CUT, 42739717534, [self.NEXT_CUT, self.CUT]),
                                         (self.FOURTH_CUT, 42753588971, [self.THIRD_CUT, self.NEXT_CUT, self.CUT]),
@@ -472,9 +505,114 @@ class Fixture(unittest.TestCase):
                                           self.THIRD_CUT, self.NEXT_CUT, self.CUT]),
                                         (self.NINTH_CUT, 43107717326,
                                          [self.EIGHTH_CUT, self.SEVENTH_CUT, self.SIXTH_CUT, self.FIFTH_CUT,
-                                          self.FOURTH_CUT, self.THIRD_CUT, self.NEXT_CUT, self.CUT])):
+                                          self.FOURTH_CUT, self.THIRD_CUT, self.NEXT_CUT, self.CUT]),
+                                        (self.TENTH_CUT, 43171810453,
+                                         [self.NINTH_CUT, self.EIGHTH_CUT, self.SEVENTH_CUT, self.SIXTH_CUT,
+                                          self.FIFTH_CUT, self.FOURTH_CUT, self.THIRD_CUT, self.NEXT_CUT,
+                                          self.CUT]),
+                                        (self.ELEVENTH_CUT, 43267765670,
+                                         [self.TENTH_CUT, self.NINTH_CUT, self.EIGHTH_CUT, self.SEVENTH_CUT,
+                                          self.SIXTH_CUT, self.FIFTH_CUT, self.FOURTH_CUT, self.THIRD_CUT,
+                                          self.NEXT_CUT, self.CUT])):
             with self.subTest(cut=path.name):
                 self.a_later_cut_moved_next_on(path, eval_run, earlier)
+
+    def test_the_first_rollback_moved_next_back_within_its_time_and_a_move_brought_it_forward_again(self):
+        # Issue 197's ruling 9', items 4 and 5. Run 43317751252 rolled `next` back from factory/v0.1.10 to factory/v0.1.9
+        # on 2026-11-12, while the repo's Pause stood, and run 43317854989, asked 39 seconds after the rollback was,
+        # moved it forward again on the eval the cut had passed. Every read was made after both runs, so where `next`
+        # stood between them is the rollback's own last line and the Deployment it recorded; the tags are as the step's
+        # port lists them, with `next` on again.
+        fixture = json.loads(self.FIRST_ROLLBACK.read_text())
+        self.assertEqual(check_release.fixture_problems(fixture, self.FIRST_ROLLBACK.name), [])
+        self.assertEqual([item["item"] for item in fixture["items"]], ["rollback", "move_forward_again"])
+        back, on = self.item(fixture, "rollback"), self.item(fixture, "move_forward_again")
+        rings = json.loads(move.RINGS.read_text())
+        channel, left = move.next_channel(rings), fixture["version"]
+        body = lambda item, path: (lambda answer: self.assertEqual(answer["status"], 200, path) or answer["body"])(
+            self.answered(item, path))
+        at = lambda text: datetime.datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ")
+        refs = tags.read(github.Replay([e for e in on["exchanges"] if e["request"]["call"].split(" ")[1] == tags.path(REPO)]), REPO)
+        target = refs[left]
+        self.assertEqual(refs[channel], target, "`next` is on the Release again")
+        # No Release was made, moved or deleted: every Release among the tags is one a cut's fixture records, this
+        # one's among them, on the commit that cut left it, and there is no other.
+        cuts = {f["version"]: f for f in (json.loads(p.read_text()) for p in sorted(self.FIRST_ROLLBACK.parent.glob("cut.v*.json")))}
+        self.assertEqual({name: commit for name, commit in refs.items() if current.version(name)},
+                         {name: self.item(f, "cut_and_move_of_next")["asked"]["cut_commit"] for name, f in cuts.items()
+                          if current.version(name) <= current.version(left)})
+        # The rollback: asked with no `to`, it moves `next` to the greatest Release below, as the rules plan it from
+        # these tags, and writes nothing else: no Release is made, moved or deleted.
+        self.assertEqual((back["asked"]["command"], back["asked"]["version"], back["asked"]["to"], back["conclusion"]),
+                         ("rollback", "", "", "success"))
+        below = max(v for v in cut.releases(refs) if v < current.version(left))
+        earlier = cut.releases(refs)[below]
+        older = refs[earlier]
+        self.assertNotEqual(older, target)
+        step = move.asked({"RELEASE_" + k.upper(): v for k, v in back["asked"].items()}, channel)
+        self.assertEqual(cut.plan(step, refs, {}, move.channels(rings)), ([("move", channel, older)], None))
+        self.assertEqual(back["printed"]["writes"], [["move", channel, older]])
+        # One action, timed (FR-49): dispatched, it moved `next`, read it back and recorded the Deployment inside the
+        # run, which ended within 15 minutes of being asked.
+        ran = body(back, "/repos/%s/actions/runs/%d" % (REPO, back["run"]))
+        self.assertEqual((ran["event"], ran["head_branch"], ran["head_sha"]), ("workflow_dispatch", "main", back["asked"]["cut_commit"]))
+        took = (at(ran["updated_at"]) - at(ran["created_at"])).total_seconds()
+        self.assertTrue(0 <= took <= 15 * 60, took)
+        deployed = body(on, "/repos/%s/deployments?environment=factory-next&per_page=4" % REPO)
+        ident, = back["printed"]["deployments"]
+        self.assertEqual([(d["id"], d["sha"], d["description"]) for d in deployed if d["id"] == ident], [(ident, older, earlier)])
+        self.assertTrue(ran["created_at"] <= deployed[1]["created_at"] <= ran["updated_at"])
+        marks = body(back, "/repos/%s/deployments/%d/statuses" % (REPO, ident))
+        # Newest first: it succeeded inside the run, and went inactive once `next` moved on again.
+        self.assertEqual([m["state"] for m in marks], ["inactive", "success"])
+        self.assertTrue(ran["created_at"] <= marks[-1]["created_at"] <= ran["updated_at"])
+        # The move forward: asked after the rollback had ended, to the Release `next` had left, through the eval gate:
+        # the eval job's own dispatch on that commit, its one run there, ended in success before either run.
+        again = body(on, "/repos/%s/actions/runs/%d" % (REPO, on["run"]))
+        self.assertEqual((on["asked"]["command"], on["asked"]["to"], on["conclusion"], again["event"]),
+                         ("move", left, "success", "workflow_dispatch"))
+        self.assertLess(ran["updated_at"], again["created_at"])
+        self.assertEqual((again["head_branch"], again["head_sha"]), ("main", on["asked"]["cut_commit"]))
+        # Both ran while the repo's Pause stood: set before the rollback was asked, and still set when read after both.
+        pause = body(on, "/repos/%s/actions/variables/FACTORY_PAUSED" % REPO)
+        self.assertEqual((pause["name"], pause["value"]), ("FACTORY_PAUSED", "true"))
+        self.assertLess(pause["updated_at"], ran["created_at"])
+        # Every read was made after both runs had ended.
+        ended = at(again["updated_at"]).replace(tzinfo=datetime.timezone.utc)
+        for item in (back, on):
+            self.assertGreater(item["read_at"], again["updated_at"])
+            for exchange in item["exchanges"]:
+                self.assertGreater(email.utils.parsedate_to_datetime(exchange["response"]["headers"]["date"]), ended,
+                                   exchange["request"]["call"])
+        step = move.asked({"RELEASE_" + k.upper(): v for k, v in on["asked"].items()}, channel)
+        between = dict(refs, **{channel: older})
+        facts = {"commit": target, "on_main": True, "verified": True, "gate": cut.PASS, "release": left}
+        self.assertEqual(cut.plan(step, between, facts, move.channels(rings)), ([("move", channel, target)], None))
+        self.assertEqual(cut.plan(step, between, dict(facts, gate="report_unreadable"), move.channels(rings)),
+                         ([], cut.EVAL_GATE_CLOSED))
+        self.assertEqual(on["printed"]["writes"], [["move", channel, target]])
+        judged = [e["response"]["body"] for e in on["exchanges"]
+                  if e["request"]["call"].split(" ")[1].startswith("/repos/%s/actions/runs/" % REPO)
+                  and e["response"]["body"].get("path") == ".github/workflows/eval.yml"]
+        self.assertEqual(len(judged), 1)
+        self.assertEqual((judged[0]["event"], judged[0]["conclusion"], judged[0]["head_sha"]), ("workflow_dispatch", "success", target))
+        listed = body(on, "/repos/%s/actions/workflows/%d/runs?head_sha=%s" % (REPO, judged[0]["workflow_id"], target))
+        self.assertEqual((listed["total_count"], [r["id"] for r in listed["workflow_runs"]]), (1, [judged[0]["id"]]))
+        self.assertLess(judged[0]["updated_at"], ran["created_at"])
+        # `next`'s Deployments, newest first: the move's, of the Release again, in success; the rollback's; and below
+        # them the two cuts' own, each Release's.
+        moved, = on["printed"]["deployments"]
+        self.assertEqual([(d["id"], d["sha"], d["description"]) for d in deployed[:2]],
+                         [(moved, target, left), (ident, older, earlier)])
+        self.assertEqual([(d["sha"], d["description"]) for d in deployed[2:]], [(target, left), (older, earlier)])
+        self.assertEqual([d["id"] for d in deployed[2:]],
+                         [self.item(cuts[name], "cut_and_move_of_next")["printed"]["deployments"][0] for name in (left, earlier)])
+        # The rollback's went inactive only once the move forward had recorded its own.
+        self.assertGreaterEqual(marks[0]["created_at"], deployed[0]["created_at"])
+        self.assertTrue(again["created_at"] <= deployed[0]["created_at"] <= again["updated_at"])
+        done, = body(on, "/repos/%s/deployments/%d/statuses" % (REPO, moved))
+        self.assertEqual(done["state"], "success")
+        self.assertTrue(again["created_at"] <= done["created_at"] <= again["updated_at"])
 
     def test_the_slice_1_event_is_whole(self):  # issue 198's ruling 6
         # Slice 1's event: a pull request the Maintainer opened after `main` began to count an approval (decision
@@ -1001,6 +1139,36 @@ class Skill(unittest.TestCase):
         self.assertEqual(sorted(commands), sorted(plans + dispatches))
         for command in commands:
             self.assertNotRegex(command, r"auth token|--show-token|\.pem|git (tag|push)|-X |--method")
+
+    def test_when_the_factory_cannot_approve_the_skill_leaves_the_approval_to_the_maintainers_hand_and_runs_nothing(self):
+        text = SKILL.read_text()
+        section = text[text.index("## When the Factory cannot approve"):text.index("## Verify, then hand over")]
+        # A Release that cannot approve: the Pause, the rollback, the hand approval last, and no other step or bullet.
+        items = re.findall(r"^[ \t]*([0-9]+[.)]|[-*+])[ \t]+(.*)$", section, re.M)
+        self.assertEqual([mark for mark, _ in items], ["1.", "2.", "3."])
+        self.assertEqual([said.split("**")[1] for _, said in items], ["Pause.", "Roll `next` back.", "The hand approval."])
+        self.assertIn("3. **The hand approval.** Only when no Release can serve.", section)
+        # The Pause is a person's, the approval is the Maintainer's hand as the machine user, and no token is stored.
+        self.assertIn("1. **Pause.** The Maintainer sets the repo variable `FACTORY_PAUSED` to `true`.", section)
+        self.assertIn("he approves the head by hand as the machine user, in a browser\nsigned in to that account", section)
+        self.assertIn("It needs no Release, no Run and no stored token;", section)
+        self.assertIn("A session stops before the hand approval and hands him the steps", section)
+        self.assertIn("It approves nothing, signs in to no account, and sets no variable.", section)
+        # A change the Factory may not approve is taken out of the queue by the Kernel's own Decision; the section
+        # says when a Pause is needed for it, on either side of the day a queue account is named.
+        self.assertIn("While `accounts.queue` in\n`config/controller.json` is null, nothing carries that Decision out", section)
+        self.assertIn("Once it names an account,\nthe Maintainer sets the Pause before the enqueue", section)
+        # A hand approval alarms, the section says so, and every entry of the alert is read while it stands.
+        self.assertIn("The next pass raises the alert `write_unmatched` for it", section)
+        self.assertIn("so every entry is read for as long as it stands", section)
+        self.assertIn("The match clears nothing else", section)
+        self.assertIn("No session rotates or revokes the token.", section)
+        # It gives nothing to run, in a fence, an indented block or a span; and beyond these, word for word it is the
+        # text this file names, so a command put in any other way, or any other change, fails here until it is read.
+        self.assertNotRegex(section, r"```|~~~|``")
+        self.assertIsNone(re.search(r"^(?: {4}|\t)", section, re.M))
+        self.assertEqual([span for span in re.findall(r"`([^`]*)`", section) if re.search(r"\s", span)], [])
+        self.assertEqual(hashlib.sha256(section.encode()).hexdigest(), CANNOT_APPROVE_SHA256)
 
 
 if __name__ == "__main__":

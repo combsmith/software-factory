@@ -249,7 +249,7 @@ class Reader(unittest.TestCase):
                 unittest.mock.patch.object(read.steps, "commit", commit if callable(commit) else lambda: commit), \
                 unittest.mock.patch.object(read.tags, "read", tags_read), \
                 unittest.mock.patch.object(read.records, "runs",
-                                           lambda *a, **k: calls["listed"].append(a[3]) or copy.deepcopy(listed)), \
+                                           lambda *a, **k: calls["listed"].append((a[3], k)) or copy.deepcopy(listed)), \
                 recorded_spy(read, calls["asked"]), \
                 unittest.mock.patch.object(read.facts_, "snapshot", snapshot), \
                 unittest.mock.patch.object(read.facts_, "opener_of", lambda *told: (12, "Bot")), \
@@ -295,7 +295,9 @@ class Reader(unittest.TestCase):
         # What the opening Runs recorded is read for the configured Role and handed to the snapshot (issue 342).
         self.assertEqual((calls["opened"], calls["opened_role"]), ([True], ["dev-lead"]))
         # Of the run list of both Role workflows, the model Lenses' Runs on this item, held to the authority table.
-        self.assertEqual(calls["listed"], [["run.yml", "approve.yml"]])
+        # No job is asked: this read hands the Kernel no run record, so when a Run began is nothing to it, and jobs
+        # that could not be read would refuse a Task for nothing (decision 0199).
+        self.assertEqual(calls["listed"], [(["run.yml", "approve.yml"], {})])
         self.assertEqual(calls["asked"], [{"repo": HOME, "numbers": [42], "lenses": {"pr-review"}, "authority": AUTHORITY}])
         # A list read short holds them to nothing recorded, not whole: the Task is refused rather than built on it.
         self.assertEqual(self.go(complete=False)[4]["recorded"], [({}, False, [])])
@@ -596,6 +598,38 @@ class Apply(unittest.TestCase):
             code, _, ended, calls = self.go({"NEEDS": needs})
             self.assertEqual((code, ended["outcome"], ended["reason"], calls["minted"]), (0, "environment", want, []),
                              needs)
+
+    def test_apply_says_whether_the_engine_step_started(self):  # issue 757
+        # The run job hands on its Engine step's outcome. GitHub skips that step once a step before it failed, as the
+        # CLI's install did in the outage: then the Run spent no model, and its outcome says `engine_started` false.
+        # The run job hands on its Engine step's outcome, and `apply` is given every job's results and outputs.
+        live = (ROOT / ".github" / "workflows" / "run-jobs.yml").read_text()
+        for line in ("      engine: ${{ steps.engine.outcome }}\n", "      - name: Run the Engine\n        id: engine\n",
+                     "      NEEDS: ${{ toJSON(needs) }}\n"):
+            self.assertEqual(live.count(line), 1, line)
+
+        def needs(run_result, engine, verify="skipped"):
+            run = {"result": run_result, "outputs": {} if engine is None else {"engine": engine}}
+            return json.dumps({"run": run, "verify": {"result": verify, "outputs": {}}})
+        for engine, run_result, started in (("skipped", "failure", False), ("failure", "failure", True),
+                                            ("cancelled", "cancelled", True), ("success", "failure", True)):
+            code, _, ended, calls = self.go({"NEEDS": needs(run_result, engine)})
+            self.assertEqual((code, ended["outcome"], ended["reason"], ended.get("engine_started"), calls["minted"]),
+                             (0, "environment", "run_failed", started, []), engine)
+        # A Run whose run job succeeded reached the Engine, whatever ends it after.
+        code, _, ended, _ = self.go({"NEEDS": needs("success", "success", verify="failure")})
+        self.assertEqual((ended["reason"], ended.get("engine_started")), ("verify_failed", True))
+        code, printed, ended, _ = self.go({"NEEDS": needs("success", "success", verify="success")})
+        self.assertEqual((code, ended["outcome"], ended.get("engine_started")), (0, None, True), printed)
+        # What does not say the Engine step was skipped, or ran, says nothing: the field is left out, and the Run is read
+        # as one that may have reached the model.
+        for engine in (None, "", "neutral", 0, True, ["skipped"]):
+            code, _, ended, _ = self.go({"NEEDS": needs("failure", engine)})
+            self.assertEqual((ended["reason"], "engine_started" in ended), ("run_failed", False), engine)
+        odd = json.dumps({"run": {"result": "failure", "outputs": "skipped"}, "verify": {"result": "skipped"}})
+        for said in (odd, json.dumps({"run": {"result": "failure"}, "verify": {"result": "skipped"}}), "not json", None):
+            code, _, ended, _ = self.go({"NEEDS": said})
+            self.assertNotIn("engine_started", ended, said)
 
     def test_apply_reads_with_reads(self):
         code, printed, ended, calls = self.go()
@@ -1095,7 +1129,9 @@ class Reread(unittest.TestCase):
 
         def runs(transport, repo, branch, workflows, dispatcher, **k):
             asked.append(workflows)
+            began.append(k)
             return copy.deepcopy(listed)
+        began = []
         for paused, want in (({"org": "true", "repos": {HOME: None}}, True), ({"org": None, "repos": {HOME: "true"}}, True),
                              ({"org": None, "repos": {HOME: "maybe"}}, None)):
             with unittest.mock.patch.object(reread.records, "runs", runs), \
@@ -1104,6 +1140,9 @@ class Reread(unittest.TestCase):
                         asked.append((org, list(repos))), paused)[1]):
                 self.assertIs(reread.item("t", config, 42, support.NOW, lambda: support.NOW)[3]["paused"], want, paused)
         self.assertEqual(asked[:2], [["run.yml", "approve.yml"], ("combsmith", [HOME])])
+        # The read asks the records port when this item's Runs began, with nothing kept, and no other item's, so
+        # that the act decides on its item's records as the pass does (decision 0199).
+        self.assertEqual(began[0], {"began": {}, "on": {"repo": HOME, "type": "pull_request", "number": 42}})
         # Asked for the Pause by name, a Pause the port could not read is raised as a read of the `pause` stage, its
         # part the port's for the first scope unreadable, the org's before the repo's (decision 0192). Not asked, as
         # apply reads it, the same Pause is the context's and nothing is raised.

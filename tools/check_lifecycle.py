@@ -10,7 +10,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCHEMA = ROOT / "schemas" / "lifecycle.schema.json"
 # The limits the Kernel counts for one Work item, and so the only ones that can bound its cycles.
 # A limit on size or on the whole org is not among them. A new counter in the Kernel is added here.
-PER_ITEM = ("max_runs_per_item", "max_attempts", "max_rounds", "max_acts_per_item", "max_unmerged_closes")
+PER_ITEM = ("max_runs_per_item", "max_environment_runs_per_item", "max_attempts", "max_rounds", "max_acts_per_item",
+            "max_unmerged_closes")
 # The bound that is no counter: only a person ends what the transition starts. A Hold a label holds stands until a
 # person removes it, whoever placed it, so a transition into `held` that no person makes may name it, and so may a
 # stranger's change, below; nothing else.

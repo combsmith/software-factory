@@ -1058,7 +1058,7 @@ class Records(unittest.TestCase):
         slept = []
         got = records.runs(github.Replay(list(found)), canary(), "main", [WORKFLOW], kw.get("dispatcher", DISPATCHER),
                            per_page=kw.get("per_page", 10), sleep=slept.append, kept=kw.get("kept"),
-                           began=kw.get("began"))
+                           began=kw.get("began"), engines=kw.get("engines"))
         return got, slept
 
     def test_a_run_listed_under_its_workflows_name_is_unidentified_after_one_more_read(self):
@@ -1202,8 +1202,11 @@ class Records(unittest.TestCase):
         row = listing("P-17", 3, rows=dict(done, run_attempt=2))
         got, _ = self.read(row, *stored(canary(), ident, outcome_zip(outcome_of("r_01JA6Z", "environment"))))
         self.assertEqual((got["runs"][0]["conclusion"], got["runs"][0]["outcome"]), ("failure", "environment"))
-        # The Run ceiling counts each, whichever it reads.
+        # A bound counts each, whichever it reads: the Run ceiling, or for a first attempt that ran no Role, the bound
+        # apart of the Runs that spent no model (decision 0202).
         got, _ = self.read(listing("P-17", 3, rows=dict(done, run_attempt=1)), stored(canary(), ident, None)[0])
+        self.assertEqual(len(brakes._outside(got["runs"])), len(got["runs"]))
+        got, _ = self.read(listing("P-17", 3, rows=dict(done, run_attempt=2)), stored(canary(), ident, None)[0])
         self.assertEqual(len(brakes._spent(got["runs"])), len(got["runs"]))
 
     def test_the_outcome_is_read_for_a_run_that_did_not_succeed_and_for_no_other(self):
@@ -1307,6 +1310,57 @@ class Records(unittest.TestCase):
             self.assertEqual(records.known([dict(record(first), runs=[dict(first["runs"][0], **change)])]), {}, change)
         self.assertEqual((records.known(None), records.known(record(first)), records.known([{"runs": None}]),
                           records.known([{"runs": ["x"]}])), ({}, {}, {}, {}))
+
+    def test_whether_the_engine_started_is_read_with_the_outcome_and_kept_by_its_run_and_attempt(self):  # issue 757
+        # A failed Run's outcome says whether its Engine step started; the run record carries it as the outcome said it,
+        # and leaves it out where the outcome said nothing.
+        done = {"name": NAME, "status": "completed", "conclusion": "failure"}
+        rows = listing("P-17", 3, rows=done)
+        github_id = rows["response"]["body"]["workflow_runs"][0]["id"]
+        key = ("r_01JA6Z", rows["response"]["body"]["workflow_runs"][0]["run_started_at"])
+        for said in (False, True):
+            zipped = outcome_zip(dict(outcome_of("r_01JA6Z", "environment", "run_failed"), engine_started=said))
+            got, _ = self.read(rows, *stored(canary(), github_id, zipped))
+            self.assertEqual((got["runs"][0]["outcome"], got["runs"][0]["engine_started"], got["complete"]),
+                             ("environment", said, True), said)
+            self.assertEqual(records.engines([{"runs": got["runs"]}]), {key: said})
+        got, _ = self.read(rows, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "environment"))))
+        self.assertNotIn("engine_started", got["runs"][0])
+        self.assertEqual(records.engines([{"runs": got["runs"]}]), {})
+        # An outcome kept from the records before is not read again, and what they said of the Engine is kept with it.
+        kept = {key: "environment"}
+        for engines, want in (({key: False}, False), ({key: True}, True)):
+            got, _ = self.read(rows, kept=kept, engines=engines)
+            self.assertEqual((got["runs"][0]["outcome"], got["runs"][0]["engine_started"]), ("environment", want))
+        got, _ = self.read(rows, kept=kept, engines={})
+        self.assertNotIn("engine_started", got["runs"][0])
+        # What was said of another Run, or of another attempt of this one, says nothing of this one.
+        for other in (("r_01JA70", key[1]), (key[0], "2026-10-11T12:06:00Z")):
+            got, _ = self.read(rows, kept=kept, engines={other: False})
+            self.assertNotIn("engine_started", got["runs"][0], other)
+        got, _ = self.read(rows, kept=kept)
+        self.assertNotIn("engine_started", got["runs"][0])
+        # A Run that succeeded, or is not done, has no outcome read, and nothing of the Engine.
+        for change in ({"name": NAME, "status": "completed", "conclusion": "success"},
+                       {"name": NAME, "status": "in_progress", "conclusion": None}):
+            got, _ = self.read(listing("P-17", 3, rows=change), engines={key: False})
+            self.assertNotIn("engine_started", got["runs"][0], change)
+        # What the last record before said, and no earlier record's word: a true or a false alone, and nothing for a Run
+        # it lists twice.
+        run = {"run": key[0], "started_at": key[1], "status": "completed", "conclusion": "failure",
+               "outcome": "environment"}
+        other = dict(run, run="r_01JA70")
+        later = {"runs": [dict(run, engine_started=True)]}
+        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, later]), {key: True})
+        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, {"runs": [other]}]), {})
+        self.assertEqual(records.engines([later, {"runs": [run]}]), {})
+        for said in (None, "false", 0, 1):
+            self.assertEqual(records.engines([{"runs": [dict(run, engine_started=said)]}]), {}, said)
+        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)] * 2}]), {})
+        for change in ({"run": None}, {"started_at": None}):
+            self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False, **change)]}]), {}, change)
+        self.assertEqual((records.engines(None), records.engines({"runs": [run]}), records.engines([{"runs": None}]),
+                          records.engines([{"runs": ["x"]}]), records.engines([])), ({}, {}, {}, {}, {}))
 
     def began(self, status, *jobs, **kw):
         """`(the one record, whether the list was whole)` of a Run GitHub lists with `status`, its jobs read as given."""
@@ -1412,6 +1466,39 @@ class Records(unittest.TestCase):
         record, whole = self.began("in_progress", changed(18, jobs=[], total_count=0))
         self.assertEqual(("began_at" in record, whole), (False, True))
 
+    def test_a_read_of_one_items_runs_asks_them_alone_and_all_of_them(self):
+        # A Run reading its own item asks when that item's Runs began, and no other's: another item's say nothing,
+        # and are no part of the read. It asks all of them, past the cap: it keeps nothing from one read to the
+        # next, so a cap would never be worked off, and its item would never be read whole again (decision 0199).
+        # The others are another number's Run, done, and another repo's of the same number, in progress.
+        rows = listing("P-17", 3, rows={"status": "completed", "conclusion": "success", "run_attempt": 1})
+        template = rows["response"]["body"]["workflow_runs"][0]
+        names = [NAME.replace("r_01JA6Z", "r_%06dZ" % n) for n in range(5)]
+        names[:2] = [names[0].replace("#264", "#265"), names[1].replace("software-factory#", "elsewhere#")]
+        item = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 264}
+        for status, at in (("in_progress", 18), ("completed", 33)):     # the item's Runs, running or done, are all asked
+            rows["response"]["body"].update(total_count=5, workflow_runs=[
+                dict(template, id=700 + n, name=names[n], run_started_at="2026-10-21T0%d:00:00Z" % n) for n in range(5)])
+            rows["response"]["body"]["workflow_runs"][1].update(status="in_progress", conclusion=None)
+            for row in rows["response"]["body"]["workflow_runs"][2:]:
+                row.update(status=status, conclusion=None if status == "in_progress" else "success")
+            jobs = [jobs_read("P-64", 33, 700), jobs_read("P-64", 18, 701)] + [jobs_read("P-64", at, 700 + n) for n in (2, 3, 4)]
+            with mock.patch.object(records, "JOBS", 2):
+                sent = Recording(github.Replay([rows] + jobs[2:]))
+                got = records.runs(sent, canary(), "main", [WORKFLOW], DISPATCHER, per_page=10, began={}, on=item)
+                self.assertEqual(([r.get("began_at", "none") for r in got["runs"]], got["complete"],
+                                  [r["path"].split("/")[-2] for r in sent.sent[1:]]),
+                                 (["none"] * 2 + ["2026-11-10T19:44:48Z"] * 3, True, ["702", "703", "704"]), status)
+                # One of the item's Runs whose jobs cannot be read, past the cap, has no beginning, and the read is
+                # not whole: the Run defers, as the pass does.
+                unread = dict(jobs[4], response=dict(jobs[4]["response"], status=404))
+                got = records.runs(github.Replay([rows, jobs[2], jobs[3], unread]), canary(), "main", [WORKFLOW], DISPATCHER,
+                                   per_page=10, began={}, on=item)
+                self.assertEqual(([r.get("began_at", "none") for r in got["runs"]], got["complete"]),
+                                 (["none"] * 2 + ["2026-11-10T19:44:48Z"] * 2 + ["none"], False), status)
+                # Asked of every item, the same list stops at the cap and is not whole.
+                got, _ = self.read(rows, jobs[0], jobs[1], began={})
+                self.assertEqual(got["complete"], False, status)
     def test_the_asking_is_bounded_to_the_items_given(self):
         # The pass asks when a Run began only of the open pull requests' Runs: what the list holds of items long
         # closed is history, and asking it would spend the cap on nothing (decision 0196). Another item's Run is not
@@ -1666,6 +1753,22 @@ class Artifacts(unittest.TestCase):
     def test_a_runs_outcome_is_read_from_its_one_file_and_held_to_outcome_1(self):
         for fault in ("item", "capacity", "environment", "superseded"):
             self.assertEqual(self.read(outcome_zip(outcome_of(self.RUN, fault))), (fault, True), fault)
+        # Whether its Engine step started is handed to `started`, where it says; an outcome that says it otherwise is no
+        # outcome/1 (issue 757).
+        for said in (True, False):
+            told = []
+            zipped = outcome_zip(dict(outcome_of(self.RUN, "environment"), engine_started=said))
+            self.assertEqual(artifacts.outcome(github.Replay(stored("o/r", 7, zipped)), "o/r", 7, self.RUN, started=told),
+                             ("environment", True))
+            self.assertEqual(told, [said])
+        told = []
+        self.assertEqual(artifacts.outcome(github.Replay(stored("o/r", 7, outcome_zip(outcome_of(self.RUN, "item")))),
+                                           "o/r", 7, self.RUN, started=told), ("item", True))
+        self.assertEqual(told, [])
+        self.assertEqual(self.read(outcome_zip(dict(outcome_of(self.RUN, "item"), engine_started="no"))), (None, False))
+        # A caller that does not ask is told nothing, and the outcome is read all the same.
+        self.assertEqual(self.read(outcome_zip(dict(outcome_of(self.RUN, "environment"), engine_started=False))),
+                         ("environment", True))
         # A listing that gives no digest is read by its size alone.
         zipped = outcome_zip(outcome_of(self.RUN, "item"))
         self.assertEqual(self.read(zipped, digest=None), ("item", True))

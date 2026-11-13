@@ -37,6 +37,10 @@
         "null"
       ],
       "pattern": "^[a-z_]+$"
+    },
+    "engine_started": {
+      "description": "Whether the run job's Engine step started, by the outcome the job hands on for it: false where GitHub skipped it because a step before it failed, and the Run spent no model; true where it ran. Absent where the job said neither, and read then as a Run that may have reached the model (issue 757)",
+      "type": "boolean"
     }
   }
 }

@@ -951,13 +951,14 @@ Run's jobs stop their own work under a step limit, the steps' together two minut
 a step stopped at its limit concludes `failure`, and its job with it, and a later `if: always()` step
 still runs (`trials/P-42.step-timeout.json`). A Run past its limit is no attempt: `apply` still runs,
 and leaves the outcome `environment`, `run_failed`, for any run job that did not succeed, so the
-automatic pause and the Run ceiling bound it, not the attempts
+automatic pause and the Run ceiling bound it, or the bound apart where its Engine step never started (decision 0202), not the attempts
 (`tests/test_steps.py::test_apply_waits_for_its_jobs`). One the Engine's own limit stops,
 `engine_timeout`, reads `environment` too
 (`tests/test_apply.py::test_a_result_not_the_runs_or_not_completed_writes_nothing`): a timeout cannot
 tell a slow provider from a slow item, and reading `item` would count an outage as an attempt on
 every item. The cost is accepted (issue 433): a Task the model cannot finish in time has up to
-`max_runs_per_item` Runs and not `max_attempts`, its spend unrecorded, and two such items in the
+`max_runs_per_item` Runs and not `max_attempts`, its spend unrecorded; such a Run reached its Engine step, so it is
+never counted apart with the Runs that spent no model (decision 0202), and two such items in the
 window can raise the automatic pause, which stops no act. No Run has a tool that runs; the review reads
 its head with Read, Grep and Glob alone, confined to it by `--restricted` and kept from the head's own settings
 by `--setting-sources ""` (decision 0138, P-59), each read a turn of the tier's, so an item can slow its Run
@@ -966,7 +967,8 @@ only by what the model reads, within the tier's turns and its cost ceiling. One 
 `error_max_budget_usd`, is `no_answer`, an attempt on its item, because words in the item can lead the model there; any
 other way the CLI says it erred stays `environment` (decisions 0122 and 0136). A Run `cancelled`
 with no outcome is no attempt: it is read as `superseded`, and so is a job that never started, `startup_failure`, and a
-first attempt an `if:` skipped, `skipped`, each of which the records port reads as `cancelled`. A row `skipped` on a later
+first attempt an `if:` skipped, `skipped`, each of which the records port reads as `cancelled`; a job that never
+started spent no model, so it counts toward `max_environment_runs_per_item` and not the Run ceiling (decision 0202). A row `skipped` on a later
 attempt reads `failure`, an attempt, since the shim's `if:` skips any re-run and the list shows only the latest
 (decision 0111, `tests/test_adapters.py::test_a_first_attempt_an_if_skipped_is_no_attempt_and_a_later_one_is_an_attempt`).
 The word is read live from `schedule` runs and a canary's `workflow_dispatch` of a shim; a fixture, and a re-run, wait
@@ -1000,7 +1002,9 @@ a failing resolution is bounded as an approval is, and a failing enqueue by its 
 an approved item's enqueue spends no model. Every other act, a label the Controller adds, has no run
 record. Every act that lands, the approval among them, is counted from GitHub's timeline as
 `acts_since_writer` (§3.3), and a resolution, which is on no timeline, from its Run (decision 0127).
-So every automated action on an item is either inside a Run, bounded by `max_runs_per_item`, or is
+So every automated action on an item is either inside a Run, bounded by `max_runs_per_item`, or by
+`max_environment_runs_per_item` for a Role's Run that spent no model, failing before its Engine step or never
+started (decision 0202), or is
 an act, bounded by `max_acts_per_item` (I-8).
 
 Run records and artifacts are kept for 90 days, which is the Factory's own history (PRD FR-40). The
@@ -1344,7 +1348,7 @@ such as `max_diff_lines`, or on the whole org, such as `org_max_active_runs`, bo
 | `addressing → converged` by `platform`: a conflict that a later move of the base clears | `max_acts_per_item` | The act the Factory makes each time the lap reaches `converged` |
 | `converged → queued`: enqueued | `max_acts_per_item` | The enqueue, an act (§3.10). A queue that ejects every time comes to rest here |
 | `queued → converged` by `factory`: a Role's App dismisses the approval | `max_runs_per_item` | The Run inside which a Role's App writes. A dequeue changes no State: derive has already given the State the item leaves the queue in, and the dequeue follows it |
-| Any State `→ held` by anyone but a person, at a ceiling | The ceiling reached: `max_runs_per_item`, `max_attempts`, `max_rounds` or `max_acts_per_item` | The counter that reached its limit, which only a writer's action renews. Each such Hold names the ceiling it gives (`tests/test_transitions.py::test_a_hold_no_person_makes_names_what_bounds_it`), whether it is made first or made again after a conflict or a reopened thread took the item out |
+| Any State `→ held` by anyone but a person, at a ceiling | The ceiling reached: `max_runs_per_item`, `max_environment_runs_per_item`, `max_attempts`, `max_rounds` or `max_acts_per_item` | The counter that reached its limit, which only a writer's action renews. Each such Hold names the ceiling it gives (`tests/test_transitions.py::test_a_hold_no_person_makes_names_what_bounds_it`), whether it is made first or made again after a conflict or a reopened thread took the item out |
 | Any State `→ held` by anyone but a person, on I-26 | `max_runs_per_item` | The Hold ends only by a push, a person's or a fix Run's. On a lap a Lens or the platform makes through it, the only work the Factory does is that Run, which the Run ceiling counts; otherwise the Factory does nothing on the lap |
 | Any State `→ held` by anyone but a person, on a label | `person` | No counter: a label any App placed stands until a person removes it (L-17), and only a person ends what a label holds (`tests/test_transitions.py::test_only_a_person_ends_what_a_label_holds`). `tools/check_lifecycle.py` takes `person` as a bound only on a Hold that no person makes |
 | `not_served → held`, and every transition out of `not_served` or `draft` by anyone but a person | none | Every way into `not_served` is a person's, and every way into `draft` is a person's or from `not_served`, so a cycle through either passes through a person |
@@ -1601,7 +1605,7 @@ and read from the configuration. The Lifecycle schema and the configuration gain
 |---|---|---|
 | `ready` to `in_progress` and back, when an opening Run ends having opened nothing | `max_attempts`, counted from the run records. The bound is reached, and the Hold placed, long before a record expires | The Kernel holds the issue, as for a pull request. Whether the Controller also adds `factory:hold` for a Hold of the brakes is decided with `controller/`, for both item types (decision 0031) |
 | `in_progress` or `in_review` back to `ready` or `triage`, when a linked pull request closes unmerged | `max_unmerged_closes`, starting at one. The first unmerged close is the retry it allows: the issue goes back to `ready` or `triage` | On the close after that, the Controller adds `factory:hold` and assigns the Maintainer |
-| `triage` to `ready` and back, when the content keeps changing | `max_runs_per_item`: every investigating and readiness Run counts toward the issue's Run ceiling | The Kernel holds the issue, as for a pull request |
+| `triage` to `ready` and back, when the content keeps changing | `max_runs_per_item`: every investigating and readiness Run counts toward the issue's Run ceiling, but one that spent no model, which counts toward `max_environment_runs_per_item` (decision 0202) | The Kernel holds the issue, as for a pull request |
 | Investigation and verdict within `triage` | One of each for each `content_id` and each action by a person with write access | Nothing more is admitted; the issue waits for a person |
 
 Unmerged closes are counted from the closed linked pull requests themselves, which GitHub keeps,

@@ -3542,6 +3542,13 @@ class Workflows(unittest.TestCase):
         self.assertNotIn("expression", {rule for rule, _ in check_workflows.lint(outputs)})
         self.assertIn("expression", {rule for rule, _ in check_workflows.lint(outputs.replace(
             "${{ steps.run.outputs.digest }}", "${{ github.event.pull_request.title }}"))})
+        # A step's outcome is one of four words GitHub gives, so a job may hand it on (issue 757); nothing else of a step.
+        self.assertNotIn("expression", {rule for rule, _ in check_workflows.lint(outputs.replace(
+            "${{ steps.run.outputs.digest }}", "${{ steps.run.outcome }}"))})
+        for other in ("${{ steps.run.conclusion }}", "${{ steps.run.outcome }}x", "${{ steps.run.outcome.x }}",
+                      "${{ steps.run.outcome || github.event.pull_request.title }}"):
+            self.assertIn("expression", {rule for rule, _ in check_workflows.lint(outputs.replace(
+                "${{ steps.run.outputs.digest }}", other))}, other)
 
     def run_tree(self, text: str, account, name: str = "run.yml") -> list:
         config = json.loads((ROOT / "config" / "controller.json").read_text())
