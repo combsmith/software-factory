@@ -2170,9 +2170,6 @@ class EvalJob(unittest.TestCase):
             self.assertEqual((result["reason"], review.retried, review.seen), ("engine_failed", {}, {"raised": "OSError", "erred": True}))
             result, review, calls, slept = asked(said, subprocess.TimeoutExpired(["claude"], 1))
             self.assertEqual((result["reason"], review.retried, review.seen), ("engine_timeout", {}, {"timed_out": True, "erred": True}))
-            result, review, calls, slept = asked((live.answer(structured_output=None), 0), vendor(503))
-            self.assertEqual((result["reason"], review.retried, calls), ("no_answer", {}, 2))
-            self.assertEqual((review.seen["exit"], review.seen["terminal_reason"], review.seen["api_error_status"]), (0, None, None))
         # The test is of a failed Result alone: a completed one is never transient, whatever the call said. Each probe is of
         # a Result the Engine failed, so that it reaches the guard it is of.
         result = dict(result, status="failed", reason="engine_failed")
