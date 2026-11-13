@@ -26,13 +26,11 @@ def _readable(root: pathlib.Path, *parts):
 
 def kernel(root: pathlib.Path) -> dict:
     """The Kernel's configuration as its tests give it: the defaults, and the protected paths, the model Lenses'
-    inputs and the paths only a person decides, from the one list the session hooks read too."""
-    held = dict(_json(root, "config", "defaults.json"),
-                protected_paths=protected.protected_paths(root / "config" / "hooks.json"))
-    held["model_lens_inputs"] = protected.model_lens_inputs(held["required_lenses"]["model"],
-                                                            root / "config" / "hooks.json")
-    held["person_only_paths"] = person_only(protected.load(root / "config" / "hooks.json"),
-                                            held["required_lenses"]["model"])
+    inputs and the paths only a person decides, from the one list the session hooks read too, read once."""
+    hooks = protected.load(root / "config" / "hooks.json")
+    held = dict(_json(root, "config", "defaults.json"), protected_paths=protected.protected_of(hooks))
+    held["model_lens_inputs"] = protected.model_inputs_of(hooks, held["required_lenses"]["model"])
+    held["person_only_paths"] = person_only(hooks, held["required_lenses"]["model"])
     return held
 
 

@@ -4464,6 +4464,18 @@ class TheFactorysOwnRules(unittest.TestCase):
         for paths in ([person], [person, lens]):
             d = go(dict(changing(**AGENT, changed_paths=paths), reviews=[review(kind="human", name="a-colleague")]), REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approval_due", "issue_approval"))
+        # A person-only path inside a model Lens's input, or a Lens's input inside a person-only directory, is still
+        # a Lens's input: the change is matched against both lists, and one touched pattern that is the Lens's gives
+        # the Lens's code. Only what is the person's alone is named for itself.
+        inside = config(person_only_paths=["harness/eval/"])
+        d = self.waits_for_a_person(changing(**AGENT, changed_paths=["harness/eval/run.py"]), cfg=inside)
+        self.assertEqual(d["evidence"], ["harness/", "harness/eval/"])
+        around = config(person_only_paths=["config/"])
+        d = self.waits_for_a_person(changing(**AGENT, changed_paths=["config/harness.json"]), cfg=around)
+        self.assertEqual(d["evidence"], ["config/harness.json", "config/"])
+        d = self.waits_for_a_person(changing(**AGENT, changed_paths=["config/notes.json"]), cfg=around,
+                                    reason="path_needs_person")
+        self.assertEqual(d["evidence"], ["config/"])
         # Each pattern is named once, however often the configuration names it, on either list.
         for twice in (config(person_only_paths=self.PERSONS + self.PERSONS),
                       config(model_lens_inputs=self.OWN, person_only_paths=self.PERSONS + self.PERSONS)):
