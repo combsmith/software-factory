@@ -660,7 +660,7 @@ def cells_ok(found: dict, place: pathlib.Path):
     cell is a kind, for the cases that expect a Finding the criterion the set floors or none of them, and natural or
     not: where two groups overlap in a cell of a few cases, their counts' difference tells those few (issue 695). One
     word of the whole set, never which cell or how many, and it stops nothing: the fetch and the job's line say it, and
-    turning it into a refusal is the Maintainer's, once he has read the set. None where `_expected` can
+    turning it into a refusal is the Maintainer's, once he has read the set (decision 0212). None where `_expected` can
     say nothing, and for a set that is no gate set's, which counts no group."""
     expected = _expected(found, place) if gate_set(found) else None
     if expected is None:
