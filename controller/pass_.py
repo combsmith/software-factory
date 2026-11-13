@@ -324,7 +324,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
               "issues": asked(issues, issue.decide, config["lifecycles"]["issue"]),
               "left_out": [{"item": reads_.item(i), "code": code} for i, code in zip(left_out, why)],
               "reconciliation": reconcile_.entries(found),
-              "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or ())}
+              "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or (),
+                                               reads.get("gone") or ())}
     checked(record, "pass")
     entries = record["pull_requests"] + record["issues"]
     ids = [record["pass"]] + [e["run"] for e in entries if e["run"] is not None]
