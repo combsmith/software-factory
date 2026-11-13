@@ -4427,6 +4427,16 @@ class TheFactorysOwnRules(unittest.TestCase):
             self.assertEqual(go(only, REVIEWED), json.loads((ROOT / "examples" / "decision.path-needs-person.json").read_text()))
             d = self.waits_for_a_person(only, cfg=config(person_only_paths=[]))
             self.assertEqual(d["evidence"], [path])
+        # A person-only path is a pattern in the one syntax of the lists, matched as a model Lens's input is: a
+        # directory holds what is below it, a star stands for part of one name, and neither reaches further.
+        for pattern, path, held in (("release/", "release/decision-points.json", True), ("release/", "releases/x.json", False),
+                                    ("release/decision-*.json", "release/decision-points.json", True),
+                                    ("release/decision-*.json", "release/fixtures/decision-points.json", False),
+                                    ("*.lock", "poetry.lock", True), ("*.lock", "docs/poetry.lock.md", False)):
+            cfg = config(model_lens_inputs=self.OWN, person_only_paths=[pattern])
+            d = go(changing(**AGENT, changed_paths=["docs/notes.md", path]), REVIEWED, cfg=cfg)
+            self.assertEqual((d["reason"], d["evidence"]) if held else d["reason"],
+                             (alone, [pattern]) if held else "approval_due", (pattern, path))
         # The file alone, never one beside it or one of its name elsewhere.
         for path in ("release/rings.json", "release/decision-points.schema.json", "release/decision-points.json.bak",
                      "docs/release/decision-points.json", "release/fixtures/decision-points.json"):
