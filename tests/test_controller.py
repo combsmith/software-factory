@@ -1355,7 +1355,9 @@ class Entry(unittest.TestCase):
         self.assertEqual(files["view/items.json"]["items"][0]["untrusted"]["title"], "A title")
         self.assertEqual(handed, [(self.HOME, 7, {"agent": set(), "maintainer": {(36422719, "User")},
                                                   "dependency": {(49699333, "Bot")}},
-                                   (281750570, "User"), {}, {(344165726, "Bot")}, True, "2026-10-12T12:00:00Z", None, ({}, True, []))])
+                                   (281750570, "User"), {(344166014, "Bot"): "pr-review"},
+                                   {(344165726, "Bot"), (344166014, "Bot")}, True, "2026-10-12T12:00:00Z", None,
+                                   ({}, True, []))])
         # What the opening Runs recorded is read once a pass, for the Role the configuration names, and handed to each
         # snapshot as it was read (issue 342).
         made, seen, got = {"named": {26: [("r_01JA7Q", 36)]}, "unreadable": set(), "whole": True}, [], []
