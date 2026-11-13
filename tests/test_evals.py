@@ -2110,6 +2110,15 @@ class EvalJob(unittest.TestCase):
         with mock.patch.object(step, "run_id", lambda: live.RUN):
             result = review(case)
         self.assertEqual((result["status"], result["usage"]["seconds"], spans), ("completed", 18.0, []))
+        # So for every attempt RETRIES allows: three, of 7, 11 and 13 seconds, each one's turns and cost too.
+        tick, spans = [0.0], [7.0, 11.0, 13.0]
+        cli = Timed(vendor(529), vendor(503), good)
+        (heads / case["id"]).mkdir(parents=True, exist_ok=True)
+        review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, lambda: tick[0], heads, sleep=lambda seconds: None)
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            result = review(case)
+        self.assertEqual((result["status"], result["usage"]["seconds"], result["usage"]["turns"], result["usage"]["cost_usd"], spans),
+                         ("completed", 31.0, 3 * once["usage"]["turns"], 3 * once["usage"]["cost_usd"], []))
         # The retry is the same case's Run: its Task keeps the Run id the first ask was given, however many are minted.
         ids, runs, answered = iter([live.RUN, "r_" + "B" * 20]), [], step.live.answer
 
@@ -2141,6 +2150,16 @@ class EvalJob(unittest.TestCase):
             self.assertEqual((result["reason"], review.retried, calls, review.seen["api_error_status"]), ("engine_failed", {}, 2, 401))
             # A call the CLI says succeeded with no answer to hold did not succeed either, as the Engine's `no_answer`:
             # its word is kept, never a later call's error, and the case is not the vendor's.
+            result, review, calls, slept = asked((live.answer(structured_output=None), 0), vendor(503))
+            self.assertEqual((result["reason"], review.retried, calls), ("no_answer", {}, 2))
+            self.assertEqual((review.seen["exit"], review.seen["terminal_reason"], review.seen["api_error_status"]), (0, None, None))
+            # A call that raises after one that succeeded is kept alone, nothing of the first left on its word: a first call
+            # that said api_error and 529 beside its answer does not make the second's local fault the vendor's.
+            said = (live.answer(terminal_reason="api_error", api_error_status=529), 0)
+            result, review, calls, slept = asked(said, OSError("no such file"))
+            self.assertEqual((result["reason"], review.retried, review.seen), ("engine_failed", {}, {"raised": "OSError", "erred": True}))
+            result, review, calls, slept = asked(said, subprocess.TimeoutExpired(["claude"], 1))
+            self.assertEqual((result["reason"], review.retried, review.seen), ("engine_timeout", {}, {"timed_out": True, "erred": True}))
             result, review, calls, slept = asked((live.answer(structured_output=None), 0), vendor(503))
             self.assertEqual((result["reason"], review.retried, calls), ("no_answer", {}, 2))
             self.assertEqual((review.seen["exit"], review.seen["terminal_reason"], review.seen["api_error_status"]), (0, None, None))

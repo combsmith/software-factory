@@ -75,9 +75,12 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, he
         try:
             done = asked(args, env=env, timeout=timeout, **given)
         except subprocess.TimeoutExpired:
+            # What an earlier call that succeeded said is not this one's: the call that failed is kept alone.
+            seen.clear()
             seen.update(timed_out=True, erred=True)
             raise
         except Exception as err:
+            seen.clear()
             seen.update(raised=type(err).__name__, erred=True)
             raise
         seen["exit"] = done.returncode
