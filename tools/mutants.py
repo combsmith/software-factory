@@ -5512,6 +5512,15 @@ MUTANTS = ISSUE + [
     ('the refused rollback\'s deployments are read from a refused answer', 'release/fixtures/rollback.refused.json',
      'deployments?environment=factory-next (gh api --include)",\n            "headers": {\n              "accept": "application/vnd.github+json"\n            },\n            "body": null\n          },\n          "response": {\n            "status": 200,',
      'deployments?environment=factory-next (gh api --include)",\n            "headers": {\n              "accept": "application/vnd.github+json"\n            },\n            "body": null\n          },\n          "response": {\n            "status": 500,', ('tests.test_release.Fixture.test_a_rollback_with_no_earlier_release_was_refused_and_moved_nothing',)),
+    # Issue 792: a cut reads a page of next's Deployments, held to its order, and the cuts are read in version order.
+    ("a page of Deployments is held to no order", 'tests/test_release.py', '            expected = expected[:size]\n',
+     '            expected = [(d["id"], d["sha"], d["description"]) for d in deployed]\n', ("tests.test_release.Fixture.test_a_cut_that_reads_a_page_of_next_s_deployments_is_held_to_its_order",)),
+    ("a page of Deployments may leave out the one next moved off", 'tests/test_release.py',
+     'self.assertGreaterEqual(size, len(since) + 2)', 'self.assertGreaterEqual(size, len(since) + 1)', ("tests.test_release.Fixture.test_a_cut_that_reads_a_page_of_next_s_deployments_is_held_to_its_order",)),
+    ("the cuts are read in the order of their names", 'tests/test_release.py',
+     'key=lambda p: current.version(json.loads(p.read_text())["version"]))', 'key=str)', ("tests.test_release.Fixture.test_the_next_cut_moved_next_on",)),
+    ("any run read is the eval's", 'tests/test_release.py',
+     '\n               and e["response"]["body"].get("path") == ".github/workflows/eval.yml"]', ']', ("tests.test_release.Fixture.test_the_next_cut_moved_next_on",)),
     # Muse's read of #617: the PATCH is the Maintainer's admin role's, refused as a protected ref, and the ruleset holds
     # the rules tools/check_rulesets.py holds it to.
     ('the refused PATCH is no admin role\'s', 'release/fixtures/cut.v0-1-0.json', ', the admin role)', ')', CUT_FIXTURE),

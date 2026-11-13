@@ -139,3 +139,4 @@ before and after. It approves nothing, signs in to no account, and sets no varia
 ## Verify, then hand over
 
 Run `make checks`, and let CI's `make verify` pass. A fixture of a cut or a rollback is kept under release/, redacted as a trial's is.
+A cut's fixture reads `next`'s Deployments as a page, `GET /repos/{repo}/deployments?environment=factory-next&per_page=4`, so its pull request is the same size however many there are; the page must hold what stands above the cut's own Deployment, that Deployment and the one `next` moved off (`tests/test_release.py::test_a_cut_that_reads_a_page_of_next_s_deployments_is_held_to_its_order`).

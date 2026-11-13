@@ -434,6 +434,32 @@ class Fixture(unittest.TestCase):
                          (cut_["version"], self.item(cut_, "cut_and_move_of_next")["asked"]["cut_commit"]))
         return since
 
+    DEPLOYMENTS = "/repos/%s/deployments?environment=factory-next" % REPO
+
+    def deployments_read(self, item) -> tuple:
+        """`(the Deployments of next as `item` read them, newest first, and the page's length)`: a page of `per_page`, as a
+        cut's fixture asks from issue 792 on, or the whole list, as the cuts before it read it, of no length. One read,
+        answered 200."""
+        found = [e for e in item["exchanges"] if e["request"]["call"].split(" ")[0] == "GET"
+                 and e["request"]["call"].split(" ")[1].partition("&per_page=")[0] == self.DEPLOYMENTS]
+        self.assertEqual(len(found), 1, "one read of next's Deployments")
+        path, answer = found[0]["request"]["call"].split(" ")[1], found[0]["response"]
+        self.assertEqual(answer["status"], 200, path)
+        if path == self.DEPLOYMENTS:
+            return answer["body"], None
+        size = path.rpartition("&per_page=")[2]
+        self.assertRegex(size, r"^[1-9][0-9]?$")
+        self.assertLessEqual(len(answer["body"]), int(size))
+        return answer["body"], int(size)
+
+    def eval_run(self, item) -> int:
+        """The eval job's run `item` read, by its workflow file: one, the run the cut passed the gate on."""
+        ran = [e["response"]["body"]["id"] for e in item["exchanges"]
+               if re.fullmatch(r"GET /repos/%s/actions/runs/[0-9]+" % re.escape(REPO), " ".join(e["request"]["call"].split(" ")[:2]))
+               and e["response"]["body"].get("path") == ".github/workflows/eval.yml"]
+        self.assertEqual(len(ran), 1, "one eval run read")
+        return ran[0]
+
     def a_later_cut_moved_next_on(self, path, eval_run, earlier):
         """The cut `path` records, at the commit eval run `eval_run` had passed, the eval job's own dispatch and its one
         run on that commit, ended before the cut; `next` moved to it with a Deployment of its own, the newest, before
@@ -465,12 +491,17 @@ class Fixture(unittest.TestCase):
         cuts = [self.item(f, "cut_and_move_of_next") for f in before]
         self.assertEqual(body("/repos/%s/git/ref/tags/%s" % (REPO, before[0]["version"]))["object"]["sha"],
                          cuts[0]["asked"]["cut_commit"])
-        deployed = body("/repos/%s/deployments?environment=factory-next" % REPO)
+        deployed, size = self.deployments_read(made)
         since, own = self.deployments_after(path), made["printed"]["deployments"][0]
         below = [entry for p, c, f in zip(earlier, cuts, before)
                  for entry in self.deployments_after(p) + [(c["printed"]["deployments"][0], c["asked"]["cut_commit"], f["version"])]]
-        self.assertEqual([(d["id"], d["sha"], d["description"]) for d in deployed],
-                         since + [(own, commit, fixture["version"])] + below)
+        expected = since + [(own, commit, fixture["version"])] + below
+        if size is not None:
+            # A page holds what stands above the cut's own Deployment, that Deployment and the one `next` moved off, in
+            # their order, newest first: the first of the list the cuts before it build (issue 792).
+            self.assertGreaterEqual(size, len(since) + 2)
+            expected = expected[:size]
+        self.assertEqual([(d["id"], d["sha"], d["description"]) for d in deployed], expected)
         statuses = body("/repos/%s/deployments/%d/statuses" % (REPO, own))
         self.assertEqual([s["state"] for s in statuses], ["inactive", "success"] if since else ["success"])
         # The cut's own Deployment was made inside the run that printed it, and succeeded there, no earlier than it was made.
@@ -483,54 +514,56 @@ class Fixture(unittest.TestCase):
         self.assertEqual([s["state"] for s in statuses], ["inactive", "success"])
         self.assertGreaterEqual(statuses[0]["created_at"], mine)
 
+    def cuts(self) -> list:
+        """Every cut's fixture, in version order, the first refused by nothing: so a cut adds no line here (issue 792)."""
+        found = sorted(self.CUT.parent.glob("cut.v*.json"), key=lambda p: current.version(json.loads(p.read_text())["version"]))
+        self.assertEqual(found[0], self.CUT)
+        return found
+
     def test_the_next_cut_moved_next_on(self):
-        # Each cut after the first. Run 42697380276 cut factory/v0.1.1 on 2026-11-09 at the commit eval run 42694638100
-        # had passed; run 42741714653 cut factory/v0.1.2 on 2026-11-10 at the commit eval run 42739717534 had passed,
-        # #694's merge, after slice 1's first dry run stopped in the reader; run 42755427902 cut factory/v0.1.3 on
-        # 2026-11-10 at the commit eval run 42753588971 had passed, #708's merge, after the second; run 42868490093 cut
-        # factory/v0.1.4 on 2026-11-10 at the commit eval run 42865325326 had passed, #714's merge, after the third;
-        # run 42885151917 cut factory/v0.1.5 on 2026-11-10 at the commit eval run 42882105104 had passed, #720's
-        # merge, after the fourth; run 42925869303 cut factory/v0.1.6 on 2026-11-10 at the commit eval run 42923463050
-        # had passed, #717's merge, after the fifth and the sixth; run 43026745268 cut factory/v0.1.7 on 2026-11-11 at
-        # the commit eval run 43024260112 had passed, #731's merge, after the seventh; run 43110557016 cut factory/v0.1.8
-        # on 2026-11-11 at the commit eval run 43107717326 had passed, #748's merge, after the runners' Ubuntu mirrors stopped
-        # resolving (#743); run 43173763017 cut factory/v0.1.9 on 2026-11-12 at the commit eval run 43171810453 had passed,
-        # #775's merge, which fetches the CLI's sandbox from two mirrors (#774); run 43270689165 cut factory/v0.1.10 on
-        # 2026-11-12 at the commit eval run 43267765670 had passed, #760's merge, and its fixture was read after the
-        # first rollback and the move forward again, whose two Deployments stand above the cut's; run 43348353598 cut
-        # factory/v0.1.11 on 2026-11-13 at the commit eval run 43346447730 had passed, #791's merge, the first cut after
-        # that rollback: the two Deployments stand below its own, and the one `next` moved off is the move forward's.
-        for path, eval_run, earlier in ((self.NEXT_CUT, 42694638100, [self.CUT]),
-                                        (self.THIRD_CUT, 42739717534, [self.NEXT_CUT, self.CUT]),
-                                        (self.FOURTH_CUT, 42753588971, [self.THIRD_CUT, self.NEXT_CUT, self.CUT]),
-                                        (self.FIFTH_CUT, 42865325326,
-                                         [self.FOURTH_CUT, self.THIRD_CUT, self.NEXT_CUT, self.CUT]),
-                                        (self.SIXTH_CUT, 42882105104,
-                                         [self.FIFTH_CUT, self.FOURTH_CUT, self.THIRD_CUT, self.NEXT_CUT,
-                                          self.CUT]),
-                                        (self.SEVENTH_CUT, 42923463050,
-                                         [self.SIXTH_CUT, self.FIFTH_CUT, self.FOURTH_CUT, self.THIRD_CUT,
-                                          self.NEXT_CUT, self.CUT]),
-                                        (self.EIGHTH_CUT, 43024260112,
-                                         [self.SEVENTH_CUT, self.SIXTH_CUT, self.FIFTH_CUT, self.FOURTH_CUT,
-                                          self.THIRD_CUT, self.NEXT_CUT, self.CUT]),
-                                        (self.NINTH_CUT, 43107717326,
-                                         [self.EIGHTH_CUT, self.SEVENTH_CUT, self.SIXTH_CUT, self.FIFTH_CUT,
-                                          self.FOURTH_CUT, self.THIRD_CUT, self.NEXT_CUT, self.CUT]),
-                                        (self.TENTH_CUT, 43171810453,
-                                         [self.NINTH_CUT, self.EIGHTH_CUT, self.SEVENTH_CUT, self.SIXTH_CUT,
-                                          self.FIFTH_CUT, self.FOURTH_CUT, self.THIRD_CUT, self.NEXT_CUT,
-                                          self.CUT]),
-                                        (self.ELEVENTH_CUT, 43267765670,
-                                         [self.TENTH_CUT, self.NINTH_CUT, self.EIGHTH_CUT, self.SEVENTH_CUT,
-                                          self.SIXTH_CUT, self.FIFTH_CUT, self.FOURTH_CUT, self.THIRD_CUT,
-                                          self.NEXT_CUT, self.CUT]),
-                                        (self.TWELFTH_CUT, 43346447730,
-                                         [self.ELEVENTH_CUT, self.TENTH_CUT, self.NINTH_CUT, self.EIGHTH_CUT,
-                                          self.SEVENTH_CUT, self.SIXTH_CUT, self.FIFTH_CUT, self.FOURTH_CUT,
-                                          self.THIRD_CUT, self.NEXT_CUT, self.CUT])):
+        # Each cut after the first, read from release/fixtures/ in version order, each at the commit the eval run its
+        # fixture reads had passed, each above the cuts before it, newest first. The first, factory/v0.1.1, was cut by run
+        # 42697380276 on 2026-11-09 at the commit eval run 42694638100 had passed; factory/v0.1.10's fixture was read after
+        # the first rollback and the move forward again, whose two Deployments stand above the cut's; factory/v0.1.11, cut
+        # by run 43348353598 on 2026-11-13 at the commit eval run 43346447730 had passed, was the first cut after that
+        # rollback: the two Deployments stand below its own, and the one `next` moved off is the move forward's.
+        cuts = self.cuts()
+        self.assertEqual(cuts[1:12], [self.NEXT_CUT, self.THIRD_CUT, self.FOURTH_CUT, self.FIFTH_CUT, self.SIXTH_CUT,
+                                      self.SEVENTH_CUT, self.EIGHTH_CUT, self.NINTH_CUT, self.TENTH_CUT, self.ELEVENTH_CUT,
+                                      self.TWELFTH_CUT])
+        self.assertEqual(self.eval_run(self.item(json.loads(self.NEXT_CUT.read_text()), "cut_and_move_of_next")), 42694638100)
+        for i, path in enumerate(cuts[1:], 1):
+            made = self.item(json.loads(path.read_text()), "cut_and_move_of_next")
             with self.subTest(cut=path.name):
-                self.a_later_cut_moved_next_on(path, eval_run, earlier)
+                self.a_later_cut_moved_next_on(path, self.eval_run(made), list(reversed(cuts[:i])))
+
+    def test_a_cut_that_reads_a_page_of_next_s_deployments_is_held_to_its_order(self):  # issue 792
+        # A cut's fixture reads a page of next's Deployments, so its pull request is the same size however many there
+        # are: the page holds what stands above the cut's own Deployment, that Deployment and the one `next` moved off,
+        # in their order. A page too short for them, or in another order, is refused. Shown on factory/v0.1.10's
+        # fixture, asked again as a page of four.
+        whole = json.loads(self.ELEVENTH_CUT.read_text())
+        earlier = list(reversed(self.cuts()[:self.cuts().index(self.ELEVENTH_CUT)]))
+
+        def paged(size, order=lambda page: page):
+            fixture = copy.deepcopy(whole)
+            for e in self.item(fixture, "cut_and_move_of_next")["exchanges"]:
+                if e["request"]["call"].split(" ")[1] == self.DEPLOYMENTS:
+                    e["request"]["call"] = e["request"]["call"].replace(self.DEPLOYMENTS, self.DEPLOYMENTS + "&per_page=%d" % size)
+                    e["response"]["body"] = order(e["response"]["body"][:size])
+            folder = tempfile.TemporaryDirectory()
+            self.addCleanup(folder.cleanup)
+            path = pathlib.Path(folder.name) / self.ELEVENTH_CUT.name
+            path.write_text(json.dumps(fixture))
+            self.LATER[path] = self.FIRST_ROLLBACK
+            self.addCleanup(self.LATER.pop, path)
+            return path
+
+        eval_run = self.eval_run(self.item(whole, "cut_and_move_of_next"))
+        self.a_later_cut_moved_next_on(paged(4), eval_run, earlier)
+        for wrong in (paged(3), paged(4, lambda page: page[1:2] + page[:1] + page[2:]), paged(4, lambda page: page[:3])):
+            with self.subTest(wrong=wrong), self.assertRaises(AssertionError):
+                self.a_later_cut_moved_next_on(wrong, eval_run, earlier)
 
     def test_the_first_rollback_moved_next_back_within_its_time_and_a_move_brought_it_forward_again(self):
         # Issue 197's ruling 9', items 4 and 5. Run 43317751252 rolled `next` back from factory/v0.1.10 to factory/v0.1.9
