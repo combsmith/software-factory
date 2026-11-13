@@ -414,7 +414,9 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport, hea
     fetched = _fetched(env, workspace, transport, heads, found, place)
     if floor_short(found, place):
         raise Stop("eval_floor_short")
-    return "fetched %d of %d cases" % (fetched, found["count"]) + said
+    # Two groups that overlap in a few cases are told, and the dispatch goes on: an advisory (issue 695).
+    told = "".join("; " + word for word in advised_of({"cells_ok": cells_ok(found, place)}))
+    return "fetched %d of %d cases" % (fetched, found["count"]) + said + told
 
 
 def _fetched(env: dict, workspace: pathlib.Path, transport, heads, found: dict, place: pathlib.Path) -> int:
@@ -651,6 +653,29 @@ def floor_short(found: dict, place: pathlib.Path) -> bool:
         return False
     rest = len([s for s in expected.values() if s["verdict"] == "finding"]) - sum(len(c) for c in floored.values())
     return any(len(cases) < FLOOR_LEAST for cases in floored.values()) or 0 < rest < FLOOR_LEAST
+
+
+def cells_ok(found: dict, place: pathlib.Path):
+    """Whether every cell of the groups a gate set's report counts holds none of its cases or ORIGIN_LEAST at least. A
+    cell is a kind, for the cases that expect a Finding the criterion the set floors or none of them, and natural or
+    not: where two groups overlap in a cell of a few cases, their counts' difference tells those few (issue 695). One
+    word of the whole set, never which cell or how many, and it stops nothing: the fetch and the job's line say it, and
+    turning it into a refusal is the Maintainer's, once he has read the set. None where `_expected` can
+    say nothing, and for a set that is no gate set's, which counts no group."""
+    expected = _expected(found, place) if gate_set(found) else None
+    if expected is None:
+        return None
+    floors, natural, cells = criterion_bars_of(found), {e["id"] for e in found["cases"] if e.get("natural") is True}, {}
+    for case, said in expected.items():
+        floored = next((name for name in floors if said["verdict"] == "finding" and said.get("criterion") == name), None)
+        cell = (said["verdict"], floored, case in natural)
+        cells[cell] = cells.get(cell, 0) + 1
+    return all(many >= ORIGIN_LEAST for many in cells.values())
+
+
+def advised_of(document: dict) -> list:
+    """What a gate set's report says of its set that closes nothing: two groups that overlap in a few cases."""
+    return ["two groups overlap in fewer than %d cases" % ORIGIN_LEAST] if document["cells_ok"] is False else []
 
 
 def split_ok(found: dict, place: pathlib.Path):
@@ -891,7 +916,7 @@ def aggregate(kept: dict, found: dict, assessed: dict, place: pathlib.Path, resu
             "bars": {kind: list(bars_of(found)[kind]) for kind in KINDS}, "kind_least": kind_least_of(found),
             "criterion_bars": {name: list(bar) for name, bar in criterion_bars_of(found).items()},
             "split_ok": split_ok(found, place), "kinds_pass": kinds_pass(found, place, assessed),
-            "blocking_pass": blocking_pass(found, place, assessed),
+            "blocking_pass": blocking_pass(found, place, assessed), "cells_ok": cells_ok(found, place),
             "ledger": {"salted_sha256": hashlib.sha256(ledger).hexdigest()}}
 
 
@@ -1140,7 +1165,7 @@ def tally_of_aggregate(document: dict, configured: str = None) -> str:
                       ", ".join("%s %d" % (f["code"], f["count"]) for f in document["faults"]) or "no code",
                       ", ".join(["preflight %d of %d passed" % (ahead["passed"], ahead["cases"])]
                                 + ["%s %d" % (f["code"], f["count"]) for f in ahead["faults"]])]
-                     + closed_of(document) + answered_by(document, configured))
+                     + closed_of(document) + advised_of(document) + answered_by(document, configured))
 
 
 def tally(document: dict, configured: str = None) -> str:
