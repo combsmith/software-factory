@@ -93,6 +93,7 @@ RESULT_PORT = ("tests.test_adapters.Contract.test_a_results_check_is_read_as_any
 WIRE_RUNS = ("tests.test_adapters.EffectsRecorded.test_each_run_in_the_window_is_read_once_and_only_a_listed_one",)
 WIRE_PASSES = ("tests.test_adapters.EffectsRecorded.test_each_pass_in_the_window_is_read_once_and_what_cannot_be_read_is_read_again",)
 WIRE_AGAIN = ("tests.test_adapters.EffectsRecorded.test_a_pass_that_did_not_succeed_and_lists_none_is_read_after_a_second_look",)
+WIRE_RUNS_AGAIN = ("tests.test_adapters.EffectsRecorded.test_a_run_that_did_not_succeed_and_lists_none_is_read_after_a_second_look",)
 WIRE_MANY = ("tests.test_adapters.EffectsRecorded.test_more_passes_that_list_none_than_a_pass_reads_are_read_whole_by_the_next",)
 WIRE_RUNNING = ("tests.test_adapters.EffectsRecorded.test_a_pass_still_running_is_not_looked_at_and_may_yet_record",)
 WIRE_UNMATCHED = ("tests.test_adapters.EffectsRecorded.test_a_write_by_a_pass_that_failed_and_recorded_nothing_is_unmatched_not_short",)
@@ -7710,7 +7711,7 @@ MUTANTS = ISSUE + [
     ("a Run at the window's edge is not read", 'adapters/applied.py', 'record["started_at"] < since', 'record["started_at"] <= since', WIRE_RUNS),
     ('a list not read whole is read', 'adapters/applied.py', 'listed = isinstance(runs, dict) and runs.get("complete") is True and isinstance(runs.get("github_ids"), dict)', 'listed = isinstance(runs, dict) and isinstance(runs.get("github_ids"), dict)', WIRE_RUNS),
     ('a Run named twice is read', 'adapters/applied.py', 'if type(github) is not list or len(github) != 1:', 'if type(github) is not list or not github:', WIRE_RUNS),
-    ('a Run that succeeded and lists none recorded nothing', 'adapters/applied.py', 'record["run"], required=succeeded)', 'record["run"], required=False)', WIRE_RUNS),
+    ('a Run that succeeded and lists none recorded nothing', 'adapters/applied.py', 'record["run"], required=succeeded, fresh=True)', 'record["run"], required=False, fresh=True)', WIRE_RUNS),
     ('a read never answered of a Run is whole', 'adapters/applied.py', '            kept, whole = None, False\n        if not whole:\n            out["whole"] = False\n        elif kept is None:', '            kept, whole = None, True\n        if not whole:\n            out["whole"] = False\n        elif kept is None:', WIRE_RUNS),
     ('a Run that lists none counts as read', 'adapters/applied.py', '        elif kept is None:\n            again.append((record, github[0]))\n        else:\n            read(record, kept)', '        else:\n            read(record, kept)', WIRE_RUNS),
     # Issue 709: a Run that did not succeed and lists none is looked at once more, after one wait for them all, and read.
@@ -7719,6 +7720,14 @@ MUTANTS = ISSUE + [
     ('each Run that lists none waits on its own', 'adapters/applied.py', '    if again:\n        sleep(WAIT)\n    for record, github_id in again:\n', '    for record, github_id in again:\n        sleep(WAIT)\n', WIRE_RUNS),
     ('a second look at a Run never answered is whole', 'adapters/applied.py', '            kept, whole = None, False\n        if not whole:\n            out["whole"] = False\n            continue\n', '            kept, whole = None, True\n        if not whole:\n            out["whole"] = False\n            continue\n', WIRE_RUNS),
     ('a second look at a Run not read whole is read', 'adapters/applied.py', '            out["whole"] = False\n            continue\n        read(record, kept)\n    return out', '            out["whole"] = False\n        read(record, kept)\n    return out', WIRE_RUNS),
+    ('a first look at a Run may be answered from a cache', 'adapters/applied.py', 'required=succeeded, fresh=True)', 'required=succeeded)', WIRE_RUNS_AGAIN),
+    ('a second look at a Run may be answered from a cache', 'adapters/applied.py', 'github_id, record["run"], fresh=True)', 'github_id, record["run"])', WIRE_RUNS_AGAIN),
+    ('a look at a Run asked uncached is asked as any', 'adapters/artifacts.py', 'expired=told, fresh=fresh)', 'expired=told)', WIRE_RUNS_AGAIN),
+    ('the second look at the Runs waits no time', 'adapters/applied.py', 'WAIT = 5 ', 'WAIT = 0 ', WIRE_RUNS_AGAIN),
+    ('a Run waits with a sleep that does not', 'adapters/applied.py', 'most: int = READS, sleep=time.sleep) -> dict:', 'most: int = READS, sleep=lambda seconds: None) -> dict:', WIRE_RUNS_AGAIN),
+    ('the wait for the Runs comes after the second looks', 'adapters/applied.py', '    if again:\n        sleep(WAIT)\n    for record, github_id in again:\n        try:\n            kept, whole = artifacts.applied(transport, repo, github_id, record["run"], fresh=True)\n        except Unanswered:\n            kept, whole = None, False\n        if not whole:\n            out["whole"] = False\n            continue\n        read(record, kept)\n    return out\n', '    for record, github_id in again:\n        try:\n            kept, whole = artifacts.applied(transport, repo, github_id, record["run"], fresh=True)\n        except Unanswered:\n            kept, whole = None, False\n        if not whole:\n            out["whole"] = False\n            continue\n        read(record, kept)\n    if again:\n        sleep(WAIT)\n    return out\n', WIRE_RUNS_AGAIN),
+    ('the wait for the Runs comes before the first looks are done', 'adapters/applied.py', '            again.append((record, github[0]))\n', '            again or sleep(WAIT)\n            again.append((record, github[0]))\n', WIRE_RUNS_AGAIN),
+    ('a second look at a Run that cannot be read ends the second looks', 'adapters/applied.py', '            out["whole"] = False\n            continue\n        read(record, kept)\n    return out', '            out["whole"] = False\n            break\n        read(record, kept)\n    return out', WIRE_RUNS_AGAIN),
     # The entry's sleep is the one each port waits by, so no test and no pass waits on the clock unasked (issue 709).
     ('the applied read waits by the clock', 'controller/__main__.py', 'since, known_runs, sleep=sleep)', 'since, known_runs)', ("tests.test_controller.Entry.test_the_entry_gathers_what_reconciliation_reads",)),
     ('the written read waits by the clock', 'controller/__main__.py', 'since, known_passes, sleep=sleep)', 'since, known_passes)', ("tests.test_controller.Entry.test_the_entry_gathers_what_reconciliation_reads",)),

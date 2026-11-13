@@ -5045,6 +5045,37 @@ class EffectsRecorded(unittest.TestCase):
         found = check(status, recorded(written_=got["written"], whole=got["whole"]))
         self.assertEqual((found["unmatched"], found["short"], reconcile.alerts(found)), ([], False, []))
 
+    def test_a_run_that_did_not_succeed_and_lists_none_is_read_after_a_second_look(self):  # issue 709, decision 0210
+        def run(name, **over):
+            return dict(lens_run(name), started_at="2026-10-11T12:00:00Z", **over)
+        none, done = {"applied": [], "read": [], "at": {}, "whole": True}, lens_applied(self.RUN)
+        nothing = lambda github_id: applied_stored("o/r", github_id, None)
+        # The wait is one for a pass, however many Runs it looks at again: every first look comes before it and every
+        # second after, and each that listed none is looked at again; a record the second look lists is read.
+        slept, other = [], "r_01JA7R"
+        three = listed_runs(run(self.RUN, conclusion="failure"), run("r_01JA7Q"), run(other, conclusion="cancelled"))
+        hub = Recording(github.Replay(nothing(39100000000) + applied_stored("o/r", 39100000001, lens_applied("r_01JA7Q"))
+                                      + nothing(39100000002) + nothing(39100000000)
+                                      + applied_stored("o/r", 39100000002, lens_applied(other))))
+        got = applied.effects(hub, "o/r", three, self.SINCE, set(), sleep=lambda seconds: slept.append((seconds, len(hub.sent))))
+        self.assertEqual(got, {"applied": [lens_applied("r_01JA7Q"), lens_applied(other)], "read": ["r_01JA7Q", self.RUN, other],
+                               "at": {"r_01JA7Q": "2026-10-11T12:00:00Z", other: "2026-10-11T12:00:00Z"}, "whole": True})
+        # Four requests are the first looks (a list each, and the one record downloaded); three are the second.
+        self.assertEqual((slept, len(hub.sent)), ([(applied.WAIT, 4)], 7))
+        self.assertEqual(applied.WAIT, 5)
+        # Each look is asked uncached, the first and the second: GitHub lets a list be held a minute (decision 0036), and
+        # a second look answered from the first's would settle nothing.
+        looks = [r["headers"] for r in hub.sent if "/artifacts?" in r["path"]]
+        self.assertEqual(looks, [records.FRESH] * 5)
+        self.assertIs(applied.effects.__defaults__[-1], applied.time.sleep)
+        # A second look that cannot be read leaves its own Run unread and what was read short; the next is still looked at.
+        two = listed_runs(run(self.RUN, conclusion="failure"), run(other, conclusion="cancelled"))
+        refused = nothing(39100000000)
+        refused[0] = dict(refused[0], response=dict(refused[0]["response"], status=500))
+        got = applied.effects(github.Replay(nothing(39100000000) + nothing(39100000001) + refused + nothing(39100000001)),
+                              "o/r", two, self.SINCE, set(), sleep=lambda seconds: None)
+        self.assertEqual(got, dict(none, read=[other], whole=False))
+
     def test_each_run_in_the_window_is_read_once_and_only_a_listed_one(self):
         def run(name, **over):
             return dict(lens_run(name), started_at="2026-10-11T12:00:00Z", **over)

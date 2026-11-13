@@ -214,10 +214,10 @@ def effects(transport, repo: str, runs, since: str, known, most: int = READS, sl
     0112). A Run is read once: `known` is the Runs a record before this one read. One past its retention recorded nothing
     that can be read, and is read. One whose record cannot be read, and any past the `most` a pass reads, are not, so a later
     pass reads them, and what this one read is not whole. One that did not succeed and lists none is looked at once more,
-    after one wait for them all: a completed run uploads nothing more, so one that lists none again recorded nothing, and
-    is read, as a pass is (decision 0190, issue 709); a write it made is then matched to no record, which is
-    reconciliation's to alarm on. A record any job could upload could cover a stolen credential's write, so only a Run the
-    list names is read, and only the approving act's record vouches for an approval."""
+    after one wait for them all, each look uncached: a completed run uploads nothing more, so one that lists none again
+    recorded nothing, and is read, as a pass is (decisions 0190 and 0210); a write it made is then matched to no record,
+    which is reconciliation's to alarm on. A record any job could upload could cover a stolen credential's write, so only a
+    Run the list names is read, and only the approving act's record vouches for an approval."""
     listed = isinstance(runs, dict) and runs.get("complete") is True and isinstance(runs.get("github_ids"), dict) \
         and isinstance(runs.get("runs"), list)
     out, tried, again = {"applied": [], "read": [], "at": {}, "whole": listed}, 0, []
@@ -241,7 +241,7 @@ def effects(transport, repo: str, runs, since: str, known, most: int = READS, sl
             break
         tried += 1
         try:
-            kept, whole = artifacts.applied(transport, repo, github[0], record["run"], required=succeeded)
+            kept, whole = artifacts.applied(transport, repo, github[0], record["run"], required=succeeded, fresh=True)
         except Unanswered:
             kept, whole = None, False
         if not whole:
@@ -256,7 +256,7 @@ def effects(transport, repo: str, runs, since: str, known, most: int = READS, sl
         sleep(WAIT)
     for record, github_id in again:
         try:
-            kept, whole = artifacts.applied(transport, repo, github_id, record["run"])
+            kept, whole = artifacts.applied(transport, repo, github_id, record["run"], fresh=True)
         except Unanswered:
             kept, whole = None, False
         if not whole:
