@@ -179,8 +179,8 @@ def bound(pull: dict, opener, opened=None):
 def opened_for(pull: dict, opener, opened=None):
     """The issue the Factory opened the pull request for, as `facts/1` holds it: the number `bound` gives, and None
     where it gives none, another account's pull request, or cannot tell. What it cannot tell `read` gives as not whole,
-    so the Kernel defers; a truth value is never a number. The Kernel admits the author Role's fix only where this
-    names an issue (decision 0216)."""
+    so the Kernel defers; a truth value is never a number. It is given for the rule that admits the author Role's fix
+    only on a pull request the Factory opened (issue 823)."""
     number = bound(pull, opener, opened)
     return number if type(number) is int else None
 

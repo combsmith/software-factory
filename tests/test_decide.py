@@ -3276,20 +3276,17 @@ class Ceilings(unittest.TestCase):
                 self.assertEqual(d["attention"], "needs_you" if reason == "human_finding" else "failed", reason)
                 self.assertNotIn("admit", d)
         # The number's boundary: issue 1 is an issue. Nothing else names one: 0, a number below it, a truth value, a
-        # number in words or with a fraction, a list. The schema refuses each; a Kernel given one admits no fix on it.
-        schema = json.loads((ROOT / "schemas" / "facts.schema.json").read_text())
+        # number in words or with a fraction, a list. The schema refuses each (tests/test_tools.py); a Kernel given
+        # one all the same admits no fix on it.
         self.assertEqual(go(facts(opened_for=1, threads=[thread()]), REVIEWED)["admit"]["intent"], "fix-findings")
-        self.assertEqual([validate(facts(opened_for=issue), schema) for issue in (1, 7, None)], [[], [], []])
         for other in (0, -1, True, False, "7", 7.0, [7], {"issue": 7}):
             d = go(facts(opened_for=other, threads=[thread()]), REVIEWED)
             self.assertEqual((d["reason"], d["outcome"], "admit" in d), ("findings_open", "nothing", False), other)
-            self.assertTrue(validate(facts(opened_for=other), schema), other)
-        # Facts made before the fact was, an eval set's among them, do not hold it: no fix, as for null. It is the one
-        # fact the schema does not require, so such facts are still read (decision 0105's guard holds the rest).
+        # Facts made before the fact was, an eval set's among them, do not hold it, and the schema does not require
+        # it: no fix, as for null.
         before = facts(threads=[thread()])
         del before["opened_for"]
         self.assertEqual((go(before, REVIEWED)["reason"], go(before, REVIEWED)["outcome"]), ("findings_open", "nothing"))
-        self.assertEqual((validate(before, schema), "opened_for" in schema["required"]), ([], False))
         # It reaches the fix alone: anyone's pull request is reviewed, and its Findings adjudicated.
         self.assertEqual(go(facts())["admit"], {"role": "pr-review", "intent": "review-change", "content_id": "sha256:aaaa"})
         answered = go(facts(threads=[thread()]), ANSWERED)

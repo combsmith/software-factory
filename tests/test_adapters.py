@@ -2700,7 +2700,7 @@ class Acceptance(unittest.TestCase):
         # A person's pull request is read by its closing references, whatever the opening Runs recorded.
         self.assertEqual(self.read(closing_answer("o/r", 26, []), opened=made([("r_01JA7Q", 37)])), (None, True))
 
-    def test_the_facts_name_the_issue_the_factory_opened_a_pull_request_for(self):  # issue 823, decision 0216
+    def test_the_facts_name_the_issue_the_factory_opened_a_pull_request_for(self):  # issue 823
         # The opener's own pull request, on the Factory's branch in the repo itself: the issue its branch names, where
         # its opening Run names it for that issue, and where none names it yet (the writer lands in slice 2).
         made = lambda named=(), **over: dict({"named": {26: list(named)}, "unreadable": set(), "whole": True}, **over)
@@ -3795,7 +3795,7 @@ class Snapshot(unittest.TestCase):
                                            "diff": True, "changed_paths": True, "runs": True, "timeline": True})
         self.assertIsNone(got["acceptance"])
         # The fact is given in every snapshot, null where no Role opens pull requests: the schema does not require it,
-        # and the port never leaves it out (decision 0216).
+        # and the port never leaves it out (issue 823).
         self.assertEqual(("opened_for" in got, got["opened_for"]), (True, None))
         self.assertEqual(got["description_edited_at"], "2026-10-18T02:10:00Z")
         self.assertNotIn(title, json.dumps(got))
