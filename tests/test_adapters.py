@@ -3611,8 +3611,7 @@ class Recorded(unittest.TestCase):
         again = self.two_runs([finding_on("PRRT_7")], [finding_on("PRRT_9")])
         self.assertEqual(said(again, thread_node("PRRT_7", LENS), thread_node("PRRT_9", LENS)),
                          ([("PRRT_7", True), ("PRRT_9", None)], True))
-        # The other side. A thread the later review records too is not dropped; nor is one where nothing says what the
-        # current content is, or it is other content than the later review's.
+        # The other side. A thread the later review records too is not dropped, nor is one on other or no content.
         self.assertEqual(said(self.two_runs([finding_on("PRRT_7")], [finding_on("PRRT_7")])), ([("PRRT_7", None)], True))
         for content in (None, "", "sha256:old", "sha256:other"):
             self.assertEqual(said(recorded_, content_id=content), ([("PRRT_7", None)], True), content)

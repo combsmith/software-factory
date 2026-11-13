@@ -1171,7 +1171,7 @@ class OnlyAPersonEnds(unittest.TestCase):
         # A queued item is never read past its gate for the review: it leaves the queue.
         d = go(dict(held, queue=True, reviews=APPROVED), [first])
         self.assertEqual((d["reason"], d.get("action")), ("gate_open", "dequeue"))
-        # The Run ceiling bounds it, as it bounds any review.
+        # The Run ceiling bounds it.
         spent = [first] + [run(conclusion="failure", outcome="capacity", at=at(17 + i), name="e%d" % i)
                            for i in range(LIMITS["max_runs_per_item"] - 1)]
         self.assertEqual(go(held, spent)["reason"], "run_ceiling")
@@ -1186,8 +1186,7 @@ class OnlyAPersonEnds(unittest.TestCase):
         d = go(held, [old, fresh])
         self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["action"]),
                          ("adjudicating", "resolve_due", ["T1"], "act", "resolve_thread"))
-        # Every row of issue 833's table, for a thread the later review dropped and for one it did not. Open, with
-        # no ruling or a rejected one, one not dropped is the author's.
+        # Every row of issue 833's table, for a thread the later review dropped and for one it did not.
         plain = thread(at=at(15))
         for th, reason in ((plain, "findings_open"), (dict(plain, ruling="rejected"), "findings_open"),
                            (dict(plain, ruling="accepted"), "resolve_due"), (dict(gone, ruling="accepted"), "resolve_due"),
@@ -1224,6 +1223,7 @@ class OnlyAPersonEnds(unittest.TestCase):
                                      ("2026-10-11T12:25:60Z", [old, fresh], "findings_open"),
                                      (at(25), [old, dict(fresh, started_at="yesterday")], "findings_open"),
                                      (at(25), [old], "awaiting_review"), (at(30), [old, fresh], "awaiting_review"),
+                                     (at(25), [old, dict(fresh, status="in_progress")], "awaiting_review"),
                                      (at(40), [old, fresh], "awaiting_review")):
             self.assertEqual(go(dict(held, last_push_at=pushed), runs)["reason"], reason, (pushed, runs))
         # Nor is a word that is no yes or no read; a no is a thread the review did not drop.

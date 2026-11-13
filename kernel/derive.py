@@ -156,8 +156,8 @@ def as_read(facts: dict, runs: list, config: dict) -> dict:
 
 def pushed_past_review(runs: list, facts: dict, role: str, config: dict, due: list) -> bool:
     """Whether the head was pushed since `role` last reviewed this content, while a thread of its own gates and still
-    stands (decision 0212): a merge of the base is the same content, and may answer the Finding. A review that started
-    in the push's own second may have read the head before it. A thread the Kernel is to resolve, one of `due`, asks nothing."""
+    stands (decision 0212). A review that started in the push's own second may have read the head before it; a thread
+    the Kernel is to resolve, one of `due`, asks nothing."""
     if not is_time(facts.get("last_push_at")) or not any(
             th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == role and th["id"] not in due
             for th in gating_threads(facts, config)):
