@@ -6283,7 +6283,7 @@ class Trials(unittest.TestCase):
         by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
         # The events ground the rule about them; the association, which an App reads wrong, is no rule of the fake: write
         # access is read from the collaborator permission, which P-47 asks (decision 0048).
-        self.assertEqual(by_code["a_label_event_names_its_actor"], "trials/P-32.json")
+        self.assertEqual(by_code["a_label_event_names_its_actor"], ("trials/P-32.json", "trials/P-32.port.json"))
         self.assertNotIn("an_issues_author_has_an_association", by_code)
         self.assertIn("a_logins_permission_is_read_from_the_collaborator_endpoint", by_code)
 
@@ -6292,7 +6292,7 @@ class Trials(unittest.TestCase):
         # content that grounds it, so a fixture emptied or inverted ungrounds its rule.
         by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
         for code in ("a_closing_reference_is_read_from_any_pull_request", "who_changed_the_draft_flag_is_read"):
-            self.assertEqual(by_code[code], "trials/P-33.json", code)
+            self.assertEqual(by_code[code], ("trials/P-33.json", "trials/P-33.port.json"), code)
         for code in ("an_issues_content_time_is_read_apart", "a_reopening_names_its_actor"):
             self.assertEqual(by_code[code], "trials/P-34.json", code)
         p33 = json.loads((ROOT / "trials" / "P-33.json").read_text())
@@ -6391,12 +6391,69 @@ class Trials(unittest.TestCase):
         by_code = {rule[0]: rule for rule in check_trials.rules()}
         self.assertNotIn("a_merged_pull_requests_closing_references_are_fixed", by_code)
         rule = by_code["a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing"]
-        self.assertEqual((rule[2], rule[3]), (("P-33", "P-46"), "trials/P-46.json"))
+        self.assertEqual((rule[2], rule[3]), (("P-33", "P-46", "P-67"), ("trials/P-46.json", "trials/P-67.json")))
         p33 = json.loads((ROOT / "trials" / "P-33.json").read_text())
         closes = [node for e in p33["exchanges"] if isinstance(e["response"].get("body"), dict)
                   for node in (((e["response"]["body"].get("data") or {}).get("repository") or {}).get("issue") or {})
                   .get("timelineItems", {}).get("nodes", []) if node.get("__typename") == "ClosedEvent"]
         self.assertEqual([c["closer"] for c in closes], [{"__typename": "PullRequest", "number": 38}])
+        # trials/P-67.json (issue 821), its verdict computed here by its pass condition: each issue a pull request's
+        # closing line names is closed, its ClosedEvent's closer that pull request of the canary, by repository and
+        # number, or its squash commit, within max_close_lag_seconds of the merge, which the queue made. The run's
+        # closer reads asked no repository; the read after the run did, and the run's reads must agree with it.
+        p67 = json.loads((ROOT / "trials" / "P-67.json").read_text())
+        bodies = [(e["request"], e["response"]["body"]) for e in p67["exchanges"]]
+        pulls = {b["merge_commit_sha"]: b for r, b in bodies if r["via"] == "rest" and "/pulls/" in r["call"].split(" ")[1]}
+        rest_issues = {b["number"]: b for r, b in bodies
+                       if r["via"] == "rest" and re.search(r"/issues/[0-9]+ ", r["call"])}
+        read = [node for r, b in bodies if r["via"] == "graphql"
+                for node in b["data"]["repository"].values()]
+        closes = [i for i in read if "timelineItems" in i]
+        closed_by = {i["number"]: [p["number"] for p in i["closedByPullRequestsReferences"]["nodes"]]
+                     for i in read if "closedByPullRequestsReferences" in i}
+        # The queue made each merge: the squash commit is the beforeCommit of a removal of reason merged in P-66's
+        # timelines (trials/P-66.json, trials/P-66.queued.json).
+        queued = {node["beforeCommit"]["oid"] for name in ("P-66.json", "P-66.queued.json")
+                  for e in json.loads((ROOT / "trials" / name).read_text())["exchanges"]
+                  if isinstance(e["response"]["body"], dict) and "data" in e["response"]["body"]
+                  for item in (e["response"]["body"]["data"].get("repository") or {}).values()
+                  if isinstance(item, dict)
+                  for node in (item.get("timelineItems") or {}).get("nodes", [])
+                  if node.get("__typename") == "RemovedFromMergeQueueEvent" and node.get("reason") == "merged"}
+        lag = json.loads((ROOT / "config" / "defaults.json").read_text())["limits"]["max_close_lag_seconds"]
+        at = lambda text: datetime.datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ")
+
+        def closed_by_its_pull(issue: dict) -> tuple:
+            """(the pull request the issue's one close names the closer, whether that close holds), or (None, False)."""
+            (close,) = issue["timelineItems"]["nodes"]
+            closer = close["closer"] or {}
+            if closer.get("__typename") == "Commit":
+                pull = pulls.get(closer["oid"])
+            elif closer.get("__typename") == "PullRequest":
+                pull = pulls.get(closer["mergeCommit"]["oid"])
+                pull = pull if pull and closer["number"] == pull["number"] else None
+            else:
+                pull = None
+            return (pull and pull["number"]), (pull is not None and pull["merged"] is True
+                                               and pull["merge_commit_sha"] in queued and issue["state"] == "CLOSED"
+                                               and re.search(r"(?m)^Closes #%d$" % issue["number"], pull["body"]) is not None
+                                               and 0 <= (at(issue["closedAt"]) - at(pull["merged_at"])).total_seconds() <= lag)
+
+        held = []
+        for issue in closes:
+            number, holds = closed_by_its_pull(issue)
+            closer = issue["timelineItems"]["nodes"][0]["closer"]
+            later = [i for i in closes if i["number"] == issue["number"]
+                     and "repository" in (i["timelineItems"]["nodes"][0]["closer"] or {})]
+            # A pull request closer is the canary's by the read that asked its repository, the same pull request.
+            of_the_canary = closer["__typename"] == "Commit" or bool(later) and all(
+                closed_by_its_pull(i)[0] == number
+                and i["timelineItems"]["nodes"][0]["closer"]["repository"]["nameWithOwner"] == check_trials.ORG + "/"
+                + check_trials.CANARY for i in later)
+            held.append(holds and of_the_canary and rest_issues[issue["number"]]["state"] == "closed"
+                        and number in closed_by.get(issue["number"], [number]))
+        self.assertEqual(sorted({i["number"] for i in closes}), [118, 119])
+        self.assertEqual(p67["verdict"], "pass" if held and all(held) else "fail")
         p46 = json.loads((ROOT / "trials" / "P-46.json").read_text())
         n = p46["exchanges"][0]["response"]["body"]["number"]           # the issue the trial opened
         reads = [e["response"]["body"]["data"]["repository"] for e in p46["exchanges"] if e["request"]["via"] == "graphql"]

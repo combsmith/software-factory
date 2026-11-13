@@ -1166,6 +1166,50 @@ class Entry(unittest.TestCase):
             _, _, files, _ = self.run_entry(Hub(self.table(pause=org, repo_pause=repo)))
             self.assertIsNone(files["pass.json"]["context"]["paused"], (org, repo))
 
+    def test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it(self):  # issue 787
+        # A pull request a pass before read as left is read again on every pass inside the window, as one that left, so
+        # the machine user's write on it that nobody matched keeps raising write_unmatched, after its merge too (decision
+        # 0198); once the window passes when it was first read gone, it is read no more, and nothing alarms for it. One
+        # read short is owed, and read again as gone with its first stamp; owed past the window, it is read no more.
+        inside, past = "2026-10-12T09:00:00Z", "2026-10-11T05:00:00Z"
+        spied = []
+
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
+            transport.send({"method": "GET", "path": "/repos/%s/pulls/%d" % (repo, number)})
+            transport.send({"method": "GET", "path": "/repos/%s/pulls/%d/later" % (repo, number)})
+            return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
+
+        def read(transport, item, kept, identities, apps, since):
+            spied.append((item["number"], kept))
+            hand = [{"by": "approver", "kind": "approval", "item": item, "key": "PRR_hand%d" % item["number"],
+                     "at": "2026-10-12T10:00:00Z"}]
+            return (hand if kept == entry.seen_.GONE else [], [], True)
+
+        before = json.loads((ROOT / "examples" / "pass.json").read_text())
+        before.update(now="2026-10-12T11:00:00Z", pull_requests=[])
+        before["reconciled"] = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": [13, 14],
+                                "left": [{"number": 13, "at": inside}, {"number": 14, "at": past}]}
+        table = self.table(numbers=[7])
+        pull = copy.deepcopy(exchanges("P-17")[4]["response"])
+        pull["headers"] = {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}
+        table[("GET", "/repos/%s/pulls/7" % self.HOME)] = table[("GET", "/repos/%s/pulls/7/later" % self.HOME)] = pull
+        with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                unittest.mock.patch.object(entry.passes, "records", lambda *a: [before]), \
+                unittest.mock.patch.object(entry.seen_, "read", read), \
+                unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)), \
+                unittest.mock.patch.object(entry.applied, "effects", lambda *a, **k: {"applied": [], "read": [], "at": {}, "whole": True}), \
+                unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: {"written": [], "read": [], "at": {}, "whole": True}):
+            code, _, files, _ = self.run_entry(Hub(table))
+        self.assertEqual(code, 0)
+        self.assertEqual(spied, [(7, {}), (13, entry.seen_.GONE)])
+        record = files["pass.json"]
+        self.assertIn("write_unmatched", record["alerts"])
+        self.assertEqual([e["item"] for e in record["reconciliation"] if e["alert"] == "write_unmatched"],
+                         ["https://github.com/%s/pull/13" % self.HOME])
+        self.assertEqual(record["reconciled"]["left"], [{"number": 13, "at": inside}])
+        self.assertEqual(record["reconciled"]["owed"], [])
+        self.assertEqual(shared.errors(record, "pass"), [])
+
     def test_the_entry_gathers_what_reconciliation_reads(self):  # decisions 0061, 0112
         # What each snapshot kept is handed to the seen port, each item once; the machine user's pushes are read; a pull
         # request the pass before served and that has left is read as left; and the Effects are read by what no record
@@ -1188,12 +1232,12 @@ class Entry(unittest.TestCase):
             spied.append(("pushes", repo, approver["id"], since, clock()))
             return ([], True)
 
-        def applied_read(transport, repo, runs, since, known):
-            efforts["runs"] = (repo, since, known)
+        def applied_read(transport, repo, runs, since, known, sleep):
+            efforts["runs"], efforts["sleeps"] = (repo, since, known), efforts.get("sleeps", []) + [sleep]
             return {"applied": [], "read": ["r_01JA7Q"], "at": {}, "whole": True}
 
-        def written_read(transport, repo, branch, poller, own, since, known):
-            efforts["passes"] = (repo, branch, poller, own, since, known)
+        def written_read(transport, repo, branch, poller, own, since, known, sleep):
+            efforts["passes"], efforts["sleeps"] = (repo, branch, poller, own, since, known), efforts.get("sleeps", []) + [sleep]
             return {"written": [], "read": [{"id": 41, "attempt": 1}], "at": {}, "whole": True}
 
         before = json.loads((ROOT / "examples" / "pass.json").read_text())
@@ -1210,6 +1254,7 @@ class Entry(unittest.TestCase):
 
         def runs(*args, **kw):
             efforts["began"], efforts["engines"], efforts["of"] = kw["began"], kw["engines"], kw["of"]
+            efforts["sleeps"] = efforts.get("sleeps", []) + [kw["sleep"]]
             return listed(*args, **kw)
         before["reconciled"] = {"runs": [{"id": "r_01JA00", "at": "2026-10-12T11:00:00Z"}],
                                 "passes": [{"id": 40, "attempt": 1, "at": "2026-10-12T11:00:00Z"}], "keys": [], "items": [],
@@ -1230,8 +1275,14 @@ class Entry(unittest.TestCase):
                 unittest.mock.patch.object(entry.applied, "effects", applied_read), \
                 unittest.mock.patch.object(entry.records, "runs", runs), \
                 unittest.mock.patch.object(entry.passes, "written", written_read):
-            code, _, files, _ = self.run_entry(Hub(table))
+            code, _, files, slept = self.run_entry(Hub(table))
         self.assertEqual(code, 0)
+        # Each port that waits waits by the entry's own sleep, never the clock's (issue 709): the records port, then the
+        # applied and written reads.
+        self.assertEqual(len(efforts["sleeps"]), 3)
+        for k, waited in enumerate(efforts["sleeps"]):
+            waited(k + 0.5)
+        self.assertEqual([s[0] for s in slept[-3:]], [0.5, 1.5, 2.5])
         self.assertEqual(efforts["began"], {("r_01JA6Z", "2026-10-11T12:05:00Z"): "2026-10-11T12:05:04Z",
                                             ("r_01JA5Y", "2026-10-11T12:05:00Z"): "2026-10-11T12:05:09Z"})
         self.assertEqual(efforts["engines"], {("r_01JA6Z", "2026-10-11T12:05:00Z"): False})
@@ -1260,6 +1311,8 @@ class Entry(unittest.TestCase):
         self.assertEqual(record["reconciled"]["passes"], before["reconciled"]["passes"] + [{"id": 41, "attempt": 1, "at": record["now"]}])
         # What it could not read is owed, read again though it leaves, and not what it did read.
         self.assertEqual(record["reconciled"]["owed"], [8])
+        # Each pull request read as left for the first time, of those served or owed, is stamped with now (issue 787).
+        self.assertEqual(record["reconciled"]["left"], [{"number": n, "at": record["now"]} for n in (9, 11)])
         self.assertEqual(shared.errors(record, "pass"), [])
         # A seen read not answered, and the machine user's pushes not answered, are short, never a pass that fails.
         def refused(*a, **k):
@@ -1281,16 +1334,16 @@ class Entry(unittest.TestCase):
         dated_table[("GET", "/repos/%s/pulls/7/later" % self.HOME)] = pull
         with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
                 unittest.mock.patch.object(entry.seen_, "read", whole), unittest.mock.patch.object(entry.seen_, "pushes", pushes), \
-                unittest.mock.patch.object(entry.applied, "effects", lambda *a: {"applied": [], "read": [], "at": {}, "whole": True}), \
-                unittest.mock.patch.object(entry.passes, "written", lambda *a: {"written": [], "read": [], "at": {}, "whole": True}):
+                unittest.mock.patch.object(entry.applied, "effects", lambda *a, **k: {"applied": [], "read": [], "at": {}, "whole": True}), \
+                unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: {"written": [], "read": [], "at": {}, "whole": True}):
             _, _, files, _ = self.run_entry(Hub(dated_table))
         self.assertNotIn("reconciliation_unreadable", files["pass.json"]["alerts"])
         # What was recorded and could not be read whole is short, whichever half it was.
         for runs_whole, passes_whole in ((False, True), (True, False)):
             with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
                     unittest.mock.patch.object(entry.seen_, "read", whole), unittest.mock.patch.object(entry.seen_, "pushes", pushes), \
-                    unittest.mock.patch.object(entry.applied, "effects", lambda *a: {"applied": [], "read": [], "at": {}, "whole": runs_whole}), \
-                    unittest.mock.patch.object(entry.passes, "written", lambda *a: {"written": [], "read": [], "at": {}, "whole": passes_whole}):
+                    unittest.mock.patch.object(entry.applied, "effects", lambda *a, **k: {"applied": [], "read": [], "at": {}, "whole": runs_whole}), \
+                    unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: {"written": [], "read": [], "at": {}, "whole": passes_whole}):
                 _, _, files, _ = self.run_entry(Hub(dated_table))
             self.assertIn("reconciliation_unreadable", files["pass.json"]["alerts"], (runs_whole, passes_whole))
         # An answer with no date, or an age that is no count, gives a facts read no stamp, and fails nothing.
@@ -1355,9 +1408,9 @@ class Entry(unittest.TestCase):
                     unittest.mock.patch.object(entry.seen_, "read", read), \
                     unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)), \
                     unittest.mock.patch.object(entry.applied, "effects",
-                                               lambda *a: {"applied": [], "read": [], "at": {}, "whole": True}), \
+                                               lambda *a, **k: {"applied": [], "read": [], "at": {}, "whole": True}), \
                     unittest.mock.patch.object(entry.passes, "written",
-                                               lambda *a: {"written": [], "read": [], "at": {}, "whole": True}):
+                                               lambda *a, **k: {"written": [], "read": [], "at": {}, "whole": True}):
                 code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7, 8])))
             self.assertEqual(code, 0)
             return files["pass.json"]

@@ -14,6 +14,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import unittest
 import urllib.parse
 import zipfile
@@ -109,6 +110,11 @@ class Transport(unittest.TestCase):
                      "productionresultssb32", "productionresults32", "evilproductionresultssa32", "productionresultsa32"):
             with self.assertRaises(github.Unanswered, msg=host):
                 github.storage("https://%s.blob.core.windows.net/actions-results/x" % host)
+        # A fragment is refused: the path read ends at the first "#", and all but what follows the last is sent.
+        for url in ("https://productionresultssa32.blob.core.windows.net/actions-results/a#/../x#y",
+                    "https://productionresultssa32.blob.core.windows.net/actions-results/x#y"):
+            with self.assertRaises(github.Unanswered, msg=url):
+                github.storage(url)
         for url in ("https://productionresultssa32.queue.core.windows.net/actions-results/x",
                     "https://productionresultssa32.blob.core.chinacloudapi.cn/actions-results/x",
                     "https://productionresultssa32.blob.core.windows.net.evil.com/actions-results/x",
@@ -572,6 +578,69 @@ class Transport(unittest.TestCase):
         one, two = (github._answer(200, {"Content-Type": github.DIFF}, b"+caf" + c + b"\n")["body"] for c in (b"\xe9", b"\xe8"))
         self.assertNotEqual(one, two)
         self.assertEqual(github.raw(one), b"+caf\xe9\n")
+        # Nothing is opened for a path a segment of which is "." or "..", plain or percent-encoded, behind an encoded slash
+        # or backslash or not: GitHub resolves them in a contents path, so a part no caller held would name another file
+        # (decision 0209, issue 725). Each is built by hand, as a port that held nothing would build it.
+        class Never:
+            def open(self, *a, **k):
+                raise AssertionError("opened")
+        live.opener = Never()
+        for path in ("/repos/o/r/contents/../x", "/repos/o/r/contents/./x", "/repos/o/r/..", "/repos/o/r/.", "/..",
+                     "/repos/o/r/contents/%2e%2e/x", "/repos/o/r/contents/%2E%2e/x", "/repos/o/r/contents/.%2e/x",
+                     "/repos/o/r/contents/%2e/x", "/repos/o/r/contents/a%2f..%2fb", "/repos/o/r/contents/a%2F.%2Fb",
+                     "/repos/o/r/contents/a%5c..%5cb", "/repos/o/r/contents/x/..?ref=y", "/repos/../r/issues/7",
+                     # An encoded question mark or hash is part of a name, so what follows it is still path.
+                     "/repos/o/r/contents/a%3f/../x", "/repos/o/r/contents/a%23/../x",
+                     # What follows the last "#" is dropped as the request is made, so no path holds one; nor a space or a
+                     # control character, which is stripped before the path is read; nor what cannot be read as a path.
+                     "/repos/o/r/contents/a#/../x#y", "/repos/o/r/contents/a#b", "/x?ref=a#b", "/repos/o/r/contents/a b",
+                     "/\t/[x", "/repos/o/r/contents/.\t./x", "/repos/o/r/contents/a\n/../x", "/x\x00y", "//[x",
+                     "/x?ref=a b", "/x?ref=a\x00b",          # in the query as in the path
+                     "/repos/o/r/contents/a\tb", "/repos/o/r/contents/a\nb", "/repos/o/r/contents/a\rb"):
+            with self.assertRaises(github.Unanswered, msg=path):
+                live.send(dict(github.request("GET", "/x"), path=path))
+        # A write's path is held as a read's is, whatever its body or its caller's header, and a download's before it is
+        # followed: a resolved dot segment would act on another thing than the one its caller named.
+        for req in (github.request("PUT", "/repos/o/r/pulls/7/../8/merge", body={"sha": "a"}),
+                    github.request("DELETE", "/repos/o/r/git/refs/heads/%2e%2e/tags/x"),
+                    github.request("PATCH", "/repos/o/r/issues/7/../8", body={"state": "closed"}),
+                    github.request("POST", "/repos/o/r/issues/../pulls", body={}),
+                    github.request("GET", "/repos/o/r/contents/../x", headers={"Cache-Control": "no-cache"}),
+                    github.download("/repos/../x/actions/artifacts/1/zip")):
+            with self.assertRaises(github.Unanswered, msg=req["path"]):
+                live.send(req)
+        with self.assertRaises(github.Unanswered):
+            github.request("GET", "//[x")       # what cannot be read as a path is refused where it is built, too
+        # A dot that is part of a name is no segment, a query is no path, and an encoded mark is part of a name.
+        live.opener = Capture()
+        for path in ("/repos/o/r/compare/a...b", "/repos/o/r/contents/.github/x.yml", "/repos/o/r/contents/a..b",
+                     "/repos/o/r/contents/...", "/repos/o/.r", "/repos/o/r/contents/x?ref=..", "/repos/o/r/contents/x?a=/../b",
+                     "/repos/o/r/contents/%2e%2e%2e", "/repos/o/r/contents/x%2e", "/repos/o/r/contents/a%23b",
+                     "/repos/o/r/contents/a%20b", "/repos/o/r/contents/a%3fb"):
+            live.send(github.request("GET", path))
+            self.assertEqual(sent[-1][0].full_url, "https://api.github.com" + path)
+        # No rule is silenced on a line of the transport: Sonar's traversal rule is set aside for the file, by rule. Read
+        # as Sonar reads it: no key is written twice, so none overrides another; the entry is on the list; and the rule
+        # is set aside for the transport's file and no other.
+        self.assertNotIn("NOSONAR", (ROOT / "adapters" / "github.py").read_text())
+        lines = [line for line in (ROOT / "sonar-project.properties").read_text().splitlines() if line and line[0] != "#"]
+        # Each line is a plain key, "=" and a value with no space or backslash, so that Sonar reads no line as another
+        # key than this does; and what the file sets aside is this list, each by one rule and one file, and no more: the
+        # file is held whole, so a change to it is a change to this test (Astra's, Muse's and the Claude reads).
+        self.assertEqual([line for line in lines if not re.fullmatch(r"[A-Za-z0-9_.]+=[^\s\\]+", line)], [])
+        said, on = dict(line.split("=", 1) for line in lines), "sonar.issue.ignore.multicriteria"
+        self.assertEqual(len(said), len(lines))
+        aside = {name: (said.pop("%s.%s.ruleKey" % (on, name)), said.pop("%s.%s.resourceKey" % (on, name)))
+                 for name in said.pop(on).split(",")}
+        self.assertEqual(aside, {"p50stubhttp": ("python:S5332", "tools/trial_p50_stub.py"),
+                                 "p50stubxss": ("pythonsecurity:S5131", "tools/trial_p50_stub.py"),
+                                 "contexttest": ("shell:S7688", "tools/context_eval.sh"),
+                                 "trialapptest": ("shell:S7688", "tools/trial_as_app.sh"),
+                                 "transportpath": ("pythonsecurity:S7044", "adapters/github.py")})
+        # Nor is the transport's file, or any other, left out of what Sonar reads: the rest of the file is these.
+        self.assertEqual(said, {"sonar.projectKey": "combsmith_software-factory", "sonar.organization": "combsmith",
+                                "sonar.sources": ".", "sonar.exclusions": "**/node_modules/**,**/vendor/**,**/dist/**",
+                                "sonar.coverage.exclusions": "**/*"})
         # An answer over the bound is refused, never cut short silently.
         largest = github.LARGEST
         try:
@@ -3034,8 +3103,7 @@ class Threads(unittest.TestCase):
 
     def p49(self) -> tuple:
         """trials/P-49.json's read of canary pull request 55's threads, asked as the port asks, and a reader of it."""
-        found = [e for name in sorted((ROOT / "trials").glob("P-*.json"))
-                 for e in json.loads(name.read_text()).get("exchanges", [])
+        found = [e for e in exchanges("P-49")
                  if (e.get("request") or {}).get("body", {}) and "FactsThreads" in json.dumps(e["request"]["body"])]
         self.assertEqual(len(found), 1)
         self.assertEqual(found[0]["request"]["body"]["query"], threads.QUERY)
@@ -3526,6 +3594,57 @@ class Recorded(unittest.TestCase):
         self.assertTrue(self.held([thread_node("PRRT_7", LENS)], recorded_, content_id="sha256:new")[1])
         for nodes in ([], [thread_node("PRRT_7")], [thread_node("PRRT_7", APP)]):
             self.assertFalse(self.held(nodes, recorded_, content_id="sha256:new")[1], nodes)
+
+    def test_a_thread_a_later_review_of_its_lens_no_longer_records_is_said_dropped(self):  # issue 833
+        # The thread PRRT_7, which the first Run recorded, is still there, opened by its Lens. A later review of that
+        # Lens, read whole, on the current content, supersedes every Run that recorded it, by issue 347's rule: the
+        # thread is said `dropped`, by its id and never a comment's text, its category and severity as they were.
+        def said(recorded_, *nodes, content_id="sha256:new"):
+            found, whole = self.held(list(nodes) or [thread_node("PRRT_7", LENS)], recorded_, content_id=content_id)
+            return [(th["id"], th.get("dropped")) for th in found], whole
+        recorded_ = self.two_runs([finding_on("PRRT_7")], [])
+        found, whole = self.held([thread_node("PRRT_7", LENS)], recorded_, content_id="sha256:new")
+        self.assertEqual((whole, found[0]["dropped"], found[0]["category"], found[0]["severity"]),
+                         (True, True, "functional", "major"))
+        # What the later review raised again is on a thread of its own, which it did not drop.
+        again = self.two_runs([finding_on("PRRT_7")], [finding_on("PRRT_9")])
+        self.assertEqual(said(again, thread_node("PRRT_7", LENS), thread_node("PRRT_9", LENS)),
+                         ([("PRRT_7", True), ("PRRT_9", None)], True))
+        # The other side. A thread the later review records too is not dropped, nor is one on other or no content.
+        self.assertEqual(said(self.two_runs([finding_on("PRRT_7")], [finding_on("PRRT_7")])), ([("PRRT_7", None)], True))
+        for content in (None, "", "sha256:old", "sha256:other"):
+            self.assertEqual(said(recorded_, content_id=content), ([("PRRT_7", None)], True), content)
+        # Nor where the later Run failed, adjudicated, started first or at no readable time, or is another Lens's;
+        # one whose record is read short leaves the threads not whole, and one past retention drops nothing.
+        new = dict(lens_run(self.LATER), content_id="sha256:new", started_at="2026-10-21T17:00:00Z")
+        for later in (dict(lens_run(self.LATER, conclusion="failure"), content_id="sha256:new",
+                           started_at="2026-10-21T17:00:00Z"),
+                      dict(new, intent="adjudicate-findings"), dict(new, started_at="2026-10-21T15:00:00Z"),
+                      dict(new, started_at="2026-10-21T16:00:00Z"), dict(new, started_at="yesterday")):
+            self.assertEqual(said(self.two_runs([finding_on("PRRT_7")], [], later_run=later)), ([("PRRT_7", None)], True),
+                             later)
+        first = dict(lens_run(self.RUN), content_id="sha256:old", started_at="2026-10-21T16:00:00Z")
+        other = applied.recorded(github.Replay(
+            applied_stored("o/r", 39100000000, lens_applied(self.RUN, finding_on("PRRT_7")))
+            + applied_stored("o/r", 39100000001, lens_applied(self.LATER))), "o/r",
+            listed_runs(first, dict(new, role="qa-lead")), [26], {"pr-review", "qa-lead"}, AUTHORITY)[26]
+        self.assertEqual(said(other), ([("PRRT_7", None)], True))
+        self.assertEqual(said(self.two_runs([finding_on("PRRT_7")], [], later_record="x")), ([("PRRT_7", None)], False))
+        expired = self.full(listed_runs(first, new),
+                            *applied_stored("o/r", 39100000000, lens_applied(self.RUN, finding_on("PRRT_7"))),
+                            *applied_stored("o/r", 39100000001, lens_applied(self.LATER), expired=True)[:1])[26]
+        self.assertEqual(said(expired), ([("PRRT_7", None)], True))
+        # Only the Lens's own thread is said dropped: one whose opener is now someone else, a person's beside it, and
+        # one no Run recorded say nothing.
+        self.assertEqual(said(recorded_, thread_node("PRRT_7", APP), thread_node("PRRT_1"), thread_node("PRRT_2", LENS)),
+                         ([("PRRT_7", None), ("PRRT_1", None), ("PRRT_2", None)], True))
+        # A thread that says nothing carries no word of it; `facts/1` takes the word as a yes or a no, and nothing else.
+        self.assertNotIn("dropped", self.held([thread_node("PRRT_1")], recorded_, content_id="sha256:new")[0][0])
+        from tools.jsonschema_lite import validate
+        whole_facts = json.loads((ROOT / "examples" / "facts.json").read_text())
+        for word, ok in ((True, True), (False, True), ("yes", False), (1, False), (None, False)):
+            whole_facts["threads"][0]["dropped"] = word
+            self.assertEqual(validate(whole_facts, facts.SCHEMA) == [], ok, word)
 
     def test_a_recorded_thread_is_its_lenss(self):
         from kernel import derive, gate
@@ -4197,11 +4316,12 @@ class Heldout(unittest.TestCase):
                 return home_file("c-1", self.ONE)["response"]
         Anything.ONE = self.ONE
         for which, role in ((dict(entry, id="../c-1"), "pr-review"), (dict(entry, id="c-1.json"), "pr-review"),
-                            (dict(entry, sha256="x"), "pr-review"), ("c-1", "pr-review"), (entry, "pr-review/.."),
+                            (dict(entry, id="a/b"), "pr-review"), (dict(entry, id="c%2e1"), "pr-review"),
+                            (dict(entry, sha256="x"), "pr-review"), ("c-1", "pr-review"), (entry, "pr-review/.."), (entry, "a/b"), (entry, "pr%2ereview"),
                             (entry, "Pr-Review"), (entry, None), (dict(entry, id=7), "pr-review")):
             self.assertEqual(heldout.case(Anything(), "o", "home", role, which), (None, "not_this_set"), (which, role))
         for owner, name in (("o", ".."), ("o", "."), ("o/x", "home"), ("o", "home/contents"), ("-o", "home"),
-                            ("o", "home?ref=x"), (None, "home"), ("o", ""), ("o", None)):
+                            ("o", "home?ref=x"), ("o", "home%2fx"), (None, "home"), ("o", ""), ("o", None)):
             self.assertEqual(heldout.case(Anything(), owner, name, "pr-review", entry), (None, "unanswered"), (owner, name))
         self.assertEqual(asked, [])
         self.assertEqual(heldout.case(Anything(), "o", "home", "pr-review", entry), (self.ONE, None))
@@ -4225,37 +4345,23 @@ def second_page(found: dict, body) -> dict:
 
 # Each grounded rule of the fake that the port does not read here, by why: the Controller's, the workflows' or a
 # person's, which no port reads (`controller`); the Kernel's, held by its own boundary tests, a race no port can read
-# (`kernel`); the issues port's, not built (`issues_port`); or a fixture recorded in another request's shape than the
-# port asks, which a trial records again (`shape`).
+# (`kernel`); or the issues port's, not built (`issues_port`). Every grounded fixture is recorded in the shape its port
+# asks (issue 807).
 NOT_READ = {
     # The records port reads what GitHub lists and cannot see a Run it does not list: the race is the Kernel's, held by
     # the unidentified window (decision 0036).
     "a_new_run_is_listed_late": "kernel",
     "a_tick_can_be_lost": "controller",
     "a_pass_starts_its_successor": "controller", "a_public_event_starts_a_pass": "controller",
-    # adapters/acceptance.py reads closing references, and adapters/timeline.py the draft flag's events, each in a
-    # shape these GraphQL fixtures did not record: P-33 asked no issue's repo, and no REST timeline of a draft change.
-    "a_closing_reference_is_read_from_any_pull_request": "shape", "who_changed_the_draft_flag_is_read": "shape",
     # The issue port that reads each linked pull request's draft events is not built yet (decision 0141).
     "a_draft_change_is_timed": "issues_port",
     "an_issues_content_time_is_read_apart": "issues_port", "a_reopening_names_its_actor": "issues_port",
     "an_issues_close_and_reopening_say_when": "issues_port",
     "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing": "issues_port",
-    "a_label_event_names_its_actor": "shape",
     # The queue's writes, which the effects port does not make until the App that enqueues is granted contents: write.
     "an_app_enters_the_queue": "controller", "an_app_leaves_the_queue": "controller",
-    # The threads port reads a thread's resolver as `resolvedBy { login databaseId }`, and P-5 recorded it as
-    # `{ login __typename }`; a trial must record the port's own read before it holds them. A resolution itself is a
-    # Role's write, which no port makes until an App holds contents: write (P-5).
-    "a_lens_review_opens_a_thread": "shape", "an_app_resolves_any_thread": "shape",
-    # The threads port reads each thread's first comment with its time and what it replies to; P-41.threads read the
-    # authors and resolvers typed without them, and P-41 reads no thread.
-    "an_actor_has_a_kind": "shape",
-    # P-36 recorded the check run as a script's lines, not the rollup the port reads. The conclusion is read as any is, and
-    # the Kernel's reading of it is held by test_an_upload_turns_codeqls_verdict_neutral_though_it_failed_to_process.
-    "an_upload_turns_codeqls_success_neutral": "shape",
 }
-WHY = {"controller", "kernel", "issues_port", "shape"}
+WHY = {"controller", "kernel", "issues_port"}
 # Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
 # as no answer, never as one (FR-56); a refusal recorded later fails here until it is placed.
 REFUSALS = {
@@ -4268,6 +4374,8 @@ REFUSALS = {
     # The Maintainer's enqueues naming a head: one stale, and, before the ruleset's change, one for its review; no port
     # enqueues until the queue step is built (P-57, issue 381).
     ("P-57", 3): None, ("P-57", 4): None, ("P-57", 7): None,
+    # The Maintainer's enqueue of a head in conflict with its base, refused; no port enqueues (P-66, issue 812).
+    ("P-66", 11): None,
     # The Maintainer's second enqueue, refused while its required check waited for a runner; no port enqueues (P-48).
     ("P-48", 22): None,
     # Three uploads GitHub would not process, under default setup; no port uploads, and the lint refuses the permission.
@@ -4451,6 +4559,13 @@ class Contract(unittest.TestCase):
             "a_check_can_time_out_or_give_no_verdict": ({"P-42", "P-42.port"}, self.no_verdict_kept_read()),
             "the_queue_can_eject": ({"P-2.queue", "P-2.port"}, self.eject_read()),
             "the_queue_merges_on_its_required_checks": ({"P-2.no-pass", "P-2.queue-app", "P-2.port"}, self.queue_merged_read()),
+            "a_closing_reference_is_read_from_any_pull_request": ({"P-33", "P-33.port"}, self.closing_read()),
+            "who_changed_the_draft_flag_is_read": ({"P-33", "P-33.port"}, self.draft_flag_read()),
+            "a_label_event_names_its_actor": ({"P-32", "P-32.port"}, self.label_actor_read()),
+            "an_upload_turns_codeqls_success_neutral": ({"P-36", "P-36.port"}, self.upload_neutral_read()),
+            "a_lens_review_opens_a_thread": ({"P-5", "P-5.port"}, self.lens_thread_read()),
+            "an_app_resolves_any_thread": ({"P-5", "P-5.port"}, self.app_resolved_any_read()),
+            "an_actor_has_a_kind": ({"P-41", "P-41.threads", "P-41.port"}, self.actor_kind_read(p41_reviews, p41_labels)),
             "a_cancelled_run_stays_beside_a_later_run": ({"P-65"}, self.cancelled_beside_read()),
             "a_description_edit_moves_its_time": ({"P-58", "P-58.reader", "P-58.deleted"}, self.description_edit_read()),
             "an_app_edits_a_description": ({"P-58", "P-58.reader", "P-58.deleted"}, self.app_edit_read()),
@@ -4649,6 +4764,147 @@ class Contract(unittest.TestCase):
                         and required == [("success", 15368, ".github/workflows/p2-queue.yml")]
                         and len(nodes) == 1 and nodes[0]["completedAt"] < events[merged]["created_at"])
         return held == [True, True]
+    @staticmethod
+    def p33_port(via: str) -> list:
+        """P-33.port: the sitting's reads of one kind, `graphql`, the closing references, or `rest`, the timeline."""
+        return [copy.deepcopy(e) for e in exchanges("P-33.port") if e["request"]["via"] == via]
+
+    def closing_read(self) -> bool:
+        """P-33: pull requests 37, a draft, 38, merged since, 39 and 41, to another base, and 40, closed unmerged, each
+        saying it closes issue 36, and each read with the person who opened it. P-33.port: the acceptance port's own read
+        names issue 36, of the canary itself, on 37, 38 and 40, whole, and no issue on 39 and 41."""
+        read = {e["request"]["body"]["variables"]["number"]: acceptance.closing(github.Replay([e]), {
+            "number": e["request"]["body"]["variables"]["number"], "base": {"repo": {"full_name": canary()}}})
+            for e in self.p33_port("graphql")}
+        opened = body("P-33", 0)["data"]["repository"]
+        authors = {opened[k]["number"]: (opened[k]["author"]["login"], opened[k]["author"]["__typename"])
+                   for k in ("draft", "open", "merged", "closed", "nondefault")}
+        # When P-33 read them, 38 was still open: it named issue 36 then too, as did the draft and the closed one.
+        recorded = {opened[k]["number"]: [n["number"] for n in opened[k]["closingIssuesReferences"]["nodes"]]
+                    for k in ("draft", "open", "merged", "closed", "nondefault")}
+        named = ({36: False}, True)
+        return read == {37: named, 38: named, 39: ({}, True), 40: named, 41: ({}, True)} \
+            and authors == {n: ("don-petry", "User") for n in (37, 38, 39, 40, 41)} \
+            and recorded == {37: [36], 38: [36], 39: [], 40: [36], 41: []} and opened["open"]["state"] == "OPEN" \
+            and body("P-33", 4)["data"]["repository"]["merged"]["state"] == "MERGED"
+
+    def draft_flag_read(self) -> bool:
+        """P-33: pull request 38 was marked ready, converted to a draft and marked ready again, a second or two apart.
+        P-33.port: the timeline port's own read of 38 is whole, and names who made each change, by account id and type,
+        and when, the same three in that order."""
+        canary38 = {"number": 38, "base": {"repo": {"full_name": canary()}}}
+        events, whole = timeline.events(github.Replay(self.p33_port("rest")), canary38)
+        accounts = timeline.Accounts(Router(github.Replay([]), {"don-petry": "admin"}), canary(), MACHINE, {})
+        changed = [(e["event"], timeline.Accounts.account(e["actor"]), accounts.acted(e)["kind"], e["created_at"])
+                   for e in events if e.get("event") in ("ready_for_review", "convert_to_draft")]
+        recorded = [(n["__typename"], n["createdAt"])
+                    for n in body("P-33", 0)["data"]["repository"]["open"]["timelineItems"]["nodes"]]
+        return whole and [c[0] for c in changed] == ["ready_for_review", "convert_to_draft", "ready_for_review"] \
+            and {c[1:3] for c in changed} == {(("don-petry", MAINTAINER, "User"), "human")} \
+            and [c[3] for c in changed] == [at for _, at in recorded] \
+            and [kind for kind, _ in recorded] == ["ReadyForReviewEvent", "ConvertToDraftEvent", "ReadyForReviewEvent"]
+
+    def label_actor_read(self) -> bool:
+        """P-32: each label event was read in GraphQL with who made it and when. P-32.port: the timeline port's own read of
+        canary pull request 66, where P-41's controller App added and removed factory:hold, is whole, and every label
+        event is read with its label, its actor, by account id and type, and its time."""
+        def nodes(value):
+            if isinstance(value, dict):
+                yield value
+                for v in value.values():
+                    yield from nodes(v)
+            elif isinstance(value, list):
+                for v in value:
+                    yield from nodes(v)
+        graphql = [n for n in nodes(body("P-32", 1)) if n.get("__typename") in ("LabeledEvent", "UnlabeledEvent")]
+        canary66 = {"number": 66, "base": {"repo": {"full_name": canary()}}}
+        events, whole = timeline.events(github.Replay(copy.deepcopy(exchanges("P-32.port"))), canary66)
+        raw = [e for e in events if e.get("event") in timeline.LABELS]
+        read = timeline.label_events(events, timeline.Accounts(Router(github.Replay([])), canary(), MACHINE, {}))
+        return bool(graphql) and all(n["actor"]["__typename"] in ("User", "Bot") and n["createdAt"] for n in graphql) \
+            and whole and len(read) == len(raw) == 8 and {e["action"] for e in read} == {"labeled", "unlabeled"} \
+            and all(e["by"] == P41_CONTROLLER for e in read) \
+            and [(e["action"], e["label"], e["at"]) for e in read] == [
+                (e["event"], e["label"]["name"], e["created_at"]) for e in raw] \
+            and {e["label"]["name"] for e in raw} == {"factory:hold"} \
+            and len({timeline.Accounts.account(e["actor"]) for e in raw}) == 1 and raw[0]["actor"]["type"] == "Bot"
+
+    def upload_neutral_read(self) -> bool:
+        """P-36: on pull requests 75 and 76 the upload turned CodeQL's check run from success to neutral, the same run by
+        its id. P-36.port: a fortnight on, the port reads that check run, by its id, GitHub Advanced Security's, neutral."""
+        found = exchanges("P-36.port")
+        held = []
+        for i, (number, at) in enumerate(((75, 3), (76, 5))):
+            lines = exchanges("P-36")[at]["response"]["body"]
+            before = [line for line in lines if "P36 before:" in line][0]
+            said = [line for line in lines if "P36 after-merge-ref:" in line][0]
+            run = int(said.split(" id=")[1].split()[0])
+            if int(before.split(" id=")[1].split()[0]) != run or "conclusion=success" not in before \
+                    or "conclusion=neutral" not in said:
+                return False
+            pr = found[i]["response"]["body"]["data"]["repository"]["pullRequest"]
+            nodes = [n for n in pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
+                     if n["__typename"] == "CheckRun"]
+            pull = {"number": number, "base": {"repo": {"full_name": canary()}}, "head": {"sha": pr["headRefOid"]}}
+            read = checks.read(github.Replay([copy.deepcopy(found[i])]), pull)
+            held.append(read["complete"] is True and len(nodes) == len(read["checks"]) and [
+                (c["name"], c["app_id"], c["conclusion"]) for n, c in zip(nodes, read["checks"]) if n["databaseId"] == run]
+                == [("CodeQL", 57789, "neutral")])
+        return held == [True, True]
+
+    @staticmethod
+    def threads_port(fixture: str, number: int, lenses=None, queue=None) -> tuple:
+        """The threads port's own read of canary pull request `number`, replayed from `fixture`: the threads' query of it
+        and the permission reads the port asked after it, in the order it asked them (issue 807)."""
+        found = exchanges(fixture)
+        asked = [i for i, e in enumerate(found) if e["request"]["via"] == "graphql"]
+        start = next(i for i in asked if found[i]["request"]["body"]["variables"]["number"] == number)
+        replayed = github.Replay(copy.deepcopy(found[start:next((i for i in asked if i > start), len(found))]))
+        accounts = timeline.Accounts(replayed, canary(), MACHINE, lenses or {}, queue=queue)
+        return threads.read(replayed, {"number": number, "base": {"repo": {"full_name": canary()}}}, accounts)
+
+    def lens_thread_read(self) -> bool:
+        """P-5: the trial-author App's review opened a thread on pull request 62. P-5.port: the threads port reads that
+        thread as opened by the App, by its account id and type, and so as a Lens's where the caller names the App one."""
+        reviewed = exchanges("P-5")[4]
+        named, whole = self.threads_port("P-5.port", 62, {TRIAL_LENS[1:]: "trial-author"})
+        plain, _ = self.threads_port("P-5.port", 62)
+        opened = [t["id"] for t in named if t["opened_by"]["kind"] == "lens"]
+        return reviewed["response"]["body"]["user"]["id"] == TRIAL_LENS[1] and whole and len(opened) == 1 and \
+            [t["opened_by"] for t in plain if t["id"] in opened] == [{"kind": "app", "name": TRIAL_LENS[0], "can_write": False}]
+
+    def app_resolved_any_read(self) -> bool:
+        """P-5: the trial-author App was refused the two threads others opened on pull request 62 with pull_requests: write
+        alone, and with contents: write beside it resolved both, a person's and CodeRabbit's. P-5.port: the threads port
+        reads both resolved by that App, told by its account id through the permission read of its login."""
+        found = exchanges("P-5")
+        refused = [e["response"]["body"]["errors"][0]["type"] for e in found[17:19]]
+        resolved = [e["response"]["body"]["data"]["resolveReviewThread"]["thread"]["id"] for e in found[24:26]]
+        read, whole = self.threads_port("P-5.port", 62)
+        others = [t for t in read if t["opened_by"]["name"] != TRIAL_LENS[0]]
+        return refused == ["FORBIDDEN"] * 2 and whole and sorted(t["id"] for t in others) == sorted(resolved) and \
+            {t["opened_by"]["kind"] for t in others} == {"human", "app"} and all(
+                t["resolved"] and t["resolved_by"] == {"kind": "app", "name": TRIAL_LENS[0] + "[bot]", "can_write": False}
+                for t in others)
+
+    def actor_kind_read(self, reviews: list, labels: list) -> bool:
+        """P-41: every actor on pull request 64's reviews and dismissals and on 66's label events is read with a kind.
+        P-41.threads: GraphQL types the queue App that resolved threads a User. P-41.port: the threads port reads every
+        opener and resolver of 70 and 74 with a kind, from the account's type, the queue App a Bot by its account id."""
+        kinds = {r["by"]["kind"] for r in reviews} | {r["dismissed_by"]["kind"] for r in reviews if r["dismissed_by"]} \
+            | {e["by"]["kind"] for e in labels}
+        typed = {n["resolvedBy"]["__typename"] for e in exchanges("P-41.threads")[:2]
+                 for n in e["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+                 if n["resolvedBy"]}
+        person = {"kind": "human", "name": "don-petry", "can_write": True}
+        queue = {"kind": "queue", "name": "combsmith-sf-queue[bot]", "can_write": False}
+        author, codex, rabbit = ({"kind": "app", "name": name, "can_write": False}
+                                 for name in ("combsmith-sf-trial-author", "chatgpt-codex-connector", "coderabbitai"))
+        read = [self.threads_port("P-41.port", number, queue=(349593770, "Bot")) for number in (70, 74)]
+        pairs = [[(t["opened_by"], t["resolved_by"]) for t in found] for found, _ in read]
+        return kinds == {"human", "app", "machine_user"} and typed == {"User"} and all(whole for _, whole in read) \
+            and pairs == [[(person, queue), (author, queue), (author, queue), (person, person)],
+                          [(codex, queue), (codex, queue), (rabbit, queue), (rabbit, queue), (rabbit, queue)]]
 
     def p42_push(self, at: int) -> tuple:
         """P-42.push: canary pull request 113's read `at`: whether the port read it whole, its head, p2-queue-check as the
@@ -5312,6 +5568,47 @@ class EffectsRecorded(unittest.TestCase):
         found = check(status, recorded(written_=got["written"], whole=got["whole"]))
         self.assertEqual((found["unmatched"], found["short"], reconcile.alerts(found)), ([], False, []))
 
+    def test_a_run_that_did_not_succeed_and_lists_none_is_read_after_a_second_look(self):  # issue 709, decision 0210
+        def run(name, **over):
+            return dict(lens_run(name), started_at="2026-10-11T12:00:00Z", **over)
+        none, done = {"applied": [], "read": [], "at": {}, "whole": True}, lens_applied(self.RUN)
+        nothing = lambda github_id: applied_stored("o/r", github_id, None)
+        # The wait is one for a pass, however many Runs it looks at again: every first look comes before it and every
+        # second after, and each that listed none is looked at again; a record the second look lists is read.
+        slept, other = [], "r_01JA7R"
+        three = listed_runs(run(self.RUN, conclusion="failure"), run("r_01JA7Q"), run(other, conclusion="cancelled"))
+        hub = Recording(github.Replay(nothing(39100000000) + applied_stored("o/r", 39100000001, lens_applied("r_01JA7Q"))
+                                      + nothing(39100000002) + nothing(39100000000)
+                                      + applied_stored("o/r", 39100000002, lens_applied(other))))
+        got = applied.effects(hub, "o/r", three, self.SINCE, set(), sleep=lambda seconds: slept.append((seconds, len(hub.sent))))
+        self.assertEqual(got, {"applied": [lens_applied("r_01JA7Q"), lens_applied(other)], "read": ["r_01JA7Q", self.RUN, other],
+                               "at": {"r_01JA7Q": "2026-10-11T12:00:00Z", other: "2026-10-11T12:00:00Z"}, "whole": True})
+        # Four requests are the first looks (a list each, and the one record downloaded); three are the second.
+        self.assertEqual((slept, len(hub.sent)), ([(applied.WAIT, 4)], 7))
+        self.assertEqual(applied.WAIT, 5)
+        # Each look is asked uncached, the first and the second: GitHub lets a list be held a minute (decision 0036), and
+        # a second look answered from the first's would settle nothing.
+        looks = [r["headers"] for r in hub.sent if "/artifacts?" in r["path"]]
+        self.assertEqual(looks, [records.FRESH] * 5)
+        self.assertIs(applied.effects.__defaults__[-1], applied.time.sleep)
+        # A second look that cannot be read leaves its own Run unread and what was read short; the next is still looked at.
+        two = listed_runs(run(self.RUN, conclusion="failure"), run(other, conclusion="cancelled"))
+        refused = nothing(39100000000)
+        refused[0] = dict(refused[0], response=dict(refused[0]["response"], status=500))
+        got = applied.effects(github.Replay(nothing(39100000000) + nothing(39100000001) + refused + nothing(39100000001)),
+                              "o/r", two, self.SINCE, set(), sleep=lambda seconds: None)
+        self.assertEqual(got, dict(none, read=[other], whole=False))
+        # Past its retention at the second look, it recorded nothing that can be read: it is read.
+        got = applied.effects(github.Replay(nothing(39100000000) + applied_stored("o/r", 39100000000, done, expired=True)[:1]),
+                              "o/r", listed_runs(run(self.RUN, conclusion="failure")), self.SINCE, set(), sleep=lambda seconds: None)
+        self.assertEqual(got, dict(none, read=[self.RUN]))
+        # A completed Run with no conclusion does not say it did not succeed: it is not looked at twice and not read, so a
+        # later pass asks of it again, and what was read is whole.
+        slept = []
+        got = applied.effects(github.Replay(nothing(39100000000) + nothing(39100000000)), "o/r",
+                              listed_runs(run(self.RUN, conclusion=None)), self.SINCE, set(), sleep=slept.append)
+        self.assertEqual((got, slept), (none, []))
+
     def test_each_run_in_the_window_is_read_once_and_only_a_listed_one(self):
         def run(name, **over):
             return dict(lens_run(name), started_at="2026-10-11T12:00:00Z", **over)
@@ -5330,9 +5627,33 @@ class EffectsRecorded(unittest.TestCase):
         self.assertEqual(read(listed_runs(old)), none)
         edge = dict(lens_run(self.RUN), started_at=self.SINCE)
         self.assertEqual(read(listed_runs(edge), *applied_stored("o/r", 39100000000, done))["read"], [self.RUN])
-        # A Run that failed and lists none may be yet to, so it is read again, and is not short.
-        failed = listed_runs(run(self.RUN, conclusion="failure"))
-        self.assertEqual(read(failed, *applied_stored("o/r", 39100000000, None)), none)
+        # A Run that failed and lists none is looked at once more, after one wait: listing none again, it recorded
+        # nothing, and is read, not short, so no later pass spends a read on it (issue 709); a record the second look
+        # finds is read; a second look not answered leaves it unread and short.
+        failed, slept = listed_runs(run(self.RUN, conclusion="failure")), []
+        nothing = applied_stored("o/r", 39100000000, None)
+        self.assertEqual(read(failed, *nothing, *nothing, sleep=slept.append), dict(none, read=[self.RUN]))
+        self.assertEqual(slept, [applied.WAIT])
+        self.assertEqual(read(failed, *nothing, *applied_stored("o/r", 39100000000, done), sleep=slept.append),
+                         {"applied": [done], "read": [self.RUN], "at": {self.RUN: "2026-10-11T12:00:00Z"}, "whole": True})
+        self.assertEqual(read(failed, *nothing, sleep=slept.append), dict(none, whole=False))
+        # Two such Runs share the one wait, and each is looked at once more; one that did not fail is not waited for.
+        del slept[:]
+        two = listed_runs(run(self.RUN, conclusion="failure"), run("r_01JA7Q", conclusion="cancelled"))
+        second = applied_stored("o/r", 39100000001, None)
+        self.assertEqual(read(two, *nothing, *second, *nothing, *second, sleep=slept.append),
+                         dict(none, read=[self.RUN, "r_01JA7Q"]))
+        self.assertEqual(slept, [applied.WAIT])
+        read(one, *applied_stored("o/r", 39100000000, done), sleep=slept.append)
+        self.assertEqual(slept, [applied.WAIT])
+        # A read never answered is no first look: it is not looked at again, so a Run that succeeded and whose list,
+        # asked again, held none is never taken for one that recorded nothing.
+        unanswered = [dict(nothing[0], response=dict(nothing[0]["response"], status=302))]
+        self.assertEqual(read(one, *unanswered, *nothing, sleep=slept.append), dict(none, whole=False))
+        # Nor is one that succeeded and lists none: it was deleted, and a second look that held none too would read it as
+        # having recorded nothing.
+        self.assertEqual(read(one, *nothing, *nothing, sleep=slept.append), dict(none, whole=False))
+        self.assertEqual(slept, [applied.WAIT])
         # Past its retention it recorded nothing that can be read: it is read, and not again.
         self.assertEqual(read(one, *applied_stored("o/r", 39100000000, done, expired=True)[:1]), dict(none, read=[self.RUN]))
         # What cannot be read leaves the Run unread, so a later pass reads it again: one that succeeded and lists none, a read

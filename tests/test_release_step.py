@@ -319,7 +319,7 @@ class Candidate(unittest.TestCase):
                                   for kind, p in (("finding", finding), ("met", met))},
                         "criteria": {},
                         "origin": {"natural": {"cases": 0, "passed": 0}, "constructed": {"cases": 40, "passed": finding + met}},
-                        "faults": [], "preflight": {"cases": 3, "passed": 3, "faults": []},
+                        "faults": [], "retried": 0, "preflight": {"cases": 3, "passed": 3, "faults": []},
                         "usage": {"answered": 40, "input_tokens": 1, "cache_creation_input_tokens": 0,
                                                 "cache_read_input_tokens": 0, "output_tokens": 1, "turns": 40,
                                                 "cost_usd": 1.5, "seconds": 60.0},
