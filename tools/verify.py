@@ -16,7 +16,8 @@ import re
 import sys
 import unittest
 
-from tools import (check_apps, check_authority, check_context, check_decisions, check_examples, check_lifecycle,
+from tools import (check_apps, check_authority, check_context, check_decisions, check_examples, check_gate_sets,
+                   check_lifecycle,
                    check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -34,7 +35,7 @@ CHECKS = [
     ("writes", check_writes.run),
     ("context", check_context.run),
     ("decision records", check_decisions.run),
-    ("gate set groups", check_examples.groups_kept),
+    ("gate sets", check_gate_sets.run),
 ]
 # The test modules `make fast` leaves out. `make verify` runs them all.
 SLOW = ("test_simulator", "test_issue_simulator")

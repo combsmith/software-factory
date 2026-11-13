@@ -35,7 +35,7 @@ from kernel import decide as decide_module, derive, issue, terms
 from kernel.decide import decide
 from sim import world
 from tests import support
-from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_lifecycle, context_eval,
+from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_gate_sets, check_lifecycle, context_eval,
                    check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, redact_trial,
                    environments_drift, machine_user_drift, rulesets_drift, verify, walk)
 from tools.hooks import protected
@@ -5231,8 +5231,9 @@ def read_in_linear_cpu(test, read, unit: str, size: int) -> None:
     test.assertEqual(cpu_problem(spent), "", unit)
 
 
-class GateSetGroups(unittest.TestCase):
-    SET = "evals/pr-review/cases.json"
+class GateSets(unittest.TestCase):
+    SET, OTHER = "evals/gate/cases.json", "evals/gate-b/cases.json"
+    FLOORS, MARKS = "floors other criteria than", "marks other cases natural than"
 
     @staticmethod
     def manifest(natural=range(10), floors=("PR-3",), cases=range(31), gate=True, **over) -> str:
@@ -5244,61 +5245,104 @@ class GateSetGroups(unittest.TestCase):
             found.update(gate=True, criterion_bars={name: [1, 2] for name in floors})
         return json.dumps(dict(found, **over))
 
-    def found(self, now: str, before=None, commit: bool = False) -> list:
-        """What the check finds of the set as `now` has it, where main has it as `before`, or not at all."""
-        root = history({self.SET: before} if before is not None else None)
-        return check_examples.groups_kept(edited(root, {self.SET: now}, commit))
+    def main(self, *held) -> pathlib.Path:
+        """A repo whose main held the set as each of `held` in turn, None for a commit that took it away."""
+        root = history({self.SET: held[0]})
+        for text in held[1:]:
+            if text is None:
+                (root / self.SET).unlink()
+                (root / "evals" / "gone").write_text("")        # a commit needs a change that stays
+            else:
+                edited(root, {self.SET: text})
+            committed(root, "main")
+        return root
 
-    def test_a_gate_set_whose_cases_are_the_bases_keeps_its_floored_criteria_and_natural_marks(self):
-        # Issue 695, decision 0208: two manifests of the same cases that count them in other groups publish counts whose difference is
-        # a group of fewer than ten, one case among them. Made-up cases: no held-out set is read here.
-        base, floors, marks = self.manifest(), "floors other criteria than the base's", "marks other cases natural"
-        self.assertIn(("gate set groups", check_examples.groups_kept), verify.CHECKS)
+    def found(self, now, *held, commit: bool = False, at=None) -> list:
+        """What the check finds of the set as `now` has it, at `at` or where main holds it, after main held `held`."""
+        root = self.main(*held) if held else history()
+        return check_gate_sets.run(edited(root, {at or self.SET: now}, commit))
+
+    def test_a_gate_set_keeps_the_floored_criteria_and_natural_marks_main_has_held_for_its_cases(self):
+        # Issue 695, decision 0208: two manifests of the same cases that count them in other groups publish counts whose
+        # difference is a group of fewer than ten, one case among them. Made-up cases: no held-out set is read here.
+        base, floors, marks = self.manifest(), self.FLOORS, self.MARKS
+        self.assertIn(("gate sets", check_gate_sets.run), verify.CHECKS)
         self.assertEqual(self.found(base, base), [])
         for commit in (False, True):        # in the working tree, or committed on the branch
             # The floor moved from PR-3 to PR-4: the findings on neither are what the two reports' counts leave.
-            self.assertTrue(caught(self.found(self.manifest(floors=("PR-4",)), base, commit), floors))
+            self.assertTrue(caught(self.found(self.manifest(floors=("PR-4",)), base, commit=commit), floors))
             # An eleventh case marked natural: the two natural groups differ by it, under its public id.
-            self.assertTrue(caught(self.found(self.manifest(natural=range(11)), base, commit), marks))
+            self.assertTrue(caught(self.found(self.manifest(natural=range(11)), base, commit=commit), marks))
         # A floor added or dropped moves a group as one moved does; so does a mark taken off, or every mark moved.
         for other in (("PR-3", "PR-4"), ()):
             self.assertTrue(caught(self.found(self.manifest(floors=other), base), floors), other)
         for other in (range(9), range(10, 20), ()):
             self.assertTrue(caught(self.found(self.manifest(natural=other), base), marks), other)
-        both = self.found(self.manifest(natural=range(11), floors=("PR-4",)), base)
+        moved = dict(natural=range(11), floors=("PR-4",))
+        both = self.found(self.manifest(**moved), base)
         self.assertTrue(caught(both, floors) and caught(both, marks) and len(both) == 2)
         # A floor's fraction is no group, and the order the cases are listed in is none either.
         self.assertEqual(self.found(self.manifest(criterion_bars={"PR-3": [2, 3]}), base), [])
         self.assertEqual(self.found(self.manifest(cases=range(30, -1, -1)), base), [])
         self.assertTrue(caught(self.found(self.manifest(cases=range(30, -1, -1), floors=("PR-4",)), base), floors))
-        # Cases changed are another set of them, whose earlier counts this does not hold: one added, one dropped, one
-        # issued again under its id. A residual, written down on the issue.
-        moved = dict(natural=range(11), floors=("PR-4",))
+        # Cases changed are other cases, whose earlier counts this does not hold: one added, one dropped, one issued again
+        # under its id, one under another id. A residual, written down on the issue.
         self.assertEqual(self.found(self.manifest(cases=range(32), **moved), base), [])
-        self.assertEqual(self.found(self.manifest(cases=range(30), floors=("PR-4",)), base), [])    # one dropped
-        again = json.loads(self.manifest(**moved))
-        again["cases"][30]["sha256"] = "f" * 64
-        self.assertEqual(self.found(json.dumps(again), base), [])
-        # A set main does not hold, or holds as a development set or as nothing that can be read, counted no group there;
-        # a development set here counts none.
-        for before in (None, self.manifest(gate=False), "{", "[]", json.dumps({"gate": True, "cases": [7]})):
-            self.assertEqual(self.found(self.manifest(**moved), before), [], before)
+        self.assertEqual(self.found(self.manifest(cases=range(30), floors=("PR-4",)), base), [])
+        for key, value in (("sha256", "f" * 64), ("id", "c-99")):
+            again = json.loads(self.manifest(**moved))
+            again["cases"][30][key] = value
+            self.assertEqual(self.found(json.dumps(again), base), [], key)
+        # A set main never held, or held as a development set or as nothing that can be read, counted no group there; a
+        # development set here counts none; nor is one read that is gone from the tree, or is no JSON, or writes a key
+        # twice, which the examples' check refuses.
+        for before in ((), (self.manifest(gate=False),), ("{",), ("[]",), (json.dumps({"gate": True, "cases": [7]}),)):
+            self.assertEqual(self.found(self.manifest(**moved), *before), [], before)
         self.assertEqual(self.found(self.manifest(gate=False), base), [])
         self.assertEqual(self.found("{", base), [])
+        self.assertEqual(self.found(self.manifest(floors=("PR-4",))[:-1] + ', "gate": true}', base), [])
+        gone = self.main(base)
+        (gone / self.SET).unlink()
+        self.assertEqual(check_gate_sets.run(gone), [])
 
-    def test_a_gate_set_that_cannot_be_compared_with_the_base_fails_and_an_export_is_not_compared(self):
+    def test_a_gate_set_is_held_to_the_same_cases_under_any_name_and_at_any_commit_of_main(self):
+        # A case is fetched by its Role and its id, never by its set's name, so the same cases under another name are
+        # the same cases (the Claude reads of this change).
+        base, moved = self.manifest(), self.manifest(natural=range(11), floors=("PR-4",))
+        beside = self.found(moved, base, at=self.OTHER)                 # added beside the set main holds
+        self.assertTrue(caught(beside, "%s: %s %s at " % (self.OTHER, self.FLOORS, self.SET)) and caught(beside, self.MARKS))
+        self.assertTrue(any(p.startswith(self.SET + ": " + self.FLOORS + " " + self.OTHER + " does") for p in beside))
+        root = history({self.OTHER: base})
+        (root / self.OTHER).unlink()                                    # moved from the other name, in one change
+        self.assertTrue(caught(check_gate_sets.run(edited(root, {self.SET: moved})), self.SET + ": " + self.FLOORS))
+        # Two sets new in one change, of the same cases, are held to each other with no base to read.
+        with outside_actions():
+            pair = check_gate_sets.run(tree({self.SET: base, self.OTHER: moved}))
+        self.assertTrue(caught(pair, self.FLOORS) and caught(pair, self.MARKS) and len(pair) == 4)
+        self.assertEqual(self.found(base, base, at=self.OTHER), [])     # the same groups under two names
+        # What main held at any commit is held, not at its last alone: the set taken away and put back, made a development
+        # set and a gate set again, or a case added with the floor moved and then dropped.
+        for name, held in (("taken away", (base, None)), ("made a development set", (base, self.manifest(gate=False))),
+                           ("a case added and dropped", (base, self.manifest(cases=range(32), floors=("PR-4",))))):
+            self.assertTrue(caught(self.found(self.manifest(floors=("PR-4",)), *held), self.FLOORS), name)
+            self.assertEqual(self.found(base, *held), [], name)
+        # A manifest main held of other cases says nothing of these.
+        self.assertEqual(self.found(moved, self.manifest(cases=range(40)), self.manifest(cases=range(41))), [])
+
+    def test_a_gate_set_that_cannot_be_compared_with_main_fails_and_an_export_is_held_to_its_own_tree(self):
         moved = self.manifest(floors=("PR-4",))
-        root = edited(history({self.SET: self.manifest()}), {self.SET: moved})
+        root = edited(self.main(self.manifest()), {self.SET: moved})
         git(root, "update-ref", "-d", "refs/remotes/origin/main")
-        self.assertTrue(caught(check_examples.groups_kept(root), self.SET + ": cannot be compared with the base's"))
-        # An export has no history: nothing is compared, but in GitHub Actions, where a checkout always has one.
+        self.assertTrue(caught(check_gate_sets.run(root), self.SET + ": cannot be compared with what main has held"))
+        # An export has no history: nothing of main is compared, but in GitHub Actions, where a checkout always has one.
         export = tree({self.SET: moved})
         with outside_actions():
-            self.assertEqual(check_examples.groups_kept(export), [])
+            self.assertEqual(check_gate_sets.run(export), [])
         with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
-            self.assertTrue(caught(check_examples.groups_kept(export), "cannot be compared with the base's"))
-            # A development set asks nothing of the base, so it is never refused for one it cannot read.
-            self.assertEqual(check_examples.groups_kept(tree({self.SET: self.manifest(gate=False)})), [])
+            self.assertTrue(caught(check_gate_sets.run(export), "cannot be compared with what main has held"))
+            # A tree with no gate set asks nothing of main, so it is never refused for a history it cannot read.
+            self.assertEqual(check_gate_sets.run(tree({self.SET: self.manifest(gate=False)})), [])
+            self.assertEqual(check_gate_sets.run(tree({"evals/AGENTS.md": "# evals/\n"})), [])
 
 
 class Trials(unittest.TestCase):
@@ -10715,6 +10759,8 @@ FAILS = {
     "check_release": lambda: check_release.run(clone({"release/current.py": "import os\n"})),
     "check_writes": lambda: check_writes.run(clone({"harness/sneak.py": Writes.SNEAK})),
     "check_decisions": lambda: check_decisions.run(edited(history(), {FIRST: RECORD.replace("one thing.", "x.")})),
+    "check_gate_sets": lambda: check_gate_sets.run(edited(history({GateSets.SET: GateSets.manifest()}),
+                                                          {GateSets.SET: GateSets.manifest(floors=("PR-4",))})),
 }
 
 

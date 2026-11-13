@@ -307,58 +307,6 @@ def _preflight_held(root: pathlib.Path, found: dict) -> list:
     return []
 
 
-def _groups(found):
-    """`(cases, floored, natural)` of a gate set's manifest: each case's id with its hash, the criteria it floors, and
-    the ids it marks natural, which are the groups its reports count; None for what is no gate set's manifest."""
-    cases = found.get("cases") if isinstance(found, dict) and found.get("gate") is True else None
-    if not isinstance(cases, list) or not all(isinstance(c, dict) and isinstance(c.get("id"), str)
-                                              and isinstance(c.get("sha256"), str) for c in cases):
-        return None
-    floors = found.get("criterion_bars", {})
-    return (frozenset((c["id"], c["sha256"]) for c in cases), frozenset(floors if isinstance(floors, dict) else ()),
-            frozenset(c["id"] for c in cases if c.get("natural") is True))
-
-
-def groups_kept(root: pathlib.Path = ROOT) -> list:
-    """A gate set's manifest whose cases are the base's, each id with its hash, counts them in the groups the base's
-    does: it floors the criteria the base's floors and marks natural the cases the base's marks (issue 695, decision 0208). Two
-    manifests of the same cases that floored other criteria, or marked other cases natural, would publish counts whose
-    difference is a group of fewer cases than a report may count, one case's verdict among them. A floor's fraction
-    may change, as no count is of it. The base is the decision records', `tools/check_decisions.py`'s: one that
-    cannot be read fails, and an export, which has no history, is not compared. A set the base does not hold, or
-    holds as no gate set, has counted no such group; nor is a set held whose cases changed, which is a residual."""
-    from tools.check_decisions import Unreadable, _git, base
-    problems = []
-    for rel in sorted(rel for rel, kind in LIVE.items() if kind == "eval-set"):
-        try:
-            now = _groups(_load(root / rel))
-        except (OSError, ValueError):
-            continue        # missing, or not JSON: `run` says so
-        if now is None:
-            continue
-        try:
-            at = base(root)
-            if at is None:
-                continue
-            there = _git(root, "ls-tree", "-z", "--name-only", at, "--", rel) == rel + "\0"
-            before = _groups(json.loads(_git(root, "cat-file", "blob", "%s:%s" % (at, rel)))) if there else None
-        except Unreadable as err:
-            problems.append("%s: cannot be compared with the base's (%s); fetch main's whole history and run again"
-                            % (rel, err))
-            continue
-        except ValueError:
-            continue        # the base's is not JSON, so it was no gate set's
-        if before is None or before[0] != now[0]:
-            continue
-        if before[1] != now[1]:
-            problems.append("%s: floors other criteria than the base's does, its cases the same; a gate set's floored "
-                            "criteria change only with its cases (issue 695)" % rel)
-        if before[2] != now[2]:
-            problems.append("%s: marks other cases natural than the base's does, its cases the same; a gate set's "
-                            "natural marks change only with its cases (issue 695)" % rel)
-    return problems
-
-
 def run(root: pathlib.Path = ROOT) -> list:
     problems = []
 
