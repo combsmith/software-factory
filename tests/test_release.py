@@ -473,10 +473,10 @@ class Fixture(unittest.TestCase):
                          since + [(own, commit, fixture["version"])] + below)
         statuses = body("/repos/%s/deployments/%d/statuses" % (REPO, own))
         self.assertEqual([s["state"] for s in statuses], ["inactive", "success"] if since else ["success"])
-        # The cut's own Deployment was made, and succeeded, inside the run that printed it.
+        # The cut's own Deployment was made inside the run that printed it, and succeeded there, no earlier than it was made.
         mine, = [d["created_at"] for d in deployed if d["id"] == own]
-        for time in (mine, statuses[-1]["created_at"]):
-            self.assertTrue(run["created_at"] <= time <= run["updated_at"], time)
+        self.assertTrue(run["created_at"] <= mine <= statuses[-1]["created_at"] <= run["updated_at"],
+                        (mine, statuses[-1]["created_at"]))
         # GitHub marks the Deployment `next` moved off, the newest below the cut's own, inactive, newest first, beside
         # the success it kept, and no earlier than the cut's own was made.
         statuses = body("/repos/%s/deployments/%d/statuses" % (REPO, below[0][0]))
