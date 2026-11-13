@@ -340,6 +340,8 @@ class Fixture(unittest.TestCase):
     # The cuts a rollback and a move forward again followed, by the fixture of those two steps: each recorded a
     # Deployment of its own above the cut's.
     LATER = {ELEVENTH_CUT: FIRST_ROLLBACK}
+    # The last cut that read next's whole list of Deployments: every cut after it reads a page (issue 792).
+    WHOLE_LIST = TWELFTH_CUT
     EVENT = ROOT / "release" / "fixtures" / "event.slice-1.json"
 
     def item(self, fixture, name):
@@ -524,14 +526,32 @@ class Fixture(unittest.TestCase):
         self.assertEqual(found[0].name, self.CUT.name)
         return found
 
-    def each_cut_moved_next_on(self, folder=None, apart=True):
+    def each_cut_moved_next_on(self, folder=None, apart=True, whole=None):
         """Each cut after the first in `folder`, each above the cuts before it, newest first, at the eval run its fixture
-        reads; each a subtest of its own, `apart`, or the first that fails stops the rest."""
+        reads, and each after `whole`, `WHOLE_LIST` by default, reading a page of next's Deployments; each a subtest of
+        its own, `apart`, or the first that fails stops the rest."""
         cuts = self.cuts(folder)
+        last = [p.name for p in cuts].index((whole or self.WHOLE_LIST).name)
         for i, path in enumerate(cuts[1:], 1):
             made = self.item(json.loads(path.read_text()), "cut_and_move_of_next")
             with self.subTest(cut=path.name) if apart else contextlib.nullcontext():
                 self.a_later_cut_moved_next_on(path, self.eval_run(made), list(reversed(cuts[:i])))
+                if i > last:
+                    self.assertIsNotNone(self.deployments_read(made)[1], "a cut after %s reads a page" % cuts[last].name)
+
+    def paged(self, size, order=lambda page: page, more=""):
+        """factory/v0.1.10's fixture, its read of next's Deployments asked again as a page of `size`, `more` after it,
+        the page answered in `order`: the path of the copy, in a folder of its own."""
+        fixture = copy.deepcopy(json.loads(self.ELEVENTH_CUT.read_text()))
+        for e in self.item(fixture, "cut_and_move_of_next")["exchanges"]:
+            if e["request"]["call"].split(" ")[1] == self.DEPLOYMENTS:
+                e["request"]["call"] = e["request"]["call"].replace(self.DEPLOYMENTS, self.DEPLOYMENTS + "&per_page=%d" % size + more)
+                e["response"]["body"] = order(e["response"]["body"][:size])
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        path = pathlib.Path(folder.name) / self.ELEVENTH_CUT.name
+        path.write_text(json.dumps(fixture))
+        return path
 
     def test_the_next_cut_moved_next_on(self):
         # Each cut after the first, read from release/fixtures/ in version order, each at the commit the eval run its
@@ -562,31 +582,30 @@ class Fixture(unittest.TestCase):
         with self.assertRaises(AssertionError):
             self.each_cut_moved_next_on(pathlib.Path(folder.name), apart=False)
 
+    def test_a_cut_after_the_last_that_read_the_whole_list_reads_a_page(self):  # issue 792
+        # Every cut after factory/v0.1.11, the last that read next's whole list of Deployments, reads a page, so no cut's
+        # pull request grows with the list. Shown with factory/v0.1.9 as the last: factory/v0.1.10 and v0.1.11 read the
+        # whole list and are refused; factory/v0.1.10 asked again as a page of four, the last cut, is held.
+        with self.assertRaises(AssertionError):
+            self.each_cut_moved_next_on(apart=False, whole=self.TENTH_CUT)
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        for path in self.cuts()[:self.cuts().index(self.ELEVENTH_CUT)]:
+            (pathlib.Path(folder.name) / path.name).write_text(path.read_text())
+        (pathlib.Path(folder.name) / self.ELEVENTH_CUT.name).write_text(self.paged(4).read_text())
+        self.each_cut_moved_next_on(pathlib.Path(folder.name), apart=False, whole=self.TENTH_CUT)
+
     def test_a_cut_that_reads_a_page_of_next_s_deployments_is_held_to_its_order(self):  # issue 792
         # A cut's fixture reads a page of next's Deployments, so its pull request is the same size however many there
         # are: the page holds what stands above the cut's own Deployment, that Deployment and the one `next` moved off,
         # in their order. A page too short for them, or in another order, is refused. Shown on factory/v0.1.10's
         # fixture, asked again as a page of four.
-        whole = json.loads(self.ELEVENTH_CUT.read_text())
         earlier = list(reversed(self.cuts()[:self.cuts().index(self.ELEVENTH_CUT)]))
-
-        def paged(size, order=lambda page: page, more=""):
-            fixture = copy.deepcopy(whole)
-            for e in self.item(fixture, "cut_and_move_of_next")["exchanges"]:
-                if e["request"]["call"].split(" ")[1] == self.DEPLOYMENTS:
-                    e["request"]["call"] = e["request"]["call"].replace(self.DEPLOYMENTS, self.DEPLOYMENTS + "&per_page=%d" % size + more)
-                    e["response"]["body"] = order(e["response"]["body"][:size])
-            folder = tempfile.TemporaryDirectory()
-            self.addCleanup(folder.cleanup)
-            path = pathlib.Path(folder.name) / self.ELEVENTH_CUT.name
-            path.write_text(json.dumps(fixture))
-            return path
-
-        eval_run = self.eval_run(self.item(whole, "cut_and_move_of_next"))
-        self.a_later_cut_moved_next_on(paged(4), eval_run, earlier)
+        eval_run = self.eval_run(self.item(json.loads(self.ELEVENTH_CUT.read_text()), "cut_and_move_of_next"))
+        self.a_later_cut_moved_next_on(self.paged(4), eval_run, earlier)
         # A later page is not the first, whatever it holds (Astra).
-        for wrong in (paged(3), paged(4, lambda page: page[1:2] + page[:1] + page[2:]), paged(4, lambda page: page[:3]),
-                      paged(4, more="&page=2")):
+        for wrong in (self.paged(3), self.paged(4, lambda page: page[1:2] + page[:1] + page[2:]),
+                      self.paged(4, lambda page: page[:3]), self.paged(4, more="&page=2")):
             with self.subTest(wrong=wrong), self.assertRaises(AssertionError):
                 self.a_later_cut_moved_next_on(wrong, eval_run, earlier)
 
