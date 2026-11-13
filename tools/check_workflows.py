@@ -51,7 +51,7 @@ RULES = {
                   "exactly a Run's name, ${{ inputs.name }}, its lane, ${{ inputs.item }}, or a step's output or its outcome; "
                   "or, in the required check's workflow alone, as its top-level concurrency's group, "
                   "${{ format('factory-pr-{0}', github.event.pull_request.number || github.run_id) }}, and "
-                  "cancel-in-progress, ${{ github.event_name == 'pull_request' }}",
+                  "cancel-in-progress, ${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}",
     "model": "no step sets the CLI's environment scrub, which only the Engine sets, beside --tools \"\", and a step that "
              "holds the model's credential is handed no tool list",
     "lane": "a job that calls the Run's jobs, or an act's, holds its item's lane: its own concurrency group, "
@@ -109,10 +109,11 @@ APPROVE_JOB = "approve-job.yml"
 QUEUE_JOB = "queue-job.yml"
 LANE = "${{ inputs.item }}"
 # The required check's workflow cancels a pull request's run when a newer push to it starts one, and never a merge
-# group's: a merge group's group is its own run's id, unlike any other, and it cancels nothing. The prefix keeps a pull
+# group's: a merge group's group is its own run's id, unlike any other, and it cancels nothing. Nor does a re-run, whose
+# attempt is past its first: it keeps its pull_request event, and would cancel a newer head's run (Astra). The prefix keeps a pull
 # request's group apart from every Run's lane, which is its item's (2026-11-09).
 PR_LANE = "${{ format('factory-pr-{0}', github.event.pull_request.number || github.run_id) }}"
-PR_CANCEL = "${{ github.event_name == 'pull_request' }}"
+PR_CANCEL = "${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}"
 # The required check's workflow, the one file whose top-level concurrency may hold those two expressions.
 REQUIRED_WORKFLOW = "verify.yml"
 RUN_NAME = "${{ inputs.name }}"

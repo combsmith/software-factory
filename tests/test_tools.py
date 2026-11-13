@@ -2971,6 +2971,13 @@ class Workflows(unittest.TestCase):
         # from outside could stand (the Claude review of #679).
         self.assertEqual(rules(GOOD, required=False), ["expression"])
         self.assertEqual(rules(GOOD.replace(block, ""), required=False), [])
+        # Each expression alone, in another workflow (Astra), and the check of the repo's files gives the allowance to the
+        # required check's workflow by its name alone (the Claude review of step 4).
+        self.assertEqual(rules(GOOD.replace("  group: %s\n" % check_workflows.PR_LANE, "  group: other\n"), required=False), ["expression"])
+        self.assertEqual(rules(GOOD.replace("  cancel-in-progress: %s\n" % check_workflows.PR_CANCEL, "  cancel-in-progress: true\n"), required=False), ["expression"])
+        problems = check_workflows.run(clone({"examples/workflows/other.yml": GOOD}))
+        self.assertTrue(caught(problems, "examples/workflows/other.yml: [expression]"), problems)
+        self.assertFalse(caught(problems, "examples/workflows/verify.yml: [expression]"), problems)
         self.assertEqual(self.lens_problems(GOOD.replace(block, "")), [], "a workflow that cancels nothing is held too")
         said = "has a top-level concurrency: other than"
         group, cancel = "  group: %s\n" % check_workflows.PR_LANE, "  cancel-in-progress: %s\n" % check_workflows.PR_CANCEL
