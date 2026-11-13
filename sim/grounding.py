@@ -314,18 +314,24 @@ RULES = (
     ("a_draft_change_is_timed", "A pull request's timeline gives each conversion to a draft and each marking ready as an "
      "event of its own, with its time to the second; one opened as a draft has no event for it", ("P-33",),
      "trials/P-33.json", None),
-    # Trial P-61 (issue 551) asks these; until its fixture is recorded the world links nothing by hand and sets no type,
-    # so it gives none of either.
+    # trials/P-61.json (issue 551): a link by hand in the issue's Development box, its unlinking and a link again, each
+    # a ConnectedEvent or DisconnectedEvent of its own on the issue's timeline, timed between the reads either side of it,
+    # naming its actor and the pull request; trials/P-33.json: a closing keyword raises none. The world still links
+    # nothing by hand and sets no type, so it gives none of either. Each change in P-61 was made in a page signed in as the
+    # machine user, which every event names: no rule of who acted rests on it.
     ("a_link_by_hand_is_timed", "An issue's timeline gives each link of a pull request by hand, in its Development box, "
      "and each unlinking, as an event of its own with its time to the second; a link by a closing keyword raises none",
-     ("P-61",), None, None),
+     ("P-61",), "trials/P-61.json", None),
     # Seen in trials/P-48.json, whose pull request was closed, reopened, closed and reopened, and merged, each a timed
     # event, the merge's close among them; but P-48's row in section 6 does not ask it, so it waits on P-61's run (issue 672).
+    # trials/P-61.json: pull request 120 closed, reopened and merged, each its own timed event, a ClosedEvent beside the
+    # MergedEvent in the same second, and closedAt null again once reopened.
     ("a_pull_requests_close_and_reopening_are_timed", "A pull request's own timeline gives each close and each reopening "
      "as an event of its own with its time, a merge's close among them, and a reopening clears its closed_at",
-     ("P-61",), None, None),
+     ("P-61",), "trials/P-61.json", None),
+    # trials/P-61.json: a type set, changed and removed, each its own timed event, the change naming the type before it.
     ("a_type_change_is_timed", "An issue's timeline gives each setting, change and removal of its type as an event of "
-     "its own with its time to the second, and the type before and after", ("P-61",), None, None),
+     "its own with its time to the second, and the type before and after", ("P-61",), "trials/P-61.json", None),
     # trials/P-46.json: an edit to a merged pull request's description after the merge adds the issue its new keyword
     # names to closingIssuesReferences, and closes nothing: the issue stays open and its timeline gains no close; undoing
     # the edit takes it out again. trials/P-33.json: the merge's own close of the issue names the pull request as the

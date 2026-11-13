@@ -81,7 +81,7 @@
       "minLength": 1
     },
     "type_events": {
-      "description": "Each setting, change and removal of the issue's type on its timeline, IssueTypeAddedEvent, IssueTypeChangedEvent and IssueTypeRemovedEvent, as the type before and after, null for none, with its time, in the order the timeline lists them. Each follows from the last, and the last leaves the type as it is now. Row 1 does not read the type at the merge while the Consumer entry has no history (the Factory Builder's ruling (b) on issue 541); its time is carried for when it does (grounding pending trial P-61, issue 551)",
+      "description": "Each setting, change and removal of the issue's type on its timeline, IssueTypeAddedEvent, IssueTypeChangedEvent and IssueTypeRemovedEvent, as the type before and after, null for none, with its time, in the order the timeline lists them. Each follows from the last, and the last leaves the type as it is now. Row 1 does not read the type at the merge while the Consumer entry has no history (the Factory Builder's ruling (b) on issue 541); its time is carried for when it does (grounded by trial P-61, issue 551)",
       "type": "array",
       "items": {
         "type": "object",
@@ -303,7 +303,7 @@
             }
           },
           "link_events": {
-            "description": "Each link of it to the issue by hand, in the issue's Development box, and each unlinking, as the issue's timeline gives them, ConnectedEvent and DisconnectedEvent, with its time, in the order the timeline lists them. A link by a closing keyword raises none (trials/P-33.json): one with no event is read as before, with no time. Each changes the link, so the two alternate and the first is a link, none before it opened. Row 1 reads two pull requests linked so before the first merge's second as two links at it (grounding pending trial P-61, issue 551)",
+            "description": "Each link of it to the issue by hand, in the issue's Development box, and each unlinking, as the issue's timeline gives them, ConnectedEvent and DisconnectedEvent, with its time, in the order the timeline lists them. A link by a closing keyword raises none (trials/P-33.json): one with no event is read as before, with no time. Each changes the link, so the two alternate and the first is a link, none before it opened. Row 1 reads two pull requests linked so before the first merge's second as two links at it (grounded by trial P-61, issue 551)",
             "type": "array",
             "items": {
               "type": "object",
