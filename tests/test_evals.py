@@ -3408,8 +3408,7 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(cells, [cell("finding", None, False, 9), cell("finding", None, True, 1),
                                      cell("finding", "PR-3", False, 0), cell("finding", "PR-3", True, 10),
                                      cell("met", None, False, 20), cell("met", None, True, 0)])
-            # A sealed ledger's size is public, so what it says of the cells is as long whatever they are: another set of
-            # as many cases under the same floor, its cases otherwise spread.
+            # A sealed ledger's size is public, so its cells are as long whatever they are: another set of as many cases.
             other = job.cells_of(*self.floored([("PR-3", "finding", 10, 5), ("PR-4", "finding", 10, 5), ("PR-1", "met", 20, 3)]))
             self.assertNotEqual(other, cells)
             # A count's width is the set's own count's, not its cells': ten cases, no cell of which holds ten.
@@ -3435,7 +3434,7 @@ class EvalJob(unittest.TestCase):
                               cell("finding", "PR-3", False, 5), cell("finding", "PR-3", True, 5),
                               cell("finding", "PR-4", False, 5), cell("finding", "PR-4", True, 5),
                               cell("met", None, False, 10), cell("met", None, True, 10)])
-            # A set that floors no criterion has its four cells counted, and one of a hundred cases counts at three digits.
+            # A set that floors no criterion has four cells, and one of a hundred cases counts at three digits.
             bare = job.cells_of(*self.floored([("PR-3", "finding", 20, 9), ("PR-1", "met", 20, 11)], floors={}))
             self.assertEqual([(c["cases"], c["few"]) for c in bare], [("11", 0), ("09", 1), ("09", 1), ("11", 0)])
             self.assertEqual([c["cases"] for c in job.cells_of(*self.floored([("PR-3", "finding", 50, 25), ("PR-1", "met", 50, 20)]))],
@@ -3458,8 +3457,7 @@ class EvalJob(unittest.TestCase):
             self.assertIsNone(job.cells_of(development, place))
             (place / "cases" / "c-0.json").unlink()
             self.assertIsNone(job.cells_of(found, place))
-        # The run writes it into the ledger it seals, and the fetch's line and the judge's say nothing of it: two natural
-        # cases, one on the floored criterion and one on another, each a cell of one.
+        # The run seals it in the ledger, and no step's line says a word of it: two natural cases on two criteria, each a cell of one.
         cases = {ident: json.loads(data) for ident, data in self.cases.items()}
         first, other = (cases[ident]["expected"] for ident in cases)
         other["criterion"] = "PR-4" if first["criterion"] != "PR-4" else "PR-3"
@@ -3493,7 +3491,7 @@ class EvalJob(unittest.TestCase):
                                judged_run() == (judged, public))
             self.assertEqual(again, dict.fromkeys(again, (len(first_run), True, True)))
             sealed.write_bytes(first_run)
-        # Each step's line is all it says, word for word, and nothing else is printed.
+        # Each step's line, word for word, and nothing else printed.
         self.assertEqual((planned, fetched, said, judged, printed.getvalue()),
                          ("planned 2 cases after 3 to preflight", "fetched 2 of 2 cases, 3 of 3 to preflight",
                           "scored 2 of 2 cases, 1 passed",
@@ -3508,14 +3506,14 @@ class EvalJob(unittest.TestCase):
         # A ledger says its cells or that they could not be read, never nothing.
         self.assertTrue(job._errors({k: v for k, v in ledger.items() if k != "cells"}, "eval-ledger"))
         self.assertEqual(job._errors(dict(ledger, cells=None), "eval-ledger"), [])
-        # The cells have a shape: a ledger whose cells say nothing, or one that says nothing of its count, is none.
+        # The cells have a shape: cells that say nothing, or nothing of their count, make no ledger.
         each = lambda **changed: [dict(c, **changed) for c in ledger["cells"]]
         for cells in ([], ledger["cells"][:3], [{}] * 4, each(cases=1), each(cases="x"), each(cases=""), each(cases="0" * 10),
                       each(few=2), each(few=True), each(few=1.0), each(natural=1), each(kind="other"), each(criterion="not one"),
                       each(criterion=3), *([{k: v for k, v in c.items() if k != gone} for c in ledger["cells"]]
                                            for gone in ("kind", "criterion", "natural", "cases", "few"))):
             self.assertTrue(job._errors(dict(ledger, cells=cells), "eval-ledger"), cells)
-        # And the report the run wrote is a report, which has no field of the cells and admits none.
+        # And the run's report is a report, with no field of the cells.
         self.assertEqual(job._errors(json.loads((self.work / job.REPORT).read_text()), "eval-aggregate"), [])
         self.assertNotIn("cells", (self.work / job.REPORT).read_text())
 
