@@ -1093,9 +1093,11 @@ class Transitions(unittest.TestCase):
                 readings.append(tuple(kernel(item)[k] for k in ("state", "reason")))
             self.assertEqual(readings[-2:], [(t.ADDRESSING, "conflict"), (t.HELD, "run_ceiling")], steps)
         # Two moves deep, only the move reaches it.
-        made, _ = explored()
-        self.assertIn("then %s, then %s" % at_once,
-                      holds_made_by_no_person(made)[(t.ADDRESSING, t.HELD, "lens", "max_runs_per_item")])
+        held = (t.ADDRESSING, t.HELD, "lens", "max_runs_per_item")
+        start = {k: BASES[k] for k in ("awaiting_review at the Run ceiling, with a review Run",)}
+        self.assertIn(held, holds_made_by_no_person(explore(start, MOVES)[0]))
+        self.assertNotIn(held, holds_made_by_no_person(explore(start, [m for m in MOVES if m.name != at_once[0]])[0]))
+        self.assertIn(held, holds_made_by_no_person(explored()[0]))
         # From a merge state not worked out, the move is not made: that is the slow way, through unknown.
         self.assertIsNone(moves[at_once[0]].make(dict(BASES["conflict"], facts=dict(BASES["conflict"]["facts"],
                                                                                          mergeable=None))))
