@@ -2700,6 +2700,34 @@ class Acceptance(unittest.TestCase):
         # A person's pull request is read by its closing references, whatever the opening Runs recorded.
         self.assertEqual(self.read(closing_answer("o/r", 26, []), opened=made([("r_01JA7Q", 37)])), (None, True))
 
+    def test_the_facts_name_the_issue_the_factory_opened_a_pull_request_for(self):  # issue 823
+        # The opener's own pull request, on the Factory's branch in the repo itself: the issue its branch names, where
+        # its opening Run names it for that issue, and where none names it yet (the writer lands in slice 2).
+        made = lambda named=(), **over: dict({"named": {26: list(named)}, "unreadable": set(), "whole": True}, **over)
+        for given in (made([("r_01JA7Q", 36)]), made(), NOT_OPENED):
+            self.assertEqual(acceptance.opened_for(self.OPENED, self.OPENER, given), 36, given)
+        # The number is the branch's own, whichever issue it names and however many were opened for it.
+        other = dict(self.OPENED, head={"ref": "factory-work/issue-1207-3", "repo": {"full_name": "o/r"}})
+        self.assertEqual(acceptance.opened_for(other, self.OPENER, made([("r_01JA7Q", 1207)])), 1207)
+        # No issue: another account's pull request, a person's on a branch of the Factory's shape among them; and
+        # anyone's while no Role opens pull requests.
+        person = dict(self.OPENED, user={"login": "don-petry", "id": 1, "type": "User"})
+        for pull_, opener in ((person, self.OPENER), (dict(self.OPENED, user={"id": 13, "type": "Bot"}), self.OPENER),
+                              (self.OPENED, None), (person, None)):
+            self.assertIsNone(acceptance.opened_for(pull_, opener, made([("r_01JA7Q", 36)])), (pull_["user"], opener))
+        # Nor where it cannot be told, which `read` gives as not whole: None, and never the False `bound` says it by,
+        # which is no number. A branch of another shape or another repo; a Run of another issue that names it, or two;
+        # an opening Run not read; the opener's account not known; no record handed in.
+        elsewhere = dict(self.OPENED, head={"ref": "factory-work/issue-36-1", "repo": {"full_name": "o/fork"}})
+        untold = ((dict(self.OPENED, head=dict(self.OPENED["head"], ref="fix/a-thing")), self.OPENER, made()),
+                  (elsewhere, self.OPENER, made()), (self.OPENED, self.OPENER, made([("r_01JA7Q", 37)])),
+                  (self.OPENED, self.OPENER, made([("r_01JA7Q", 36), ("r_01JA7R", 36)])),
+                  (self.OPENED, self.OPENER, made(unreadable={7})), (self.OPENED, self.OPENER, made(whole=False)),
+                  (self.OPENED, acceptance.UNTOLD, made()), (self.OPENED, self.OPENER, None))
+        for pull_, opener, given in untold:
+            self.assertIs(acceptance.bound(pull_, opener, given), False, given)
+            self.assertIsNone(acceptance.opened_for(pull_, opener, given), given)
+
     def test_the_bound_issues_lookup_is_read_under_the_controllers_grant(self):
         # P-54: the token narrowed to issues: read reads the lookup, GitHub names that permission as what it accepts, and
         # labelled() reads the answer. The canary is public, so the metadata: read token is answered too; a private repo
@@ -3769,6 +3797,9 @@ class Snapshot(unittest.TestCase):
         self.assertEqual(got["complete"], {"acceptance": True, "reviews": True, "threads": True, "checks": True,
                                            "diff": True, "changed_paths": True, "runs": True, "timeline": True})
         self.assertIsNone(got["acceptance"])
+        # The fact is given in every snapshot, null where no Role opens pull requests: the schema does not require it,
+        # and the port never leaves it out (issue 823).
+        self.assertEqual(("opened_for" in got, got["opened_for"]), (True, None))
         self.assertEqual(got["description_edited_at"], "2026-10-18T02:10:00Z")
         self.assertNotIn(title, json.dumps(got))
 
@@ -3917,6 +3948,16 @@ class Snapshot(unittest.TestCase):
             facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                            lambda: self.NOW, opener=(author["id"], author["type"]), recorded=NOTHING, opened=made)
         self.assertIs(handed[0], made)
+        # The issue it was opened for is the binding's, asked of the pull request as first read, with the opener and
+        # what the opening Runs recorded; this one's branch is no branch of the Factory's, so it names none (issue 823).
+        self.assertEqual(("opened_for" in got, got["opened_for"]), (True, None))
+        router, asked = Router(github.Replay(seq), {"don-petry": "admin"}), []
+        with mock.patch.object(facts.acceptance, "opened_for",
+                               lambda pull_, opener, opened: asked.append((pull_["number"], opener, opened)) or 36):
+            got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}),
+                                    True, lambda: self.NOW, opener=(author["id"], author["type"]), recorded=NOTHING,
+                                    opened=made)
+        self.assertEqual((got["opened_for"], asked), (36, [(26, (author["id"], author["type"]), made)]))
 
     def test_the_bases_head_and_a_pushs_time_are_read_or_refused(self):
         self.assertEqual(pull.base(replay("P-29.base", 9), body("P-29.base", 1))["head"],

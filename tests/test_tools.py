@@ -502,6 +502,19 @@ class Examples(unittest.TestCase):
             if kind != check_examples.UNTRUSTED_KIND:
                 self.assertNotIn("untrusted", schemas[kind].get("properties", {}), kind)
 
+    def test_the_issue_a_pull_request_was_opened_for_is_a_number_from_1_or_null_or_left_out(self):  # issue 823
+        # The one fact facts/1 does not require: facts made before it, an eval set's among them, are read as they
+        # stand, where a fact newly required asks the Harness for a row (decision 0105). Given, it is an issue's
+        # number or null, and nothing that could be taken for one.
+        schema = json.loads((ROOT / "schemas" / "facts.schema.json").read_text())
+        for issue in (1, 36, None):
+            self.assertEqual(validate(support.facts(opened_for=issue), schema), [], issue)
+        for other in (0, -1, True, False, "36", 36.0, [36]):
+            self.assertTrue(validate(support.facts(opened_for=other), schema), other)
+        before = support.facts()
+        self.assertIsNone(before.pop("opened_for"))
+        self.assertEqual((validate(before, schema), "opened_for" in schema["required"]), ([], False))
+
     def test_the_example_pass_record_replays(self):  # decision 0039, decision 0002
         # Every Decision in the pass record is the Kernel's own answer on the facts, runs, context and time it holds,
         # with the Release's data files: the record is enough to replay a pass on a laptop.
