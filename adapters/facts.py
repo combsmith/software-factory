@@ -32,7 +32,8 @@ from tools.jsonschema_lite import validate
 
 
 class Moved(Unanswered):
-    """The pull request changed while it was read: its head, its base or anything else GitHub moves `updated_at` for.
+    """The pull request changed while it was read: its head, its base, its merge state, or anything GitHub moves
+    `updated_at` for.
     A kind of `Unanswered`, so a pass reads it again at the next one, and the approving act can tell it apart and class
     it `superseded` without reading any text (issue 195, ruling 4)."""
 
