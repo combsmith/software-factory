@@ -1,0 +1,890 @@
+{
+  "schema": "trial/1",
+  "trial": "P-66",
+  "question": "When a pull request that conflicts with its base is enqueued (`enqueuePullRequest`, with the head it expects), does the merge queue refuse the enqueue, or take it and drop it? When a queued pull request's base moves into conflict with it, does the queue drop it? What does each leave on the timeline, in `mergeable` and `mergeStateStatus`, and in the queue's entry?",
+  "pass": "Written before the run, in a comment on issue 812 at 2026-11-13T05:57:50Z, nothing having run: the canary's main merge queue as it stands, squash, ALLGREEN, one entry built and merged at a time, required check p2-queue-check (four minutes on a merge group), a 15-minute check timeout; the pull requests approved by the machine user, each pair adding the same new file with different content. Pass, both of these: (1) enqueued in conflict: A and B each add p66/one.md; A is queued and merged by the queue; B now reads conflicting, and is enqueued with its head; the enqueue is either refused with an error and leaves no queue entry, or taken and then dropped without a merge. (2) Base moves while queued: C and D each add p66/two.md, and are queued in that order; after C merges, D leaves the queue without a merge, within the 15-minute timeout, with an event on its timeline. In both, main never holds B's or D's change. Fail: B or D is merged, or stays queued past 15 minutes. Recorded either way: the enqueue's answer; each pull request's mergeable, mergeStateStatus and mergeQueueEntry before and after; the timeline events of the removal, with their actor; the merge groups' runs. Run on 2026-11-13 in the canary through the Maintainer's own login, by gh api from his terminal, on canary pull requests 114 (A), 115 (B), 116 (C) and 117 (D), which he opened from branches p66-a to p66-d (writes not recorded here); the queue on main read squash, maximumEntriesToBuild 1, minimumEntriesToMerge 1, checkResponseTimeout 900 and required check p2-queue-check. The four approvals were made by the Maintainer by hand in the browser, as the machine user donpetry-bot, not by the machine-user-approves workflow; the run waited for all four to read approved before anything was enqueued. Case (2), this fixture's: C and D were enqueued at once, at 12:56:16Z (position 1) and 12:56:18Z (position 2). Only C's merge group was built, run 43429396299, success; D stayed QUEUED at position 2, MERGEABLE and CLEAN, at every read until C merged at 13:01:15Z, squash commit dc59dca9. At 13:01:16Z D's timeline gained a RemovedFromMergeQueueEvent, reason merge_conflict, actor github-merge-queue, enqueuer github-merge-queue[bot], beforeCommit null; the REST timeline gives it as removed_from_merge_queue by github-merge-queue[bot], a Bot, with no commit and no reason. D then read CONFLICTING and DIRTY with no entry, 21 s after C's merge, never merged, its approval standing on its timeline after; main does not hold its change, no merge group having been built for it. Left out, each the same answer as the kept reads on either side but its time: D's reads at 12:57:23Z, 12:58:27Z and 12:59:30Z, QUEUED at position 2, MERGEABLE and CLEAN, and at 13:01:39Z, CONFLICTING and DIRTY with no entry; C's at 12:58:27Z and 12:59:31Z, AWAITING_CHECKS at position 1. Also left out: two GraphQL reads of D's and C's timelines at 13:01:41Z and 13:01:42Z that asked RemovedFromMergeQueueEvent for afterCommit, a field it does not have, each answered with that error alone; the same reads without it, after, are kept. Passed, both cases (the other is in trials/P-66.json).",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-11-13T12:56:08Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/116/reviews (gh api): the reviews of C (116), once all four read approved; client time 2026-11-13T12:56:11Z; of the answer, each review's id, its author's login and type, its state, its time and its commit are kept",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 12:56:12 GMT"
+        },
+        "body": [
+          {
+            "id": 5886835179,
+            "user": {
+              "login": "cubic-dev-ai[bot]",
+              "type": "Bot"
+            },
+            "state": "COMMENTED",
+            "submitted_at": "2026-11-13T05:59:17Z",
+            "commit_id": "5901012ba06cee296e4df9f85cbeec9266d58cf1"
+          },
+          {
+            "id": 5891371222,
+            "user": {
+              "login": "donpetry-bot",
+              "type": "User"
+            },
+            "state": "APPROVED",
+            "submitted_at": "2026-11-13T12:55:42Z",
+            "commit_id": "5901012ba06cee296e4df9f85cbeec9266d58cf1"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): before anything is enqueued, C (116) by GraphQL; client time 2026-11-13T12:56:12Z",
+        "headers": {},
+        "body": {
+          "query": "query($n:Int!){repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:$n){number state mergeable mergeStateStatus headRefOid mergedAt mergeCommit{oid} mergeQueueEntry{state position enqueuedAt}}}}",
+          "variables": {
+            "n": 116
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 12:56:13 GMT"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "number": 116,
+                "state": "OPEN",
+                "mergeable": "MERGEABLE",
+                "mergeStateStatus": "CLEAN",
+                "headRefOid": "5901012ba06cee296e4df9f85cbeec9266d58cf1",
+                "mergedAt": null,
+                "mergeCommit": null,
+                "mergeQueueEntry": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/117/reviews (gh api): the reviews of D (117), once all four read approved; client time 2026-11-13T12:56:13Z; of the answer, each review's id, its author's login and type, its state, its time and its commit are kept",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 12:56:14 GMT"
+        },
+        "body": [
+          {
+            "id": 5886835659,
+            "user": {
+              "login": "cubic-dev-ai[bot]",
+              "type": "Bot"
+            },
+            "state": "COMMENTED",
+            "submitted_at": "2026-11-13T05:59:21Z",
+            "commit_id": "bfd26b7de89e7824e079f6df20c59f43f5a4a6a6"
+          },
+          {
+            "id": 5891372887,
+            "user": {
+              "login": "donpetry-bot",
+              "type": "User"
+            },
+            "state": "APPROVED",
+            "submitted_at": "2026-11-13T12:55:50Z",
+            "commit_id": "bfd26b7de89e7824e079f6df20c59f43f5a4a6a6"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): before anything is enqueued, D (117) by GraphQL; client time 2026-11-13T12:56:14Z",
+        "headers": {},
+        "body": {
+          "query": "query($n:Int!){repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:$n){number state mergeable mergeStateStatus headRefOid mergedAt mergeCommit{oid} mergeQueueEntry{state position enqueuedAt}}}}",
+          "variables": {
+            "n": 117
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 12:56:15 GMT"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "number": 117,
+                "state": "OPEN",
+                "mergeable": "MERGEABLE",
+                "mergeStateStatus": "CLEAN",
+                "headRefOid": "bfd26b7de89e7824e079f6df20c59f43f5a4a6a6",
+                "mergedAt": null,
+                "mergeCommit": null,
+                "mergeQueueEntry": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): C (116) enqueued with its head; client time 2026-11-13T12:56:15Z",
+        "headers": {},
+        "body": {
+          "query": "mutation($id:ID!,$h:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$h}){mergeQueueEntry{id state position enqueuedAt headCommit{oid}}}}",
+          "variables": {
+            "id": "PR_kwDOVFD6788AAAABO1yjPQ",
+            "h": "5901012ba06cee296e4df9f85cbeec9266d58cf1"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 12:56:16 GMT"
+        },
+        "body": {
+          "data": {
+            "enqueuePullRequest": {
+              "mergeQueueEntry": {
+                "id": "MQE_lQDOVFD6788AAAABO1yjPc4ABR1OzgP3Rmg",
+                "state": "QUEUED",
+                "position": 1,
+                "enqueuedAt": "2026-11-13T12:56:16Z",
+                "headCommit": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): D (117) enqueued with its head, at once after C; client time 2026-11-13T12:56:16Z",
+        "headers": {},
+        "body": {
+          "query": "mutation($id:ID!,$h:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$h}){mergeQueueEntry{id state position enqueuedAt headCommit{oid}}}}",
+          "variables": {
+            "id": "PR_kwDOVFD6788AAAABO1ymCA",
+            "h": "bfd26b7de89e7824e079f6df20c59f43f5a4a6a6"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 12:56:18 GMT"
+        },
+        "body": {
+          "data": {
+            "enqueuePullRequest": {
+              "mergeQueueEntry": {
+                "id": "MQE_lQDOVFD6788AAAABO1ymCM4ABR1OzgP3Rnk",
+                "state": "QUEUED",
+                "position": 2,
+                "enqueuedAt": "2026-11-13T12:56:18Z",
+                "headCommit": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): at once after both enqueues, D (117) by GraphQL; client time 2026-11-13T12:56:19Z",
+        "headers": {},
+        "body": {
+          "query": "query($n:Int!){repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:$n){number state mergeable mergeStateStatus headRefOid mergedAt mergeCommit{oid} mergeQueueEntry{state position enqueuedAt}}}}",
+          "variables": {
+            "n": 117
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 12:56:20 GMT"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "number": 117,
+                "state": "OPEN",
+                "mergeable": "MERGEABLE",
+                "mergeStateStatus": "CLEAN",
+                "headRefOid": "bfd26b7de89e7824e079f6df20c59f43f5a4a6a6",
+                "mergedAt": null,
+                "mergeCommit": null,
+                "mergeQueueEntry": {
+                  "state": "QUEUED",
+                  "position": 2,
+                  "enqueuedAt": "2026-11-13T12:56:18Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): at once after both enqueues, C (116) by GraphQL; client time 2026-11-13T12:56:20Z",
+        "headers": {},
+        "body": {
+          "query": "query($n:Int!){repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:$n){number state mergeable mergeStateStatus headRefOid mergedAt mergeCommit{oid} mergeQueueEntry{state position enqueuedAt}}}}",
+          "variables": {
+            "n": 116
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 12:56:21 GMT"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "number": 116,
+                "state": "OPEN",
+                "mergeable": "MERGEABLE",
+                "mergeStateStatus": "CLEAN",
+                "headRefOid": "5901012ba06cee296e4df9f85cbeec9266d58cf1",
+                "mergedAt": null,
+                "mergeCommit": null,
+                "mergeQueueEntry": {
+                  "state": "QUEUED",
+                  "position": 1,
+                  "enqueuedAt": "2026-11-13T12:56:16Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): a minute on, C (116) by GraphQL; client time 2026-11-13T12:57:23Z",
+        "headers": {},
+        "body": {
+          "query": "query($n:Int!){repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:$n){number state mergeable mergeStateStatus headRefOid mergedAt mergeCommit{oid} mergeQueueEntry{state position enqueuedAt}}}}",
+          "variables": {
+            "n": 116
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 12:57:24 GMT"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "number": 116,
+                "state": "OPEN",
+                "mergeable": "MERGEABLE",
+                "mergeStateStatus": "CLEAN",
+                "headRefOid": "5901012ba06cee296e4df9f85cbeec9266d58cf1",
+                "mergedAt": null,
+                "mergeCommit": null,
+                "mergeQueueEntry": {
+                  "state": "AWAITING_CHECKS",
+                  "position": 1,
+                  "enqueuedAt": "2026-11-13T12:56:16Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): four minutes on, D (117) by GraphQL; client time 2026-11-13T13:00:32Z",
+        "headers": {},
+        "body": {
+          "query": "query($n:Int!){repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:$n){number state mergeable mergeStateStatus headRefOid mergedAt mergeCommit{oid} mergeQueueEntry{state position enqueuedAt}}}}",
+          "variables": {
+            "n": 117
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 13:00:33 GMT"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "number": 117,
+                "state": "OPEN",
+                "mergeable": "MERGEABLE",
+                "mergeStateStatus": "CLEAN",
+                "headRefOid": "bfd26b7de89e7824e079f6df20c59f43f5a4a6a6",
+                "mergedAt": null,
+                "mergeCommit": null,
+                "mergeQueueEntry": {
+                  "state": "QUEUED",
+                  "position": 2,
+                  "enqueuedAt": "2026-11-13T12:56:18Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): four minutes on, C (116) by GraphQL; client time 2026-11-13T13:00:33Z",
+        "headers": {},
+        "body": {
+          "query": "query($n:Int!){repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:$n){number state mergeable mergeStateStatus headRefOid mergedAt mergeCommit{oid} mergeQueueEntry{state position enqueuedAt}}}}",
+          "variables": {
+            "n": 116
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 13:00:34 GMT"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "number": 116,
+                "state": "OPEN",
+                "mergeable": "MERGEABLE",
+                "mergeStateStatus": "CLEAN",
+                "headRefOid": "5901012ba06cee296e4df9f85cbeec9266d58cf1",
+                "mergedAt": null,
+                "mergeCommit": null,
+                "mergeQueueEntry": {
+                  "state": "AWAITING_CHECKS",
+                  "position": 1,
+                  "enqueuedAt": "2026-11-13T12:56:16Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): five minutes on, after C's merge, D (117) by GraphQL; client time 2026-11-13T13:01:35Z",
+        "headers": {},
+        "body": {
+          "query": "query($n:Int!){repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:$n){number state mergeable mergeStateStatus headRefOid mergedAt mergeCommit{oid} mergeQueueEntry{state position enqueuedAt}}}}",
+          "variables": {
+            "n": 117
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 13:01:36 GMT"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "number": 117,
+                "state": "OPEN",
+                "mergeable": "CONFLICTING",
+                "mergeStateStatus": "DIRTY",
+                "headRefOid": "bfd26b7de89e7824e079f6df20c59f43f5a4a6a6",
+                "mergedAt": null,
+                "mergeCommit": null,
+                "mergeQueueEntry": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): five minutes on, merged, C (116) by GraphQL; client time 2026-11-13T13:01:36Z",
+        "headers": {},
+        "body": {
+          "query": "query($n:Int!){repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:$n){number state mergeable mergeStateStatus headRefOid mergedAt mergeCommit{oid} mergeQueueEntry{state position enqueuedAt}}}}",
+          "variables": {
+            "n": 116
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 13:01:36 GMT"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "number": 116,
+                "state": "MERGED",
+                "mergeable": "UNKNOWN",
+                "mergeStateStatus": "UNKNOWN",
+                "headRefOid": "5901012ba06cee296e4df9f85cbeec9266d58cf1",
+                "mergedAt": "2026-11-13T13:01:15Z",
+                "mergeCommit": {
+                  "oid": "dc59dca92f70efeec1c6589a11d2b4f1b6e5de90"
+                },
+                "mergeQueueEntry": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/issues/117/timeline?per_page=100 (gh api): the REST timeline of D (117); client time 2026-11-13T13:01:39Z; of the answer, the events from the machine user's approval on are kept, each with its kind, id, actor's login and type, state, commit and time; the 12 before it, the commit, a review request, the canary's reviewer Apps' comments and reviews and their mentions, are left out",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 13:01:40 GMT"
+        },
+        "body": [
+          {
+            "event": "reviewed",
+            "id": 5891372887,
+            "node_id": "PRR_kwDOVFD6788AAAABXyc3Vw",
+            "state": "approved",
+            "commit_id": "bfd26b7de89e7824e079f6df20c59f43f5a4a6a6",
+            "submitted_at": "2026-11-13T12:55:50Z",
+            "user": {
+              "login": "donpetry-bot",
+              "type": "User"
+            }
+          },
+          {
+            "event": "added_to_merge_queue",
+            "id": 36029544395,
+            "node_id": "ATMQE_lADOVFD6788AAAABe25Qfs8AAAAIY4c3yw",
+            "commit_id": null,
+            "created_at": "2026-11-13T12:56:18Z",
+            "actor": {
+              "login": "don-petry",
+              "type": "User"
+            }
+          },
+          {
+            "event": "removed_from_merge_queue",
+            "id": 36029968776,
+            "node_id": "RFMQE_lADOVFD6788AAAABe25Qfs8AAAAIY42xiA",
+            "commit_id": null,
+            "created_at": "2026-11-13T13:01:16Z",
+            "actor": {
+              "login": "github-merge-queue[bot]",
+              "type": "Bot"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the timeline of C (116) by GraphQL, its queue, merge, close and review events, after the run; client time 2026-11-13T13:23:55Z",
+        "headers": {},
+        "body": {
+          "query": "query($n:Int!){repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:$n){number timelineItems(last:30,itemTypes:[ADDED_TO_MERGE_QUEUE_EVENT,REMOVED_FROM_MERGE_QUEUE_EVENT,MERGED_EVENT,CLOSED_EVENT,PULL_REQUEST_REVIEW,HEAD_REF_FORCE_PUSHED_EVENT]){nodes{__typename ... on AddedToMergeQueueEvent{createdAt enqueuer{login} mergeQueue{id}} ... on RemovedFromMergeQueueEvent{createdAt reason enqueuer{login} actor{login} beforeCommit{oid}} ... on MergedEvent{createdAt commit{oid} actor{login}} ... on ClosedEvent{createdAt actor{login}} ... on PullRequestReview{state submittedAt author{login}}}}}}}",
+          "variables": {
+            "n": 116
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 13:23:56 GMT"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "number": 116,
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "PullRequestReview",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T05:59:17Z",
+                      "author": {
+                        "login": "cubic-dev-ai"
+                      }
+                    },
+                    {
+                      "__typename": "PullRequestReview",
+                      "state": "APPROVED",
+                      "submittedAt": "2026-11-13T12:55:42Z",
+                      "author": {
+                        "login": "donpetry-bot"
+                      }
+                    },
+                    {
+                      "__typename": "AddedToMergeQueueEvent",
+                      "createdAt": "2026-11-13T12:56:16Z",
+                      "enqueuer": {
+                        "login": "don-petry"
+                      },
+                      "mergeQueue": {
+                        "id": "MQ_kwDOVFD6784ABR1O"
+                      }
+                    },
+                    {
+                      "__typename": "MergedEvent",
+                      "createdAt": "2026-11-13T13:01:15Z",
+                      "commit": {
+                        "oid": "dc59dca92f70efeec1c6589a11d2b4f1b6e5de90"
+                      },
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    },
+                    {
+                      "__typename": "RemovedFromMergeQueueEvent",
+                      "createdAt": "2026-11-13T13:01:15Z",
+                      "reason": "merged",
+                      "enqueuer": {
+                        "login": "github-merge-queue[bot]"
+                      },
+                      "actor": {
+                        "login": "github-merge-queue"
+                      },
+                      "beforeCommit": {
+                        "oid": "dc59dca92f70efeec1c6589a11d2b4f1b6e5de90"
+                      }
+                    },
+                    {
+                      "__typename": "ClosedEvent",
+                      "createdAt": "2026-11-13T13:01:16Z",
+                      "actor": {
+                        "login": "don-petry"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the timeline of D (117) by GraphQL, its queue, merge, close and review events, after the run; client time 2026-11-13T13:23:56Z",
+        "headers": {},
+        "body": {
+          "query": "query($n:Int!){repository(owner:\"combsmith\",name:\"software-factory-canary\"){pullRequest(number:$n){number timelineItems(last:30,itemTypes:[ADDED_TO_MERGE_QUEUE_EVENT,REMOVED_FROM_MERGE_QUEUE_EVENT,MERGED_EVENT,CLOSED_EVENT,PULL_REQUEST_REVIEW,HEAD_REF_FORCE_PUSHED_EVENT]){nodes{__typename ... on AddedToMergeQueueEvent{createdAt enqueuer{login} mergeQueue{id}} ... on RemovedFromMergeQueueEvent{createdAt reason enqueuer{login} actor{login} beforeCommit{oid}} ... on MergedEvent{createdAt commit{oid} actor{login}} ... on ClosedEvent{createdAt actor{login}} ... on PullRequestReview{state submittedAt author{login}}}}}}}",
+          "variables": {
+            "n": 117
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 13:23:56 GMT"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "number": 117,
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "__typename": "PullRequestReview",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T05:59:21Z",
+                      "author": {
+                        "login": "cubic-dev-ai"
+                      }
+                    },
+                    {
+                      "__typename": "PullRequestReview",
+                      "state": "APPROVED",
+                      "submittedAt": "2026-11-13T12:55:50Z",
+                      "author": {
+                        "login": "donpetry-bot"
+                      }
+                    },
+                    {
+                      "__typename": "AddedToMergeQueueEvent",
+                      "createdAt": "2026-11-13T12:56:18Z",
+                      "enqueuer": {
+                        "login": "don-petry"
+                      },
+                      "mergeQueue": {
+                        "id": "MQ_kwDOVFD6784ABR1O"
+                      }
+                    },
+                    {
+                      "__typename": "RemovedFromMergeQueueEvent",
+                      "createdAt": "2026-11-13T13:01:16Z",
+                      "reason": "merge_conflict",
+                      "enqueuer": {
+                        "login": "github-merge-queue[bot]"
+                      },
+                      "actor": {
+                        "login": "github-merge-queue"
+                      },
+                      "beforeCommit": null
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs?event=merge_group&created=>=2026-11-13T12:55:00Z (gh api): every merge group's run since the run began, after it; client time 2026-11-13T13:23:56Z; of the answer, the count and each run's id, name, event, status, conclusion, branch, commit, times and pull requests are kept",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 13:23:57 GMT"
+        },
+        "body": {
+          "total_count": 3,
+          "workflow_runs": [
+            {
+              "id": 43431514872,
+              "name": "p2-queue",
+              "event": "merge_group",
+              "status": "completed",
+              "conclusion": "success",
+              "head_branch": "gh-readonly-queue/main/pr-120-bc011848f77fb252d41ae63924d7b7973f0cfe0e",
+              "head_sha": "e9a2da218c5e15d5f19107c72f03e2ed87e48c60",
+              "created_at": "2026-11-13T13:11:27Z",
+              "run_started_at": "2026-11-13T13:11:27Z",
+              "updated_at": "2026-11-13T13:15:37Z",
+              "pull_requests": []
+            },
+            {
+              "id": 43430129916,
+              "name": "p2-queue",
+              "event": "merge_group",
+              "status": "completed",
+              "conclusion": "success",
+              "head_branch": "gh-readonly-queue/main/pr-114-dc59dca92f70efeec1c6589a11d2b4f1b6e5de90",
+              "head_sha": "bc011848f77fb252d41ae63924d7b7973f0cfe0e",
+              "created_at": "2026-11-13T13:01:52Z",
+              "run_started_at": "2026-11-13T13:01:52Z",
+              "updated_at": "2026-11-13T13:05:59Z",
+              "pull_requests": []
+            },
+            {
+              "id": 43429396299,
+              "name": "p2-queue",
+              "event": "merge_group",
+              "status": "completed",
+              "conclusion": "success",
+              "head_branch": "gh-readonly-queue/main/pr-116-6cc643a999dcc2280b46fcdc7681f1974748070b",
+              "head_sha": "dc59dca92f70efeec1c6589a11d2b4f1b6e5de90",
+              "created_at": "2026-11-13T12:56:35Z",
+              "run_started_at": "2026-11-13T12:56:35Z",
+              "updated_at": "2026-11-13T13:00:44Z",
+              "pull_requests": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the four pull requests' node ids, which the run's enqueues named and none of its reads asked, read after the run and the undo for this fixture; client time 2026-11-13T13:31:46Z",
+        "headers": {},
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){a:pullRequest(number:114){number id state} b:pullRequest(number:115){number id state} c:pullRequest(number:116){number id state} d:pullRequest(number:117){number id state}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 13:31:46 GMT"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "a": {
+                "number": 114,
+                "id": "PR_kwDOVFD6788AAAABO1yd8g",
+                "state": "MERGED"
+              },
+              "b": {
+                "number": 115,
+                "id": "PR_kwDOVFD6788AAAABO1ygqQ",
+                "state": "CLOSED"
+              },
+              "c": {
+                "number": 116,
+                "id": "PR_kwDOVFD6788AAAABO1yjPQ",
+                "state": "MERGED"
+              },
+              "d": {
+                "number": 117,
+                "id": "PR_kwDOVFD6788AAAABO1ymCA",
+                "state": "CLOSED"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
+    "exchanges[6].request.headers.authorization",
+    "exchanges[7].request.headers.authorization",
+    "exchanges[8].request.headers.authorization",
+    "exchanges[9].request.headers.authorization",
+    "exchanges[10].request.headers.authorization",
+    "exchanges[11].request.headers.authorization",
+    "exchanges[12].request.headers.authorization",
+    "exchanges[13].request.headers.authorization",
+    "exchanges[14].request.headers.authorization",
+    "exchanges[15].request.headers.authorization",
+    "exchanges[16].request.headers.authorization",
+    "exchanges[17].request.headers.authorization",
+    "exchanges[*].response.headers: the headers tools/redact_trial.py took out of each answer, an OAuth client id and scopes among them; of the rest, only date is kept here",
+    "exchanges[13].response.body: of the full answer, [9].body, a reviewer App's comment this fixture leaves out"
+  ],
+  "verdict": "pass"
+}
