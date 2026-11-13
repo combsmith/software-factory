@@ -4202,7 +4202,8 @@ class TheFactorysOwnRules(unittest.TestCase):
             # input waits for a person as well (issue 140).
             d = go(changing(**DEPENDENCY, changed_paths=["docs/notes.md", path]), REVIEWED)
             if any(derive.matches(own, path) for own in CONFIG["model_lens_inputs"]):
-                self.assertEqual(d["reason"], "model_lens_input_needs_person", path)
+                alone = any(derive.matches(own, path) for own in CONFIG["person_only_paths"])
+                self.assertEqual(d["reason"], "path_needs_person" if alone else "model_lens_input_needs_person", path)
                 continue
             self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approval_due", "issue_approval"),
                              path)
@@ -4430,10 +4431,10 @@ class TheFactorysOwnRules(unittest.TestCase):
     # Decision 0200: the paths only a person decides, which no Lens reads, given to the Kernel after a model Lens's own.
     PERSONS = [e["path"] for e in HOOKS["person_only"]]
 
-    def waits_for_a_person(self, f, runs=REVIEWED, cfg=None):
+    def waits_for_a_person(self, f, runs=REVIEWED, cfg=None, reason="model_lens_input_needs_person"):
         d = go(f, runs, cfg=cfg)
         self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
-                         ("verifying", "model_lens_input_needs_person", "nothing", "needs_you"))
+                         ("verifying", reason, "nothing", "needs_you"))
         return d
 
     def test_a_change_to_a_model_lenss_own_input_waits_for_a_person(self):  # issue 140
@@ -4484,17 +4485,20 @@ class TheFactorysOwnRules(unittest.TestCase):
         # The job's modules stay on the list, through the Harness (decision 0052).
         self.assertEqual(self.waits_for_a_person(changing(**AGENT, changed_paths=["harness/eval/run.py"]))["evidence"], ["harness/"])
 
-    def test_a_change_to_a_path_only_a_person_decides_waits_for_a_person(self):  # decision 0200
+    def test_a_change_to_a_path_only_a_person_decides_waits_for_a_person(self):  # decisions 0200 and 0207
         self.assertEqual(self.PERSONS, ["release/decision-points.json"])
+        self.assertEqual(CONFIG["person_only_paths"], self.PERSONS)
+        alone = "path_needs_person"
         for path in self.PERSONS:
             self.assertNotIn(path, self.OWN)
             for cls in (AGENT, DEPENDENCY):
-                # The model review first, as for any protected path; then a person, and the path is the evidence.
+                # The model review first, as for any protected path; then a person, under the path's own code, and the
+                # path is the evidence.
                 self.waits_for_review(["docs/notes.md", path], path, cls=cls)
                 f = changing(**cls, changed_paths=["docs/notes.md", path])
-                self.assertEqual(self.waits_for_a_person(f)["evidence"], [path])
+                self.assertEqual(self.waits_for_a_person(f, reason=alone)["evidence"], [path])
                 # The machine user's approval is no person's, whoever gave it; a colleague's lets it converge.
-                self.waits_for_a_person(dict(f, reviews=[review()]))
+                self.waits_for_a_person(dict(f, reviews=[review()]), reason=alone)
                 d = go(dict(f, reviews=[review(kind="human", name="a-colleague")]), REVIEWED)
                 self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approval_due", "issue_approval"))
             # The Maintainer's own change to it: his approval is its author's, and the machine user's is nobody's, so
@@ -4502,25 +4506,109 @@ class TheFactorysOwnRules(unittest.TestCase):
             own = changing(changed_paths=[path])
             for reviews in ([], [review()], [review(kind="human", name="don-petry")],
                             [review(), review(kind="human", name="don-petry")]):
-                self.waits_for_a_person(dict(own, reviews=reviews))
+                self.waits_for_a_person(dict(own, reviews=reviews), reason=alone)
             # Another person's approval passes it, his own change too: the rule is 0052's, any person with write
             # access but the author and the last pusher, and not the Maintainer's alone.
             d = go(dict(own, reviews=[review(kind="human", name="a-colleague")]), REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approval_due", "issue_approval"))
             # In the merge queue on the machine user's approval, it is taken out; a person's approval keeps it there.
             d = go(dict(own, queue=True, reviews=[review()]), REVIEWED)
-            self.assertEqual((d["reason"], d["action"]), ("model_lens_input_needs_person", "dequeue"))
+            self.assertEqual((d["reason"], d["outcome"], d["action"]), (alone, "act", "dequeue"))
             # A rename or a copy out of it waits too, by its previous name.
             moved = changing(**AGENT, changed_paths=[("docs/notes.md", path)])
-            self.assertEqual(self.waits_for_a_person(moved)["evidence"], [path])
-            # The list is what holds it: with the path off what the Kernel is given, the same change waits for no one.
-            d = go(changing(**AGENT, changed_paths=[path]), REVIEWED, cfg=config(model_lens_inputs=self.OWN))
+            self.assertEqual(self.waits_for_a_person(moved, reason=alone)["evidence"], [path])
+            # The lists are what hold it: with the path off both the Kernel is given, the same change waits for no one.
+            only = changing(**AGENT, changed_paths=[path])
+            d = go(only, REVIEWED, cfg=config(model_lens_inputs=self.OWN, person_only_paths=[]))
             self.assertEqual((d["state"], d["reason"]), ("converged", "approval_due"))
+            # Either list alone holds it. The person-only list names the wait: off that list, the path is taken for
+            # a model Lens's input, as it was before the code had a name of its own.
+            d = self.waits_for_a_person(only, cfg=config(model_lens_inputs=self.OWN), reason=alone)
+            self.assertEqual(d["evidence"], [path])
+            # The feed asks a person the same two choices as for a model Lens's input, under the path's own question.
+            asked = {row["reason"]: row for row in json.loads((ROOT / "config" / "feed.json").read_text())["decision_required"]}
+            self.assertEqual((asked[alone]["question"], asked[alone]["choices"]),
+                             ("a_path_needs_you", asked["model_lens_input_needs_person"]["choices"]))
+            # The example of the Decision is this one, whole.
+            self.assertEqual(go(only, REVIEWED), json.loads((ROOT / "examples" / "decision.path-needs-person.json").read_text()))
+            d = self.waits_for_a_person(only, cfg=config(person_only_paths=[]))
+            self.assertEqual(d["evidence"], [path])
+        # A person-only path is a pattern in the one syntax of the lists, matched as a model Lens's input is: a
+        # directory holds what is below it, a star stands for part of one name, and neither reaches further.
+        for pattern, path, held in (("release/", "release/decision-points.json", True), ("release/", "releases/x.json", False),
+                                    ("release/decision-*.json", "release/decision-points.json", True),
+                                    ("release/decision-*.json", "release/fixtures/decision-points.json", False),
+                                    ("*.lock", "poetry.lock", True), ("*.lock", "docs/poetry.lock.md", False)):
+            cfg = config(model_lens_inputs=self.OWN, person_only_paths=[pattern])
+            d = go(changing(**AGENT, changed_paths=["docs/notes.md", path]), REVIEWED, cfg=cfg)
+            self.assertEqual((d["reason"], d["evidence"]) if held else d["reason"],
+                             (alone, [pattern]) if held else "approval_due", (pattern, path))
         # The file alone, never one beside it or one of its name elsewhere.
         for path in ("release/rings.json", "release/decision-points.schema.json", "release/decision-points.json.bak",
                      "docs/release/decision-points.json", "release/fixtures/decision-points.json"):
             d = go(changing(**AGENT, changed_paths=[path]), REVIEWED)
-            self.assertNotEqual(d["reason"], "model_lens_input_needs_person", path)
+            self.assertNotIn(d["reason"], (alone, "model_lens_input_needs_person"), path)
+
+    def test_the_wait_is_named_for_a_model_lenss_input_wherever_the_change_touches_one(self):  # decision 0207
+        person, lens = self.PERSONS[0], "roles/pr-review.json"
+        # A person-only path beside a path on no list keeps its own code.
+        d = self.waits_for_a_person(changing(**AGENT, changed_paths=["docs/notes.md", person]), reason="path_needs_person")
+        self.assertEqual(d["evidence"], [person])
+        # Beside a model Lens's input, the change waits as a Lens's input does, and the evidence names both, the
+        # Lens's inputs first, whatever order the change gives them in.
+        for paths in ([person, lens], [lens, person], [person, lens, "harness/task.py"]):
+            d = self.waits_for_a_person(changing(**AGENT, changed_paths=paths))
+            self.assertEqual(d["evidence"], ["roles/pr-review.*"] + (["harness/"] if len(paths) > 2 else []) + [person])
+            queued = go(dict(changing(**AGENT, changed_paths=paths), queue=True, reviews=[review()]), REVIEWED)
+            self.assertEqual((queued["reason"], queued["action"]), ("model_lens_input_needs_person", "dequeue"))
+        # The same where the two lists are given apart, the person-only path on its own list alone.
+        apart = config(model_lens_inputs=self.OWN)
+        for paths in ([person, lens], [lens, person]):
+            d = self.waits_for_a_person(changing(**AGENT, changed_paths=paths), cfg=apart)
+            self.assertEqual(d["evidence"], ["roles/pr-review.*", person])
+        # One person's approval ends either wait, and both at once.
+        for paths in ([person], [person, lens]):
+            d = go(dict(changing(**AGENT, changed_paths=paths), reviews=[review(kind="human", name="a-colleague")]), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approval_due", "issue_approval"))
+        # A person-only path inside a model Lens's input, or a Lens's input inside a person-only directory, is still
+        # a Lens's input: the change is matched against both lists, and one touched pattern that is the Lens's gives
+        # the Lens's code. Only what is the person's alone is named for itself.
+        inside = config(person_only_paths=["harness/eval/"])
+        d = self.waits_for_a_person(changing(**AGENT, changed_paths=["harness/eval/run.py"]), cfg=inside)
+        self.assertEqual(d["evidence"], ["harness/", "harness/eval/"])
+        around = config(person_only_paths=["config/"])
+        d = self.waits_for_a_person(changing(**AGENT, changed_paths=["config/harness.json"]), cfg=around)
+        self.assertEqual(d["evidence"], ["config/harness.json", "config/"])
+        d = self.waits_for_a_person(changing(**AGENT, changed_paths=["config/notes.json"]), cfg=around,
+                                    reason="path_needs_person")
+        self.assertEqual(d["evidence"], ["config/"])
+        # Each pattern is named once, however often the configuration names it, on either list.
+        for twice in (config(person_only_paths=self.PERSONS + self.PERSONS),
+                      config(model_lens_inputs=self.OWN, person_only_paths=self.PERSONS + self.PERSONS)):
+            d = self.waits_for_a_person(changing(**AGENT, changed_paths=[person]), cfg=twice, reason="path_needs_person")
+            self.assertEqual(d["evidence"], [person])
+        # A model Lens's input alone is never named a person-only path, and no path the change leaves alone is named.
+        for pattern in self.OWN:
+            d = self.waits_for_a_person(changing(**AGENT, changed_paths=[example(pattern)]))
+            self.assertEqual(d["evidence"], [pattern])
+
+    def test_an_unreadable_list_of_person_only_paths_defers_for_the_maintainer(self):  # decision 0207, I-13
+        f = changing(**AGENT, changed_paths=["docs/notes.md"])
+        for rules in ("missing", None, "release/", {}, [""], [5], ["/"], ["release/../x"], self.PERSONS + [None]):
+            cfg = config()
+            if rules == "missing":
+                del cfg["person_only_paths"]
+            else:
+                cfg["person_only_paths"] = rules
+            d = go(f, REVIEWED, cfg=cfg)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             (None, "protected_paths_unreadable", "defer", "needs_you"), rules)
+            d = go(dict(f, queue=True, reviews=APPROVED), REVIEWED, cfg=cfg)
+            self.assertEqual((d["reason"], d["action"]), ("protected_paths_unreadable", "dequeue"), rules)
+        # The other side: a configuration may name none, which is a list read whole, and one path is a list.
+        for rules in ([], self.PERSONS):
+            d = go(f, REVIEWED, cfg=config(person_only_paths=rules))
+            self.assertEqual((d["state"], d["reason"]), ("converged", "approval_due"), rules)
 
     def test_a_persons_approval_of_the_current_head_lets_it_converge(self):  # issue 140
         f = changing(**AGENT, changed_paths=["roles/pr-review.json"])

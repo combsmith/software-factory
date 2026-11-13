@@ -4477,6 +4477,15 @@ class TheList(unittest.TestCase):
         # What is only reported, such as a decision record, is listed at a stop and is not on the Kernel's list.
         self.assertNotIn("docs/decisions/", want)
 
+    def test_the_kernel_is_given_the_paths_only_a_person_decides(self):  # decision 0207
+        # By which a wait is named: the tests' Kernel and the simulator's are given the list as config/hooks.json has it.
+        want = [e["path"] for e in self.HOOKS["person_only"]]
+        self.assertEqual(want, ["release/decision-points.json"])
+        self.assertEqual(support.CONFIG["person_only_paths"], want)
+        self.assertEqual(world.CONFIG["person_only_paths"], want)
+        # Each is on the list a person's approval is asked by too, so the two never part.
+        self.assertEqual(support.CONFIG["model_lens_inputs"][-len(want):], want)
+
     def test_each_lens_input_is_a_required_lens_and_verifys_cover_every_check(self):
         lenses = {lens["lens"] for lens in support.CONFIG["required_lenses"]["deterministic"]}
         lenses |= set(support.CONFIG["required_lenses"]["model"])     # a model Lens's own inputs (issue 140)

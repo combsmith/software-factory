@@ -23,7 +23,8 @@ from controller import configuration, pass_, shared
 from controller import credentials as credentials_
 from kernel.decide import decide
 from tests import support
-from tests import test_apply, test_issue
+from tests import test_apply, test_decide, test_issue
+from tools.hooks import protected
 from tests.test_adapters import DISPATCHER, NAME, WORKFLOW, canary, exchanges, listing, outcome_of, outcome_zip, stored
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -804,6 +805,52 @@ class Feed(unittest.TestCase):
             self.assertIsNone(configuration._readable(pathlib.Path(d), "config", "credential-ages.json"))
         self.assertEqual(configuration.load(ROOT, "factory/v0.3.1", "controller")["credentials"],
                          json.loads((ROOT / "config" / "credential-ages.json").read_text()))
+
+    def test_the_kernel_is_given_the_paths_only_a_person_decides_from_the_releases_own_list(self):  # decision 0207
+        hooks = json.loads((ROOT / "config" / "hooks.json").read_text())
+        want = [e["path"] for e in hooks["person_only"]]
+        held = configuration.kernel(ROOT)
+        self.assertEqual((want, held["person_only_paths"]), (["release/decision-points.json"], want))
+        self.assertEqual(held["person_only_paths"], support.CONFIG["person_only_paths"])
+        self.assertEqual(held["model_lens_inputs"], support.CONFIG["model_lens_inputs"])
+        self.assertEqual(configuration.load(ROOT, "factory/v0.3.1", "controller")["kernel"]["person_only_paths"], want)
+        # The list is the checkout's the Controller runs from, each path once as it is written, and a path a model
+        # Lens of that checkout's defaults reads is left off. One with no such list names none, which the Kernel
+        # reads as a list.
+        with tempfile.TemporaryDirectory() as d:
+            (pathlib.Path(d) / "config").mkdir()
+            (pathlib.Path(d) / "config" / "defaults.json").write_text((ROOT / "config" / "defaults.json").read_text())
+            more, both = [{"path": "release/rings.json", "is": "x"}], [{"path": "harness/", "is": "x"}]
+            other = dict(hooks, protected=hooks["protected"] + more + both,
+                         person_only=hooks["person_only"] + more + both + more)
+            (pathlib.Path(d) / "config" / "hooks.json").write_text(json.dumps(other))
+            self.assertEqual(configuration.kernel(pathlib.Path(d))["person_only_paths"], want + ["release/rings.json"])
+            (pathlib.Path(d) / "config" / "hooks.json").write_text(
+                json.dumps({key: value for key, value in hooks.items() if key != "person_only"}))
+            self.assertEqual(configuration.kernel(pathlib.Path(d))["person_only_paths"], [])
+
+    def test_a_path_a_model_lens_reads_is_never_given_as_a_persons_alone(self):  # decision 0207
+        # No path is on both lists today. Were one, a model Lens's input is the stricter name and is not masked: the
+        # path is left off what the Kernel is given as a person's, so its change waits as a Lens's input does.
+        hooks = json.loads((ROOT / "config" / "hooks.json").read_text())
+        models = support.CONFIG["required_lenses"]["model"]
+        own = [e["path"] for e in hooks["lens_inputs"] if e["lens"] in models]
+        persons = [e["path"] for e in hooks["person_only"]]
+        self.assertEqual([path for path in persons if path in own], [])
+        both = [{"path": "harness/", "is": "x"}]
+        held = protected.parse(json.dumps(dict(hooks, protected=hooks["protected"] + both,
+                                               person_only=both + hooks["person_only"] + both)))
+        self.assertEqual(configuration.person_only(held, models), persons)
+        # Only a model Lens's own input is left off: with no model Lens named, the path is a person's alone.
+        self.assertEqual(configuration.person_only(held, []), ["harness/"] + persons)
+        kernel = support.config(model_lens_inputs=protected.model_inputs_of(held, models),
+                                person_only_paths=configuration.person_only(held, models))
+        self.assertEqual(kernel["model_lens_inputs"], support.CONFIG["model_lens_inputs"])
+        for paths, reason, evidence in ((["harness/task.py"], "model_lens_input_needs_person", ["harness/"]),
+                                        (["harness/task.py"] + persons, "model_lens_input_needs_person", ["harness/"] + persons),
+                                        (persons, "path_needs_person", persons)):
+            d = test_decide.go(test_decide.changing(**test_decide.AGENT, changed_paths=paths), test_decide.REVIEWED, cfg=kernel)
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("verifying", reason, evidence), paths)
 
     def test_a_write_no_effect_recorded_raises_one_alert_and_is_named_in_the_view(self):  # I-33, decision 0061
         # The pass reconciles what each Factory identity wrote with what the Factory recorded: one alert however many
