@@ -5271,10 +5271,11 @@ class GateSetGroups(unittest.TestCase):
         self.assertEqual(self.found(self.manifest(criterion_bars={"PR-3": [2, 3]}), base), [])
         self.assertEqual(self.found(self.manifest(cases=range(30, -1, -1)), base), [])
         self.assertTrue(caught(self.found(self.manifest(cases=range(30, -1, -1), floors=("PR-4",)), base), floors))
-        # Cases changed are another set of them, whose earlier counts this does not hold: one added, one issued again
-        # under its id. A residual, written down on the issue.
+        # Cases changed are another set of them, whose earlier counts this does not hold: one added, one dropped, one
+        # issued again under its id. A residual, written down on the issue.
         moved = dict(natural=range(11), floors=("PR-4",))
         self.assertEqual(self.found(self.manifest(cases=range(32), **moved), base), [])
+        self.assertEqual(self.found(self.manifest(cases=range(30), floors=("PR-4",)), base), [])    # one dropped
         again = json.loads(self.manifest(**moved))
         again["cases"][30]["sha256"] = "f" * 64
         self.assertEqual(self.found(json.dumps(again), base), [])
