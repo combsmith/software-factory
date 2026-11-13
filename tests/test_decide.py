@@ -4445,6 +4445,11 @@ class TheFactorysOwnRules(unittest.TestCase):
             self.assertEqual(d["evidence"], ["roles/pr-review.*"] + (["harness/"] if len(paths) > 2 else []) + [person])
             queued = go(dict(changing(**AGENT, changed_paths=paths), queue=True, reviews=[review()]), REVIEWED)
             self.assertEqual((queued["reason"], queued["action"]), ("model_lens_input_needs_person", "dequeue"))
+        # The same where the two lists are given apart, the person-only path on its own list alone.
+        apart = config(model_lens_inputs=self.OWN)
+        for paths in ([person, lens], [lens, person]):
+            d = self.waits_for_a_person(changing(**AGENT, changed_paths=paths), cfg=apart)
+            self.assertEqual(d["evidence"], ["roles/pr-review.*", person])
         # One person's approval ends either wait, and both at once.
         for paths in ([person], [person, lens]):
             d = go(dict(changing(**AGENT, changed_paths=paths), reviews=[review(kind="human", name="a-colleague")]), REVIEWED)
