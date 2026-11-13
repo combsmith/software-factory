@@ -3103,8 +3103,7 @@ class Threads(unittest.TestCase):
 
     def p49(self) -> tuple:
         """trials/P-49.json's read of canary pull request 55's threads, asked as the port asks, and a reader of it."""
-        found = [e for name in sorted((ROOT / "trials").glob("P-*.json"))
-                 for e in json.loads(name.read_text()).get("exchanges", [])
+        found = [e for e in exchanges("P-49")
                  if (e.get("request") or {}).get("body", {}) and "FactsThreads" in json.dumps(e["request"]["body"])]
         self.assertEqual(len(found), 1)
         self.assertEqual(found[0]["request"]["body"]["query"], threads.QUERY)
@@ -4295,8 +4294,8 @@ def second_page(found: dict, body) -> dict:
 
 # Each grounded rule of the fake that the port does not read here, by why: the Controller's, the workflows' or a
 # person's, which no port reads (`controller`); the Kernel's, held by its own boundary tests, a race no port can read
-# (`kernel`); the issues port's, not built (`issues_port`); or a fixture recorded in another request's shape than the
-# port asks, which a trial records again (`shape`).
+# (`kernel`); or the issues port's, not built (`issues_port`). Every grounded fixture is recorded in the shape its port
+# asks (issue 807).
 NOT_READ = {
     # The records port reads what GitHub lists and cannot see a Run it does not list: the race is the Kernel's, held by
     # the unidentified window (decision 0036).
@@ -4310,18 +4309,8 @@ NOT_READ = {
     "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing": "issues_port",
     # The queue's writes, which the effects port does not make until the App that enqueues is granted contents: write.
     "an_app_enters_the_queue": "controller", "an_app_leaves_the_queue": "controller",
-    # The threads port reads a thread's resolver as `resolvedBy { login databaseId }`, and P-5 recorded it as
-    # `{ login __typename }`; a trial must record the port's own read before it holds them. A resolution itself is a
-    # Role's write, which no port makes until an App holds contents: write (P-5).
-    "a_lens_review_opens_a_thread": "shape", "an_app_resolves_any_thread": "shape",
-    # The threads port reads each thread's first comment with its time and what it replies to; P-41.threads read the
-    # authors and resolvers typed without them, and P-41 reads no thread.
-    "an_actor_has_a_kind": "shape",
-    # P-36 recorded the check run as a script's lines, not the rollup the port reads. The conclusion is read as any is, and
-    # the Kernel's reading of it is held by test_an_upload_turns_codeqls_verdict_neutral_though_it_failed_to_process.
-    "an_upload_turns_codeqls_success_neutral": "shape",
 }
-WHY = {"controller", "kernel", "issues_port", "shape"}
+WHY = {"controller", "kernel", "issues_port"}
 # Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
 # as no answer, never as one (FR-56); a refusal recorded later fails here until it is placed.
 REFUSALS = {
@@ -4522,6 +4511,10 @@ class Contract(unittest.TestCase):
             "a_closing_reference_is_read_from_any_pull_request": ({"P-33", "P-33.port"}, self.closing_read()),
             "who_changed_the_draft_flag_is_read": ({"P-33", "P-33.port"}, self.draft_flag_read()),
             "a_label_event_names_its_actor": ({"P-32", "P-32.port"}, self.label_actor_read()),
+            "an_upload_turns_codeqls_success_neutral": ({"P-36", "P-36.port"}, self.upload_neutral_read()),
+            "a_lens_review_opens_a_thread": ({"P-5", "P-5.port"}, self.lens_thread_read()),
+            "an_app_resolves_any_thread": ({"P-5", "P-5.port"}, self.app_resolved_any_read()),
+            "an_actor_has_a_kind": ({"P-41", "P-41.threads", "P-41.port"}, self.actor_kind_read(p41_reviews, p41_labels)),
             "a_cancelled_run_stays_beside_a_later_run": ({"P-65"}, self.cancelled_beside_read()),
             "a_description_edit_moves_its_time": ({"P-58", "P-58.reader", "P-58.deleted"}, self.description_edit_read()),
             "an_app_edits_a_description": ({"P-58", "P-58.reader", "P-58.deleted"}, self.app_edit_read()),
@@ -4784,6 +4777,83 @@ class Contract(unittest.TestCase):
                 (e["event"], e["label"]["name"], e["created_at"]) for e in raw] \
             and {e["label"]["name"] for e in raw} == {"factory:hold"} \
             and len({timeline.Accounts.account(e["actor"]) for e in raw}) == 1 and raw[0]["actor"]["type"] == "Bot"
+
+    def upload_neutral_read(self) -> bool:
+        """P-36: on pull requests 75 and 76 the upload turned CodeQL's check run from success to neutral, the same run by
+        its id. P-36.port: a fortnight on, the port reads that check run, by its id, GitHub Advanced Security's, neutral."""
+        found = exchanges("P-36.port")
+        held = []
+        for i, (number, at) in enumerate(((75, 3), (76, 5))):
+            lines = exchanges("P-36")[at]["response"]["body"]
+            before = [line for line in lines if "P36 before:" in line][0]
+            said = [line for line in lines if "P36 after-merge-ref:" in line][0]
+            run = int(said.split(" id=")[1].split()[0])
+            if int(before.split(" id=")[1].split()[0]) != run or "conclusion=success" not in before \
+                    or "conclusion=neutral" not in said:
+                return False
+            pr = found[i]["response"]["body"]["data"]["repository"]["pullRequest"]
+            nodes = [n for n in pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
+                     if n["__typename"] == "CheckRun"]
+            pull = {"number": number, "base": {"repo": {"full_name": canary()}}, "head": {"sha": pr["headRefOid"]}}
+            read = checks.read(github.Replay([copy.deepcopy(found[i])]), pull)
+            held.append(read["complete"] is True and len(nodes) == len(read["checks"]) and [
+                (c["name"], c["app_id"], c["conclusion"]) for n, c in zip(nodes, read["checks"]) if n["databaseId"] == run]
+                == [("CodeQL", 57789, "neutral")])
+        return held == [True, True]
+
+    @staticmethod
+    def threads_port(fixture: str, number: int, lenses=None, queue=None) -> tuple:
+        """The threads port's own read of canary pull request `number`, replayed from `fixture`: the threads' query of it
+        and the permission reads the port asked after it, in the order it asked them (issue 807)."""
+        found = exchanges(fixture)
+        asked = [i for i, e in enumerate(found) if e["request"]["via"] == "graphql"]
+        start = next(i for i in asked if found[i]["request"]["body"]["variables"]["number"] == number)
+        replayed = github.Replay(copy.deepcopy(found[start:next((i for i in asked if i > start), len(found))]))
+        accounts = timeline.Accounts(replayed, canary(), MACHINE, lenses or {}, queue=queue)
+        return threads.read(replayed, {"number": number, "base": {"repo": {"full_name": canary()}}}, accounts)
+
+    def lens_thread_read(self) -> bool:
+        """P-5: the trial-author App's review opened a thread on pull request 62. P-5.port: the threads port reads that
+        thread as opened by the App, by its account id and type, and so as a Lens's where the caller names the App one."""
+        reviewed = exchanges("P-5")[4]
+        named, whole = self.threads_port("P-5.port", 62, {TRIAL_LENS[1:]: "trial-author"})
+        plain, _ = self.threads_port("P-5.port", 62)
+        opened = [t["id"] for t in named if t["opened_by"]["kind"] == "lens"]
+        return reviewed["response"]["body"]["user"]["id"] == TRIAL_LENS[1] and whole and len(opened) == 1 and \
+            [t["opened_by"] for t in plain if t["id"] in opened] == [{"kind": "app", "name": TRIAL_LENS[0], "can_write": False}]
+
+    def app_resolved_any_read(self) -> bool:
+        """P-5: the trial-author App was refused the two threads others opened on pull request 62 with pull_requests: write
+        alone, and with contents: write beside it resolved both, a person's and CodeRabbit's. P-5.port: the threads port
+        reads both resolved by that App, told by its account id through the permission read of its login."""
+        found = exchanges("P-5")
+        refused = [e["response"]["body"]["errors"][0]["type"] for e in found[17:19]]
+        resolved = [e["response"]["body"]["data"]["resolveReviewThread"]["thread"]["id"] for e in found[24:26]]
+        read, whole = self.threads_port("P-5.port", 62)
+        others = [t for t in read if t["opened_by"]["name"] != TRIAL_LENS[0]]
+        return refused == ["FORBIDDEN"] * 2 and whole and sorted(t["id"] for t in others) == sorted(resolved) and \
+            {t["opened_by"]["kind"] for t in others} == {"human", "app"} and all(
+                t["resolved"] and t["resolved_by"] == {"kind": "app", "name": TRIAL_LENS[0] + "[bot]", "can_write": False}
+                for t in others)
+
+    def actor_kind_read(self, reviews: list, labels: list) -> bool:
+        """P-41: every actor on pull request 64's reviews and dismissals and on 66's label events is read with a kind.
+        P-41.threads: GraphQL types the queue App that resolved threads a User. P-41.port: the threads port reads every
+        opener and resolver of 70 and 74 with a kind, from the account's type, the queue App a Bot by its account id."""
+        kinds = {r["by"]["kind"] for r in reviews} | {r["dismissed_by"]["kind"] for r in reviews if r["dismissed_by"]} \
+            | {e["by"]["kind"] for e in labels}
+        typed = {n["resolvedBy"]["__typename"] for e in exchanges("P-41.threads")[:2]
+                 for n in e["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+                 if n["resolvedBy"]}
+        person = {"kind": "human", "name": "don-petry", "can_write": True}
+        queue = {"kind": "queue", "name": "combsmith-sf-queue[bot]", "can_write": False}
+        author, codex, rabbit = ({"kind": "app", "name": name, "can_write": False}
+                                 for name in ("combsmith-sf-trial-author", "chatgpt-codex-connector", "coderabbitai"))
+        read = [self.threads_port("P-41.port", number, queue=(349593770, "Bot")) for number in (70, 74)]
+        pairs = [[(t["opened_by"], t["resolved_by"]) for t in found] for found, _ in read]
+        return kinds == {"human", "app", "machine_user"} and typed == {"User"} and all(whole for _, whole in read) \
+            and pairs == [[(person, queue), (author, queue), (author, queue), (person, person)],
+                          [(codex, queue), (codex, queue), (rabbit, queue), (rabbit, queue), (rabbit, queue)]]
 
     def p42_push(self, at: int) -> tuple:
         """P-42.push: canary pull request 113's read `at`: whether the port read it whole, its head, p2-queue-check as the
