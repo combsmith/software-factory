@@ -3581,7 +3581,8 @@ class Workflows(unittest.TestCase):
                      run.replace("permissions: {}\n", "permissions: {}\nconcurrency:\n  group: ${{ inputs.item }}\n"),
                      GOOD.replace("      - run: make verify\n", "      - run: make verify\n        outputs:\n"
                                   "          d: ${{ steps.a.outputs.b }}\n", 1)):
-            self.assertIn("expression", {rule for rule, _ in check_workflows.lint(text)})
+            # Read as the required check's workflow, so that GOOD's own concurrency is no expression out of place.
+            self.assertIn("expression", {rule for rule, _ in check_workflows.lint(text, required=True)}, text)
         outputs = GOOD.replace("    timeout-minutes: 28\n", "    timeout-minutes: 28\n    outputs:\n"
                                "      digest: ${{ steps.run.outputs.digest }}\n", 1)
         self.assertNotIn("expression", {rule for rule, _ in check_workflows.lint(outputs, required=True)})
