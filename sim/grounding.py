@@ -164,6 +164,13 @@ RULES = (
     ("a_run_waits_its_turn", "One Run on an item is in progress and at most one waits: a newer Run in the item's "
      "concurrency group cancels the one waiting, which never starts, and never the one running",
      ("P-44",), "trials/P-44.json", None),
+    # trials/P-64.json: of two runs in one group the second's job waited 53 s. While it waited, pending, the jobs API
+    # gave its started_at as its creation, as the run's run_started_at stayed; in progress and completed it gave
+    # 19:44:48Z, a second after the first job ended. The records port reads that as `began_at` (decision 0193).
+    # trials/P-44.json: a job cancelled while it waited ended completed with no runner, its started_at its creation.
+    ("a_run_begins_with_its_job", "A Run's record says when it was made; when it left its item's lane and began is its "
+     "job's start, given only once the job is in progress or completed with a runner, and a Run cancelled while it "
+     "waited never began", ("P-64", "P-44"), ("trials/P-64.json", "trials/P-44.json"), None),
     ("a_queued_run_is_listed", "A Run is in the list of run records from when it is queued, before its job starts",
      ("P-17",), "trials/P-17.json", None),
     ("a_new_run_is_listed_unnamed", "A Run can be listed under its workflow's name, not its run-name, for its first "
@@ -399,6 +406,10 @@ ASKS = {
     "an_actor_has_a_kind": {
         "P-41": "Is every actor named on a review, a dismissal, a thread and a label event read with its account "
               "type, a User or a Bot?",
+    },
+    "a_run_begins_with_its_job": {
+        "P-64": "does the jobs API's `started_at` for its job say when the job left the queue and began",
+        "P-44": "cancel the older pending Run",
     },
     "a_run_waits_its_turn": {
         "P-44": "does GitHub keep one Run running and one pending, cancel the older pending Run, and never cancel "

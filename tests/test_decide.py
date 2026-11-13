@@ -1975,10 +1975,30 @@ class Convergence(unittest.TestCase):
             self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=acted + [odd]), "", odd)
             d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), acted + [odd])
             self.assertEqual(d["reason"], "description_edited_after_approval", odd)
-        # A record reaches back by its start, which the item's lane holds after a running act's end: one dispatched
-        # while an act ran and started after the approval shows nothing of when it read.
+        # A record reaches back by when its jobs began, which the item's lane holds after a running act's end: one
+        # made while an act ran, whose record's start is when it was made (trials/P-44.json), and begun after the
+        # approval (trials/P-64.json), shows nothing of when it read. Nor does one that has not begun, one that never
+        # began, one whose jobs were not read or whose beginning is no time (decision 0204), and none of them raises.
         during = [dict(run(at="2026-10-11T12:16:00Z"), dispatched_at="2026-10-11T12:14:30Z")]
         self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=during), "")
+        made = run(at="2026-10-11T12:14:30Z")
+        for waited in (dict(made, began_at="2026-10-11T12:15:01Z"), dict(made, began_at=None), dict(made, began_at="soon"),
+                       dict(made, began_at=7), dict(made, began_at="2026-10-11T12:14:60Z"), dict(made, began_at="2026-10-11T12:14:00Z"),
+                       {k: v for k, v in made.items() if k != "began_at"}):
+            self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=[waited]), "",
+                             waited)
+            d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), [waited])
+            self.assertEqual((d["outcome"], d["reason"]), ("hold", "description_edited_after_approval"), waited)
+        # One said to have begun before it was made, as no run does, shows nothing either: a record made after the
+        # approval is no record older than the act's. A re-run keeps its dispatch, so its first attempt's job, begun
+        # before its last attempt started, is a beginning (decision 0193).
+        odd = dict(run(at="2026-10-11T12:16:00Z"), began_at="2026-10-11T12:15:00Z")
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=[odd]), "")
+        d = go(facts(reviews=[approval], description_edited_at="2026-10-11T12:10:00Z"), [odd])
+        self.assertEqual((d["outcome"], d["reason"]), ("hold", "description_edited_after_approval"))
+        again = dict(odd, dispatched_at="2026-10-11T12:14:00Z", rerun_by_dispatcher=False)
+        self.assertEqual(derive.description_anchor(facts(reviews=[approval]), "2026-10-11T12:10:00Z", runs=[again]),
+                         "2026-10-11T12:15:00Z")
         # An act on other content, or one that began after the approval, is not the one that read it: the approval is
         # the browser's, anchored at its own time, so the same edit holds nothing.
         for other in (run(intent="issue-approval", content="sha256:0000", at="2026-10-11T12:14:00Z", name="r2"),

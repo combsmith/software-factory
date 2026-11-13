@@ -871,7 +871,8 @@ class World:
             self.moves()
             self.runs.append({"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": CONFIG["owner_role"],
                               "intent": t.RESOLVE_THREAD, "content_id": self.cid(), "status": "completed",
-                              "conclusion": "success", "outcome": None, "started_at": self.now()})
+                              "conclusion": "success", "outcome": None, "started_at": self.now(),
+                              "began_at": self.now()})
             self.last_act = "resolve_thread"
             self.note("apply: resolved %s" % ", ".join(d["evidence"]))
             return
@@ -904,7 +905,7 @@ class World:
         self.moves()
         run = {"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": CONFIG["owner_role"],
                "intent": t.ISSUE_APPROVAL, "content_id": self.cid(), "status": "completed",
-               "conclusion": "success", "outcome": None, "started_at": self.now()}
+               "conclusion": "success", "outcome": None, "started_at": self.now(), "began_at": self.now()}
         self.runs.append(run)
         fault = self.approval_fails
         if fault is None and self.faults and self.rng.random() < 0.15:
@@ -932,6 +933,11 @@ class World:
     # ---- the lane: one Run at a time, and each asks the Kernel again as it starts
     def enqueue(self, run: dict):
         queue_in_lane(self.runs, run, self.note)
+        # A Run its group cancelled while it waited never began (trials/P-44.json): its record says so, null.
+        # GitHub: a_run_begins_with_its_job
+        for r in self.runs:
+            if (r["conclusion"], r["outcome"]) == ("cancelled", "superseded"):
+                r.setdefault("began_at", None)
 
     def start_next(self):
         # GitHub: a_run_waits_its_turn
@@ -947,11 +953,13 @@ class World:
         wanted = {"role": run["role"], "intent": run["intent"], "content_id": run["content_id"]}
         if again["outcome"] != "admit" or again["admit"] != wanted:
             # GitHub: a_superseded_run_fails
-            run.update(status="completed", conclusion="failure", outcome="superseded")
+            run.update(status="completed", conclusion="failure", outcome="superseded", began_at=self.now())
             self.note("run %s: superseded before it started" % run["run"])
             self.caused("factory")
             return
-        run["status"] = "in_progress"
+        # A Run's record says when it was made; when it left its lane and began, its job says (trials/P-64.json).
+        # GitHub: a_run_begins_with_its_job
+        run.update(status="in_progress", began_at=self.now())
         self.caused("factory")
         self.model_runs += 1
         self.note("run %s: started %s %s" % (run["run"], run["role"], run["intent"]))
@@ -1417,16 +1425,19 @@ class World:
     def read_at(self, review: dict) -> str:
         """When a machine approval last read the description, in the world's own words: the start of the latest approving
         act's Run on its content that started no later than it; else its own time, where a run of the item started no
-        later, as a person approving in the browser reads as they approve; else "", before every time (issue 608). The
+        later, as a person approving in the browser reads as they approve; else "", before every time (issue 608). A
+        run started when it was made and began when it left its lane: the act is dated by the one, as its Run is made
+        before it reads, and a run of the item is as old as the approval by the other (decision 0204). The
         world's act starts in its approval's own second, so it reads its approval's own time. The Kernel's reading has
         branches the world needs none of, as it makes no such record: a dispatch, a re-run, another item, a start that is
-        no time."""
+        no time, a beginning that is no time. A run said to have begun before it was made is not as old as the approval,
+        as the Kernel reads it."""
         at = review["submitted_at"]
         acts = [r["started_at"] for r in self.runs if r["intent"] == t.ISSUE_APPROVAL
                 and r["content_id"] == review["content_id"] and r["started_at"] <= at]
         if acts:
             return max(acts)
-        return at if any(r["started_at"] <= at for r in self.runs) else ""
+        return at if any(r.get("began_at") is not None and r["started_at"] <= r["began_at"] <= at for r in self.runs) else ""
 
     def verdict(self):
         """The Maintainer's latest verdict, dismissed or not, or None. A comment is none, dismissed or not.

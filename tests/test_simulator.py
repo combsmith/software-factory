@@ -42,7 +42,7 @@ def queued() -> World:
     w.checks = dict.fromkeys(w.checks, "success")
     w.runs.append({"run": "r0", "item": dict(world.ITEM), "role": "pr-review", "intent": "review-change",
                    "content_id": w.cid(), "status": "completed", "conclusion": "success", "outcome": None,
-                   "started_at": w.now()})
+                   "started_at": w.now(), "began_at": w.now()})
     w.reviews.append({"by": dict(world.MACHINE),
                       "state": "approved", "commit": "c1", "content_id": w.cid(), "submitted_at": w.now(),
                       "dismissed_by": None, "dismissed_from": None})
@@ -58,7 +58,7 @@ def reviewed(w: World) -> World:
     for lens in world.CONFIG["required_lenses"]["model"]:
         w.runs.append({"run": "r%d" % len(w.runs), "item": dict(world.ITEM), "role": lens, "intent": "review-change",
                        "content_id": w.cid(), "status": "completed", "conclusion": "success", "outcome": None,
-                       "started_at": w.now()})
+                       "started_at": w.now(), "began_at": w.now()})
     w.minute += 1
     w.starts()
     return w
@@ -87,6 +87,38 @@ class Simulation(unittest.TestCase):
         # is held by the exploration, which needs no seeds.
         found, _ = test_transitions.explored()
         self.assertEqual(sorted(made - set(found)), [])
+
+    def test_a_run_begins_when_its_lane_starts_it_and_never_if_cancelled_while_it_waited(self):
+        # trials/P-64.json (a_run_begins_with_its_job, decision 0204): a Run's record says when it was made; it says
+        # when it began only once its lane has started it, a step after it was made at the least, and null where its
+        # group cancelled it while it waited. One that started and found itself superseded began all the same. The
+        # approving act and the queue App's resolution wait in no lane here: they begin as they are made.
+        seen, at_once = set(), (terms.ISSUE_APPROVAL, terms.RESOLVE_THREAD)
+        for seed in SEEDS:
+            w, said = World(seed), {}
+            for _ in range(250):
+                waited = {r["run"] for r in w.runs if r["status"] == "queued"}
+                w.step()
+                for r in w.runs:
+                    kind = ("waiting" if r["status"] == "queued"
+                            else "never" if (r["conclusion"], r["outcome"]) == ("cancelled", "superseded")
+                            else "at once" if r["intent"] in at_once else "superseded" if r["outcome"] == "superseded"
+                            else "began")
+                    seen.add(kind)
+                    # What a Run's record once says of its beginning, it says at every later step.
+                    if "began_at" in r:
+                        self.assertEqual(said.setdefault(r["run"], r["began_at"]), r["began_at"], (seed, r))
+                    if kind == "waiting":
+                        self.assertNotIn("began_at", r, (seed, r))
+                    elif kind == "never":
+                        self.assertIsNone(r.get("began_at", "none"), (seed, r))
+                    elif kind == "at once":
+                        self.assertEqual(r.get("began_at"), r["started_at"], (seed, r))
+                    else:
+                        self.assertGreater(r.get("began_at") or "", r["started_at"], (seed, r))
+                        # The step that took it out of its lane is when it began, to the minute.
+                        self.assertTrue(r["run"] not in waited or r["began_at"] == w.now(), (seed, r, w.now()))
+        self.assertEqual(seen, {"waiting", "never", "at once", "superseded", "began"})
 
     def test_a_newer_run_cancels_the_one_waiting_in_each_world(self):
         # trials/P-44.json (a_run_waits_its_turn): in the item's concurrency group one Run is in progress and at most one
@@ -573,9 +605,14 @@ class Simulation(unittest.TestCase):
                     "content_id": "sha256:00c1", "submitted_at": world.World.at(at), "dismissed_by":
                     dict(dismissed_by) if dismissed_by else None, "dismissed_from": "approved" if dismissed_by else None}
 
-        def run(at, intent=terms.ISSUE_APPROVAL, content="sha256:00c1"):
-            return {"run": "r%d" % at, "item": dict(world.ITEM), "role": "pr-review", "intent": intent, "content_id": content,
-                    "status": "completed", "conclusion": "success", "outcome": None, "started_at": world.World.at(at)}
+        def run(at, intent=terms.ISSUE_APPROVAL, content="sha256:00c1", began="at"):
+            # It began when it started, unless it waited in its lane: then at `began`, a minute, or never, None; or
+            # its jobs were not read, "unread", and its record says nothing of it.
+            began = at if began == "at" else began
+            said = {} if began == "unread" else {"began_at": None if began is None else world.World.at(began)}
+            return dict({"run": "r%d" % at, "item": dict(world.ITEM), "role": "pr-review", "intent": intent,
+                         "content_id": content, "status": "completed", "conclusion": "success", "outcome": None,
+                         "started_at": world.World.at(at)}, **said)
 
         machine, person, colleague = world.MACHINE, world.MAINTAINER, world.COLLEAGUE
         # As the world runs, each machine approval's act starts in its own second: the readings agree as they did.
@@ -610,6 +647,14 @@ class Simulation(unittest.TestCase):
                 ([run(5, intent="review-change")], 10, False),
                 # A Run of the item in the approval's own second is as old as it (the Muse read of issue 608's change).
                 ([run(15, intent="review-change")], 10, False),
+                # A Run made before the approval that waited in its lane and began after it, or never began, is not as
+                # old as it (decision 0204, trials/P-64.json); one that began in its second is.
+                ([run(5, intent="review-change", began=16)], 10, True),
+                ([run(5, intent="review-change", began=None)], 10, True),
+                ([run(5, intent="review-change", began="unread")], 10, True),
+                ([run(5, intent="review-change", began=15)], 10, False),
+                # One said to have begun before it was made, as no run does, is not as old as it either.
+                ([run(16, intent="review-change", began=15)], 10, True),
                 ([], 10, True),
                 ([run(16)], 10, True)):
             self.assertEqual(self.read([review(machine, 15)], edited, runs), (held, held), (runs, edited))
