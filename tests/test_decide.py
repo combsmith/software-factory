@@ -3271,6 +3271,21 @@ class Queue(unittest.TestCase):
     takes it out, with that reading's State and reason. Hands-off never acts, and under a Pause the dequeue defers.
     """
 
+    def test_a_conflict_read_a_pass_late_is_the_authors_turn_at_the_next_pass_and_leaves_the_queue(self):  # decision 0214
+        # In the second after its base moves a pull request still reads as merging (trials/P-40.at-once.json), and the
+        # pass that reads so goes on as for any head that merges: here it enqueues an approved one. Nothing is kept of
+        # that read. The next pass, which reads the conflict, sends the head back to its author, and takes it out of the
+        # queue if it is there. A merge state not worked out between the two changes neither.
+        late = go(facts(reviews=APPROVED), REVIEWED)
+        self.assertEqual((late["state"], late["reason"], late["action"]), ("converged", "approved", "enqueue"))
+        d = go(facts(reviews=APPROVED, mergeable=False), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["admit"]["intent"]),
+                         ("addressing", "conflict", "admit", "fix-findings"))
+        d = go(facts(reviews=APPROVED, queue=True, mergeable=False), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"]), ("addressing", "conflict", "act", "dequeue"))
+        d = go(facts(reviews=APPROVED, queue=True, mergeable=None), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"))
+
     def test_a_queued_pull_request_with_no_approval_leaves_the_queue(self):  # I-9, FR-31
         # Its approval no longer stands for its content: there is none, it is of other content, or it was dismissed.
         lost = ([], [review(commit="c0", content="sha256:0000")], [dismissed(review(), MAINTAINER, "approved")])
