@@ -3390,7 +3390,12 @@ class EvalJob(unittest.TestCase):
             "kind": kind, "criterion": criterion, "natural": natural, "cases": "%0*d" % (width, cases), "few": int(0 < cases < 10)}
         ok = lambda groups, **floors: not any(c["few"] for c in job.cells_of(*self.floored(groups, **floors)))
         whole = [("PR-3", "finding", 20, 10), ("PR-4", "finding", 10, 0), ("PR-1", "met", 20, 10)]
-        with mock.patch.object(job, "ORIGIN_LEAST", 10):     # these tests otherwise set the least to none
+        import contextlib
+        quiet = io.StringIO()
+        with mock.patch.object(job, "ORIGIN_LEAST", 12):     # the least is the configured one
+            self.assertIs(ok(whole), False)
+        # These tests otherwise set the least to none. Nothing is printed of a set.
+        with mock.patch.object(job, "ORIGIN_LEAST", 10), contextlib.redirect_stdout(quiet):
             # Every cell the manifest's shape allows is listed, one of no case among them, each count at one width.
             self.assertEqual(job.cells_of(*self.floored(whole)), [
                 cell("finding", None, False, 10), cell("finding", None, True, 0), cell("finding", "PR-3", False, 10),
@@ -3463,7 +3468,7 @@ class EvalJob(unittest.TestCase):
         first, other = (cases[ident]["expected"] for ident in cases)
         other["criterion"] = "PR-4" if first["criterion"] != "PR-4" else "PR-3"
         cases = {ident: (json.dumps(case, indent=2) + "\n").encode() for ident, case in cases.items()}
-        import contextlib
+        self.assertEqual(quiet.getvalue(), "")
         printed = io.StringIO()
         # The run step is told each count two digits wider here, and the ledger keeps what it is told.
         real, told = job.cells_of, []
@@ -3475,22 +3480,23 @@ class EvalJob(unittest.TestCase):
             planned = self.step(job.plan)
             fetched = self.step(job.fetch, self.home(cases, gate=True))
             said = self.step(job.score, lambda case: example_result())
-            # And the ledger is as long whatever its cells hold, and holds them as it is given them: the run again, told
-            # that no cell is a few, that every one is, and that each holds more.
-            sealed, again = self.temp / "heldout" / job.LEDGER, {}
-            first_run = sealed.read_bytes()
+            # The run again, told other cells: the ledger is as long, and the judge and the report say the same.
+            sealed, written, again = self.temp / "heldout" / job.LEDGER, self.work / job.REPORT, {}
+
+            def judged_run():
+                # The judge's line of the run just scored, and its report but for its ledger's hashes, of a new salt.
+                report = json.loads(written.read_text())
+                written.write_text(json.dumps(dict(report, ledger=dict(report["ledger"], sealed_sha256="f" * 64))))
+                return self.step(job.judge), {k: v for k, v in report.items() if k != "ledger"}
+            first_run, (judged, public) = sealed.read_bytes(), judged_run()
             for name, cases, flag in (("none a few", "000", 0), ("each a few", "001", 1), ("each whole", "023", 0)):
                 told.append([dict(c, cases=cases, few=flag) for c in json.loads(first_run)["cells"]])
                 sealed.unlink()
                 self.assertEqual(self.step(job.score, lambda case: example_result()), said, name)
-                again[name] = (len(sealed.read_bytes()), json.dumps(json.loads(sealed.read_bytes())["cells"]) == json.dumps(told[-1]))
-            self.assertEqual(again, dict.fromkeys(again, (len(first_run), True)))
+                again[name] = (len(sealed.read_bytes()), json.dumps(json.loads(sealed.read_bytes())["cells"]) == json.dumps(told[-1]),
+                               judged_run() == (judged, public))
+            self.assertEqual(again, dict.fromkeys(again, (len(first_run), True, True)))
             sealed.write_bytes(first_run)
-            # The judge reads the report once it is sealed, as the seal step leaves it.
-            report = json.loads((self.work / job.REPORT).read_text())
-            report["ledger"]["sealed_sha256"] = "f" * 64
-            (self.work / job.REPORT).write_text(json.dumps(report))
-            judged = self.step(job.judge)
         # Each step's line is all it says, word for word, and nothing else is printed.
         self.assertEqual((planned, fetched, said, judged, printed.getvalue()),
                          ("planned 2 cases after 3 to preflight", "fetched 2 of 2 cases, 3 of 3 to preflight",
