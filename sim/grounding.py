@@ -87,6 +87,17 @@ RULES = (
      "suite, and a check a job creates replaces only one created earlier under its name there; a job's run and a "
      "created check of one name both stay, and so do two workflow runs on one commit", ("P-42",),
      "trials/P-42.rollup.json", None),
+    # trials/P-65.json: on canary pull request 102 each cancelled run's suite and workflow run concluded cancelled, its
+    # if: always() judging check failure; the push back to A and the reopening each started a run with a suite of its
+    # own beside the cancelled one's, which stayed; a re-run kept its run's id and suite, the rollup giving its latest
+    # attempt alone; and one rollup read gave each check run its workflow run's id and its suite's conclusion (issue 749).
+    ("a_check_names_its_run_and_suite", "Each check run names its workflow run's id, none for a check no workflow ran, "
+     "and its check suite's conclusion, none while the suite has not concluded; a re-run keeps its run's id and suite",
+     ("P-65",), "trials/P-65.json", None),
+    ("a_cancelled_run_stays_beside_a_later_run", "A workflow run cancelled mid-way concludes its suite cancelled and its "
+     "if: always() judging check failure, and stays on its head beside a later run of the same file that a push back to "
+     "the head, a reopening or a re-run of an earlier run starts; no run's id says which is later", ("P-65",),
+     "trials/P-65.json", None),
     ("any_app_posts_a_check_under_any_name", "Any App with checks: write can post a check run under any name, a "
      "required Lens's too, and it stays on that head: a check run cannot be deleted", ("P-42",), "trials/P-42.json",
      None),
@@ -354,6 +365,14 @@ ASKS = {
     },
     "a_rerun_replaces_only_its_own_run": {
         "P-42": "two workflow runs on one commit both staying, since `filter=latest` is per check suite",
+    },
+    "a_check_names_its_run_and_suite": {
+        "P-65": "does the one GraphQL rollup read of a head's checks give each check run its workflow run's id and its "
+                "check suite's conclusion",
+    },
+    "a_cancelled_run_stays_beside_a_later_run": {
+        "P-65": "does its check suite, and its workflow run, conclude cancelled while the run's judging job, which needs "
+                "the cancelled job under if: always(), concludes failure",
     },
     "any_app_posts_a_check_under_any_name": {
         "P-42": "can any App with `checks: write`, or any Actions job, post a check run under a required Lens's "
