@@ -123,11 +123,12 @@ RULES = (
      "request adds in a workflow file of its own under a required Lens's check name among them, and its check run "
      "names that file", ("P-35",), "trials/P-35.json", None),
     # Overturning a failure is not shown, nor what an upload GitHub processes does: each of P-36's failed processing, as
-    # default setup refuses them. So the fake does neither.
+    # default setup refuses them. So the fake does neither. trials/P-36.port.json: the port's own read of both heads a
+    # fortnight on gives each the same check run, by its id, neutral (issue 807).
     ("an_upload_turns_codeqls_success_neutral", "An upload to code scanning under CodeQL's tool and category, by an "
      "identity holding security_events: write, turns the conclusion of the check run CodeQL that GitHub Advanced Security, "
      "57789, reports from success to neutral, on the same check run, though GitHub fails to process the upload",
-     ("P-36",), "trials/P-36.json", None),
+     ("P-36",), ("trials/P-36.json", "trials/P-36.port.json"), None),
     # Contradicted by P-2 (trials/P-2.queue.json): GitHub refuses an App's push, through the contents API, to a queued
     # pull request's branch (409), and the queue merges it unchanged; a git push while queued is not asked. Left
     # unverified, as the fake applies it: changing the fake is a story of its own.
@@ -168,11 +169,15 @@ RULES = (
     ("the_timeline_shows_each_act", "Each approval, enqueue, dequeue and label a Factory identity makes is on the "
      "timeline, with its actor, so the acts since a person with write access acted can be counted",
      ("P-2", "P-41"), None, None),
+    # trials/P-5.json: the trial-author App's review opened a thread, and the App, given contents: write, resolved a
+    # person's thread and CodeRabbit's, refused them with pull_requests: write alone. trials/P-5.port.json: the threads
+    # port's own read of that pull request a fortnight on reads the App's thread as its opener's and both resolved by it,
+    # by its account id (issue 807).
     ("a_lens_review_opens_a_thread", "A Lens's review can open a review thread on the pull request",
-     ("P-5",), "trials/P-5.json", None),
+     ("P-5",), ("trials/P-5.json", "trials/P-5.port.json"), None),
     ("an_app_resolves_any_thread", "An App with contents: write and pull_requests: write can resolve any review "
      "thread, a person's too, and the thread says who resolved it; with pull_requests: write alone GitHub refuses it",
-     ("P-5",), "trials/P-5.json", None),
+     ("P-5",), ("trials/P-5.json", "trials/P-5.port.json"), None),
     ("an_app_can_label", "An App can add or remove a control label on a pull request, a Hold or hands-off among them",
      ("P-41",), "trials/P-41.json", None),
     # trials/P-32.json: each label event read in GraphQL with its actor and time; trials/P-32.port.json: the timeline
@@ -183,11 +188,12 @@ RULES = (
     # trials/P-41.json read each actor on its reviews, dismissals and labels by its type; trials/P-41.threads.json each
     # on a thread as the threads port does (decision 0067): every comment's author by GraphQL's type, and the resolver,
     # whom resolvedBy types a User though it was an App, by the permission read of its login, which answers Bot, and
-    # User for a person who resolved one.
+    # User for a person who resolved one. trials/P-41.port.json: the threads port's own read of the same two pull
+    # requests, each thread's first comment with its time, and every opener and resolver read with a kind (issue 807).
     ("an_actor_has_a_kind", "Every actor GitHub names on a review, a dismissal, a thread or a label event has an "
      "account type, a User or a Bot, from which, with the configuration, the port tells a person, a Lens's App, any "
      "other App and the machine user apart, never from a name's spelling", ("P-41",),
-     ("trials/P-41.json", "trials/P-41.threads.json"), None),
+     ("trials/P-41.json", "trials/P-41.threads.json", "trials/P-41.port.json"), None),
     # trials/P-44.json: four pushes under one concurrency group, cancel-in-progress false; the second and third runs
     # were cancelled as a newer one queued, with no runner and no step, and the running one finished. GitHub lists a
     # Run waiting for the group as pending, which the records port reads as queued. That the group's first Run holds it
