@@ -29,3 +29,4 @@ The fix and implement Intents of slice 2 need code run: a build, the tests. Run 
 | `apply`'s push lands exactly the patch the Run handed over, by its digest, on the work's branch, through the Role's own App | waiting on `harness/push.py`, the push's write |
 | `qa-lead`'s opening Run pushes one commit, the contract and its failing tests, and opens the draft through its own App; a retry after a push finds the branch and pushes nothing | waiting on `harness/push.py`, the push its opening Run makes before the `open_pull_request` Effect |
 | `dev-lead`'s implementing Run answers with a patch and pushes nothing itself | waiting on `harness/push.py`, through which alone its patch lands |
+| No Role's patch is pushed to a branch where a check that runs with a secret reads a file the patch may change, the scan's `sonar-project.properties` among them | waiting on `harness/push.py`, whose refusal of a push that touches the base's list must cover each such file first |
