@@ -121,6 +121,12 @@ READ_IN_FULL = ("acceptance", "changed_paths", "checks", "diff", "reviews", "run
 # and a final separator for everything below it. A name that is one of these cannot be read: it would make a path
 # empty, start or end it with the separator, or climb.
 SEPARATOR = "/"
+# The conclusions of a check suite whose run was stopped before it judged: cancelled by a person or a group, or at a
+# job's own timeout, which GitHub concludes cancelled too (trials/P-42.json, trials/P-65.json, issue 681).
+STOPPED_SUITES = ("cancelled", "timed_out")
+# Every conclusion GitHub gives a check suite; any other word is no reading of one (issue 681).
+SUITE_CONCLUSIONS = ("success", "failure", "neutral", "cancelled", "timed_out", "action_required", "stale", "skipped",
+                     "startup_failure")
 WILDCARD = "*"
 ANY_NAMES = "**"
 NOT_A_NAME = ("", ".", "..")
