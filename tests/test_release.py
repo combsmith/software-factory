@@ -440,10 +440,10 @@ class Fixture(unittest.TestCase):
     DEPLOYMENTS = "/repos/%s/deployments?environment=factory-next" % REPO
 
     def deployments_read(self, item) -> tuple:
-        """`(the Deployments of next as `item` read them, newest first, and the page's length)`: a page of `per_page`, as a
-        cut's fixture asks from issue 792 on, or the whole list, as the cuts before it read it, of no length. One read,
+        """`(the Deployments of next as `item` read them, newest first, and the page's length)`: a page of `per_page`, at
+        most 9, as a cut's fixture asks from issue 792 on, or the whole list, as the cuts before it read it, of no length. One read,
         answered 200."""
-        paged = re.compile(re.escape(self.DEPLOYMENTS) + r"(?:&per_page=([1-9][0-9]?))?")
+        paged = re.compile(re.escape(self.DEPLOYMENTS) + r"(?:&per_page=([1-9]))?")
         found = [(e, paged.fullmatch(e["request"]["call"].split(" ")[1])) for e in item["exchanges"]
                  if e["request"]["call"].split(" ")[1].startswith(self.DEPLOYMENTS)]
         self.assertEqual(len(found), 1, "one read of next's Deployments")
@@ -531,13 +531,15 @@ class Fixture(unittest.TestCase):
         reads, and each after `whole`, `WHOLE_LIST` by default, reading a page of next's Deployments; each a subtest of
         its own, `apart`, or the first that fails stops the rest."""
         cuts = self.cuts(folder)
-        last = [p.name for p in cuts].index((whole or self.WHOLE_LIST).name)
+        names, whole = [p.name for p in cuts], whole or self.WHOLE_LIST
+        self.assertIn(whole.name, names, "the last cut that read the whole list is read too")
+        last = names.index(whole.name)
         for i, path in enumerate(cuts[1:], 1):
             made = self.item(json.loads(path.read_text()), "cut_and_move_of_next")
             with self.subTest(cut=path.name) if apart else contextlib.nullcontext():
-                self.a_later_cut_moved_next_on(path, self.eval_run(made), list(reversed(cuts[:i])))
                 if i > last:
                     self.assertIsNotNone(self.deployments_read(made)[1], "a cut after %s reads a page" % cuts[last].name)
+                self.a_later_cut_moved_next_on(path, self.eval_run(made), list(reversed(cuts[:i])))
 
     def paged(self, size, order=lambda page: page, more=""):
         """factory/v0.1.10's fixture, its read of next's Deployments asked again as a page of `size`, `more` after it,
@@ -569,25 +571,33 @@ class Fixture(unittest.TestCase):
 
     def test_a_cut_added_later_is_held_as_every_cut_is(self):  # issue 792
         # A cut's fixture added under release/fixtures/ is read with the rest, in its place by version, and held: here a
-        # later cut that is v0.1.10's fixture under another version fails, where every cut before it passes.
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        for path in self.cuts():
-            (pathlib.Path(folder.name) / path.name).write_text(path.read_text())
-        self.each_cut_moved_next_on(pathlib.Path(folder.name), apart=False)
-        later = json.loads(self.ELEVENTH_CUT.read_text())
-        later["version"] = "factory/v0.1.99"
-        (pathlib.Path(folder.name) / "cut.v0-1-99.json").write_text(json.dumps(later))
-        self.assertEqual(self.cuts(pathlib.Path(folder.name))[-1].name, "cut.v0-1-99.json")
-        with self.assertRaises(AssertionError):
+        # cut after the last, v0.1.10's fixture under the next version, fails, where every cut before it passes. Asked of
+        # the whole list it is refused for that, after factory/v0.1.11, the last that read the whole list; asked of a
+        # page it is refused for what the page holds.
+        found = self.cuts()
+        major, minor, patch = current.version(json.loads(found[-1].read_text())["version"])
+        name = "cut.v%d-%d-%d.json" % (major, minor, patch + 1)
+        page_rule = "a cut after %s reads a page" % self.WHOLE_LIST.name
+        for page, refused in ((None, re.escape(page_rule)), (4, "^(?!.*%s)" % re.escape(page_rule))):
+            folder = tempfile.TemporaryDirectory()
+            self.addCleanup(folder.cleanup)
+            for path in found:
+                (pathlib.Path(folder.name) / path.name).write_text(path.read_text())
             self.each_cut_moved_next_on(pathlib.Path(folder.name), apart=False)
+            later = json.loads((self.paged(page) if page else self.ELEVENTH_CUT).read_text())
+            later["version"] = "factory/v%d.%d.%d" % (major, minor, patch + 1)
+            (pathlib.Path(folder.name) / name).write_text(json.dumps(later))
+            self.assertEqual(self.cuts(pathlib.Path(folder.name))[-1].name, name)
+            with self.subTest(page=page), self.assertRaisesRegex(AssertionError, re.compile(refused, re.S)):
+                self.each_cut_moved_next_on(pathlib.Path(folder.name), apart=False)
 
     def test_a_cut_after_the_last_that_read_the_whole_list_reads_a_page(self):  # issue 792
         # Every cut after factory/v0.1.11, the last that read next's whole list of Deployments, reads a page, so no cut's
-        # pull request grows with the list. Shown with factory/v0.1.9 as the last: factory/v0.1.10 and v0.1.11 read the
-        # whole list and are refused; factory/v0.1.10 asked again as a page of four, the last cut, is held.
-        with self.assertRaises(AssertionError):
-            self.each_cut_moved_next_on(apart=False, whole=self.TENTH_CUT)
+        # pull request grows with the list. Shown with factory/v0.1.10 as the last: factory/v0.1.11, the cut right after
+        # it, read the whole list and is refused; and with factory/v0.1.9 as the last, factory/v0.1.10 asked again as a
+        # page of four, the last cut, is held.
+        with self.assertRaisesRegex(AssertionError, "a cut after %s reads a page" % self.ELEVENTH_CUT.name):
+            self.each_cut_moved_next_on(apart=False, whole=self.ELEVENTH_CUT)
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         for path in self.cuts()[:self.cuts().index(self.ELEVENTH_CUT)]:
@@ -603,9 +613,9 @@ class Fixture(unittest.TestCase):
         earlier = list(reversed(self.cuts()[:self.cuts().index(self.ELEVENTH_CUT)]))
         eval_run = self.eval_run(self.item(json.loads(self.ELEVENTH_CUT.read_text()), "cut_and_move_of_next"))
         self.a_later_cut_moved_next_on(self.paged(4), eval_run, earlier)
-        # A later page is not the first, whatever it holds (Astra).
+        # A later page is not the first, whatever it holds (Astra), and a page of 10 or more grows with the list.
         for wrong in (self.paged(3), self.paged(4, lambda page: page[1:2] + page[:1] + page[2:]),
-                      self.paged(4, lambda page: page[:3]), self.paged(4, more="&page=2")):
+                      self.paged(4, lambda page: page[:3]), self.paged(4, more="&page=2"), self.paged(10)):
             with self.subTest(wrong=wrong), self.assertRaises(AssertionError):
                 self.a_later_cut_moved_next_on(wrong, eval_run, earlier)
 
