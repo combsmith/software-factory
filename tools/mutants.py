@@ -18021,6 +18021,8 @@ MUTANTS = ISSUE + [
     ("a retried case keeps only its last attempt's seconds", 'harness/eval/run.py',
      'dict(attempts[-1], usage=passes._usage(attempts[::-1]))',
      'dict(attempts[-1], usage=dict(passes._usage(attempts[::-1]), seconds=attempts[-1]["usage"]["seconds"]))', ('tests.test_evals.EvalJob.test_a_case_the_vendor_or_the_network_failed_is_asked_again_and_marked',)),
+    ("the retries are the run's, not each case's", 'harness/eval/run.py',
+     'retried.get(case["id"], 0) < RETRIES', 'sum(retried.values()) < RETRIES', ('tests.test_evals.EvalJob.test_a_case_the_vendor_or_the_network_failed_is_asked_again_and_marked',)),
     ("a call that timed out keeps an earlier call's word", 'harness/eval/run.py',
      '            seen.clear()\n            seen.update(timed_out=True, erred=True)\n',
      '            seen.update(timed_out=True, erred=True)\n', ('tests.test_evals.EvalJob.test_a_case_the_vendor_or_the_network_failed_is_asked_again_and_marked',)),

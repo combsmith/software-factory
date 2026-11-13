@@ -2041,6 +2041,16 @@ class EvalJob(unittest.TestCase):
         result, review, calls, slept = asked(vendor(529), good)
         self.assertEqual((result["status"], review.retried, calls, slept), ("completed", {case["id"]: 1}, 2, [step.RETRY_WAIT]))
         self.assertEqual((step.RETRIES, step.RETRY_WAIT), (2, 30))
+        # The allowance is each case's own: one that spent both its retries leaves the next case of the same run its two.
+        cli, other = Answers(vendor(529), vendor(529), good, vendor(529), good), dict(case, id=case["id"] + "-b")
+        heads = self.temp / "heads"
+        review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, lambda: 0.0, heads, sleep=lambda seconds: None)
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            said = []
+            for each in (case, other):
+                (heads / each["id"]).mkdir(parents=True, exist_ok=True)
+                said.append(review(each)["status"])
+        self.assertEqual((said, review.retried, len(cli.asked())), (["completed"] * 2, {case["id"]: 2, other["id"]: 1}, 5))
         # A 5xx, or none, every time: asked RETRIES more times, then left as the Engine failed it, the last call's word kept.
         for status in (500, 529, 599, None):
             result, review, calls, slept = asked(*[vendor(status)] * 4)
