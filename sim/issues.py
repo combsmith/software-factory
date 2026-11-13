@@ -14,7 +14,7 @@ import random
 
 from kernel import issue
 from kernel import terms as t
-from sim.world import COLLEAGUE, MAINTAINER, PERMISSIONS, STRANGER, WRITE_ACCESS, Broken, World, queue_in_lane, told
+from sim.world import COLLEAGUE, MAINTAINER, PERMISSIONS, STRANGER, WRITE_ACCESS, Broken, World, queue_in_lane, spent_no_model, told
 from tools import check_lifecycle
 from tools.jsonschema_lite import validate
 
@@ -484,15 +484,9 @@ class IssueWorld:
             # too: with none, it is an attempt (issue 286). One cancelled with no outcome is no attempt (P-42, issue 388).
             if self.rng.random() < 0.8:
                 run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None]))
-                # Every other such fault failed before the Engine step, so GitHub skipped it and no model was spent
-                # (decisions 0201 and 0202); chosen by the count of Runs, so that no seed draws differently.
-                if run["outcome"] == "environment" and len(self.runs) % 2 == 0:
-                    run["engine_started"] = False
             else:
                 run.update(conclusion="cancelled", outcome=None)
-                # And every other one cancelled is a job GitHub never started (decision 0116).
-                if len(self.runs) % 2 == 0:
-                    run["never_ran"] = "startup_failure"
+            spent_no_model(run, len(self.runs))
             self.note("run %s: killed, %s (%s)" % (run["run"], run["conclusion"], run["outcome"]))
             return
         # apply asks the Kernel again with its own Run left out (I-38): a label removed, a Hold added, an edit made or

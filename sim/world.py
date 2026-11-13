@@ -169,6 +169,16 @@ def queue_in_lane(runs: list, run: dict, note) -> None:
     runs.append(run)
 
 
+def spent_no_model(run: dict, count: int) -> None:
+    """Mark a killed Run, in either world, as one that spent no model on every other count of Runs, so that no seed
+    draws differently: one failed for the environment failed before its Engine step, which GitHub then skipped
+    (decisions 0201 and 0202), and one cancelled is a job GitHub never started (decision 0116)."""
+    if count % 2 == 0 and run["outcome"] == "environment":
+        run["engine_started"] = False
+    elif count % 2 == 0 and run["conclusion"] == "cancelled":
+        run["never_ran"] = "startup_failure"
+
+
 class World:
     def __init__(self, seed: int, faults: bool = True, people: bool = True,
                  approval_fails: str = None, queue_merges: bool = True):
@@ -971,15 +981,9 @@ class World:
             # too: with none, it is an attempt (issue 286). One cancelled with no outcome is no attempt (P-42, issue 388).
             if self.rng.random() < 0.8:
                 run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None]))
-                # Every other such fault failed before the Engine step, so GitHub skipped it and no model was spent
-                # (decisions 0201 and 0202); chosen by the count of Runs, so that no seed draws differently.
-                if run["outcome"] == "environment" and len(self.runs) % 2 == 0:
-                    run["engine_started"] = False
             else:
                 run.update(conclusion="cancelled", outcome=None)
-                # And every other one cancelled is a job GitHub never started (decision 0116).
-                if len(self.runs) % 2 == 0:
-                    run["never_ran"] = "startup_failure"
+            spent_no_model(run, len(self.runs))
             self.note("run %s: killed, %s (%s)" % (run["run"], run["conclusion"], run["outcome"]))
             return
         if self.held() or not self.agreed() or run["content_id"] != self.cid() or self.pr_state != "open":
