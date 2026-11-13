@@ -325,11 +325,12 @@ RULES = (
     # trials/P-46.json: an edit to a merged pull request's description after the merge adds the issue its new keyword
     # names to closingIssuesReferences, and closes nothing: the issue stays open and its timeline gains no close; undoing
     # the edit takes it out again. trials/P-33.json: the merge's own close of the issue names the pull request as the
-    # closer. The Kernel reads a merge by that close, never by the references now (issue 267).
+    # closer. The Kernel reads a merge by that close, never by the references now (issue 267). trials/P-67.json: the
+    # queue's squash merge closed each issue 2 s after, its ClosedEvent naming the pull request, not the commit (issue 821).
     ("a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing", "A merge closes the open issue its "
      "closing references name, and the issue's timeline names the pull request the closer; an edit to its description "
-     "after the merge can add an issue to its references, and closes nothing", ("P-33", "P-46"), "trials/P-46.json",
-     None),
+     "after the merge can add an issue to its references, and closes nothing", ("P-33", "P-46", "P-67"),
+     ("trials/P-46.json", "trials/P-67.json"), None),
     # trials/P-34.json: lastEditedAt moves for the body alone; the title's change is the timeline's RenamedTitleEvent,
     # so the content's time is the newer of the two, which the port computes; updatedAt moves for anything.
     ("an_issues_content_time_is_read_apart", "When an issue's title or body last changed is read apart from when "
@@ -529,6 +530,7 @@ ASKS = {
               "pull request alike",
         "P-46": "Does a merged pull request's closing reference change when its description is edited after the "
               "merge",
+        "P-67": "does the issue's timeline name the pull request as the close's closer",
     },
     "an_issues_content_time_is_read_apart": {
         "P-34": "Can the time an issue's title or body last changed be read, apart from the time anything on it "

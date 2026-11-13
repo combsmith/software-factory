@@ -6391,12 +6391,30 @@ class Trials(unittest.TestCase):
         by_code = {rule[0]: rule for rule in check_trials.rules()}
         self.assertNotIn("a_merged_pull_requests_closing_references_are_fixed", by_code)
         rule = by_code["a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing"]
-        self.assertEqual((rule[2], rule[3]), (("P-33", "P-46"), "trials/P-46.json"))
+        self.assertEqual((rule[2], rule[3]), (("P-33", "P-46", "P-67"), ("trials/P-46.json", "trials/P-67.json")))
         p33 = json.loads((ROOT / "trials" / "P-33.json").read_text())
         closes = [node for e in p33["exchanges"] if isinstance(e["response"].get("body"), dict)
                   for node in (((e["response"]["body"].get("data") or {}).get("repository") or {}).get("issue") or {})
                   .get("timelineItems", {}).get("nodes", []) if node.get("__typename") == "ClosedEvent"]
         self.assertEqual([c["closer"] for c in closes], [{"__typename": "PullRequest", "number": 38}])
+        # trials/P-67.json (issue 821): the queue's squash merge closes the issue too, its ClosedEvent naming the pull
+        # request, never the commit, within max_close_lag_seconds of the merge; the verdict is computed so here.
+        p67 = json.loads((ROOT / "trials" / "P-67.json").read_text())
+        merges = {e["response"]["body"]["merge_commit_sha"]: e["response"]["body"] for e in p67["exchanges"]
+                  if "/pulls/" in e["request"]["call"].split(" ")[1]}
+        found = [e["response"]["body"]["data"]["repository"]["issue"] for e in p67["exchanges"]
+                 if e["request"]["via"] == "graphql" and "closer" in e["request"]["body"]["query"]]
+        lag = json.loads((ROOT / "config" / "defaults.json").read_text())["limits"]["max_close_lag_seconds"]
+        at = lambda text: datetime.datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ")
+        held = []
+        for issue in found:
+            (close,) = issue["timelineItems"]["nodes"]
+            pull = merges[close["closer"]["mergeCommit"]["oid"]]
+            held.append(close["closer"]["__typename"] == "PullRequest" and close["closer"]["number"] == pull["number"]
+                        and "Closes #%d" % issue["number"] in pull["body"]
+                        and 0 <= (at(issue["closedAt"]) - at(pull["merged_at"])).total_seconds() <= lag)
+        self.assertEqual(sorted(i["number"] for i in found), [118, 119])
+        self.assertEqual(p67["verdict"], "pass" if held and all(held) else "fail")
         p46 = json.loads((ROOT / "trials" / "P-46.json").read_text())
         n = p46["exchanges"][0]["response"]["body"]["number"]           # the issue the trial opened
         reads = [e["response"]["body"]["data"]["repository"] for e in p46["exchanges"] if e["request"]["via"] == "graphql"]
