@@ -414,9 +414,7 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport, hea
     fetched = _fetched(env, workspace, transport, heads, found, place)
     if floor_short(found, place):
         raise Stop("eval_floor_short")
-    # Two groups that overlap in a few cases are told, and the dispatch goes on: an advisory (issue 695).
-    told = "".join("; " + word for word in advised_of({"cells_ok": cells_ok(found, place)}))
-    return "fetched %d of %d cases" % (fetched, found["count"]) + said + told
+    return "fetched %d of %d cases" % (fetched, found["count"]) + said
 
 
 def _fetched(env: dict, workspace: pathlib.Path, transport, heads, found: dict, place: pathlib.Path) -> int:
@@ -655,13 +653,14 @@ def floor_short(found: dict, place: pathlib.Path) -> bool:
     return any(len(cases) < FLOOR_LEAST for cases in floored.values()) or 0 < rest < FLOOR_LEAST
 
 
-def cells_ok(found: dict, place: pathlib.Path):
-    """Whether every cell of the groups a gate set's report counts holds none of its cases or ORIGIN_LEAST at least. A
-    cell is a kind, for the cases that expect a Finding the criterion the set floors or none of them, and natural or
-    not: where two groups overlap in a cell of a few cases, their counts' difference tells those few (issue 695). One
-    word of the whole set, never which cell or how many, and it stops nothing: the fetch and the job's line say it, and
-    turning it into a refusal is the Maintainer's, once he has read the set (decision 0212). None where `_expected` can
-    say nothing, and for a set that is no gate set's, which counts no group."""
+def cells_of(found: dict, place: pathlib.Path):
+    """The cells of the groups a gate set's report counts, for its sealed ledger alone: `{"ok", "each"}`, each cell a
+    kind, for the cases that expect a Finding the criterion the set floors or none of them, natural or not, and how
+    many cases it holds; `ok` where every one holds ORIGIN_LEAST at least. Where two groups overlap in a cell of a few
+    cases, their counts' difference tells those few (issue 695). Nothing of it is public: a word that every cell is
+    whole, beside the counts a report gives and the manifest's marks by id, can tell which cases a floored criterion's
+    are (decision 0212). It stops nothing. None where `_expected` can say nothing, and for a set that is no gate
+    set's, which counts no group."""
     expected = _expected(found, place) if gate_set(found) else None
     if expected is None:
         return None
@@ -670,12 +669,9 @@ def cells_ok(found: dict, place: pathlib.Path):
         floored = next((name for name in floors if said["verdict"] == "finding" and said.get("criterion") == name), None)
         cell = (said["verdict"], floored, case in natural)
         cells[cell] = cells.get(cell, 0) + 1
-    return all(many >= ORIGIN_LEAST for many in cells.values())
-
-
-def advised_of(document: dict) -> list:
-    """What a gate set's report says of its set that closes nothing: two groups that overlap in a few cases."""
-    return ["two groups overlap in fewer than %d cases" % ORIGIN_LEAST] if document["cells_ok"] is False else []
+    each = [{"kind": kind, "criterion": floored, "natural": marked, "cases": cells[kind, floored, marked]}
+            for kind, floored, marked in sorted(cells, key=lambda cell: (cell[0], cell[1] or "", cell[2]))]
+    return {"ok": all(cell["cases"] >= ORIGIN_LEAST for cell in each), "each": each}
 
 
 def split_ok(found: dict, place: pathlib.Path):
@@ -822,11 +818,13 @@ def wilson(passed: int, of: int) -> dict:
 
 
 def ledger_of(kept: dict, found: dict, assessed: dict, causes: dict, alternates: set, results: dict,
-              surplus: dict = None, usages: dict = None, ahead: tuple = None) -> dict:
+              surplus: dict = None, usages: dict = None, ahead: tuple = None, cells: dict = None) -> dict:
     """The `eval-ledger/1` of a gate set's run: each case as `report` would list it, whether it is natural, and the Result
     the review returned for it, under a salt drawn for this run alone, so that its hash in the report tells nothing of
     what it holds; and each case asked first the same way, but for whether it is natural, from `ahead`, `(assessed,
-    causes, usages, results, alternates, surplus)` of them (issue 613). It stays in the scratch for `seal`, and is never uploaded but sealed (issue 612)."""
+    causes, usages, results, alternates, surplus)` of them (issue 613). And `cells`, what `cells_of` says of the set,
+    which is told here and nowhere public (decision 0212). It stays in the scratch for `seal`, and is never uploaded
+    but sealed (issue 612)."""
     # Each case asked first with its marks, at an alternate place alone or drawing gating Findings away (Muse's read of
     # #646), as the set's are listed.
     asked, told, spent, answers, beside, away = ahead or ({}, {}, {}, {}, set(), {})
@@ -838,7 +836,8 @@ def ledger_of(kept: dict, found: dict, assessed: dict, causes: dict, alternates:
              for case in report(kept, found, assessed, causes=causes, alternates=alternates, surplus=surplus,
                                    usages=usages)["cases"]]
     return {"schema": "eval-ledger/1", "salt": os.urandom(16).hex(), "release": kept["release"], "commit": kept["commit"],
-            "role": found["role"], "intent": found["intent"], "set": dict(kept["set"]), "cases": cases, "preflight": first}
+            "role": found["role"], "intent": found["intent"], "set": dict(kept["set"]), "cases": cases, "preflight": first,
+            "cells": cells}
 
 
 # What a gate set's report sums of its Results' usage: each a count, and the cost in dollars.
@@ -916,7 +915,7 @@ def aggregate(kept: dict, found: dict, assessed: dict, place: pathlib.Path, resu
             "bars": {kind: list(bars_of(found)[kind]) for kind in KINDS}, "kind_least": kind_least_of(found),
             "criterion_bars": {name: list(bar) for name, bar in criterion_bars_of(found).items()},
             "split_ok": split_ok(found, place), "kinds_pass": kinds_pass(found, place, assessed),
-            "blocking_pass": blocking_pass(found, place, assessed), "cells_ok": cells_ok(found, place),
+            "blocking_pass": blocking_pass(found, place, assessed),
             "ledger": {"salted_sha256": hashlib.sha256(ledger).hexdigest()}}
 
 
@@ -1135,7 +1134,8 @@ def gate_scored(kept: dict, found: dict, place: pathlib.Path, review, causes: di
     why = {e["id"]: "unanswered" for e in found["cases"]} if preflight_stops(ahead) else _read(place, "fetched.json")
     assessed = assess(found, why, place, review, causes, alternates, surplus, usages, results)
     ledger = (json.dumps(ledger_of(kept, found, assessed, causes, alternates, results, surplus, usages,
-                                   (ahead, told, spent, answers, beside, away)), indent=2, sort_keys=True) + "\n").encode("utf-8")
+                                   (ahead, told, spent, answers, beside, away), cells_of(found, place)),
+                         indent=2, sort_keys=True) + "\n").encode("utf-8")
     with open(os.open(within(place, LEDGER), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
         out.write(ledger)
     return assessed, aggregate(kept, found, assessed, place, results, ledger, usages, ahead)
@@ -1165,7 +1165,7 @@ def tally_of_aggregate(document: dict, configured: str = None) -> str:
                       ", ".join("%s %d" % (f["code"], f["count"]) for f in document["faults"]) or "no code",
                       ", ".join(["preflight %d of %d passed" % (ahead["passed"], ahead["cases"])]
                                 + ["%s %d" % (f["code"], f["count"]) for f in ahead["faults"]])]
-                     + closed_of(document) + advised_of(document) + answered_by(document, configured))
+                     + closed_of(document) + answered_by(document, configured))
 
 
 def tally(document: dict, configured: str = None) -> str:

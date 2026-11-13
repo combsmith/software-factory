@@ -12,7 +12,8 @@
     "intent",
     "set",
     "cases",
-    "preflight"
+    "preflight",
+    "cells"
   ],
   "properties": {
     "schema": {
@@ -369,6 +370,59 @@
           "result": {
             "description": "The Result the review returned for the case, whole, where it returned one: its Findings' words among it. Sealed, never uploaded in the clear.",
             "$ref": "result.schema.json"
+          }
+        }
+      }
+    },
+    "cells": {
+      "description": "The cells of the groups the set's report counts, each a kind, for the cases that expect a Finding the criterion the set floors or none, natural or not, and how many cases it holds; `ok` where each holds the least a group may. Where two groups overlap in a cell of a few cases, their counts' difference tells those few. Sealed, and told nowhere public (decision 0212). Null where a case was not read or its answer is no kind.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "ok",
+        "each"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "each": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "criterion",
+              "natural",
+              "cases"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "finding",
+                  "met"
+                ]
+              },
+              "criterion": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[A-Z]+-[0-9]+$"
+              },
+              "natural": {
+                "type": "boolean"
+              },
+              "cases": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
           }
         }
       }

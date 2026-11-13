@@ -181,5 +181,22 @@
         "seconds": 24.0
       }
     }
-  ]
+  ],
+  "cells": {
+    "ok": false,
+    "each": [
+      {
+        "kind": "finding",
+        "criterion": null,
+        "natural": false,
+        "cases": 1
+      },
+      {
+        "kind": "finding",
+        "criterion": null,
+        "natural": true,
+        "cases": 1
+      }
+    ]
+  }
 }

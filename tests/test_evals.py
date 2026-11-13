@@ -3109,7 +3109,7 @@ class EvalJob(unittest.TestCase):
                   "usage": {"answered": count, "input_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
                             "output_tokens": 1, "turns": count, "cost_usd": 1.5, "seconds": 60.0},
                   "engine": job.engine_of("pr-review"), "models": ["claude-opus"], "bars": {"finding": [3, 10], "met": [9, 10]}, "kind_least": 20,
-                  "criterion_bars": {}, "split_ok": True, "cells_ok": True, "kinds_pass": {"finding": job._clears(finding[1], finding[0], (3, 10)),
+                  "criterion_bars": {}, "split_ok": True, "kinds_pass": {"finding": job._clears(finding[1], finding[0], (3, 10)),
                                                    "met": job._clears(met[1], met[0], (9, 10))},
                   "blocking_pass": True, "ledger": {"salted_sha256": "e" * 64, "sealed_sha256": "f" * 64}}
         return found, "d" * 64, report
@@ -3380,70 +3380,74 @@ class EvalJob(unittest.TestCase):
         report["ledger"]["sealed_sha256"], report["models"] = "f" * 64, ["claude-opus"]
         return report
 
-    def test_a_gate_sets_report_says_whether_two_of_its_groups_overlap_in_a_few_cases_and_stops_nothing(self):  # issue 695
+    def test_a_gate_sets_sealed_ledger_says_where_two_of_its_groups_overlap_in_a_few_cases_and_nothing_public_does(self):
+        # Issue 695, decision 0212. A cell is a kind, the criterion the set floors or none of them, and natural or not.
+        # Made-up sets, each group `(criterion, kind, how many, how many of them natural)`; no held-out set is read.
         from harness import eval as job
         judged = lambda report, of: job.verdict(report, of, "d" * 64, "a" * 40, "factory/v0.1.0")
         pooled = lambda reports, of: job.pooled_verdict(reports, of, "d" * 64, "a" * 40, "factory/v0.1.0")
-        said = "two groups overlap in fewer than 10 cases"
-        # A cell is a kind, the criterion the set floors or none of them, and natural or not. Made-up sets, each group
-        # `(criterion, kind, how many, how many of them natural)`; these tests otherwise set the least to none.
+        cell = lambda kind, criterion, natural, cases: {"kind": kind, "criterion": criterion, "natural": natural, "cases": cases}
+        ok = lambda groups, **floors: job.cells_of(*self.floored(groups, **floors))["ok"]
         whole = [("PR-3", "finding", 20, 10), ("PR-4", "finding", 10, 0), ("PR-1", "met", 20, 10)]
-        with mock.patch.object(job, "ORIGIN_LEAST", 10):
-            self.assertIs(job.cells_ok(*self.floored(whole)), True)
+        with mock.patch.object(job, "ORIGIN_LEAST", 10):     # these tests otherwise set the least to none
+            self.assertEqual(job.cells_of(*self.floored(whole)), {"ok": True, "each": [
+                cell("finding", None, False, 10), cell("finding", "PR-3", False, 10), cell("finding", "PR-3", True, 10),
+                cell("met", None, False, 10), cell("met", None, True, 10)]})
             # Every case of the floored criterion natural, and one other finding natural too: the natural cases' passes
-            # less the criterion's are that one case's verdict, though each group the report counts holds ten.
+            # less the criterion's are that one case's verdict, though each group the report counts holds ten. The ledger
+            # says which cell it is, and how many each holds.
             one = [("PR-3", "finding", 10, 10), ("PR-4", "finding", 10, 1), ("PR-1", "met", 20, 0)]
-            for name, groups in (("one natural finding beyond the floor", one),
-                                 ("nine of them", [("PR-3", "finding", 10, 10), ("PR-4", "finding", 19, 9), ("PR-1", "met", 20, 0)]),
+            found, place = self.floored(one)
+            cells = job.cells_of(found, place)
+            self.assertEqual(cells, {"ok": False, "each": [cell("finding", None, False, 9), cell("finding", None, True, 1),
+                                                           cell("finding", "PR-3", True, 10), cell("met", None, False, 20)]})
+            for name, groups in (("nine natural findings beyond the floor", [("PR-3", "finding", 10, 10), ("PR-4", "finding", 19, 9), ("PR-1", "met", 20, 0)]),
                                  ("nine natural cases of the floored criterion", [("PR-3", "finding", 19, 9), ("PR-1", "met", 20, 10)]),
                                  ("one clean case that is not natural", [("PR-3", "finding", 20, 10), ("PR-1", "met", 21, 20)]),
                                  # A kind is a cell's: five findings beyond the floor and five clean cases, all natural.
                                  ("a kind apart", [("PR-3", "finding", 20, 10), ("PR-4", "finding", 15, 5), ("PR-1", "met", 15, 5)])):
-                self.assertIs(job.cells_ok(*self.floored(groups)), False, name)
-            # Ten is enough, and a cell of none is whole.
-            self.assertIs(job.cells_ok(*self.floored([("PR-3", "finding", 20, 10), ("PR-4", "finding", 10, 10),
-                                                      ("PR-1", "met", 20, 0)])), True)
+                self.assertIs(ok(groups), False, name)
+            # Ten is enough, and a cell of none is no cell.
+            self.assertIs(ok([("PR-3", "finding", 20, 10), ("PR-4", "finding", 10, 10), ("PR-1", "met", 20, 0)]), True)
             # A criterion the set does not floor is no cell of its own, and each one it floors is.
             spread = [("PR-3", "finding", 20, 10), ("PR-4", "finding", 10, 5), ("PR-5", "finding", 10, 5), ("PR-1", "met", 20, 10)]
-            self.assertIs(job.cells_ok(*self.floored(spread)), True)
-            self.assertIs(job.cells_ok(*self.floored(spread, floors={"PR-3": [1, 2], "PR-4": [1, 2]})), False)
-            self.assertIs(job.cells_ok(*self.floored(spread, floors={})), True)
+            self.assertEqual((ok(spread), ok(spread, floors={"PR-3": [1, 2], "PR-4": [1, 2]}), ok(spread, floors={})),
+                             (True, False, True))
             # Nor is the criterion of a clean case: a floor counts the cases that expect a Finding on it alone.
-            self.assertIs(job.cells_ok(*self.floored([("PR-3", "finding", 20, 10), ("PR-3", "met", 10, 5),
-                                                      ("PR-1", "met", 10, 5)])), True)
-            # The report says the one word, and neither it nor the pool is closed by it: an advisory.
-            found, place = self.floored(one)
+            self.assertIs(ok([("PR-3", "finding", 20, 10), ("PR-3", "met", 10, 5), ("PR-1", "met", 10, 5)]), True)
+            # Nothing public says any of it, and nothing is stopped: the report holds no word of the cells, its line is as
+            # it was, and its verdict and the pool's pass. A word that every cell is whole, beside the counts a report
+            # gives and the marks a manifest gives by id, could tell which cases a floored criterion's are.
             report = self.written(found, place, set())
-            self.assertEqual((report["cells_ok"], job._errors(report, "eval-aggregate"), job.floor_short(found, place)),
-                             (False, [], False))
+            self.assertEqual((job._errors(report, "eval-aggregate"), job.floor_short(found, place)), ([], False))
+            self.assertNotIn("cells", json.dumps(report))
+            self.assertEqual(job.tally_of_aggregate(report), "40 of 40 passed; no code; preflight 3 of 3 passed")
             self.assertEqual((judged(report, found), pooled([report] * 3, found)), ("pass", "pass"))
-            # The job's line says it, in words that hold no count of a cell and name none; a whole set's says nothing.
-            self.assertEqual(job.tally_of_aggregate(report), "40 of 40 passed; no code; preflight 3 of 3 passed; " + said)
-            self.assertEqual(job.advised_of(report), [said])
-            sound = self.written(*self.floored(whole), set())
-            self.assertEqual((sound["cells_ok"], job.advised_of(sound)), (True, []))
-            self.assertNotIn("overlap", job.tally_of_aggregate(sound))
-            # A development set counts no group, so it is told nothing; nor is a set a case of which cannot be read.
+            # A development set counts no group, so nothing is said of it; nor of a set a case of which cannot be read.
             development = {k: v for k, v in found.items() if k not in ("gate", "criterion_bars") + job.OWN}
-            self.assertIsNone(job.cells_ok(development, place))
+            self.assertIsNone(job.cells_of(development, place))
             (place / "cases" / "c-0.json").unlink()
-            unread = self.written(found, place, set())
-            self.assertEqual((job.cells_ok(found, place), unread["cells_ok"], job.advised_of(unread)), (None, None, []))
-        # The fetch says it and goes on. Two natural cases that expect a Finding, one on the criterion the set floors and
-        # one on another: each is a cell of one, a few under a least of two and not under a least of one.
-        for least, told in ((2, "; two groups overlap in fewer than 2 cases"), (1, "")):
-            self.tearDown()
-            self.setUp()
-            cases = {ident: json.loads(data) for ident, data in self.cases.items()}
-            first, other = (cases[ident]["expected"] for ident in cases)
-            other["criterion"] = "PR-4" if first["criterion"] != "PR-4" else "PR-3"
-            cases = {ident: (json.dumps(case, indent=2) + "\n").encode() for ident, case in cases.items()}
-            with self.subTest(least=least), mock.patch.object(job, "ORIGIN_LEAST", least), \
-                    mock.patch.object(job, "FLOOR_LEAST", 1):
-                self.set(cases, gate=True, natural=list(cases), floors={first["criterion"]: [1, 2]})
-                self.step(job.plan)
-                self.assertEqual(self.step(job.fetch, self.home(cases, gate=True)),
-                                 "fetched 2 of 2 cases, 3 of 3 to preflight" + told)
+            self.assertIsNone(job.cells_of(found, place))
+        # The run writes it into the ledger it seals, and the fetch's line and the judge's say nothing of it. Two natural
+        # cases that expect a Finding, one on the criterion the set floors and one on another: each a cell of one.
+        cases = {ident: json.loads(data) for ident, data in self.cases.items()}
+        first, other = (cases[ident]["expected"] for ident in cases)
+        other["criterion"] = "PR-4" if first["criterion"] != "PR-4" else "PR-3"
+        cases = {ident: (json.dumps(case, indent=2) + "\n").encode() for ident, case in cases.items()}
+        with mock.patch.object(job, "ORIGIN_LEAST", 2), mock.patch.object(job, "FLOOR_LEAST", 1):
+            self.set(cases, gate=True, natural=list(cases), floors={first["criterion"]: [1, 2]})
+            self.step(job.plan)
+            self.assertEqual(self.step(job.fetch, self.home(cases, gate=True)), "fetched 2 of 2 cases, 3 of 3 to preflight")
+            said = self.step(job.score, lambda case: example_result())
+        ledger = json.loads((self.temp / "heldout" / job.LEDGER).read_text())
+        self.assertEqual(ledger["cells"], {"ok": False, "each": [cell("finding", None, True, 1),
+                                                                 cell("finding", first["criterion"], True, 1)]})
+        self.assertEqual(job._errors(ledger, "eval-ledger"), [])
+        # A ledger says its cells or that they could not be read, never nothing.
+        self.assertTrue(job._errors({k: v for k, v in ledger.items() if k != "cells"}, "eval-ledger"))
+        self.assertEqual(job._errors(dict(ledger, cells=None), "eval-ledger"), [])
+        public = said + (self.work / job.REPORT).read_text()
+        self.assertTrue("cells" not in public and "overlap" not in public, public)
 
     def test_a_gate_set_holds_a_floor_per_criterion_read_from_each_cases_expected_criterion(self):  # issue 692
         from harness import eval as job

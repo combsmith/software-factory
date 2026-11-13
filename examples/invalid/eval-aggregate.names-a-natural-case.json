@@ -80,7 +80,6 @@
   "kind_least": 20,
   "criterion_bars": {},
   "split_ok": true,
-  "cells_ok": true,
   "kinds_pass": {
     "finding": true,
     "met": true

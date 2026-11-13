@@ -25,7 +25,6 @@
     "split_ok",
     "kinds_pass",
     "blocking_pass",
-    "cells_ok",
     "ledger"
   ],
   "properties": {
@@ -495,13 +494,6 @@
       "minimum": 0
     },
     "split_ok": {
-      "type": [
-        "boolean",
-        "null"
-      ]
-    },
-    "cells_ok": {
-      "description": "Whether every cell of the groups the report counts, a kind, a floored criterion or none, and natural or not, holds none of the cases or the least a group may: one word, never which cell or how many, and it closes nothing (decision 0212). Null where the kinds are.",
       "type": [
         "boolean",
         "null"
