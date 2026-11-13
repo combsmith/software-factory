@@ -1,6 +1,11 @@
 """The guards on a Role's own writes (issue 838): `guards/patch.py`, a patch applied byte for byte or not at all."""
 from __future__ import annotations
 
+import os
+import pathlib
+import random
+import subprocess
+import tempfile
 import unittest
 
 from guards import patch
@@ -372,6 +377,144 @@ class Patch(unittest.TestCase):
                            ({**TREE, "docs": "040000"}, HELD), ({**TREE, "n": 100644}, HELD), ({**TREE, "n": b"100644"}, HELD)):
             self.assertEqual(patch.applied(CHANGE, tree, held), (None, patch.TREE_UNREAD))
             self.assertEqual(patch.applied(b"no patch\n", tree, held), (None, patch.TREE_UNREAD))
+
+    def test_a_patch_as_git_writes_it_lands_what_git_would(self):
+        # Against git itself, on fixed seeds, under no configuration, attributes or ignore rules but git's own. Files changed, removed, moved, copied,
+        # made runnable or plain, and added; lines that are empty, end in a carriage return or begin as a patch's own
+        # lines do; last lines with and without a newline; read by `git diff` with and without renames, copies and
+        # context. Then each patch is broken at random, and what `applied` still lands of it is what git lands too.
+        quiet = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
+        quiet.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1", GIT_ATTR_NOSYSTEM="1")
+        alone = ("git", "-c", "core.attributesFile=" + os.devnull, "-c", "core.excludesFile=" + os.devnull)
+        marker = b"\\ No newline at end of file"
+
+        def run(tree, *args, data=None, check=True):
+            return subprocess.run(alone + args, cwd=tree, check=check, capture_output=True, input=data, env=quiet)
+
+        def below(rng, most):
+            return int(rng.random() * most)     # only random() draws alike on every Python
+
+        def lines(rng, count):
+            heads = (b"line ", b"line ", b"line ", b"", b"-", b"+", b"\\ ", b"@@ -1 +1 @@ ", b" ", b"diff --git a/x b/x ")
+            return [heads[below(rng, len(heads))] + b"%d %s" % (below(rng, 40), b"x" * below(rng, 4))
+                    + (b"\r" if rng.random() < 0.1 else b"") if rng.random() < 0.9 else b"" for _ in range(count)]
+
+        def body(rng):
+            said = lines(rng, below(rng, 30))
+            return b"\n".join(said) + (b"" if said[-1] and rng.random() < 0.25 else b"\n") if said else b""
+
+        def edit(rng, data):
+            said = data.split(b"\n")[:-1] if data.endswith(b"\n") else data.split(b"\n") if data else []
+            for _ in range(1 + below(rng, 4)):
+                kind = below(rng, 3)
+                if kind == 0 or not said:
+                    said.insert(below(rng, len(said) + 1), lines(rng, 1)[0])
+                elif kind == 1:
+                    del said[below(rng, len(said))]
+                else:
+                    said[below(rng, len(said))] = lines(rng, 1)[0]
+            return b"\n".join(said) + (b"" if said[-1] and rng.random() < 0.3 else b"\n") if said else b""
+
+        def snapshot(tree, out="."):
+            listed = [entry.split(b"\t") for entry in run(tree, "ls-files", "-s", "-z").stdout.split(b"\0") if entry]
+            return {name.decode(): (meta.split()[0].decode(), (tree / out / name.decode()).read_bytes()) for meta, name in listed}
+
+        def broken(rng, data):
+            said = data.split(b"\n")[:-1]
+            for _ in range(1 + below(rng, 2)):
+                at, kind = below(rng, len(said)), below(rng, 7)
+                if kind == 0:
+                    said.insert(at + 1, marker)
+                elif kind == 1:
+                    said.insert(at, said[at])
+                elif kind == 2:
+                    del said[at]
+                elif kind == 3 and at:
+                    said[at - 1], said[at] = said[at], said[at - 1]
+                elif kind == 4:
+                    said[at] = (b" " if said[at][:1] in (b"-", b"+") else b"+") + said[at][1:]
+                else:
+                    headers = [i for i, line in enumerate(said) if line.startswith(b"@@ -")]
+                    if headers:
+                        i = headers[below(rng, len(headers))]
+                        if kind == 5:       # the hunk again, where it stands
+                            j = min([k for k in headers + [len(said)] if k > i] + [k for k, line in enumerate(said)
+                                                                                    if k > i and line.startswith(b"diff ")])
+                            said[j:j] = said[i:j]
+                        else:               # a number of its header, one more or one fewer
+                            digits = [k for k, c in enumerate(said[i]) if c in b"0123456789"]
+                            k = digits[below(rng, len(digits))]
+                            said[i] = said[i][:k] + b"%d" % ((said[i][k] - 48 + (1 if rng.random() < 0.5 else 9)) % 10) + said[i][k + 1:]
+            return b"\n".join(said) + b"\n"
+
+        kinds, copied_with_hunks, lands = set(), 0, 0
+        for seed in range(24):
+            rng = random.Random(seed)
+            with tempfile.TemporaryDirectory() as where:
+                tree = pathlib.Path(where) / "tree"
+                tree.mkdir()
+                run(tree, "init", "-q")
+                names = ["a.py", "docs/b.md", "docs/deep/c.txt", "tests/d.py", "e", "run.sh", "one"]
+                for name in names:
+                    (tree / name).parent.mkdir(parents=True, exist_ok=True)
+                    (tree / name).write_bytes(b"\n" if name == "one" else body(rng))
+                (tree / "docs" / "long.md").write_bytes(b"".join(b"a long line, number %d\n" % n for n in range(30)))
+                os.chmod(tree / "run.sh", 0o755)
+                run(tree, "add", "-A")
+                first, before = run(tree, "write-tree").stdout.decode().strip(), snapshot(tree)
+                for name in names:
+                    draw = rng.random()
+                    if draw < 0.5:
+                        (tree / name).write_bytes(edit(rng, (tree / name).read_bytes()))
+                    elif draw < 0.6:
+                        (tree / name).unlink()
+                    elif draw < 0.7:
+                        run(tree, "mv", name, name + ".moved")
+                        if rng.random() < 0.5:
+                            (tree / (name + ".moved")).write_bytes(edit(rng, (tree / (name + ".moved")).read_bytes()))
+                    if 0.4 < draw < 0.5 or 0.65 < draw < 0.75:
+                        os.chmod(tree / (name + ".moved" if 0.6 < draw < 0.7 else name), 0o644 if name == "run.sh" else 0o755)
+                if rng.random() < 0.6:
+                    (tree / "new").mkdir()
+                    (tree / "new" / "f.py").write_bytes(body(rng))
+                    if rng.random() < 0.5:
+                        os.chmod(tree / "new" / "f.py", 0o755)
+                if rng.random() < 0.6:
+                    (tree / "twin.md").write_bytes(before["docs/long.md"][1] + b"one line more\n")
+                run(tree, "add", "-A")
+                flags = (("--no-renames",), ("-M",), ("-M", "-C", "--find-copies-harder"), ("-U0", "--no-renames"),
+                         ("-U1", "-M"), ("-U0", "-M", "-C", "--find-copies-harder"))[below(rng, 6)]
+                data, after = run(tree, "diff", "--cached", *flags, first).stdout, snapshot(tree)
+                mode_of = {name: mode for name, (mode, _) in before.items()}
+                with self.subTest(seed=seed):
+                    sections = patch.read(data)
+                    kinds |= {section["kind"] for section in sections}
+                    copied_with_hunks += len([s for s in sections if s["kind"] == "copy" and s["hunks"]])
+                    need = patch.sources(data)
+                    changes, why = patch.applied(data, mode_of, {name: before[name][1] for name in need})
+                    self.assertIsNone(why)
+                    got = {name: held for name, held in before.items() if name not in changes["removed"]}
+                    got.update(changes["written"])
+                    self.assertEqual(got, after)
+                    self.assertEqual(changes["read"], [s["old"] for s in sections if s["kind"] in ("rename", "copy")])
+                # The same patch, broken: most of it is then no patch of this tree. What still lands, git lands alike.
+                for turn in range(40):
+                    wrong = broken(rng, data)
+                    need = patch.sources(wrong)
+                    changes, why = patch.applied(wrong, mode_of, {name: before[name][1] for name in need or () if name in before})
+                    if why is not None or wrong == data:
+                        continue
+                    with self.subTest(seed=seed, turn=turn, wrong=wrong):
+                        lands += 1
+                        run(tree, "read-tree", first)
+                        applied = run(tree, "apply", "--cached", "--unidiff-zero", "-", data=wrong, check=False)
+                        self.assertEqual(applied.returncode, 0, applied.stderr)
+                        run(tree, "checkout-index", "-a", "-f", "--prefix=../out%d/" % turn)
+                        got = {name: held for name, held in before.items() if name not in changes["removed"]}
+                        got.update(changes["written"])
+                        self.assertEqual(got, snapshot(tree, "../out%d" % turn))
+        self.assertEqual(kinds, {"change", "new", "deleted", "rename", "copy"})
+        self.assertTrue(copied_with_hunks and lands, (copied_with_hunks, lands))
 
 
 if __name__ == "__main__":

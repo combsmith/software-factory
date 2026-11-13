@@ -21,4 +21,5 @@ A guard binds the Role that writes this repo's code. So it lives here, never in 
 | A name is read one way, unquoted and of a narrow set of bytes; every line that names a file agrees with the header | `tests/test_guards.py::test_a_name_is_read_one_way_or_not_at_all` |
 | What is not a patch as git writes it is unreadable, never fewer changes | `tests/test_guards.py::test_what_is_not_a_patch_as_git_writes_it_is_unreadable` |
 | A tree or contents in no shape a port gives is the Factory's fault, under its own code, whatever the patch is | `tests/test_guards.py::test_what_is_not_a_patch_as_git_writes_it_is_unreadable` |
+| What it lands is what git itself would, on fixed seeds | `tests/test_guards.py::test_a_patch_as_git_writes_it_lands_what_git_would` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
