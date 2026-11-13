@@ -413,6 +413,7 @@
             "pattern": "^[0-9]{1,9}$"
           },
           "few": {
+            "type": "integer",
             "enum": [
               0,
               1

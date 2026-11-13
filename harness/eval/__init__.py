@@ -823,7 +823,7 @@ def wilson(passed: int, of: int) -> dict:
 
 
 def ledger_of(kept: dict, found: dict, assessed: dict, causes: dict, alternates: set, results: dict,
-              surplus: dict = None, usages: dict = None, ahead: tuple = None, cells: dict = None) -> dict:
+              surplus: dict = None, usages: dict = None, ahead: tuple = None, cells: list = None) -> dict:
     """The `eval-ledger/1` of a gate set's run: each case as `report` would list it, whether it is natural, and the Result
     the review returned for it, under a salt drawn for this run alone, so that its hash in the report tells nothing of
     what it holds; and each case asked first the same way, but for whether it is natural, from `ahead`, `(assessed,

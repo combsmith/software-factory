@@ -3433,6 +3433,9 @@ class EvalJob(unittest.TestCase):
                               cell("finding", "PR-3", False, 5), cell("finding", "PR-3", True, 5),
                               cell("finding", "PR-4", False, 5), cell("finding", "PR-4", True, 5),
                               cell("met", None, False, 10), cell("met", None, True, 10)])
+            # A floored criterion no case is of keeps its two cells, of none.
+            self.assertEqual([c["cases"] for c in job.cells_of(*self.floored(whole, floors={"PR-3": [1, 2], "PR-9": [1, 2]}))
+                              if c["criterion"] == "PR-9"], ["00", "00"])
             # Nor is the criterion of a clean case: a floor counts the cases that expect a Finding on it alone.
             self.assertIs(ok([("PR-3", "finding", 20, 10), ("PR-3", "met", 10, 5), ("PR-1", "met", 10, 5)]), True)
             # Nothing public says any of it, and nothing is stopped: the report holds no word of the cells, its line is as
@@ -3441,6 +3444,7 @@ class EvalJob(unittest.TestCase):
             report = self.written(found, place, set())
             self.assertEqual((job._errors(report, "eval-aggregate"), job.floor_short(found, place)), ([], False))
             self.assertNotIn("cells", json.dumps(report))
+            self.assertTrue(job._errors(dict(report, cells=cells), "eval-aggregate"))     # nor may a report hold them (Astra's read)
             self.assertEqual(job.tally_of_aggregate(report), "40 of 40 passed; no code; preflight 3 of 3 passed")
             self.assertEqual((judged(report, found), pooled([report] * 3, found)), ("pass", "pass"))
             # A development set counts no group, so nothing is said of it; nor of a set a case of which cannot be read.
@@ -3456,7 +3460,12 @@ class EvalJob(unittest.TestCase):
         cases = {ident: (json.dumps(case, indent=2) + "\n").encode() for ident, case in cases.items()}
         import contextlib
         printed = io.StringIO()
+        # What the run seals is what `cells_of` says, character for character: each count is given two digits wider
+        # here, which the ledger keeps as they are, and each flag stays a digit (the security read of this change).
+        real = job.cells_of
+        wide = lambda found, place: [dict(c, cases="00" + c["cases"]) for c in real(found, place)]
         with mock.patch.object(job, "ORIGIN_LEAST", 2), mock.patch.object(job, "FLOOR_LEAST", 1), \
+                mock.patch.object(job, "cells_of", wide), \
                 contextlib.redirect_stdout(printed), contextlib.redirect_stderr(printed):
             self.set(cases, gate=True, natural=list(cases), floors={first["criterion"]: [1, 2]})
             planned = self.step(job.plan)
@@ -3474,16 +3483,19 @@ class EvalJob(unittest.TestCase):
                           "scored 2 of 2 cases, 1 passed",
                           "1 of 2 passed; answer_off_rubric 1; preflight 3 of 3 passed; a blocking case not passed", ""))
         ledger = json.loads((self.temp / "heldout" / job.LEDGER).read_text())
-        few = lambda kind, criterion, natural, cases: dict(cell(kind, criterion, natural, cases, 1), few=int(cases == 1))
-        self.assertEqual(ledger["cells"], [few("finding", None, False, 0), few("finding", None, True, 1),
-                                           few("finding", first["criterion"], False, 0), few("finding", first["criterion"], True, 1),
-                                           few("met", None, False, 0), few("met", None, True, 0)])
+        few = lambda kind, criterion, natural, cases: dict(cell(kind, criterion, natural, cases, 3), few=int(cases == 1))
+        text = lambda cells: json.dumps(cells, sort_keys=True)      # as text, since True is 1 to Python and not to a reader
+        self.assertEqual(text(ledger["cells"]), text([few("finding", None, False, 0), few("finding", None, True, 1),
+                                                      few("finding", first["criterion"], False, 0), few("finding", first["criterion"], True, 1),
+                                                      few("met", None, False, 0), few("met", None, True, 0)]))
         self.assertEqual(job._errors(ledger, "eval-ledger"), [])
         # A ledger says its cells or that they could not be read, never nothing.
         self.assertTrue(job._errors({k: v for k, v in ledger.items() if k != "cells"}, "eval-ledger"))
         self.assertEqual(job._errors(dict(ledger, cells=None), "eval-ledger"), [])
         # The cells have a shape: a ledger whose cells say nothing, or one that says nothing of its count, is none.
-        for cells in ([], [{}] * 4, [dict(c, cases=1) for c in ledger["cells"]], [dict(c, few=2) for c in ledger["cells"]],
+        each = lambda **changed: [dict(c, **changed) for c in ledger["cells"]]
+        for cells in ([], ledger["cells"][:3], [{}] * 4, each(cases=1), each(cases="x"), each(cases=""), each(few=2), each(few=True),
+                      each(few=1.0), each(natural=1), each(kind="other"), each(criterion="not one"),
                       [{k: v for k, v in c.items() if k != "few"} for c in ledger["cells"]]):
             self.assertTrue(job._errors(dict(ledger, cells=cells), "eval-ledger"), cells)
         # And the report the run wrote is a report, which has no field of the cells and admits none.
