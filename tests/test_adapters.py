@@ -3549,9 +3549,11 @@ class Recorded(unittest.TestCase):
         roles, lenses = controller["accounts"]["roles"], facts_.accounts_of(controller)[2]
         required = [name for name in config["required_lenses"]["model"] if roles.get(name)]
         self.assertEqual(required, ["pr-review"])
-        self.assertEqual([dict(a, type="Bot") for a in controller["accounts"]["lenses"]],
-                         [dict(roles[name], lens=name) for name in required])
+        # Each is listed once, by its Role's own account. Another Lens may be listed beside it (decision 0145).
+        listed = [dict(a, type="Bot") for a in controller["accounts"]["lenses"]]
         for name in required:
+            self.assertEqual([a for a in listed if a["lens"] == name or a["id"] == roles[name]["id"]],
+                             [dict(roles[name], lens=name)])
             # As GraphQL names a Bot: its login has no [bot] (the thread of this issue, read on 2026-11-13).
             own = (roles[name]["login"][:-len("[bot]")], roles[name]["id"], "Bot")
             recorded_ = ({"PRRT_7": {"lens": name, "category": "requirements", "severity": "major"}}, True)

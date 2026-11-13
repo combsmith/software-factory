@@ -118,7 +118,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 **Check.** `tests/test_decide.py::test_no_model_review_before_deterministic_checks_pass`
 
 ### L-63 The reviewer's own thread stopped its pull request, and nothing said so
-**Failure.** The first thread the Factory's reviewer opened left its pull request deferred at every pass, with no alert. The configuration listed no account for the Lens, so the pass read the reviewer's App as any App, and the thread its Run had recorded as no Lens's: "A pull request the Factory's reviewer opens a thread on is deferred at every pass, since no Lens's account is listed and the thread's opener reads as an App" (issue 828).
+**Failure.** The first thread the Factory's reviewer opened left its pull request deferred at every pass, with no alert. The configuration listed no account for the Lens, so the pass read the reviewer's App as any App, and the thread its Run had recorded as no Lens's. This repo's own failure, of November 2026.
 **Rule.** A model Lens the configuration requires, whose Role's App has an account on record, is listed as a Lens by that account. An App that is not listed is no Lens, whatever a Run recorded of its thread.
 **Check.** `tests/test_adapters.py::test_a_thread_the_required_reviewers_own_app_opened_is_its_lenss_by_the_configured_accounts`
 
