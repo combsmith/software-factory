@@ -5235,6 +5235,13 @@ class GateSets(unittest.TestCase):
     SET, OTHER = "evals/gate/cases.json", "evals/gate-b/cases.json"
     FLOORS, MARKS = "floors other criteria than", "marks other cases natural than"
 
+    def setUp(self):
+        # CI runs these in a pull request's job and in a merge group's: the check reads which, so each test says.
+        patch = mock.patch.dict(os.environ)
+        patch.start()
+        self.addCleanup(patch.stop)
+        os.environ.pop("GITHUB_EVENT_NAME", None)
+
     @staticmethod
     def manifest(natural=range(10), floors=("PR-3",), cases=range(31), gate=True, **over) -> str:
         """A gate set's manifest of made-up cases: which it marks natural, and the criteria it floors."""
@@ -5326,6 +5333,34 @@ class GateSets(unittest.TestCase):
                            ("a case added and dropped", (base, self.manifest(cases=range(32), floors=("PR-4",))))):
             self.assertTrue(caught(self.found(self.manifest(floors=("PR-4",)), *held), self.FLOORS), name)
             self.assertEqual(self.found(base, *held), [], name)
+        # Main's later writing of a set is held as its first is: the cases changed with the floor, and the floor is then
+        # put back with the cases as they are; and a set main moved to another name with a case added.
+        more = dict(cases=range(32), floors=("PR-4",))
+        self.assertTrue(caught(self.found(self.manifest(cases=range(32)), base, self.manifest(**more)), self.FLOORS))
+        self.assertTrue(caught(self.found(self.manifest(floors=("PR-4",)), self.manifest(gate=False), base), self.FLOORS))
+        root = self.main(base, None)
+        edited(root, {self.OTHER: self.manifest(**more)})
+        committed(root, "main")
+        self.assertTrue(caught(check_gate_sets.run(edited(root, {self.OTHER: self.manifest(cases=range(32))})), self.FLOORS))
+        # A name git would write in quotes is a name like any other.
+        quoted = "evals/g\u00e4te \"old\"/cases.json"
+        root = history({quoted: base})
+        (root / quoted).unlink()
+        self.assertTrue(caught(check_gate_sets.run(edited(root, {self.SET: moved})), self.FLOORS))
+        # What main held is main's: a branch's own earlier commit of a set main never held is not held against its later.
+        root = edited(history(), {self.SET: moved}, commit=True)
+        self.assertEqual(check_gate_sets.run(edited(root, {self.SET: base})), [])
+        # In a merge group the entries ahead are main's to be, though origin's main has none of them yet: an entry that
+        # adds a case, and one behind it that moves the floor with the cases as that one left them.
+        root = edited(self.main(base), {self.SET: self.manifest(cases=range(32))}, commit=True)
+        edited(root, {self.SET: self.manifest(**more)})
+        committed(root, "behind")
+        self.assertEqual(check_gate_sets.run(root), [])
+        with mock.patch.dict(os.environ, {"GITHUB_EVENT_NAME": "merge_group"}):
+            self.assertTrue(caught(check_gate_sets.run(root), self.FLOORS))
+        # A directory where a manifest would be is no manifest, and no fault of this check's.
+        with outside_actions():
+            self.assertEqual(check_gate_sets.run(tree({self.SET + "/x": "", self.OTHER: base})), [])
         # A manifest main held of other cases says nothing of these.
         self.assertEqual(self.found(moved, self.manifest(cases=range(40)), self.manifest(cases=range(41))), [])
 
@@ -5343,6 +5378,13 @@ class GateSets(unittest.TestCase):
             # A tree with no gate set asks nothing of main, so it is never refused for a history it cannot read.
             self.assertEqual(check_gate_sets.run(tree({self.SET: self.manifest(gate=False)})), [])
             self.assertEqual(check_gate_sets.run(tree({"evals/AGENTS.md": "# evals/\n"})), [])
+        # Nor is any history read for it: the checks run on every tree, and most hold no gate set.
+        with mock.patch.object(check_gate_sets, "_git", side_effect=AssertionError("read")):
+            self.assertEqual(check_gate_sets.run(self.main(self.manifest(gate=False))), [])
+        # A manifest nested too deep to read is no manifest, here or in main's history, and no traceback.
+        deep = "[" * 100000 + "]" * 100000
+        self.assertEqual(check_gate_sets.run(edited(self.main(deep), {self.SET: self.manifest()})), [])
+        self.assertEqual(check_gate_sets.run(edited(self.main(self.manifest()), {self.SET: deep})), [])
 
 
 class Trials(unittest.TestCase):
