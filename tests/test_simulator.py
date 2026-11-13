@@ -16,10 +16,13 @@ from tools.hooks import protected
 
 # Fixed seeds: the required check cannot fail at random. SIM_SEEDS shortens a local run.
 SEEDS = range(1, 1 + int(os.environ.get("SIM_SEEDS", "300")))
-# The first seed whose Hold takes a queued item out, and the first whose lost approval does since a killed Run may leave
-# no outcome (issue 286) (test_the_seeds_take_a_pull_request_out_of_the_queue_for_each_cause), and the first of each
-# world on which a newer Run cancels the one waiting (a_run_waits_its_turn).
-HOLD_SEED, LOST_SEED, LANE_SEED, ISSUE_LANE_SEED = 109, 69, 2, 54
+# The first seed whose Hold takes a queued item out, the first whose lost approval does since a killed Run may leave no
+# outcome (issue 286), the first whose open gate does, and the first that shows another App's check under a Lens's
+# name, since only an agent's pull request is mended by a Role (issue 824)
+# (test_the_seeds_take_a_pull_request_out_of_the_queue_for_each_cause); the first of each world on which a
+# newer Run cancels the one waiting (a_run_waits_its_turn); and the first whose review left a criterion uncovered until
+# its attempts held the item (test_the_seeds_serve_a_review_that_left_a_criterion_uncovered).
+HOLD_SEED, LOST_SEED, GATE_SEED, APP_SEED, LANE_SEED, ISSUE_LANE_SEED, UNCOVERED_SEED = 1, 237, 351, 57, 2, 54, 221
 # Seeds on which the item is a dependency update with no acceptance contract: to a workflow's pin, and to neither list.
 DEPENDENCY_ON_THE_LIST, DEPENDENCY_OFF_THE_LIST = 4, 34
 
@@ -329,7 +332,8 @@ class Simulation(unittest.TestCase):
             last = world.settle()
             # A check with no verdict that a person has not run again waits for that person, and says so.
             stuck = last["reason"] == "check_unreadable" and last["attention"] == "needs_you"
-            resting = last["state"] in ("merged", "held") or stuck
+            # A pull request the Factory did not open waits for its author, a person, to mend it (issue 824).
+            resting = last["state"] in ("merged", "held") or stuck or world.waits_for_its_author(last)
             self.assertTrue(resting, "seed %d rests in %s (%s)\n%s" % (
                 seed, last["state"], last["reason"], "\n".join(world.trace[-15:])))
 
@@ -354,13 +358,16 @@ class Simulation(unittest.TestCase):
         self.rests_on_its_bound(dict(queue_merges=False), "act_ceiling")
 
     def rests_on_its_bound(self, world: dict, reason: str):
-        """A world that never ends on its own stops on its bound, or earlier on the Run ceiling."""
+        """A world that never ends on its own stops on its bound, or earlier on the Run ceiling. One the Factory did not
+        open may wait for its author instead, who acts no more once the faults stop (issue 824)."""
         reasons = []
         for seed in SEEDS:
             w = World(seed, **world)
             for _ in range(250):
                 w.step()
             last = w.settle()
+            if w.waits_for_its_author(last):
+                continue
             self.assertEqual((w.pr_state, last["state"]), ("open", "held"), "seed %d: %s\n%s" % (
                 seed, last["reason"], "\n".join(w.trace[-15:])))
             # Or on a description edited after the approval, on the Maintainer's own pull request, where GitHub refuses
@@ -1051,11 +1058,12 @@ class Simulation(unittest.TestCase):
                 shown.update(e.split(":")[1] for e in d["evidence"] if e.count(":") >= 2)
             return d
 
-        # The first seed whose Hold takes an item out lies past a local run of forty seeds since the lane cancels a
-        # waiting Run (trials/P-44.json), and so does the first whose approval is lost since a killed Run may leave no
-        # outcome (issue 286): each is run as well, so a short run still asks for that cause.
+        # The first seed whose approval is lost lies past a local run of forty seeds since a killed Run may leave no
+        # outcome (issue 286), the first whose gate is open past the default three hundred, and the first that shows
+        # another App's check past forty, since only an agent's pull request is mended by a Role (issue 824): each is
+        # run as well, so a short run still asks for each cause.
         with mock.patch.object(world, "decide", recording):
-            for seed in sorted(set(SEEDS) | {HOLD_SEED, LOST_SEED}):
+            for seed in sorted(set(SEEDS) | {HOLD_SEED, LOST_SEED, GATE_SEED, APP_SEED}):
                 w = World(seed)
                 for _ in range(250):
                     w.step()
@@ -1189,8 +1197,10 @@ class Simulation(unittest.TestCase):
                 exhausted = exhausted or any(uncovered(ran[e]) for e in d["evidence"])
             return d
 
+        # The first seed that reaches the attempts lies past a local run of eighty seeds since only an agent's pull
+        # request is mended by a Role (issue 824): it is run as well.
         with mock.patch.object(world, "decide", recording):
-            for seed in SEEDS:
+            for seed in sorted(set(SEEDS) | {UNCOVERED_SEED}):
                 w = World(seed)
                 for _ in range(250):
                     w.step()
@@ -1329,6 +1339,37 @@ class Simulation(unittest.TestCase):
         self.assertEqual(seen, {"an App took the Hold off", "an App added hands-off",
                                 "an App resolved the Maintainer's thread"})
 
+    def test_only_a_pull_request_the_factory_did_not_open_waits_for_its_author(self):  # issue 824, decision 0216
+        # An agent's pull request names the issue the Factory opened it for; the Maintainer's and the bot's name none.
+        worlds = [World(seed) for seed in (1, 2, world.DEPENDENCY_SEED)]
+        self.assertEqual({w.cls: w.facts()["opened_for"] for w in worlds},
+                         {"maintainer": None, "agent": world.ISSUE, "dependency": None})
+        # Only one that names none rests on its author, and only in addressing, for what a fix answers, with nothing
+        # admitted. The Factory's own item rests where it always has.
+        waiting = {"state": terms.ADDRESSING, "reason": "findings_open", "outcome": terms.NOTHING}
+        for w in worlds:
+            self.assertEqual(w.waits_for_its_author(waiting), w.cls != "agent", w.cls)
+            for other in (dict(waiting, state=terms.HELD), dict(waiting, outcome=terms.ADMIT),
+                          dict(waiting, outcome=terms.HOLD), dict(waiting, reason="awaiting_review")):
+                self.assertFalse(w.waits_for_its_author(other), (w.cls, other))
+        self.assertEqual(set(world.MENDS), {"check_failed", "findings_open", "human_finding", "conflict",
+                                            "acceptance_failed"})
+        # On their own pull request the Maintainer, its author, mends what waits for them, as a writer: on the first seed.
+        w = World(1)
+        for _ in range(250):
+            w.step()
+        self.assertEqual(w.cls, "maintainer")
+        self.assertTrue(any(line.endswith("the author mended it") for line in w.trace))
+        # No fix Run is ever admitted on one that names no issue: the world's own invariant says so if one is.
+        for w in worlds:
+            while not w.runs:
+                w.step()
+            w.runs.append(dict(w.runs[0], intent="fix-findings", run="fix"))
+            if w.cls == "agent":
+                w.invariants()
+            else:
+                self.assertRaises(world.Broken, w.invariants)
+
     def test_every_invariant_not_yet_held_names_a_pending_test(self):
         # When a rule is built and its test loses @pending, its invariant here must start to raise too.
         text = (pathlib.Path(__file__).resolve().parent / "test_decide.py").read_text()
@@ -1341,6 +1382,8 @@ class Simulation(unittest.TestCase):
             for _ in range(400):
                 world.step()
             last = world.settle()
+            if world.waits_for_its_author(last):
+                continue
             self.assertIn(last["state"], ("merged", "held"), "seed %d: %s %s" % (seed, last["state"], last["reason"]))
 
 

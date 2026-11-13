@@ -59,7 +59,10 @@ START = datetime.datetime(2026, 10, 11, 12, 0, 0)
 # On an even seed the pull request is an agent's, and the Maintainer reviews it as a colleague's (UJ-4). On an odd
 # seed it is the Maintainer's own, as the simulator has always served, and GitHub refuses a review by its author.
 AUTHOR = "combsmith-sf-dev-lead[bot]"
-ISSUE = 7     # each pull request is opened for it, the Maintainer's too, so the author Role mends each: until issue 824
+ISSUE = 7     # the issue the Factory opened an agent's pull request for; the Maintainer's and the bot's name none (824)
+# What a fix answers in addressing (kernel/decide.py). On a pull request the Factory did not open, the author Role
+# pushes nothing to a branch that is not the Factory's: its author, a person, mends it, or it waits (decision 0216).
+MENDS = ("check_failed", "findings_open", "human_finding", "conflict", "acceptance_failed")
 MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
 # The reviewer's App holds pull_requests: write, and GitHub cannot grant it less.
 REVIEWER_APP = {"kind": "lens", "name": "pr-review", "can_write": True}
@@ -215,6 +218,7 @@ class World:
             self.changed = {self.touched_by("dependency", on=seed // 10 % 2 == 0)}
         else:
             self.changed = {self.touched_by("role" if self.cls == "agent" else "maintainer")}
+        self.opened_for = ISSUE if self.cls == "agent" else None
         self.asked = False         # the Maintainer's request for changes stands, as the world keeps it
         self.unheld = []           # breaches of invariants the Kernel does not hold yet (NOT_YET_HELD)
         self.labels = set()        # the labels on the pull request, as GitHub shows them
@@ -421,7 +425,7 @@ class World:
             # GitHub: an_acceptance_result_names_its_reporter
             # GitHub: a_contract_approval_stays_on_its_commit
             "acceptance": self.acceptance(),
-            "opened_for": ISSUE,
+            "opened_for": self.opened_for,
             "complete": {"acceptance": True, "reviews": True, "threads": True, "checks": True, "diff": True,
                          "changed_paths": True, "runs": True, "timeline": True},
             "read_at": self.now(),
@@ -596,6 +600,12 @@ class World:
 
     def note(self, what: str):
         self.trace.append("%s %s" % (self.now(), what))
+
+    def waits_for_its_author(self, decision: dict) -> bool:
+        """Whether the item rests on its author: a pull request the Factory did not open, in addressing for what a fix
+        answers, with nothing admitted. The Factory's own item rests only where every other item does."""
+        return self.opened_for is None and decision["state"] == t.ADDRESSING and decision["reason"] in MENDS \
+            and decision["outcome"] == t.NOTHING
 
     def check(self, ok: bool, invariant: str):
         if not ok:
@@ -1463,6 +1473,12 @@ class World:
         """Who acted: the Maintainer, or a stranger, who is no person with write access."""
         if self.criteria is not None and self.judge.random() < 0.3 and self.on_the_contract():
             return "human"
+        # On their own pull request, which no Role mends, the Maintainer mends what waits for its author, as a writer.
+        if self.cls == "maintainer" and self.rng.random() < 0.5 and self.waits_for_its_author(
+                decide(self.facts(), self.records(), self.unpaused(), CONFIG, self.now())):
+            self.push(MAINTAINER["name"], writer=True)
+            self.note("the author mended it")
+            return "human"
         # GitHub refuses a review by the pull request's author: on the Maintainer's own, they do as they always did.
         reviews = self.cls == "agent"
         if self.queue and self.faults and self.rng.random() < 0.5:
@@ -1611,6 +1627,8 @@ class World:
         self.check(len([r for r in self.runs if r["status"] in ("in_progress", "queued")]) <= 2,
                    "the lane holds more than one Run waiting behind the one that holds it")
         self.check(len([r for r in self.runs if r["status"] == "in_progress"]) <= 1, "I-2 one writer per item")
+        self.check(self.opened_for is not None or all(r["intent"] != "fix-findings" for r in self.runs),
+                   "a fix Run on a pull request whose facts name no issue")
         for rv in self.reviews:
             self.check(rv["by"]["name"] not in (self.author,), "I-26 the approver is the author")
         # A push takes the item out of the queue, and run records only grow: the reviews a merge carries are held always.
