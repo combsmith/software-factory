@@ -1,0 +1,89 @@
+{
+  "schema": "eval-aggregate/1",
+  "release": "factory/v0.1.0",
+  "commit": "9e927b4000000000000000000000000000000000",
+  "role": "pr-review",
+  "intent": "review-change",
+  "set": {
+    "count": 44,
+    "sha256": "05b3abf2579a5eb66403cd78be557fd860633a1fe2103c7642030defe32c657f"
+  },
+  "passed": 30,
+  "kinds": {
+    "finding": {
+      "cases": 22,
+      "passed": 9,
+      "interval": {
+        "low": 0.2326,
+        "high": 0.6127
+      }
+    },
+    "met": {
+      "cases": 22,
+      "passed": 21,
+      "interval": {
+        "low": 0.782,
+        "high": 0.9919
+      }
+    }
+  },
+  "criteria": {},
+  "origin": {
+    "natural": {
+      "cases": 30,
+      "passed": 21
+    },
+    "constructed": {
+      "cases": 14,
+      "passed": 9
+    }
+  },
+  "faults": [],
+  "preflight": {
+    "cases": 3,
+    "passed": 3,
+    "faults": []
+  },
+  "usage": {
+    "answered": 44,
+    "input_tokens": 1320000,
+    "cache_creation_input_tokens": 88000,
+    "cache_read_input_tokens": 410000,
+    "output_tokens": 61000,
+    "turns": 210,
+    "cost_usd": 38.412,
+    "seconds": 5120.5
+  },
+  "engine": {
+    "name": "claude-cli",
+    "version": "2.1.306",
+    "model": "a-model",
+    "prompt_sha256": "1b657e2ca5226c6d61636cf2d155df3aeef3cd95422f9ae09924410f72ed07d4",
+    "rubric_sha256": "754be4b69c49114336398cc52faaf3b06b709a5674ac584fcc9433cede863d5a"
+  },
+  "models": [
+    "a-model"
+  ],
+  "bars": {
+    "finding": [
+      3,
+      10
+    ],
+    "met": [
+      9,
+      10
+    ]
+  },
+  "kind_least": 20,
+  "criterion_bars": {},
+  "split_ok": true,
+  "kinds_pass": {
+    "finding": true,
+    "met": true
+  },
+  "blocking_pass": false,
+  "ledger": {
+    "salted_sha256": "3f1d0c1e2a7b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5",
+    "sealed_sha256": "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00"
+  }
+}
