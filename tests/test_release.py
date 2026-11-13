@@ -334,6 +334,7 @@ class Fixture(unittest.TestCase):
     NINTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-8.json"
     TENTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-9.json"
     ELEVENTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-10.json"
+    TWELFTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-11.json"
     ROLLBACK = ROOT / "release" / "fixtures" / "rollback.refused.json"
     FIRST_ROLLBACK = ROOT / "release" / "fixtures" / "rollback.v0-1-10.json"
     # The cuts a rollback and a move forward again followed, by the fixture of those two steps: each recorded a
@@ -513,7 +514,11 @@ class Fixture(unittest.TestCase):
                                         (self.ELEVENTH_CUT, 43267765670,
                                          [self.TENTH_CUT, self.NINTH_CUT, self.EIGHTH_CUT, self.SEVENTH_CUT,
                                           self.SIXTH_CUT, self.FIFTH_CUT, self.FOURTH_CUT, self.THIRD_CUT,
-                                          self.NEXT_CUT, self.CUT])):
+                                          self.NEXT_CUT, self.CUT]),
+                                        (self.TWELFTH_CUT, 43346447730,
+                                         [self.ELEVENTH_CUT, self.TENTH_CUT, self.NINTH_CUT, self.EIGHTH_CUT,
+                                          self.SEVENTH_CUT, self.SIXTH_CUT, self.FIFTH_CUT, self.FOURTH_CUT,
+                                          self.THIRD_CUT, self.NEXT_CUT, self.CUT])):
             with self.subTest(cut=path.name):
                 self.a_later_cut_moved_next_on(path, eval_run, earlier)
 
