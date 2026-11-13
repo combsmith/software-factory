@@ -54,18 +54,22 @@ RULES = (
     ("an_app_can_dismiss_a_review", "An App with pull_requests: write can dismiss a person's review, and the timeline "
      "says which App and what the review was before (previousReviewState)", ("P-41",), "trials/P-41.json", None),
     # trials/P-42.json: a pull request's head, its checks read at once and an hour later, and the new head after a push.
-    ("a_push_restarts_the_checks", "A push sets every required check pending again", ("P-42",), "trials/P-42.json",
+    # trials/P-42.push.json: in the port's own read, the required check concluded on head A and, read at once after head B
+    # was pushed, queued on B; for four seconds GitHub listed none on B at all, read and not kept, which the Kernel reads
+    # as pending too (issue 807).
+    ("a_push_restarts_the_checks", "A push sets every required check pending again", ("P-42",), "trials/P-42.push.json",
      None),
     # trials/P-42.rollup.json: the required check read queued in the status rollup, and 11 minutes later success, with
-    # nothing done between but reads.
+    # nothing done between but reads. trials/P-42.push.json: so in the port's own read, queued, then success 71 s on.
     ("a_check_reports_on_its_own", "A pending required check reports success or failure with no one asking",
-     ("P-42",), "trials/P-42.rollup.json", None),
+     ("P-42",), "trials/P-42.push.json", None),
     # trials/P-42.json: neutral, skipped and cancelled each kept an hour after the last post, and a job stopped at its
     # timeout concluded cancelled, with its check run and its run (issue 388; a step's own timeout fails,
     # trials/P-42.step-timeout.json). P-42 saw no timed_out and no stale: the rule below says why they stay (issue 496).
+    # trials/P-42.port.json: the port's own read of that head ten days on gives each the same conclusion (issue 807).
     ("a_check_can_time_out_or_give_no_verdict", "A required check can time out, concluding cancelled, or give no "
      "verdict, neutral or skipped, and keeps that conclusion until the content changes or a person runs it again",
-     ("P-42",), "trials/P-42.json", None),
+     ("P-42",), ("trials/P-42.json", "trials/P-42.port.json"), None),
     ("a_check_concludes_timed_out_or_stale", "A required check can conclude timed_out or stale, which the checks API "
      "lists as conclusions", (), None,
      "assumed, no trial can ask it: GitHub concluded a job stopped at its timeout cancelled (trials/P-42.json), and it "
@@ -74,22 +78,38 @@ RULES = (
     # trials/P-42.rollup.json: the status rollup the port reads held the same runs as filter=latest, by id, name, suite
     # and App, five Apps on one head. It left out a run its job's re-run replaced, and a check a job created that a later
     # one created under its name replaced; a job's run and a created check of one name both stayed there, as in
-    # trials/P-35.json (issue 496).
+    # trials/P-35.json (issue 496). trials/P-42.port.json: the port's own read of two such heads, every check run read
+    # with its name and App, against the fixture's own nodes (issue 807).
     ("a_check_is_read_by_name_from_every_app", "Every check run on the head is read with its exact name and the id of "
      "the App that reported it, from every App, never merged or renamed; the status rollup leaves out only a run that "
      "its job's re-run, or a later check created under its name in its suite, replaced", ("P-42",),
-     "trials/P-42.rollup.json", None),
+     ("trials/P-42.rollup.json", "trials/P-42.port.json"), None),
     # trials/P-42.rollup.json: a re-run replaced its own run in the status rollup and the other suite's run of the name
     # stayed, and a later check a job created under a name replaced the one created earlier in its suite; trials/P-35.json
     # shows a job's run and a created check of one name both kept there, either first. One job's re-run also gave its
     # run's other jobs new check runs with their old conclusions, which changes no verdict (issue 496).
+    # trials/P-42.port.json: the port's own read of that head ten days on holds the re-run's check run, not the one it
+    # replaced, and the other suite's beside it (issue 807).
     ("a_rerun_replaces_only_its_own_run", "A re-run of a job replaces only that job's earlier run, in its own check "
      "suite, and a check a job creates replaces only one created earlier under its name there; a job's run and a "
      "created check of one name both stay, and so do two workflow runs on one commit", ("P-42",),
-     "trials/P-42.rollup.json", None),
+     ("trials/P-42.rollup.json", "trials/P-42.port.json"), None),
+    # trials/P-65.json: on canary pull request 102 each cancelled run's suite and workflow run concluded cancelled, its
+    # if: always() judging check failure; the push back to A and the reopening each started a run with a suite of its
+    # own beside the cancelled one's, which stayed; a re-run kept its run's id and suite, the rollup giving its latest
+    # attempt alone; and one rollup read gave each check run its workflow run's id and its suite's conclusion (issue 749).
+    ("a_check_names_its_run_and_suite", "Each check run names its workflow run's id, none for a check no workflow ran, "
+     "and its check suite's conclusion, none while the suite has not concluded; a re-run keeps its run's id and suite",
+     ("P-65",), "trials/P-65.json", None),
+    ("a_cancelled_run_stays_beside_a_later_run", "A workflow run cancelled mid-way concludes its suite cancelled and its "
+     "if: always() judging check failure, and stays on its head beside a later run of the same file that a push back to "
+     "the head, a reopening or a re-run of an earlier run starts; no run's id says which is later", ("P-65",),
+     "trials/P-65.json", None),
+    # trials/P-42.json: the pr-review App and an Actions job each posted under p2-queue-check; trials/P-42.port.json: the
+    # port's own read of pull request 65's head, a fortnight on, still holds the job's (issue 807).
     ("any_app_posts_a_check_under_any_name", "Any App with checks: write can post a check run under any name, a "
-     "required Lens's too, and it stays on that head: a check run cannot be deleted", ("P-42",), "trials/P-42.json",
-     None),
+     "required Lens's too, and it stays on that head: a check run cannot be deleted", ("P-42",),
+     ("trials/P-42.json", "trials/P-42.port.json"), None),
     ("a_check_is_read_with_its_own_jobs_file", "A check run GitHub Actions reports is read with the path of its check "
      "suite's workflow run only where its details are that job's own, with the permissions the reader and the Controller "
      "hold. A check a job creates with GITHUB_TOKEN lands in the first Actions suite on the head, with that suite's path "
@@ -116,9 +136,17 @@ RULES = (
      "without it GitHub refuses the enqueue", ("P-2",), "trials/P-2.least.json", None),
     ("the_queue_merges", "A pull request in the merge queue merges, unless a push takes it out first",
      ("P-2",), None, None),
+    # trials/P-2.port.json: the timeline port's own read of 100, a person's enqueue, and 70, the queue App's, each the
+    # enqueue then the merge with no act of a Factory identity's between, and the facts port's read of each head's
+    # required check concluded success before it (issue 807). Its verdict stays fail against its condition as written,
+    # and grounds the rule as trials/P-5.json, failed as written, grounds its own (the Factory Builder's ruling on #844):
+    # the act between enqueue and merge on 70 was the Maintainer's review, a person's act; the queue's merge did not
+    # depend on it, since the approval the ruleset requires was already given at the enqueue, the machine user's at
+    # 01:59:21Z on 70's head before the queue App's enqueue at 02:24:59Z; and the condition was stricter than the rule,
+    # which forbids only a Factory identity's act between.
     ("the_queue_merges_on_its_required_checks", "The merge queue merges a queued pull request once its required checks "
      "pass, whoever enqueued it, with no read of the Factory's between", ("P-2",),
-     ("trials/P-2.no-pass.json", "trials/P-2.queue-app.json"), None),
+     ("trials/P-2.no-pass.json", "trials/P-2.queue-app.json", "trials/P-2.port.json"), None),
     ("an_app_leaves_the_queue", "An App can take a pull request out of the merge queue, with contents: write; "
      "without it GitHub refuses the dequeue", ("P-2",), "trials/P-2.least.json", None),
     ("a_writer_can_dismiss_an_approval", "A person with write access can dismiss the machine user's approval, and the "
@@ -133,8 +161,10 @@ RULES = (
      "environment, and its Run then concludes failure", (), None,
      "assumed, no trial can ask it: a fault of the item or of the environment that drops an approval cannot be forced "
      "on demand"),
+    # trials/P-2.port.json: the timeline port's own read of 58, the queue's removal after the enqueue and no merge, and
+    # its read of 58's reviews, the machine user's approval standing (issue 807).
     ("the_queue_can_eject", "The merge queue can take a pull request out without merging it, and its approval stays",
-     ("P-2",), "trials/P-2.queue.json", None),
+     ("P-2",), ("trials/P-2.queue.json", "trials/P-2.port.json"), None),
     ("the_timeline_shows_each_act", "Each approval, enqueue, dequeue and label a Factory identity makes is on the "
      "timeline, with its actor, so the acts since a person with write access acted can be counted",
      ("P-2", "P-41"), None, None),
@@ -164,6 +194,13 @@ RULES = (
     ("a_run_waits_its_turn", "One Run on an item is in progress and at most one waits: a newer Run in the item's "
      "concurrency group cancels the one waiting, which never starts, and never the one running",
      ("P-44",), "trials/P-44.json", None),
+    # trials/P-64.json: of two runs in one group the second's job waited 53 s. While it waited, pending, the jobs API
+    # gave its started_at as its creation, as the run's run_started_at stayed; in progress and completed it gave
+    # 19:44:48Z, a second after the first job ended. The records port reads that as `began_at` (decision 0193).
+    # trials/P-44.json: a job cancelled while it waited ended completed with no runner, its started_at its creation.
+    ("a_run_begins_with_its_job", "A Run's record says when it was made; when it left its item's lane and began is its "
+     "job's start, given only once the job is in progress or completed with a runner, and a Run cancelled while it "
+     "waited never began", ("P-64", "P-44"), ("trials/P-64.json", "trials/P-44.json"), None),
     ("a_queued_run_is_listed", "A Run is in the list of run records from when it is queued, before its job starts",
      ("P-17",), "trials/P-17.json", None),
     ("a_new_run_is_listed_unnamed", "A Run can be listed under its workflow's name, not its run-name, for its first "
@@ -348,6 +385,14 @@ ASKS = {
     "a_rerun_replaces_only_its_own_run": {
         "P-42": "two workflow runs on one commit both staying, since `filter=latest` is per check suite",
     },
+    "a_check_names_its_run_and_suite": {
+        "P-65": "does the one GraphQL rollup read of a head's checks give each check run its workflow run's id and its "
+                "check suite's conclusion",
+    },
+    "a_cancelled_run_stays_beside_a_later_run": {
+        "P-65": "does its check suite, and its workflow run, conclude cancelled while the run's judging job, which needs "
+                "the cancelled job under if: always(), concludes failure",
+    },
     "any_app_posts_a_check_under_any_name": {
         "P-42": "can any App with `checks: write`, or any Actions job, post a check run under a required Lens's "
               "check name",
@@ -399,6 +444,10 @@ ASKS = {
     "an_actor_has_a_kind": {
         "P-41": "Is every actor named on a review, a dismissal, a thread and a label event read with its account "
               "type, a User or a Bot?",
+    },
+    "a_run_begins_with_its_job": {
+        "P-64": "does the jobs API's `started_at` for its job say when the job left the queue and began",
+        "P-44": "cancel the older pending Run",
     },
     "a_run_waits_its_turn": {
         "P-44": "does GitHub keep one Run running and one pending, cancel the older pending Run, and never cancel "

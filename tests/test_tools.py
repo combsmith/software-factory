@@ -35,7 +35,7 @@ from kernel import decide as decide_module, derive, issue, terms
 from kernel.decide import decide
 from sim import world
 from tests import support
-from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_lifecycle, context_eval,
+from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_gate_sets, check_lifecycle, context_eval,
                    check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, redact_trial,
                    environments_drift, machine_user_drift, rulesets_drift, verify, walk)
 from tools.hooks import protected
@@ -185,8 +185,14 @@ def walkers(source: str) -> list:
     return found
 
 
-def rules(text: str) -> list:
-    return sorted({rule for rule, _ in check_workflows.lint(text)})
+# The required check's top-level concurrency, which only its own workflow may hold (issue 681).
+SUPERSEDED = ("concurrency:\n  group: %s\n  cancel-in-progress: %s\n"
+              % (check_workflows.PR_LANE, check_workflows.PR_CANCEL))
+
+
+def rules(text: str, required: bool = True) -> list:
+    """The rules `text` breaks, read as the required check's workflow unless `required` is false."""
+    return sorted({rule for rule, _ in check_workflows.lint(text, required=required)})
 
 
 class Validator(unittest.TestCase):
@@ -501,6 +507,19 @@ class Examples(unittest.TestCase):
         for kind in check_examples.CODES_ONLY:
             if kind != check_examples.UNTRUSTED_KIND:
                 self.assertNotIn("untrusted", schemas[kind].get("properties", {}), kind)
+
+    def test_the_issue_a_pull_request_was_opened_for_is_a_number_from_1_or_null_or_left_out(self):  # issue 823
+        # The one fact facts/1 does not require: facts made before it, an eval set's among them, are read as they
+        # stand, where a fact newly required asks the Harness for a row (decision 0105). Given, it is an issue's
+        # number or null, and nothing that could be taken for one.
+        schema = json.loads((ROOT / "schemas" / "facts.schema.json").read_text())
+        for issue in (1, 36, None):
+            self.assertEqual(validate(support.facts(opened_for=issue), schema), [], issue)
+        for other in (0, -1, True, False, "36", 36.0, [36]):
+            self.assertTrue(validate(support.facts(opened_for=other), schema), other)
+        before = support.facts()
+        self.assertIsNone(before.pop("opened_for"))
+        self.assertEqual((validate(before, schema), "opened_for" in schema["required"]), ([], False))
 
     def test_the_example_pass_record_replays(self):  # decision 0039, decision 0002
         # Every Decision in the pass record is the Kernel's own answer on the facts, runs, context and time it holds,
@@ -2638,7 +2657,7 @@ class Workflows(unittest.TestCase):
     def test_a_counter_example_must_break_its_rule_and_no_other(self):
         both = GOOD.replace("ubuntu-24.04", "ubuntu-latest").replace("    timeout-minutes: 28\n", "")
         root = clone({"examples/workflows/invalid/runner.two-faults.yml": both,
-                      "examples/workflows/invalid/soft.no-fault.yml": GOOD})
+                      "examples/workflows/invalid/soft.no-fault.yml": GOOD.replace(SUPERSEDED, "")})
         problems = check_workflows.run(root)
         self.assertTrue(caught(problems, "runner.two-faults.yml: must break the rule 'runner' and no other"))
         self.assertTrue(caught(problems, "soft.no-fault.yml: must break the rule 'soft' and no other, and breaks none"))
@@ -2669,7 +2688,7 @@ class Workflows(unittest.TestCase):
                     "" if given is None else "        timeout-minutes: %s\n" % given))
                 with self.subTest(command=command, given=given):
                     self.assertEqual(rules(text), ["timeout"] if broken else [], text)
-        problems = check_workflows.lint(unlimited)
+        problems = check_workflows.lint(unlimited, required=True)
         self.assertIn(("timeout", "a run: step of job checks has no timeout-minutes of its own"), problems)
         # A uses: step needs none, and a run: step's limit is read wherever among its keys it stands.
         moved = GOOD.replace("      - run: make verify\n        timeout-minutes: 26\n",
@@ -2683,12 +2702,12 @@ class Workflows(unittest.TestCase):
         more = two.replace("timeout-minutes: 13\n      - run: make fast", "timeout-minutes: 14\n      - run: make fast")
         self.assertEqual(rules(more), ["timeout"])
         self.assertIn(("timeout", "the run: steps of job checks are given 27 minutes together, more than its 28 less the "
-                                  "2 its other steps keep"), check_workflows.lint(more))
+                                  "2 its other steps keep"), check_workflows.lint(more, required=True))
         self.assertEqual(check_workflows.MARGIN, 2)
         # A job's own limit is held the same way.
         for job in ("0", "\u00b2"):
             self.assertIn(("timeout", "job checks has no timeout-minutes"),
-                          check_workflows.lint(GOOD.replace("    timeout-minutes: 28\n", "    timeout-minutes: %s\n" % job)))
+                          check_workflows.lint(GOOD.replace("    timeout-minutes: 28\n", "    timeout-minutes: %s\n" % job), required=True))
 
     def test_each_step_limit_holds_what_its_step_needs(self):  # issue 388
         # The eval job's run step starts no case it cannot end within BUDGET of the plan, so its limit is BUDGET at
@@ -2952,6 +2971,45 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(self.lens_problems(GOOD.replace(job, "").replace("      - checks\n", "")), gone))
         self.assertTrue(caught(self.lens_problems(GOOD.replace(job, job.replace(run, "      - run: make fast\n"))), gone))
         self.assertEqual(self.lens_problems(GOOD), [])
+
+    def test_only_a_superseded_pull_request_run_is_cancelled(self):
+        # On 2026-11-09, 13 of a day's 47 pull request runs ran on after a newer push to the same pull request, about 870
+        # runner-minutes on the Free plan's 20 runners. A newer push cancels them; a merge group's run is never
+        # cancelled, nor cancels another, which would eject its entries from the queue.
+        block = ("concurrency:\n  group: %s\n  cancel-in-progress: %s\n"
+                 % (check_workflows.PR_LANE, check_workflows.PR_CANCEL))
+        self.assertEqual(GOOD.count(block), 1)
+        self.assertEqual((rules(GOOD), self.lens_problems(GOOD)), ([], []))
+        # A re-run's group is its own run's id, so it takes the place of no newer push's run waiting in the pull request's
+        # group (cubic and CodeAnt on pull request 802).
+        self.assertIn("github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number",
+                      check_workflows.PR_LANE)
+        # The two expressions stand in the required check's workflow alone: in any other, each is an expression where text
+        # from outside could stand (the Claude review of #679).
+        self.assertEqual(rules(GOOD, required=False), ["expression"])
+        self.assertEqual(rules(GOOD.replace(block, ""), required=False), [])
+        # Each expression alone, in another workflow (Astra), and the check of the repo's files gives the allowance to the
+        # required check's workflow by its name alone (the Claude review of step 4).
+        self.assertEqual(rules(GOOD.replace("  group: %s\n" % check_workflows.PR_LANE, "  group: other\n"), required=False), ["expression"])
+        self.assertEqual(rules(GOOD.replace("  cancel-in-progress: %s\n" % check_workflows.PR_CANCEL, "  cancel-in-progress: true\n"), required=False), ["expression"])
+        problems = check_workflows.run(clone({"examples/workflows/other.yml": GOOD}))
+        self.assertTrue(caught(problems, "examples/workflows/other.yml: [expression]"), problems)
+        self.assertFalse(caught(problems, "examples/workflows/verify.yml: [expression]"), problems)
+        self.assertEqual(self.lens_problems(GOOD.replace(block, "")), [], "a workflow that cancels nothing is held too")
+        said = "has a top-level concurrency: other than"
+        group, cancel = "  group: %s\n" % check_workflows.PR_LANE, "  cancel-in-progress: %s\n" % check_workflows.PR_CANCEL
+        for old, new in ((cancel, "  cancel-in-progress: true\n"),           # every merge group's run cancelled too
+                         (group, "  group: factory\n"),                      # one group: a merge group cancels another's
+                         (cancel, ""), (group, ""),
+                         (cancel, cancel + "  queue: max\n"),
+                         (block, "concurrency: factory\n")):
+            text = GOOD.replace(old, new, 1)
+            self.assertNotEqual(text, GOOD, new)
+            self.assertTrue(caught(self.lens_problems(text), said), new)
+        # Any other expression there is one where text from outside could stand.
+        for old, new in ((group, "  group: ${{ github.head_ref }}\n"),
+                         (cancel, "  cancel-in-progress: ${{ github.event_name != 'merge_group' }}\n")):
+            self.assertIn("expression", rules(GOOD.replace(old, new, 1)), new)
 
     def test_a_lens_job_that_judges_its_needs_runs_from_the_base(self):
         # verify's verdict is the base's tools/needs_passed.py: its one checkout is of the base, on a pull request and in
@@ -3536,19 +3594,20 @@ class Workflows(unittest.TestCase):
                      run.replace("permissions: {}\n", "permissions: {}\nconcurrency:\n  group: ${{ inputs.item }}\n"),
                      GOOD.replace("      - run: make verify\n", "      - run: make verify\n        outputs:\n"
                                   "          d: ${{ steps.a.outputs.b }}\n", 1)):
-            self.assertIn("expression", {rule for rule, _ in check_workflows.lint(text)})
+            # Read as the required check's workflow, so that GOOD's own concurrency is no expression out of place.
+            self.assertIn("expression", {rule for rule, _ in check_workflows.lint(text, required=True)}, text)
         outputs = GOOD.replace("    timeout-minutes: 28\n", "    timeout-minutes: 28\n    outputs:\n"
                                "      digest: ${{ steps.run.outputs.digest }}\n", 1)
-        self.assertNotIn("expression", {rule for rule, _ in check_workflows.lint(outputs)})
+        self.assertNotIn("expression", {rule for rule, _ in check_workflows.lint(outputs, required=True)})
         self.assertIn("expression", {rule for rule, _ in check_workflows.lint(outputs.replace(
-            "${{ steps.run.outputs.digest }}", "${{ github.event.pull_request.title }}"))})
+            "${{ steps.run.outputs.digest }}", "${{ github.event.pull_request.title }}"), required=True)})
         # A step's outcome is one of four words GitHub gives, so a job may hand it on (issue 757); nothing else of a step.
         self.assertNotIn("expression", {rule for rule, _ in check_workflows.lint(outputs.replace(
-            "${{ steps.run.outputs.digest }}", "${{ steps.run.outcome }}"))})
+            "${{ steps.run.outputs.digest }}", "${{ steps.run.outcome }}"), required=True)})
         for other in ("${{ steps.run.conclusion }}", "${{ steps.run.outcome }}x", "${{ steps.run.outcome.x }}",
                       "${{ steps.run.outcome || github.event.pull_request.title }}"):
             self.assertIn("expression", {rule for rule, _ in check_workflows.lint(outputs.replace(
-                "${{ steps.run.outputs.digest }}", other))}, other)
+                "${{ steps.run.outputs.digest }}", other), required=True)}, other)
 
     def run_tree(self, text: str, account, name: str = "run.yml") -> list:
         config = json.loads((ROOT / "config" / "controller.json").read_text())
@@ -4150,8 +4209,8 @@ class Workflows(unittest.TestCase):
         # Bubblewrap is fetched as root, so the block is held to what it may say, not to words it may not: Ubuntu's
         # sources, each held by Ubuntu's keyring and read over HTTPS, written to the block's own list; and two apt
         # lines that read that list alone, never the image's mirror list, each with exactly the options it is given:
-        # retries capped and each connection's wait bounded (a name that never resolves is not, which the step's own
-        # timeout ends). Read from the one block both workflows hold word for word.
+        # retries capped, each connection's wait bounded, and each lookup's wait bounded by glibc, since a name that
+        # stalls is bounded by no apt option. Read from the one block both workflows hold word for word.
         import shlex
         block = check_workflows.CLI_INSTALL_RUN
         self.assertEqual(len(block), 8)
@@ -4171,11 +4230,14 @@ class Workflows(unittest.TestCase):
         # The update tries each mirror once, since the other mirror is its retry, so a stalled name cannot spend the
         # step's three minutes on retries; the install keeps two. The update's exit is not the step's: one mirror that
         # answers an error, not a lost connection, makes it exit 100 though the other's index is good, and apt keeps no
-        # index it could not verify, so the install still fails closed with no package to take (issue 774).
+        # index it could not verify, so the install still fails closed with no package to take (issue 774). A name that
+        # stalls is bounded by no apt option, so glibc bounds each lookup at two tries of 5 s, on both lines; apt is never
+        # killed, since a killed update keeps none of the index it read (issue 776, record 0205; the canary repo's trial).
         self.assertTrue(block[6].endswith(" || true"), block[6])
         given = ["Dir::Etc::sourcelist=/tmp/ubuntu.list", "Dir::Etc::sourceparts=-", "Acquire::Retries=%d", "Acquire::https::Timeout=10"]
-        for line, words, retries in ((block[6][:-len(" || true")], ["sudo", "apt-get", "update", "-q"], 0),
-                                     (block[7], ["sudo", "apt-get", "install", "-y", "--no-install-recommends"], 2)):
+        bound = "RES_OPTIONS=timeout:5 attempts:2"
+        for line, words, retries in ((block[6][:-len(" || true")], ["sudo", bound, "apt-get", "update", "-q"], 0),
+                                     (block[7], ["sudo", bound, "apt-get", "install", "-y", "--no-install-recommends"], 2)):
             said = shlex.split(line)
             options = [said[k + 1] for k, w in enumerate(said) if w == "-o"]
             rest = [w for k, w in enumerate(said) if w != "-o" and (k == 0 or said[k - 1] != "-o")]
@@ -4188,7 +4250,7 @@ class Workflows(unittest.TestCase):
         model = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
         reader = "          READER_APP_KEY: ${{ secrets.READER_APP_KEY }}\n"
         broken = {
-            "no bubblewrap": good.replace("          sudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap\n", ""),
+            "no bubblewrap": good.replace("          sudo RES_OPTIONS='timeout:5 attempts:2' apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap\n", ""),
             "the reader's key beside the model": good.replace(model, model + reader),
             "the model beside the reader's key": good.replace(reader, reader + model),
             "the reader's step after the model's": good.replace("        run: python3 -m harness.read\n", "        run: X\n")
@@ -4252,8 +4314,8 @@ class Workflows(unittest.TestCase):
     def test_a_dash_in_a_blocks_text_is_no_step(self):  # #416's review
         # A line of a | block that starts with "- " is text, not a step of bare text; one where the steps stand is.
         text = GOOD.replace(STEP, STEP + "        env:\n          NOTE: |\n            - a line of text\n", 1)
-        self.assertEqual(check_workflows.lint(text), [])
-        self.assertEqual([rule for rule, _ in check_workflows.lint(GOOD.replace("    steps:\n", "    steps:\n      - x\n", 1))],
+        self.assertEqual(check_workflows.lint(text, required=True), [])
+        self.assertEqual([rule for rule, _ in check_workflows.lint(GOOD.replace("    steps:\n", "    steps:\n      - x\n", 1), required=True)],
                          ["form"])
 
     def test_a_run_keeps_no_comment_of_its_own(self):  # Argon's read of #392
@@ -4414,6 +4476,15 @@ class TheList(unittest.TestCase):
         self.assertEqual(world.CONFIG["protected_paths"], want)
         # What is only reported, such as a decision record, is listed at a stop and is not on the Kernel's list.
         self.assertNotIn("docs/decisions/", want)
+
+    def test_the_kernel_is_given_the_paths_only_a_person_decides(self):  # decision 0207
+        # By which a wait is named: the tests' Kernel and the simulator's are given the list as config/hooks.json has it.
+        want = [e["path"] for e in self.HOOKS["person_only"]]
+        self.assertEqual(want, ["release/decision-points.json"])
+        self.assertEqual(support.CONFIG["person_only_paths"], want)
+        self.assertEqual(world.CONFIG["person_only_paths"], want)
+        # Each is on the list a person's approval is asked by too, so the two never part.
+        self.assertEqual(support.CONFIG["model_lens_inputs"][-len(want):], want)
 
     def test_each_lens_input_is_a_required_lens_and_verifys_cover_every_check(self):
         lenses = {lens["lens"] for lens in support.CONFIG["required_lenses"]["deterministic"]}
@@ -5229,6 +5300,196 @@ def read_in_linear_cpu(test, read, unit: str, size: int) -> None:
     read(unit * (size // 4))    # once, untimed, so what the first reading warms is not counted to it
     spent, _ = support.measured(lambda n: read(unit * n), size, cpu_problem)
     test.assertEqual(cpu_problem(spent), "", unit)
+
+
+class GateSets(unittest.TestCase):
+    SET, OTHER = "evals/gate/cases.json", "evals/gate-b/cases.json"
+    FLOORS, MARKS = "floors other criteria than", "marks other cases natural than"
+
+    def setUp(self):
+        # CI runs these in a pull request's job and in a merge group's: the check reads which, so each test says.
+        patch = mock.patch.dict(os.environ)
+        patch.start()
+        self.addCleanup(patch.stop)
+        os.environ.pop("GITHUB_EVENT_NAME", None)
+
+    @staticmethod
+    def manifest(natural=range(10), floors=("PR-3",), cases=range(31), gate=True, **over) -> str:
+        """A gate set's manifest of made-up cases: which it marks natural, and the criteria it floors."""
+        found = {"schema": "eval-set/1", "role": "pr-review", "intent": "review-change", "count": len(cases),
+                 "cases": [dict({"id": "c-%d" % n, "sha256": "%064x" % n}, **({"natural": n in natural} if gate else {}))
+                           for n in cases]}
+        if gate:
+            found.update(gate=True, criterion_bars={name: [1, 2] for name in floors})
+        return json.dumps(dict(found, **over))
+
+    @classmethod
+    def planted(cls) -> list:
+        """What the check finds of a floor moved with the cases as main holds them, in a pull request's job or a merge
+        group's: the fault `FAILS` plants."""
+        with mock.patch.dict(os.environ):
+            os.environ.pop("GITHUB_EVENT_NAME", None)
+            return check_gate_sets.run(edited(history({cls.SET: cls.manifest()}), {cls.SET: cls.manifest(floors=("PR-4",))}))
+
+    def main(self, *held) -> pathlib.Path:
+        """A repo whose main held the set as each of `held` in turn, None for a commit that took it away."""
+        root = history({self.SET: held[0]})
+        for text in held[1:]:
+            if text is None:
+                (root / self.SET).unlink()
+                (root / "evals" / "gone").write_text("")        # a commit needs a change that stays
+            else:
+                edited(root, {self.SET: text})
+            committed(root, "main")
+        return root
+
+    def found(self, now, *held, commit: bool = False, at=None) -> list:
+        """What the check finds of the set as `now` has it, at `at` or where main holds it, after main held `held`."""
+        root = self.main(*held) if held else history()
+        return check_gate_sets.run(edited(root, {at or self.SET: now}, commit))
+
+    def test_a_gate_set_keeps_the_floored_criteria_and_natural_marks_main_has_held_for_its_cases(self):
+        # Issue 695, decision 0208: two manifests of the same cases that count them in other groups publish counts whose
+        # difference is a group of fewer than ten, one case among them. Made-up cases: no held-out set is read here.
+        base, floors, marks = self.manifest(), self.FLOORS, self.MARKS
+        self.assertIn(("gate sets", check_gate_sets.run), verify.CHECKS)
+        self.assertEqual(self.found(base, base), [])
+        with mock.patch.dict(os.environ, {"GITHUB_EVENT_NAME": "merge_group"}):
+            self.assertTrue(caught(self.planted(), floors))     # the planted fault is the moved floor in either job
+        for commit in (False, True):        # in the working tree, or committed on the branch
+            # The floor moved from PR-3 to PR-4: the findings on neither are what the two reports' counts leave.
+            self.assertTrue(caught(self.found(self.manifest(floors=("PR-4",)), base, commit=commit), floors))
+            # An eleventh case marked natural: the two natural groups differ by it, under its public id.
+            self.assertTrue(caught(self.found(self.manifest(natural=range(11)), base, commit=commit), marks))
+        # A floor added or dropped moves a group as one moved does; so does a mark taken off, or every mark moved.
+        for other in (("PR-3", "PR-4"), ()):
+            self.assertTrue(caught(self.found(self.manifest(floors=other), base), floors), other)
+        for other in (range(9), range(10, 20), ()):
+            self.assertTrue(caught(self.found(self.manifest(natural=other), base), marks), other)
+        moved = dict(natural=range(11), floors=("PR-4",))
+        both = self.found(self.manifest(**moved), base)
+        self.assertTrue(caught(both, floors) and caught(both, marks) and len(both) == 2)
+        # A floor's fraction is no group, and the order the cases are listed in is none either.
+        self.assertEqual(self.found(self.manifest(criterion_bars={"PR-3": [2, 3]}), base), [])
+        self.assertEqual(self.found(self.manifest(cases=range(30, -1, -1)), base), [])
+        self.assertTrue(caught(self.found(self.manifest(cases=range(30, -1, -1), floors=("PR-4",)), base), floors))
+        # Cases changed are other cases, whose earlier counts this does not hold: one added, one dropped, one issued again
+        # under its id, one under another id. A residual, written down on the issue.
+        self.assertEqual(self.found(self.manifest(cases=range(32), **moved), base), [])
+        self.assertEqual(self.found(self.manifest(cases=range(30), floors=("PR-4",)), base), [])
+        for key, value in (("sha256", "f" * 64), ("id", "c-99")):
+            again = json.loads(self.manifest(**moved))
+            again["cases"][30][key] = value
+            self.assertEqual(self.found(json.dumps(again), base), [], key)
+        # A set main never held, or held as a development set or as nothing that can be read, counted no group there; a
+        # development set here counts none; nor is one read that is gone from the tree, or is no JSON, or writes a key
+        # twice, which the examples' check refuses.
+        for before in ((), (self.manifest(gate=False),), ("{",), ("[]",), (json.dumps({"gate": True, "cases": [7]}),)):
+            self.assertEqual(self.found(self.manifest(**moved), *before), [], before)
+        self.assertEqual(self.found(self.manifest(gate=False), base), [])
+        self.assertEqual(self.found("{", base), [])
+        self.assertEqual(self.found(self.manifest(floors=("PR-4",))[:-1] + ', "gate": true}', base), [])
+        gone = self.main(base)
+        (gone / self.SET).unlink()
+        self.assertEqual(check_gate_sets.run(gone), [])
+
+    def test_a_gate_set_is_held_to_the_same_cases_under_any_name_and_at_any_commit_of_main(self):
+        # A case is fetched by its Role and its id, never by its set's name, so the same cases under another name are
+        # the same cases (the Claude reads of this change).
+        base, moved = self.manifest(), self.manifest(natural=range(11), floors=("PR-4",))
+        beside = self.found(moved, base, at=self.OTHER)                 # added beside the set main holds
+        self.assertTrue(caught(beside, "%s: %s %s at " % (self.OTHER, self.FLOORS, self.SET)) and caught(beside, self.MARKS))
+        self.assertTrue(any(p.startswith(self.SET + ": " + self.FLOORS + " " + self.OTHER + " does") for p in beside))
+        root = history({self.OTHER: base})
+        (root / self.OTHER).unlink()                                    # moved from the other name, in one change
+        self.assertTrue(caught(check_gate_sets.run(edited(root, {self.SET: moved})), self.SET + ": " + self.FLOORS))
+        # Two sets new in one change, of the same cases, are held to each other with no base to read.
+        with outside_actions():
+            pair = check_gate_sets.run(tree({self.SET: base, self.OTHER: moved}))
+        self.assertTrue(caught(pair, self.FLOORS) and caught(pair, self.MARKS) and len(pair) == 4)
+        self.assertEqual(self.found(base, base, at=self.OTHER), [])     # the same groups under two names
+        # What main held at any commit is held, not at its last alone: the set taken away and put back, made a development
+        # set and a gate set again, or a case added with the floor moved and then dropped.
+        for name, held in (("taken away", (base, None)), ("made a development set", (base, self.manifest(gate=False))),
+                           ("a case added and dropped", (base, self.manifest(cases=range(32), floors=("PR-4",))))):
+            self.assertTrue(caught(self.found(self.manifest(floors=("PR-4",)), *held), self.FLOORS), name)
+            self.assertEqual(self.found(base, *held), [], name)
+        # Main's later writing of a set is held as its first is: the cases changed with the floor, and the floor is then
+        # put back with the cases as they are; and a set main moved to another name with a case added.
+        more = dict(cases=range(32), floors=("PR-4",))
+        self.assertTrue(caught(self.found(self.manifest(cases=range(32)), base, self.manifest(**more)), self.FLOORS))
+        self.assertTrue(caught(self.found(self.manifest(floors=("PR-4",)), self.manifest(gate=False), base), self.FLOORS))
+        root = self.main(base, None)
+        edited(root, {self.OTHER: self.manifest(**more)})
+        committed(root, "main")
+        self.assertTrue(caught(check_gate_sets.run(edited(root, {self.OTHER: self.manifest(cases=range(32))})), self.FLOORS))
+        # A name git would write in quotes is a name like any other.
+        quoted = "evals/g\u00e4te \"old\"/cases.json"
+        root = history({quoted: base})
+        (root / quoted).unlink()
+        self.assertTrue(caught(check_gate_sets.run(edited(root, {self.SET: moved})), self.FLOORS))
+        # What main held is main's: a branch's own earlier commit of a set main never held is not held against its later.
+        root = edited(history(), {self.SET: moved}, commit=True)
+        self.assertEqual(check_gate_sets.run(edited(root, {self.SET: base})), [])
+        # In a merge group the entries ahead are main's to be, though origin's main has none of them yet: an entry that
+        # adds a case, and one behind it that moves the floor with the cases as that one left them.
+        root = edited(self.main(base), {self.SET: self.manifest(cases=range(32))}, commit=True)
+        edited(root, {self.SET: self.manifest(**more)})
+        committed(root, "behind")
+        self.assertEqual(check_gate_sets.run(root), [])
+        with mock.patch.dict(os.environ, {"GITHUB_EVENT_NAME": "merge_group"}):
+            self.assertTrue(caught(check_gate_sets.run(root), self.FLOORS))
+        # What a merge brought to main is what the merge left, not each commit of the branch it merged: a set whose
+        # floor moved on its branch, merged whole, is held to the floor it reached main with.
+        root = history()
+        git(root, "checkout", "-q", "-b", "feature")
+        for text in (base, self.manifest(floors=("PR-4",))):
+            edited(root, {self.SET: text})
+            committed(root, "feature")
+        git(root, "checkout", "-q", "main")
+        git(root, "-c", "user.name=T", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff", "-m", "merge", "feature")
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        self.assertEqual(check_gate_sets.run(root), [])
+        self.assertTrue(caught(check_gate_sets.run(edited(root, {self.SET: base})), self.FLOORS))
+        # Only a regular file main held is a manifest: a link's bytes are its target's name, whatever they spell, and
+        # a gitlink is no file. Neither is held, and neither stops the read.
+        few = dict(cases=range(2), natural=())
+        root = history()
+        (root / "evals" / "gate-b").mkdir(parents=True)
+        os.symlink(self.manifest(**few), str(root / self.OTHER))
+        git(root, "add", "-f", self.OTHER)
+        git(root, "update-index", "--add", "--cacheinfo", "160000,%s,evals/old/cases.json" % git(root, "rev-parse", "HEAD").strip())
+        git(root, "-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "links")
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        (root / self.OTHER).unlink()
+        self.assertEqual(check_gate_sets.run(edited(root, {self.SET: self.manifest(floors=("PR-4",), **few)})), [])
+        # A directory where a manifest would be is no manifest, and no fault of this check's.
+        with outside_actions():
+            self.assertEqual(check_gate_sets.run(tree({self.SET + "/x": "", self.OTHER: base})), [])
+        # A manifest main held of other cases says nothing of these.
+        self.assertEqual(self.found(moved, self.manifest(cases=range(40)), self.manifest(cases=range(41))), [])
+
+    def test_a_gate_set_that_cannot_be_compared_with_main_fails_and_an_export_is_held_to_its_own_tree(self):
+        moved = self.manifest(floors=("PR-4",))
+        root = edited(self.main(self.manifest()), {self.SET: moved})
+        git(root, "update-ref", "-d", "refs/remotes/origin/main")
+        self.assertTrue(caught(check_gate_sets.run(root), self.SET + ": cannot be compared with what main has held"))
+        # An export has no history: nothing of main is compared, but in GitHub Actions, where a checkout always has one.
+        export = tree({self.SET: moved})
+        with outside_actions():
+            self.assertEqual(check_gate_sets.run(export), [])
+        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
+            self.assertTrue(caught(check_gate_sets.run(export), "cannot be compared with what main has held"))
+            # A tree with no gate set asks nothing of main, so it is never refused for a history it cannot read.
+            self.assertEqual(check_gate_sets.run(tree({self.SET: self.manifest(gate=False)})), [])
+            self.assertEqual(check_gate_sets.run(tree({"evals/AGENTS.md": "# evals/\n"})), [])
+        # Nor is any history read for it: the checks run on every tree, and most hold no gate set.
+        with mock.patch.object(check_gate_sets, "_git", side_effect=AssertionError("read")):
+            self.assertEqual(check_gate_sets.run(self.main(self.manifest(gate=False))), [])
+        # A manifest nested too deep to read is no manifest, here or in main's history, and no traceback.
+        deep = "[" * 100000 + "]" * 100000
+        self.assertEqual(check_gate_sets.run(edited(self.main(deep), {self.SET: self.manifest()})), [])
+        self.assertEqual(check_gate_sets.run(edited(self.main(self.manifest()), {self.SET: deep})), [])
 
 
 class Trials(unittest.TestCase):
@@ -10645,6 +10906,7 @@ FAILS = {
     "check_release": lambda: check_release.run(clone({"release/current.py": "import os\n"})),
     "check_writes": lambda: check_writes.run(clone({"harness/sneak.py": Writes.SNEAK})),
     "check_decisions": lambda: check_decisions.run(edited(history(), {FIRST: RECORD.replace("one thing.", "x.")})),
+    "check_gate_sets": lambda: GateSets.planted(),
 }
 
 

@@ -9,6 +9,7 @@ import sys
 import time
 import unittest
 
+from controller import configuration
 from tools.hooks import protected
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -21,6 +22,8 @@ CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()),
 # configuration names none until that Role has its manifest under roles/ (issue 675).
 CONFIG["author_role"] = json.loads((ROOT / "config" / "authority.json").read_text())["author_role"]
 CONFIG["model_lens_inputs"] = protected.model_lens_inputs(CONFIG["required_lenses"]["model"])
+# Which of them only a person decides and no model Lens reads, by which the wait is named, as the Controller gives them.
+CONFIG["person_only_paths"] = configuration.person_only(protected.load(), CONFIG["required_lenses"]["model"])
 ITEM = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 42}
 NOW = "2026-10-11T13:00:00Z"
 # Every required check passing, each under its check run's name as GitHub gives it, from its Lens's own App.
@@ -258,7 +261,7 @@ def facts(armed=True, **over) -> dict:
         "description_edited_at": None,
         "expired_reviews": [],
         "last_writer_action_at": "2026-10-11T12:00:00Z", "reviews": [], "threads": [],
-        "checks": copy.deepcopy(GREEN), "queue": False, "acts_since_writer": 0, "acceptance": None,
+        "checks": copy.deepcopy(GREEN), "queue": False, "acts_since_writer": 0, "acceptance": None, "opened_for": None,
         "complete": {"acceptance": True, "reviews": True, "threads": True, "checks": True, "diff": True,
                      "changed_paths": True, "runs": True, "timeline": True},
         "read_at": "2026-10-11T12:59:00Z",
@@ -293,8 +296,10 @@ def run(role="pr-review", intent="review-change", content="sha256:aaaa", status=
         conclusion="success", outcome=None, at="2026-10-11T12:10:00Z", name="r1") -> dict:
     if status == "in_progress":
         conclusion = None
-    return {"run": name, "item": dict(ITEM), "role": role, "intent": intent, "content_id": content,
-            "status": status, "conclusion": conclusion, "outcome": outcome, "started_at": at}
+    # A completed Run began when it started here; one waiting or in progress says nothing of it but by its test.
+    began = {"began_at": at} if status == "completed" else {}
+    return dict({"run": name, "item": dict(ITEM), "role": role, "intent": intent, "content_id": content,
+                 "status": status, "conclusion": conclusion, "outcome": outcome, "started_at": at}, **began)
 
 
 def context(**over) -> dict:
