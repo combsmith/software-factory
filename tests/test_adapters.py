@@ -4176,11 +4176,10 @@ NOT_READ = {
     # `{ login __typename }`; a trial must record the port's own read before it holds them. A resolution itself is a
     # Role's write, which no port makes until an App holds contents: write (P-5).
     "a_lens_review_opens_a_thread": "shape", "an_app_resolves_any_thread": "shape",
-    # The checks port reads the head's status rollup in one GraphQL read, and P-42 recorded REST lists of check runs;
-    # P-42.rollup read the rollup, but with no check run's completedAt or detailsUrl, which the port reads.
-    "a_push_restarts_the_checks": "shape", "any_app_posts_a_check_under_any_name": "shape",
-    "a_check_reports_on_its_own": "shape", "a_check_is_read_by_name_from_every_app": "shape",
-    "a_rerun_replaces_only_its_own_run": "shape", "a_check_can_time_out_or_give_no_verdict": "shape",
+    # The checks port reads the head's status rollup in one GraphQL read; P-42.port read it so of the heads P-42 left, but
+    # these two are a change of a head, a push and a pending check reporting, which no read alone records: they are owed
+    # a sitting that pushes, and P-42 recorded them in REST lists alone (issue 807).
+    "a_push_restarts_the_checks": "shape", "a_check_reports_on_its_own": "shape",
     # The threads port reads each thread's first comment with its time and what it replies to; P-41.threads read the
     # authors and resolvers typed without them, and P-41 reads no thread.
     "an_actor_has_a_kind": "shape",
@@ -4381,6 +4380,10 @@ class Contract(unittest.TestCase):
                 and r["dismissed_by"]["kind"] == "app" for r in reviewed)),
             "a_push_is_new_content": ({"P-29.base"}, before != after),
             "a_check_names_its_run_and_suite": ({"P-65"}, self.run_and_suite_read()),
+            "any_app_posts_a_check_under_any_name": ({"P-42.port"}, self.posted_under_a_name_read()),
+            "a_check_is_read_by_name_from_every_app": ({"P-42.port"}, self.every_apps_name_read()),
+            "a_rerun_replaces_only_its_own_run": ({"P-42.port"}, self.one_of_a_name_in_each_suite_read()),
+            "a_check_can_time_out_or_give_no_verdict": ({"P-42.port"}, self.no_verdict_kept_read()),
             "a_cancelled_run_stays_beside_a_later_run": ({"P-65"}, self.cancelled_beside_read()),
             "a_description_edit_moves_its_time": ({"P-58", "P-58.reader", "P-58.deleted"}, self.description_edit_read()),
             "an_app_edits_a_description": ({"P-58", "P-58.reader", "P-58.deleted"}, self.app_edit_read()),
@@ -4459,6 +4462,58 @@ class Contract(unittest.TestCase):
         """P-65: the head A's checks as the port reads them, after every run there had concluded."""
         trial = exchanges("P-65")[1]["response"]["body"]["data"]["repository"]["pullRequest"]
         return [checks.check(n) for n in trial["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]]
+
+    def p42_port(self, number: int) -> tuple:
+        """P-42.port: the checks of the head of a canary pull request P-42 or P-65 left, by the port's own read replayed
+        from the fixture, and each check run's node as GitHub gave it (issue 807)."""
+        found = next(e for e in exchanges("P-42.port") if e["request"]["body"]["variables"]["number"] == number)
+        head = found["response"]["body"]["data"]["repository"]["pullRequest"]["headRefOid"]
+        pull = {"number": number, "base": {"repo": {"full_name": canary()}}, "head": {"sha": head}}
+        kept = {}
+        read = checks.read(github.Replay([found]), pull, kept)
+        return read, kept["check_runs"][0]
+
+    def posted_under_a_name_read(self) -> bool:
+        """P-42.port: on pull request 65's head, the required check's name is read twice, from its own workflow's run and
+        as a job of another workflow created it, with no file, and it stays."""
+        read, _ = self.p42_port(65)
+        return read["complete"] is True and {(c["app_id"], c["workflow"], c["run_id"]) for c in read["checks"]
+                                              if c["name"] == "p2-queue-check"} == {
+            (15368, ".github/workflows/p2-queue.yml", 40680238410), (15368, None, 40680231375)}
+
+    def every_apps_name_read(self) -> bool:
+        """P-42.port: every check run of a head is read with its exact name and its App's id, from every App, none merged
+        or renamed: on 65, three Apps, and on 92, four."""
+        apps = {}
+        for number in (65, 92):
+            read, nodes = self.p42_port(number)
+            if read["complete"] is not True or len(read["checks"]) != len(nodes):
+                return False
+            if [(c["name"], c["app_id"]) for c in read["checks"]] != [(n["name"], n["checkSuite"]["app"]["databaseId"])
+                                                                      for n in nodes]:
+                return False
+            apps[number] = {c["app_id"] for c in read["checks"]}
+        return apps == {65: {15368, 57789, 347564}, 92: {15368, 57789, 347564, 12526}}
+
+    def one_of_a_name_in_each_suite_read(self) -> bool:
+        """P-42.port: on pull request 92's head, after P-42.rollup's re-run of p42 / timed-out, each name is read once in
+        each workflow run, and both runs of p42-checks.yml on the one commit stay, each with its own id."""
+        read, _ = self.p42_port(92)
+        by_run = {}
+        for c in read["checks"]:
+            by_run.setdefault(c["run_id"], []).append(c["name"])
+        timed_out = {c["run_id"] for c in read["checks"] if c["name"] == "p42 / timed-out"}
+        return (read["complete"] is True and all(len(names) == len(set(names)) for run, names in by_run.items() if run)
+                and timed_out == {41572974588, 41572979188})
+
+    def no_verdict_kept_read(self) -> bool:
+        """P-42.port: on pull request 92's head a fortnight on, the job stopped at its limit is still cancelled, and the
+        neutral and skipped checks still give no verdict, in each run that holds them."""
+        read, _ = self.p42_port(92)
+        said = {(c["name"], c["conclusion"]) for c in read["checks"]
+                if c["name"] in ("p42 / timed-out", "p42 / neutral", "p42 / skipped")}
+        return read["complete"] is True and said == {("p42 / timed-out", "cancelled"), ("p42 / neutral", "neutral"),
+                                                      ("p42 / skipped", "skipped")}
 
     def run_and_suite_read(self) -> bool:
         """P-65: each check run carries its workflow run's id and its suite's conclusion, and the re-run of R1 kept R1's
