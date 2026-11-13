@@ -3864,6 +3864,50 @@ class RulesChanged(unittest.TestCase):
             broken.write_text(json.dumps(dict(data, lens_inputs=value)))
             self.assertRaises(protected.Unreadable, protected.load, broken)
 
+    def test_a_path_only_a_person_decides_is_read_with_the_lists_and_given_after_a_model_lenss_inputs(self):  # decision 0200
+        data = json.loads((ROOT / "config" / "hooks.json").read_text())
+        held = protected.load()
+        self.assertEqual(held["person_only"], [(e["path"], e["is"]) for e in data["person_only"]])
+        persons = [e["path"] for e in data["person_only"]]
+        own = [e["path"] for e in data["lens_inputs"] if e["lens"] == "pr-review"]
+        # What the Kernel is given: the model Lens's own inputs, then each person-only path, once.
+        self.assertEqual(protected.model_lens_inputs(["pr-review"]), own + persons)
+        shared = [p for p in own if p in [e["path"] for e in data["protected"]]][0]      # a Lens's input, protected too
+        both = protected.parse(json.dumps(dict(data, person_only=data["person_only"] + [{"path": shared, "is": "x"}])))
+        self.assertEqual(protected.model_inputs_of(both, ["pr-review"]), own + persons)
+        twice = protected.parse(json.dumps(dict(data, person_only=data["person_only"] + [dict(data["person_only"][0], **{"is": "x"})])))
+        self.assertEqual(protected.model_inputs_of(twice, ["pr-review"]), own + persons)
+        # Where no model Lens's input is named the Kernel is given nothing, and defers on that as it did (decision
+        # 0052): a person-only path never stands in for one, so the two files disagreeing on a Lens's name is not passed.
+        for models in ([], ["no-such-lens"], ["verify"][:0]):
+            self.assertEqual(protected.model_inputs_of(held, models), [], models)
+        # Each is protected too, so an edit is asked of the person, and a Role's push may not touch it, once, whatever
+        # Lens is named; a list that names a path not protected is not read at all.
+        for path in persons:
+            self.assertIn(path, [p for p, _ in held["protected"]])
+            for models in (["pr-review"], [], ["no-such-lens"]):
+                self.assertEqual(protected.push_of(held, models).count(path), 1)
+        alone = dict(data, person_only=data["person_only"] + [{"path": "release/rings.json", "is": "x"}])
+        self.assertRaises(protected.Unreadable, protected.parse, json.dumps(alone))
+        too = dict(alone, protected=data["protected"] + [{"path": "release/rings.json", "is": "x"}])
+        self.assertEqual(protected.parse(json.dumps(too))["person_only"][-1], ("release/rings.json", "x"))
+        # Each path of the list is given to the Kernel, in the list's order, not the first alone.
+        self.assertEqual(protected.model_inputs_of(protected.parse(json.dumps(too)), ["pr-review"]),
+                         own + persons + ["release/rings.json"])
+        # A file with no such list, as a commit before the decision has none, names none, and is read as before.
+        before = protected.parse(json.dumps({key: value for key, value in data.items() if key != "person_only"}))
+        self.assertEqual(before["person_only"], [])
+        self.assertEqual(protected.model_inputs_of(before, ["pr-review"]), own)
+        self.assertEqual(before["protected"], held["protected"])
+        # A list that is there and is no list of at least one path and what it is, is not the shape the hooks read.
+        for value in ([], None, "release/", {}, ["release/x.json"], [{"path": "release/x.json"}], [{"is": "x"}],
+                      [{"path": "", "is": "x"}], [{"path": 5, "is": "x"}],
+                      [{"path": persons[0], "is": ""}], [{"path": persons[0], "is": 5}], [{"path": persons[0], "is": None}],
+                      [{"path": "release/../x.json", "is": "x"}], [{"path": "release/**", "is": "x"}],
+                      [{"path": "release\\x.json", "is": "x"}], [{"path": "release/\x00x.json", "is": "x"}]):
+            with self.subTest(person_only=value):
+                self.assertRaises(protected.Unreadable, protected.parse, json.dumps(dict(data, person_only=value)))
+
     def test_a_protected_or_reported_path_with_two_stars_is_refused(self):  # decision 0029
         # The directory-holds check reads each name of a path as one name, so `**` is refused until it reads it.
         data = json.loads((ROOT / "config" / "hooks.json").read_text())

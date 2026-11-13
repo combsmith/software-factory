@@ -419,8 +419,8 @@ class Fixture(unittest.TestCase):
 
     def deployments_after(self, path) -> list:
         """The Deployments recorded after the cut `path` holds by steps that were no cut, newest first, as the fixture
-        of those steps lists them: a move forward's, of the cut's Release again, above the rollback's before it. None
-        for a cut no such step followed."""
+        of those steps lists them: a move forward's, of the cut's Release again, above the rollback's before it. An
+        empty list for a cut no such step followed."""
         if path not in self.LATER:
             return []
         steps, cut_ = json.loads(self.LATER[path].read_text()), json.loads(path.read_text())

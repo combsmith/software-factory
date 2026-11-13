@@ -35,7 +35,8 @@
     {"path": ".git/config", "is": "git's configuration, which says where a push goes"},
     {"path": ".git/refs/remotes/", "is": "a remote branch, which a stop compares the branch with"},
     {"path": ".git/packed-refs", "is": "git's packed branches, which a stop compares the branch with"},
-    {"path": ".git/info/grafts", "is": "git's grafts, which change the history a stop compares the branch with"}
+    {"path": ".git/info/grafts", "is": "git's grafts, which change the history a stop compares the branch with"},
+    {"path": "release/decision-points.json", "is": "the Maintainer's continue or stop, which he alone decides"}
   ],
   "reported": [
     {"path": "docs/decisions/", "is": "a decision record, which is never edited, only replaced"},
@@ -77,6 +78,9 @@
     {"lens": "secret-scan", "path": ".gitleaks.toml", "is": "what the secret scan looks for, and what it lets pass"},
     {"lens": "secret-scan", "path": ".gitleaksignore", "is": "the findings the secret scan is told to pass over"},
     {"lens": "verify", "path": "*", "is": "a file or a link at the top of the repo, which verify may import before the standard library"}
+  ],
+  "person_only": [
+    {"path": "release/decision-points.json", "is": "the Maintainer's continue or stop: a decision no Lens judges"}
   ],
   "merging": {
     "branch": "main",
