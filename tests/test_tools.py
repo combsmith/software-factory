@@ -4191,8 +4191,8 @@ class Workflows(unittest.TestCase):
         # Bubblewrap is fetched as root, so the block is held to what it may say, not to words it may not: Ubuntu's
         # sources, each held by Ubuntu's keyring and read over HTTPS, written to the block's own list; and two apt
         # lines that read that list alone, never the image's mirror list, each with exactly the options it is given:
-        # retries capped and each connection's wait bounded (a name that never resolves is not, which the step's own
-        # timeout ends). Read from the one block both workflows hold word for word.
+        # retries capped, each connection's wait bounded, and each lookup's wait bounded by glibc, since a name that
+        # stalls is bounded by no apt option. Read from the one block both workflows hold word for word.
         import shlex
         block = check_workflows.CLI_INSTALL_RUN
         self.assertEqual(len(block), 8)
@@ -4212,11 +4212,14 @@ class Workflows(unittest.TestCase):
         # The update tries each mirror once, since the other mirror is its retry, so a stalled name cannot spend the
         # step's three minutes on retries; the install keeps two. The update's exit is not the step's: one mirror that
         # answers an error, not a lost connection, makes it exit 100 though the other's index is good, and apt keeps no
-        # index it could not verify, so the install still fails closed with no package to take (issue 774).
+        # index it could not verify, so the install still fails closed with no package to take (issue 774). A name that
+        # stalls is bounded by no apt option, so glibc bounds each lookup at two tries of 5 s, on both lines; apt is never
+        # killed, since a killed update keeps none of the index it read (issue 776, record 0205; the canary repo's trial).
         self.assertTrue(block[6].endswith(" || true"), block[6])
         given = ["Dir::Etc::sourcelist=/tmp/ubuntu.list", "Dir::Etc::sourceparts=-", "Acquire::Retries=%d", "Acquire::https::Timeout=10"]
-        for line, words, retries in ((block[6][:-len(" || true")], ["sudo", "apt-get", "update", "-q"], 0),
-                                     (block[7], ["sudo", "apt-get", "install", "-y", "--no-install-recommends"], 2)):
+        bound = "RES_OPTIONS=timeout:5 attempts:2"
+        for line, words, retries in ((block[6][:-len(" || true")], ["sudo", bound, "apt-get", "update", "-q"], 0),
+                                     (block[7], ["sudo", bound, "apt-get", "install", "-y", "--no-install-recommends"], 2)):
             said = shlex.split(line)
             options = [said[k + 1] for k, w in enumerate(said) if w == "-o"]
             rest = [w for k, w in enumerate(said) if w != "-o" and (k == 0 or said[k - 1] != "-o")]
@@ -4229,7 +4232,7 @@ class Workflows(unittest.TestCase):
         model = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
         reader = "          READER_APP_KEY: ${{ secrets.READER_APP_KEY }}\n"
         broken = {
-            "no bubblewrap": good.replace("          sudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap\n", ""),
+            "no bubblewrap": good.replace("          sudo RES_OPTIONS='timeout:5 attempts:2' apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap\n", ""),
             "the reader's key beside the model": good.replace(model, model + reader),
             "the model beside the reader's key": good.replace(reader, reader + model),
             "the reader's step after the model's": good.replace("        run: python3 -m harness.read\n", "        run: X\n")

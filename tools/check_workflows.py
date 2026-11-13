@@ -371,8 +371,8 @@ jobs:
           chmod 0755 /tmp/claude
           sudo mv /tmp/claude /usr/local/bin/claude
           printf '%%s\\n' 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://azure.archive.ubuntu.com/ubuntu noble main' 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://azure.archive.ubuntu.com/ubuntu noble-updates main' 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://azure.archive.ubuntu.com/ubuntu noble-security main' 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://mirrors.edge.kernel.org/ubuntu noble main' 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://mirrors.edge.kernel.org/ubuntu noble-updates main' 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://mirrors.edge.kernel.org/ubuntu noble-security main' > /tmp/ubuntu.list
-          sudo apt-get update -q -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=0 -o Acquire::https::Timeout=10 || true
-          sudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap
+          sudo RES_OPTIONS='timeout:5 attempts:2' apt-get update -q -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=0 -o Acquire::https::Timeout=10 || true
+          sudo RES_OPTIONS='timeout:5 attempts:2' apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap
       - name: Read what the Task is built from
         id: read
         env:
@@ -733,15 +733,17 @@ EVAL_ORDER = ("checkout", "plan", "install", "fetch", "run", "seal", "ledger", "
 # block's own, never through the image's mirror list, which stalled the step on 2026-11-11 (issue 743), from two
 # mirrors of different operators, the image's own Azure one and kernel.org's: either unreachable, apt warns and takes
 # the package from the other; the update tries each once, since the other is its retry, and its exit is not the
-# step's, since one mirror's error would stop it though the other's index is good (issue 774, record 0197).
+# step's, since one mirror's error would stop it though the other's index is good (issue 774, record 0197). A name that
+# stalls is bounded by no apt option, so glibc's RES_OPTIONS bounds each lookup at two tries of 5 s, on both lines; apt
+# itself is never killed, since a killed update keeps none of the index it read (issue 776, record 0205).
 CLI_INSTALL_RUN = ['url="https://downloads.claude.ai/claude-code-releases/${CLI_VERSION}/linux-x64/claude"',
                    "curl -sSfL --proto '=https' --proto-redir '=https' -o /tmp/claude \"${url}\"",
                    'echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c',
                    "chmod 0755 /tmp/claude",
                    "sudo mv /tmp/claude /usr/local/bin/claude",
                    "printf '%s\\n' 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://azure.archive.ubuntu.com/ubuntu noble main' 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://azure.archive.ubuntu.com/ubuntu noble-updates main' 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://azure.archive.ubuntu.com/ubuntu noble-security main' 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://mirrors.edge.kernel.org/ubuntu noble main' 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://mirrors.edge.kernel.org/ubuntu noble-updates main' 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://mirrors.edge.kernel.org/ubuntu noble-security main' > /tmp/ubuntu.list",
-                   "sudo apt-get update -q -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=0 -o Acquire::https::Timeout=10 || true",
-                   "sudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap"]
+                   "sudo RES_OPTIONS='timeout:5 attempts:2' apt-get update -q -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=0 -o Acquire::https::Timeout=10 || true",
+                   "sudo RES_OPTIONS='timeout:5 attempts:2' apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap"]
 EVAL_JOB_KEYS = {"runs-on", "timeout-minutes", "permissions", "environment", "outputs", "steps"}
 # The job's one output, the sealed ledger's sha256, which the seal step alone sets, under the one id a step may take: the
 # Maintainer's ruling on issue 612 keeps it for whatever stores the ciphertext, once that is decided.

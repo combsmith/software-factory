@@ -293,8 +293,10 @@ def run(role="pr-review", intent="review-change", content="sha256:aaaa", status=
         conclusion="success", outcome=None, at="2026-10-11T12:10:00Z", name="r1") -> dict:
     if status == "in_progress":
         conclusion = None
-    return {"run": name, "item": dict(ITEM), "role": role, "intent": intent, "content_id": content,
-            "status": status, "conclusion": conclusion, "outcome": outcome, "started_at": at}
+    # A completed Run began when it started here; one waiting or in progress says nothing of it but by its test.
+    began = {"began_at": at} if status == "completed" else {}
+    return dict({"run": name, "item": dict(ITEM), "role": role, "intent": intent, "content_id": content,
+                 "status": status, "conclusion": conclusion, "outcome": outcome, "started_at": at}, **began)
 
 
 def context(**over) -> dict:
