@@ -2110,6 +2110,18 @@ class EvalJob(unittest.TestCase):
         with mock.patch.object(step, "run_id", lambda: live.RUN):
             result = review(case)
         self.assertEqual((result["status"], result["usage"]["seconds"], spans), ("completed", 18.0, []))
+        # The retry is the same case's Run: its Task keeps the Run id the first ask was given, however many are minted.
+        ids, runs, answered = iter([live.RUN, "r_" + "B" * 20]), [], step.live.answer
+
+        def answering(the_task, *given, **named):
+            runs.append(the_task["run"])
+            return answered(the_task, *given, **named)
+        cli = Answers(vendor(529), good)
+        (heads / case["id"]).mkdir(parents=True, exist_ok=True)
+        review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, lambda: 0.0, heads, sleep=lambda seconds: None)
+        with mock.patch.object(step, "run_id", lambda: next(ids)), mock.patch.object(step.live, "answer", answering):
+            result = review(case)
+        self.assertEqual((result["status"], runs), ("completed", [live.RUN] * 2))
         # A retry judges its own call alone: one whose call cannot be made after a 5xx is the Engine's other fault, its
         # word that call's, and it is not asked a third time.
         result, review, calls, slept = asked(vendor(503), OSError("no such file"), good)
@@ -2132,7 +2144,10 @@ class EvalJob(unittest.TestCase):
             result, review, calls, slept = asked((live.answer(structured_output=None), 0), vendor(503))
             self.assertEqual((result["reason"], review.retried, calls), ("no_answer", {}, 2))
             self.assertEqual((review.seen["exit"], review.seen["terminal_reason"], review.seen["api_error_status"]), (0, None, None))
-        # The test is of a failed Result alone: a completed one is never transient, whatever the call said.
+        # The test is of a failed Result alone: a completed one is never transient, whatever the call said. Each probe is of
+        # a Result the Engine failed, so that it reaches the guard it is of.
+        result = dict(result, status="failed", reason="engine_failed")
+        self.assertTrue(job.transient(result, {"terminal_reason": "api_error", "api_error_status": 529}))
         self.assertFalse(job.transient(dict(result, status="completed", reason=None), {"terminal_reason": "api_error"}))
         self.assertFalse(job.transient(dict(result, status="completed"), {"terminal_reason": "api_error"}))
         self.assertFalse(job.transient(dict(result, reason="no_answer"), {"terminal_reason": "api_error"}))
