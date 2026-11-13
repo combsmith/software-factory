@@ -1,0 +1,106 @@
+{
+  "schema": "facts/1",
+  "item": {
+    "repo": "combsmith/software-factory",
+    "type": "pull_request",
+    "number": 42
+  },
+  "state": "open",
+  "is_draft": false,
+  "class": "maintainer",
+  "author": "don-petry",
+  "last_pusher": "don-petry",
+  "targets_protected": true,
+  "mergeable": true,
+  "content_id": "sha256:5d0c",
+  "diff": {
+    "files": 2,
+    "lines": 120,
+    "truncated": false
+  },
+  "changed_paths": [
+    {
+      "path": "kernel/derive.py",
+      "previous": null
+    },
+    {
+      "path": "docs/glossary.md",
+      "previous": null
+    }
+  ],
+  "label_events": [],
+  "last_push_at": "2026-10-11T12:00:00Z",
+  "last_reopened_at": null,
+  "description_edited_at": null,
+  "expired_reviews": [],
+  "last_writer_action_at": "2026-10-11T12:00:00Z",
+  "reviews": [],
+  "threads": [
+    {
+      "id": "PRRT_kw7",
+      "resolved": false,
+      "opened_by": {
+        "kind": "lens",
+        "name": "pr-review",
+        "can_write": true
+      },
+      "category": "functional",
+      "severity": "major",
+      "resolved_by": null,
+      "opened_at": "2026-10-11T12:15:00Z",
+      "ruling": null
+    },
+    {
+      "id": "PRRT_kw1",
+      "resolved": false,
+      "opened_by": {
+        "kind": "lens",
+        "name": "coderabbit",
+        "can_write": false
+      },
+      "category": null,
+      "severity": null,
+      "resolved_by": null,
+      "opened_at": "2026-10-11T12:15:00Z",
+      "ruling": null
+    }
+  ],
+  "checks": [
+    {
+      "name": "verify",
+      "app_id": 15368,
+      "workflow": ".github/workflows/verify.yml",
+      "conclusion": "success",
+      "completed_at": "2026-10-11T12:06:00Z"
+    },
+    {
+      "name": "Secret scan (gitleaks)",
+      "app_id": 15368,
+      "workflow": ".github/workflows/ci.yml",
+      "conclusion": "success",
+      "completed_at": "2026-10-11T12:06:00Z"
+    },
+    {
+      "name": "CodeQL",
+      "app_id": 57789,
+      "workflow": null,
+      "conclusion": "success",
+      "completed_at": "2026-10-11T12:06:00Z"
+    }
+  ],
+  "queue": false,
+  "acts_since_writer": 0,
+  "acceptance": null,
+  "opened_for": 0,
+  "complete": {
+    "acceptance": true,
+    "reviews": true,
+    "threads": true,
+    "checks": true,
+    "diff": true,
+    "changed_paths": true,
+    "runs": true,
+    "timeline": true
+  },
+  "read_at": "2026-10-11T12:20:00Z"
+}

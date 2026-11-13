@@ -81,7 +81,10 @@ def request(method: str, path: str, accept: str = JSON, body=None, headers=None,
     See `download` and `tarball`."""
     if method not in ("GET", "POST", "PUT", "PATCH", "DELETE"):
         raise Unanswered("a request needs an HTTP method, not %r" % (method,))
-    parts = urllib.parse.urlsplit(path)
+    try:
+        parts = urllib.parse.urlsplit(path)
+    except ValueError:      # a bracket where a host would be
+        raise Unanswered("a path cannot be read as one: %r" % (path,)) from None
     if parts.scheme or parts.netloc or not path.startswith("/") or path.startswith("//") or "\\" in path:
         raise Unanswered("a path is from the API's root, on %s alone: %r" % (HOST, path))
     extra = dict(headers or {})
@@ -156,6 +159,9 @@ def storage(url) -> str:
     # The whole netloc is the host, so a port, a user or a host's case GitHub would not give is refused with it.
     if parts is None or parts.scheme != "https" or not STORAGE.fullmatch(parts.netloc) or any(c in url for c in " \t\r\n\0\\"):
         raise Unanswered("an artifact's download redirects off GitHub's artifact storage, or not over HTTPS")
+    # Nor one with a fragment: the path read here ends at the first "#", and all but what follows the last is sent.
+    if "#" in url:
+        raise Unanswered("an artifact's download redirects to an address with a fragment")
     segments = parts.path.split("/")
     if not parts.path.startswith(STORED_UNDER) or "%" in parts.path or any(segment in (".", "..") for segment in segments):
         raise Unanswered("an artifact's download redirects outside %s" % STORED_UNDER)
@@ -202,6 +208,20 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
     http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
 
 
+def sendable(path: str) -> None:
+    """Refuses a path the live transport will not send, whoever built it (decision 0209). One with a "#", a space or a
+    control character: what follows the last "#" is dropped as the request is made, so a segment after an earlier one
+    would be sent unread, and a tab or a newline is stripped before a path is read. And one a segment of which is "."
+    or "..", plain, percent-encoded or behind an encoded slash or backslash: GitHub resolves them in a contents path,
+    so a part its caller did not hold would name another file than the one asked. The query is split off before the
+    path is decoded, and is no path. Held here and not in `request`, so that each port's own refusal of its parts is
+    still told from this one by its tests."""
+    if "#" in path or any(not c.isprintable() or c == " " for c in path):
+        raise Unanswered("a path holds no #, space or control character: %r" % (path,))
+    if any(part in (".", "..") for part in re.split(r"[/\\]", urllib.parse.unquote(urllib.parse.urlsplit(path).path))):
+        raise Unanswered("a path holds no segment that is . or ..: %r" % (path,))
+
+
 class Live:
     """HTTPS to api.github.com, with the token its caller gives it, or none at all for a commit's tarball alone."""
 
@@ -225,6 +245,7 @@ class Live:
                       req.get("follow", False), req.get("bound"))
         if self._token is None and not (req.get("follow") and TARBALL.fullmatch(req["path"])):
             raise Unanswered("a transport with no token sends a commit's tarball alone")
+        sendable(req["path"])
         url = "https://%s%s" % (HOST, req["path"])
         if urllib.parse.urlsplit(url).netloc != HOST:
             raise Unanswered("a request goes to %s alone" % HOST)

@@ -25,13 +25,23 @@ def _readable(root: pathlib.Path, *parts):
 
 
 def kernel(root: pathlib.Path) -> dict:
-    """The Kernel's configuration as its tests give it: the defaults, and the protected paths and the model Lenses'
-    inputs, from the one list the session hooks read too."""
-    held = dict(_json(root, "config", "defaults.json"),
-                protected_paths=protected.protected_paths(root / "config" / "hooks.json"))
-    held["model_lens_inputs"] = protected.model_lens_inputs(held["required_lenses"]["model"],
-                                                            root / "config" / "hooks.json")
+    """The Kernel's configuration as its tests give it: the defaults, and the protected paths, the model Lenses'
+    inputs and the paths only a person decides, from the one list the session hooks read too, read once."""
+    hooks = protected.load(root / "config" / "hooks.json")
+    held = dict(_json(root, "config", "defaults.json"), protected_paths=protected.protected_of(hooks))
+    held["model_lens_inputs"] = protected.model_inputs_of(hooks, held["required_lenses"]["model"])
+    held["person_only_paths"] = person_only(hooks, held["required_lenses"]["model"])
     return held
+
+
+def person_only(hooks: dict, models: list) -> list:
+    """What the Kernel is given as `person_only_paths`, of `hooks`, a reading of `config/hooks.json` by
+    `tools/hooks/protected.py`: each path only a person decides that no Lens of `models`, the model Lenses, reads,
+    once, in the file's order. By this list the Kernel names the wait `path_needs_person`, so a path that is a model
+    Lens's own input as well is left off it: its change waits as a Lens's input does, the stricter name, and is never
+    passed off as a person's path alone (decision 0207)."""
+    own = [path for lens, path, _ in hooks["lens_inputs"] if lens in models]
+    return [path for path in dict.fromkeys(path for path, _ in hooks["person_only"]) if path not in own]
 
 
 def load(root: pathlib.Path, release: str, app: str) -> dict:
