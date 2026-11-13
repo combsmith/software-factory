@@ -2967,6 +2967,10 @@ class Workflows(unittest.TestCase):
                  % (check_workflows.PR_LANE, check_workflows.PR_CANCEL))
         self.assertEqual(GOOD.count(block), 1)
         self.assertEqual((rules(GOOD), self.lens_problems(GOOD)), ([], []))
+        # A re-run's group is its own run's id, so it takes the place of no newer push's run waiting in the pull request's
+        # group (cubic and CodeAnt on pull request 802).
+        self.assertIn("github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number",
+                      check_workflows.PR_LANE)
         # The two expressions stand in the required check's workflow alone: in any other, each is an expression where text
         # from outside could stand (the Claude review of #679).
         self.assertEqual(rules(GOOD, required=False), ["expression"])

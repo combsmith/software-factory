@@ -10,7 +10,7 @@ on:
   merge_group:
 permissions: {}
 concurrency:
-  group: ${{ format('factory-pr-{0}', github.event.pull_request.number || github.run_id) }}
+  group: ${{ format('factory-pr-{0}', github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}
 jobs:
   checks:

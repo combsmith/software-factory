@@ -50,7 +50,7 @@ RULES = {
     "expression": "an expression stands only as the whole of a value under env:, with: or secrets:, or in if:; or as "
                   "exactly a Run's name, ${{ inputs.name }}, its lane, ${{ inputs.item }}, or a step's output or its outcome; "
                   "or, in the required check's workflow alone, as its top-level concurrency's group, "
-                  "${{ format('factory-pr-{0}', github.event.pull_request.number || github.run_id) }}, and "
+                  "${{ format('factory-pr-{0}', github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id) }}, and "
                   "cancel-in-progress, ${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}",
     "model": "no step sets the CLI's environment scrub, which only the Engine sets, beside --tools \"\", and a step that "
              "holds the model's credential is handed no tool list",
@@ -112,7 +112,7 @@ LANE = "${{ inputs.item }}"
 # group's: a merge group's group is its own run's id, unlike any other, and it cancels nothing. Nor does a re-run, whose
 # attempt is past its first: it keeps its pull_request event, and would cancel a newer head's run (Astra). The prefix keeps a pull
 # request's group apart from every Run's lane, which is its item's (2026-11-09).
-PR_LANE = "${{ format('factory-pr-{0}', github.event.pull_request.number || github.run_id) }}"
+PR_LANE = "${{ format('factory-pr-{0}', github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id) }}"
 PR_CANCEL = "${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}"
 # The required check's workflow, the one file whose top-level concurrency may hold those two expressions.
 REQUIRED_WORKFLOW = "verify.yml"
