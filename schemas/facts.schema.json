@@ -556,7 +556,7 @@
       }
     },
     "opened_for": {
-      "description": "The issue the Factory opened this pull request for, or null for any other pull request, a person's or a builder's session's. It is the number its branch names, `factory-work/issue-N-K`, read only where the App of the Role that opens pull requests authored it on a branch of that shape in the repo itself, and where every opening Run was read and none names it for another issue, or twice (issues 295 and 342). Where that cannot be told, complete.acceptance is false: the same read gives both. It is given for the rule that admits the author Role's fix only on a pull request the Factory opened (issue 823). The one fact not required: the port gives it in every snapshot, and facts made before it, an eval set's among them, are read as they stand, its absence as null (a fact newly required needs the Harness's row, decision 0105)",
+      "description": "The issue the Factory opened this pull request for, or null for any other pull request, a person's or a builder's session's. It is the number its branch names, `factory-work/issue-N-K`, read only where the App of the Role that opens pull requests authored it on a branch of that shape in the repo itself, and where every opening Run was read and none names it for another issue, or twice (issues 295 and 342). Where that cannot be told, complete.acceptance is false: the same read gives both. It is given for the rule that admits the author Role's fix only on a pull request the Factory opened (issue 823). The one fact not required: the port gives it in every snapshot, and facts made before it, an eval set's among them, are read as they stand (a fact newly required needs the Harness's row, decision 0105)",
       "type": [
         "integer",
         "null"
