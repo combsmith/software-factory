@@ -15,7 +15,8 @@ with no `strategy.matrix` and no `uses:`. Its one job-level `if:` is exactly `al
 every other job in its file, and then it judges them with `tools/needs_passed.py`, the base's: its one checkout is
 of the base, never the head. Only `jobs.<id>.name` is read: a workflow's or a step's `name:` names no check run.
 In the required check's workflow, the mutants and `make verify` each run in a matrix whose legs are told their place
-and the count by the matrix itself (_shards, _legs), so that no mutant and no test is left in no leg.
+and the count by the matrix itself (_shards, _legs), so that no mutant and no test is left in no leg. Its one top-level
+concurrency, if any, is PR_LANE and PR_CANCEL: a pull request's run gives way to a newer push's, and a merge group's never.
 
 The secret scan, the exempt `ci.yml`, reads its rules from the base (scan_problems): `.gitleaks.toml` and
 `.gitleaksignore` from a checkout of the base under `base/`, with the head's `.gitleaksignore` deleted first, since
@@ -47,7 +48,10 @@ RULES = {
     "wake": "a workflow on workflow_run wakes on the completion alone of the workflows it names, never its own, takes "
             "no input and reads nothing of the run that woke it",
     "expression": "an expression stands only as the whole of a value under env:, with: or secrets:, or in if:; or as "
-                  "exactly a Run's name, ${{ inputs.name }}, its lane, ${{ inputs.item }}, or a step's output or its outcome",
+                  "exactly a Run's name, ${{ inputs.name }}, its lane, ${{ inputs.item }}, or a step's output or its outcome; "
+                  "or, in the required check's workflow alone, as its top-level concurrency's group, "
+                  "${{ format('factory-pr-{0}', github.event.pull_request.number || github.run_id) }}, and "
+                  "cancel-in-progress, ${{ github.event_name == 'pull_request' }}",
     "model": "no step sets the CLI's environment scrub, which only the Engine sets, beside --tools \"\", and a step that "
              "holds the model's credential is handed no tool list",
     "lane": "a job that calls the Run's jobs, or an act's, holds its item's lane: its own concurrency group, "
@@ -104,6 +108,13 @@ RUN_JOBS = "run-jobs.yml"
 APPROVE_JOB = "approve-job.yml"
 QUEUE_JOB = "queue-job.yml"
 LANE = "${{ inputs.item }}"
+# The required check's workflow cancels a pull request's run when a newer push to it starts one, and never a merge
+# group's: a merge group's group is its own run's id, unlike any other, and it cancels nothing. The prefix keeps a pull
+# request's group apart from every Run's lane, which is its item's (2026-11-09).
+PR_LANE = "${{ format('factory-pr-{0}', github.event.pull_request.number || github.run_id) }}"
+PR_CANCEL = "${{ github.event_name == 'pull_request' }}"
+# The required check's workflow, the one file whose top-level concurrency may hold those two expressions.
+REQUIRED_WORKFLOW = "verify.yml"
 RUN_NAME = "${{ inputs.name }}"
 OUTPUT = re.compile(r"^\$\{\{ steps\.[a-z][\w-]*\.(?:outputs\.[a-z][\w-]*|outcome) \}\}$")
 # The Run's shim, as the ruling gives it in full: its dispatcher is the pass's own token, by the account controller/1
@@ -964,8 +975,9 @@ def read(text: str) -> tuple:
     return entries, bad
 
 
-def lint(text: str) -> list:
-    """(rule, message) for each rule this workflow breaks."""
+def lint(text: str, required: bool = False) -> list:
+    """(rule, message) for each rule this workflow breaks; `required` for the required check's workflow, the one whose
+    top-level concurrency may hold PR_LANE and PR_CANCEL (issue 681)."""
     entries, bad = read(text)
     found = []
 
@@ -1094,6 +1106,8 @@ def lint(text: str) -> list:
                 or (e["path"] == [] and e["key"] == "run-name" and e["value"] == RUN_NAME)
                 or (e["path"][-1:] == ["concurrency"] and len(e["path"]) == 3 and e["key"] == "group"
                     and e["value"] == LANE)
+                or (required and e["path"] == ["concurrency"] and (e["key"], e["value"]) in (("group", PR_LANE),
+                                                                              ("cancel-in-progress", PR_CANCEL)))
                 or (e["path"][-1:] == ["outputs"] and len(e["path"]) == 3 and bool(OUTPUT.match(e["value"]))))
             if not passed:
                 found.append(("expression", "line %d writes an expression where it could become a command" % number))
@@ -1836,6 +1850,10 @@ def lens_job_problems(text: str, check: str) -> list:
                          for why in _judging(text, entries, job, jobs)]
     if any("needs" in inside for _, inside in named):     # the required check's workflow, whose job judges the rest
         problems += _commits(text, entries, jobs) + _shards(entries, jobs) + _legs(entries, jobs)
+        superseded = {e["key"]: e["value"] for e in entries if e["path"] == ["concurrency"]}
+        if "concurrency" in top and superseded != {"group": PR_LANE, "cancel-in-progress": PR_CANCEL}:
+            problems.append("has a top-level concurrency: other than group: %s and cancel-in-progress: %s, so a merge "
+                            "group's run could be cancelled or cancel another's" % (PR_LANE, PR_CANCEL))
         for key in ("env", "defaults"):
             if key in top:
                 problems.append("has a top-level %s:, which every job inherits, where each is told what it is and "
@@ -1967,7 +1985,7 @@ def run(root: pathlib.Path = ROOT) -> list:
         if held and hashlib.sha256(PIN.sub("@PIN", text).encode()).hexdigest() != held:
             problems.append("%s is exempt from a rule, so it is held word for word, and it has changed; "
                             "if the change is meant, record its new hash in EXEMPT" % path.relative_to(root))
-        for rule, message in lint(text):
+        for rule, message in lint(text, required=path.name == REQUIRED_WORKFLOW):
             if rule not in spared:
                 problems.append("%s: [%s] %s. The rule: %s" % (path.relative_to(root), rule, message, RULES[rule]))
     for path in live:
