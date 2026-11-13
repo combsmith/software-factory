@@ -916,11 +916,13 @@ class Simulation(unittest.TestCase):
         self.assertIn("from_workflow:unreadable", shown)
 
     def test_the_seeds_start_another_run_of_a_lens_on_the_head(self):  # issue 749, P-65
-        # Another run of a Lens starts on the head by each cause P-65 recorded: a push back to it, a reopening, and a re-run
-        # of an earlier run, which keeps that run's id. The run it leaves stays beside it: cancelled while in progress, its
-        # judging check failed, or as it concluded. The Kernel passes a cancelled run over beside a run that passes, and
-        # a completed failure still fails the Lens beside one.
-        causes, left, passed_over, stuck = set(), set(), 0, 0
+        # Another run of a Lens starts on the head by each cause P-65 recorded, on the seeds RERUNS names alone: a push
+        # back to it, a reopening, and a re-run of an earlier run, which keeps that run's id. The run it leaves stays beside
+        # it: cancelled while in progress, its judging check failed, or as it concluded. The Kernel reads the Lens passing
+        # with a cancelled run beside a run that passed, and a completed failure still fails it beside one.
+        from kernel import derive
+        lenses = {lens["lens"]: lens for lens in world.CONFIG["required_lenses"]["deterministic"]}
+        causes, left, passed_over, stuck, seeds = set(), set(), 0, 0, set()
 
         def recording(f, r, c, cfg, now):
             nonlocal passed_over, stuck
@@ -931,7 +933,8 @@ class Simulation(unittest.TestCase):
                 done = [x for x in mine if x["suite_conclusion"] == "success"]
                 failed = [x for x in mine if x["suite_conclusion"] == "failure" and x["conclusion"] == "failure"]
                 if stopped and done and len(mine) == 2:
-                    passed_over += lens not in d["evidence"]
+                    self.assertEqual(derive.lens_reading(f["checks"], lenses[lens], cfg), "passing", current)
+                    passed_over += 1
                 if failed and done:
                     stuck += 1
                     self.assertNotIn(d.get("action"), ("issue_approval", "enqueue"), current)
@@ -943,8 +946,12 @@ class Simulation(unittest.TestCase):
                 for _ in range(250):
                     w.step()
                 for line in w.trace:
-                    found = re.search(r"check \S+: run \d+ left (\S+) \((\S+)\), and (.+) started run \d+", line)
+                    found = re.search(r"check \S+: run \d+ left (\S+) \((\S+)\), and (.+) started run (\d+)", line)
                     if found:
+                        seeds.add(current)
+                        again = re.fullmatch(r"a re-run of run (\d+)", found.group(3))
+                        if again:
+                            self.assertEqual(again.group(1), found.group(4), line)
                         left.add(found.group(1, 2))
                         causes.add(re.sub(r"\d+", "N", found.group(3)))
                         # A run cancelled mid-way leaves its judging check failed; one that had concluded cancelled
@@ -952,6 +959,7 @@ class Simulation(unittest.TestCase):
                         if found.group(1) == "cancelled":
                             self.assertIn(found.group(2), ("failure", "cancelled"), line)
         self.assertEqual(causes, {"a push back to the head", "a reopening", "a re-run of run N"})
+        self.assertEqual({s % world.RERUNS_EVERY for s in seeds}, {world.RERUNS})
         self.assertIn(("cancelled", "failure"), left)
         self.assertIn(("failure", "failure"), left)
         self.assertTrue(passed_over)

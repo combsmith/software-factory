@@ -331,6 +331,16 @@ class World:
         going = [conclusion for conclusion, suite in runs if suite not in STOPPED]
         return bool(going) and all(conclusion == "success" for conclusion in going)
 
+    def failed(self, lens: str) -> bool:
+        """Whether `lens` failed or gave no verdict on this head, in the world's own words: a check of a run of it that
+        did not stop neither passed nor is pending, or every run of it stopped (issue 749)."""
+        if lens not in self.run_ids:
+            return self.checks[lens] not in ("success", "pending")
+        runs = [(self.checks[lens], self.suites[self.run_ids[lens]])] + [
+            (c["conclusion"], self.suites[c["run_id"]]) for c in self.earlier if c["name"] == CHECKS[lens]]
+        going = [conclusion for conclusion, suite in runs if suite not in STOPPED]
+        return not going or any(conclusion not in ("success", "pending") for conclusion in going)
+
     def touched_by(self, who: str, on=None) -> str:
         """What a change `who` makes touches: on the list now and then, or as `on` says."""
         if on is None:
@@ -399,7 +409,8 @@ class World:
                         "suite_conclusion": self.suite_of(k)}
                        for k, v in sorted(self.checks.items()) if k not in self.not_started]
                       + [dict(c, suite_conclusion=self.suites[c["run_id"]]) for c in self.earlier]
-                      + copy.deepcopy(self.impostors),
+                      + [dict(c, suite_conclusion=self.suites[c["run_id"]]) if c.get("run_id") is not None else dict(c)
+                         for c in self.impostors],
             "queue": self.queue,
             # GitHub: the_timeline_shows_each_act
             "acts_since_writer": self.acts,
@@ -539,7 +550,7 @@ class World:
             out.append("a writer's open thread")
         if self.hold or self.hands_off == "app":
             out.append("a Hold")
-        if any(v not in ("success", "pending") for v in self.checks.values()):
+        if any(self.failed(k) for k in self.checks):
             out.append("a required check that failed or gave no verdict")
         if self.impostors:
             out.append("another App's check under a required Lens's name")
@@ -1304,7 +1315,7 @@ class World:
         # GitHub: the_queue_merges
         # GitHub: the_merge_group_is_not_checked
         # GitHub: the_queue_merges_on_its_required_checks
-        if self.queue and self.rng.random() < 0.6 and all(v == "success" for v in self.checks.values()):
+        if self.queue and self.rng.random() < 0.6 and all(self.passed(k) for k in self.checks):
             # The queue merges on its required checks alone, with no pass read between, whoever enqueued it
             # (trials/P-2.no-pass.json, trials/P-2.queue-app.json); the head's checks stand in for the merge group's.
             objections = self.objections()
@@ -1361,15 +1372,19 @@ class World:
                     self.note("check %s: failure, and a job created a passing one under its name, in its suite" % lens)
                 elif WORKFLOWS[lens] is not None and roll < 0.86:
                     # GitHub: actions_runs_a_job_under_any_name
+                    # A run of its own, whose suite passed.
                     self.impostors.append({"name": CHECKS[lens], "app_id": APPS[lens], "workflow": IMPOSTOR_WORKFLOW,
-                                           "conclusion": "success", "completed_at": self.now()})
+                                           "conclusion": "success", "completed_at": self.now(), "run_id": self.next_run})
+                    self.suites[self.next_run] = "success"
+                    self.next_run += 2
                     self.note("check %s: failure, and another workflow posted a passing one under its name" % lens)
                 else:
                     # GitHub: any_app_posts_a_check_under_any_name
                     # Never one from the Lens's own App and file, which the Kernel could not tell from the Lens's. An
                     # upload under CodeQL's tool does not post one: it changes CodeQL's own check run, below.
                     self.impostors.append({"name": CHECKS[lens], "app_id": IMPOSTOR_APP, "workflow": None,
-                                           "conclusion": "success", "completed_at": self.now()})
+                                           "conclusion": "success", "completed_at": self.now(), "run_id": None,
+                                           "suite_conclusion": "success"})
                     self.note("check %s: failure, and another App posted a passing one under its name" % lens)
                 # Neither is a Run or an act of the Factory's, nor the Lens's own: the change is the platform's.
                 self.caused(self.by_of(IMPOSTOR))
@@ -1405,7 +1420,12 @@ class World:
                              "conclusion": self.checks[lens], "completed_at": self.completed[lens], "run_id": left})
         self.suites[self.run_ids[lens]] = None
         self.checks[lens], self.completed[lens] = "pending", None
-        self.rerun.discard(lens)
+        # A person's re-run is that person's, whatever it says; a run another event started is the Lens's own (the ruling
+        # on #38).
+        if how.startswith("a re-run"):
+            self.rerun.add(lens)
+        else:
+            self.rerun.discard(lens)
         self.note("check %s: run %d left %s (%s), and %s started run %d"
                   % (lens, left, self.suites[left], self.earlier[-1]["conclusion"], how, self.run_ids[lens]))
         self.caused("human")
@@ -1418,8 +1438,10 @@ class World:
         # GitHub: a_rerun_replaces_only_its_own_run
         self.impostors = [c for c in self.impostors
                           if not (c["name"] == CHECKS[lens] and c["app_id"] == APPS[lens] and c["workflow"] is None)]
+        # GitHub: a_check_names_its_run_and_suite
+        # The job that creates it runs in the Lens's own run, so it names that run and its suite.
         self.impostors.append({"name": CHECKS[lens], "app_id": APPS[lens], "workflow": None,
-                               "conclusion": "success", "completed_at": self.now()})
+                               "conclusion": "success", "completed_at": self.now(), "run_id": self.run_ids[lens]})
 
     def person(self):
         """The Maintainer acts, or a stranger comments, and the State the Kernel gives may change."""

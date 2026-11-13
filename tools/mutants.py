@@ -7631,8 +7631,8 @@ MUTANTS = ISSUE + [
     ("a created check replaces another name's", "sim/world.py", 'if not (c["name"] == CHECKS[lens] and c["app_id"]', 'if not (c["app_id"]', SIM_CREATES),
     ("a created check replaces another App's", "sim/world.py", 'if not (c["name"] == CHECKS[lens] and c["app_id"] == APPS[lens] and', 'if not (c["name"] == CHECKS[lens] and', SIM_CREATES),
     # The fake's queue merges on its required checks alone, as GitHub's does (trials/P-2.no-pass.json).
-    ("the fake's queue waits for a pass", "sim/world.py", 'if self.queue and self.rng.random() < 0.6 and all(v == "success" for v in self.checks.values()):',
-     'if self.queue and self.rng.random() < 0.6 and all(v == "success" for v in self.checks.values()) and self.read == self.unstamped(self.facts()):', SIM_QUEUED),
+    ("the fake's queue waits for a pass", "sim/world.py", 'if self.queue and self.rng.random() < 0.6 and all(self.passed(k) for k in self.checks):',
+     'if self.queue and self.rng.random() < 0.6 and all(self.passed(k) for k in self.checks) and self.read == self.unstamped(self.facts()):', SIM_QUEUED),
     ("a merge over what no pass read is held to the pass's guarantee", "sim/world.py",
      'self.read_at_merge = self.read == self.unstamped(self.facts())', 'self.read_at_merge = True', SIM_QUEUED),
     ("a merge over what a pass read is not held to its guarantee", "sim/world.py",
@@ -7640,7 +7640,7 @@ MUTANTS = ISSUE + [
     ("a merge over what no pass read goes unsaid", "sim/world.py",
      '                self.note("merged before a pass read %s" % ", ".join(objections))\n', '                pass\n', SIM_QUEUED),
     ("the fake's queue merges over a failed check", "sim/world.py",
-     'if self.queue and self.rng.random() < 0.6 and all(v == "success" for v in self.checks.values()):',
+     'if self.queue and self.rng.random() < 0.6 and all(self.passed(k) for k in self.checks):',
      'if self.queue and self.rng.random() < 0.6:', SIM_QUEUED),
     ("a merge over what no pass read breaks the approval it lost", "sim/world.py",
      '        if self.pr_state == "merged" and self.read_at_merge:\n', '        if self.pr_state == "merged":\n', SIM_QUEUED),
@@ -9888,6 +9888,8 @@ MUTANTS = ISSUE + [
     ("the latest run alone is read", 'kernel/derive.py',
      'if not (r is not None and r[1] in t.STOPPED_SUITES and going)]',
      'if r is None or r[0] == max(x[0] for x in runs if x)]', ("tests.test_decide.Content.test_a_cancelled_runs_checks_are_superseded_by_another_run_of_the_lens_on_the_head", "tests.test_simulator.Simulation.test_the_seeds_start_another_run_of_a_lens_on_the_head", "tests.test_simulator.Simulation.test_invariants_hold_under_faults")),
+    ("the simulator's stopped run is never passed over", 'kernel/derive.py',
+     'and r[1] in t.STOPPED_SUITES and going)]', 'and r[1] in t.STOPPED_SUITES and going and False)]', ("tests.test_simulator.Simulation.test_the_seeds_start_another_run_of_a_lens_on_the_head",)),
     ("every run is passed over beside a run that did not stop", 'kernel/derive.py',
      'if not (r is not None and r[1] in t.STOPPED_SUITES and going)]', 'if not (r is not None and going)]', ("tests.test_simulator.Simulation.test_invariants_hold_under_faults", "tests.test_simulator.Simulation.test_the_seeds_start_another_run_of_a_lens_on_the_head")),
     # Issue 440: the fake GitHub does what P-36 recorded.
