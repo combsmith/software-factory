@@ -116,6 +116,9 @@ BASES = {
     # An agent's change to the review Role's manifest: reviewed, it waits for a person's approval of its head (issue 140).
     "an agent's change to a model Lens's input, awaiting a person": base(
         [reviewed()], changed_paths=[a_file("roles/pr-review.json"), a_file("docs/notes.md")], **AGENT),
+    # And to a path only a person decides, which no Lens reads: the same wait, under its own code (issue 746).
+    "an agent's change to a path only a person decides, awaiting a person": base(
+        [reviewed()], changed_paths=[a_file("release/decision-points.json"), a_file("docs/notes.md")], **AGENT),
     # A dependency bot's rebase at the act ceiling: held, then rebased, then its last check passes, and held again.
     "a dependency update held at the act ceiling": base(content_id="sha256:bbbb", reviews=APPROVED,
                                                         acts_since_writer=LIMITS["max_acts_per_item"], **DEPENDENCY),
