@@ -1769,6 +1769,76 @@ class Purity(unittest.TestCase):
         root = tree({"kernel/a.py": "from kernel.extra import clock\n", "kernel/extra/clock.py": "import time\n"})
         self.assertTrue(caught(check_purity.run(root), "extra/clock.py:1 imports time"))
 
+    def test_the_guards_are_held_as_the_kernel_is_and_import_themselves_alone(self):
+        # guards/ decides what a Role's push may land (issue 838). It is held as the Kernel is, under its own name, and
+        # imports itself alone: the Kernel is no protected path, so nothing the guards decide may rest on it.
+        held = lambda files: check_purity.guards(tree(dict({"guards/__init__.py": ""}, **files)))
+        self.assertEqual(check_purity.guards(ROOT), [])
+        self.assertIn(("guards purity", check_purity.guards), verify.CHECKS)
+        self.assertEqual(check_purity.guards(tree({"kernel/x.py": ""})), ["there is no guards/ to check"])
+        self.assertEqual(check_purity.run(tree({"guards/x.py": ""})), ["there is no kernel/ to check"])
+        io = held({"guards/x.py": "import os\n\ndef f():\n    return open('x')\n"})
+        self.assertTrue(caught(io, "imports os") and caught(io, "uses open"))
+        self.assertTrue(caught(held({"guards/x.py": "def f(n):\n    return n > 3\n"}), "writes the number"))
+        # Only its imports of itself are read as its own: any other package's are refused as the Kernel refuses them.
+        for text, said in (("from os import environ\n", "x.py:1 imports os"), ("import guardsx as g\n", "x.py:1 imports guardsx"),
+                           ("from guardsx import y\n", "x.py:1 imports guardsx"), ("import kernelx\n", "x.py:1 imports kernelx")):
+            self.assertIn(said, held({"guards/x.py": text}), text)
+        # The Kernel is refused twice over, at a module's top or in a function: by its name, and as any package that
+        # is not the guards' own.
+        terms = {"kernel/terms.py": "HOLD = 'h'\n\n\ndef f():\n    return HOLD\n"}
+        for text, line, module in (("import kernel.terms as t\n", 1, "kernel.terms"), ("from kernel import terms\n", 1, "kernel"),
+                                   ("from kernel.terms import f\n", 1, "kernel.terms"), ("import kernel\n", 1, "kernel"),
+                                   ("def f():\n    from kernel import terms\n    return terms.HOLD\n", 2, "kernel"),
+                                   ("def f():\n    import kernel.terms as t\n    return t.HOLD\n", 2, "kernel.terms")):
+            found = held(dict(terms, **{"guards/x.py": text}))
+            self.assertIn("x.py:%d imports %s; guards/ imports itself alone" % (line, module), found, text)
+            self.assertIn("x.py:%d imports %s" % (line, module), found, text)
+        # Nor relatively: the rules below read a relative import from the Kernel's root, so the guards name themselves.
+        other = {"guards/b.py": "def g():\n    return 1\n"}
+        for text, line in (("from . import b\n", 1), ("from .b import g\n", 1), ("from .. import kernel\n", 1),
+                           ("from ..kernel import terms\n", 1), ("def f():\n    from . import b\n    return b.g()\n", 2)):
+            found = held(dict(terms, **dict(other, **{"guards/x.py": text})))
+            self.assertTrue(caught(found, "x.py:%d imports ." % line) and caught(found, "imports itself alone, by its name"), text)
+        fine = dict(other, **{"guards/a.py": "from guards import b\nfrom guards.b import g\nimport guards.b as other\n\n\n"
+                                             "def f():\n    return b.g() or g() or other.g()\n"})
+        self.assertEqual(held(fine), [])
+        # Its imports of itself are read as the Kernel's of itself are: a call into a module at no function of its own
+        # is caught, and what is wrong is said of the guards, not of the Kernel. The Kernel imports no guard.
+        self.assertTrue(caught(held(dict(fine, **{"guards/b.py": "G = 1\n"})), "a.py:"))
+        self.assertEqual(held(dict(other, **{"guards/x.py": "import guards.b\n"})),
+                         ["x.py:1 imports guards.b without naming it; guards/ imports a module of its own as "
+                          "`from guards import x` or `import guards.x as x`"])
+        self.assertTrue(caught(check_purity.run(tree({"kernel/x.py": "from guards import patch\n"})), "imports guards"))
+
+    def test_the_guards_are_the_package_python_imports_and_take_no_rule_of_a_kernel_module(self):
+        held = lambda files: check_purity.guards(tree(dict({"guards/__init__.py": ""}, **files)))
+        # With no __init__.py Python may import a guards.py at the root in the package's place, which nothing reads.
+        self.assertTrue(caught(check_purity.guards(tree({"guards/x.py": ""})), "guards/ has no __init__.py"))
+        self.assertTrue(caught(held({"guards/sub/x.py": ""}), "guards/sub has no __init__.py"))
+        self.assertTrue(caught(held({"guards/sub/AGENTS.md": ""}), "guards/sub has no __init__.py"))
+        self.assertEqual(held({"guards/sub/__init__.py": "", "guards/sub/x.py": "", "guards/AGENTS.md": "",
+                               "guards/sub/AGENTS.md": ""}), [])
+        # Of two files of one name Python imports the compiled before the source, so the guards hold source alone.
+        for name in ("guards/x.cpython-39-darwin.so", "guards/__init__.pyc", "guards/x.pyc", "guards/sub/x.so",
+                     "guards/data.json", "guards/README.md"):
+            self.assertTrue(caught(held({name: ""}), name + " is neither Python's source nor an AGENTS.md"), name)
+        # A file is read as Python reads it: one that declares an encoding is the code that encoding makes of its
+        # bytes. This one is a docstring to a reader of text, and an import of os to Python. The Kernel is read so too.
+        coded = '# -*- coding: utf-7 -*-\n"""A guard. +ACIAIgAi-\nimport os\nX = os.getcwd()\n+ACIAIgAi- end"""\n'
+        self.assertTrue(caught(held({"guards/x.py": coded}), "x.py:3 imports os"))
+        self.assertTrue(caught(check_purity.run(tree({"kernel/x.py": coded})), "x.py:3 imports os"))
+        # A rule written for a module of the Kernel's by its name is read of no guard: the calendar's numbers are
+        # terms.py's alone, and a guard of that name could write them.
+        for name in ("terms.py", "gate.py", "brakes.py"):
+            self.assertTrue(caught(held({"guards/" + name: ""}), "guards/%s bears the name" % name), name)
+        self.assertTrue(caught(held({"guards/terms.py": "DAYS_PER_YEAR = 365\n"}), "guards/terms.py bears the name"))
+        below = {"guards/sub/__init__.py": "", "guards/sub/terms.py": "DAYS_PER_YEAR = 365\n"}
+        self.assertIn("sub/terms.py:1 writes the number 365; a limit is data, read from the configuration", held(below))
+        # Nor does a guard take the one parameter the Kernel may call: it calls nothing it is given.
+        self.assertTrue(caught(held({"guards/x.py": "def f(patch, _decision):\n    return _decision(patch)\n"}),
+                               "x.py:1 takes _decision"))
+
     def test_a_limit_written_into_the_kernel_is_caught(self):
         root = tree({"kernel/x.py": "def f(runs):\n    return len(runs) >= 3 or runs[0] == 1\n"})
         self.assertEqual(len(check_purity.run(root)), 1)

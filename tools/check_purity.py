@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
+import re
 
 from tools import walk
 
@@ -36,6 +37,10 @@ CONFINED = {"gate.py": frozenset(), "brakes.py": frozenset({"kernel.terms"})}
 # own parameter of that name, so nothing handed in is called through it. Any other value a function is given, or
 # binds, it never calls: the Kernel is given values, not ways to get them.
 CALLABLE_PARAMETERS = frozenset({"_decision"})
+# The modules a rule above names by its file. A package held as the Kernel is names no module of its own so, or a rule
+# written for the Kernel's module would be read of it: the calendar's numbers allowed in a `terms.py` that is not the
+# Kernel's.
+KEYED = frozenset(CONFINED) | {"terms.py"}
 # The methods the Kernel calls on a value, each a built-in type's, by its exact name: a method of another name is the
 # value's own, which may do anything. A name is added here only as the Kernel needs it.
 BUILTIN_METHODS = frozenset({"append", "casefold", "count", "endswith", "find", "fromkeys", "get", "items", "join",
@@ -512,19 +517,88 @@ def _packages(trees: dict, tops: dict) -> list:
     return problems
 
 
-def run(root: pathlib.Path = ROOT) -> list:
+def _swapped(dotted: str, package: str) -> str:
+    """A module's name with the Kernel's and `package`'s changed over at its head, or as it was: the rules below then
+    read the package's imports of itself as they read the Kernel's of itself, and its imports of the Kernel as of any
+    package that is not its own."""
+    names = dotted.split(".")
+    other = {"kernel": package, package: "kernel"}.get(names[0])
+    return dotted if other is None else ".".join([other] + names[1:])
+
+
+def _said(problem: str, package: str) -> str:
+    """A problem the Kernel's rules found in `package`, read under the Kernel's name, said of `package`."""
+    names = {"kernel": package, package: "kernel"}
+    return re.sub(r"\b(kernel|%s)\b" % re.escape(package), lambda found: names[found.group(0)],
+                  problem).replace("the Kernel", package + "/")
+
+
+def _alone(root: pathlib.Path, trees: dict, package: str) -> list:
+    """What is asked of a package held as the Kernel is, under its own name, beyond the Kernel's rules: `guards/`
+    (issue 838).
+
+    - It is the package Python imports, and what Python imports of it is what is read here: each folder of it has an
+      `__init__.py`, and it holds Python's source and its `AGENTS.md` alone, so no compiled module stands in a
+      source's place.
+    - It imports itself alone, by its name, and never the Kernel, which is no protected path: so what it decides is
+      changed nowhere but in it. A relative import is read below from the Kernel's root, which is not this package's.
+    - No rule written for a module of the Kernel's by that module's name is read of one of its own, and it takes no
+      parameter the Kernel may call: it calls nothing it is given.
+    """
     problems = []
-    files = [p for p in walk.files(root, "kernel") if p.suffix == ".py"]
+    held = [path.relative_to(root / package).as_posix() for path in walk.files(root, package)]
+    for name in held:
+        if not name.endswith(".py") and name.split("/")[-1] != "AGENTS.md":
+            problems.append("%s/%s is neither Python's source nor an AGENTS.md; %s/ holds nothing else, so that nothing "
+                            "compiled is imported in a source's place" % (package, name, package))
+    folders = {"/".join(name.split("/")[:n]) for name in held for n in range(name.count("/") + 1)}
+    for folder in sorted(folders):
+        if "/".join(filter(None, [folder, "__init__.py"])) not in held:
+            problems.append("%s has no __init__.py; Python may then import another %s, which this does not read"
+                            % ("/".join([package, folder]), package))
+    for name, tree in trees.items():
+        if name in KEYED:
+            problems.append("%s/%s bears the name of a module the Kernel's rules are written for, and they would be "
+                            "read of it; name it otherwise" % (package, name))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.split(".")[0] == "kernel":
+                        problems.append("%s:%d imports %s; %s/ imports itself alone" % (name, node.lineno, alias.name, package))
+                    alias.name = _swapped(alias.name, package)
+            elif isinstance(node, ast.ImportFrom) and node.level:
+                problems.append("%s:%d imports %s; %s/ imports itself alone, by its name"
+                                % (name, node.lineno, "." * node.level + (node.module or ""), package))
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                if node.module.split(".")[0] == "kernel":
+                    problems.append("%s:%d imports %s; %s/ imports itself alone" % (name, node.lineno, node.module, package))
+                node.module = _swapped(node.module, package)
+            elif isinstance(node, ast.arg) and node.arg in CALLABLE_PARAMETERS:
+                problems.append("%s:%d takes %s, which the Kernel alone is given to call; %s/ calls nothing it is given"
+                                % (name, node.lineno, node.arg, package))
+    return problems
+
+
+def guards(root: pathlib.Path = ROOT) -> list:
+    """`guards/`, held as the Kernel is: what a Role's push may land is decided by functions that read nothing."""
+    return run(root, "guards")
+
+
+def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
+    unread, problems = [], []
+    files = [p for p in walk.files(root, package) if p.suffix == ".py"]
     if not files:
-        return ["there is no kernel/ to check"]
+        return ["there is no %s/ to check" % package]
     trees = {}
     for path in files:
-        name = path.relative_to(root / "kernel").as_posix()
+        name = path.relative_to(root / package).as_posix()
         try:
-            trees[name] = ast.parse(path.read_text(errors="replace"), str(path))
+            # The bytes, as Python reads them: a file that declares an encoding is the code that encoding makes of it.
+            trees[name] = ast.parse(path.read_bytes(), str(path))
         except (SyntaxError, ValueError) as err:
-            problems.append("%s cannot be read as Python: %s" % (name, err))
-    owned = {name: _defined(name, tree) for name, tree in trees.items() if name in CONFINED}
+            unread.append("%s cannot be read as Python: %s" % (name, err))
+    own = _alone(root, trees, package) if package != "kernel" else []
+    owned ={name: _defined(name, tree) for name, tree in trees.items() if name in CONFINED}
     takers = _takers(trees)
     tops = {name: _names(name, tree, trees) for name, tree in trees.items()}
     problems += _packages(trees, tops)
@@ -580,4 +654,4 @@ def run(root: pathlib.Path = ROOT) -> list:
                                 % (name, node.lineno))
             elif not _constant(value):
                 problems.append("%s:%d holds a value that can change; State is never stored" % (name, node.lineno))
-    return problems
+    return unread + own + ([_said(problem, package) for problem in problems] if package != "kernel" else problems)
