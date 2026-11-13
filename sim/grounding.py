@@ -136,9 +136,17 @@ RULES = (
      "without it GitHub refuses the enqueue", ("P-2",), "trials/P-2.least.json", None),
     ("the_queue_merges", "A pull request in the merge queue merges, unless a push takes it out first",
      ("P-2",), None, None),
+    # trials/P-2.port.json: the timeline port's own read of 100, a person's enqueue, and 70, the queue App's, each the
+    # enqueue then the merge with no act of a Factory identity's between, and the facts port's read of each head's
+    # required check concluded success before it (issue 807). Its verdict stays fail against its condition as written,
+    # and grounds the rule as trials/P-5.json, failed as written, grounds its own (the Factory Builder's ruling on #844):
+    # the act between enqueue and merge on 70 was the Maintainer's review, a person's act; the queue's merge did not
+    # depend on it, since the approval the ruleset requires was already given at the enqueue, the machine user's at
+    # 01:59:21Z on 70's head before the queue App's enqueue at 02:24:59Z; and the condition was stricter than the rule,
+    # which forbids only a Factory identity's act between.
     ("the_queue_merges_on_its_required_checks", "The merge queue merges a queued pull request once its required checks "
      "pass, whoever enqueued it, with no read of the Factory's between", ("P-2",),
-     ("trials/P-2.no-pass.json", "trials/P-2.queue-app.json"), None),
+     ("trials/P-2.no-pass.json", "trials/P-2.queue-app.json", "trials/P-2.port.json"), None),
     ("an_app_leaves_the_queue", "An App can take a pull request out of the merge queue, with contents: write; "
      "without it GitHub refuses the dequeue", ("P-2",), "trials/P-2.least.json", None),
     ("a_writer_can_dismiss_an_approval", "A person with write access can dismiss the machine user's approval, and the "
@@ -153,8 +161,10 @@ RULES = (
      "environment, and its Run then concludes failure", (), None,
      "assumed, no trial can ask it: a fault of the item or of the environment that drops an approval cannot be forced "
      "on demand"),
+    # trials/P-2.port.json: the timeline port's own read of 58, the queue's removal after the enqueue and no merge, and
+    # its read of 58's reviews, the machine user's approval standing (issue 807).
     ("the_queue_can_eject", "The merge queue can take a pull request out without merging it, and its approval stays",
-     ("P-2",), "trials/P-2.queue.json", None),
+     ("P-2",), ("trials/P-2.queue.json", "trials/P-2.port.json"), None),
     ("the_timeline_shows_each_act", "Each approval, enqueue, dequeue and label a Factory identity makes is on the "
      "timeline, with its actor, so the acts since a person with write access acted can be counted",
      ("P-2", "P-41"), None, None),
