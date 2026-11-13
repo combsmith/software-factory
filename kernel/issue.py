@@ -92,6 +92,7 @@ NEEDS_YOU_REASONS = frozenset({
     "acceptance_lapsed",
     "attempts_exhausted",
     "run_ceiling",
+    "environment_ceiling",
     "act_ceiling",
     "triage_stands",
     "judged",
