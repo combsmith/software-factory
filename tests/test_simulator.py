@@ -901,9 +901,11 @@ class Simulation(unittest.TestCase):
                     w.step()
                     for line in w.trace[seen:]:
                         found = re.search(r"check (\S+): pending, and a job created", line)
-                        # Alone: its job has no check run yet, so the created one is all that has the name.
+                        # Alone: its job has no check run yet, so the created one is all that has the name, but for
+                        # an earlier run's, which stays on the head (trials/P-65.json, issue 749).
                         if found:
-                            named = [c for c in w.facts()["checks"] if c["name"] == world.CHECKS[found.group(1)]]
+                            named = [c for c in w.facts()["checks"] if c["name"] == world.CHECKS[found.group(1)]
+                                     and c.get("run_id") in (None, w.run_ids.get(found.group(1)))]
                             self.assertEqual({c["workflow"] for c in named}, {None}, seed)
                     # And once its job has reported, its check run is listed.
                     self.assertEqual({w.checks[lens] for lens in w.not_started} - {"pending"}, set(), seed)
@@ -912,6 +914,48 @@ class Simulation(unittest.TestCase):
         self.assertTrue(beside)
         self.assertTrue(alone)
         self.assertIn("from_workflow:unreadable", shown)
+
+    def test_the_seeds_start_another_run_of_a_lens_on_the_head(self):  # issue 749, P-65
+        # Another run of a Lens starts on the head by each cause P-65 recorded: a push back to it, a reopening, and a re-run
+        # of an earlier run, which keeps that run's id. The run it leaves stays beside it: cancelled while in progress, its
+        # judging check failed, or as it concluded. The Kernel passes a cancelled run over beside a run that passes, and
+        # a completed failure still fails the Lens beside one.
+        causes, left, passed_over, stuck = set(), set(), 0, 0
+
+        def recording(f, r, c, cfg, now):
+            nonlocal passed_over, stuck
+            d = decide(f, r, c, cfg, now)
+            for lens in [k for k, file in world.WORKFLOWS.items() if file is not None]:
+                mine = [x for x in f["checks"] if x["name"] == world.CHECKS[lens] and x["workflow"] == world.WORKFLOWS[lens]]
+                stopped = [x for x in mine if x["suite_conclusion"] == "cancelled"]
+                done = [x for x in mine if x["suite_conclusion"] == "success"]
+                failed = [x for x in mine if x["suite_conclusion"] == "failure" and x["conclusion"] == "failure"]
+                if stopped and done and len(mine) == 2:
+                    passed_over += lens not in d["evidence"]
+                if failed and done:
+                    stuck += 1
+                    self.assertNotIn(d.get("action"), ("issue_approval", "enqueue"), current)
+            return d
+
+        with mock.patch.object(world, "decide", recording):
+            for current in sorted(SEEDS):
+                w = World(current)
+                for _ in range(250):
+                    w.step()
+                for line in w.trace:
+                    found = re.search(r"check \S+: run \d+ left (\S+) \((\S+)\), and (.+) started run \d+", line)
+                    if found:
+                        left.add(found.group(1, 2))
+                        causes.add(re.sub(r"\d+", "N", found.group(3)))
+                        # A run cancelled mid-way leaves its judging check failed; one that had concluded cancelled
+                        # already is left as it concluded. Neither passes.
+                        if found.group(1) == "cancelled":
+                            self.assertIn(found.group(2), ("failure", "cancelled"), line)
+        self.assertEqual(causes, {"a push back to the head", "a reopening", "a re-run of run N"})
+        self.assertIn(("cancelled", "failure"), left)
+        self.assertIn(("failure", "failure"), left)
+        self.assertTrue(passed_over)
+        self.assertTrue(stuck)
 
     def test_a_created_check_stands_beside_the_lens_run_and_replaces_only_one_created_before(self):  # issue 496
         # A created check and the Lens's own run of one name both stay in its suite (trials/P-35.json); a later created

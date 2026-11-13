@@ -4379,6 +4379,8 @@ class Contract(unittest.TestCase):
                 r["by"]["kind"] == "machine_user" and r["state"] == "dismissed" and r["dismissed_from"] == "approved"
                 and r["dismissed_by"]["kind"] == "app" for r in reviewed)),
             "a_push_is_new_content": ({"P-29.base"}, before != after),
+            "a_check_names_its_run_and_suite": ({"P-65"}, self.run_and_suite_read()),
+            "a_cancelled_run_stays_beside_a_later_run": ({"P-65"}, self.cancelled_beside_read()),
             "a_description_edit_moves_its_time": ({"P-58", "P-58.reader", "P-58.deleted"}, self.description_edit_read()),
             "an_app_edits_a_description": ({"P-58", "P-58.reader", "P-58.deleted"}, self.app_edit_read()),
             "the_pusher_is_the_last_pusher": ({"P-28", "P-28.app"},
@@ -4442,6 +4444,25 @@ class Contract(unittest.TestCase):
                 and [r["commit"] for r in reviewed if r["by"]["kind"] == "machine_user"][-1]
                 == body("P-7", 20)["head"]["sha"]),
         }
+
+    def p65_read(self) -> list:
+        """P-65: the head A's checks as the port reads them, after every run there had concluded."""
+        trial = exchanges("P-65")[1]["response"]["body"]["data"]["repository"]["pullRequest"]
+        return [checks.check(n) for n in trial["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]]
+
+    def run_and_suite_read(self) -> bool:
+        """P-65: each check run carries its workflow run's id and its suite's conclusion, and the re-run of R1 kept R1's
+        id, its latest attempt alone listed."""
+        got = self.p65_read()
+        return (all(type(c["run_id"]) is int and c["suite_conclusion"] is not None for c in got)
+                and [c["conclusion"] for c in got if c["name"] == "p65 / verify" and c["run_id"] == 43034844965] == ["failure"])
+
+    def cancelled_beside_read(self) -> bool:
+        """P-65: a run cancelled mid-way left its suite cancelled and its if: always() judging check failed, beside the
+        later run the push back to A started, which passed, and the run the reopening started, cancelled too."""
+        verify = {c["run_id"]: (c["conclusion"], c["suite_conclusion"]) for c in self.p65_read() if c["name"] == "p65 / verify"}
+        return verify == {43034844965: ("failure", "cancelled"), 43035042206: ("success", "success"),
+                          43035866555: ("failure", "cancelled")}
 
     def created_check_read(self) -> bool:
         """P-35: a job's created check borrows the name, App and file of the real one, and only the real one is its job's,

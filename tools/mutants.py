@@ -9879,10 +9879,21 @@ MUTANTS = ISSUE + [
     # SonarCloud's S8786 on a workflow's environment: the pattern stays linear.
     ("the workflow's environment pattern backtracks on its name line", 'tools/environments_drift.py', '(?:\\n[ \\t]*name:[ \\t]*)?', '(?:\\n(?:[ \\t]*)*name:[ \\t]*)?', ("tests.test_tools.EnvironmentsDrift.test_the_pattern_that_reads_a_workflows_environment_does_not_backtrack",)),
     ("the workflow's environment pattern backtracks", 'tools/environments_drift.py', '(?:\\n[ \\t]*name:[ \\t]*)?([^\\n]*)$", re.M)', '(?:\\n[ \\t]*name:[ \\t]*)?([ \\t]*[^\\n]*)*!$", re.M)', ("tests.test_tools.EnvironmentsDrift.test_the_pattern_that_reads_a_workflows_environment_does_not_backtrack",)),
+    # Issue 749: the fake GitHub starts another run of a Lens on the head, as P-65 recorded, and the Kernel never lets a
+    # stopped run pass a Lens a completed failure fails.
+    ("another run of a Lens never starts", 'sim/world.py', 'self.reruns.random() < 0.04 and self.another_run()',
+     'self.reruns.random() < 0.0 and self.another_run()', ("tests.test_simulator.Simulation.test_the_seeds_start_another_run_of_a_lens_on_the_head",)),
+    ("a cancelled run's judging check passes", 'sim/world.py', 'self.checks[lens], self.completed[lens] = "failure", self.now()',
+     'self.checks[lens], self.completed[lens] = "success", self.now()', ("tests.test_simulator.Simulation.test_the_seeds_start_another_run_of_a_lens_on_the_head",)),
+    ("the latest run alone is read", 'kernel/derive.py',
+     'if not (r is not None and r[1] in t.STOPPED_SUITES and going)]',
+     'if r is None or r[0] == max(x[0] for x in runs if x)]', ("tests.test_decide.Content.test_a_cancelled_runs_checks_are_superseded_by_another_run_of_the_lens_on_the_head", "tests.test_simulator.Simulation.test_the_seeds_start_another_run_of_a_lens_on_the_head", "tests.test_simulator.Simulation.test_invariants_hold_under_faults")),
+    ("every run is passed over beside a run that did not stop", 'kernel/derive.py',
+     'if not (r is not None and r[1] in t.STOPPED_SUITES and going)]', 'if not (r is not None and going)]', ("tests.test_simulator.Simulation.test_invariants_hold_under_faults", "tests.test_simulator.Simulation.test_the_seeds_start_another_run_of_a_lens_on_the_head")),
     # Issue 440: the fake GitHub does what P-36 recorded.
     ("the fake's upload changes nothing", 'sim/world.py', '            self.checks[SCANNING] = "neutral"\n', '', ("tests.test_simulator.Simulation.test_the_seeds_upload_under_codeqls_tool",)),
     ("a job stays unstarted past its check", 'sim/world.py', '            self.not_started.discard(lens)\n', '', ("tests.test_simulator.Simulation.test_the_seeds_create_a_check_under_a_lens_name",)),
-    ("a job with no check run yet lists one", 'sim/world.py', ' if k not in self.not_started] + copy', '] + copy', ("tests.test_simulator.Simulation.test_the_seeds_create_a_check_under_a_lens_name",)),
+    ("a job with no check run yet lists one", 'sim/world.py', 'for k, v in sorted(self.checks.items()) if k not in self.not_started]', 'for k, v in sorted(self.checks.items())]', ("tests.test_simulator.Simulation.test_the_seeds_create_a_check_under_a_lens_name",)),
     ("every seed serves an upload", 'sim/world.py', 'if seed % UPLOAD_EVERY == UPLOAD else None', 'if True else None', ("tests.test_simulator.Simulation.test_the_seeds_upload_under_codeqls_tool",)),
     # Decision 0121: a CLI with no answer is told from an answer that fails, closes the eval's gate, and stays an attempt.
     ("a CLI with no answer reads as an answer that fails", 'harness/engine.py', 'return failed(task, "no_answer", usage)', 'return failed(task, "result_invalid", usage)', ("tests.test_harness.Engine.test_an_answer_that_does_not_validate_is_no_result",)),
