@@ -5517,6 +5517,8 @@ MUTANTS = ISSUE + [
      '            expected = [(d["id"], d["sha"], d["description"]) for d in deployed]\n', ("tests.test_release.Fixture.test_a_cut_that_reads_a_page_of_next_s_deployments_is_held_to_its_order",)),
     ("a page of Deployments may leave out the one next moved off", 'tests/test_release.py',
      'self.assertGreaterEqual(size, len(since) + 2)', 'self.assertGreaterEqual(size, len(since) + 1)', ("tests.test_release.Fixture.test_a_cut_that_reads_a_page_of_next_s_deployments_is_held_to_its_order",)),
+    ("a cut added later is left unread", 'tests/test_release.py', 'for i, path in enumerate(cuts[1:], 1):', 'for i, path in enumerate(cuts[1:11], 1):', ("tests.test_release.Fixture.test_a_cut_added_later_is_held_as_every_cut_is",)),
+    ("a later page of Deployments is read as the first", 'tests/test_release.py', r'"(?:&per_page=([1-9][0-9]?))?")', r'"(?:&per_page=([1-9][0-9]?)(?:&page=[0-9]+)?)?")', ("tests.test_release.Fixture.test_a_cut_that_reads_a_page_of_next_s_deployments_is_held_to_its_order",)),
     ("the cuts are read in the order of their names", 'tests/test_release.py',
      'key=lambda p: current.version(json.loads(p.read_text())["version"]))', 'key=str)', ("tests.test_release.Fixture.test_the_next_cut_moved_next_on",)),
     ("any run read is the eval's", 'tests/test_release.py',
