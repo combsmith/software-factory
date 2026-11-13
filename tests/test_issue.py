@@ -1631,10 +1631,15 @@ class Outcomes(unittest.TestCase):
         # Not the Factory's draft: a person's, or a stranger's, waits for its author.
         for other in (pr(draft=True, checks="failing"), strangers(admitted=True, draft=True, checks="failing")):
             self.assertEqual(what(decide(facts(linked=[other]), cfg=named))[:2], ("nothing", "linked_draft"), other["class"])
+        # Nor are its checks read there: a person's or a stranger's draft, or any while no author Role is named, with
+        # no checks at all is nothing too, never a deferral.
+        bare = lambda q: {k: v for k, v in q.items() if k != "checks"}
+        for other, cfg in ((pr(draft=True), named), (strangers(admitted=True, draft=True), named),
+                           (bare(agents(draft=True)), dict(named, author_role=None))):
+            self.assertEqual(what(decide(facts(linked=[other]), cfg=cfg))[:2], ("nothing", "linked_draft"), other["class"])
         # Its checks unreadable, where the rule would read them: a deferral, never a Run.
         for unread in ({}, {"checks": None}, {"checks": "red"}):
-            draft = {k: v for k, v in agents(draft=True).items() if k != "checks"}
-            draft.update(unread)
+            draft = dict(bare(agents(draft=True)), **unread)
             self.assertEqual(what(decide(facts(linked=[draft]), cfg=named)), ("defer", "draft_checks_unreadable", None),
                              unread)
         # One implementing Run in flight: nothing more, the issue working.
