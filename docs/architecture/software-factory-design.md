@@ -478,6 +478,16 @@ App, so it is not taken for a check that was cancelled. A check run cannot be
 deleted, so it stays on that head, and only a push clears it. Every check from the Lens's own App is
 read, never the last alone: any that fails fails the Lens; failing none, any that gave no verdict
 leaves it unreadable; then any still running is a wait. The Lens passes only when every one passes.
+One exception, for a run stopped, cancelled or at its timeout (issue 681, `trials/P-65.json`): a
+check from a run whose suite concluded `cancelled`, or `timed_out`, gives no verdict where another
+run of the Lens on the head has a suite that did not, finished or still running, never by which run
+is later, which no id tells. The Kernel cannot tell a run stopped before it judged from one stopped
+after, so it passes over either (decision 0203 names what that leaves). Every run of it stopped, the
+Lens is unreadable; and a failing check whose suite has not concluded, `suite_conclusion` null, is
+a wait. A run or suite in another form, on any check of the Lens's own App and file, or one run
+given two suite conclusions on the head, leaves the Lens unreadable. The Lifecycle's stale limits
+bound a Lens that always stops or never concludes. A check that lacks either field, or whose run is
+null, reads as above.
 The status on the item, the Controller's own check run, has one fixed name, `status_on_item` in the
 configuration, and `tools/check_authority.py` refuses it if it is a required Lens's name or its
 check's, deterministic or model, ignoring case and the space around it: it would speak for that Lens.
@@ -1898,7 +1908,7 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | The approver is the author or the last pusher | GitHub rejects or discards the approval. The Kernel reads `author` and `last_pusher`, attempts no approval, and holds the item with that reason (I-26). The machine user therefore never pushes (§5.1). The Hold is a reading: after a conflict, the Factory's fix Run pushes, the Role's App becomes the last pusher, and the Hold ends with no person, since GitHub would then count the approval (§4.1) |
 | A branch pushed every few minutes | Deterministic Lenses first; a model review starts only on content they have passed (I-27) |
 | A required check that concludes `neutral`, `skipped`, `cancelled` or `stale`, or with a word the Kernel does not know | It gave no verdict, so it has not passed. The Kernel defers, reason `check_unreadable`, admits no Run, and shows the item as needing the Maintainer until the check reports again (I-13, §3.3). A `timed_out` check is a failure, and goes back to the author. A job GitHub stops at its own timeout concludes `cancelled` (P-42), so each job the Factory writes stops its own work under a step limit and concludes `failure` (§4.2). A failure beside it is read first, so `fail-fast`'s cancelled siblings and a skipped dependent job do not hold an ordinary failure |
-| A check under a required Lens's check name from another App, another workflow file or not of its own job, which the port reads with no file, or two from the Lens's own App and file that disagree | The first leaves the Lens unreadable, reason `check_unreadable` with the evidence `<lens>:from_app:<id>` or `<lens>:from_workflow:<path>`, for the Maintainer to see, whatever any Lens's own check says, a failure among them; it moves nothing either. A check run cannot be deleted, so it stays on that head for good, and only a push clears it. Of the second, every one is read: a failure fails the Lens, and it passes only when every one passes (§3.3) |
+| A check under a required Lens's check name from another App, another workflow file or not of its own job, which the port reads with no file, or two from the Lens's own App and file that disagree | The first leaves the Lens unreadable, reason `check_unreadable` with the evidence `<lens>:from_app:<id>` or `<lens>:from_workflow:<path>`, for the Maintainer to see, whatever any Lens's own check says, a failure among them; it moves nothing either. A check run cannot be deleted, so it stays on that head for good, and only a push clears it. Of the second, every one is read: a failure fails the Lens, and it passes only when every one passes (§3.3), save a run stopped before it judged, passed over beside a run of the Lens that did not stop (§3.3, issue 681) |
 | A Hold released, or a pull request reopened, after attempts ran out | Attempts count since the last action by a person with write access, which grants a fresh allowance. No agent's action does, and nor does a stranger's comment: on a public repo that would let anyone keep an agent running (I-28) |
 | An approval that does not land | The approval is a Run with no Engine. A failed one whose fault is the item's is an attempt, and at `max_attempts` the item is held. One that fails for any other fault, such as an expired token, counts toward the Run ceiling (§3.10) |
 | A merge queue that ejects the pull request every time | Each enqueue is an act. At `max_acts_per_item` acts since a person with write access acted, the item is held, reason `act_ceiling` (§3.3) |
