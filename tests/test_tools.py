@@ -6093,7 +6093,7 @@ class Trials(unittest.TestCase):
         by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
         # The events ground the rule about them; the association, which an App reads wrong, is no rule of the fake: write
         # access is read from the collaborator permission, which P-47 asks (decision 0048).
-        self.assertEqual(by_code["a_label_event_names_its_actor"], "trials/P-32.json")
+        self.assertEqual(by_code["a_label_event_names_its_actor"], ("trials/P-32.json", "trials/P-32.port.json"))
         self.assertNotIn("an_issues_author_has_an_association", by_code)
         self.assertIn("a_logins_permission_is_read_from_the_collaborator_endpoint", by_code)
 
@@ -6102,7 +6102,7 @@ class Trials(unittest.TestCase):
         # content that grounds it, so a fixture emptied or inverted ungrounds its rule.
         by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
         for code in ("a_closing_reference_is_read_from_any_pull_request", "who_changed_the_draft_flag_is_read"):
-            self.assertEqual(by_code[code], "trials/P-33.json", code)
+            self.assertEqual(by_code[code], ("trials/P-33.json", "trials/P-33.port.json"), code)
         for code in ("an_issues_content_time_is_read_apart", "a_reopening_names_its_actor"):
             self.assertEqual(by_code[code], "trials/P-34.json", code)
         p33 = json.loads((ROOT / "trials" / "P-33.json").read_text())

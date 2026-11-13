@@ -4233,15 +4233,11 @@ NOT_READ = {
     "a_new_run_is_listed_late": "kernel",
     "a_tick_can_be_lost": "controller",
     "a_pass_starts_its_successor": "controller", "a_public_event_starts_a_pass": "controller",
-    # adapters/acceptance.py reads closing references, and adapters/timeline.py the draft flag's events, each in a
-    # shape these GraphQL fixtures did not record: P-33 asked no issue's repo, and no REST timeline of a draft change.
-    "a_closing_reference_is_read_from_any_pull_request": "shape", "who_changed_the_draft_flag_is_read": "shape",
     # The issue port that reads each linked pull request's draft events is not built yet (decision 0141).
     "a_draft_change_is_timed": "issues_port",
     "an_issues_content_time_is_read_apart": "issues_port", "a_reopening_names_its_actor": "issues_port",
     "an_issues_close_and_reopening_say_when": "issues_port",
     "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing": "issues_port",
-    "a_label_event_names_its_actor": "shape",
     # The queue's writes, which the effects port does not make until the App that enqueues is granted contents: write.
     "an_app_enters_the_queue": "controller", "an_app_leaves_the_queue": "controller",
     # The threads port reads a thread's resolver as `resolvedBy { login databaseId }`, and P-5 recorded it as
@@ -4451,6 +4447,9 @@ class Contract(unittest.TestCase):
             "a_check_can_time_out_or_give_no_verdict": ({"P-42", "P-42.port"}, self.no_verdict_kept_read()),
             "the_queue_can_eject": ({"P-2.queue", "P-2.port"}, self.eject_read()),
             "the_queue_merges_on_its_required_checks": ({"P-2.no-pass", "P-2.queue-app", "P-2.port"}, self.queue_merged_read()),
+            "a_closing_reference_is_read_from_any_pull_request": ({"P-33", "P-33.port"}, self.closing_read()),
+            "who_changed_the_draft_flag_is_read": ({"P-33", "P-33.port"}, self.draft_flag_read()),
+            "a_label_event_names_its_actor": ({"P-32", "P-32.port"}, self.label_actor_read()),
             "a_cancelled_run_stays_beside_a_later_run": ({"P-65"}, self.cancelled_beside_read()),
             "a_description_edit_moves_its_time": ({"P-58", "P-58.reader", "P-58.deleted"}, self.description_edit_read()),
             "an_app_edits_a_description": ({"P-58", "P-58.reader", "P-58.deleted"}, self.app_edit_read()),
@@ -4649,6 +4648,70 @@ class Contract(unittest.TestCase):
                         and required == [("success", 15368, ".github/workflows/p2-queue.yml")]
                         and len(nodes) == 1 and nodes[0]["completedAt"] < events[merged]["created_at"])
         return held == [True, True]
+    @staticmethod
+    def p33_port(via: str) -> list:
+        """P-33.port: the sitting's reads of one kind, `graphql`, the closing references, or `rest`, the timeline."""
+        return [copy.deepcopy(e) for e in exchanges("P-33.port") if e["request"]["via"] == via]
+
+    def closing_read(self) -> bool:
+        """P-33: pull requests 37, a draft, 38, merged since, 39 and 41, to another base, and 40, closed unmerged, each
+        saying it closes issue 36, and each read with the person who opened it. P-33.port: the acceptance port's own read
+        names issue 36, of the canary itself, on 37, 38 and 40, whole, and no issue on 39 and 41."""
+        read = {e["request"]["body"]["variables"]["number"]: acceptance.closing(github.Replay([e]), {
+            "number": e["request"]["body"]["variables"]["number"], "base": {"repo": {"full_name": canary()}}})
+            for e in self.p33_port("graphql")}
+        opened = body("P-33", 0)["data"]["repository"]
+        authors = {opened[k]["number"]: (opened[k]["author"]["login"], opened[k]["author"]["__typename"])
+                   for k in ("draft", "open", "merged", "closed", "nondefault")}
+        # When P-33 read them, 38 was still open: it named issue 36 then too, as did the draft and the closed one.
+        recorded = {opened[k]["number"]: [n["number"] for n in opened[k]["closingIssuesReferences"]["nodes"]]
+                    for k in ("draft", "open", "merged", "closed", "nondefault")}
+        named = ({36: False}, True)
+        return read == {37: named, 38: named, 39: ({}, True), 40: named, 41: ({}, True)} \
+            and authors == {n: ("don-petry", "User") for n in (37, 38, 39, 40, 41)} \
+            and recorded == {37: [36], 38: [36], 39: [], 40: [36], 41: []} and opened["open"]["state"] == "OPEN" \
+            and body("P-33", 4)["data"]["repository"]["merged"]["state"] == "MERGED"
+
+    def draft_flag_read(self) -> bool:
+        """P-33: pull request 38 was marked ready, converted to a draft and marked ready again, a second or two apart.
+        P-33.port: the timeline port's own read of 38 is whole, and names who made each change, by account id and type,
+        and when, the same three in that order."""
+        canary38 = {"number": 38, "base": {"repo": {"full_name": canary()}}}
+        events, whole = timeline.events(github.Replay(self.p33_port("rest")), canary38)
+        accounts = timeline.Accounts(Router(github.Replay([]), {"don-petry": "admin"}), canary(), MACHINE, {})
+        changed = [(e["event"], timeline.Accounts.account(e["actor"]), accounts.acted(e)["kind"], e["created_at"])
+                   for e in events if e.get("event") in ("ready_for_review", "convert_to_draft")]
+        recorded = [(n["__typename"], n["createdAt"])
+                    for n in body("P-33", 0)["data"]["repository"]["open"]["timelineItems"]["nodes"]]
+        return whole and [c[0] for c in changed] == ["ready_for_review", "convert_to_draft", "ready_for_review"] \
+            and {c[1:3] for c in changed} == {(("don-petry", MAINTAINER, "User"), "human")} \
+            and [c[3] for c in changed] == [at for _, at in recorded] \
+            and [kind for kind, _ in recorded] == ["ReadyForReviewEvent", "ConvertToDraftEvent", "ReadyForReviewEvent"]
+
+    def label_actor_read(self) -> bool:
+        """P-32: each label event was read in GraphQL with who made it and when. P-32.port: the timeline port's own read of
+        canary pull request 66, where P-41's controller App added and removed factory:hold, is whole, and every label
+        event is read with its label, its actor, by account id and type, and its time."""
+        def nodes(value):
+            if isinstance(value, dict):
+                yield value
+                for v in value.values():
+                    yield from nodes(v)
+            elif isinstance(value, list):
+                for v in value:
+                    yield from nodes(v)
+        graphql = [n for n in nodes(body("P-32", 1)) if n.get("__typename") in ("LabeledEvent", "UnlabeledEvent")]
+        canary66 = {"number": 66, "base": {"repo": {"full_name": canary()}}}
+        events, whole = timeline.events(github.Replay(copy.deepcopy(exchanges("P-32.port"))), canary66)
+        raw = [e for e in events if e.get("event") in timeline.LABELS]
+        read = timeline.label_events(events, timeline.Accounts(Router(github.Replay([])), canary(), MACHINE, {}))
+        return bool(graphql) and all(n["actor"]["__typename"] in ("User", "Bot") and n["createdAt"] for n in graphql) \
+            and whole and len(read) == len(raw) == 8 and {e["action"] for e in read} == {"labeled", "unlabeled"} \
+            and all(e["by"] == P41_CONTROLLER for e in read) \
+            and [(e["action"], e["label"], e["at"]) for e in read] == [
+                (e["event"], e["label"]["name"], e["created_at"]) for e in raw] \
+            and {e["label"]["name"] for e in raw} == {"factory:hold"} \
+            and len({timeline.Accounts.account(e["actor"]) for e in raw}) == 1 and raw[0]["actor"]["type"] == "Bot"
 
     def p42_push(self, at: int) -> tuple:
         """P-42.push: canary pull request 113's read `at`: whether the port read it whole, its head, p2-queue-check as the

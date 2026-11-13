@@ -175,9 +175,11 @@ RULES = (
      ("P-5",), "trials/P-5.json", None),
     ("an_app_can_label", "An App can add or remove a control label on a pull request, a Hold or hands-off among them",
      ("P-41",), "trials/P-41.json", None),
+    # trials/P-32.json: each label event read in GraphQL with its actor and time; trials/P-32.port.json: the timeline
+    # port's own read, the REST timeline, of a pull request a Factory App labelled, each event so (issue 807).
     ("a_label_event_names_its_actor", "The timeline's labeled and unlabeled events say who added or removed each "
      "label, "
-     "and when", ("P-32",), "trials/P-32.json", None),
+     "and when", ("P-32",), ("trials/P-32.json", "trials/P-32.port.json"), None),
     # trials/P-41.json read each actor on its reviews, dismissals and labels by its type; trials/P-41.threads.json each
     # on a thread as the threads port does (decision 0067): every comment's author by GraphQL's type, and the resolver,
     # whom resolvedBy types a User though it was an App, by the permission read of its login, which answers Bot, and
@@ -300,11 +302,13 @@ RULES = (
     # (section 6's fallback: the issue Lifecycle serves the default branch only). The reverse read from the issue is
     # no substitute: willCloseTarget is false for a closed-unmerged pull request that keeps its reference, false for
     # every one once the issue is closed, and a keyword link raises no ConnectedEvent; the port reads the pull request.
+    # trials/P-33.port.json: the acceptance port's own read of the five, each issue with its repo, and the timeline
+    # port's of 38, whose REST events name who changed the draft flag and when (issue 807).
     ("a_closing_reference_is_read_from_any_pull_request", "The issue a pull request to the default branch closes, and "
      "who opened the pull request, are read from a draft, an open, a merged and a closed-unmerged pull request alike; "
-     "one to another base carries no reference", ("P-33",), "trials/P-33.json", None),
+     "one to another base carries no reference", ("P-33",), ("trials/P-33.json", "trials/P-33.port.json"), None),
     ("who_changed_the_draft_flag_is_read", "The timeline says who last marked a pull request ready or converted it to a "
-     "draft", ("P-33",), "trials/P-33.json", None),
+     "draft", ("P-33",), ("trials/P-33.json", "trials/P-33.port.json"), None),
     # trials/P-33.json: pull request 38 marked ready, converted to a draft and marked ready again, each its own event a
     # second or two apart; pull request 37, opened as a draft, has none (decision 0141).
     ("a_draft_change_is_timed", "A pull request's timeline gives each conversion to a draft and each marking ready as an "
