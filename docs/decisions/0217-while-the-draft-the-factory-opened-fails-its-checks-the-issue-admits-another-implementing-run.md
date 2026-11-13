@@ -1,0 +1,27 @@
+# 0217. While the draft the Factory opened fails its checks, the issue admits another implementing Run
+
+Status: accepted. The Factory Builder's ruling of 2026-11-13 on slice 2's story S9, from the Solution Architect's ruling on slice 2's draft (rulings-422, section 3): "S9 needs one new Kernel rule: while a draft's checks fail, the issue admits another implementing Run, within those bounds". It is held by "While the draft the Factory opened fails its checks, the issue admits another implementing Run (slice 2, S9)" (issue 825).
+
+## Decision
+
+| What | Decided | Because |
+|---|---|---|
+| The fact | Each linked pull request in `issue-facts/1` may carry `checks`: `failing` once one of its head's required checks has concluded against it, `pending` while one has not concluded or is not yet listed, `passing` once all have passed, and null where they could not be read | Under shape C's narrowest form, the item's own required checks on the pushed draft head serve as `build` (rulings-422, section 3). For a few seconds after a push GitHub lists no required check on the new head, as the canary's pushing sitting of P-42 showed, and a check not yet listed has not passed |
+| The rule | An issue `in_progress` on `linked_draft` admits a Run of the author Role, `author_role`, with the Intent `implement` and the draft's number as `pull_request`, while that draft is the Factory's own, class `agent`, and its checks are `failing`. Pending or passing checks admit nothing | Each round of test and fix is one Run (rulings-422, section 3). A pending check may still pass, and a passing draft is `verify`'s, not another round's |
+| Whose draft | Only one a Factory App opened. A person's draft, or an outsider's, waits for its author, as every draft does today | The author Role pushes only to what the Factory opened: the reach S9b holds for `fix-findings` holds here from the start. The issue's own link class says who opened the draft, so S9b's fact of which issue a pull request was opened for is not needed |
+| What cannot be read | The checks are read only where the rule would act on them: with an author Role named, on the Factory's draft. Where they are missing, null or no known value, the issue defers, `draft_checks_unreadable` | An unreadable fact yields a deferral, never an action. A fact read nowhere else stalls nothing while the rule is dormant |
+| The bound | `max_attempts` bounds the rounds: every implementing Run that completed since a writer last acted counts as one, whatever it concluded. At the bound the issue is held, `attempts_exhausted`, and calls a person. The Run ceiling, `max_runs_per_item`, bounds it as it bounds every Run, through the brakes | A Run that completes and leaves the checks failing is what admits the next, so counting only failed Runs, as the brakes do, would never stop the loop. A writer's action renews the count, as it renews every count |
+| Dormant | `config/defaults.json` names no author Role, so nothing changes live. The rule acts once `dev-lead` is named, after S9b's rule merges | No implementing Role exists yet |
+| What is left | The facts port's read of `checks`; `dev-lead`'s manifest and eval set; `implement` itself under the run contract; the push and FR-14's guard; `mark_ready` | Each is S9's or S6's, after this rule |
+
+## Why
+
+Slice 2's implementing Intent takes an armed draft to tests that pass in rounds, each one Run, with the draft's own required checks as the build. Nothing in the issue Lifecycle admits a second round today: a linked draft admits nothing. This rule admits one while the Factory's draft fails its checks, and bounds the rounds, so the loop ends at a person.
+
+## Boundaries
+
+| Boundary | Check |
+|---|---|
+| The Factory's draft failing its checks admits the author Role's `implement` Run for it, carrying its number, in a Decision that holds to `issue-decision/1`; pending or passing checks, no author Role named, or a person's or outsider's draft admit nothing; missing, null or unknown checks defer; a Run in flight admits nothing more; `max_attempts` completed rounds since the writer hold, one fewer admits, and a writer's action renews them; the Run ceiling holds | `tests/test_issue.py::test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted`, `kernel/issue.py`, mutant: "a draft is implemented with no author Role named", mutant: "anyone's draft is implemented", mutant: "a draft's unreadable checks are read as passing", mutant: "a draft is implemented whatever its checks", mutant: "a draft's pending checks admit an implementing Run", mutant: "the implementing rounds are unbounded", mutant: "max_attempts rounds admit one more", mutant: "every Run counts as an implementing round", mutant: "a writer's action does not renew the rounds", mutant: "the implementing Run is not told its draft" |
+| An issue in review, or with a linked draft and no author Role named, admits nothing whatever the Intents | `tests/test_issue.py::test_in_review_and_with_a_linked_draft_nothing_is_admitted_whatever_the_intents`, `kernel/issue.py`, mutant: "an issue in review reads the Intents", mutant: "an issue with a linked draft reads the Intents" |
+| The facts port reads `checks` for a linked draft the Factory opened, a required check not yet listed as pending | waiting on `adapters/issues.py` |

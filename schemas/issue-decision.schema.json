@@ -98,7 +98,8 @@
           "enum": [
             "investigate-issue",
             "judge-readiness",
-            "open-pull-request"
+            "open-pull-request",
+            "implement"
           ]
         },
         "content_id": {
@@ -111,6 +112,11 @@
             "null"
           ],
           "minLength": 1
+        },
+        "pull_request": {
+          "description": "The implementing Run's alone: the number of the linked draft the Factory opened, whose failing checks admitted it",
+          "type": "integer",
+          "minimum": 1
         }
       }
     }
