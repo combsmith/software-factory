@@ -3381,7 +3381,7 @@ class EvalJob(unittest.TestCase):
         return report
 
     def test_a_gate_sets_sealed_ledger_says_where_two_of_its_groups_overlap_in_a_few_cases_and_nothing_public_does(self):
-        # Issue 695, decision 0212. A cell is a kind, the criterion the set floors or none of them, and natural or not.
+        # Issue 695, decision 0220. A cell is a kind, the criterion the set floors or none of them, and natural or not.
         # Made-up sets, each group `(criterion, kind, how many, how many of them natural)`; no held-out set is read.
         from harness import eval as job
         judged = lambda report, of: job.verdict(report, of, "d" * 64, "a" * 40, "factory/v0.1.0")

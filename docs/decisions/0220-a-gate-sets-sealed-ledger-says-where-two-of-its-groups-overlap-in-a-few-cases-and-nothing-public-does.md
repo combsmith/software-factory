@@ -1,4 +1,4 @@
-# 0212. A gate set's sealed ledger says where two of its groups overlap in a few cases, and nothing public does
+# 0220. A gate set's sealed ledger says where two of its groups overlap in a few cases, and nothing public does
 
 Status: accepted. The Factory Builder's rulings of 2026-11-12 and 2026-11-13 on "Differences between a gate set's manifests across commits can isolate a group under ORIGIN_LEAST" (issue 695): an advisory and no refusal, and, on the 13th, told in the sealed ledger alone. It takes up one residual of `docs/decisions/0180-a-gate-set-holds-a-floor-per-criterion-read-from-each-cases-expected-criterion.md`: "the least holds for each group, not for where two overlap". All of 0180 stands.
 

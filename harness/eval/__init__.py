@@ -658,7 +658,7 @@ def cells_of(found: dict, place: pathlib.Path):
     expect a Finding the criterion the set floors or none of them, natural or not, how many cases it holds, and whether
     those are a few, some but fewer than ORIGIN_LEAST. Where two groups overlap in a cell of a few cases, their counts'
     difference tells those few (issue 695). Nothing of it is public: a word that every cell is whole, beside the counts
-    a report gives and the manifest's marks by id, can tell which cases a floored criterion's are (decision 0212). Nor
+    a report gives and the manifest's marks by id, can tell which cases a floored criterion's are (decision 0220). Nor
     does its length tell anything, since a sealed ledger's size is public: every cell the manifest's shape allows is
     listed, one of no case among them, each count at the width of the set's own and each flag one digit. It stops
     nothing. None where `_expected` can say nothing, and for a set that is no gate set's, which counts no group."""
@@ -828,7 +828,7 @@ def ledger_of(kept: dict, found: dict, assessed: dict, causes: dict, alternates:
     the review returned for it, under a salt drawn for this run alone, so that its hash in the report tells nothing of
     what it holds; and each case asked first the same way, but for whether it is natural, from `ahead`, `(assessed,
     causes, usages, results, alternates, surplus)` of them (issue 613). And `cells`, what `cells_of` says of the set,
-    which is told here and nowhere public (decision 0212). It stays in the scratch for `seal`, and is never uploaded
+    which is told here and nowhere public (decision 0220). It stays in the scratch for `seal`, and is never uploaded
     but sealed (issue 612)."""
     # Each case asked first with its marks, at an alternate place alone or drawing gating Findings away (Muse's read of
     # #646), as the set's are listed.

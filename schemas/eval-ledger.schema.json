@@ -375,7 +375,7 @@
       }
     },
     "cells": {
-      "description": "Every cell of the groups the set's report counts: a kind, the criterion the set floors or none, natural or not, how many cases it holds at the width of the set's count, and whether those are a few, 1 or 0. Sealed, told nowhere public, and of a length the manifest alone fixes (decision 0212). Null where a case was not read or its answer is no kind.",
+      "description": "Every cell of the groups the set's report counts: a kind, the criterion the set floors or none, natural or not, how many cases it holds at the width of the set's count, and whether those are a few, 1 or 0. Sealed, told nowhere public, and of a length the manifest alone fixes (decision 0220). Null where a case was not read or its answer is no kind.",
       "type": [
         "array",
         "null"
