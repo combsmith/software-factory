@@ -9,7 +9,7 @@ the others in this tree: it floors the criteria they floor and marks natural the
 may change, as no count is of it.
 
 What main has held is read from the merge base with origin/main back: every manifest under `evals/` as each commit
-of main that changed anything there left it. The base is the decision records', `tools/check_decisions.py`'s. One that cannot be read fails, and an export, which
+of main that changed one left it. The base is the decision records', `tools/check_decisions.py`'s. One that cannot be read fails, and an export, which
 has no history, is held to its own tree alone. A tree with no gate set reads no history. In a merge group the
 entries ahead are read as main's, from the commit before this one. The check reads no
 case, and stops a pull request, never a dispatch. Cases that changed are other cases: a set issued again, or with one
@@ -51,9 +51,9 @@ def _read(text: str):
 
 def _held(root: pathlib.Path, at: str) -> list:
     """`[(where, groups)]` of each gate set's manifest main held at `at` or before it, once for each way of counting:
-    every manifest under `evals/` as each commit of main that changed anything there left it. Raises Unreadable."""
+    every manifest under `evals/` as each commit of main that changed one left it. Raises Unreadable."""
     seen, read, found = set(), {}, []
-    for commit in _git(root, "log", "--first-parent", "--format=%H", at, "--", "evals").split():
+    for commit in _git(root, "log", "--first-parent", "--format=%H", at, "--", "evals/*/cases.json").split():
         for entry in _git(root, "ls-tree", "-r", "-z", commit, "--", "evals/").split("\0"):
             kind, _, name = entry.partition("\t")
             # A regular file alone: a link's bytes are its target's name, and a gitlink is no file at all.
@@ -85,14 +85,14 @@ def run(root: pathlib.Path = ROOT) -> list:
         return ["%s: cannot be compared with what main has held (%s); fetch main's whole history and run again"
                 % (rel, err) for rel, _ in here]
     problems = []
-    for rel, now in here:
-        for where, was in before + here:
-            if was[0] != now[0]:
+    for rel, (cases, floored, natural) in here:
+        for where, (held, floors, marks) in before + here:
+            if held != cases:
                 continue
-            if was[1] != now[1]:
+            if floors != floored:
                 problems.append("%s: floors other criteria than %s does of the same cases; a gate set's floored "
                                 "criteria change only with its cases (decision 0208)" % (rel, where))
-            if was[2] != now[2]:
+            if marks != natural:
                 problems.append("%s: marks other cases natural than %s does of the same cases; a gate set's natural "
                                 "marks change only with its cases (decision 0208)" % (rel, where))
     return problems
