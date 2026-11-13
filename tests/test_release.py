@@ -528,7 +528,8 @@ class Fixture(unittest.TestCase):
         self.assertEqual((jobs["total_count"], job["run_id"], job["conclusion"], job["head_sha"], moved["conclusion"]),
                          (1, made["run"], "success", commit, "success"))
         self.assertEqual((ran["status"], ran["head_branch"]), ("completed", "main"))
-        self.assertEqual([(r["conclusion"], r["head_sha"]) for r in listed["workflow_runs"]], [("success", commit)])
+        told = ("id", "path", "event", "status", "conclusion", "head_branch", "head_sha")
+        self.assertEqual([[r[k] for k in told] for r in listed["workflow_runs"]], [[ran[k] for k in told]])
         for tag in (fixture["version"], channel, before[0]["version"]):
             read = body("/repos/%s/git/ref/tags/%s" % (REPO, tag))
             self.assertEqual((read["ref"], read["object"]["type"]), ("refs/tags/" + tag, "commit"), tag)
