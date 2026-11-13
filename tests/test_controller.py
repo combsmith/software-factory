@@ -805,6 +805,27 @@ class Feed(unittest.TestCase):
         self.assertEqual(configuration.load(ROOT, "factory/v0.3.1", "controller")["credentials"],
                          json.loads((ROOT / "config" / "credential-ages.json").read_text()))
 
+    def test_the_kernel_is_given_the_paths_only_a_person_decides_from_the_releases_own_list(self):  # decision NNNN
+        hooks = json.loads((ROOT / "config" / "hooks.json").read_text())
+        want = [e["path"] for e in hooks["person_only"]]
+        held = configuration.kernel(ROOT)
+        self.assertEqual((want, held["person_only_paths"]), (["release/decision-points.json"], want))
+        self.assertEqual(held["person_only_paths"], support.CONFIG["person_only_paths"])
+        self.assertEqual(held["model_lens_inputs"], support.CONFIG["model_lens_inputs"])
+        self.assertEqual(configuration.load(ROOT, "factory/v0.3.1", "controller")["kernel"]["person_only_paths"], want)
+        # The list is the checkout's the Controller runs from, each path once as it is written; one with no such list
+        # names none, which the Kernel reads as a list.
+        with tempfile.TemporaryDirectory() as d:
+            (pathlib.Path(d) / "config").mkdir()
+            (pathlib.Path(d) / "config" / "defaults.json").write_text((ROOT / "config" / "defaults.json").read_text())
+            other = dict(hooks, protected=hooks["protected"] + [{"path": "release/rings.json", "is": "x"}],
+                         person_only=hooks["person_only"] + [{"path": "release/rings.json", "is": "x"}])
+            (pathlib.Path(d) / "config" / "hooks.json").write_text(json.dumps(other))
+            self.assertEqual(configuration.kernel(pathlib.Path(d))["person_only_paths"], want + ["release/rings.json"])
+            (pathlib.Path(d) / "config" / "hooks.json").write_text(
+                json.dumps({key: value for key, value in hooks.items() if key != "person_only"}))
+            self.assertEqual(configuration.kernel(pathlib.Path(d))["person_only_paths"], [])
+
     def test_a_write_no_effect_recorded_raises_one_alert_and_is_named_in_the_view(self):  # I-33, decision 0061
         # The pass reconciles what each Factory identity wrote with what the Factory recorded: one alert however many
         # writes, each named in the view by ids and codes, kept in the pass record so a rebuilt view says the same.

@@ -191,6 +191,14 @@
       ]
     },
     {
+      "reason": "path_needs_person",
+      "question": "a_path_needs_you",
+      "choices": [
+        "approve",
+        "close"
+      ]
+    },
+    {
       "reason": "contract_not_approved",
       "question": "contract_needs_approval",
       "choices": [

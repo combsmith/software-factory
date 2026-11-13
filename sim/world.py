@@ -24,6 +24,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()), lifecycle=check_lifecycle.load(),
               protected_paths=protected.protected_paths())
 CONFIG["model_lens_inputs"] = protected.model_lens_inputs(CONFIG["required_lenses"]["model"])
+CONFIG["person_only_paths"] = [path for path, _ in protected.load()["person_only"]]
 # The world models the Factory once its author Role exists, as the authority table names it: the live configuration
 # names none until roles/dev-lead.json does, and defers each fix to a person meanwhile (issue 675).
 CONFIG["author_role"] = json.loads((ROOT / "config" / "authority.json").read_text())["author_role"]
