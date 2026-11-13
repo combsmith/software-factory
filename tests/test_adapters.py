@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import email.utils
 import hashlib
 import io
 import json
@@ -4524,31 +4525,35 @@ class Contract(unittest.TestCase):
             ("p42 / timed-out", "cancelled"), ("p42 / neutral", "neutral"), ("p42 / skipped", "skipped")}
 
     def p42_push(self, at: int) -> tuple:
-        """P-42.push: canary pull request 113's checks at its read `at`, by the port's own read replayed from the fixture,
-        and the head that read gave (issue 807)."""
+        """P-42.push: canary pull request 113's read `at`: whether the port read it whole, its head, p2-queue-check as the
+        port reads it, a status while it has not concluded, and, apart from the port, that check run's node as the fixture
+        holds it and the read's own date (issue 807)."""
         found = exchanges("P-42.push")[at]
-        head = found["response"]["body"]["data"]["repository"]["pullRequest"]["headRefOid"]
-        pull = {"number": 113, "base": {"repo": {"full_name": canary()}}, "head": {"sha": head}}
-        return checks.read(github.Replay([copy.deepcopy(found)]), pull), head
-
-    def required_at(self, at: int) -> tuple:
-        """P-42.push: the head of read `at`, and p2-queue-check's conclusions on it as the port reads them, a status while
-        it has not concluded."""
-        read, head = self.p42_push(at)
-        assert read["complete"] is True
-        return head, [c["conclusion"] for c in read["checks"] if c["name"] == "p2-queue-check"]
+        pr = found["response"]["body"]["data"]["repository"]["pullRequest"]
+        pull = {"number": 113, "base": {"repo": {"full_name": canary()}}, "head": {"sha": pr["headRefOid"]}}
+        read = checks.read(github.Replay([copy.deepcopy(found)]), pull)
+        nodes = [n for n in pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
+                 if n.get("name") == "p2-queue-check"]
+        when = email.utils.parsedate_to_datetime(found["response"]["headers"]["date"])
+        return (read["complete"] is True, pr["headRefOid"], [c["conclusion"] for c in read["checks"] if c["name"] == "p2-queue-check"],
+                nodes, when)
 
     def pushed_pending_read(self) -> bool:
-        """P-42.push: p2-queue-check had concluded success on head A; read at once after head B was pushed, it is on B and
-        queued, with no conclusion: the push set the required check pending again."""
-        (a, on_a), (b, on_b) = self.required_at(0), self.required_at(1)
-        return a != b and on_a == ["success"] and on_b in (["queued"], ["in_progress"])
+        """P-42.push: p2-queue-check had concluded success on head A; read after head B was pushed, it is on B and queued,
+        with no conclusion, its run started after A's had completed: the push set the required check pending again."""
+        whole_a, a, on_a, node_a, read_a = self.p42_push(0)
+        whole_b, b, on_b, node_b, read_b = self.p42_push(1)
+        return (whole_a and whole_b and a != b and on_a == ["success"] and on_b in (["queued"], ["in_progress"])
+                and read_a < read_b and len(node_a) == len(node_b) == 1 and node_a[0]["completedAt"] < node_b[0]["startedAt"])
 
     def reported_on_its_own_read(self) -> bool:
-        """P-42.push: read again on head B with nothing asked of GitHub but reads, the check it had read pending has
-        concluded: it reported on its own."""
-        (b, on_b), (c, on_c) = self.required_at(1), self.required_at(2)
-        return b == c and on_b in (["queued"], ["in_progress"]) and on_c in (["success"], ["failure"])
+        """P-42.push: read again on head B with nothing asked of GitHub but reads, the same check run it had read pending,
+        by its id, has concluded: it reported on its own."""
+        whole_b, b, on_b, node_b, read_b = self.p42_push(1)
+        whole_c, c, on_c, node_c, read_c = self.p42_push(2)
+        return (whole_b and whole_c and b == c and read_b < read_c and on_b in (["queued"], ["in_progress"])
+                and on_c in (["success"], ["failure"]) and len(node_b) == len(node_c) == 1
+                and node_b[0]["databaseId"] == node_c[0]["databaseId"])
 
     def test_each_head_p42_port_read_is_read_whole_by_the_port(self):  # issue 807
         # Every read the sitting recorded is one the port reads whole, of its own head, every check run in it: 65, 92, 73

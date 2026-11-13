@@ -55,7 +55,8 @@ RULES = (
      "says which App and what the review was before (previousReviewState)", ("P-41",), "trials/P-41.json", None),
     # trials/P-42.json: a pull request's head, its checks read at once and an hour later, and the new head after a push.
     # trials/P-42.push.json: in the port's own read, the required check concluded on head A and, read at once after head B
-    # was pushed, queued on B; for four seconds GitHub listed none on B at all (issue 807).
+    # was pushed, queued on B; for four seconds GitHub listed none on B at all, read and not kept, which the Kernel reads
+    # as pending too (issue 807).
     ("a_push_restarts_the_checks", "A push sets every required check pending again", ("P-42",), "trials/P-42.push.json",
      None),
     # trials/P-42.rollup.json: the required check read queued in the status rollup, and 11 minutes later success, with
