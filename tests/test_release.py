@@ -334,6 +334,7 @@ class Fixture(unittest.TestCase):
     NINTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-8.json"
     TENTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-9.json"
     ELEVENTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-10.json"
+    TWELFTH_CUT = ROOT / "release" / "fixtures" / "cut.v0-1-11.json"
     ROLLBACK = ROOT / "release" / "fixtures" / "rollback.refused.json"
     FIRST_ROLLBACK = ROOT / "release" / "fixtures" / "rollback.v0-1-10.json"
     # The cuts a rollback and a move forward again followed, by the fixture of those two steps: each recorded a
@@ -455,6 +456,9 @@ class Fixture(unittest.TestCase):
         listed = body("/repos/%s/actions/workflows/%d/runs?head_sha=%s" % (REPO, ran["workflow_id"], commit))
         self.assertEqual((listed["total_count"], [r["id"] for r in listed["workflow_runs"]]), (1, [ran["id"]]))
         self.assertLess(ran["updated_at"], run["created_at"], "the eval had ended before the cut was asked")
+        # The cut's own run: a dispatch or the schedule's, on main, at the commit it was asked to cut.
+        self.assertIn(run["event"], ("workflow_dispatch", "schedule"))
+        self.assertEqual((run["head_branch"], run["head_sha"]), ("main", commit))
         for tag in (fixture["version"], channel):
             with self.subTest(tag=tag):
                 self.assertEqual(body("/repos/%s/git/ref/tags/%s" % (REPO, tag))["object"]["sha"], commit)
@@ -469,10 +473,15 @@ class Fixture(unittest.TestCase):
                          since + [(own, commit, fixture["version"])] + below)
         statuses = body("/repos/%s/deployments/%d/statuses" % (REPO, own))
         self.assertEqual([s["state"] for s in statuses], ["inactive", "success"] if since else ["success"])
+        # The cut's own Deployment was made inside the run that printed it, and succeeded there, no earlier than it was made.
+        mine, = [d["created_at"] for d in deployed if d["id"] == own]
+        self.assertTrue(run["created_at"] <= mine <= statuses[-1]["created_at"] <= run["updated_at"],
+                        (mine, statuses[-1]["created_at"]))
         # GitHub marks the Deployment `next` moved off, the newest below the cut's own, inactive, newest first, beside
-        # the success it kept.
+        # the success it kept, and no earlier than the cut's own was made.
         statuses = body("/repos/%s/deployments/%d/statuses" % (REPO, below[0][0]))
         self.assertEqual([s["state"] for s in statuses], ["inactive", "success"])
+        self.assertGreaterEqual(statuses[0]["created_at"], mine)
 
     def test_the_next_cut_moved_next_on(self):
         # Each cut after the first. Run 42697380276 cut factory/v0.1.1 on 2026-11-09 at the commit eval run 42694638100
@@ -488,7 +497,9 @@ class Fixture(unittest.TestCase):
         # resolving (#743); run 43173763017 cut factory/v0.1.9 on 2026-11-12 at the commit eval run 43171810453 had passed,
         # #775's merge, which fetches the CLI's sandbox from two mirrors (#774); run 43270689165 cut factory/v0.1.10 on
         # 2026-11-12 at the commit eval run 43267765670 had passed, #760's merge, and its fixture was read after the
-        # first rollback and the move forward again, whose two Deployments stand above the cut's.
+        # first rollback and the move forward again, whose two Deployments stand above the cut's; run 43348353598 cut
+        # factory/v0.1.11 on 2026-11-13 at the commit eval run 43346447730 had passed, #791's merge, the first cut after
+        # that rollback: the two Deployments stand below its own, and the one `next` moved off is the move forward's.
         for path, eval_run, earlier in ((self.NEXT_CUT, 42694638100, [self.CUT]),
                                         (self.THIRD_CUT, 42739717534, [self.NEXT_CUT, self.CUT]),
                                         (self.FOURTH_CUT, 42753588971, [self.THIRD_CUT, self.NEXT_CUT, self.CUT]),
@@ -513,7 +524,11 @@ class Fixture(unittest.TestCase):
                                         (self.ELEVENTH_CUT, 43267765670,
                                          [self.TENTH_CUT, self.NINTH_CUT, self.EIGHTH_CUT, self.SEVENTH_CUT,
                                           self.SIXTH_CUT, self.FIFTH_CUT, self.FOURTH_CUT, self.THIRD_CUT,
-                                          self.NEXT_CUT, self.CUT])):
+                                          self.NEXT_CUT, self.CUT]),
+                                        (self.TWELFTH_CUT, 43346447730,
+                                         [self.ELEVENTH_CUT, self.TENTH_CUT, self.NINTH_CUT, self.EIGHTH_CUT,
+                                          self.SEVENTH_CUT, self.SIXTH_CUT, self.FIFTH_CUT, self.FOURTH_CUT,
+                                          self.THIRD_CUT, self.NEXT_CUT, self.CUT])):
             with self.subTest(cut=path.name):
                 self.a_later_cut_moved_next_on(path, eval_run, earlier)
 
