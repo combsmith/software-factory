@@ -1127,6 +1127,83 @@ class Done(unittest.TestCase):
         d = derive(facts(linked=[late, pr(number=12, spans=[(3, None)])], **closed))
         self.assertEqual((d["state"], d["reason"]), ("done", "merged"))
 
+    def test_a_persons_close_of_the_rival_after_the_merge_releases_the_hold(self):  # issue 552, ruling (2) (a)
+        # Two links stood at the merge, so the issue is held. A person's close of the rival after the merge's second
+        # releases it for good, as an unlinking by hand does: reopened since, it holds nothing. Its keyword or its link by
+        # hand, either way.
+        closed = dict(state="closed", closed_first_at=at(5))
+        own = agents(number=11, is_open=False, merged=5, spans=[(2, None)])
+
+        def rival(closes, shut_at=None, **over):
+            """The rival, linked before the merge, closed and reopened as `closes` says, by whom, as (action, who, minute or
+            time), and closed at its last close's time, or `shut_at`, if that is a close."""
+            def when(m):
+                return at(m) if isinstance(m, int) else m
+            last = closes[-1]
+            shut = last[0] == "closed"
+            return dict(pr(**dict({"number": 12, "spans": [(3, None)]}, **over)), open=not shut,
+                        closed_at=(shut_at or when(last[2])) if shut else None,
+                        close_events=[{"action": action, "by": dict(who), "at": when(m)} for action, who, m in closes])
+
+        # GitHub may date a close's event up to max_close_lag_seconds (300 here) after the close, so a close counts only
+        # with its event that long after the merge's second: a reopening since, by anyone, moves nothing.
+        for released in (rival([("closed", WRITER, 10)]), rival([("closed", WRITER, 12)]),
+                         rival([("closed", WRITER, 10), ("reopened", WRITER, 11)]),
+                         rival([("closed", WRITER, 10), ("reopened", OUTSIDER, 11)]),
+                         rival([("closed", WRITER, 10), ("reopened", AUTHOR_APP, 11)]),
+                         rival([("closed", WRITER, 10), ("reopened", WRITER, 11), ("closed", AUTHOR_APP, 12)]),
+                         # A person's close after an App's and a reopening still releases it.
+                         rival([("closed", AUTHOR_APP, 7), ("reopened", WRITER, 8), ("closed", WRITER, 10)]),
+                         rival([("closed", WRITER, 10)], spans=[], links=[("connected", 3)])):
+            d = derive(facts(linked=[own, released], **closed))
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("done", "merged", ["11"]), released)
+        # A person's close releases it for good, so the rival's own merge since, after a reopening, moves nothing back.
+        merged_since = rival([("closed", WRITER, 11), ("reopened", WRITER, 12), ("closed", WRITER, 13)], merged=13, closed_issue=None)
+        d = derive(facts(linked=[own, merged_since], **closed))
+        self.assertEqual((d["state"], d["reason"]), ("done", "merged"))
+        # A close in the merge's second whose event is dated the lag after it is no chronology at all: it defers.
+        d = derive(facts(linked=[own, rival([("closed", WRITER, 10)], shut_at=at(5))], **closed))
+        self.assertEqual((d["state"], d["reason"]), (None, "linked_unreadable"))
+        # With no limit that can be read, no close releases it: none can be told from one in the merge's second.
+        for bad in (None, 0, "300"):
+            cfg = config()
+            if bad is None:
+                del cfg["limits"]["max_close_lag_seconds"]
+            else:
+                cfg["limits"]["max_close_lag_seconds"] = bad
+            undone = rival([("closed", WRITER, "2026-10-11T12:05:01Z"), ("reopened", WRITER, 6)])
+            d = derive(facts(linked=[own, undone], **closed), cfg=cfg)
+            self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"), bad)
+        # The other side: a close by anyone but a person releases nothing, nor does a person's reopening of a close
+        # that did not; a close in the merge's second carries no order against it, so it stood, as a close there does;
+        # and the rival's own merge after it is no close that releases, nor the first merge's own close.
+        for holding in (rival([("closed", AUTHOR_APP, 12)]), rival([("closed", OUTSIDER, 12)]),
+                        rival([("closed", MACHINE, 12)]), rival([("closed", CONTROLLER, 12)]),
+                        rival([("closed", {"kind": "lens", "name": "pr-review", "can_write": True}, 12)]),
+                        rival([("closed", {"kind": "queue", "name": "combsmith-sf-queue[bot]", "can_write": True}, 12)]),
+                        # A writer's login with no write access read is no person.
+                        rival([("closed", dict(WRITER, can_write=False), 12)]),
+                        rival([("closed", AUTHOR_APP, 12), ("reopened", WRITER, 13)]),
+                        rival([("closed", WRITER, 5)]),
+                        # A close whose event is less than the lag after the merge's second may have been in that
+                        # second: dated a second after it (Muse), or later, standing or undone since, it releases nothing.
+                        rival([("closed", WRITER, "2026-10-11T12:05:01Z")], shut_at=at(5)),
+                        rival([("closed", WRITER, "2026-10-11T12:09:59Z")]),
+                        rival([("closed", WRITER, "2026-10-11T12:09:59Z"), ("reopened", WRITER, 11)]),
+                        rival([("closed", WRITER, 7), ("reopened", WRITER, 8), ("closed", AUTHOR_APP, 13)]),
+                        rival([("closed", WRITER, 11)], merged=11, closed_issue=None),
+                        rival([("closed", WRITER, 11)], spans=[], links=[("connected", 3)], merged=11, closed_issue=None)):
+            d = derive(facts(linked=[own, holding], **closed))
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "merged_while_held", ["11", "12"]), holding)
+        # Two queue merges in one second, each a person's queue merge, still leave it held: each close is in that second.
+        other = agents(number=12, is_open=False, merged=5, spans=[(3, None)])
+        d = derive(facts(linked=[own, other], **closed))
+        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "merged_while_held", ["11", "12"]))
+        # A third link that stood keeps it held when a person closes one rival: fewer than two must stand.
+        third = pr(number=13, spans=[(4, None)])
+        d = derive(facts(linked=[own, rival([("closed", WRITER, 10)]), third], **closed))
+        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "merged_while_held", ["11", "13"]))
+
     def test_an_empty_merge_is_not_done(self):
         self.assertEqual(state(facts(linked=[pr(is_open=False, merged=5, empty=True)])), "new")
         self.assertEqual(state(facts(linked=[pr(is_open=False, merged=5, empty=False)])), "done")
@@ -1797,12 +1874,21 @@ class Investigation(unittest.TestCase):
         self.assertEqual(what(decide(TRIAGED, judging[:-1])), ("admit", "triage", JUDGE))
         self.assertEqual(what(decide(TRIAGED, judging)), ("hold", "attempts_exhausted", None))
         ceiling = LIMITS["max_runs_per_item"]
-        runs = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="environment") for i in range(ceiling)]
+        runs = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="capacity") for i in range(ceiling)]
         self.assertEqual(what(decide(TRIAGED, runs[:-1])), ("admit", "triage", INVESTIGATE))
         self.assertEqual(what(decide(TRIAGED, runs)), ("hold", "run_ceiling", None))
         # A person's action renews every count.
         renewed = facts(label_events=ACCEPTED, last_writer_action_at=at(30))
         self.assertEqual(what(decide(renewed, runs)), ("admit", "triage", INVESTIGATE))
+        # A Run that spent no model counts toward a bound of its own, beside the ceiling, and is renewed with it (0202).
+        apart = LIMITS["max_environment_runs_per_item"]
+        outside = [dict(failed(INVESTIGATE, 1 + i, "o%d" % i, outcome="environment"), engine_started=False)
+                   for i in range(apart)]
+        self.assertEqual(what(decide(TRIAGED, outside[:-1])), ("admit", "triage", INVESTIGATE))
+        self.assertEqual(what(decide(TRIAGED, outside)), ("hold", "environment_ceiling", None))
+        self.assertEqual(what(decide(TRIAGED, outside[:-1] + runs[:-1])), ("admit", "triage", INVESTIGATE))
+        self.assertEqual(what(decide(TRIAGED, outside + runs)), ("hold", "run_ceiling", None))
+        self.assertEqual(what(decide(renewed, outside)), ("admit", "triage", INVESTIGATE))
 
     def test_an_issues_run_that_ran_and_left_no_outcome_is_an_attempt(self):  # issue 286's ruling
         # An investigating Run that failed or timed out with no outcome is the item's; one cancelled with none is not.
@@ -1823,7 +1909,7 @@ class Investigation(unittest.TestCase):
         self.assertEqual(what(decide(TRIAGED, spent + [queued])), ("hold", "attempts_exhausted", None))
         # The Run in flight was admitted under the ceiling: it is not counted against itself.
         ceiling = LIMITS["max_runs_per_item"]
-        runs = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="environment") for i in range(ceiling)]
+        runs = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="capacity") for i in range(ceiling)]
         self.assertEqual(what(decide(TRIAGED, runs[:-1] + [queued])), ("nothing", "triage", None))
         self.assertEqual(what(decide(TRIAGED, runs + [queued])), ("hold", "run_ceiling", None))
         # Under a Pause, a Run in flight is still only working.
@@ -1994,7 +2080,9 @@ class Attention(unittest.TestCase):
     def test_each_reason_and_state_calls_whom_it_should(self):
         tries, ceiling = LIMITS["max_attempts"], LIMITS["max_runs_per_item"]
         spent = [failed(INVESTIGATE, 1 + i, "f%d" % i) for i in range(tries)]
-        worn = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="environment") for i in range(ceiling)]
+        worn = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="capacity") for i in range(ceiling)]
+        outside = [dict(failed(INVESTIGATE, 1 + i, "o%d" % i, outcome="environment"), engine_started=False)
+                   for i in range(LIMITS["max_environment_runs_per_item"])]
         stale = facts(life_started_at=at(5), reopened_last_by="writer", label_events=[labelled(TRIAGE, WRITER, 1)])
         cases = [
             ("human_hold", "needs_you", facts(label_events=[labelled(HOLD)]), [], config()),
@@ -2004,6 +2092,7 @@ class Attention(unittest.TestCase):
              config()),
             ("attempts_exhausted", "needs_you", TRIAGED, spent, config()),
             ("run_ceiling", "needs_you", TRIAGED, worn, config()),
+            ("environment_ceiling", "needs_you", TRIAGED, outside, config()),
             ("act_ceiling", "needs_you", facts(acts_since_writer=LIMITS["max_acts_per_item"]), [], config()),
             ("triage_stands", "needs_you", stale, [], config()),
             ("judged", "needs_you", TRIAGED, [investigated(), run()], config()),
@@ -2127,10 +2216,10 @@ class WantedRun(unittest.TestCase):
         # by a pass that did not see the first (P-22, P-17), and the first failed: the ceiling is reached. Then the
         # outsider edits the issue, its acceptance lapses, and it wants no Run.
         events = [labelled(ADMIT, WRITER, 1), labelled(TRIAGE, CONTROLLER, 2)]
-        settled = [investigated()] + [failed(JUDGE, 4 + i, "j%d" % i, outcome="environment", role="readiness")
+        settled = [investigated()] + [failed(JUDGE, 4 + i, "j%d" % i, outcome="capacity", role="readiness")
                                       for i in range(self.CEILING - 1)]
         queued = run(status="queued", minute=21, name="q1")
-        ended = dict(queued, status="completed", conclusion="failure", outcome="environment")
+        ended = dict(queued, status="completed", conclusion="failure", outcome="capacity")
         before = outsiders(label_events=events, last_writer_action_at=at(1), role_comments=[comment(ANALYST, 3)])
         edited = dict(before, content_id=OTHER, content_changed_at=at(25))
         self.assertEqual(len(settled), self.CEILING)
@@ -2149,10 +2238,10 @@ class WantedRun(unittest.TestCase):
         # As the issue gives it. Its last_writer_action_at cannot happen: the person who removed factory:ready acted
         # at minute 31, after which none of these Runs would count. It stands as a boundary of what the Kernel reads.
         f = facts(label_events=ACCEPTED + [labelled(READY, minute=30), unlabelled(READY, minute=31)])
-        settled = [investigated()] + [failed(JUDGE, 4 + i, "j%d" % i, outcome="environment", role="readiness")
+        settled = [investigated()] + [failed(JUDGE, 4 + i, "j%d" % i, outcome="capacity", role="readiness")
                                       for i in range(self.CEILING - 1)]
         queued = run(status="queued", minute=40, name="q1")
-        ended = dict(queued, status="completed", conclusion="failure", outcome="environment")
+        ended = dict(queued, status="completed", conclusion="failure", outcome="capacity")
         for paused in (False, True, None):
             self.assertEqual(self.reading(f, settled + [queued], ctx=context(paused=paused)),
                              ("triage", "triage", "nothing", "working"), paused)
@@ -2173,14 +2262,14 @@ class WantedRun(unittest.TestCase):
         # An opening Run waiting shows the issue in progress (row 7), but the Run wanted is the one the issue wants
         # without it: a verdict a person overruled, acceptance, or an investigation whose attempts are spent.
         waiting = dict(opening(status="queued"), started_at=at(40), run="q1")
-        settled = [investigated()] + [failed(JUDGE, 4 + i, "j%d" % i, outcome="environment", role="readiness")
+        settled = [investigated()] + [failed(JUDGE, 4 + i, "j%d" % i, outcome="capacity", role="readiness")
                                       for i in range(self.CEILING - 1)]
         overruled = facts(label_events=ACCEPTED + [labelled(READY, minute=30), unlabelled(READY, minute=31)])
         self.assertEqual(self.reading(overruled, settled), ("triage", "ready_removed", "nothing", "needs_you"))
         self.assertEqual(self.reading(overruled, settled + [waiting]), ("in_progress", "opening_run", "nothing", "working"))
         # The other side: a verdict still wanted is held at the Run ceiling while the opening Run waits.
         self.assertEqual(self.reading(TRIAGED, settled + [waiting]), ("held", "run_ceiling", "hold", "needs_you"))
-        spent = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="environment") for i in range(self.CEILING)]
+        spent = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="capacity") for i in range(self.CEILING)]
         self.assertEqual(what(decide(facts(), spent)), ("act", "acceptance_due", "accept"))
         self.assertEqual(self.reading(facts(), spent + [waiting]), ("in_progress", "opening_run", "nothing", "working"))
         tries = [failed(INVESTIGATE, 1 + i, "f%d" % i) for i in range(LIMITS["max_attempts"])]
@@ -2204,13 +2293,13 @@ class WantedRun(unittest.TestCase):
                          ("in_progress", "opening_run", "nothing", "working"))
 
     def test_an_issue_in_new_wants_no_run_while_one_waits(self):
-        spent = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="environment") for i in range(self.CEILING)]
+        spent = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="capacity") for i in range(self.CEILING)]
         queued = investigated(status="queued", minute=20, name="q1")
         self.assertEqual(self.reading(facts(), spent + [queued]), ("new", "acceptance_due", "nothing", "working"))
         self.assertEqual(what(decide(facts(), spent)), ("act", "acceptance_due", "accept"))
 
     def test_the_run_ceiling_holds_no_issue_that_wants_no_run(self):
-        spent = [failed(INVESTIGATE, 4 + i, "e%d" % i, outcome="environment") for i in range(self.CEILING)]
+        spent = [failed(INVESTIGATE, 4 + i, "e%d" % i, outcome="capacity") for i in range(self.CEILING)]
         queued = run(status="queued", minute=20, name="q1")
         verdict = [investigated(), run()] + spent[:-2]
         statementless = outsiders(label_events=[labelled(ADMIT), labelled(READY, minute=2)])

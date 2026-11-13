@@ -14,7 +14,7 @@ import random
 
 from kernel import issue
 from kernel import terms as t
-from sim.world import COLLEAGUE, MAINTAINER, PERMISSIONS, STRANGER, WRITE_ACCESS, Broken, World, queue_in_lane, told
+from sim.world import COLLEAGUE, MAINTAINER, PERMISSIONS, STRANGER, WRITE_ACCESS, Broken, World, queue_in_lane, spent_no_model, told
 from tools import check_lifecycle
 from tools.jsonschema_lite import validate
 
@@ -486,6 +486,7 @@ class IssueWorld:
                 run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None]))
             else:
                 run.update(conclusion="cancelled", outcome=None)
+            spent_no_model(run, len(self.runs))
             self.note("run %s: killed, %s (%s)" % (run["run"], run["conclusion"], run["outcome"]))
             return
         # apply asks the Kernel again with its own Run left out (I-38): a label removed, a Hold added, an edit made or
@@ -845,7 +846,11 @@ class IssueWorld:
                    "I-8 acts since a writer exceed the ceiling")
         since = [r for r in self.runs if (self.last_writer is None or r["started_at"] > self.last_writer)
                  and r["outcome"] != "superseded"]
-        self.check(len(since) <= LIMITS["max_runs_per_item"] + 1, "run ceiling per item")
+        # A Role's Run that spent no model, failing before its Engine step or never started, is counted apart (757).
+        outside = [r for r in since if (r["outcome"] == "environment" and r.get("engine_started") is False)
+                   or (r.get("never_ran") and r["outcome"] is None)]
+        self.check(len([r for r in since if r not in outside]) <= LIMITS["max_runs_per_item"] + 1, "run ceiling per item")
+        self.check(len(outside) <= LIMITS["max_environment_runs_per_item"] + 1, "Runs that spent no model per item")
 
     def settle(self, steps: int = 400):
         """Stop the faults and the people, and let the Factory finish."""

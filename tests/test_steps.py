@@ -599,6 +599,38 @@ class Apply(unittest.TestCase):
             self.assertEqual((code, ended["outcome"], ended["reason"], calls["minted"]), (0, "environment", want, []),
                              needs)
 
+    def test_apply_says_whether_the_engine_step_started(self):  # issue 757
+        # The run job hands on its Engine step's outcome. GitHub skips that step once a step before it failed, as the
+        # CLI's install did in the outage: then the Run spent no model, and its outcome says `engine_started` false.
+        # The run job hands on its Engine step's outcome, and `apply` is given every job's results and outputs.
+        live = (ROOT / ".github" / "workflows" / "run-jobs.yml").read_text()
+        for line in ("      engine: ${{ steps.engine.outcome }}\n", "      - name: Run the Engine\n        id: engine\n",
+                     "      NEEDS: ${{ toJSON(needs) }}\n"):
+            self.assertEqual(live.count(line), 1, line)
+
+        def needs(run_result, engine, verify="skipped"):
+            run = {"result": run_result, "outputs": {} if engine is None else {"engine": engine}}
+            return json.dumps({"run": run, "verify": {"result": verify, "outputs": {}}})
+        for engine, run_result, started in (("skipped", "failure", False), ("failure", "failure", True),
+                                            ("cancelled", "cancelled", True), ("success", "failure", True)):
+            code, _, ended, calls = self.go({"NEEDS": needs(run_result, engine)})
+            self.assertEqual((code, ended["outcome"], ended["reason"], ended.get("engine_started"), calls["minted"]),
+                             (0, "environment", "run_failed", started, []), engine)
+        # A Run whose run job succeeded reached the Engine, whatever ends it after.
+        code, _, ended, _ = self.go({"NEEDS": needs("success", "success", verify="failure")})
+        self.assertEqual((ended["reason"], ended.get("engine_started")), ("verify_failed", True))
+        code, printed, ended, _ = self.go({"NEEDS": needs("success", "success", verify="success")})
+        self.assertEqual((code, ended["outcome"], ended.get("engine_started")), (0, None, True), printed)
+        # What does not say the Engine step was skipped, or ran, says nothing: the field is left out, and the Run is read
+        # as one that may have reached the model.
+        for engine in (None, "", "neutral", 0, True, ["skipped"]):
+            code, _, ended, _ = self.go({"NEEDS": needs("failure", engine)})
+            self.assertEqual((ended["reason"], "engine_started" in ended), ("run_failed", False), engine)
+        odd = json.dumps({"run": {"result": "failure", "outputs": "skipped"}, "verify": {"result": "skipped"}})
+        for said in (odd, json.dumps({"run": {"result": "failure"}, "verify": {"result": "skipped"}}), "not json", None):
+            code, _, ended, _ = self.go({"NEEDS": said})
+            self.assertNotIn("engine_started", ended, said)
+
     def test_apply_reads_with_reads(self):
         code, printed, ended, calls = self.go()
         self.assertEqual((code, ended["outcome"]), (0, None), printed)

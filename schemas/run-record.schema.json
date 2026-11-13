@@ -81,6 +81,10 @@
         "skipped"
       ]
     },
+    "engine_started": {
+      "description": "Present where a failed Run's outcome/1 says it: whether the run job's Engine step started. False where GitHub skipped it because a step before it failed, so the Run spent no model; absent where the outcome said neither, and read then as a Run that may have reached the model (issue 757)",
+      "type": "boolean"
+    },
     "rerun_by_dispatcher": {
       "description": "Present on a re-run alone, or where GitHub gives no attempt that can be read: whether the pass job's own token, the dispatcher's account, re-ran it, as GitHub's triggering_actor says. A re-run runs nothing (decision 0058); one by that token is a write no Effect records, and alarms (decision 0063); null where its attempt or re-runner cannot be read, and reconciliation is short",
       "type": [
