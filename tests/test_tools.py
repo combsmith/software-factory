@@ -5250,7 +5250,7 @@ class GateSetGroups(unittest.TestCase):
         return check_examples.groups_kept(edited(root, {self.SET: now}, commit))
 
     def test_a_gate_set_whose_cases_are_the_bases_keeps_its_floored_criteria_and_natural_marks(self):
-        # Issue 695: two manifests of the same cases that count them in other groups publish counts whose difference is
+        # Issue 695, decision 0208: two manifests of the same cases that count them in other groups publish counts whose difference is
         # a group of fewer than ten, one case among them. Made-up cases: no held-out set is read here.
         base, floors, marks = self.manifest(), "floors other criteria than the base's", "marks other cases natural"
         self.assertIn(("gate set groups", check_examples.groups_kept), verify.CHECKS)

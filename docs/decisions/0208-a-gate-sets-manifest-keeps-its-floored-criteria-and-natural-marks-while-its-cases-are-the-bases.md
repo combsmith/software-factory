@@ -1,0 +1,26 @@
+# 0208. A gate set's manifest keeps its floored criteria and natural marks while its cases are the base's
+
+Status: accepted. The Factory Builder's ruling of 2026-11-12 on "Differences between a gate set's manifests across commits can isolate a group under ORIGIN_LEAST" (issue 695): a repo check against the base, which stops a pull request and never a dispatch. It takes up, for cases that have not changed, one residual of `docs/decisions/0180-a-gate-set-holds-a-floor-per-criterion-read-from-each-cases-expected-criterion.md`: "the least holds within one manifest, not between two". All of 0180 stands.
+
+## Decision
+
+| What | Decided | Because |
+|---|---|---|
+| The rule | A gate set's manifest whose cases are the base's, each id with its sha256, floors the criteria the base's floors and marks natural the cases the base's marks | Two manifests of the same cases that count them in other groups publish counts whose difference is a group of fewer than `ORIGIN_LEAST` cases. With a floor on one criterion at one commit and on another at the next, what is left is the findings on neither, which may be one case. With one more case marked natural, it is that case, under its public id |
+| What may change | A floor's fraction, each kind's bar, the least of a kind, the record, the preflight and the order the cases are listed in | None of them is a group a report counts |
+| Where it is held | `tools/check_examples.py`'s `groups_kept`, a check of its own in `tools/verify.py`, "gate set groups", against the merge base with origin/main, read as `tools/check_decisions.py` reads it. It fails a pull request and its merge group. It reads no case and stops no dispatch | Decision 0180 left the differences unheld because a rule at the fetch, on criteria a set does not floor, could stop a set no builder can see. Every change to main is a pull request, so every manifest main has held of one set of cases counts the same groups |
+| A base that cannot be read | Fails, for a gate set. An export, which has no history, is not compared, but in GitHub Actions, where a checkout always has one. A development set asks nothing of the base | It never passes what it could not compare, as the decision records' check does not |
+| What it does not hold | A set the base does not hold, or holds as a development set or as nothing that can be read; and a set whose cases changed | The first has counted no such group. The second is the residual below |
+| Residual: cases added, dropped or issued again | A manifest that adds, drops or issues again a few cases between two commits may move a floor or a mark with them, and the difference between the two reports' counts may then be a few cases | Out of scope, by the Factory Builder's ruling of 2026-11-12; written on that issue. A manifest is a protected path, each change to it reviewed, and only the Maintainer dispatches a gate set |
+| Residual: an overlap within one manifest | Two groups one manifest counts may still overlap in fewer than `ORIGIN_LEAST` cases, as 0180 names | The other part of that issue, an advisory at the fetch, which the Factory Builder ruled a change of its own |
+
+## Why
+
+Decision 0180 holds every group a report counts to none or `ORIGIN_LEAST` cases under one manifest, and wrote down that two manifests of the same cases are not held to each other. The groups a manifest makes are the criteria it floors and the cases it marks natural, and both are in the manifest, which is public. So the rule can be held where the manifest changes, against what main holds, with no case read: while the cases stay, the groups stay.
+
+## Boundaries
+
+| Boundary | Check |
+|---|---|
+| A gate set's manifest whose cases are the base's, by id and sha256 and in any order, floors the base's criteria and marks natural the base's cases: a floor moved, added or dropped is refused, and so is a mark added, taken off or moved. A floor's fraction may change. A set whose cases changed, one the base does not hold or holds as a development set or as nothing readable, and a development set, are not held. `verify` runs it | `tests/test_tools.py::test_a_gate_set_whose_cases_are_the_bases_keeps_its_floored_criteria_and_natural_marks`, `tools/check_examples.py`, `tools/verify.py`, `tools/mutants.py`, mutant: "a gate set's floors may move while its cases stay", mutant: "a gate set's natural marks may move while its cases stay", mutant: "a gate set's groups are held though its cases changed", mutant: "a gate set's cases are the base's by their ids alone", mutant: "a gate set's cases are the base's only in the base's order", mutant: "a floor's fraction is held with its criterion", mutant: "a development set at the base is compared as a gate set", mutant: "a mark that is not true counts as natural", mutant: "verify leaves a gate set's groups unchecked" |
+| A gate set that cannot be compared with the base fails; an export is not compared, but in GitHub Actions; a development set is never refused for a base it cannot read | `tests/test_tools.py::test_a_gate_set_that_cannot_be_compared_with_the_base_fails_and_an_export_is_not_compared`, `tools/check_examples.py`, `tools/mutants.py`, mutant: "a gate set that cannot be compared with the base passes", mutant: "a development set is refused for a base it cannot read" |

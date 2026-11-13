@@ -321,7 +321,7 @@ def _groups(found):
 
 def groups_kept(root: pathlib.Path = ROOT) -> list:
     """A gate set's manifest whose cases are the base's, each id with its hash, counts them in the groups the base's
-    does: it floors the criteria the base's floors and marks natural the cases the base's marks (issue 695). Two
+    does: it floors the criteria the base's floors and marks natural the cases the base's marks (issue 695, decision 0208). Two
     manifests of the same cases that floored other criteria, or marked other cases natural, would publish counts whose
     difference is a group of fewer cases than a report may count, one case's verdict among them. A floor's fraction
     may change, as no count is of it. The base is the decision records', `tools/check_decisions.py`'s: one that
