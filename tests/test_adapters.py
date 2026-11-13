@@ -4639,7 +4639,12 @@ class Contract(unittest.TestCase):
                      if n.get("name") == "p2-queue-check"]
             read = checks.read(github.Replay([found[at + 1]]), dict(pull, head={"sha": pr["headRefOid"]}))
             required = [(c["conclusion"], c["app_id"], c["workflow"]) for c in read["checks"] if c["name"] == "p2-queue-check"]
+            # The approval the ruleset requires stood before the enqueue: on 70 the machine user's, of the head; on 100,
+            # under P-2.no-pass's ruleset, none was required.
+            approved = [e for e in events[:enqueued] if e.get("event") == "reviewed" and e.get("state") == "approved"
+                        and timeline.Accounts.account(e["user"])[1:] == MACHINE and e["commit_id"] == pr["headRefOid"]]
             held.append(whole and enqueued < merged and (by[0], by[2]) == enqueuer and not between
+                        and (number == 100 or len(approved) == 1)
                         and events[merged]["created_at"] == merged_at[number] and read["complete"] is True
                         and required == [("success", 15368, ".github/workflows/p2-queue.yml")]
                         and len(nodes) == 1 and nodes[0]["completedAt"] < events[merged]["created_at"])
