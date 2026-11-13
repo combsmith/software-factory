@@ -654,13 +654,14 @@ def floor_short(found: dict, place: pathlib.Path) -> bool:
 
 
 def cells_of(found: dict, place: pathlib.Path):
-    """The cells of the groups a gate set's report counts, for its sealed ledger alone: `{"ok", "each"}`, each cell a
-    kind, for the cases that expect a Finding the criterion the set floors or none of them, natural or not, and how
-    many cases it holds; `ok` where every one holds ORIGIN_LEAST at least. Where two groups overlap in a cell of a few
-    cases, their counts' difference tells those few (issue 695). Nothing of it is public: a word that every cell is
-    whole, beside the counts a report gives and the manifest's marks by id, can tell which cases a floored criterion's
-    are (decision 0212). It stops nothing. None where `_expected` can say nothing, and for a set that is no gate
-    set's, which counts no group."""
+    """The cells of the groups a gate set's report counts, for its sealed ledger alone: each a kind, for the cases that
+    expect a Finding the criterion the set floors or none of them, natural or not, how many cases it holds, and whether
+    those are a few, some but fewer than ORIGIN_LEAST. Where two groups overlap in a cell of a few cases, their counts'
+    difference tells those few (issue 695). Nothing of it is public: a word that every cell is whole, beside the counts
+    a report gives and the manifest's marks by id, can tell which cases a floored criterion's are (decision 0212). Nor
+    does its length tell anything, since a sealed ledger's size is public: every cell the manifest's shape allows is
+    listed, one of no case among them, each count at the width of the set's own and each flag one digit. It stops
+    nothing. None where `_expected` can say nothing, and for a set that is no gate set's, which counts no group."""
     expected = _expected(found, place) if gate_set(found) else None
     if expected is None:
         return None
@@ -669,9 +670,13 @@ def cells_of(found: dict, place: pathlib.Path):
         floored = next((name for name in floors if said["verdict"] == "finding" and said.get("criterion") == name), None)
         cell = (said["verdict"], floored, case in natural)
         cells[cell] = cells.get(cell, 0) + 1
-    each = [{"kind": kind, "criterion": floored, "natural": marked, "cases": cells[kind, floored, marked]}
-            for kind, floored, marked in sorted(cells, key=lambda cell: (cell[0], cell[1] or "", cell[2]))]
-    return {"ok": all(cell["cases"] >= ORIGIN_LEAST for cell in each), "each": each}
+    width, listed = len(str(found["count"])), []
+    for kind, floored in [("finding", None)] + [("finding", name) for name in sorted(floors)] + [("met", None)]:
+        for marked in (False, True):
+            many = cells.get((kind, floored, marked), 0)
+            listed.append({"kind": kind, "criterion": floored, "natural": marked, "cases": "%0*d" % (width, many),
+                           "few": int(0 < many < ORIGIN_LEAST)})
+    return listed
 
 
 def split_ok(found: dict, place: pathlib.Path):

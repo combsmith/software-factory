@@ -375,54 +375,48 @@
       }
     },
     "cells": {
-      "description": "The cells of the groups the set's report counts, each a kind, for the cases that expect a Finding the criterion the set floors or none, natural or not, and how many cases it holds; `ok` where each holds the least a group may. Where two groups overlap in a cell of a few cases, their counts' difference tells those few. Sealed, and told nowhere public (decision 0212). Null where a case was not read or its answer is no kind.",
+      "description": "The cells of the groups the set's report counts: every one the manifest's shape allows, each a kind, for the cases that expect a Finding the criterion the set floors or none, and natural or not, with how many cases it holds, written at the width of the set's count, and whether those are a few, 1, or not, 0. Where two groups overlap in a cell of a few cases, their counts' difference tells those few. Sealed, told nowhere public, and of a length the manifest alone fixes (decision 0212). Null where a case was not read or its answer is no kind.",
       "type": [
-        "object",
+        "array",
         "null"
       ],
-      "additionalProperties": false,
-      "required": [
-        "ok",
-        "each"
-      ],
-      "properties": {
-        "ok": {
-          "type": "boolean"
-        },
-        "each": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "kind",
-              "criterion",
-              "natural",
-              "cases"
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "criterion",
+          "natural",
+          "cases",
+          "few"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "finding",
+              "met"
+            ]
+          },
+          "criterion": {
+            "type": [
+              "string",
+              "null"
             ],
-            "properties": {
-              "kind": {
-                "enum": [
-                  "finding",
-                  "met"
-                ]
-              },
-              "criterion": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "pattern": "^[A-Z]+-[0-9]+$"
-              },
-              "natural": {
-                "type": "boolean"
-              },
-              "cases": {
-                "type": "integer",
-                "minimum": 1
-              }
-            }
+            "pattern": "^[A-Z]+-[0-9]+$"
+          },
+          "natural": {
+            "type": "boolean"
+          },
+          "cases": {
+            "type": "string",
+            "pattern": "^[0-9]{1,9}$"
+          },
+          "few": {
+            "enum": [
+              0,
+              1
+            ]
           }
         }
       }

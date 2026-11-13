@@ -3386,33 +3386,53 @@ class EvalJob(unittest.TestCase):
         from harness import eval as job
         judged = lambda report, of: job.verdict(report, of, "d" * 64, "a" * 40, "factory/v0.1.0")
         pooled = lambda reports, of: job.pooled_verdict(reports, of, "d" * 64, "a" * 40, "factory/v0.1.0")
-        cell = lambda kind, criterion, natural, cases: {"kind": kind, "criterion": criterion, "natural": natural, "cases": cases}
-        ok = lambda groups, **floors: job.cells_of(*self.floored(groups, **floors))["ok"]
+        cell = lambda kind, criterion, natural, cases, width=2: {
+            "kind": kind, "criterion": criterion, "natural": natural, "cases": "%0*d" % (width, cases), "few": int(0 < cases < 10)}
+        ok = lambda groups, **floors: not any(c["few"] for c in job.cells_of(*self.floored(groups, **floors)))
         whole = [("PR-3", "finding", 20, 10), ("PR-4", "finding", 10, 0), ("PR-1", "met", 20, 10)]
         with mock.patch.object(job, "ORIGIN_LEAST", 10):     # these tests otherwise set the least to none
-            self.assertEqual(job.cells_of(*self.floored(whole)), {"ok": True, "each": [
-                cell("finding", None, False, 10), cell("finding", "PR-3", False, 10), cell("finding", "PR-3", True, 10),
-                cell("met", None, False, 10), cell("met", None, True, 10)]})
+            # Every cell the manifest's shape allows is listed, one of no case among them, each count at one width.
+            self.assertEqual(job.cells_of(*self.floored(whole)), [
+                cell("finding", None, False, 10), cell("finding", None, True, 0), cell("finding", "PR-3", False, 10),
+                cell("finding", "PR-3", True, 10), cell("met", None, False, 10), cell("met", None, True, 10)])
             # Every case of the floored criterion natural, and one other finding natural too: the natural cases' passes
             # less the criterion's are that one case's verdict, though each group the report counts holds ten. The ledger
             # says which cell it is, and how many each holds.
             one = [("PR-3", "finding", 10, 10), ("PR-4", "finding", 10, 1), ("PR-1", "met", 20, 0)]
             found, place = self.floored(one)
             cells = job.cells_of(found, place)
-            self.assertEqual(cells, {"ok": False, "each": [cell("finding", None, False, 9), cell("finding", None, True, 1),
-                                                           cell("finding", "PR-3", True, 10), cell("met", None, False, 20)]})
+            self.assertEqual(cells, [cell("finding", None, False, 9), cell("finding", None, True, 1),
+                                     cell("finding", "PR-3", False, 0), cell("finding", "PR-3", True, 10),
+                                     cell("met", None, False, 20), cell("met", None, True, 0)])
+            # A sealed ledger's size is public, so what it says of the cells is as long whatever they are: another set of
+            # as many cases under the same floor, its cases otherwise spread (the Claude reads of this change).
+            other = job.cells_of(*self.floored([("PR-3", "finding", 10, 5), ("PR-4", "finding", 10, 5), ("PR-1", "met", 20, 3)]))
+            self.assertNotEqual(other, cells)
+            # A count's width is the set's own count's, which the manifest gives, and not its cells': ten cases, no cell
+            # of which holds ten.
+            self.assertEqual([c["cases"] for c in job.cells_of(*self.floored([("PR-3", "finding", 4, 2), ("PR-1", "met", 6, 3)]))],
+                             ["00", "00", "02", "02", "03", "03"])
+            self.assertEqual(len(json.dumps(other, indent=2)), len(json.dumps(cells, indent=2)))
             for name, groups in (("nine natural findings beyond the floor", [("PR-3", "finding", 10, 10), ("PR-4", "finding", 19, 9), ("PR-1", "met", 20, 0)]),
                                  ("nine natural cases of the floored criterion", [("PR-3", "finding", 19, 9), ("PR-1", "met", 20, 10)]),
                                  ("one clean case that is not natural", [("PR-3", "finding", 20, 10), ("PR-1", "met", 21, 20)]),
                                  # A kind is a cell's: five findings beyond the floor and five clean cases, all natural.
                                  ("a kind apart", [("PR-3", "finding", 20, 10), ("PR-4", "finding", 15, 5), ("PR-1", "met", 15, 5)])):
                 self.assertIs(ok(groups), False, name)
-            # Ten is enough, and a cell of none is no cell.
+            # Ten is enough, and a cell of no case is not a few.
             self.assertIs(ok([("PR-3", "finding", 20, 10), ("PR-4", "finding", 10, 10), ("PR-1", "met", 20, 0)]), True)
             # A criterion the set does not floor is no cell of its own, and each one it floors is.
             spread = [("PR-3", "finding", 20, 10), ("PR-4", "finding", 10, 5), ("PR-5", "finding", 10, 5), ("PR-1", "met", 20, 10)]
             self.assertEqual((ok(spread), ok(spread, floors={"PR-3": [1, 2], "PR-4": [1, 2]}), ok(spread, floors={})),
                              (True, False, True))
+            # Each floored criterion's cells are its own: two of them, five natural and five not in each, are four cells
+            # of five, and not two of ten (Astra's read).
+            self.assertEqual(job.cells_of(*self.floored([("PR-3", "finding", 10, 5), ("PR-4", "finding", 10, 5), ("PR-1", "met", 20, 10)],
+                                                        floors={"PR-3": [1, 2], "PR-4": [1, 2]})),
+                             [cell("finding", None, False, 0), cell("finding", None, True, 0),
+                              cell("finding", "PR-3", False, 5), cell("finding", "PR-3", True, 5),
+                              cell("finding", "PR-4", False, 5), cell("finding", "PR-4", True, 5),
+                              cell("met", None, False, 10), cell("met", None, True, 10)])
             # Nor is the criterion of a clean case: a floor counts the cases that expect a Finding on it alone.
             self.assertIs(ok([("PR-3", "finding", 20, 10), ("PR-3", "met", 10, 5), ("PR-1", "met", 10, 5)]), True)
             # Nothing public says any of it, and nothing is stopped: the report holds no word of the cells, its line is as
@@ -3434,20 +3454,41 @@ class EvalJob(unittest.TestCase):
         first, other = (cases[ident]["expected"] for ident in cases)
         other["criterion"] = "PR-4" if first["criterion"] != "PR-4" else "PR-3"
         cases = {ident: (json.dumps(case, indent=2) + "\n").encode() for ident, case in cases.items()}
-        with mock.patch.object(job, "ORIGIN_LEAST", 2), mock.patch.object(job, "FLOOR_LEAST", 1):
+        import contextlib
+        printed = io.StringIO()
+        with mock.patch.object(job, "ORIGIN_LEAST", 2), mock.patch.object(job, "FLOOR_LEAST", 1), \
+                contextlib.redirect_stdout(printed), contextlib.redirect_stderr(printed):
             self.set(cases, gate=True, natural=list(cases), floors={first["criterion"]: [1, 2]})
-            self.step(job.plan)
-            self.assertEqual(self.step(job.fetch, self.home(cases, gate=True)), "fetched 2 of 2 cases, 3 of 3 to preflight")
+            planned = self.step(job.plan)
+            fetched = self.step(job.fetch, self.home(cases, gate=True))
             said = self.step(job.score, lambda case: example_result())
+            # The judge reads the report once it is sealed, as the seal step leaves it.
+            report = json.loads((self.work / job.REPORT).read_text())
+            report["ledger"]["sealed_sha256"] = "f" * 64
+            (self.work / job.REPORT).write_text(json.dumps(report))
+            judged = self.step(job.judge)
+        # Each step's line is all it says, word for word, and nothing else is printed: no other word for a short cell
+        # either (Astra's read, and the security read).
+        self.assertEqual((planned, fetched, said, judged, printed.getvalue()),
+                         ("planned 2 cases after 3 to preflight", "fetched 2 of 2 cases, 3 of 3 to preflight",
+                          "scored 2 of 2 cases, 1 passed",
+                          "1 of 2 passed; answer_off_rubric 1; preflight 3 of 3 passed; a blocking case not passed", ""))
         ledger = json.loads((self.temp / "heldout" / job.LEDGER).read_text())
-        self.assertEqual(ledger["cells"], {"ok": False, "each": [cell("finding", None, True, 1),
-                                                                 cell("finding", first["criterion"], True, 1)]})
+        few = lambda kind, criterion, natural, cases: dict(cell(kind, criterion, natural, cases, 1), few=int(cases == 1))
+        self.assertEqual(ledger["cells"], [few("finding", None, False, 0), few("finding", None, True, 1),
+                                           few("finding", first["criterion"], False, 0), few("finding", first["criterion"], True, 1),
+                                           few("met", None, False, 0), few("met", None, True, 0)])
         self.assertEqual(job._errors(ledger, "eval-ledger"), [])
         # A ledger says its cells or that they could not be read, never nothing.
         self.assertTrue(job._errors({k: v for k, v in ledger.items() if k != "cells"}, "eval-ledger"))
         self.assertEqual(job._errors(dict(ledger, cells=None), "eval-ledger"), [])
-        public = said + (self.work / job.REPORT).read_text()
-        self.assertTrue("cells" not in public and "overlap" not in public, public)
+        # The cells have a shape: a ledger whose cells say nothing, or one that says nothing of its count, is none.
+        for cells in ([], [{}] * 4, [dict(c, cases=1) for c in ledger["cells"]], [dict(c, few=2) for c in ledger["cells"]],
+                      [{k: v for k, v in c.items() if k != "few"} for c in ledger["cells"]]):
+            self.assertTrue(job._errors(dict(ledger, cells=cells), "eval-ledger"), cells)
+        # And the report the run wrote is a report, which has no field of the cells and admits none.
+        self.assertEqual(job._errors(json.loads((self.work / job.REPORT).read_text()), "eval-aggregate"), [])
+        self.assertNotIn("cells", (self.work / job.REPORT).read_text())
 
     def test_a_gate_set_holds_a_floor_per_criterion_read_from_each_cases_expected_criterion(self):  # issue 692
         from harness import eval as job
