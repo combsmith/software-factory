@@ -5,7 +5,7 @@ State is never stored. This function is the only definition of it.
 from __future__ import annotations
 
 from kernel import terms as t
-from kernel.gate import closed, gates, is_person, verdict_order
+from kernel.gate import SECURITY, closed, gates, gating_threads, is_person, verdict_order
 
 
 def incomplete(facts: dict) -> list:
@@ -112,15 +112,32 @@ def expired_threads(facts: dict, runs: list, config: dict) -> dict:
     return out
 
 
+def dropped_by_review(th, facts: dict, runs: list) -> bool:
+    """Whether a thread the port says its Lens's later review dropped (`adapters/applied.py`) is one the run records
+    bear out (decision 0212): a Lens's, of no security Finding, with a review by that Lens that succeeded on this
+    content and started after the thread opened. One opened in the second a review starts may be that review's own."""
+    by = th.get("opened_by") if isinstance(th, dict) else None
+    if not isinstance(by, dict) or by.get("kind") != "lens" or th.get("dropped") is not True \
+            or th.get("category") == SECURITY or not is_time(th.get("opened_at")) or not isinstance(runs, list):
+        return False
+    return any(r.get("role") == by.get("name") and r.get("intent") == "review-change" and r.get("status") == "completed"
+               and r.get("conclusion") == "success" and r.get("content_id") == facts.get("content_id")
+               and is_time(r.get("started_at")) and r["started_at"] > th["opened_at"]
+               and r.get("item") == facts.get("item") for r in runs if isinstance(r, dict))
+
+
 def as_read(facts: dict, runs: list, config: dict) -> dict:
     """The facts as the Kernel reads them: each expired Run's thread (expired_threads) marked `expired`, and `superseded`
     once its Lens has a review that succeeded and started after the Run that opened it, on any content. `kernel/gate.py`
     reads the marks: such a thread gates at any severity, since it may have been a security Finding, and the queue App's
     resolution closes it once it is superseded, with no ruling, since its Finding is gone (decision 0075). Its category,
-    severity and ruling stay as the port gave them. A mark the facts arrive with is no fact, and is dropped: only this
+    severity and ruling stay as the port gave them. A thread its Lens's later review dropped (dropped_by_review) is
+    marked `superseded` too, and closes the same way. A mark the facts arrive with is no fact, and is dropped: only this
     reading makes one. The facts given are never changed."""
     expired = expired_threads(facts, runs, config)
     marked = isinstance(facts.get("threads"), list) and any(isinstance(th, dict) and set(th) & MARKS for th in facts["threads"])
+    # A thread to be marked is read as one that is: either way the list is read anew.
+    marked = marked or (isinstance(facts.get("threads"), list) and any(dropped_by_review(th, facts, runs) for th in facts["threads"]))
     if not expired and not marked:
         return facts
 
@@ -131,7 +148,18 @@ def as_read(facts: dict, runs: list, config: dict) -> dict:
     plain = [{k: v for k, v in th.items() if k not in MARKS} if isinstance(th, dict) else th for th in facts["threads"]]
     threads = [dict(th, expired=True, superseded=superseded(expired[place])) if place in expired else th
                for place, th in enumerate(plain)]
+    threads = [dict(th, superseded=True) if dropped_by_review(th, facts, runs) else th for th in threads]
     return dict(facts, threads=threads)
+
+
+def pushed_past_review(runs: list, facts: dict, role: str, config: dict, due: list) -> bool:
+    """Whether the head was pushed since `role` last reviewed this content, while a thread of its own gates and still
+    stands (decision 0212): a merge of the base is the same content, and may answer the Finding. A review that started
+    in the push's own second may have read the head before it. A thread the Kernel is to resolve, one of `due`, asks nothing."""
+    if not any(th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == role and th["id"] not in due
+               for th in gating_threads(facts, config)):
+        return False
+    return not reviewed_clean_or_not([r for r in runs if r["started_at"] > facts["last_push_at"]], facts, role)
 
 
 def contradicts(run: dict, facts: dict) -> bool:
@@ -477,6 +505,13 @@ def unreadable_thread(th: dict, lenses: list, facts: dict, config: dict) -> bool
     if th["resolved"] and not readable_actor(th.get("resolved_by"), facts, config):
         return True
     if not th["resolved"] and th.get("resolved_by") is not None:
+        return True
+    # What the port says of a later review is a yes or a no, and a yes the run records do not bear out (as_read)
+    # contradicts them while the thread is open (decision 0212). A security Finding's says nothing.
+    if "dropped" in th and type(th["dropped"]) is not bool:
+        return True
+    if th.get("dropped") is True and th["opened_by"]["kind"] == "lens" and th.get("category") != SECURITY \
+            and th.get("superseded") is not True and not closed(th):
         return True
     # An expired Run's open thread has no category to read, and gates as if it were a security Finding (as_read, issue
     # 420), open or resolved by the queue App ahead of the review that lets it close. One resolved by anyone else is not
@@ -1303,9 +1338,15 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     odd = [r["run"] for r in mine if r["role"] in lenses and contradicts(r, facts)]
     if odd:
         return {"state": None, "reason": "run_unreadable", "evidence": odd}
+    # A Lens's thread that the Kernel is to resolve, read with the gates below, asks no review of its Lens.
+    due = [th["id"] for th in facts["threads"]
+           if th["opened_by"]["kind"] == "lens" and not th["resolved"]
+           and (th["ruling"] == "accepted" or th.get("superseded") is True)]
     for lens in lenses:
-        # A review whose record is past retention is asked for again (issue 346).
-        if (not reviewed_clean_or_not(mine, facts, lens) or review_expired(mine, facts, lens)) \
+        # A review whose record is past retention is asked for again (issue 346), and so is one the head was pushed
+        # past while its Lens's own thread gates (decision 0212).
+        if ((not reviewed_clean_or_not(mine, facts, lens) or review_expired(mine, facts, lens))
+                or pushed_past_review(mine, facts, lens, config, due)) \
                 and ("awaiting_review" not in past or rules):
             return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens] + rules}
 
@@ -1316,10 +1357,8 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     # (issue 389). A person's gate comes first: it holds the merge whatever the Lens's threads do, and is never hidden
     # behind an act. A queued item reads past it, so a gating thread open on it takes it out of the queue first: the
     # queue checks threads only as an item enters it.
-    # So is an expired Run's thread its Lens's fresh review has superseded (issue 420), on no ruling.
-    due = [th["id"] for th in facts["threads"]
-           if th["opened_by"]["kind"] == "lens" and not th["resolved"]
-           and (th["ruling"] == "accepted" or th.get("superseded") is True)]
+    # So is a thread its Lens's later review has superseded, on no ruling: an expired Run's (issue 420), or one that
+    # review dropped (decision 0212). They are `due`, read above.
     if due and "resolve_due" not in past and not any(g["by"]["kind"] == "human" for g in open_gates):
         return {"state": t.ADJUDICATING, "reason": "resolve_due", "evidence": due}
     if open_gates:

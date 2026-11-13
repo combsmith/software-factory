@@ -3596,6 +3596,58 @@ class Recorded(unittest.TestCase):
         for nodes in ([], [thread_node("PRRT_7")], [thread_node("PRRT_7", APP)]):
             self.assertFalse(self.held(nodes, recorded_, content_id="sha256:new")[1], nodes)
 
+    def test_a_thread_a_later_review_of_its_lens_no_longer_records_is_said_dropped(self):  # issue 833
+        # The thread PRRT_7, which the first Run recorded, is still there, opened by its Lens. A later review of that
+        # Lens, read whole, on the current content, supersedes every Run that recorded it, by issue 347's rule: the
+        # thread is said `dropped`, by its id and never a comment's text, its category and severity as they were.
+        def said(recorded_, *nodes, content_id="sha256:new"):
+            found, whole = self.held(list(nodes) or [thread_node("PRRT_7", LENS)], recorded_, content_id=content_id)
+            return [(th["id"], th.get("dropped")) for th in found], whole
+        recorded_ = self.two_runs([finding_on("PRRT_7")], [])
+        found, whole = self.held([thread_node("PRRT_7", LENS)], recorded_, content_id="sha256:new")
+        self.assertEqual((whole, found[0]["dropped"], found[0]["category"], found[0]["severity"]),
+                         (True, True, "functional", "major"))
+        # What the later review raised again is on a thread of its own, which it did not drop.
+        again = self.two_runs([finding_on("PRRT_7")], [finding_on("PRRT_9")])
+        self.assertEqual(said(again, thread_node("PRRT_7", LENS), thread_node("PRRT_9", LENS)),
+                         ([("PRRT_7", True), ("PRRT_9", None)], True))
+        # The other side. A thread the later review records too is not dropped; nor is one where nothing says what the
+        # current content is, or it is other content than the later review's.
+        self.assertEqual(said(self.two_runs([finding_on("PRRT_7")], [finding_on("PRRT_7")])), ([("PRRT_7", None)], True))
+        for content in (None, "", "sha256:old", "sha256:other"):
+            self.assertEqual(said(recorded_, content_id=content), ([("PRRT_7", None)], True), content)
+        # Nor where the later Run failed, adjudicated, started first or at no readable time, or is another Lens's;
+        # one whose record is read short leaves the threads not whole, and one past retention drops nothing.
+        new = dict(lens_run(self.LATER), content_id="sha256:new", started_at="2026-10-21T17:00:00Z")
+        for later in (dict(lens_run(self.LATER, conclusion="failure"), content_id="sha256:new",
+                           started_at="2026-10-21T17:00:00Z"),
+                      dict(new, intent="adjudicate-findings"), dict(new, started_at="2026-10-21T15:00:00Z"),
+                      dict(new, started_at="2026-10-21T16:00:00Z"), dict(new, started_at="yesterday")):
+            self.assertEqual(said(self.two_runs([finding_on("PRRT_7")], [], later_run=later)), ([("PRRT_7", None)], True),
+                             later)
+        first = dict(lens_run(self.RUN), content_id="sha256:old", started_at="2026-10-21T16:00:00Z")
+        other = applied.recorded(github.Replay(
+            applied_stored("o/r", 39100000000, lens_applied(self.RUN, finding_on("PRRT_7")))
+            + applied_stored("o/r", 39100000001, lens_applied(self.LATER))), "o/r",
+            listed_runs(first, dict(new, role="qa-lead")), [26], {"pr-review", "qa-lead"}, AUTHORITY)[26]
+        self.assertEqual(said(other), ([("PRRT_7", None)], True))
+        self.assertEqual(said(self.two_runs([finding_on("PRRT_7")], [], later_record="x")), ([("PRRT_7", None)], False))
+        expired = self.full(listed_runs(first, new),
+                            *applied_stored("o/r", 39100000000, lens_applied(self.RUN, finding_on("PRRT_7"))),
+                            *applied_stored("o/r", 39100000001, lens_applied(self.LATER), expired=True)[:1])[26]
+        self.assertEqual(said(expired), ([("PRRT_7", None)], True))
+        # Only the Lens's own thread is said dropped: one whose opener is now someone else, a person's beside it, and
+        # one no Run recorded say nothing.
+        self.assertEqual(said(recorded_, thread_node("PRRT_7", APP), thread_node("PRRT_1"), thread_node("PRRT_2", LENS)),
+                         ([("PRRT_7", None), ("PRRT_1", None), ("PRRT_2", None)], True))
+        # A thread that says nothing carries no word of it; `facts/1` takes the word as a yes or a no, and nothing else.
+        self.assertNotIn("dropped", self.held([thread_node("PRRT_1")], recorded_, content_id="sha256:new")[0][0])
+        from tools.jsonschema_lite import validate
+        whole_facts = json.loads((ROOT / "examples" / "facts.json").read_text())
+        for word, ok in ((True, True), (False, True), ("yes", False), (1, False), (None, False)):
+            whole_facts["threads"][0]["dropped"] = word
+            self.assertEqual(validate(whole_facts, facts.SCHEMA) == [], ok, word)
+
     def test_a_recorded_thread_is_its_lenss(self):
         from kernel import derive, gate
         config = dict(json.loads((ROOT / "config" / "defaults.json").read_text()), approver=APPROVER)
