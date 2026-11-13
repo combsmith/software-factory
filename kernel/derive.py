@@ -333,9 +333,12 @@ def readable_rules(config: dict) -> bool:
     among them: each a list of at least one pattern, each in its shape (readable_pattern). The Controller builds both
     from the base branch's config/hooks.json, never the head's, by one function (decision 0020, issue 140). A list that
     is empty, or not there, would let a change to the Factory's own rules, or to what a model Lens is given, pass as any
-    other (I-13)."""
+    other (I-13). And the paths only a person decides, by which that wait is named (decision 0207): a list of patterns
+    in the same shape, which may name none, and is never taken as none where it is not there."""
+    persons = config.get("person_only_paths")
     return all(isinstance(rules, list) and len(rules) > 0 and all(readable_pattern(p) for p in rules)
-               for rules in (config.get("protected_paths"), config.get("model_lens_inputs")))
+               for rules in (config.get("protected_paths"), config.get("model_lens_inputs"))) \
+        and isinstance(persons, list) and all(readable_pattern(p) for p in persons)
 
 
 def fits(pattern: str, path: str) -> bool:
@@ -412,6 +415,13 @@ def lens_inputs_touched(facts: dict, config: dict) -> list:
     Role's manifest and prompt, its rubric, and what the Harness gives it and takes back (issue 140)."""
     changed = names(facts["changed_paths"])
     return [p for p in dict.fromkeys(config["model_lens_inputs"]) if any(matches(p, path) for path in changed)]
+
+
+def person_only_touched(facts: dict, config: dict) -> list:
+    """Each path only a person decides that this pull request changes, as the configuration names it, once, in its
+    order: no Lens reads one, and a person's approval is the only judgement of it (decisions 0200 and 0207)."""
+    changed = names(facts["changed_paths"])
+    return [p for p in dict.fromkeys(config["person_only_paths"]) if any(matches(p, path) for path in changed)]
 
 
 def judged_by_a_person(facts: dict) -> bool:
@@ -1056,13 +1066,14 @@ def made_at(run: dict):
 def approval_anchor(review: dict, runs):
     """When a machine user's approval last read the description: when the approving act's Run on its content was made,
     the latest made at or before it, as the act reads the description after that (issue 195); else, where a record of
-    this item started before it or in its second, the approval's own time, as a person approving in the browser reads
+    this item began before it or in its second, the approval's own time, as a person approving in the browser reads
     as they approve (decision 0046); else "", before every time, as nothing shows when it read. So too where an act on
     its content started after it with no dispatch read, a re-run or one whose attempt cannot be read, which may be the
     act that read, and where a record's start, or both its times, cannot be read: an unreadable fact holds. Records expire oldest first, and an act's Run is made before its approval: it is not
-    gone while a record made before it stays. A Run made while the act ran waits in the item's lane, but its record's
-    start is when it was made (trials/P-44.json), so it may reach back once the act's Run is past retention: a residual
-    the record names."""
+    gone while a record made before it stays. A Run made while the act ran waits in the item's lane, and its record's
+    start is when it was made (trials/P-44.json): so a record reaches back by when its jobs began, its `began_at`
+    (trials/P-64.json, decision 0204), and one that has not begun, never began or whose jobs were not read does not.
+    Nor does one said to have begun before it was made, which no run does."""
     at = review["submitted_at"]
     if any(made_at(r) is None or not is_time(r["started_at"]) for r in runs):
         return ""
@@ -1074,7 +1085,7 @@ def approval_anchor(review: dict, runs):
     acts = [made_at(r) for r in mine if made_at(r) <= at]
     if acts:
         return max(acts)
-    return at if any(r["started_at"] <= at for r in runs) else ""
+    return at if any(is_time(r.get("began_at")) and made_at(r) <= r["began_at"] <= at for r in runs) else ""
 
 
 def description_anchor(facts: dict, edited: str, *, runs: list):
@@ -1334,8 +1345,15 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
 
     # A change to a model Lens's own inputs needs a person as well as every model Lens's review: with one model family,
     # the only judge that is not the Lens is a person (issue 140). It is no wait a queued item is read past.
+    # So does a change to a path only a person decides, which no Lens reads (decision 0200). Where such paths are all
+    # the change touches of either list, the wait is named for itself; beside a model Lens's input it keeps the
+    # Lens's code (decision 0207).
+    alone = person_only_touched(facts, config)
     own = lens_inputs_touched(facts, config)
+    own = own + [p for p in alone if p not in own]
     if own and not judged_by_a_person(facts):
+        if all(p in alone for p in own):
+            return {"state": t.VERIFYING, "reason": "path_needs_person", "evidence": own}
         return {"state": t.VERIFYING, "reason": "model_lens_input_needs_person", "evidence": own}
 
     # GitHub does not count an approval by the author or the last pusher, so nothing may merge on one (I-26). It is
