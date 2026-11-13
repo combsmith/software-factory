@@ -1,4 +1,4 @@
-"""What a Role's push may send (issue 838; FR-14).
+"""What a Role's push may send and what must be read back before it counts as landed (issue 838; FR-14).
 
 A push lands what `guards/patch.py`'s `applied` gave, `changes`, as one commit on the commit the Decision admitted,
 `parent`, on the Run's work branch. `push` says so: `{"repo", "branch", "parent", "tree", "head", "message",
@@ -9,6 +9,13 @@ none, and `message` the commit's message, which is `apply`'s and never a model's
   commit, creates blobs, one tree upon `tree` that names exactly the paths of `changes`, one commit whose one parent
   is `parent`, and then creates the branch, or moves it forward and never by force. Nothing else leaves: no other
   branch, no delete, and no path outside the repo's git data.
+- `landed(before, after, changes, contents)`: whether the tree read back is the admitted commit's with exactly
+  `changes` in it: no path more or fewer, each file it left alone the same blob in the same mode, each file it wrote
+  in the mode and of the bytes `changes` holds.
+- `touched(changes)` and `existing(changes, tree)`: the paths `harness/apply.py` is asked about. A push that touches a
+  protected path is refused there, and so is one that changes or removes a test the admitted commit holds: one matcher
+  reads the base's patterns (`tools/hooks/protected.py`), and this names the paths, so that what is asked about is what
+  lands.
 
 A port gives every argument from its own reads and from what `apply` decided; this reads nothing itself.
 """
@@ -29,8 +36,9 @@ HEADS = "refs/heads/"
 RECURSIVE = "?recursive=1"
 BLOB = "blob"
 BASE64 = "base64"
-# What a file is written as: two things.
+# What a file is written as, and what a tree holds it as: two things each.
 WRITTEN = ("mode", "bytes")
+ENTRY = ("mode", "sha")
 
 
 def _sha(said) -> bool:
@@ -147,3 +155,43 @@ def permits(method, path, body, push) -> bool:
                 and body["force"] is False and _sha(body["sha"]))
     return False
 
+
+def _entry(said) -> bool:
+    return isinstance(said, tuple) and len(said) == len(ENTRY) and _sha(said[1])
+
+
+def landed(before, after, changes, contents) -> bool:
+    """Whether `after` is `before` with exactly `changes` in it. `before` and `after` are every path that is no
+    directory in the admitted commit's tree and in the tree read back, each as `(mode, sha)`; `contents` is the bytes
+    of each path `changes` wrote, read back by the blob `after` names."""
+    if not _changes(changes) or not all(isinstance(held, dict) for held in (before, after, contents)):
+        return False
+    written, removed = changes["written"], changes["removed"]
+    if set(after) != (set(before) - set(removed)) | set(written) or not all(path in before for path in removed):
+        return False
+    for path in after:
+        if not _entry(after[path]):
+            return False
+        if path in written:
+            mode, data = written[path]
+            if after[path][0] != mode or contents.get(path) != data:
+                return False
+        elif after[path] != before[path]:
+            return False
+    return True
+
+
+def touched(changes):
+    """`(paths, read)` for `harness/apply.py`'s `push_refusal`: every path the push writes or removes, and every path a
+    rename or a copy in it read. None for changes in no shape `applied` gives."""
+    if not _changes(changes) or not isinstance(changes.get("read"), list):
+        return None
+    return sorted(set(changes["written"]) | set(changes["removed"])), list(changes["read"])
+
+
+def existing(changes, tree):
+    """The files of the admitted commit that the push changes or removes, each once, in order: what FR-14's rule on a
+    test is asked about. A file the push adds is none of them. None for changes in no shape `applied` gives."""
+    if not _changes(changes) or not isinstance(tree, dict):
+        return None
+    return sorted(set(path for path in changes["written"] if path in tree) | set(changes["removed"]))

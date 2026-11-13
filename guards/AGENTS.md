@@ -1,7 +1,7 @@
 # guards/
 
 The guards on a Role's own writes, as pure functions. `patch.py` applies a Role's patch to the files it names, byte for byte, and gives what the push writes, or the one reason, a code, why nothing may land.
-`push.py` says what the write of it may send to GitHub.
+`push.py` says what the write of it may send to GitHub, what must be read back before it counts as landed, and which paths `apply` is asked about.
 A guard binds the Role that writes this repo's code. So it lives here, never in `kernel/` or `adapters/`, where that Role may push; a port hands a guard what it read, and the Harness calls it. A guard reads nothing itself.
 
 | Rule | Held by |
@@ -29,4 +29,6 @@ A guard binds the Role that writes this repo's code. So it lives here, never in 
 | It makes one commit, whose one parent is the admitted commit and whose message is `apply`'s | `tests/test_guards.py::test_the_one_commit_stands_on_the_admitted_commit_alone_and_says_what_apply_says` |
 | It makes the Run's work branch, or moves it forward and never by force; it writes no other ref and deletes nothing (FR-14) | `tests/test_guards.py::test_the_branch_is_made_or_moved_forward_never_forced_and_no_other_ref_is_written` |
 | A write told in part, or wrongly, is permitted nothing: a repo, a work branch, a commit, a tree and changes in `applied`'s shape | `tests/test_guards.py::test_a_push_told_in_part_or_wrongly_is_permitted_nothing` |
+| A write has landed only where the tree read back is the admitted one with exactly the changes in it, byte for byte | `tests/test_guards.py::test_what_is_read_back_is_the_admitted_tree_with_exactly_the_changes_in_it` |
+| The paths `apply` is asked about are the paths that land; an existing file changed or removed is named, a file added is not | `tests/test_guards.py::test_the_paths_asked_about_are_the_paths_that_land` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |

@@ -530,6 +530,11 @@ ENTRIES = [{"path": "docs/a.md", "mode": FILE, "type": "blob", "sha": BLOB_A},
            {"path": "tests/t.py", "mode": FILE, "type": "blob", "sha": None}]
 NEW_TREE = {"base_tree": ROOT_TREE, "tree": ENTRIES}
 COMMIT = {"message": PUSH["message"], "tree": MADE, "parents": [PARENT]}
+BEFORE = {"docs/a.md": (FILE, "1" * 40), "tests/t.py": (FILE, "2" * 40), "kept.md": (FILE, "3" * 40),
+          "link": ("120000", "4" * 40)}
+AFTER = {"docs/a.md": (FILE, BLOB_A), "run/n.sh": ("100755", BLOB_N), "kept.md": (FILE, "3" * 40),
+         "link": ("120000", "4" * 40)}
+BACK = {"docs/a.md": b"A\n", "run/n.sh": b"x\n"}
 
 
 def told(**changed) -> dict:
@@ -651,6 +656,58 @@ class Push(unittest.TestCase):
             self.assertFalse(ask(said), said["changes"])
         self.assertTrue(ask(shaped(written={})))
         self.assertTrue(ask(shaped(removed=[])))
+
+    def test_what_is_read_back_is_the_admitted_tree_with_exactly_the_changes_in_it(self):
+        self.assertTrue(push.landed(BEFORE, AFTER, CHANGES, BACK))
+        after, back = lambda **changed: dict(AFTER, **changed), lambda **changed: dict(BACK, **changed)
+        gone = lambda held, name: {k: v for k, v in held.items() if k != name}
+        for said, got, read in (
+                ("a file more", after(**{"docs/more.md": (FILE, "5" * 40)}), BACK),
+                ("a file it left alone is gone", gone(AFTER, "kept.md"), BACK),
+                ("a file it left alone is another blob", after(**{"kept.md": (FILE, "9" * 40)}), BACK),
+                ("a file it left alone is in another mode", after(**{"kept.md": ("100755", "3" * 40)}), BACK),
+                ("a link it left alone is a file", after(link=(FILE, "4" * 40)), BACK),
+                ("a file it removed still stands", after(**{"tests/t.py": (FILE, "2" * 40)}), BACK),
+                ("a file it wrote is missing", gone(AFTER, "run/n.sh"), BACK),
+                ("a file it wrote is in another mode", after(**{"run/n.sh": (FILE, BLOB_N)}), BACK),
+                ("a file it wrote holds other bytes", AFTER, back(**{"docs/a.md": b"A\nmore\n"})),
+                ("a file it wrote was not read back", AFTER, gone(BACK, "docs/a.md")),
+                ("a file it wrote was read back as text", AFTER, back(**{"docs/a.md": "A\n"})),
+                ("an entry of no shape", after(**{"kept.md": [FILE, "3" * 40]}), BACK),
+                ("an entry that names no blob", after(**{"docs/a.md": (FILE, "main")}), BACK),
+                ("a written entry of no shape", after(**{"docs/a.md": [FILE, BLOB_A]}), BACK),
+                ("a written entry that says more", after(**{"docs/a.md": (FILE, BLOB_A, "x")}), BACK),
+                ("an entry of no mode", after(**{"docs/a.md": (None, BLOB_A)}), BACK),
+                ("no tree", None, BACK), ("nothing read back", AFTER, None)):
+            self.assertFalse(push.landed(BEFORE, got, CHANGES, read), said)
+        # A removal of what the admitted commit does not hold is no change of it, and nor is a shape `applied` never gives.
+        self.assertFalse(push.landed(gone(BEFORE, "tests/t.py"), AFTER, CHANGES, BACK))
+        self.assertFalse(push.landed(None, AFTER, CHANGES, BACK))
+        link = dict(CHANGES, written=dict(CHANGES["written"], **{"docs/a.md": ("120000", b"A\n")}))
+        self.assertFalse(push.landed(BEFORE, after(**{"docs/a.md": ("120000", BLOB_A)}), link, BACK))
+        # A file written as it stood, in mode and bytes, may come back as the blob it was.
+        same = {"written": {"kept.md": (FILE, b"k\n")}, "removed": [], "read": []}
+        self.assertTrue(push.landed(BEFORE, BEFORE, same, {"kept.md": b"k\n"}))
+
+    def test_the_paths_asked_about_are_the_paths_that_land(self):
+        self.assertEqual(push.touched(CHANGES), (["docs/a.md", "run/n.sh", "tests/t.py"], ["docs/old.md"]))
+        # A test the admitted commit holds that is changed or removed is named; a file the push adds is not.
+        tree = {"docs/a.md": FILE, "tests/t.py": FILE, "kept.md": FILE}
+        self.assertEqual(push.existing(CHANGES, tree), ["docs/a.md", "tests/t.py"])
+        self.assertEqual(push.existing(CHANGES, {"run/n.sh": "100755"}), ["run/n.sh", "tests/t.py"])
+        self.assertEqual(push.existing(dict(CHANGES, removed=[]), {}), [])
+        for changes in (None, dict(CHANGES, written=None), dict(CHANGES, removed="tests/t.py"),
+                        dict(CHANGES, written={"docs/a.md": ("120000", b"x")})):
+            self.assertIsNone(push.touched(changes), changes)
+            self.assertIsNone(push.existing(changes, tree), changes)
+        self.assertIsNone(push.touched({k: v for k, v in CHANGES.items() if k != "read"}))
+        self.assertIsNone(push.touched(dict(CHANGES, read=None)))
+        self.assertIsNone(push.existing(CHANGES, None))
+        # What `applied` gives is in the shape these read.
+        changes, why = patch.applied(CHANGE + NEW + GONE, TREE, HELD)
+        self.assertIsNone(why)
+        self.assertEqual(push.touched(changes), (["docs/a.md", "docs/n.md", "tests/t.py"], []))
+        self.assertEqual(push.existing(changes, TREE), ["docs/a.md", "tests/t.py"])
 
 
 if __name__ == "__main__":
