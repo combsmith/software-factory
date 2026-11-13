@@ -108,8 +108,10 @@ def writes_seen(transport, config: dict, numbers: list, kept: dict, before, sinc
     identities, _ = seen_.identities(accounts_held)
     apps = seen_.apps_of(accounts_held, config["apps"])
     last = before[-1]["pull_requests"] if before else []
-    served = {e["facts"]["item"]["number"] for e in last} | set(reconcile.owed(before))
-    newly = served - set(numbers)
+    # One owed that a record before read as left is read as gone, and keeps its stamp; past the window it is read no
+    # more (issue 787). Any other no longer open has left since the last pass.
+    held = set(reconcile.left(before))
+    newly = ({e["facts"]["item"]["number"] for e in last} - set(numbers)) | (set(reconcile.owed(before)) - set(numbers) - held)
     gone = set(reconcile.left(before, since)) - set(numbers) - newly
     parts, unread = [], []
     for number, held in ([(n, kept.get(n)) for n in numbers] + [(n, seen_.LEFT) for n in sorted(newly)]

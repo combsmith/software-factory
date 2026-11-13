@@ -95,11 +95,11 @@ def owed(before) -> list:
     return list(_last(before)["owed"])
 
 
-def left(before, since: str) -> list:
-    """The pull requests a record before this pass read as left, inside the window from `since`: their writes are read on
-    every pass until the window passes when one was first read gone, so a write nobody matched keeps its alert as long
-    (issue 787)."""
-    return [e["number"] for e in _last(before).get("left", []) if _within(e["at"], since)]
+def left(before, since=None) -> list:
+    """The pull requests a record before this pass read as left, inside the window from `since`, or all it holds with no
+    `since`: their writes are read on every pass until the window passes when one was first read gone, so a write nobody
+    matched keeps its alert as long (issue 787)."""
+    return [e["number"] for e in _last(before).get("left", []) if since is None or _within(e["at"], since)]
 
 
 def _one(doc: dict, kind: str) -> dict:

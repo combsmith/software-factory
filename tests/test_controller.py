@@ -1122,7 +1122,8 @@ class Entry(unittest.TestCase):
     def test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it(self):  # issue 787
         # A pull request a pass before read as left is read again on every pass inside the window, as one that left, so
         # the machine user's write on it that nobody matched keeps raising write_unmatched, after its merge too (decision
-        # 0198); once the window passes when it was first read gone, it is read no more, and nothing alarms for it.
+        # 0198); once the window passes when it was first read gone, it is read no more, and nothing alarms for it. One
+        # read short is owed, and read again as gone with its first stamp; owed past the window, it is read no more.
         inside, past = "2026-10-12T09:00:00Z", "2026-10-11T05:00:00Z"
         spied = []
 
@@ -1139,7 +1140,7 @@ class Entry(unittest.TestCase):
 
         before = json.loads((ROOT / "examples" / "pass.json").read_text())
         before.update(now="2026-10-12T11:00:00Z", pull_requests=[])
-        before["reconciled"] = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": [],
+        before["reconciled"] = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": [13, 14],
                                 "left": [{"number": 13, "at": inside}, {"number": 14, "at": past}]}
         table = self.table(numbers=[7])
         pull = copy.deepcopy(exchanges("P-17")[4]["response"])
@@ -1159,6 +1160,7 @@ class Entry(unittest.TestCase):
         self.assertEqual([e["item"] for e in record["reconciliation"] if e["alert"] == "write_unmatched"],
                          ["https://github.com/%s/pull/13" % self.HOME])
         self.assertEqual(record["reconciled"]["left"], [{"number": 13, "at": inside}])
+        self.assertEqual(record["reconciled"]["owed"], [])
         self.assertEqual(shared.errors(record, "pass"), [])
 
     def test_the_entry_gathers_what_reconciliation_reads(self):  # decisions 0061, 0112
