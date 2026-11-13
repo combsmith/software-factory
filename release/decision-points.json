@@ -12,9 +12,9 @@
     "the_maintainers": 387,
     "touched_protected": 165
    },
-   "decided": null,
-   "day": null,
-   "by": null
+   "decided": "continue",
+   "day": "2026-11-13",
+   "by": "don-petry"
   }
  ]
 }
