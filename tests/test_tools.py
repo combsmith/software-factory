@@ -42,6 +42,8 @@ from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = check_authority.ROOT
+# A time as GitHub gives one, in UTC to the second: the only form that sorts as text in time's order.
+SECOND = r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$"
 GOOD = (ROOT / "examples" / "workflows" / "verify.yml").read_text()
 # The poller's shim, as issue 196's ruling 4 gives it in full: the shape the rules shim and wake hold.
 POLLER = 'name: sf-poller\non:\n  schedule:\n    - cron: "13 * * * *"\n    - cron: "33 * * * *"\n    - cron: "53 * * * *"\n  workflow_dispatch:\n  workflow_run:\n    workflows:\n      - factory\n      - ci\n    types:\n      - completed\npermissions: {}\njobs:\n  pass:\n    permissions:\n      actions: write\n      contents: read\n    concurrency:\n      group: sf-poller\n      cancel-in-progress: false\n    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next\n    secrets: inherit\n'
@@ -6379,6 +6381,8 @@ class Trials(unittest.TestCase):
                                              "ConnectedEvent", "DisconnectedEvent", "ConnectedEvent")):
             found = new(issues, step)
             self.assertEqual([n["__typename"] for n in found], [kind], step)
+            # Compared as text only in UTC to the second, as GitHub gives it: a fraction or an offset would sort wrong.
+            self.assertRegex(found[0]["createdAt"], SECOND, step)
             self.assertTrue(at[step - 2] <= found[0]["createdAt"] <= at[step - 1], step)
             self.assertEqual(found[0]["actor"]["__typename"], "User", step)
             named.append((found[0].get("issueType") or {}).get("name")
@@ -6393,6 +6397,7 @@ class Trials(unittest.TestCase):
         for step, kinds in ((8, ["ClosedEvent"]), (9, ["ReopenedEvent"]), (10, ["MergedEvent", "ClosedEvent"])):
             found = new(prs, step)
             self.assertEqual([n["__typename"] for n in found], kinds, step)
+            self.assertTrue(all(re.match(SECOND, n["createdAt"]) for n in found), step)
             self.assertTrue(all(at[step - 2] <= n["createdAt"] <= at[step - 1] for n in found), step)
         self.assertEqual([(p["state"], p["closedAt"] is None) for p in prs[7:10]],
                          [("CLOSED", False), ("OPEN", True), ("MERGED", False)])
@@ -6407,10 +6412,15 @@ class Trials(unittest.TestCase):
         # A link by a closing keyword raises no ConnectedEvent: P-33 asked issue 36's timeline for its connected and
         # disconnected events, with pull requests 37, 38 and 40 naming it by keyword, before and after 38's merge.
         p33 = json.loads((ROOT / "trials" / "P-33.json").read_text())["exchanges"]
-        self.assertIn("CONNECTED_EVENT", p33[1]["request"]["body"]["query"])
-        for at in (1, 4):
-            kinds = {n["__typename"] for n in p33[at]["response"]["body"]["data"]["repository"]["issue"]["timelineItems"]["nodes"]}
-            self.assertTrue(kinds and not kinds & {"ConnectedEvent", "DisconnectedEvent"}, at)
+        # Each read is held only to the events it asked for, read whole: the first asked both, the one after the merge
+        # the connected alone.
+        for at, asked in ((1, ("ConnectedEvent", "DisconnectedEvent")), (4, ("ConnectedEvent",))):
+            query = p33[at]["request"]["body"]["query"]
+            self.assertTrue(all(re.sub(r"(?<=.)(?=[A-Z])", "_", kind).upper() in query for kind in asked), at)
+            items = p33[at]["response"]["body"]["data"]["repository"]["issue"]["timelineItems"]
+            self.assertEqual(items["totalCount"], len(items["nodes"]), at)
+            kinds = {n["__typename"] for n in items["nodes"]}
+            self.assertTrue(kinds and not kinds & set(asked), at)
 
     def test_the_lane_keeps_one_running_and_one_waiting(self):
         # trials/P-44.json (issue 251) grounds a_run_waits_its_turn: the pass is computed here from the run lists and the
