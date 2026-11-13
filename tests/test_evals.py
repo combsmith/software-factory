@@ -1969,6 +1969,116 @@ class EvalJob(unittest.TestCase):
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual({c["id"]: c["reasons"] for c in written["cases"]}[first], ["diff_not_whole"])
 
+    def test_a_case_the_vendor_or_the_network_failed_is_asked_again_and_marked(self):  # issue 615
+        # The CLI ends a run the vendor's API or the way to it failed at `api_error`, with the vendor's status, or none for
+        # a connection that failed (a local probe of the CLI at 2.1.322). A 5xx or none is asked again, a wait apart, at
+        # most RETRIES more times; a 4xx, a rate limit among them, and a model that ran out are not.
+        from harness import eval as job
+        from harness.eval import run as step
+        case, live = self.reviewed()
+
+        class Answers(live.CLI):
+            def __init__(self, *said):
+                super().__init__()
+                self.queue = list(said)
+
+            def __call__(self, args, env, timeout, **given):
+                if args[1:] != ["--version"]:
+                    # Asked more often than it has answers, it says so at once: a case asked again without end fails here.
+                    if not self.queue:
+                        raise AssertionError("asked more often than the test gave answers")
+                    self.said, self.returncode = self.queue.pop(0)
+                return super().__call__(args, env, timeout, **given)
+
+        def vendor(status):
+            return live.answer(is_error=True, api_error_status=status, terminal_reason="api_error", structured_output=None,
+                               modelUsage={}), 1
+        good = live.answer(live.judged(findings=[], effects={})), 0
+
+        def asked(*said, clock=lambda: 0.0):
+            cli, slept = Answers(*said), []
+            heads = self.temp / "heads"
+            (heads / case["id"]).mkdir(parents=True, exist_ok=True)
+            review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, clock, heads, sleep=slept.append)
+            with mock.patch.object(step, "run_id", lambda: live.RUN):
+                result = review(case)
+            return result, review, len(cli.asked()), slept
+        # An overload, then an answer: asked once more, after the wait, and the answer is the case's.
+        result, review, calls, slept = asked(vendor(529), good)
+        self.assertEqual((result["status"], review.retried, calls, slept), ("completed", {case["id"]: 1}, 2, [step.RETRY_WAIT]))
+        self.assertEqual((step.RETRIES, step.RETRY_WAIT), (2, 30))
+        # A 5xx, or none, every time: asked RETRIES more times, then left as the Engine failed it, the last call's word kept.
+        for status in (500, 529, None):
+            result, review, calls, slept = asked(*[vendor(status)] * 4)
+            self.assertEqual((result["reason"], review.retried, calls, slept),
+                             ("engine_failed", {case["id"]: 2}, 3, [step.RETRY_WAIT] * 2), status)
+            self.assertTrue(job.transient(result, review.seen), status)
+            self.assertEqual((review.seen["terminal_reason"], review.seen["api_error_status"]), ("api_error", status))
+        # A 4xx is met again if asked again, a rate limit's 429 among them: not asked again.
+        for status in (429, 401, 499, 600):
+            result, review, calls, slept = asked(vendor(status), good)
+            self.assertEqual((result["reason"], review.retried, calls, slept), ("engine_failed", {}, 1, []), status)
+        # Nor a model that ran out, nor an error the CLI says is not the API's.
+        ran_out = live.answer(is_error=True, subtype="error_max_turns", structured_output=None, modelUsage={}), 1
+        other = live.answer(is_error=True, api_error_status=529, terminal_reason="aborted", structured_output=None, modelUsage={}), 1
+        for said in (ran_out, other):
+            result, review, calls, slept = asked(said, good)
+            self.assertEqual((review.retried, calls, slept), ({}, 1, []))
+        # With less time left than a wait and another ask, it is not asked again: the job must end before its own limit.
+        with mock.patch.object(step, "RETRY_WAIT", step.BUDGET):
+            result, review, calls, slept = asked(vendor(529), good)
+        self.assertEqual((result["reason"], review.retried, calls), ("engine_failed", {}, 1))
+        # The test is of a failed Result alone: a completed one is never transient, whatever the call said.
+        self.assertFalse(job.transient(dict(result, status="completed", reason=None), {"terminal_reason": "api_error"}))
+        self.assertFalse(job.transient(dict(result, status="completed"), {"terminal_reason": "api_error"}))
+        self.assertFalse(job.transient(dict(result, reason="no_answer"), {"terminal_reason": "api_error"}))
+        self.assertFalse(job.transient(result, {"terminal_reason": "api_error", "api_error_status": "529"}))
+        self.assertFalse(job.transient(result, None))
+
+    def test_a_transient_fault_is_reported_apart_and_a_retried_case_is_marked(self):  # issue 615
+        # A case the vendor or the network still failed after its retries is the Engine's, and closes the run as any of its
+        # faults does, but by a code of its own, apart from a model that ran out (`no_answer`) and from the Engine's other
+        # faults; each case asked again says how many times, and the cause names how the CLI ended and the vendor's status.
+        from harness import engine
+        from harness import eval as job
+        plan, fetch, judge = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch", "judge"))
+        first, second = list(self.cases)
+        usage = example_result()["usage"]
+        task = {"run": "r_ABC123", "release": "factory/v0.1.0"}
+        for status, code in ((529, "vendor_unavailable"), (None, "vendor_unavailable"), (429, "engine_failed")):
+            with self.subTest(status):
+                self.clean()
+                self.set(self.cases)
+                self.step(plan)
+                self.step(fetch, self.home(self.cases))
+                good = example_result()
+
+                def review(case):
+                    return engine.failed(task, "engine_failed", usage) if case["id"] == first else good
+                review.seen = dict({"subtype": "success", "exit": 1, "terminal_reason": "api_error"},
+                                   **({"api_error_status": status} if status is not None else {}))
+                review.retried = {first: 2, second: 1}
+                self.step(job.score, review)
+                written = json.loads((self.work / job.REPORT).read_text())
+                self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
+                self.assertEqual([(c["verdict"], c["reasons"], c.get("retried")) for c in written["cases"]],
+                                 [("unreadable", [code], 2), ("pass", [], 1)])
+                self.assertEqual(written["cases"][0]["cause"], dict({"subtype": "success", "terminal_reason": "api_error", "exit": 1},
+                                                                    **({"api_error_status": status} if status is not None else {})))
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                    self.assertEqual(self.step(judge), "engine_fault")
+                cause = " ".join("%s=%s" % kv for kv in sorted(written["cases"][0]["cause"].items()))
+                self.assertEqual(out.getvalue(), "1 of 2 passed; %s 1; %s 1\n" % (code, cause))
+        # How the CLI ended is a code from a short list, or `other`, and the status a number in HTTP's range: never words.
+        said = job.seen_of(type("R", (), {"seen": {"terminal_reason": "Overloaded: try later", "api_error_status": 99999}})())
+        self.assertEqual(said, {"terminal_reason": "other"})
+        said = job.seen_of(type("R", (), {"seen": {"terminal_reason": "structured_output_retry_exhausted", "api_error_status": True}})())
+        self.assertEqual(said, {"terminal_reason": "structured_output_retry_exhausted"})
+        # A case not asked again carries no mark at all.
+        self.assertNotIn("retried", job.report({"release": "r", "commit": "c", "set": {}}, {"role": "pr-review", "intent": "x",
+                                                                                              "cases": [{"id": "a", "sha256": "0" * 64}]},
+                                                {"a": ("pass", [])}, retried={"a": 0})["cases"][0])
+
     def test_a_fault_of_the_engine_or_the_factory_is_not_the_reviewers(self):  # decision 0106
         # The first eval on a runner read 42 cases as failed in 8 s: the CLI never started, and each failed Result was
         # scored as the reviewer's. A reason that says the model gave no answer is the case's code, tells nothing of what
@@ -2877,6 +2987,35 @@ class EvalJob(unittest.TestCase):
             self.assertEqual((job.gate_set(development), job.split_ok(development, place)), (False, False))
             with mock.patch.object(job, "BLOCKING_LEAST", 0):
                 self.assertIs(job.split_ok(development, place), True)
+
+    def test_a_gate_sets_report_counts_the_cases_asked_again_and_its_ledger_marks_each(self):  # issue 615
+        # A gate set's report says how many of its own cases were asked again after the vendor or the network failed them,
+        # never which; its ledger marks each, as the per-case report does; and the gate refuses a count over the set's.
+        from harness import eval as job
+        with mock.patch.object(job, "BLOCKING_LEAST", 1):
+            self.set(self.cases, gate=True, natural=list(self.cases)[:1])
+            self.step(job.plan)
+            self.step(the_fetch(), self.home(self.cases, gate=True))
+            result = example_result()
+            first = list(self.cases)[0]
+
+            def review(case):
+                return result
+            # A case asked first, of the preflight, is counted in nothing of the set's.
+            review.retried = {first: 2, "poc-preflight-not-the-sets": 1}
+            self.assertEqual(self.step(job.score, review), "scored 2 of 2 cases, 2 passed")
+            written = json.loads((self.work / job.REPORT).read_text())
+            self.assertEqual(written["retried"], 1)
+            self.assertNotIn(first, (self.work / job.REPORT).read_text())
+            ledger = json.loads((self.temp / "heldout" / job.LEDGER).read_text())
+            self.assertEqual([c.get("retried") for c in ledger["cases"]], [2, None])
+            self.assertEqual(validate(ledger, load("schemas/eval-ledger.schema.json"), schemas=eval_result.schemas()), [])
+            sealed = dict(written, ledger=dict(written["ledger"], sealed_sha256="f" * 64))
+            found, digest = job.manifest(self.root, "pr-review-gate")
+            self.assertEqual(job.aggregate_verdict(sealed, found, digest, "a" * 40, "factory/v0.1.0"), "pass")
+            self.assertEqual(job.aggregate_verdict(dict(sealed, retried=found["count"]), found, digest, "a" * 40, "factory/v0.1.0"), "pass")
+            self.assertEqual(job.aggregate_verdict(dict(sealed, retried=found["count"] + 1), found, digest, "a" * 40, "factory/v0.1.0"),
+                             "count_differs")
 
     def test_a_gate_sets_report_holds_counts_alone_and_its_ledger_every_case(self):  # issue 612
         from harness import eval as job
