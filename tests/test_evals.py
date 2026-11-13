@@ -1746,7 +1746,7 @@ class EvalJob(unittest.TestCase):
             built.append(json.dumps(the_task, sort_keys=True))
             return answered(the_task, *given, **named)
 
-        def scored(heads=None, case=case):
+        def scored(heads=None, case=case, cli=None):
             seen["files"], seen["folders"] = {}, []
             self.clean()     # each run's scratch and heads are its own
             cases = {case["id"]: (json.dumps(case, indent=2) + "\n").encode()}
@@ -1755,7 +1755,7 @@ class EvalJob(unittest.TestCase):
             self.step(job.fetch, self.home(cases), *([heads] if heads else []))
             kept_plan = json.loads((self.temp / "heldout" / "plan.json").read_text())
             (self.temp / "heldout" / "plan.json").write_text(json.dumps(dict(kept_plan, planned_at=1000)))
-            cli = Reading(said=live.answer(live.judged(findings=[], effects={})))
+            cli = cli or Reading(said=live.answer(live.judged(findings=[], effects={})))
             with mock.patch.object(step.live, "answer", answering):
                 said = self.step(step.step, cli, lambda: 1000.0, env=live.JOB)
             return said, cli
@@ -1779,6 +1779,26 @@ class EvalJob(unittest.TestCase):
             self.assertNotIn(marker.encode("utf-8"), text, where)
             self.assertNotIn(answer.encode("utf-8"), text, where)
         self.assertNotIn(".git", [part.casefold() for path in seen["folders"] + list(seen["files"]) for part in path.split(os.sep)])
+        # Asked again after the vendor failed it, the case is given no more of its answer the second time than the first.
+
+        class Again(Reading):
+            def __init__(self, *said):
+                super().__init__()
+                self.queue = list(said)
+
+            def __call__(self, args, env, timeout, **given):
+                if args[1:] != ["--version"]:
+                    self.said, self.returncode = self.queue.pop(0)
+                return super().__call__(args, env, timeout, **given)
+        failed = live.answer(is_error=True, api_error_status=529, terminal_reason="api_error", structured_output=None,
+                             modelUsage={}), 1
+        with mock.patch.object(step, "RETRY_WAIT", 0):
+            said, cli = scored(cli=Again(failed, (live.answer(live.judged(findings=[], effects={})), 0)))
+        self.assertEqual(len(cli.asked()), 2)
+        for where, text in [("a call", "\n".join(words(each))) for each in cli.asked()] + sorted(seen["files"].items()):
+            text = text if isinstance(text, bytes) else text.encode("utf-8")
+            self.assertNotIn(marker.encode("utf-8"), text, where)
+            self.assertNotIn(answer.encode("utf-8"), text, where)
         # No part of it, either: cases that differ in their answer alone, each field of it, severity too, give the model
         # the same Task, the same call and the same head, byte for byte, the Run's fresh id and session held still.
         met = {"verdict": "met", "criterion": "PR-5", "finding": None}
@@ -1795,6 +1815,16 @@ class EvalJob(unittest.TestCase):
         self.assertTrue(given[0][2])
         self.assertEqual(given[1], given[0])
         self.assertEqual(given[2], given[0])
+        # Nor when it is asked again: the retry's calls are the same, byte for byte, whatever the answer.
+        again = []
+        with mock.patch.object(step, "run_id", lambda: "r_" + "A" * 20), mock.patch("uuid.uuid4", lambda: uuid.UUID(int=1)), \
+                mock.patch.object(step, "RETRY_WAIT", 0):
+            for expected in (case["expected"], other):
+                said, cli = scored(case=dict(case, expected=expected),
+                                   cli=Again(failed, (live.answer(live.judged(findings=[], effects={})), 0)))
+                again.append(cli.asked())
+        self.assertEqual(len(again[0]), 2)
+        self.assertEqual(again[1], again[0])
         # A head whose archive holds git's folder is refused whole: the case is unreadable by its code, and asks nothing.
 
         class Historied(Heads):
@@ -2049,12 +2079,37 @@ class EvalJob(unittest.TestCase):
         with mock.patch.object(step, "run_id", lambda: live.RUN):
             result = review(case)
         self.assertEqual((result["reason"], review.retried, len(cli.asked()), late), ("engine_failed", {}, 1, [step.RETRY_WAIT]))
+        # Read again at the bound: with the case's whole time left once it has waited, and not a second more, it is asked.
+        waited = []
+        cli = Answers(vendor(529), good)
+        (heads / case["id"]).mkdir(parents=True, exist_ok=True)
+        start = step.BUDGET - step.RETRY_WAIT - takes
+        review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, lambda: start + step.RETRY_WAIT * len(waited), heads,
+                               sleep=waited.append)
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            result = review(case)
+        self.assertEqual((result["status"], review.retried, len(cli.asked()), waited),
+                         ("completed", {case["id"]: 1}, 2, [step.RETRY_WAIT]))
         # Each attempt's use is the case's: the turns, the cost and the seconds of the one the vendor failed are summed with
         # the answer's, on the answer's Result, its model the one that answered.
         once, = [asked(good)[0]]
         result, review, calls, slept = asked(vendor(529), good)
         self.assertEqual((result["usage"]["turns"], result["usage"]["cost_usd"], result["usage"]["answering_model"]),
                          (2 * once["usage"]["turns"], 2 * once["usage"]["cost_usd"], once["usage"]["answering_model"]))
+        # And the seconds, each attempt's own: 7 for the one the vendor failed, 11 for the answer.
+        tick, spans = [0.0], [7.0, 11.0]
+
+        class Timed(Answers):
+            def __call__(self, args, env, timeout, **given):
+                if args[1:] != ["--version"]:
+                    tick[0] += spans.pop(0)
+                return super().__call__(args, env, timeout, **given)
+        cli = Timed(vendor(529), good)
+        (heads / case["id"]).mkdir(parents=True, exist_ok=True)
+        review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, lambda: tick[0], heads, sleep=lambda seconds: None)
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            result = review(case)
+        self.assertEqual((result["status"], result["usage"]["seconds"], spans), ("completed", 18.0, []))
         # A retry judges its own call alone: one whose call cannot be made after a 5xx is the Engine's other fault, its
         # word that call's, and it is not asked a third time.
         result, review, calls, slept = asked(vendor(503), OSError("no such file"), good)
@@ -2072,6 +2127,11 @@ class EvalJob(unittest.TestCase):
             self.assertEqual((result["status"], review.retried, calls), ("completed", {case["id"]: 1}, 4))
             result, review, calls, slept = asked(vendor(401), vendor(503))
             self.assertEqual((result["reason"], review.retried, calls, review.seen["api_error_status"]), ("engine_failed", {}, 2, 401))
+            # A call the CLI says succeeded with no answer to hold did not succeed either, as the Engine's `no_answer`:
+            # its word is kept, never a later call's error, and the case is not the vendor's.
+            result, review, calls, slept = asked((live.answer(structured_output=None), 0), vendor(503))
+            self.assertEqual((result["reason"], review.retried, calls), ("no_answer", {}, 2))
+            self.assertEqual((review.seen["exit"], review.seen["terminal_reason"], review.seen["api_error_status"]), (0, None, None))
         # The test is of a failed Result alone: a completed one is never transient, whatever the call said.
         self.assertFalse(job.transient(dict(result, status="completed", reason=None), {"terminal_reason": "api_error"}))
         self.assertFalse(job.transient(dict(result, status="completed"), {"terminal_reason": "api_error"}))
@@ -2107,6 +2167,9 @@ class EvalJob(unittest.TestCase):
                 self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
                 self.assertEqual([(c["verdict"], c["reasons"], c.get("retried")) for c in written["cases"]],
                                  [("unreadable", [code], 2), ("pass", [], 1)])
+                past = copy.deepcopy(written)
+                past["cases"][0]["retried"] = 3
+                self.assertTrue(validate(past, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()))
                 self.assertEqual(written["cases"][0]["cause"], dict({"subtype": "success", "terminal_reason": "api_error", "exit": 1},
                                                                     **({"api_error_status": status} if status is not None else {})))
                 with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
@@ -3063,6 +3126,14 @@ class EvalJob(unittest.TestCase):
             self.assertEqual(job.aggregate_verdict(dict(sealed, retried=found["count"]), found, digest, "a" * 40, "factory/v0.1.0"), "pass")
             self.assertEqual(job.aggregate_verdict(dict(sealed, retried=found["count"] + 1), found, digest, "a" * 40, "factory/v0.1.0"),
                              "count_differs")
+            # The total is the report's to carry: one without it is no report of the job's. And no case says more tries
+            # than RETRIES, in the ledger's cases or its preflight.
+            missing = {k: v for k, v in sealed.items() if k != "retried"}
+            self.assertEqual(job.aggregate_verdict(missing, found, digest, "a" * 40, "factory/v0.1.0"), "report_unreadable")
+            for part in ("cases", "preflight"):
+                past = copy.deepcopy(ledger)
+                past[part][0]["retried"] = 3
+                self.assertTrue(validate(past, load("schemas/eval-ledger.schema.json"), schemas=eval_result.schemas()), part)
 
     def test_a_gate_sets_report_holds_counts_alone_and_its_ledger_every_case(self):  # issue 612
         from harness import eval as job

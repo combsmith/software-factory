@@ -67,7 +67,9 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, he
         """The CLI's call, as the Engine makes it, in the case's head where it reads one, with what it said of the case
         kept for its cause: its exit, the subtype its answer names, how it says it ended and the vendor's status, that it
         timed out, or the class of what the call raised. Nothing of the answer itself is kept. Of a case's several calls,
-        the first that did not succeed is the one kept, since that is the one whose Result `passes.union` returns."""
+        the first that did not succeed is the one kept, since that is the one whose Result `passes.union` returns: one
+        that erred, or that gave no answer to hold to a schema, the Engine's `no_answer`. An answer that fails its schema
+        or another model's are the Engine's to tell after the call, and the watch keeps no word of them."""
         if args[1:] == ["--version"] or seen.get("erred") is True:
             return asked(args, env=env, timeout=timeout, **given)
         try:
@@ -83,7 +85,8 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, he
         seen["subtype"] = said.get("subtype") if isinstance(said, dict) else None
         seen["terminal_reason"] = said.get("terminal_reason") if isinstance(said, dict) else None
         seen["api_error_status"] = said.get("api_error_status") if isinstance(said, dict) else None
-        seen["erred"] = done.returncode != 0 or not (isinstance(said, dict) and said.get("is_error") is False)
+        seen["erred"] = done.returncode != 0 or not (isinstance(said, dict) and said.get("is_error") is False
+                                                     and isinstance(said.get("structured_output"), dict))
         return done
 
     def review(case: dict) -> dict:

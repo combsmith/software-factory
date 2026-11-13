@@ -966,7 +966,7 @@ def aggregate_verdict(document, found: dict, digest: str, commit: str, release: 
             or origin["natural"]["passed"] + origin["constructed"]["passed"] != passed \
             or any(o["passed"] > o["cases"] for o in origin.values()) \
             or passed + sum(fault["count"] for fault in document["faults"]) > found["count"] \
-            or document.get("retried", 0) > found["count"]:
+            or document["retried"] > found["count"]:
         return "count_differs"
     kinds, words, bars, least = document["kinds"], document["kinds_pass"], bars_of(found), kind_least_of(found)
     if (kinds is None) != (words is None):

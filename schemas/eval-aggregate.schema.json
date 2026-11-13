@@ -25,7 +25,8 @@
     "split_ok",
     "kinds_pass",
     "blocking_pass",
-    "ledger"
+    "ledger",
+    "retried"
   ],
   "properties": {
     "schema": {
