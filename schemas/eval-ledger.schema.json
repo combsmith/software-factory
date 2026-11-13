@@ -375,7 +375,7 @@
       }
     },
     "cells": {
-      "description": "The cells of the groups the set's report counts: every one the manifest's shape allows, each a kind, for the cases that expect a Finding the criterion the set floors or none, and natural or not, with how many cases it holds, written at the width of the set's count, and whether those are a few, 1, or not, 0. Where two groups overlap in a cell of a few cases, their counts' difference tells those few. Sealed, told nowhere public, and of a length the manifest alone fixes (decision 0212). Null where a case was not read or its answer is no kind.",
+      "description": "Every cell of the groups the set's report counts: a kind, the criterion the set floors or none, natural or not, how many cases it holds at the width of the set's count, and whether those are a few, 1 or 0. Sealed, told nowhere public, and of a length the manifest alone fixes (decision 0212). Null where a case was not read or its answer is no kind.",
       "type": [
         "array",
         "null"
