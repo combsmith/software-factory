@@ -2,7 +2,7 @@
   "schema": "trial/1",
   "trial": "P-67",
   "question": "When the merge queue squash-merges a pull request whose description closes an issue, does GitHub close the issue, and does the issue's timeline name the pull request as the close's closer, or the squash commit, or neither? How long after the merge is the close recorded?",
-  "pass": "Written before the run, in issue 821 at 2026-11-13T06:12Z, nothing having run: the canary's main merge queue, squash, ALLGREEN, required check p2-queue-check, riding on trial P-66's sitting (issue 812), with no click beyond P-66's four. Canary pull requests 114 (A) and 116 (C) are the clean first merges of P-66's two pairs, and each description closes one canary issue of its own. Pass: for each of A and C, once the queue has merged it, the issue it names is closed; the issue's timeline holds a closed event whose closer is that pull request, by repository and number, or its squash commit, which the port also accepts (section 4.1); and the close is recorded within max_close_lag_seconds of the merge (300 s, config/defaults.json). Fail: the issue is not closed, or the closer is neither the pull request nor its squash commit, or the close comes later than that bound. Recorded: each pull request's merge (its merged_at and squash commit); the issue's state and closed_at; its timeline events, with the closer as GitHub gives it; the issue's closedByPullRequestsReferences read by GraphQL. Run on 2026-11-13 in the canary through the Maintainer's own login, by gh api from his terminal, during P-66 (trials/P-66.json, trials/P-66.queued.json): 116's description ends \"Closes #119\" and 114's \"Closes #118\"; the issues and the descriptions are writes not recorded here, and the approvals were made by the Maintainer by hand in the browser as the machine user donpetry-bot, not by the machine-user-approves workflow. The Maintainer's login enqueued both, so the queue's merges name him: merged_by don-petry. C was merged by the queue at 13:01:15Z, squash commit dc59dca9; issue 119 was closed at 13:01:17Z, 2 s after, state reason completed, its closed event timed 13:01:18Z. A was merged at 13:06:32Z, squash commit bc011848; issue 118 was closed at 13:06:34Z, 2 s after, its closed event timed 13:06:35Z. In each, GraphQL's ClosedEvent names the pull request as its closer, a PullRequest, 116 and 114, with its squash commit as mergeCommit, not a Commit; its actor is don-petry, the enqueuer. REST's closed event gives commit_id null and the actor don-petry, so REST names no closer at all, and closed_by on the issue is don-petry too. closedByPullRequestsReferences gives [116] and [114], each MERGED. Passed.",
+  "pass": "Written before the run, in issue 821 at 2026-11-13T06:12Z, nothing having run: the canary's main merge queue, squash, ALLGREEN, required check p2-queue-check, riding on trial P-66's sitting (issue 812), with no click beyond P-66's four. Canary pull requests 114 (A) and 116 (C) are the clean first merges of P-66's two pairs, and each description closes one canary issue of its own. Pass: for each of A and C, once the queue has merged it, the issue it names is closed; the issue's timeline holds a closed event whose closer is that pull request, by repository and number, or its squash commit, which the port also accepts (section 4.1); and the close is recorded within max_close_lag_seconds of the merge (300 s, config/defaults.json). Fail: the issue is not closed, or the closer is neither the pull request nor its squash commit, or the close comes later than that bound. Recorded: each pull request's merge (its merged_at and squash commit); the issue's state and closed_at; its timeline events, with the closer as GitHub gives it; the issue's closedByPullRequestsReferences read by GraphQL. Run on 2026-11-13 in the canary through the Maintainer's own login, by gh api from his terminal, during P-66 (trials/P-66.json, trials/P-66.queued.json): 116's description ends \"Closes #119\" and 114's \"Closes #118\"; the issues and the descriptions are writes not recorded here, and the approvals were made by the Maintainer by hand in the browser as the machine user donpetry-bot, not by the machine-user-approves workflow. The Maintainer's login enqueued both, so the queue's merges name him: merged_by don-petry. C was merged by the queue at 13:01:15Z, squash commit dc59dca9; issue 119 was closed at 13:01:17Z, 2 s after, state reason completed, its closed event timed 13:01:18Z. A was merged at 13:06:32Z, squash commit bc011848; issue 118 was closed at 13:06:34Z, 2 s after, its closed event timed 13:06:35Z. In each, GraphQL's ClosedEvent names the pull request as its closer, a PullRequest, 116 and 114, with its squash commit as mergeCommit, not a Commit; its actor is don-petry, the enqueuer. The run's closer reads asked the closer's number alone, so one more read, after the run, asked its repository too: each closer is of combsmith/software-factory-canary, the same number and squash commit. That the queue made each merge is in P-66's fixtures: each pull request's squash commit is the beforeCommit of its RemovedFromMergeQueueEvent of reason merged (trials/P-66.json, trials/P-66.queued.json). REST's closed event gives commit_id null and the actor don-petry, so REST names no closer at all, and closed_by on the issue is don-petry too. closedByPullRequestsReferences gives [116] and [114], each MERGED. Passed.",
   "repo": "combsmith/software-factory-canary",
   "ran_at": "2026-11-13T12:56:08Z",
   "exchanges": [
@@ -435,6 +435,77 @@
           }
         }
       }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issues 118's and 119's closes, each closer with its repository, which the run's closer reads did not ask, read after the run for this fixture; client time 2026-11-13T16:53:23Z",
+        "headers": {},
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){a:issue(number:118){number state closedAt timelineItems(itemTypes:[CLOSED_EVENT],last:5){nodes{... on ClosedEvent{createdAt closer{__typename ... on PullRequest{number repository{nameWithOwner} mergeCommit{oid}} ... on Commit{oid}}}}}} b:issue(number:119){number state closedAt timelineItems(itemTypes:[CLOSED_EVENT],last:5){nodes{... on ClosedEvent{createdAt closer{__typename ... on PullRequest{number repository{nameWithOwner} mergeCommit{oid}} ... on Commit{oid}}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 16:53:24 GMT"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "a": {
+                "number": 118,
+                "state": "CLOSED",
+                "closedAt": "2026-11-13T13:06:34Z",
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "createdAt": "2026-11-13T13:06:35Z",
+                      "closer": {
+                        "__typename": "PullRequest",
+                        "number": 114,
+                        "repository": {
+                          "nameWithOwner": "combsmith/software-factory-canary"
+                        },
+                        "mergeCommit": {
+                          "oid": "bc011848f77fb252d41ae63924d7b7973f0cfe0e"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "b": {
+                "number": 119,
+                "state": "CLOSED",
+                "closedAt": "2026-11-13T13:01:17Z",
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "createdAt": "2026-11-13T13:01:18Z",
+                      "closer": {
+                        "__typename": "PullRequest",
+                        "number": 116,
+                        "repository": {
+                          "nameWithOwner": "combsmith/software-factory-canary"
+                        },
+                        "mergeCommit": {
+                          "oid": "dc59dca92f70efeec1c6589a11d2b4f1b6e5de90"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "removed": [
@@ -448,6 +519,7 @@
     "exchanges[7].request.headers.authorization",
     "exchanges[8].request.headers.authorization",
     "exchanges[9].request.headers.authorization",
+    "exchanges[10].request.headers.authorization",
     "exchanges[*].response.headers: the headers tools/redact_trial.py took out of each answer, an OAuth client id and scopes among them; of the rest, only date is kept here"
   ],
   "verdict": "pass"
