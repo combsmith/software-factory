@@ -92,19 +92,31 @@ class Transport(unittest.TestCase):
         for path in ("/repos/o/r/contents/../x", "/repos/o/r/contents/./x", "/repos/o/r/..", "/repos/o/r/.", "/..",
                      "/repos/o/r/contents/%2e%2e/x", "/repos/o/r/contents/%2E%2e/x", "/repos/o/r/contents/.%2e/x",
                      "/repos/o/r/contents/%2e/x", "/repos/o/r/contents/a%2f..%2fb", "/repos/o/r/contents/a%2F.%2Fb",
-                     "/repos/o/r/contents/a%5c..%5cb", "/repos/o/r/contents/x/..?ref=y", "/repos/../r/issues/7"):
+                     "/repos/o/r/contents/a%5c..%5cb", "/repos/o/r/contents/x/..?ref=y", "/repos/../r/issues/7",
+                     # An encoded question mark or hash is part of a name, so what follows it is still path.
+                     "/repos/o/r/contents/a%3f/../x", "/repos/o/r/contents/a%23/../x",
+                     # What follows the last "#" is dropped as the request is made, so no path holds one; nor a space or a
+                     # control character, which is stripped before the path is read; nor what cannot be read as a path.
+                     "/repos/o/r/contents/a#/../x#y", "/repos/o/r/contents/a#b", "/x?ref=a#b", "/repos/o/r/contents/a b",
+                     "/\t/[x", "/repos/o/r/contents/.\t./x", "/repos/o/r/contents/a\n/../x", "/x\x00y", "//[x"):
             with self.assertRaises(github.Unanswered, msg=path):
                 github.request("GET", path)
         # A dot that is part of a name is no segment, and a query is no path.
         for path in ("/repos/o/r/compare/a...b", "/repos/o/r/contents/.github/x.yml", "/repos/o/r/contents/a..b",
                      "/repos/o/r/contents/...", "/repos/o/.r", "/repos/o/r/contents/x?ref=..", "/repos/o/r/contents/x?a=/../b",
-                     "/repos/o/r/contents/%2e%2e%2e", "/repos/o/r/contents/x%2e"):
+                     "/repos/o/r/contents/%2e%2e%2e", "/repos/o/r/contents/x%2e", "/repos/o/r/contents/a%23b",
+                     "/repos/o/r/contents/a%20b", "/repos/o/r/contents/a%3fb"):
             self.assertEqual(github.request("GET", path)["path"], path)
         # No rule is silenced on a line of the transport: Sonar's traversal rule is set aside for the file, by rule.
         self.assertNotIn("NOSONAR", (ROOT / "adapters" / "github.py").read_text())
-        self.assertIn("sonar.issue.ignore.multicriteria.transportpath.ruleKey=pythonsecurity:S7044\n"
-                      "sonar.issue.ignore.multicriteria.transportpath.resourceKey=adapters/github.py\n",
-                      (ROOT / "sonar-project.properties").read_text())
+        # Read as Sonar reads it: no key is written twice, so none overrides another; the entry is on the list; and the
+        # rule is set aside for the transport's file and no other (Astra's and Muse's reads of this change).
+        lines = [line for line in (ROOT / "sonar-project.properties").read_text().splitlines() if line and line[0] != "#"]
+        said, on = dict(line.split("=", 1) for line in lines), "sonar.issue.ignore.multicriteria"
+        self.assertEqual(len(said), len(lines))
+        self.assertIn("transportpath", said[on].split(","))
+        self.assertEqual([said["%s.%s.resourceKey" % (on, name)] for name in said[on].split(",")
+                          if said["%s.%s.ruleKey" % (on, name)] == "pythonsecurity:S7044"], ["adapters/github.py"])
         self.assertEqual(github.request("GET", "/repos/o/r")["accept"], github.JSON)
         # A caller may add the two headers a read of runs needs, each one line, and nothing else.
         self.assertEqual(github.request("GET", "/x", headers={"Cache-Control": "no-cache"})["headers"],

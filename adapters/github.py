@@ -81,7 +81,14 @@ def request(method: str, path: str, accept: str = JSON, body=None, headers=None,
     See `download` and `tarball`."""
     if method not in ("GET", "POST", "PUT", "PATCH", "DELETE"):
         raise Unanswered("a request needs an HTTP method, not %r" % (method,))
-    parts = urllib.parse.urlsplit(path)
+    # A path holds no "#", no space and no control character: what follows the last "#" is dropped as the request is made,
+    # so a segment after an earlier one would be sent unread, and a tab or a newline is stripped before the path is read.
+    if "#" in path or any(not c.isprintable() or c == " " for c in path):
+        raise Unanswered("a path holds no #, space or control character: %r" % (path,))
+    try:
+        parts = urllib.parse.urlsplit(path)
+    except ValueError:      # a bracket where a host would be
+        raise Unanswered("a path cannot be read as one: %r" % (path,)) from None
     if parts.scheme or parts.netloc or not path.startswith("/") or path.startswith("//") or "\\" in path:
         raise Unanswered("a path is from the API's root, on %s alone: %r" % (HOST, path))
     # No segment of the path is "." or "..", plain or percent-encoded, an encoded slash among it: GitHub resolves them in a
