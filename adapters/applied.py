@@ -247,7 +247,8 @@ def effects(transport, repo: str, runs, since: str, known, most: int = READS, sl
         if not whole:
             out["whole"] = False
         elif kept is None:
-            again.append((record, github[0]))
+            if isinstance(record.get("conclusion"), str):  # with none, it does not say it did not succeed: a later pass asks
+                again.append((record, github[0]))
         else:
             read(record, kept)
     # The second look, at each that listed none and may only be lagging in GitHub's list: at most as many looks again as
