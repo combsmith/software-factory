@@ -138,7 +138,8 @@ RULES = (
      ("P-2",), None, None),
     # trials/P-2.port.json: the timeline port's own read of 100, a person's enqueue, and 70, the queue App's, each the
     # enqueue then the merge with no act of a Factory identity's between, and the facts port's read of each head's
-    # required check concluded success (issue 807).
+    # required check concluded success before it (issue 807). Its verdict is fail as written: on 70 a person's review,
+    # the trial's own while 70 was queued, stands between, which the sitting's condition forbade and the rule does not.
     ("the_queue_merges_on_its_required_checks", "The merge queue merges a queued pull request once its required checks "
      "pass, whoever enqueued it, with no read of the Factory's between", ("P-2",),
      ("trials/P-2.no-pass.json", "trials/P-2.queue-app.json", "trials/P-2.port.json"), None),

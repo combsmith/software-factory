@@ -4605,17 +4605,21 @@ class Contract(unittest.TestCase):
         reviews, listed = timeline.reviews(replayed, canary58, events, timeline.Accounts(replayed, canary(), MACHINE, {}),
                                            found[0]["response"]["body"]["object"]["sha"])
         removed = [e["id"] for e in exchanges("P-2.queue")[14]["response"]["body"] if e["event"] == "removed_from_merge_queue"]
+        out = next(e["created_at"] for e in events if e.get("event") == "removed_from_merge_queue")
         return whole and listed and [(event, account[0], account[2]) for event, _, account in queue] == [
             ("added_to_merge_queue", "don-petry", "User"), ("removed_from_merge_queue", "github-merge-queue[bot]", "Bot")] \
             and [queue[1][1]] == removed \
-            and [(r["by"]["kind"], r["state"], r["dismissed_by"]) for r in reviews] == [("machine_user", "approved", None)]
+            and [(r["by"]["kind"], r["state"], r["dismissed_by"], r["submitted_at"] < out) for r in reviews] == [
+                ("machine_user", "approved", None, True)]
 
     def queue_merged_read(self) -> bool:
         """P-2.no-pass: the Maintainer enqueued pull request 100 and the queue merged it on its required check alone.
         P-2.queue-app: the queue App enqueued 70 and the queue merged it. P-2.port: the timeline port's own read of each is
-        whole and holds the enqueue, by that account, then the merge, at the time each trial read, with no act of the
-        machine user's and no label or queue act between; and the facts port reads each head's required check,
-        p2-queue-check, concluded success, whole."""
+        whole and holds the enqueue, by that account, then the merge, at the time each trial read, with no act of a
+        Factory identity's between: none of the machine user's, none of any App's but the merge queue's own, and no label
+        or queue act. A person's act between stands on 70, the trial's own review while 70 was queued, which fails the
+        sitting's condition as written but not the rule. And the facts port reads each head's required check,
+        p2-queue-check, from its own App and workflow file, concluded success before the merge, whole."""
         found = copy.deepcopy(exchanges("P-2.port"))
         merged_at = {100: body("P-2.no-pass", 7)["data"]["repository"]["pullRequest"]["mergedAt"],
                      70: body("P-2.queue-app", 30)["data"]["repository"]["pullRequest"]["mergedAt"]}
@@ -4626,14 +4630,19 @@ class Contract(unittest.TestCase):
             kinds = [e.get("event") for e in events]
             enqueued, merged = kinds.index("added_to_merge_queue"), kinds.index("merged")
             by = timeline.Accounts.account(events[enqueued]["actor"])
-            between = [e for e in events[enqueued + 1:merged]
-                       if e.get("event") in timeline.LABELS | timeline.QUEUE
-                       or timeline.Accounts.account(e.get("actor") or e.get("user"))[1:] == MACHINE]
+            actors = [timeline.Accounts.account(e.get("actor") or e.get("user")) for e in events[enqueued + 1:merged]]
+            between = [e for e, (login, ident, kind) in zip(events[enqueued + 1:merged], actors)
+                       if e.get("event") in timeline.LABELS | timeline.QUEUE or (ident, kind) == MACHINE
+                       or (kind == "Bot" and login != "github-merge-queue[bot]")]
             pr = found[at + 1]["response"]["body"]["data"]["repository"]["pullRequest"]
+            nodes = [n for n in pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
+                     if n.get("name") == "p2-queue-check"]
             read = checks.read(github.Replay([found[at + 1]]), dict(pull, head={"sha": pr["headRefOid"]}))
+            required = [(c["conclusion"], c["app_id"], c["workflow"]) for c in read["checks"] if c["name"] == "p2-queue-check"]
             held.append(whole and enqueued < merged and (by[0], by[2]) == enqueuer and not between
                         and events[merged]["created_at"] == merged_at[number] and read["complete"] is True
-                        and [c["conclusion"] for c in read["checks"] if c["name"] == "p2-queue-check"] == ["success"])
+                        and required == [("success", 15368, ".github/workflows/p2-queue.yml")]
+                        and len(nodes) == 1 and nodes[0]["completedAt"] < events[merged]["created_at"])
         return held == [True, True]
 
     def p42_push(self, at: int) -> tuple:
