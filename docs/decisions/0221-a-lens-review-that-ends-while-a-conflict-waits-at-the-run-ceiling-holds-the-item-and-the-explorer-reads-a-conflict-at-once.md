@@ -1,4 +1,4 @@
-# 0220. A Lens's review that ends while a conflict waits at the Run ceiling holds the item, and the explorer reads a conflict at once
+# 0221. A Lens's review that ends while a conflict waits at the Run ceiling holds the item, and the explorer reads a conflict at once
 
 Status: accepted. The Factory Builder's ruling of 2026-11-13 on "The transitions explorer reads a conflict only two moves after a head that merges, and one move finds a Hold the Lifecycle does not declare" (issue 811): a real gap in the Lifecycle is declared, a ruled change. Trial P-40 found it ("Trial P-40: a move of the base alone makes GitHub work out mergeable again, for a pull request that still merges and for one the move makes conflict", issue 809), and record 0214 left it out by name.
 

@@ -1099,8 +1099,8 @@ class Transitions(unittest.TestCase):
         self.assertNotIn(held, holds_made_by_no_person(explore(start, [m for m in MOVES if m.name != at_once[0]])[0]))
         self.assertIn(held, holds_made_by_no_person(explored()[0]))
         # From a merge state not worked out, the move is not made: that is the slow way, through unknown.
-        self.assertIsNone(moves[at_once[0]].make(dict(BASES["conflict"], facts=dict(BASES["conflict"]["facts"],
-                                                                                         mergeable=None))))
+        unknown = dict(BASES["conflict"], facts=dict(BASES["conflict"]["facts"], mergeable=None))
+        self.assertIsNone(moves[at_once[0]].make(unknown))
 
     def test_a_pause_changes_no_hold(self):  # decision 0003, §4.1
         # A Hold is a reading and no act, and a Pause leaves each item where it is: whatever Hold the Kernel gives
