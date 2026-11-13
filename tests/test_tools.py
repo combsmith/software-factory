@@ -5358,6 +5358,30 @@ class GateSets(unittest.TestCase):
         self.assertEqual(check_gate_sets.run(root), [])
         with mock.patch.dict(os.environ, {"GITHUB_EVENT_NAME": "merge_group"}):
             self.assertTrue(caught(check_gate_sets.run(root), self.FLOORS))
+        # What a merge brought to main is what the merge left, not each commit of the branch it merged: a set whose
+        # floor moved on its branch, merged whole, is held to the floor it reached main with.
+        root = history()
+        git(root, "checkout", "-q", "-b", "feature")
+        for text in (base, self.manifest(floors=("PR-4",))):
+            edited(root, {self.SET: text})
+            committed(root, "feature")
+        git(root, "checkout", "-q", "main")
+        git(root, "-c", "user.name=T", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff", "-m", "merge", "feature")
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        self.assertEqual(check_gate_sets.run(root), [])
+        self.assertTrue(caught(check_gate_sets.run(edited(root, {self.SET: base})), self.FLOORS))
+        # Only a regular file main held is a manifest: a link's bytes are its target's name, whatever they spell, and
+        # a gitlink is no file. Neither is held, and neither stops the read.
+        few = dict(cases=range(2), natural=())
+        root = history()
+        (root / "evals" / "gate-b").mkdir(parents=True)
+        os.symlink(self.manifest(**few), str(root / self.OTHER))
+        git(root, "add", "-f", self.OTHER)
+        git(root, "update-index", "--add", "--cacheinfo", "160000,%s,evals/old/cases.json" % git(root, "rev-parse", "HEAD").strip())
+        git(root, "-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "links")
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        (root / self.OTHER).unlink()
+        self.assertEqual(check_gate_sets.run(edited(root, {self.SET: self.manifest(floors=("PR-4",), **few)})), [])
         # A directory where a manifest would be is no manifest, and no fault of this check's.
         with outside_actions():
             self.assertEqual(check_gate_sets.run(tree({self.SET + "/x": "", self.OTHER: base})), [])

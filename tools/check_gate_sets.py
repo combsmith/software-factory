@@ -56,7 +56,8 @@ def _held(root: pathlib.Path, at: str) -> list:
     for commit in _git(root, "log", "--first-parent", "--format=%H", at, "--", "evals").split():
         for entry in _git(root, "ls-tree", "-r", "-z", commit, "--", "evals/").split("\0"):
             kind, _, name = entry.partition("\t")
-            if not MANIFEST.fullmatch(name):
+            # A regular file alone: a link's bytes are its target's name, and a gitlink is no file at all.
+            if not MANIFEST.fullmatch(name) or kind.split()[0] not in ("100644", "100755"):
                 continue
             blob = kind.split()[2]
             if blob not in read:
