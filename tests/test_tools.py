@@ -5231,6 +5231,75 @@ def read_in_linear_cpu(test, read, unit: str, size: int) -> None:
     test.assertEqual(cpu_problem(spent), "", unit)
 
 
+class GateSetGroups(unittest.TestCase):
+    SET = "evals/pr-review/cases.json"
+
+    @staticmethod
+    def manifest(natural=range(10), floors=("PR-3",), cases=range(31), gate=True, **over) -> str:
+        """A gate set's manifest of made-up cases: which it marks natural, and the criteria it floors."""
+        found = {"schema": "eval-set/1", "role": "pr-review", "intent": "review-change", "count": len(cases),
+                 "cases": [dict({"id": "c-%d" % n, "sha256": "%064x" % n}, **({"natural": n in natural} if gate else {}))
+                           for n in cases]}
+        if gate:
+            found.update(gate=True, criterion_bars={name: [1, 2] for name in floors})
+        return json.dumps(dict(found, **over))
+
+    def found(self, now: str, before=None, commit: bool = False) -> list:
+        """What the check finds of the set as `now` has it, where main has it as `before`, or not at all."""
+        root = history({self.SET: before} if before is not None else None)
+        return check_examples.groups_kept(edited(root, {self.SET: now}, commit))
+
+    def test_a_gate_set_whose_cases_are_the_bases_keeps_its_floored_criteria_and_natural_marks(self):
+        # Issue 695: two manifests of the same cases that count them in other groups publish counts whose difference is
+        # a group of fewer than ten, one case among them. Made-up cases: no held-out set is read here.
+        base, floors, marks = self.manifest(), "floors other criteria than the base's", "marks other cases natural"
+        self.assertIn(("gate set groups", check_examples.groups_kept), verify.CHECKS)
+        self.assertEqual(self.found(base, base), [])
+        for commit in (False, True):        # in the working tree, or committed on the branch
+            # The floor moved from PR-3 to PR-4: the findings on neither are what the two reports' counts leave.
+            self.assertTrue(caught(self.found(self.manifest(floors=("PR-4",)), base, commit), floors))
+            # An eleventh case marked natural: the two natural groups differ by it, under its public id.
+            self.assertTrue(caught(self.found(self.manifest(natural=range(11)), base, commit), marks))
+        # A floor added or dropped moves a group as one moved does; so does a mark taken off, or every mark moved.
+        for other in (("PR-3", "PR-4"), ()):
+            self.assertTrue(caught(self.found(self.manifest(floors=other), base), floors), other)
+        for other in (range(9), range(10, 20), ()):
+            self.assertTrue(caught(self.found(self.manifest(natural=other), base), marks), other)
+        both = self.found(self.manifest(natural=range(11), floors=("PR-4",)), base)
+        self.assertTrue(caught(both, floors) and caught(both, marks) and len(both) == 2)
+        # A floor's fraction is no group, and the order the cases are listed in is none either.
+        self.assertEqual(self.found(self.manifest(criterion_bars={"PR-3": [2, 3]}), base), [])
+        self.assertEqual(self.found(self.manifest(cases=range(30, -1, -1)), base), [])
+        self.assertTrue(caught(self.found(self.manifest(cases=range(30, -1, -1), floors=("PR-4",)), base), floors))
+        # Cases changed are another set of them, whose earlier counts this does not hold: one added, one issued again
+        # under its id. A residual, written down on the issue.
+        moved = dict(natural=range(11), floors=("PR-4",))
+        self.assertEqual(self.found(self.manifest(cases=range(32), **moved), base), [])
+        again = json.loads(self.manifest(**moved))
+        again["cases"][30]["sha256"] = "f" * 64
+        self.assertEqual(self.found(json.dumps(again), base), [])
+        # A set main does not hold, or holds as a development set or as nothing that can be read, counted no group there;
+        # a development set here counts none.
+        for before in (None, self.manifest(gate=False), "{", "[]", json.dumps({"gate": True, "cases": [7]})):
+            self.assertEqual(self.found(self.manifest(**moved), before), [], before)
+        self.assertEqual(self.found(self.manifest(gate=False), base), [])
+        self.assertEqual(self.found("{", base), [])
+
+    def test_a_gate_set_that_cannot_be_compared_with_the_base_fails_and_an_export_is_not_compared(self):
+        moved = self.manifest(floors=("PR-4",))
+        root = edited(history({self.SET: self.manifest()}), {self.SET: moved})
+        git(root, "update-ref", "-d", "refs/remotes/origin/main")
+        self.assertTrue(caught(check_examples.groups_kept(root), self.SET + ": cannot be compared with the base's"))
+        # An export has no history: nothing is compared, but in GitHub Actions, where a checkout always has one.
+        export = tree({self.SET: moved})
+        with outside_actions():
+            self.assertEqual(check_examples.groups_kept(export), [])
+        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
+            self.assertTrue(caught(check_examples.groups_kept(export), "cannot be compared with the base's"))
+            # A development set asks nothing of the base, so it is never refused for one it cannot read.
+            self.assertEqual(check_examples.groups_kept(tree({self.SET: self.manifest(gate=False)})), [])
+
+
 class Trials(unittest.TestCase):
     def test_the_relays_host_stands_in_no_batch_before_the_first_approval(self):  # decision 0107
         # W-2 rests on the relay alone, and the first approval does not need it, so the relay's own trial is the relay's.

@@ -34,6 +34,7 @@ CHECKS = [
     ("writes", check_writes.run),
     ("context", check_context.run),
     ("decision records", check_decisions.run),
+    ("gate set groups", check_examples.groups_kept),
 ]
 # The test modules `make fast` leaves out. `make verify` runs them all.
 SLOW = ("test_simulator", "test_issue_simulator")
