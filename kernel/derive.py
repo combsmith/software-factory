@@ -235,19 +235,58 @@ def lens_reading(checks: list, lens: dict, config: dict) -> str:
     Another App's check, or another file's, under its check's name is read before any Lens (foreign_checks). Every check
     from its own App and file is read, never the last alone: any failing one fails the Lens; then any with no verdict
     leaves it unreadable; then any still running is a wait. It passes only when every one of them passes. A Lens that
-    has not reported is pending.
+    has not reported is pending. One exception: a run stopped before it judged, cancelled or at its timeout, is passed
+    over where another run of the Lens on the head did not stop, and every run stopped leaves the Lens unreadable; and a
+    failing check whose suite has not concluded is `concluding`: a wait, but a failure for a queued item (issue 681).
     """
     mine = [c for c in checks if reports_for(c, lens)]
     if not mine:
         return "pending"
-    readings = {check_reading(c, config) for c in mine}
+    runs = [run_of(c) for c in mine]
+    # A check on the head of the Lens's own App and file, under another name too, whose run or suite is in another form
+    # may be of one of its runs, which share their file: no run is passed over beside it (cubic, CodeAnt).
+    if any(run_of(c) is False for c in checks if from_its_app(c, lens) and from_its_workflow(c, lens)):
+        return "unreadable"
+    # One run's checks share its suite, whatever Lens each reports for: a run given two suite conclusions anywhere on the
+    # head is no reading of it (Muse, Astra).
+    shared = {r for r in (run_of(c) for c in checks) if r}
+    if any(r is not None and len({s for s in shared if s[0] == r[0]}) != 1 for r in runs):
+        return "unreadable"
+    # A run stopped before it judged, cancelled or at its timeout, gives no verdict where another run of the Lens on the
+    # head did not stop, finished or still running; never by which is later, which no id tells. Every run of it stopped,
+    # the Lens is unreadable. A check that carries no run, or no suite, neither is passed over nor passes another over,
+    # so it reads as before (issue 681, trials/P-65.json, the Factory Builder's ruling (B)).
+    going = {r[0] for r in runs if r is not None and r[1] not in t.STOPPED_SUITES}
+    if all(r is not None and r[1] in t.STOPPED_SUITES for r in runs):
+        return "unreadable"
+    kept = [(c, r) for c, r in zip(mine, runs) if not (r is not None and r[1] in t.STOPPED_SUITES and going)]
+    # A failing check whose suite has not concluded is concluding: its run may yet be stopped (trials/P-65.json). The
+    # caller reads it as a wait, and as a failure for a queued item, which reads past waits.
+    readings = {"concluding" if r is not None and r[1] is None and check_reading(c, config) == "failing"
+                else check_reading(c, config) for c, r in kept}
     if "failing" in readings:
         return "failing"
-    if readings - {"passing", "pending"}:
+    if readings - {"passing", "pending", "concluding"}:
         return "unreadable"
+    if "concluding" in readings:
+        return "concluding"
     if "pending" in readings:
         return "pending"
     return "passing"
+
+
+def run_of(check: dict):
+    """A check's workflow run and its suite's conclusion, `(run_id, suite_conclusion)`; None where it carries no run, a
+    check no workflow ran, or lacks either field, as facts a trial recorded before the port asked them do; False where
+    either is in any form but its own, which leaves the Lens unreadable (issue 681)."""
+    # Each field there is read in its form first, whatever the other says: one in another form is never read as none.
+    if "run_id" in check and not (check["run_id"] is None or type(check["run_id"]) is int and check["run_id"] >= 1):
+        return False
+    if "suite_conclusion" in check and not (check["suite_conclusion"] is None or check["suite_conclusion"] in t.SUITE_CONCLUSIONS):
+        return False
+    if "run_id" not in check or "suite_conclusion" not in check or check["run_id"] is None:
+        return None
+    return (check["run_id"], check["suite_conclusion"])
 
 
 def readable_name(path) -> bool:
@@ -1027,13 +1066,14 @@ def made_at(run: dict):
 def approval_anchor(review: dict, runs):
     """When a machine user's approval last read the description: when the approving act's Run on its content was made,
     the latest made at or before it, as the act reads the description after that (issue 195); else, where a record of
-    this item started before it or in its second, the approval's own time, as a person approving in the browser reads
+    this item began before it or in its second, the approval's own time, as a person approving in the browser reads
     as they approve (decision 0046); else "", before every time, as nothing shows when it read. So too where an act on
     its content started after it with no dispatch read, a re-run or one whose attempt cannot be read, which may be the
     act that read, and where a record's start, or both its times, cannot be read: an unreadable fact holds. Records expire oldest first, and an act's Run is made before its approval: it is not
-    gone while a record made before it stays. A Run made while the act ran waits in the item's lane, but its record's
-    start is when it was made (trials/P-44.json), so it may reach back once the act's Run is past retention: a residual
-    the record names."""
+    gone while a record made before it stays. A Run made while the act ran waits in the item's lane, and its record's
+    start is when it was made (trials/P-44.json): so a record reaches back by when its jobs began, its `began_at`
+    (trials/P-64.json, decision 0204), and one that has not begun, never began or whose jobs were not read does not.
+    Nor does one said to have begun before it was made, which no run does."""
     at = review["submitted_at"]
     if any(made_at(r) is None or not is_time(r["started_at"]) for r in runs):
         return ""
@@ -1045,7 +1085,7 @@ def approval_anchor(review: dict, runs):
     acts = [made_at(r) for r in mine if made_at(r) <= at]
     if acts:
         return max(acts)
-    return at if any(r["started_at"] <= at for r in runs) else ""
+    return at if any(is_time(r.get("began_at")) and made_at(r) <= r["began_at"] <= at for r in runs) else ""
 
 
 def description_anchor(facts: dict, edited: str, *, runs: list):
@@ -1235,6 +1275,10 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
             failed.append(lens["lens"])
         elif reading == "pending":
             waiting.append(lens["lens"])
+        elif reading == "concluding":
+            # A failing check whose suite has not concluded is a wait, but never one a queued item reads past: a suite
+            # that never concludes would leave a failure on the head unread in the queue (issue 681).
+            (failed if "awaiting_checks" in past else waiting).append(lens["lens"])
         elif reading != "passing":
             unreadable.append(lens["lens"])
     # A failure is readable and decisive: whatever a check with no verdict would say, the content goes

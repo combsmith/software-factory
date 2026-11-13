@@ -1,0 +1,756 @@
+{
+  "schema": "release-fixture/1",
+  "version": "factory/v0.1.11",
+  "repo": "combsmith/software-factory",
+  "items": [
+    {
+      "item": "cut_and_move_of_next",
+      "run": 43348353598,
+      "asked": {
+        "command": "cut",
+        "version": "factory/v0.1.11",
+        "to": "",
+        "cut_commit": "d440e4d76eb448b3034e8f72f55e3824541ed593"
+      },
+      "printed": {
+        "writes": [
+          [
+            "create",
+            "factory/v0.1.11",
+            "d440e4d76eb448b3034e8f72f55e3824541ed593"
+          ],
+          [
+            "move",
+            "factory/v0-next",
+            "d440e4d76eb448b3034e8f72f55e3824541ed593"
+          ]
+        ],
+        "deployments": [
+          7754911332
+        ]
+      },
+      "conclusion": "success",
+      "read_at": "2026-11-13T01:56:27Z",
+      "exchanges": [
+        {
+          "request": {
+            "as": {
+              "kind": "person",
+              "name": "don-petry"
+            },
+            "via": "rest",
+            "call": "GET /repos/combsmith/software-factory/actions/runs/43348353598 (gh api --include)",
+            "headers": {
+              "accept": "application/vnd.github+json"
+            },
+            "body": null
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "cache-control": "private, max-age=60, s-maxage=60",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 13 Nov 2026 01:56:29 GMT",
+              "etag": "W/\"ac1390139b713732591242b59c56a43105fa3c113020b8fd120fb7655a87f7dc\"",
+              "server": "github.com",
+              "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+              "x-accepted-oauth-scopes": "",
+              "x-github-media-type": "github.v3; format=json",
+              "x-github-request-id": "C001:36EA69:269068A:786777D:6AF66E4D",
+              "x-ratelimit-limit": "5000",
+              "x-ratelimit-remaining": "4106",
+              "x-ratelimit-reset": "1794537798",
+              "x-ratelimit-resource": "core",
+              "x-ratelimit-used": "894"
+            },
+            "body": {
+              "id": 43348353598,
+              "name": "sf-release",
+              "path": ".github/workflows/release.yml",
+              "event": "workflow_dispatch",
+              "status": "completed",
+              "conclusion": "success",
+              "head_branch": "main",
+              "head_sha": "d440e4d76eb448b3034e8f72f55e3824541ed593",
+              "run_attempt": 1,
+              "workflow_id": 398755186,
+              "display_title": "sf-release",
+              "created_at": "2026-11-13T01:54:49Z",
+              "run_started_at": "2026-11-13T01:54:49Z",
+              "updated_at": "2026-11-13T01:55:10Z"
+            }
+          }
+        },
+        {
+          "request": {
+            "as": {
+              "kind": "person",
+              "name": "don-petry"
+            },
+            "via": "rest",
+            "call": "GET /repos/combsmith/software-factory/actions/runs/43348353598/jobs (gh api --include)",
+            "headers": {
+              "accept": "application/vnd.github+json"
+            },
+            "body": null
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "cache-control": "private, max-age=60, s-maxage=60",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 13 Nov 2026 01:56:29 GMT",
+              "etag": "W/\"48184e3684f06522ae7488f2f92c1a6ad837c1585b401faae8daba49a53063d2\"",
+              "server": "github.com",
+              "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+              "x-accepted-oauth-scopes": "",
+              "x-github-media-type": "github.v3; format=json",
+              "x-github-request-id": "C002:36EA69:26908A9:7867E5A:6AF66E4D",
+              "x-ratelimit-limit": "5000",
+              "x-ratelimit-remaining": "4104",
+              "x-ratelimit-reset": "1794537798",
+              "x-ratelimit-resource": "core",
+              "x-ratelimit-used": "896"
+            },
+            "body": {
+              "total_count": 1,
+              "jobs": [
+                {
+                  "id": 131633063656,
+                  "run_id": 43348353598,
+                  "name": "release",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "head_sha": "d440e4d76eb448b3034e8f72f55e3824541ed593",
+                  "started_at": "2026-11-13T01:54:56Z",
+                  "completed_at": "2026-11-13T01:55:10Z",
+                  "steps": [
+                    {
+                      "name": "Set up job",
+                      "status": "completed",
+                      "conclusion": "success",
+                      "number": 1,
+                      "started_at": "2026-11-13T01:54:56Z",
+                      "completed_at": "2026-11-13T01:54:57Z"
+                    },
+                    {
+                      "status": "completed",
+                      "conclusion": "success",
+                      "number": 2,
+                      "started_at": "2026-11-13T01:54:57Z",
+                      "completed_at": "2026-11-13T01:54:58Z"
+                    },
+                    {
+                      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                      "status": "completed",
+                      "conclusion": "success",
+                      "number": 3,
+                      "started_at": "2026-11-13T01:54:58Z",
+                      "completed_at": "2026-11-13T01:54:59Z"
+                    },
+                    {
+                      "name": "Run python3 -m release.move",
+                      "status": "completed",
+                      "conclusion": "success",
+                      "number": 4,
+                      "started_at": "2026-11-13T01:54:59Z",
+                      "completed_at": "2026-11-13T01:55:06Z"
+                    },
+                    {
+                      "name": "Run actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+                      "status": "completed",
+                      "conclusion": "success",
+                      "number": 5,
+                      "started_at": "2026-11-13T01:55:06Z",
+                      "completed_at": "2026-11-13T01:55:07Z"
+                    },
+                    {
+                      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                      "status": "completed",
+                      "conclusion": "success",
+                      "number": 9,
+                      "started_at": "2026-11-13T01:55:07Z",
+                      "completed_at": "2026-11-13T01:55:08Z"
+                    },
+                    {
+                      "status": "completed",
+                      "conclusion": "success",
+                      "number": 10,
+                      "started_at": "2026-11-13T01:55:08Z",
+                      "completed_at": "2026-11-13T01:55:08Z"
+                    },
+                    {
+                      "name": "Complete job",
+                      "status": "completed",
+                      "conclusion": "success",
+                      "number": 11,
+                      "started_at": "2026-11-13T01:55:08Z",
+                      "completed_at": "2026-11-13T01:55:08Z"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "request": {
+            "as": {
+              "kind": "person",
+              "name": "don-petry"
+            },
+            "via": "rest",
+            "call": "GET /repos/combsmith/software-factory/actions/jobs/131633063656/logs (gh api --include)",
+            "headers": {
+              "accept": "application/vnd.github+json"
+            },
+            "body": null
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-length": "18955",
+              "content-type": "text/plain",
+              "date": "Fri, 13 Nov 2026 01:56:29 GMT",
+              "etag": "\"0x8DF412926149BA7\"",
+              "last-modified": "Fri, 13 Nov 2026 01:55:09 GMT",
+              "server": "Windows-Azure-Blob/1.0 Microsoft-HTTPAPI/2.0"
+            },
+            "body": "2026-11-13T01:54:59.8832292Z ##[group]Run python3 -m release.move\n2026-11-13T01:54:59.8852348Z   RELEASE_COMMAND: cut\n2026-11-13T01:54:59.8852537Z   RELEASE_VERSION: factory/v0.1.11\n2026-11-13T01:54:59.8852746Z   RELEASE_TO: \n2026-11-13T01:54:59.8852961Z   RELEASE_CUT_COMMIT: d440e4d76eb448b3034e8f72f55e3824541ed593\n2026-11-13T01:55:06.9408745Z {\"writes\": [[\"create\", \"factory/v0.1.11\", \"d440e4d76eb448b3034e8f72f55e3824541ed593\"], [\"move\", \"factory/v0-next\", \"d440e4d76eb448b3034e8f72f55e3824541ed593\"]], \"deployments\": [7754911332]}\n"
+          }
+        },
+        {
+          "request": {
+            "as": {
+              "kind": "person",
+              "name": "don-petry"
+            },
+            "via": "rest",
+            "call": "GET /repos/combsmith/software-factory/actions/runs/43346447730 (gh api --include)",
+            "headers": {
+              "accept": "application/vnd.github+json"
+            },
+            "body": null
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "cache-control": "private, max-age=60, s-maxage=60",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 13 Nov 2026 01:56:30 GMT",
+              "etag": "W/\"a8546ca167dcd25780b39ccba8f593b5d820a0e6ad1d1c3c207f8ba269b7e6ea\"",
+              "server": "github.com",
+              "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+              "x-accepted-oauth-scopes": "",
+              "x-github-media-type": "github.v3; format=json",
+              "x-github-request-id": "C005:223E3:A16378:1F94451:6AF66E4E",
+              "x-ratelimit-limit": "5000",
+              "x-ratelimit-remaining": "4102",
+              "x-ratelimit-reset": "1794537798",
+              "x-ratelimit-resource": "core",
+              "x-ratelimit-used": "898"
+            },
+            "body": {
+              "id": 43346447730,
+              "name": "factory",
+              "path": ".github/workflows/eval.yml",
+              "event": "workflow_dispatch",
+              "status": "completed",
+              "conclusion": "success",
+              "head_branch": "main",
+              "head_sha": "d440e4d76eb448b3034e8f72f55e3824541ed593",
+              "run_attempt": 1,
+              "workflow_id": 399025209,
+              "display_title": "factory",
+              "created_at": "2026-11-13T01:38:46Z",
+              "run_started_at": "2026-11-13T01:38:46Z",
+              "updated_at": "2026-11-13T01:54:12Z"
+            }
+          }
+        },
+        {
+          "request": {
+            "as": {
+              "kind": "person",
+              "name": "don-petry"
+            },
+            "via": "rest",
+            "call": "GET /repos/combsmith/software-factory/git/ref/tags/factory/v0.1.11 (gh api --include)",
+            "headers": {
+              "accept": "application/vnd.github+json"
+            },
+            "body": null
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "cache-control": "private, max-age=60, s-maxage=60",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 13 Nov 2026 01:56:31 GMT",
+              "etag": "W/\"1070a8f4fcb7337f7f066f4d08644498295e3768b36ece8eac4fb43d9da8ba55\"",
+              "last-modified": "Thu, 12 Nov 2026 14:01:22 GMT",
+              "server": "github.com",
+              "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+              "x-accepted-oauth-scopes": "repo",
+              "x-github-media-type": "github.v3; format=json",
+              "x-github-request-id": "C006:3FAEED:9E47AC:1EE6DBB:6AF66E4E",
+              "x-ratelimit-limit": "5000",
+              "x-ratelimit-remaining": "4101",
+              "x-ratelimit-reset": "1794537798",
+              "x-ratelimit-resource": "core",
+              "x-ratelimit-used": "899"
+            },
+            "body": {
+              "ref": "refs/tags/factory/v0.1.11",
+              "object": {
+                "sha": "d440e4d76eb448b3034e8f72f55e3824541ed593",
+                "type": "commit"
+              }
+            }
+          }
+        },
+        {
+          "request": {
+            "as": {
+              "kind": "person",
+              "name": "don-petry"
+            },
+            "via": "rest",
+            "call": "GET /repos/combsmith/software-factory/git/ref/tags/factory/v0-next (gh api --include)",
+            "headers": {
+              "accept": "application/vnd.github+json"
+            },
+            "body": null
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "cache-control": "private, max-age=60, s-maxage=60",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 13 Nov 2026 01:56:31 GMT",
+              "etag": "W/\"ec4ff4b378c23bc15696d7622d321b46bf7d137fd2a88f6cc8b6ffb07e640d44\"",
+              "last-modified": "Thu, 12 Nov 2026 14:01:22 GMT",
+              "server": "github.com",
+              "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+              "x-accepted-oauth-scopes": "repo",
+              "x-github-media-type": "github.v3; format=json",
+              "x-github-request-id": "C007:16C1B0:9EF7E5:1F27E7B:6AF66E4F",
+              "x-ratelimit-limit": "5000",
+              "x-ratelimit-remaining": "4100",
+              "x-ratelimit-reset": "1794537798",
+              "x-ratelimit-resource": "core",
+              "x-ratelimit-used": "900"
+            },
+            "body": {
+              "ref": "refs/tags/factory/v0-next",
+              "object": {
+                "sha": "d440e4d76eb448b3034e8f72f55e3824541ed593",
+                "type": "commit"
+              }
+            }
+          }
+        },
+        {
+          "request": {
+            "as": {
+              "kind": "person",
+              "name": "don-petry"
+            },
+            "via": "rest",
+            "call": "GET /repos/combsmith/software-factory/git/ref/tags/factory/v0.1.10 (gh api --include)",
+            "headers": {
+              "accept": "application/vnd.github+json"
+            },
+            "body": null
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "cache-control": "private, max-age=60, s-maxage=60",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 13 Nov 2026 01:56:31 GMT",
+              "etag": "W/\"dc0fbd3207ff9e223e3f30d3557dae11483777c4777dc001ed74f1378d6321d9\"",
+              "last-modified": "Thu, 12 Nov 2026 14:01:22 GMT",
+              "server": "github.com",
+              "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+              "x-accepted-oauth-scopes": "repo",
+              "x-github-media-type": "github.v3; format=json",
+              "x-github-request-id": "C008:C429F:27E5FD6:7C4E450:6AF66E4F",
+              "x-ratelimit-limit": "5000",
+              "x-ratelimit-remaining": "4099",
+              "x-ratelimit-reset": "1794537798",
+              "x-ratelimit-resource": "core",
+              "x-ratelimit-used": "901"
+            },
+            "body": {
+              "ref": "refs/tags/factory/v0.1.10",
+              "object": {
+                "sha": "e719181a164a2c9b3f7c4bf957615bc70f5b2774",
+                "type": "commit"
+              }
+            }
+          }
+        },
+        {
+          "request": {
+            "as": {
+              "kind": "person",
+              "name": "don-petry"
+            },
+            "via": "rest",
+            "call": "GET /repos/combsmith/software-factory/deployments?environment=factory-next (gh api --include)",
+            "headers": {
+              "accept": "application/vnd.github+json"
+            },
+            "body": null
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "cache-control": "private, max-age=60, s-maxage=60",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 13 Nov 2026 01:56:32 GMT",
+              "etag": "W/\"87f56706a3d2b81dfb59da602f0682dfb31f14088a9ba2c6cbc113875779c438\"",
+              "server": "github.com",
+              "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+              "x-accepted-oauth-scopes": "repo, repo_deployment",
+              "x-github-media-type": "github.v3; format=json",
+              "x-github-request-id": "C00A:3FAEED:9E4DE2:1EE8121:6AF66E4F",
+              "x-ratelimit-limit": "5000",
+              "x-ratelimit-remaining": "4098",
+              "x-ratelimit-reset": "1794537798",
+              "x-ratelimit-resource": "core",
+              "x-ratelimit-used": "902"
+            },
+            "body": [
+              {
+                "id": 7754911332,
+                "sha": "d440e4d76eb448b3034e8f72f55e3824541ed593",
+                "ref": "d440e4d76eb448b3034e8f72f55e3824541ed593",
+                "task": "deploy",
+                "environment": "factory-next",
+                "description": "factory/v0.1.11",
+                "production_environment": false,
+                "transient_environment": false,
+                "created_at": "2026-11-13T01:55:06Z",
+                "updated_at": "2026-11-13T01:55:06Z"
+              },
+              {
+                "id": 7751092797,
+                "sha": "e719181a164a2c9b3f7c4bf957615bc70f5b2774",
+                "ref": "e719181a164a2c9b3f7c4bf957615bc70f5b2774",
+                "task": "deploy",
+                "environment": "factory-next",
+                "description": "factory/v0.1.10",
+                "production_environment": false,
+                "transient_environment": false,
+                "created_at": "2026-11-12T22:13:29Z",
+                "updated_at": "2026-11-13T01:55:07Z"
+              },
+              {
+                "id": 7751076685,
+                "sha": "b61f0ecb0a44d77f77e06aca4c72896c633e83df",
+                "ref": "b61f0ecb0a44d77f77e06aca4c72896c633e83df",
+                "task": "deploy",
+                "environment": "factory-next",
+                "description": "factory/v0.1.9",
+                "production_environment": false,
+                "transient_environment": false,
+                "created_at": "2026-11-12T22:12:44Z",
+                "updated_at": "2026-11-12T22:13:31Z"
+              },
+              {
+                "id": 7744818544,
+                "sha": "e719181a164a2c9b3f7c4bf957615bc70f5b2774",
+                "ref": "e719181a164a2c9b3f7c4bf957615bc70f5b2774",
+                "task": "deploy",
+                "environment": "factory-next",
+                "description": "factory/v0.1.10",
+                "production_environment": false,
+                "transient_environment": false,
+                "created_at": "2026-11-12T17:36:05Z",
+                "updated_at": "2026-11-12T22:12:45Z"
+              },
+              {
+                "id": 7730889229,
+                "sha": "b61f0ecb0a44d77f77e06aca4c72896c633e83df",
+                "ref": "b61f0ecb0a44d77f77e06aca4c72896c633e83df",
+                "task": "deploy",
+                "environment": "factory-next",
+                "description": "factory/v0.1.9",
+                "production_environment": false,
+                "transient_environment": false,
+                "created_at": "2026-11-12T07:14:31Z",
+                "updated_at": "2026-11-12T17:36:06Z"
+              },
+              {
+                "id": 7722549166,
+                "sha": "caa396523330ee0cc35ccb0bd42fbe1efa5c25aa",
+                "ref": "caa396523330ee0cc35ccb0bd42fbe1efa5c25aa",
+                "task": "deploy",
+                "environment": "factory-next",
+                "description": "factory/v0.1.8",
+                "production_environment": false,
+                "transient_environment": false,
+                "created_at": "2026-11-11T22:18:09Z",
+                "updated_at": "2026-11-12T07:14:32Z"
+              },
+              {
+                "id": 7710970645,
+                "sha": "68efced8fd78641a239a6e5f41e0c81db6619684",
+                "ref": "68efced8fd78641a239a6e5f41e0c81db6619684",
+                "task": "deploy",
+                "environment": "factory-next",
+                "description": "factory/v0.1.7",
+                "production_environment": false,
+                "transient_environment": false,
+                "created_at": "2026-11-11T13:10:54Z",
+                "updated_at": "2026-11-11T22:18:10Z"
+              },
+              {
+                "id": 7697435186,
+                "sha": "48687f2a79b6f4091326a0fa88556d5795e8478a",
+                "ref": "48687f2a79b6f4091326a0fa88556d5795e8478a",
+                "task": "deploy",
+                "environment": "factory-next",
+                "description": "factory/v0.1.6",
+                "production_environment": false,
+                "transient_environment": false,
+                "created_at": "2026-11-10T23:45:04Z",
+                "updated_at": "2026-11-11T13:10:55Z"
+              },
+              {
+                "id": 7692024082,
+                "sha": "26d6c67eab11023366515196f4c83ad31f36a364",
+                "ref": "26d6c67eab11023366515196f4c83ad31f36a364",
+                "task": "deploy",
+                "environment": "factory-next",
+                "description": "factory/v0.1.5",
+                "production_environment": false,
+                "transient_environment": false,
+                "created_at": "2026-11-10T19:25:57Z",
+                "updated_at": "2026-11-10T23:45:05Z"
+              },
+              {
+                "id": 7689721283,
+                "sha": "c1edc4a47c1bfbdf5e82b8229d5b4bea9c217e8f",
+                "ref": "c1edc4a47c1bfbdf5e82b8229d5b4bea9c217e8f",
+                "task": "deploy",
+                "environment": "factory-next",
+                "description": "factory/v0.1.4",
+                "production_environment": false,
+                "transient_environment": false,
+                "created_at": "2026-11-10T17:47:32Z",
+                "updated_at": "2026-11-10T19:25:58Z"
+              },
+              {
+                "id": 7673508787,
+                "sha": "c2a5795dbac7f09aedc1fd6b89b685caff04f707",
+                "ref": "c2a5795dbac7f09aedc1fd6b89b685caff04f707",
+                "task": "deploy",
+                "environment": "factory-next",
+                "description": "factory/v0.1.3",
+                "production_environment": false,
+                "transient_environment": false,
+                "created_at": "2026-11-10T04:22:29Z",
+                "updated_at": "2026-11-10T17:47:33Z"
+              },
+              {
+                "id": 7671661102,
+                "sha": "d960dc5828572b2289a9718f28ff2d6cb081a2e7",
+                "ref": "d960dc5828572b2289a9718f28ff2d6cb081a2e7",
+                "task": "deploy",
+                "environment": "factory-next",
+                "description": "factory/v0.1.2",
+                "production_environment": false,
+                "transient_environment": false,
+                "created_at": "2026-11-10T02:17:50Z",
+                "updated_at": "2026-11-10T04:22:30Z"
+              },
+              {
+                "id": 7665842974,
+                "sha": "7ff090d7d59e3ef6c32b3ae957d9f2cc6fb3000a",
+                "ref": "7ff090d7d59e3ef6c32b3ae957d9f2cc6fb3000a",
+                "task": "deploy",
+                "environment": "factory-next",
+                "description": "factory/v0.1.1",
+                "production_environment": false,
+                "transient_environment": false,
+                "created_at": "2026-11-09T20:54:39Z",
+                "updated_at": "2026-11-10T02:17:51Z"
+              },
+              {
+                "id": 7617833539,
+                "sha": "499835d5384ba81c466b17199edcde1848431630",
+                "ref": "499835d5384ba81c466b17199edcde1848431630",
+                "task": "deploy",
+                "environment": "factory-next",
+                "description": "factory/v0.1.0",
+                "production_environment": false,
+                "transient_environment": false,
+                "created_at": "2026-11-07T06:48:42Z",
+                "updated_at": "2026-11-09T20:54:40Z"
+              }
+            ]
+          }
+        },
+        {
+          "request": {
+            "as": {
+              "kind": "person",
+              "name": "don-petry"
+            },
+            "via": "rest",
+            "call": "GET /repos/combsmith/software-factory/deployments/7754911332/statuses (gh api --include)",
+            "headers": {
+              "accept": "application/vnd.github+json"
+            },
+            "body": null
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "cache-control": "private, max-age=60, s-maxage=60",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 13 Nov 2026 01:56:32 GMT",
+              "etag": "W/\"3501b0f8f7761927a46c5f4896acd391b034751dd4a62246d4f124f03c13c857\"",
+              "server": "github.com",
+              "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+              "x-accepted-oauth-scopes": "repo, repo_deployment",
+              "x-github-media-type": "github.v3; format=json",
+              "x-github-request-id": "C00B:15BB37:2E0444B:8FC7401:6AF66E50",
+              "x-ratelimit-limit": "5000",
+              "x-ratelimit-remaining": "4097",
+              "x-ratelimit-reset": "1794537798",
+              "x-ratelimit-resource": "core",
+              "x-ratelimit-used": "903"
+            },
+            "body": [
+              {
+                "id": 22087466049,
+                "state": "success",
+                "environment": "factory-next",
+                "description": "",
+                "created_at": "2026-11-13T01:55:06Z",
+                "updated_at": "2026-11-13T01:55:06Z"
+              }
+            ]
+          }
+        },
+        {
+          "request": {
+            "as": {
+              "kind": "person",
+              "name": "don-petry"
+            },
+            "via": "rest",
+            "call": "GET /repos/combsmith/software-factory/deployments/7751092797/statuses (gh api --include)",
+            "headers": {
+              "accept": "application/vnd.github+json"
+            },
+            "body": null
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "cache-control": "private, max-age=60, s-maxage=60",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 13 Nov 2026 01:56:32 GMT",
+              "etag": "W/\"12c5328f7fe9d13a19b3b65f5fb86daffdab5597f60559bd12e262d518605b26\"",
+              "server": "github.com",
+              "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+              "x-accepted-oauth-scopes": "repo, repo_deployment",
+              "x-github-media-type": "github.v3; format=json",
+              "x-github-request-id": "C00D:13B9C7:2FFF97F:95E8F7F:6AF66E50",
+              "x-ratelimit-limit": "5000",
+              "x-ratelimit-remaining": "4095",
+              "x-ratelimit-reset": "1794537798",
+              "x-ratelimit-resource": "core",
+              "x-ratelimit-used": "905"
+            },
+            "body": [
+              {
+                "id": 22087466746,
+                "state": "inactive",
+                "environment": "factory-next",
+                "description": "",
+                "created_at": "2026-11-13T01:55:07Z",
+                "updated_at": "2026-11-13T01:55:07Z"
+              },
+              {
+                "id": 22075145832,
+                "state": "success",
+                "environment": "factory-next",
+                "description": "",
+                "created_at": "2026-11-12T22:13:30Z",
+                "updated_at": "2026-11-12T22:13:30Z"
+              }
+            ]
+          }
+        },
+        {
+          "request": {
+            "as": {
+              "kind": "person",
+              "name": "don-petry"
+            },
+            "via": "rest",
+            "call": "GET /repos/combsmith/software-factory/actions/workflows/399025209/runs?head_sha=d440e4d76eb448b3034e8f72f55e3824541ed593 (gh api --include)",
+            "headers": {
+              "accept": "application/vnd.github+json"
+            },
+            "body": null
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "cache-control": "private, max-age=60, s-maxage=60",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Fri, 13 Nov 2026 01:56:33 GMT",
+              "etag": "W/\"c6dc93c819cf3962cc01daf535b6bd0b99cfbf6a7dad343c044c373e1cb94fbe\"",
+              "server": "github.com",
+              "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+              "x-accepted-oauth-scopes": "",
+              "x-github-media-type": "github.v3; format=json",
+              "x-github-request-id": "C00F:25A298:2846B85:7DCB288:6AF66E50",
+              "x-ratelimit-limit": "5000",
+              "x-ratelimit-remaining": "4093",
+              "x-ratelimit-reset": "1794537798",
+              "x-ratelimit-resource": "core",
+              "x-ratelimit-used": "907"
+            },
+            "body": {
+              "total_count": 1,
+              "workflow_runs": [
+                {
+                  "id": 43346447730,
+                  "name": "factory",
+                  "path": ".github/workflows/eval.yml",
+                  "event": "workflow_dispatch",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "head_branch": "main",
+                  "head_sha": "d440e4d76eb448b3034e8f72f55e3824541ed593",
+                  "run_attempt": 1,
+                  "workflow_id": 399025209,
+                  "display_title": "factory",
+                  "created_at": "2026-11-13T01:38:46Z",
+                  "run_started_at": "2026-11-13T01:38:46Z",
+                  "updated_at": "2026-11-13T01:54:12Z"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "removed": [
+    "items[*].exchanges[*].response.headers: every header but those a trial's fixture keeps",
+    "items[*].exchanges[0].response.body, items[*].exchanges[3].response.body and each run of items[*].exchanges[10].response.body: every field of the run but those kept, its head commit and the actor among them",
+    "items[*].exchanges[1].response.body: every field of the job but those kept, and the name of steps[1] and steps[6], the token's mint and its post step, which tools/redact_trial.py took out as lines naming a token",
+    "items[*].exchanges[2].response.body: every line of the job's log but the step's group, its inputs, its last line and its exit, and of its inputs the token's, which GitHub masked, and the exchanges' folder (decision 0176); the log is plain text, its colours taken out",
+    "items[*].exchanges[*].response.body: of a Deployment and its statuses, every field but those kept, the creator and the URLs among them",
+    "items[*].exchanges[*].response.body: of a tag's ref, every field but the ref and its object's sha and type, the node id and the URLs among them"
+  ]
+}

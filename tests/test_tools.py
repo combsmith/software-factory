@@ -185,8 +185,14 @@ def walkers(source: str) -> list:
     return found
 
 
-def rules(text: str) -> list:
-    return sorted({rule for rule, _ in check_workflows.lint(text)})
+# The required check's top-level concurrency, which only its own workflow may hold (issue 681).
+SUPERSEDED = ("concurrency:\n  group: %s\n  cancel-in-progress: %s\n"
+              % (check_workflows.PR_LANE, check_workflows.PR_CANCEL))
+
+
+def rules(text: str, required: bool = True) -> list:
+    """The rules `text` breaks, read as the required check's workflow unless `required` is false."""
+    return sorted({rule for rule, _ in check_workflows.lint(text, required=required)})
 
 
 class Validator(unittest.TestCase):
@@ -501,6 +507,19 @@ class Examples(unittest.TestCase):
         for kind in check_examples.CODES_ONLY:
             if kind != check_examples.UNTRUSTED_KIND:
                 self.assertNotIn("untrusted", schemas[kind].get("properties", {}), kind)
+
+    def test_the_issue_a_pull_request_was_opened_for_is_a_number_from_1_or_null_or_left_out(self):  # issue 823
+        # The one fact facts/1 does not require: facts made before it, an eval set's among them, are read as they
+        # stand, where a fact newly required asks the Harness for a row (decision 0105). Given, it is an issue's
+        # number or null, and nothing that could be taken for one.
+        schema = json.loads((ROOT / "schemas" / "facts.schema.json").read_text())
+        for issue in (1, 36, None):
+            self.assertEqual(validate(support.facts(opened_for=issue), schema), [], issue)
+        for other in (0, -1, True, False, "36", 36.0, [36]):
+            self.assertTrue(validate(support.facts(opened_for=other), schema), other)
+        before = support.facts()
+        self.assertIsNone(before.pop("opened_for"))
+        self.assertEqual((validate(before, schema), "opened_for" in schema["required"]), ([], False))
 
     def test_the_example_pass_record_replays(self):  # decision 0039, decision 0002
         # Every Decision in the pass record is the Kernel's own answer on the facts, runs, context and time it holds,
@@ -2638,7 +2657,7 @@ class Workflows(unittest.TestCase):
     def test_a_counter_example_must_break_its_rule_and_no_other(self):
         both = GOOD.replace("ubuntu-24.04", "ubuntu-latest").replace("    timeout-minutes: 28\n", "")
         root = clone({"examples/workflows/invalid/runner.two-faults.yml": both,
-                      "examples/workflows/invalid/soft.no-fault.yml": GOOD})
+                      "examples/workflows/invalid/soft.no-fault.yml": GOOD.replace(SUPERSEDED, "")})
         problems = check_workflows.run(root)
         self.assertTrue(caught(problems, "runner.two-faults.yml: must break the rule 'runner' and no other"))
         self.assertTrue(caught(problems, "soft.no-fault.yml: must break the rule 'soft' and no other, and breaks none"))
@@ -2669,7 +2688,7 @@ class Workflows(unittest.TestCase):
                     "" if given is None else "        timeout-minutes: %s\n" % given))
                 with self.subTest(command=command, given=given):
                     self.assertEqual(rules(text), ["timeout"] if broken else [], text)
-        problems = check_workflows.lint(unlimited)
+        problems = check_workflows.lint(unlimited, required=True)
         self.assertIn(("timeout", "a run: step of job checks has no timeout-minutes of its own"), problems)
         # A uses: step needs none, and a run: step's limit is read wherever among its keys it stands.
         moved = GOOD.replace("      - run: make verify\n        timeout-minutes: 26\n",
@@ -2683,12 +2702,12 @@ class Workflows(unittest.TestCase):
         more = two.replace("timeout-minutes: 13\n      - run: make fast", "timeout-minutes: 14\n      - run: make fast")
         self.assertEqual(rules(more), ["timeout"])
         self.assertIn(("timeout", "the run: steps of job checks are given 27 minutes together, more than its 28 less the "
-                                  "2 its other steps keep"), check_workflows.lint(more))
+                                  "2 its other steps keep"), check_workflows.lint(more, required=True))
         self.assertEqual(check_workflows.MARGIN, 2)
         # A job's own limit is held the same way.
         for job in ("0", "\u00b2"):
             self.assertIn(("timeout", "job checks has no timeout-minutes"),
-                          check_workflows.lint(GOOD.replace("    timeout-minutes: 28\n", "    timeout-minutes: %s\n" % job)))
+                          check_workflows.lint(GOOD.replace("    timeout-minutes: 28\n", "    timeout-minutes: %s\n" % job), required=True))
 
     def test_each_step_limit_holds_what_its_step_needs(self):  # issue 388
         # The eval job's run step starts no case it cannot end within BUDGET of the plan, so its limit is BUDGET at
@@ -2952,6 +2971,45 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(self.lens_problems(GOOD.replace(job, "").replace("      - checks\n", "")), gone))
         self.assertTrue(caught(self.lens_problems(GOOD.replace(job, job.replace(run, "      - run: make fast\n"))), gone))
         self.assertEqual(self.lens_problems(GOOD), [])
+
+    def test_only_a_superseded_pull_request_run_is_cancelled(self):
+        # On 2026-11-09, 13 of a day's 47 pull request runs ran on after a newer push to the same pull request, about 870
+        # runner-minutes on the Free plan's 20 runners. A newer push cancels them; a merge group's run is never
+        # cancelled, nor cancels another, which would eject its entries from the queue.
+        block = ("concurrency:\n  group: %s\n  cancel-in-progress: %s\n"
+                 % (check_workflows.PR_LANE, check_workflows.PR_CANCEL))
+        self.assertEqual(GOOD.count(block), 1)
+        self.assertEqual((rules(GOOD), self.lens_problems(GOOD)), ([], []))
+        # A re-run's group is its own run's id, so it takes the place of no newer push's run waiting in the pull request's
+        # group (cubic and CodeAnt on pull request 802).
+        self.assertIn("github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number",
+                      check_workflows.PR_LANE)
+        # The two expressions stand in the required check's workflow alone: in any other, each is an expression where text
+        # from outside could stand (the Claude review of #679).
+        self.assertEqual(rules(GOOD, required=False), ["expression"])
+        self.assertEqual(rules(GOOD.replace(block, ""), required=False), [])
+        # Each expression alone, in another workflow (Astra), and the check of the repo's files gives the allowance to the
+        # required check's workflow by its name alone (the Claude review of step 4).
+        self.assertEqual(rules(GOOD.replace("  group: %s\n" % check_workflows.PR_LANE, "  group: other\n"), required=False), ["expression"])
+        self.assertEqual(rules(GOOD.replace("  cancel-in-progress: %s\n" % check_workflows.PR_CANCEL, "  cancel-in-progress: true\n"), required=False), ["expression"])
+        problems = check_workflows.run(clone({"examples/workflows/other.yml": GOOD}))
+        self.assertTrue(caught(problems, "examples/workflows/other.yml: [expression]"), problems)
+        self.assertFalse(caught(problems, "examples/workflows/verify.yml: [expression]"), problems)
+        self.assertEqual(self.lens_problems(GOOD.replace(block, "")), [], "a workflow that cancels nothing is held too")
+        said = "has a top-level concurrency: other than"
+        group, cancel = "  group: %s\n" % check_workflows.PR_LANE, "  cancel-in-progress: %s\n" % check_workflows.PR_CANCEL
+        for old, new in ((cancel, "  cancel-in-progress: true\n"),           # every merge group's run cancelled too
+                         (group, "  group: factory\n"),                      # one group: a merge group cancels another's
+                         (cancel, ""), (group, ""),
+                         (cancel, cancel + "  queue: max\n"),
+                         (block, "concurrency: factory\n")):
+            text = GOOD.replace(old, new, 1)
+            self.assertNotEqual(text, GOOD, new)
+            self.assertTrue(caught(self.lens_problems(text), said), new)
+        # Any other expression there is one where text from outside could stand.
+        for old, new in ((group, "  group: ${{ github.head_ref }}\n"),
+                         (cancel, "  cancel-in-progress: ${{ github.event_name != 'merge_group' }}\n")):
+            self.assertIn("expression", rules(GOOD.replace(old, new, 1)), new)
 
     def test_a_lens_job_that_judges_its_needs_runs_from_the_base(self):
         # verify's verdict is the base's tools/needs_passed.py: its one checkout is of the base, on a pull request and in
@@ -3536,19 +3594,20 @@ class Workflows(unittest.TestCase):
                      run.replace("permissions: {}\n", "permissions: {}\nconcurrency:\n  group: ${{ inputs.item }}\n"),
                      GOOD.replace("      - run: make verify\n", "      - run: make verify\n        outputs:\n"
                                   "          d: ${{ steps.a.outputs.b }}\n", 1)):
-            self.assertIn("expression", {rule for rule, _ in check_workflows.lint(text)})
+            # Read as the required check's workflow, so that GOOD's own concurrency is no expression out of place.
+            self.assertIn("expression", {rule for rule, _ in check_workflows.lint(text, required=True)}, text)
         outputs = GOOD.replace("    timeout-minutes: 28\n", "    timeout-minutes: 28\n    outputs:\n"
                                "      digest: ${{ steps.run.outputs.digest }}\n", 1)
-        self.assertNotIn("expression", {rule for rule, _ in check_workflows.lint(outputs)})
+        self.assertNotIn("expression", {rule for rule, _ in check_workflows.lint(outputs, required=True)})
         self.assertIn("expression", {rule for rule, _ in check_workflows.lint(outputs.replace(
-            "${{ steps.run.outputs.digest }}", "${{ github.event.pull_request.title }}"))})
+            "${{ steps.run.outputs.digest }}", "${{ github.event.pull_request.title }}"), required=True)})
         # A step's outcome is one of four words GitHub gives, so a job may hand it on (issue 757); nothing else of a step.
         self.assertNotIn("expression", {rule for rule, _ in check_workflows.lint(outputs.replace(
-            "${{ steps.run.outputs.digest }}", "${{ steps.run.outcome }}"))})
+            "${{ steps.run.outputs.digest }}", "${{ steps.run.outcome }}"), required=True)})
         for other in ("${{ steps.run.conclusion }}", "${{ steps.run.outcome }}x", "${{ steps.run.outcome.x }}",
                       "${{ steps.run.outcome || github.event.pull_request.title }}"):
             self.assertIn("expression", {rule for rule, _ in check_workflows.lint(outputs.replace(
-                "${{ steps.run.outputs.digest }}", other))}, other)
+                "${{ steps.run.outputs.digest }}", other), required=True)}, other)
 
     def run_tree(self, text: str, account, name: str = "run.yml") -> list:
         config = json.loads((ROOT / "config" / "controller.json").read_text())
@@ -4150,8 +4209,8 @@ class Workflows(unittest.TestCase):
         # Bubblewrap is fetched as root, so the block is held to what it may say, not to words it may not: Ubuntu's
         # sources, each held by Ubuntu's keyring and read over HTTPS, written to the block's own list; and two apt
         # lines that read that list alone, never the image's mirror list, each with exactly the options it is given:
-        # retries capped and each connection's wait bounded (a name that never resolves is not, which the step's own
-        # timeout ends). Read from the one block both workflows hold word for word.
+        # retries capped, each connection's wait bounded, and each lookup's wait bounded by glibc, since a name that
+        # stalls is bounded by no apt option. Read from the one block both workflows hold word for word.
         import shlex
         block = check_workflows.CLI_INSTALL_RUN
         self.assertEqual(len(block), 8)
@@ -4171,11 +4230,14 @@ class Workflows(unittest.TestCase):
         # The update tries each mirror once, since the other mirror is its retry, so a stalled name cannot spend the
         # step's three minutes on retries; the install keeps two. The update's exit is not the step's: one mirror that
         # answers an error, not a lost connection, makes it exit 100 though the other's index is good, and apt keeps no
-        # index it could not verify, so the install still fails closed with no package to take (issue 774).
+        # index it could not verify, so the install still fails closed with no package to take (issue 774). A name that
+        # stalls is bounded by no apt option, so glibc bounds each lookup at two tries of 5 s, on both lines; apt is never
+        # killed, since a killed update keeps none of the index it read (issue 776, record 0205; the canary repo's trial).
         self.assertTrue(block[6].endswith(" || true"), block[6])
         given = ["Dir::Etc::sourcelist=/tmp/ubuntu.list", "Dir::Etc::sourceparts=-", "Acquire::Retries=%d", "Acquire::https::Timeout=10"]
-        for line, words, retries in ((block[6][:-len(" || true")], ["sudo", "apt-get", "update", "-q"], 0),
-                                     (block[7], ["sudo", "apt-get", "install", "-y", "--no-install-recommends"], 2)):
+        bound = "RES_OPTIONS=timeout:5 attempts:2"
+        for line, words, retries in ((block[6][:-len(" || true")], ["sudo", bound, "apt-get", "update", "-q"], 0),
+                                     (block[7], ["sudo", bound, "apt-get", "install", "-y", "--no-install-recommends"], 2)):
             said = shlex.split(line)
             options = [said[k + 1] for k, w in enumerate(said) if w == "-o"]
             rest = [w for k, w in enumerate(said) if w != "-o" and (k == 0 or said[k - 1] != "-o")]
@@ -4188,7 +4250,7 @@ class Workflows(unittest.TestCase):
         model = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
         reader = "          READER_APP_KEY: ${{ secrets.READER_APP_KEY }}\n"
         broken = {
-            "no bubblewrap": good.replace("          sudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap\n", ""),
+            "no bubblewrap": good.replace("          sudo RES_OPTIONS='timeout:5 attempts:2' apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap\n", ""),
             "the reader's key beside the model": good.replace(model, model + reader),
             "the model beside the reader's key": good.replace(reader, reader + model),
             "the reader's step after the model's": good.replace("        run: python3 -m harness.read\n", "        run: X\n")
@@ -4252,8 +4314,8 @@ class Workflows(unittest.TestCase):
     def test_a_dash_in_a_blocks_text_is_no_step(self):  # #416's review
         # A line of a | block that starts with "- " is text, not a step of bare text; one where the steps stand is.
         text = GOOD.replace(STEP, STEP + "        env:\n          NOTE: |\n            - a line of text\n", 1)
-        self.assertEqual(check_workflows.lint(text), [])
-        self.assertEqual([rule for rule, _ in check_workflows.lint(GOOD.replace("    steps:\n", "    steps:\n      - x\n", 1))],
+        self.assertEqual(check_workflows.lint(text, required=True), [])
+        self.assertEqual([rule for rule, _ in check_workflows.lint(GOOD.replace("    steps:\n", "    steps:\n      - x\n", 1), required=True)],
                          ["form"])
 
     def test_a_run_keeps_no_comment_of_its_own(self):  # Argon's read of #392
