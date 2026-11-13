@@ -525,22 +525,25 @@ class Fixture(unittest.TestCase):
         jobs = body("/repos/%s/actions/runs/%d/jobs" % (REPO, made["run"]))
         job, = jobs["jobs"]
         moved, = [step for step in job["steps"] if step.get("name") == "Run python3 -m release.move"]
-        self.assertEqual((jobs["total_count"], job["run_id"], job["conclusion"], job["head_sha"], moved["conclusion"]),
-                         (1, made["run"], "success", commit, "success"))
+        self.assertEqual((jobs["total_count"], job["run_id"], job["status"], job["conclusion"], job["head_sha"]),
+                         (1, made["run"], "completed", "success", commit))
+        self.assertEqual((moved["status"], moved["conclusion"]), ("completed", "success"))
         self.assertEqual((ran["status"], ran["head_branch"]), ("completed", "main"))
-        told = ("id", "path", "event", "status", "conclusion", "head_branch", "head_sha")
-        self.assertEqual([[r[k] for k in told] for r in listed["workflow_runs"]], [[ran[k] for k in told]])
+        self.assertEqual(listed["workflow_runs"], [ran])
         for tag in (fixture["version"], channel, before[0]["version"]):
             read = body("/repos/%s/git/ref/tags/%s" % (REPO, tag))
             self.assertEqual((read["ref"], read["object"]["type"]), ("refs/tags/" + tag, "commit"), tag)
         self.assertEqual({(d["environment"], d["task"], d["ref"] == d["sha"]) for d in deployed},
                          {("factory-next", "deploy", True)})
-        ended = datetime.datetime.strptime(run["updated_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+        at = lambda said: datetime.datetime.strptime(said, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+        dated = lambda answer: email.utils.parsedate_to_datetime(answer["headers"]["date"])
         for e in made["exchanges"]:
-            self.assertGreater(email.utils.parsedate_to_datetime(e["response"]["headers"]["date"]), ended,
-                               e["request"]["call"])
-        self.assertTrue(run["updated_at"] < made["read_at"] and statuses[0]["created_at"] <= made["read_at"],
-                        made["read_at"])
+            # Later by a whole second: a read in the second the run ended cannot be told from one before it ended.
+            self.assertGreater(dated(e["response"]), at(run["updated_at"]), e["request"]["call"])
+        self.assertLess(run["updated_at"], made["read_at"])
+        # No read lists a status made after it: the bound is that read's own time, whenever the reads began.
+        self.assertLessEqual(at(statuses[0]["created_at"]),
+                             dated(self.answered(made, "/repos/%s/deployments/%d/statuses" % (REPO, below[0][0]))))
 
     def cuts(self, folder=None) -> list:
         """Every cut's fixture in `folder`, release/fixtures/ by default, in version order, the first refused by nothing:
