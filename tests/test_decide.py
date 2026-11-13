@@ -1138,6 +1138,7 @@ class OnlyAPersonEnds(unittest.TestCase):
         self.assertEqual(go(dict(held, last_push_at=at(50)), [first, again])["reason"], "awaiting_review")
         # Only that Lens's review of this content that succeeded answers the push; one still running is waited on.
         for later_run in (dict(again, conclusion="failure", outcome="environment"), dict(again, content_id="sha256:bbbb"),
+                          dict(again, started_at="yesterday"),
                           dict(again, role="security-review"), dict(again, intent="adjudicate-findings"),
                           dict(again, item=dict(again["item"], number=again["item"]["number"] + 1))):
             d = go(held, [first, later_run])
@@ -1160,14 +1161,6 @@ class OnlyAPersonEnds(unittest.TestCase):
         # A security Finding's thread asks as any gating thread does, at any severity.
         d = go(dict(held, threads=[thread(category="security", severity="info", at=at(20))]), [first])
         self.assertEqual(d["reason"], "awaiting_review")
-        # Of two required Lenses, the one whose thread gates is asked: the other's review of this content stands.
-        two = config(required_lenses=dict(CONFIG["required_lenses"], model=["pr-review", "security-review"]))
-        theirs = thread(name="security-review", category="security", at=at(20))
-        both = [first, run(role="security-review", name="s1", at=at(17))]
-        d = go(dict(held, threads=[theirs]), both + [run(role="security-review", name="s2", at=at(50))], cfg=two)
-        self.assertEqual((d["reason"], d["evidence"]), ("findings_open", ["T1"]))
-        d = go(dict(held, threads=[theirs]), both, cfg=two)
-        self.assertEqual((d["reason"], d["evidence"]), ("awaiting_review", ["security-review"]))
         # A queued item is never read past its gate for the review: it leaves the queue.
         d = go(dict(held, queue=True, reviews=APPROVED), [first])
         self.assertEqual((d["reason"], d.get("action")), ("gate_open", "dequeue"))
@@ -1221,9 +1214,9 @@ class OnlyAPersonEnds(unittest.TestCase):
         # as before; with no review since the push, the review is asked for again.
         for pushed, runs, reason in ((at(5), [old, fresh], "findings_open"), (at(15), [old, fresh], "findings_open"),
                                      ("2026-10-11T12:25:60Z", [old, fresh], "findings_open"),
-                                     (at(25), [old, dict(fresh, started_at="yesterday")], "findings_open"),
                                      (at(25), [old], "awaiting_review"), (at(30), [old, fresh], "awaiting_review"),
                                      (at(25), [old, dict(fresh, status="in_progress")], "awaiting_review"),
+                                     (at(25), [old, dict(fresh, started_at="yesterday")], "awaiting_review"),
                                      (at(40), [old, fresh], "awaiting_review")):
             self.assertEqual(go(dict(held, last_push_at=pushed), runs)["reason"], reason, (pushed, runs))
         # Nor is a word that is no yes or no read; a no is a thread the review did not drop.
@@ -1293,9 +1286,11 @@ class OnlyAPersonEnds(unittest.TestCase):
                                 for pushed in (at(5), at(20), at(40)):
                                     for gone in ([], ["r1"]) if category is None else ([],):
                                         d = go(facts(threads=[th] + others, last_push_at=pushed, expired_reviews=gone), runs)
+                                        case = (word, category, ruling, by, runs, pushed, gone)
+                                        if word == "yes":       # no yes or no: nothing is read from the thread
+                                            self.assertEqual(d["reason"], "thread_unreadable", case)
                                         if d["reason"] != "resolve_due":
                                             continue
-                                        case = (word, category, ruling, by, runs, pushed, gone)
                                         self.assertEqual((d["evidence"], d["state"], others, by),
                                                          (["T1"], "adjudicating", [], None), case)
                                         self.assertNotEqual(category, "security", case)

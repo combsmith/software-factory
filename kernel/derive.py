@@ -162,7 +162,8 @@ def pushed_past_review(runs: list, facts: dict, role: str, config: dict, due: li
             th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == role and th["id"] not in due
             for th in gating_threads(facts, config)):
         return False
-    return not reviewed_clean_or_not([r for r in runs if r["started_at"] > facts["last_push_at"]], facts, role)
+    since = [r for r in runs if is_time(r["started_at"]) and r["started_at"] > facts["last_push_at"]]
+    return not reviewed_clean_or_not(since, facts, role)
 
 
 def contradicts(run: dict, facts: dict) -> bool:
