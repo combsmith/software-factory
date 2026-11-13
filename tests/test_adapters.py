@@ -13,6 +13,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import unittest
 import urllib.parse
 import zipfile
@@ -589,9 +590,20 @@ class Transport(unittest.TestCase):
                      # What follows the last "#" is dropped as the request is made, so no path holds one; nor a space or a
                      # control character, which is stripped before the path is read; nor what cannot be read as a path.
                      "/repos/o/r/contents/a#/../x#y", "/repos/o/r/contents/a#b", "/x?ref=a#b", "/repos/o/r/contents/a b",
-                     "/\t/[x", "/repos/o/r/contents/.\t./x", "/repos/o/r/contents/a\n/../x", "/x\x00y", "//[x"):
+                     "/\t/[x", "/repos/o/r/contents/.\t./x", "/repos/o/r/contents/a\n/../x", "/x\x00y", "//[x",
+                     "/x?ref=a b", "/x?ref=a\x00b"):         # in the query as in the path
             with self.assertRaises(github.Unanswered, msg=path):
                 live.send(dict(github.request("GET", "/x"), path=path))
+        # A write's path is held as a read's is, whatever its body or its caller's header, and a download's before it is
+        # followed: a resolved dot segment would act on another thing than the one its caller named.
+        for req in (github.request("PUT", "/repos/o/r/pulls/7/../8/merge", body={"sha": "a"}),
+                    github.request("DELETE", "/repos/o/r/git/refs/heads/%2e%2e/tags/x"),
+                    github.request("PATCH", "/repos/o/r/issues/7/../8", body={"state": "closed"}),
+                    github.request("POST", "/repos/o/r/issues/../pulls", body={}),
+                    github.request("GET", "/repos/o/r/contents/../x", headers={"Cache-Control": "no-cache"}),
+                    github.download("/repos/../x/actions/artifacts/1/zip")):
+            with self.assertRaises(github.Unanswered, msg=req["path"]):
+                live.send(req)
         with self.assertRaises(github.Unanswered):
             github.request("GET", "//[x")       # what cannot be read as a path is refused where it is built, too
         # A dot that is part of a name is no segment, a query is no path, and an encoded mark is part of a name.
@@ -607,11 +619,19 @@ class Transport(unittest.TestCase):
         # is set aside for the transport's file and no other.
         self.assertNotIn("NOSONAR", (ROOT / "adapters" / "github.py").read_text())
         lines = [line for line in (ROOT / "sonar-project.properties").read_text().splitlines() if line and line[0] != "#"]
+        # Each line is a plain key, "=" and a value with no space or backslash, so that Sonar reads no line as another
+        # key than this does; and what the file sets aside is this list, each by one rule and one file, and no more.
+        self.assertEqual([line for line in lines if not re.fullmatch(r"[A-Za-z0-9_.]+=[^\s\\]+", line)], [])
         said, on = dict(line.split("=", 1) for line in lines), "sonar.issue.ignore.multicriteria"
         self.assertEqual(len(said), len(lines))
-        self.assertIn("transportpath", said[on].split(","))
-        self.assertEqual([said["%s.%s.resourceKey" % (on, name)] for name in said[on].split(",")
-                          if said["%s.%s.ruleKey" % (on, name)] == "pythonsecurity:S7044"], ["adapters/github.py"])
+        aside = {name: (said.pop("%s.%s.ruleKey" % (on, name)), said.pop("%s.%s.resourceKey" % (on, name)))
+                 for name in said.pop(on).split(",")}
+        self.assertEqual(aside, {"p50stubhttp": ("python:S5332", "tools/trial_p50_stub.py"),
+                                 "p50stubxss": ("pythonsecurity:S5131", "tools/trial_p50_stub.py"),
+                                 "contexttest": ("shell:S7688", "tools/context_eval.sh"),
+                                 "trialapptest": ("shell:S7688", "tools/trial_as_app.sh"),
+                                 "transportpath": ("pythonsecurity:S7044", "adapters/github.py")})
+        self.assertEqual([key for key in said if key.startswith("sonar.issue.")], [])
         try:
             github.LARGEST = 4
             self.assertEqual(github._bounded(io.BytesIO(b"1234")), b"1234")
