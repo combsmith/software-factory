@@ -81,6 +81,11 @@ def failures(count: int, intent="review-change", outcome="item") -> list:
             for i in range(count)]
 
 
+def unstarted(count: int) -> list:
+    """`count` Runs that failed for the environment before their Engine step started: each spent no model (0202)."""
+    return [dict(r, engine_started=False) for r in failures(count, outcome="environment")]
+
+
 def base(runs=(), **over) -> dict:
     """A pull request as the Kernel reads it: its facts, its Runs, and the minute of its last change."""
     return {"facts": facts(**over), "runs": [copy.deepcopy(r) for r in runs], "minute": FIRST_MOVE}
@@ -176,18 +181,44 @@ BASES = {
     "attempts_exhausted, of approvals, with a Run": base(
         [reviewed()] + failures(LIMITS["max_attempts"], "issue-approval")
         + [dict(reviewed(minute=25, name="r9"), status="in_progress", conclusion=None)]),
-    "run_ceiling": base([reviewed()] + failures(LIMITS["max_runs_per_item"] - 1, outcome="environment"),
+    "run_ceiling": base([reviewed()] + failures(LIMITS["max_runs_per_item"] - 1, outcome="capacity"),
                         threads=[thread()]),
-    "run_ceiling, one Run short": base([reviewed()] + failures(LIMITS["max_runs_per_item"] - 2, outcome="environment"),
+    "run_ceiling, one Run short": base([reviewed()] + failures(LIMITS["max_runs_per_item"] - 2, outcome="capacity"),
                                        threads=[thread()]),
-    "run_ceiling, awaiting checks": base(failures(LIMITS["max_runs_per_item"], outcome="environment"),
+    "run_ceiling, awaiting checks": base(failures(LIMITS["max_runs_per_item"], outcome="capacity"),
                                          checks=PENDING),
     "awaiting_review at the Run ceiling, with a review Run": base(
-        failures(LIMITS["max_runs_per_item"] - 1, outcome="environment")
+        failures(LIMITS["max_runs_per_item"] - 1, outcome="capacity")
         + [dict(reviewed(minute=25, name="r9"), status="in_progress", conclusion=None)]),
     "proposals_await_owner at the Run ceiling, with a ruling Run": base(
-        [reviewed(), fix()] + failures(LIMITS["max_runs_per_item"] - 3, outcome="environment")
+        [reviewed(), fix()] + failures(LIMITS["max_runs_per_item"] - 3, outcome="capacity")
         + [dict(ruling(25, "o9"), status="in_progress", conclusion=None)], threads=[thread()]),
+    # A Role's Runs that ended `environment` are counted apart, toward a bound of their own (issue 757).
+    "environment_ceiling": base([reviewed()] + unstarted(LIMITS["max_environment_runs_per_item"]),
+                                threads=[thread()]),
+    "environment_ceiling, one Run short": base(
+        [reviewed()] + unstarted(LIMITS["max_environment_runs_per_item"] - 1), threads=[thread()]),
+    "environment_ceiling, awaiting review, one Run short": base(
+        unstarted(LIMITS["max_environment_runs_per_item"] - 1)),
+    # Each State that wants no Run, or an act, sits at the bound apart unheld; a change the platform makes then asks
+    # for a Run the bound forbids.
+    "awaiting_human at the bound apart": base([reviewed(), fix()] + unstarted(LIMITS["max_environment_runs_per_item"]),
+                                              threads=[PERSONS_THREAD]),
+    "resolve_due at the bound apart": base([reviewed(), fix(), ruling()] + unstarted(LIMITS["max_environment_runs_per_item"]),
+                                           threads=[thread(ruling="accepted")]),
+    "approved at the bound apart": base([reviewed()] + unstarted(LIMITS["max_environment_runs_per_item"]), reviews=APPROVED),
+    "in_merge_queue at the bound apart": base([reviewed()] + unstarted(LIMITS["max_environment_runs_per_item"]),
+                                              reviews=APPROVED, queue=True, acts_since_writer=2),
+    "environment_ceiling, awaiting checks": base(unstarted(LIMITS["max_environment_runs_per_item"]), checks=PENDING),
+    "awaiting_review at the bound apart, with a review Run": base(
+        unstarted(LIMITS["max_environment_runs_per_item"] - 1)
+        + [dict(reviewed(minute=45, name="r9"), status="in_progress", conclusion=None)]),
+    "proposals_await_owner at the bound apart, with a ruling Run": base(
+        [reviewed(), fix()] + unstarted(LIMITS["max_environment_runs_per_item"] - 1)
+        + [dict(ruling(45, "o9"), status="in_progress", conclusion=None)], threads=[thread()]),
+    "environment_ceiling, awaiting a ruling, one Run short": base(
+        [reviewed(), fix()] + unstarted(LIMITS["max_environment_runs_per_item"] - 1),
+        threads=[thread()]),
     "max_rounds": base([reviewed()] + [r for i in range(LIMITS["max_rounds"])
                                        for r in (fix(20 + 2 * i, "a%d" % i), ruling(21 + 2 * i, "o%d" % i))]
                        + [fix(27, "a9")], threads=[thread()]),
@@ -383,6 +414,15 @@ def ending(pr: dict, conclusion="success", outcome=None, intent=None) -> dict:
     if not live or (intent is not None and live[0]["intent"] != intent):
         return None
     live[0].update(status="completed", conclusion=conclusion, outcome=outcome)
+    return pr
+
+
+def before_engine(pr: dict):
+    """The oldest Run not yet completed fails for the environment before its Engine step started, or None."""
+    live = [r for r in pr["runs"] if r["status"] != "completed"]
+    if ending(pr, "failure", "environment") is None:
+        return None
+    live[0]["engine_started"] = False
     return pr
 
 
@@ -726,6 +766,7 @@ MOVES = [
     Move("a Run is superseded", "factory", superseded, when=running),
     Move("a Run fails for the item", "factory", lambda pr: ending(pr, "failure", "item"), when=running),
     Move("a Run fails for the environment", "factory", lambda pr: ending(pr, "failure", "environment"), when=running),
+    Move("a Run fails before its Engine step", "factory", before_engine, when=running),
     Move("a Run times out", "factory", lambda pr: ending(pr, "timed_out", "capacity"), when=running),
     Move("a Role's App adds a Hold", "factory", lambda pr: label(pr, t.LABEL_HOLD, AUTHOR_APP)),
     Move("a Role's App removes a Hold", "factory", lambda pr: label(pr, t.LABEL_HOLD, AUTHOR_APP, "unlabeled")),
@@ -911,7 +952,8 @@ def explored():
 # lap through it that a Lens or the platform makes, the only work the Factory does is that Run, which the Run ceiling
 # counts, so it is bound as the at-ceiling laps are: by the counter of the Factory's own work on the lap. A contract no
 # person approved, or one changed since, holds until a person approves it at the head (I-29).
-HOLD_BOUNDS = {"run_ceiling": "max_runs_per_item", "attempts_exhausted": "max_attempts", "max_rounds": "max_rounds",
+HOLD_BOUNDS = {"run_ceiling": "max_runs_per_item", "environment_ceiling": "max_environment_runs_per_item",
+               "attempts_exhausted": "max_attempts", "max_rounds": "max_rounds",
                "act_ceiling": "max_acts_per_item", "human_hold": check_lifecycle.PERSON,
                "hands_off": check_lifecycle.PERSON, "approver_is_author_or_last_pusher": "max_runs_per_item",
                "contract_not_approved": check_lifecycle.PERSON, "contract_changed": check_lifecycle.PERSON,
@@ -1091,8 +1133,8 @@ def issue_kernel(item: dict, runs=None) -> dict:
 
 
 def issue_spent(intent: str, count: int, role: str, first: int = 4) -> list:
-    """`count` Runs of `intent` that failed for the environment: each spends, and none is an attempt."""
-    return [issue_facts.failed(intent, first + i, "s%d" % i, outcome="environment", role=role) for i in range(count)]
+    """`count` Runs of `intent` that failed for capacity: each spends, and none is an attempt."""
+    return [issue_facts.failed(intent, first + i, "s%d" % i, outcome="capacity", role=role) for i in range(count)]
 
 
 ISSUE_RUNS = LIMITS["max_runs_per_item"]
@@ -1118,6 +1160,11 @@ ISSUE_BASES = {
         issue_spent(issue_facts.OPEN, ISSUE_RUNS - 1, "dev-lead")),
     "an outsider's admitted issue, investigated, one Run short": issue_item(
         OUTSIDERS_ISSUE, INVESTIGATED + issue_spent(issue_facts.JUDGE, ISSUE_RUNS - 2, "readiness")),
+    # The bound apart, for an issue as for a pull request (decision 0202): Runs that failed before their Engine step.
+    "an outsider's admitted issue, investigated, one Run short of the bound apart": issue_item(
+        OUTSIDERS_ISSUE, INVESTIGATED + [dict(issue_facts.failed(issue_facts.JUDGE, 4 + i, "u%d" % i, outcome="environment",
+                                                                 role="readiness"), engine_started=False)
+                                         for i in range(LIMITS["max_environment_runs_per_item"] - 1)]),
     "new, one act short": issue_item(issue_facts.facts(acts_since_writer=LIMITS["max_acts_per_item"] - 1)),
     # The act ceiling from new (issue 202): a factory:ready the readiness App added with no Run that judged it does not
     # count, and the Controller's removal of it is the last act.
@@ -1319,6 +1366,15 @@ def admitted_again(item: dict):
     return issue_queues(item, d["admit"])
 
 
+def issue_ends_before_engine(item):
+    """The oldest Run in flight fails for the environment before its Engine step started, or None (decision 0202)."""
+    live = [r for r in item["runs"] if r["status"] != "completed"]
+    if issue_run_ends("environment")(item) is None:
+        return None
+    live[0]["engine_started"] = False
+    return item
+
+
 def issue_run_ends(how: str):
     """The oldest Run in flight ends. One that succeeds passes through `apply`'s question, with its own Run left out
     (I-38): unless the Kernel admits the same Run again, it concludes as superseded, and otherwise its Effects are made."""
@@ -1376,10 +1432,12 @@ ISSUE_MOVES = [Move("a person adds %s" % name, "human", writer_labels(name, "lab
     Move("the oldest Run in flight succeeds", "factory", issue_run_ends("success")),
     Move("the oldest Run in flight fails for the issue", "factory", issue_run_ends("item")),
     Move("the oldest Run in flight fails for the environment", "factory", issue_run_ends("environment")),
+    Move("the oldest Run in flight fails for capacity", "factory", issue_run_ends("capacity")),
+    Move("the oldest Run in flight fails before its Engine step", "factory", issue_ends_before_engine),
 ]
 # The Holds of the brakes, which are readings: an outsider's edit, after which the issue is not accepted, reads past
 # them, as it never reads past a Hold a label or more than one open link makes.
-BRAKES_HOLDS = {"run_ceiling", "attempts_exhausted", "act_ceiling"}
+BRAKES_HOLDS = {"run_ceiling", "environment_ceiling", "attempts_exhausted", "act_ceiling"}
 # Rows the issue Lifecycle declares that the exploration does not reach, each with why it is kept, as UNREACHED keeps
 # the pull request's. A closed issue is a dead end here (a writer's reopening is a new life, not a transition), and
 # a person cannot merge a draft, so a person brings an issue to done from in review alone.
@@ -1409,7 +1467,7 @@ def issue_explored():
 # the first failing, which reaches the ceiling; then the outsider edits it while the second waits.
 REAL_CASE = ("an outsider's admitted issue, investigated, one Run short",
              ("the Controller does what the Kernel asks", "a Run listed late is admitted again",
-              "the oldest Run in flight fails for the environment", "the outsider edits the issue"))
+              "the oldest Run in flight fails for capacity", "the outsider edits the issue"))
 
 
 class AnyLifecycle(unittest.TestCase):
@@ -1453,6 +1511,20 @@ class AnyLifecycle(unittest.TestCase):
                                     ("held", "run_ceiling", "hold", "needs_you"),
                                     ("new", "acceptance_lapsed", "nothing", "working")])
         self.assertIn(("run_ceiling", "acceptance_lapsed"), made[("held", "new", "stranger")])
+        # An issue reaches the bound apart too, by the Factory's own Hold from triage, which a person alone ends.
+        self.assertIn("environment_ceiling", {after for pairs in made.values() for _, after in pairs})
+        self.assertIn(("triage", "held", "factory"), check_lifecycle.declared(lc))
+        # A Run that failed for the environment counts toward the ceiling too, unless it says its Engine step never
+        # started: then it spent no model, and is counted apart (issue 757).
+        item = ISSUE_BASES[name]
+        for step in steps[:2] + ("the oldest Run in flight fails for the environment",):
+            item = moves[step].make(item)
+        self.assertEqual(issue_kernel(item)["reason"], "run_ceiling")
+        for r in item["runs"]:
+            if r["outcome"] == "environment":
+                r["engine_started"] = False
+        self.assertEqual([issue_kernel(item)[k] for k in ("state", "reason", "outcome", "attention")],
+                         ["triage", "triage", "nothing", "working"])
 
     def test_the_queues_merge_from_held_or_not_served_keeps_the_state(self):  # issue 522
         # The queue merges from held and not served too, each case explored: the State a person set stays, and only a

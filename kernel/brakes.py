@@ -29,16 +29,29 @@ def _attempts(recent: list, intent: str) -> list:
             and (r.get("outcome") == "item" or (r.get("outcome") is None and r["conclusion"] in t.RAN_AND_DIED))]
 
 
+def _outside(recent: list) -> list:
+    """The Runs of a Role that spent no model, counted apart toward `max_environment_runs_per_item` (issue 757): one
+    that ended `environment` and says its Engine step never started (`engine_started` false, decision 0201), and one
+    GitHub started no job of, with no outcome (decision 0116). A Run that reached the Engine, or does not say, counts
+    toward the Run ceiling whatever its reason, since an item can slow its own Run to a timeout. An act's job is none of
+    them, whatever its fault: the Run ceiling bounds it, since the automatic pause stops no act."""
+    return [r for r in recent if r["intent"] not in (t.ISSUE_APPROVAL, t.RESOLVE_THREAD, t.ENQUEUE_MERGE, t.DEQUEUE_MERGE)
+            and ((r.get("outcome") == "environment" and r.get("engine_started") is False)
+                 or (r.get("never_ran") is not None and r.get("outcome") is None))]
+
+
 def _spent(recent: list) -> list:
-    """The Runs that count toward the Run ceiling: every Run but an approval or a resolution that landed.
+    """The Runs that count toward the Run ceiling: every Run but an approval or a resolution that landed, and those
+    counted apart (_outside).
 
     A landed approval spends no model and is counted as an act, and so is a landed resolution (_landed), and a landed
     enqueue or dequeue, which the timeline counts (issue 381). One that did
     not land, whatever the fault, is no act, so the Run ceiling is what bounds it: an approval failing for a cause
     outside the item, such as an expired token, is not issued for ever.
     """
+    apart = _outside(recent)
     return [r for r in recent if not (r["intent"] in (t.ISSUE_APPROVAL, t.RESOLVE_THREAD, t.ENQUEUE_MERGE, t.DEQUEUE_MERGE)
-                                      and r["conclusion"] == "success")]
+                                      and r["conclusion"] == "success") and r not in apart]
 
 
 def _landed(since: list) -> int:
@@ -148,4 +161,8 @@ def run_ceilings(_decision, facts: dict, evidence: list, intent: str, recent: li
     # The Run ceiling is the cost ceiling (FR-39). A landed approval spent no model, and is counted as an act.
     if len(_spent(recent)) >= limits["max_runs_per_item"]:
         return _decision(facts, t.HELD, "run_ceiling", [], t.HOLD)
+    # Runs that spent no model are bound apart: the automatic pause slows an outage across items, and this
+    # ends one that never lapses on an item alone, which the pause cannot see.
+    if len(_outside(recent)) >= limits["max_environment_runs_per_item"]:
+        return _decision(facts, t.HELD, "environment_ceiling", [], t.HOLD)
     return None
