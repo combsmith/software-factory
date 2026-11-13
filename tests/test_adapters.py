@@ -4273,6 +4273,8 @@ REFUSALS = {
     # The Maintainer's enqueues naming a head: one stale, and, before the ruleset's change, one for its review; no port
     # enqueues until the queue step is built (P-57, issue 381).
     ("P-57", 3): None, ("P-57", 4): None, ("P-57", 7): None,
+    # The Maintainer's enqueue of a head in conflict with its base, refused; no port enqueues (P-66, issue 812).
+    ("P-66", 11): None,
     # The Maintainer's second enqueue, refused while its required check waited for a runner; no port enqueues (P-48).
     ("P-48", 22): None,
     # Three uploads GitHub would not process, under default setup; no port uploads, and the lint refuses the permission.
