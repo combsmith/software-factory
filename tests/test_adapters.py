@@ -4176,10 +4176,6 @@ NOT_READ = {
     # `{ login __typename }`; a trial must record the port's own read before it holds them. A resolution itself is a
     # Role's write, which no port makes until an App holds contents: write (P-5).
     "a_lens_review_opens_a_thread": "shape", "an_app_resolves_any_thread": "shape",
-    # The checks port reads the head's status rollup in one GraphQL read; P-42.port read it so of the heads P-42 left, but
-    # these two are a change of a head, a push and a pending check reporting, which no read alone records: they are owed
-    # a sitting that pushes, and P-42 recorded them in REST lists alone (issue 807).
-    "a_push_restarts_the_checks": "shape", "a_check_reports_on_its_own": "shape",
     # The threads port reads each thread's first comment with its time and what it replies to; P-41.threads read the
     # authors and resolvers typed without them, and P-41 reads no thread.
     "an_actor_has_a_kind": "shape",
@@ -4381,6 +4377,8 @@ class Contract(unittest.TestCase):
             "a_push_is_new_content": ({"P-29.base"}, before != after),
             "a_check_names_its_run_and_suite": ({"P-65"}, self.run_and_suite_read()),
             "any_app_posts_a_check_under_any_name": ({"P-42", "P-42.port"}, self.posted_under_a_name_read()),
+            "a_push_restarts_the_checks": ({"P-42.push"}, self.pushed_pending_read()),
+            "a_check_reports_on_its_own": ({"P-42.push"}, self.reported_on_its_own_read()),
             "a_check_is_read_by_name_from_every_app": ({"P-42.rollup", "P-42.port"}, self.every_apps_name_read()),
             "a_rerun_replaces_only_its_own_run": ({"P-42.rollup", "P-42.port"}, self.rerun_replaced_its_own_read()),
             "a_check_can_time_out_or_give_no_verdict": ({"P-42", "P-42.port"}, self.no_verdict_kept_read()),
@@ -4524,6 +4522,33 @@ class Contract(unittest.TestCase):
                 if c["name"] in ("p42 / timed-out", "p42 / neutral", "p42 / skipped")}
         return "maximum execution time" in said and read["complete"] is True and kept == {
             ("p42 / timed-out", "cancelled"), ("p42 / neutral", "neutral"), ("p42 / skipped", "skipped")}
+
+    def p42_push(self, at: int) -> tuple:
+        """P-42.push: canary pull request 113's checks at its read `at`, by the port's own read replayed from the fixture,
+        and the head that read gave (issue 807)."""
+        found = exchanges("P-42.push")[at]
+        head = found["response"]["body"]["data"]["repository"]["pullRequest"]["headRefOid"]
+        pull = {"number": 113, "base": {"repo": {"full_name": canary()}}, "head": {"sha": head}}
+        return checks.read(github.Replay([copy.deepcopy(found)]), pull), head
+
+    def required_at(self, at: int) -> tuple:
+        """P-42.push: the head of read `at`, and p2-queue-check's conclusions on it as the port reads them, a status while
+        it has not concluded."""
+        read, head = self.p42_push(at)
+        assert read["complete"] is True
+        return head, [c["conclusion"] for c in read["checks"] if c["name"] == "p2-queue-check"]
+
+    def pushed_pending_read(self) -> bool:
+        """P-42.push: p2-queue-check had concluded success on head A; read at once after head B was pushed, it is on B and
+        queued, with no conclusion: the push set the required check pending again."""
+        (a, on_a), (b, on_b) = self.required_at(0), self.required_at(1)
+        return a != b and on_a == ["success"] and on_b in (["queued"], ["in_progress"])
+
+    def reported_on_its_own_read(self) -> bool:
+        """P-42.push: read again on head B with nothing asked of GitHub but reads, the check it had read pending has
+        concluded: it reported on its own."""
+        (b, on_b), (c, on_c) = self.required_at(1), self.required_at(2)
+        return b == c and on_b in (["queued"], ["in_progress"]) and on_c in (["success"], ["failure"])
 
     def test_each_head_p42_port_read_is_read_whole_by_the_port(self):  # issue 807
         # Every read the sitting recorded is one the port reads whole, of its own head, every check run in it: 65, 92, 73
