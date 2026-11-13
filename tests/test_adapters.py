@@ -109,6 +109,11 @@ class Transport(unittest.TestCase):
                      "productionresultssb32", "productionresults32", "evilproductionresultssa32", "productionresultsa32"):
             with self.assertRaises(github.Unanswered, msg=host):
                 github.storage("https://%s.blob.core.windows.net/actions-results/x" % host)
+        # A fragment is refused: the path read ends at the first "#", and all but what follows the last is sent.
+        for url in ("https://productionresultssa32.blob.core.windows.net/actions-results/a#/../x#y",
+                    "https://productionresultssa32.blob.core.windows.net/actions-results/x#y"):
+            with self.assertRaises(github.Unanswered, msg=url):
+                github.storage(url)
         for url in ("https://productionresultssa32.queue.core.windows.net/actions-results/x",
                     "https://productionresultssa32.blob.core.chinacloudapi.cn/actions-results/x",
                     "https://productionresultssa32.blob.core.windows.net.evil.com/actions-results/x",
@@ -572,8 +577,6 @@ class Transport(unittest.TestCase):
         one, two = (github._answer(200, {"Content-Type": github.DIFF}, b"+caf" + c + b"\n")["body"] for c in (b"\xe9", b"\xe8"))
         self.assertNotEqual(one, two)
         self.assertEqual(github.raw(one), b"+caf\xe9\n")
-        # An answer over the bound is refused, never cut short silently.
-        largest = github.LARGEST
         # Nothing is opened for a path a segment of which is "." or "..", plain or percent-encoded, behind an encoded slash
         # or backslash or not: GitHub resolves them in a contents path, so a part no caller held would name another file
         # (decision 0209, issue 725). Each is built by hand, as a port that held nothing would build it.
@@ -591,7 +594,8 @@ class Transport(unittest.TestCase):
                      # control character, which is stripped before the path is read; nor what cannot be read as a path.
                      "/repos/o/r/contents/a#/../x#y", "/repos/o/r/contents/a#b", "/x?ref=a#b", "/repos/o/r/contents/a b",
                      "/\t/[x", "/repos/o/r/contents/.\t./x", "/repos/o/r/contents/a\n/../x", "/x\x00y", "//[x",
-                     "/x?ref=a b", "/x?ref=a\x00b"):         # in the query as in the path
+                     "/x?ref=a b", "/x?ref=a\x00b",          # in the query as in the path
+                     "/repos/o/r/contents/a\tb", "/repos/o/r/contents/a\nb", "/repos/o/r/contents/a\rb"):
             with self.assertRaises(github.Unanswered, msg=path):
                 live.send(dict(github.request("GET", "/x"), path=path))
         # A write's path is held as a read's is, whatever its body or its caller's header, and a download's before it is
@@ -620,7 +624,8 @@ class Transport(unittest.TestCase):
         self.assertNotIn("NOSONAR", (ROOT / "adapters" / "github.py").read_text())
         lines = [line for line in (ROOT / "sonar-project.properties").read_text().splitlines() if line and line[0] != "#"]
         # Each line is a plain key, "=" and a value with no space or backslash, so that Sonar reads no line as another
-        # key than this does; and what the file sets aside is this list, each by one rule and one file, and no more.
+        # key than this does; and what the file sets aside is this list, each by one rule and one file, and no more: the
+        # file is held whole, so a change to it is a change to this test (Astra's, Muse's and the Claude reads).
         self.assertEqual([line for line in lines if not re.fullmatch(r"[A-Za-z0-9_.]+=[^\s\\]+", line)], [])
         said, on = dict(line.split("=", 1) for line in lines), "sonar.issue.ignore.multicriteria"
         self.assertEqual(len(said), len(lines))
@@ -631,7 +636,12 @@ class Transport(unittest.TestCase):
                                  "contexttest": ("shell:S7688", "tools/context_eval.sh"),
                                  "trialapptest": ("shell:S7688", "tools/trial_as_app.sh"),
                                  "transportpath": ("pythonsecurity:S7044", "adapters/github.py")})
-        self.assertEqual([key for key in said if key.startswith("sonar.issue.")], [])
+        # Nor is the transport's file, or any other, left out of what Sonar reads: the rest of the file is these.
+        self.assertEqual(said, {"sonar.projectKey": "combsmith_software-factory", "sonar.organization": "combsmith",
+                                "sonar.sources": ".", "sonar.exclusions": "**/node_modules/**,**/vendor/**,**/dist/**",
+                                "sonar.coverage.exclusions": "**/*"})
+        # An answer over the bound is refused, never cut short silently.
+        largest = github.LARGEST
         try:
             github.LARGEST = 4
             self.assertEqual(github._bounded(io.BytesIO(b"1234")), b"1234")
@@ -4185,7 +4195,7 @@ class Heldout(unittest.TestCase):
         Anything.ONE = self.ONE
         for which, role in ((dict(entry, id="../c-1"), "pr-review"), (dict(entry, id="c-1.json"), "pr-review"),
                             (dict(entry, id="a/b"), "pr-review"), (dict(entry, id="c%2e1"), "pr-review"),
-                            (dict(entry, sha256="x"), "pr-review"), ("c-1", "pr-review"), (entry, "pr-review/.."),
+                            (dict(entry, sha256="x"), "pr-review"), ("c-1", "pr-review"), (entry, "pr-review/.."), (entry, "a/b"), (entry, "pr%2ereview"),
                             (entry, "Pr-Review"), (entry, None), (dict(entry, id=7), "pr-review")):
             self.assertEqual(heldout.case(Anything(), "o", "home", role, which), (None, "not_this_set"), (which, role))
         for owner, name in (("o", ".."), ("o", "."), ("o/x", "home"), ("o", "home/contents"), ("-o", "home"),

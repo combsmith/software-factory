@@ -159,6 +159,9 @@ def storage(url) -> str:
     # The whole netloc is the host, so a port, a user or a host's case GitHub would not give is refused with it.
     if parts is None or parts.scheme != "https" or not STORAGE.fullmatch(parts.netloc) or any(c in url for c in " \t\r\n\0\\"):
         raise Unanswered("an artifact's download redirects off GitHub's artifact storage, or not over HTTPS")
+    # Nor one with a fragment: the path read here ends at the first "#", and all but what follows the last is sent.
+    if "#" in url:
+        raise Unanswered("an artifact's download redirects to an address with a fragment")
     segments = parts.path.split("/")
     if not parts.path.startswith(STORED_UNDER) or "%" in parts.path or any(segment in (".", "..") for segment in segments):
         raise Unanswered("an artifact's download redirects outside %s" % STORED_UNDER)
