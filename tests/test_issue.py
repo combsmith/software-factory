@@ -1624,6 +1624,10 @@ class Outcomes(unittest.TestCase):
                              ("nothing", "linked_draft", None), checks)
         # No author Role named, as config/defaults.json names none today: nothing, whatever its checks.
         self.assertEqual(what(decide(failing, cfg=dict(named, author_role=None))), ("nothing", "linked_draft", None))
+        # The draft read is the one the issue is in progress on, not the first pull request linked.
+        before = agents(number=9, is_open=False, closed=2, checks="passing")
+        d = decide(facts(linked=[before, agents(draft=True, checks="failing")]), cfg=named)
+        self.assertEqual((d["outcome"], d["reason"], d["admit"].get("pull_request")), ("admit", "linked_draft", 11))
         # Not the Factory's draft: a person's, or a stranger's, waits for its author.
         for other in (pr(draft=True, checks="failing"), strangers(admitted=True, draft=True, checks="failing")):
             self.assertEqual(what(decide(facts(linked=[other]), cfg=named))[:2], ("nothing", "linked_draft"), other["class"])
@@ -1641,8 +1645,20 @@ class Outcomes(unittest.TestCase):
         rounds = [run(intent=issue.IMPLEMENT, role="dev-lead", name="m%d" % n, minute=7 + n)
                   for n in range(LIMITS["max_attempts"])]
         self.assertEqual(what(decide(failing, rounds[:-1], cfg=named)), ("admit", "linked_draft", issue.IMPLEMENT))
+        held = ("held", "hold", "attempts_exhausted", "needs_you", [r["run"] for r in rounds])
         d = decide(failing, rounds, cfg=named)
-        self.assertEqual((d["outcome"], d["reason"], d["attention"]), ("hold", "attempts_exhausted", "needs_you"))
+        self.assertEqual((d["state"], d["outcome"], d["reason"], d["attention"], d["evidence"]), held)
+        # Past the bound too, as where the limit was lowered, with the Run ceiling not yet spent.
+        past = rounds + [run(intent=issue.IMPLEMENT, role="dev-lead", name="mx", minute=7 + len(rounds))]
+        self.assertLess(len(past), LIMITS["max_runs_per_item"])
+        self.assertEqual(what(decide(failing, past, cfg=named))[:2], ("hold", "attempts_exhausted"))
+        # With another Run in flight, of any Intent, the spent rounds still hold, as every brake does (decision 0003);
+        # the implementing Run in flight is no round until it completes.
+        other = run(intent="judge-readiness", status="in_progress", name="j0", minute=30)
+        d = decide(failing, rounds + [other], cfg=named)
+        self.assertEqual((d["state"], d["outcome"], d["reason"], d["attention"], d["evidence"]), held)
+        d = decide(failing, rounds[:-1] + [flying], cfg=named)
+        self.assertEqual((what(d), d["attention"]), (("nothing", "linked_draft", None), "working"))
         # A writer's action renews the rounds, as it renews every count.
         renewed = dict(failing, last_writer_action_at=at(7 + LIMITS["max_attempts"]))
         self.assertEqual(what(decide(renewed, rounds, cfg=named)), ("admit", "linked_draft", issue.IMPLEMENT))

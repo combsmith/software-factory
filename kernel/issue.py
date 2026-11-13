@@ -61,8 +61,8 @@ JUDGE_READINESS = "judge-readiness"
 OPENING = "open-pull-request"
 # The investigating Run, which reads the issue and comments what it found, for this content.
 INVESTIGATE = "investigate-issue"
-# Every Intent the issue's decision admits, the three above, each mapped in the configuration's `issues.intents` to
-# its Role and App. A module holds only constants, so they are written out again.
+# The three Intents above, each mapped in the configuration's `issues.intents` to its Role and App. A module holds
+# only constants, so they are written out again. The decision admits `implement` too, the author Role's, below.
 INTENTS = ("investigate-issue", "judge-readiness", "open-pull-request")
 # The implementing Run (slice 2's S9, issue 825): the author Role's, `author_role`, on the draft the Factory opened for
 # the issue, while that draft's required checks fail. No configuration names the author Role yet.
@@ -989,8 +989,9 @@ def without_opening(runs: list) -> list:
 
 def _run_wanted(facts, state, reason, evidence, mine, config):
     """`_wanted`'s answer, read the same with a Run in flight or none: the Run the State calls for, as (role, intent,
-    what else its admission carries), or the Decision that admits none. In review or with a linked draft none is
-    wanted; nor while the Intents cannot be read whole, or two of them share a Role or an App."""
+    what else its admission carries), or the Decision that admits none. In review none is wanted, and with a linked
+    draft only the implementing Run; nor while the Intents cannot be read whole, or two of them share a Role or an
+    App."""
     if state == IN_REVIEW:
         return _decision(facts, state, reason, evidence, t.NOTHING)
     if reason == "linked_draft":
@@ -1124,7 +1125,8 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     # flight was admitted under the ceiling. Where no Run is wanted, none is asked (decision 0003). Row 7 is the one row
     # a Run in flight moves: an opening Run waiting shows the issue in progress, so the Run wanted is found from the
     # State it has with its opening Runs in flight left out, as `apply` reads it with its own Run left out (I-38).
-    # Every other Run in flight is still read, so that nothing it wrote counts.
+    # Every other Run in flight is still read, so that nothing it wrote counts. The implementing rounds' Hold is the
+    # Run wanted's own bound, and holds with a Run in flight as with none.
     limits = config["limits"]
     flight = in_progress(mine)
     bare = d if reason != "opening_run" else derive(facts, without_opening(runs), config)
@@ -1135,6 +1137,8 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
         if isinstance(wanted, tuple):
             done = [r for r in since_writer(mine, facts) if r["status"] == "completed"]
             held = brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits)
+        elif isinstance(wanted, dict) and wanted["outcome"] == t.HOLD:
+            held = wanted
         if held:
             return held
         return _decision(facts, state, reason, evidence, t.NOTHING, working=True)
