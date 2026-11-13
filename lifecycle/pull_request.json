@@ -952,6 +952,12 @@
       "bound": "max_runs_per_item"
     },
     {
+      "from": "addressing",
+      "to": "held",
+      "by": "lens",
+      "bound": "max_runs_per_item"
+    },
+    {
       "from": "adjudicating",
       "to": "held",
       "by": "factory",
