@@ -54,12 +54,15 @@ RULES = (
     ("an_app_can_dismiss_a_review", "An App with pull_requests: write can dismiss a person's review, and the timeline "
      "says which App and what the review was before (previousReviewState)", ("P-41",), "trials/P-41.json", None),
     # trials/P-42.json: a pull request's head, its checks read at once and an hour later, and the new head after a push.
-    ("a_push_restarts_the_checks", "A push sets every required check pending again", ("P-42",), "trials/P-42.json",
+    # trials/P-42.push.json: in the port's own read, the required check concluded on head A and, read at once after head B
+    # was pushed, queued on B; for four seconds GitHub listed none on B at all, read and not kept, which the Kernel reads
+    # as pending too (issue 807).
+    ("a_push_restarts_the_checks", "A push sets every required check pending again", ("P-42",), "trials/P-42.push.json",
      None),
     # trials/P-42.rollup.json: the required check read queued in the status rollup, and 11 minutes later success, with
-    # nothing done between but reads.
+    # nothing done between but reads. trials/P-42.push.json: so in the port's own read, queued, then success 71 s on.
     ("a_check_reports_on_its_own", "A pending required check reports success or failure with no one asking",
-     ("P-42",), "trials/P-42.rollup.json", None),
+     ("P-42",), "trials/P-42.push.json", None),
     # trials/P-42.json: neutral, skipped and cancelled each kept an hour after the last post, and a job stopped at its
     # timeout concluded cancelled, with its check run and its run (issue 388; a step's own timeout fails,
     # trials/P-42.step-timeout.json). P-42 saw no timed_out and no stale: the rule below says why they stay (issue 496).

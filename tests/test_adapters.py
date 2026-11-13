@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import email.utils
 import hashlib
 import io
 import json
@@ -4247,10 +4248,6 @@ NOT_READ = {
     # `{ login __typename }`; a trial must record the port's own read before it holds them. A resolution itself is a
     # Role's write, which no port makes until an App holds contents: write (P-5).
     "a_lens_review_opens_a_thread": "shape", "an_app_resolves_any_thread": "shape",
-    # The checks port reads the head's status rollup in one GraphQL read; P-42.port read it so of the heads P-42 left, but
-    # these two are a change of a head, a push and a pending check reporting, which no read alone records: they are owed
-    # a sitting that pushes, and P-42 recorded them in REST lists alone (issue 807).
-    "a_push_restarts_the_checks": "shape", "a_check_reports_on_its_own": "shape",
     # The threads port reads each thread's first comment with its time and what it replies to; P-41.threads read the
     # authors and resolvers typed without them, and P-41 reads no thread.
     "an_actor_has_a_kind": "shape",
@@ -4452,6 +4449,8 @@ class Contract(unittest.TestCase):
             "a_push_is_new_content": ({"P-29.base"}, before != after),
             "a_check_names_its_run_and_suite": ({"P-65"}, self.run_and_suite_read()),
             "any_app_posts_a_check_under_any_name": ({"P-42", "P-42.port"}, self.posted_under_a_name_read()),
+            "a_push_restarts_the_checks": ({"P-42.push"}, self.pushed_pending_read()),
+            "a_check_reports_on_its_own": ({"P-42.push"}, self.reported_on_its_own_read()),
             "a_check_is_read_by_name_from_every_app": ({"P-42.rollup", "P-42.port"}, self.every_apps_name_read()),
             "a_rerun_replaces_only_its_own_run": ({"P-42.rollup", "P-42.port"}, self.rerun_replaced_its_own_read()),
             "a_check_can_time_out_or_give_no_verdict": ({"P-42", "P-42.port"}, self.no_verdict_kept_read()),
@@ -4595,6 +4594,41 @@ class Contract(unittest.TestCase):
                 if c["name"] in ("p42 / timed-out", "p42 / neutral", "p42 / skipped")}
         return "maximum execution time" in said and read["complete"] is True and kept == {
             ("p42 / timed-out", "cancelled"), ("p42 / neutral", "neutral"), ("p42 / skipped", "skipped")}
+
+    def p42_push(self, at: int) -> tuple:
+        """P-42.push: canary pull request 113's read `at`: whether the port read it whole, its head, p2-queue-check as the
+        port reads it, a status while it has not concluded, and, apart from the port, that check run's node as the fixture
+        holds it and the read's own date (issue 807). Whole only where every p2-queue-check is its own App's, from its own
+        workflow file."""
+        found = exchanges("P-42.push")[at]
+        pr = found["response"]["body"]["data"]["repository"]["pullRequest"]
+        pull = {"number": 113, "base": {"repo": {"full_name": canary()}}, "head": {"sha": pr["headRefOid"]}}
+        read = checks.read(github.Replay([copy.deepcopy(found)]), pull)
+        nodes = [n for n in pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
+                 if n.get("name") == "p2-queue-check"]
+        when = email.utils.parsedate_to_datetime(found["response"]["headers"]["date"])
+        # The required check is its own App's, from its own workflow file, as the Kernel reads a Lens's (kernel/derive.py).
+        own = all((c["app_id"], c["workflow"]) == (15368, ".github/workflows/p2-queue.yml")
+                  for c in read["checks"] if c["name"] == "p2-queue-check")
+        return (read["complete"] is True and own, pr["headRefOid"],
+                [c["conclusion"] for c in read["checks"] if c["name"] == "p2-queue-check"], nodes, when)
+
+    def pushed_pending_read(self) -> bool:
+        """P-42.push: p2-queue-check had concluded success on head A; read after head B was pushed, it is on B and queued,
+        with no conclusion, its run started after A's had completed: the push set the required check pending again."""
+        whole_a, a, on_a, node_a, read_a = self.p42_push(0)
+        whole_b, b, on_b, node_b, read_b = self.p42_push(1)
+        return (whole_a and whole_b and a != b and on_a == ["success"] and on_b in (["queued"], ["in_progress"])
+                and read_a < read_b and len(node_a) == len(node_b) == 1 and node_a[0]["completedAt"] < node_b[0]["startedAt"])
+
+    def reported_on_its_own_read(self) -> bool:
+        """P-42.push: read again on head B with nothing asked of GitHub but reads, the same check run it had read pending,
+        by its id, has concluded: it reported on its own."""
+        whole_b, b, on_b, node_b, read_b = self.p42_push(1)
+        whole_c, c, on_c, node_c, read_c = self.p42_push(2)
+        return (whole_b and whole_c and b == c and read_b < read_c and on_b in (["queued"], ["in_progress"])
+                and on_c in (["success"], ["failure"]) and len(node_b) == len(node_c) == 1
+                and node_b[0]["databaseId"] == node_c[0]["databaseId"])
 
     def test_each_head_p42_port_read_is_read_whole_by_the_port(self):  # issue 807
         # Every read the sitting recorded is one the port reads whole, of its own head, every check run in it: 65, 92, 73
