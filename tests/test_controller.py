@@ -1119,6 +1119,48 @@ class Entry(unittest.TestCase):
             _, _, files, _ = self.run_entry(Hub(self.table(pause=org, repo_pause=repo)))
             self.assertIsNone(files["pass.json"]["context"]["paused"], (org, repo))
 
+    def test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it(self):  # issue 787
+        # A pull request a pass before read as left is read again on every pass inside the window, as one that left, so
+        # the machine user's write on it that nobody matched keeps raising write_unmatched, after its merge too (decision
+        # 0198); once the window passes when it was first read gone, it is read no more, and nothing alarms for it.
+        inside, past = "2026-10-12T09:00:00Z", "2026-10-11T05:00:00Z"
+        spied = []
+
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
+            transport.send({"method": "GET", "path": "/repos/%s/pulls/%d" % (repo, number)})
+            transport.send({"method": "GET", "path": "/repos/%s/pulls/%d/later" % (repo, number)})
+            return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
+
+        def read(transport, item, kept, identities, apps, since):
+            spied.append((item["number"], kept))
+            hand = [{"by": "approver", "kind": "approval", "item": item, "key": "PRR_hand%d" % item["number"],
+                     "at": "2026-10-12T10:00:00Z"}]
+            return (hand if kept == entry.seen_.GONE else [], [], True)
+
+        before = json.loads((ROOT / "examples" / "pass.json").read_text())
+        before.update(now="2026-10-12T11:00:00Z", pull_requests=[])
+        before["reconciled"] = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": [],
+                                "left": [{"number": 13, "at": inside}, {"number": 14, "at": past}]}
+        table = self.table(numbers=[7])
+        pull = copy.deepcopy(exchanges("P-17")[4]["response"])
+        pull["headers"] = {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}
+        table[("GET", "/repos/%s/pulls/7" % self.HOME)] = table[("GET", "/repos/%s/pulls/7/later" % self.HOME)] = pull
+        with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                unittest.mock.patch.object(entry.passes, "records", lambda *a: [before]), \
+                unittest.mock.patch.object(entry.seen_, "read", read), \
+                unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)), \
+                unittest.mock.patch.object(entry.applied, "effects", lambda *a: {"applied": [], "read": [], "at": {}, "whole": True}), \
+                unittest.mock.patch.object(entry.passes, "written", lambda *a: {"written": [], "read": [], "at": {}, "whole": True}):
+            code, _, files, _ = self.run_entry(Hub(table))
+        self.assertEqual(code, 0)
+        self.assertEqual(spied, [(7, {}), (13, entry.seen_.GONE)])
+        record = files["pass.json"]
+        self.assertIn("write_unmatched", record["alerts"])
+        self.assertEqual([e["item"] for e in record["reconciliation"] if e["alert"] == "write_unmatched"],
+                         ["https://github.com/%s/pull/13" % self.HOME])
+        self.assertEqual(record["reconciled"]["left"], [{"number": 13, "at": inside}])
+        self.assertEqual(shared.errors(record, "pass"), [])
+
     def test_the_entry_gathers_what_reconciliation_reads(self):  # decisions 0061, 0112
         # What each snapshot kept is handed to the seen port, each item once; the machine user's pushes are read; a pull
         # request the pass before served and that has left is read as left; and the Effects are read by what no record
@@ -1213,6 +1255,8 @@ class Entry(unittest.TestCase):
         self.assertEqual(record["reconciled"]["passes"], before["reconciled"]["passes"] + [{"id": 41, "attempt": 1, "at": record["now"]}])
         # What it could not read is owed, read again though it leaves, and not what it did read.
         self.assertEqual(record["reconciled"]["owed"], [8])
+        # Each pull request read as left for the first time, of those served or owed, is stamped with now (issue 787).
+        self.assertEqual(record["reconciled"]["left"], [{"number": n, "at": record["now"]} for n in (9, 11)])
         self.assertEqual(shared.errors(record, "pass"), [])
         # A seen read not answered, and the machine user's pushes not answered, are short, never a pass that fails.
         def refused(*a, **k):
