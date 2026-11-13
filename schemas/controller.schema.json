@@ -178,7 +178,7 @@
           }
         },
         "lenses": {
-          "description": "Each model Lens's App's bot account, by the Lens's name, as GitHub records it as a thread's author; empty until a trial records one, and while a Lens has none, nothing its App does is read as that Lens's",
+          "description": "Each model Lens's App's bot account, by the Lens's name, as GitHub records it as a thread's author: for a Lens the configuration requires, the account roles holds for its Role, by the same id. While a Lens has none, nothing its App does is read as that Lens's",
           "type": "array",
           "uniqueItems": true,
           "items": {

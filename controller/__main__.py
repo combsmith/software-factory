@@ -96,8 +96,10 @@ def dated(answer) -> list:
 
 
 def writes_seen(transport, config: dict, numbers: list, kept: dict, before, since: str, clock, owed=()) -> tuple:
-    """`(seen/1, the pull requests read short)`: what each Factory identity wrote on what this pass served, or on what the
-    pass before served or could not read and has left (decision 0061). What a snapshot could not read is short, and one that
+    """`(seen/1, the pull requests read short, those read as left for the first time)`: what each Factory identity wrote
+    on what this pass served, on what the pass before served or could not read and has left (decision 0061), and on what
+    a pass before read as left inside the window, so that a write nobody matched keeps its alert until the window passes
+    it (issue 787). What a snapshot could not read is short, and one that
     is short is read again by the next pass, so that nothing leaves unread. So is a pass with no records before it to say
     what has left. Nothing is guessed. One `owed`, a pull request that moved for the first time, is not read: it is owed
     to the next pass, as one read short is, and leaves this reconciliation whole (#658)."""
@@ -106,9 +108,14 @@ def writes_seen(transport, config: dict, numbers: list, kept: dict, before, sinc
     identities, _ = seen_.identities(accounts_held)
     apps = seen_.apps_of(accounts_held, config["apps"])
     last = before[-1]["pull_requests"] if before else []
-    served = {e["facts"]["item"]["number"] for e in last} | set(reconcile.owed(before))
+    # One owed that a record before read as left is read as gone, and keeps its stamp; past the window it is read no
+    # more (issue 787). Any other no longer open has left since the last pass.
+    held = set(reconcile.left(before))
+    newly = ({e["facts"]["item"]["number"] for e in last} - set(numbers)) | (set(reconcile.owed(before)) - set(numbers) - held)
+    gone = set(reconcile.left(before, since)) - set(numbers) - newly
     parts, unread = [], []
-    for number, held in [(n, kept.get(n)) for n in numbers] + [(n, seen_.LEFT) for n in sorted(served - set(numbers))]:
+    for number, held in ([(n, kept.get(n)) for n in numbers] + [(n, seen_.LEFT) for n in sorted(newly)]
+                         + [(n, seen_.GONE) for n in sorted(gone)]):
         if number in owed:
             unread.append(number)
             continue
@@ -126,18 +133,19 @@ def writes_seen(transport, config: dict, numbers: list, kept: dict, before, sinc
         parts.append(([], False))
     if before is None:
         parts.append(([], False))
-    return seen_.seen(parts, since), unread
+    return seen_.seen(parts, since), unread, sorted(newly)
 
 
-def recorded_effects(transport, config: dict, runs, own: int, before, since: str) -> dict:
+def recorded_effects(transport, config: dict, runs, own: int, before, since: str, sleep=time.sleep) -> dict:
     """The Effects the Factory recorded and no record before this pass read: each Run's `applied/1` and each pass's
-    `written/1`, read once, and all of them again where the last record holds none (decision 0112)."""
+    `written/1`, read once, and all of them again where the last record holds none (decision 0112). `sleep` is the
+    entry's, for each port's one wait before its second look (issue 709)."""
     controller = config["controller"]
     home = controller["home"]["repo"]
     known_runs, known_passes = reconcile.known(before)
-    from_runs = applied.effects(transport, home, runs, since, known_runs)
+    from_runs = applied.effects(transport, home, runs, since, known_runs, sleep=sleep)
     from_passes = passes.written(transport, home, controller["home"]["branch"], controller["workflows"]["poller"], own,
-                                 since, known_passes)
+                                 since, known_passes, sleep=sleep)
     return {"applied": from_runs["applied"], "written": from_passes["written"],
             "read": {"runs": from_runs["read"], "passes": from_passes["read"]},
             "at": dict(from_runs["at"], **from_passes["at"]),
@@ -150,8 +158,9 @@ def run_files(controller: dict) -> list:
     return facts_.run_files_of(controller)
 
 
-def read(transport, config: dict, run_id: str, previous, now: str, clock, started) -> dict:
-    """Everything the pass reads after the wait, as `pass_.run` takes it."""
+def read(transport, config: dict, run_id: str, previous, now: str, clock, started, sleep=time.sleep) -> dict:
+    """Everything the pass reads after the wait, as `pass_.run` takes it. Each port that waits waits by `sleep`, the
+    entry's (issue 709)."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
     # The open pull requests are listed first: the records port asks when a Run began only of theirs (decision 0196).
@@ -165,7 +174,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     try:
         runs = records.runs(transport, home, branch, run_files(controller), dispatcher(controller),
                             kept=records.known(earlier), began=records.begun(earlier),
-                            engines=records.engines(earlier),
+                            engines=records.engines(earlier), sleep=sleep,
                             of=[{"repo": home, "type": "pull_request", "number": number} for number in numbers])
     except Unanswered:
         runs = None
@@ -197,10 +206,11 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     left = [e for e in pulls if "unread" in e]
     graced = pass_.moved_once([e["facts"]["item"] for e in left], [e["unread"] for e in left], before)
     owed = {e["facts"]["item"]["number"] for e in left if page(e["facts"]["item"]) in graced}
-    seen, unread = writes_seen(transport, config, numbers, kept, before, since, clock, owed)
+    seen, unread, gone = writes_seen(transport, config, numbers, kept, before, since, clock, owed)
     return {"started": started, "pause": pause_.read(transport, home.split("/")[0], [home]),
             "records": runs, "pull_requests": pulls, "issues": [], "facts_reads": facts_reads, "usage": {},
-            "seen": seen, "unread": unread, "effects": recorded_effects(transport, config, runs, int(run_id), before, since)}
+            "seen": seen, "unread": unread, "gone": gone,
+            "effects": recorded_effects(transport, config, runs, int(run_id), before, since, sleep)}
 
 
 def one_pass(transport, config: dict, run_id: str, clock=time.time, sleep=time.sleep) -> dict:
@@ -210,7 +220,7 @@ def one_pass(transport, config: dict, run_id: str, clock=time.time, sleep=time.s
                               controller["workflows"]["poller"], int(run_id))
     started = passes.started(transport, controller["home"]["repo"], run_id)
     sleep(pass_.wait_before_reading(previous, utc(clock), config, started))
-    reads = read(transport, config, run_id, previous, utc(clock), clock, started)
+    reads = read(transport, config, run_id, previous, utc(clock), clock, started, sleep)
     return pass_.run(reads, config, utc(clock), previous, mint_id)
 
 
