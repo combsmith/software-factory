@@ -3251,8 +3251,9 @@ class Ceilings(unittest.TestCase):
         self.assertEqual(go(facts(), ctx=context(model_deferred_until="2026-10-11T12:00:00Z"))["outcome"], "admit")
 
     def test_no_author_role_means_nobody_is_admitted_to_fix(self):
-        d = go(facts(threads=[thread()]), REVIEWED, cfg=config(author_role=None))
-        self.assertEqual((d["outcome"], d["attention"]), ("nothing", "failed"))
+        # On a pull request the Factory opened, where a named Role's fix would be admitted (decision 0216).
+        d = go(facts(**OURS, threads=[thread()]), REVIEWED, cfg=config(author_role=None))
+        self.assertEqual((d["outcome"], d["attention"], "admit" in d), ("nothing", "failed", False))
 
     def test_the_authors_fix_is_admitted_only_on_a_pull_request_the_factory_opened(self):  # issue 823, decision 0216
         # The author Role's fix is its push to the head. On a pull request the Factory opened, for an issue, it is
@@ -3310,7 +3311,7 @@ class Ceilings(unittest.TestCase):
         named = json.loads((ROOT / "config" / "defaults.json").read_text())["author_role"]
         self.assertIsNone(named)        # until roles/dev-lead.json lands, when this test changes with the configuration
         failed = dict(GREEN[0], conclusion="failure")
-        for f in (facts(threads=[thread()]), facts(checks=[failed] + list(GREEN[1:]))):
+        for f in (facts(**OURS, threads=[thread()]), facts(**OURS, checks=[failed] + list(GREEN[1:]))):
             d = go(f, REVIEWED, cfg=config(author_role=named))
             self.assertEqual((d["state"], d["outcome"]), ("addressing", "nothing"), d["reason"])
             self.assertNotIn("admit", d)
