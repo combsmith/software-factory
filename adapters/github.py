@@ -84,6 +84,10 @@ def request(method: str, path: str, accept: str = JSON, body=None, headers=None,
     parts = urllib.parse.urlsplit(path)
     if parts.scheme or parts.netloc or not path.startswith("/") or path.startswith("//") or "\\" in path:
         raise Unanswered("a path is from the API's root, on %s alone: %r" % (HOST, path))
+    # No segment of the path is "." or "..", plain or percent-encoded, an encoded slash among it: GitHub resolves them in a
+    # contents path, so a part its caller did not hold would name another file than the one asked (decision 0209).
+    if any(part in (".", "..") for part in re.split(r"[/\\]", urllib.parse.unquote(parts.path))):
+        raise Unanswered("a path holds no segment that is . or ..: %r" % (path,))
     extra = dict(headers or {})
     for name, value in extra.items():
         if name not in EXTRA or not isinstance(value, str) or any(c in value for c in "\r\n\0"):
@@ -235,8 +239,7 @@ class Live:
         headers.update(req["headers"])
         if data is not None:
             headers["Content-Type"] = "application/json"
-        # S7044, a false positive: adapters/heldout.py fullmatches each part of its path (case(), home()); the host is HOST.
-        sent = urllib.request.Request(url, data=data, headers=headers, method=req["method"])  # NOSONAR
+        sent = urllib.request.Request(url, data=data, headers=headers, method=req["method"])
         answer, moved = self._open(sent, req["bound"] if req.get("follow") else LARGEST)
         if answer is not None:
             return answer

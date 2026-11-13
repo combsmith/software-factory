@@ -1081,7 +1081,9 @@ class RoleWrites(unittest.TestCase):
                    github.request("POST", "/repos/%s/check-runs" % ITEM["repo"], body={
                        "name": "factory / pr-review", "head_sha": "1" * 40, "external_id": "%s:e2" % RUN, "status": "completed",
                        "conclusion": "success", "output": {}}),
-                   github.request("GET", PULL + "/reviews/5602757809/../../merge"),
+                   # The transport refuses a path that climbs when it is built (decision 0209): this one is built by hand,
+                   # so that the list's own refusal of it is still shown.
+                   dict(github.request("GET", PULL + "/merge"), path=PULL + "/reviews/5602757809/../../merge"),
                    github.request("GET", ISSUE + "/comments?since=yesterday&per_page=100"),
                    github.request("POST", ISSUE + "/comments", body={"body": "x", "extra": 1}),
                    github.request("POST", "/graphql", body={"query": effects.THREADS, "variables": {

@@ -87,6 +87,24 @@ class Transport(unittest.TestCase):
                 github.request("GET", path)
         with self.assertRaises(github.Unanswered):
             github.request("TRACE", "/x")
+        # No segment of a path is "." or "..", plain or percent-encoded, behind an encoded slash or not: GitHub resolves
+        # them in a contents path, so a part no caller held would name another file (decision 0209, issue 725).
+        for path in ("/repos/o/r/contents/../x", "/repos/o/r/contents/./x", "/repos/o/r/..", "/repos/o/r/.", "/..",
+                     "/repos/o/r/contents/%2e%2e/x", "/repos/o/r/contents/%2E%2e/x", "/repos/o/r/contents/.%2e/x",
+                     "/repos/o/r/contents/%2e/x", "/repos/o/r/contents/a%2f..%2fb", "/repos/o/r/contents/a%2F.%2Fb",
+                     "/repos/o/r/contents/a%5c..%5cb", "/repos/o/r/contents/x/..?ref=y", "/repos/../r/issues/7"):
+            with self.assertRaises(github.Unanswered, msg=path):
+                github.request("GET", path)
+        # A dot that is part of a name is no segment, and a query is no path.
+        for path in ("/repos/o/r/compare/a...b", "/repos/o/r/contents/.github/x.yml", "/repos/o/r/contents/a..b",
+                     "/repos/o/r/contents/...", "/repos/o/.r", "/repos/o/r/contents/x?ref=..", "/repos/o/r/contents/x?a=/../b",
+                     "/repos/o/r/contents/%2e%2e%2e", "/repos/o/r/contents/x%2e"):
+            self.assertEqual(github.request("GET", path)["path"], path)
+        # No rule is silenced on a line of the transport: Sonar's traversal rule is set aside for the file, by rule.
+        self.assertNotIn("NOSONAR", (ROOT / "adapters" / "github.py").read_text())
+        self.assertIn("sonar.issue.ignore.multicriteria.transportpath.ruleKey=pythonsecurity:S7044\n"
+                      "sonar.issue.ignore.multicriteria.transportpath.resourceKey=adapters/github.py\n",
+                      (ROOT / "sonar-project.properties").read_text())
         self.assertEqual(github.request("GET", "/repos/o/r")["accept"], github.JSON)
         # A caller may add the two headers a read of runs needs, each one line, and nothing else.
         self.assertEqual(github.request("GET", "/x", headers={"Cache-Control": "no-cache"})["headers"],
@@ -4125,12 +4143,15 @@ class Heldout(unittest.TestCase):
                 return home_file("c-1", self.ONE)["response"]
         Anything.ONE = self.ONE
         for which, role in ((dict(entry, id="../c-1"), "pr-review"), (dict(entry, id="c-1.json"), "pr-review"),
+                            (dict(entry, id="a/b"), "pr-review"), (dict(entry, id="c%2e1"), "pr-review"),
                             (dict(entry, sha256="x"), "pr-review"), ("c-1", "pr-review"), (entry, "pr-review/.."),
                             (entry, "Pr-Review"), (entry, None), (dict(entry, id=7), "pr-review")):
             self.assertEqual(heldout.case(Anything(), "o", "home", role, which), (None, "not_this_set"), (which, role))
         for owner, name in (("o", ".."), ("o", "."), ("o/x", "home"), ("o", "home/contents"), ("-o", "home"),
-                            ("o", "home?ref=x"), (None, "home"), ("o", ""), ("o", None)):
+                            ("o", "home?ref=x"), ("o", "home%2fx"), (None, "home"), ("o", ""), ("o", None)):
             self.assertEqual(heldout.case(Anything(), owner, name, "pr-review", entry), (None, "unanswered"), (owner, name))
+        # The port refuses a home that climbs out by itself, whatever the transport refuses of a path (decision 0209).
+        self.assertEqual([heldout.home("o", name) for name in ("..", ".", "home", "...")], [False, False, True, True])
         self.assertEqual(asked, [])
         self.assertEqual(heldout.case(Anything(), "o", "home", "pr-review", entry), (self.ONE, None))
         self.assertEqual(asked, ["/repos/o/home/contents/pr-review/c-1.json"])
