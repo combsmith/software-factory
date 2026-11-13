@@ -2706,6 +2706,9 @@ class Acceptance(unittest.TestCase):
         made = lambda named=(), **over: dict({"named": {26: list(named)}, "unreadable": set(), "whole": True}, **over)
         for given in (made([("r_01JA7Q", 36)]), made(), NOT_OPENED):
             self.assertEqual(acceptance.opened_for(self.OPENED, self.OPENER, given), 36, given)
+        # The number is the branch's own, whichever issue it names and however many were opened for it.
+        other = dict(self.OPENED, head={"ref": "factory-work/issue-1207-3", "repo": {"full_name": "o/r"}})
+        self.assertEqual(acceptance.opened_for(other, self.OPENER, made([("r_01JA7Q", 1207)])), 1207)
         # No issue: another account's pull request, a person's on a branch of the Factory's shape among them; and
         # anyone's while no Role opens pull requests.
         person = dict(self.OPENED, user={"login": "don-petry", "id": 1, "type": "User"})
