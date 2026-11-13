@@ -185,8 +185,14 @@ def walkers(source: str) -> list:
     return found
 
 
-def rules(text: str) -> list:
-    return sorted({rule for rule, _ in check_workflows.lint(text)})
+# The required check's top-level concurrency, which only its own workflow may hold (issue 681).
+SUPERSEDED = ("concurrency:\n  group: %s\n  cancel-in-progress: %s\n"
+              % (check_workflows.PR_LANE, check_workflows.PR_CANCEL))
+
+
+def rules(text: str, required: bool = True) -> list:
+    """The rules `text` breaks, read as the required check's workflow unless `required` is false."""
+    return sorted({rule for rule, _ in check_workflows.lint(text, required=required)})
 
 
 class Validator(unittest.TestCase):
@@ -2651,7 +2657,7 @@ class Workflows(unittest.TestCase):
     def test_a_counter_example_must_break_its_rule_and_no_other(self):
         both = GOOD.replace("ubuntu-24.04", "ubuntu-latest").replace("    timeout-minutes: 28\n", "")
         root = clone({"examples/workflows/invalid/runner.two-faults.yml": both,
-                      "examples/workflows/invalid/soft.no-fault.yml": GOOD})
+                      "examples/workflows/invalid/soft.no-fault.yml": GOOD.replace(SUPERSEDED, "")})
         problems = check_workflows.run(root)
         self.assertTrue(caught(problems, "runner.two-faults.yml: must break the rule 'runner' and no other"))
         self.assertTrue(caught(problems, "soft.no-fault.yml: must break the rule 'soft' and no other, and breaks none"))
@@ -2682,7 +2688,7 @@ class Workflows(unittest.TestCase):
                     "" if given is None else "        timeout-minutes: %s\n" % given))
                 with self.subTest(command=command, given=given):
                     self.assertEqual(rules(text), ["timeout"] if broken else [], text)
-        problems = check_workflows.lint(unlimited)
+        problems = check_workflows.lint(unlimited, required=True)
         self.assertIn(("timeout", "a run: step of job checks has no timeout-minutes of its own"), problems)
         # A uses: step needs none, and a run: step's limit is read wherever among its keys it stands.
         moved = GOOD.replace("      - run: make verify\n        timeout-minutes: 26\n",
@@ -2696,12 +2702,12 @@ class Workflows(unittest.TestCase):
         more = two.replace("timeout-minutes: 13\n      - run: make fast", "timeout-minutes: 14\n      - run: make fast")
         self.assertEqual(rules(more), ["timeout"])
         self.assertIn(("timeout", "the run: steps of job checks are given 27 minutes together, more than its 28 less the "
-                                  "2 its other steps keep"), check_workflows.lint(more))
+                                  "2 its other steps keep"), check_workflows.lint(more, required=True))
         self.assertEqual(check_workflows.MARGIN, 2)
         # A job's own limit is held the same way.
         for job in ("0", "\u00b2"):
             self.assertIn(("timeout", "job checks has no timeout-minutes"),
-                          check_workflows.lint(GOOD.replace("    timeout-minutes: 28\n", "    timeout-minutes: %s\n" % job)))
+                          check_workflows.lint(GOOD.replace("    timeout-minutes: 28\n", "    timeout-minutes: %s\n" % job), required=True))
 
     def test_each_step_limit_holds_what_its_step_needs(self):  # issue 388
         # The eval job's run step starts no case it cannot end within BUDGET of the plan, so its limit is BUDGET at
@@ -2965,6 +2971,45 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(self.lens_problems(GOOD.replace(job, "").replace("      - checks\n", "")), gone))
         self.assertTrue(caught(self.lens_problems(GOOD.replace(job, job.replace(run, "      - run: make fast\n"))), gone))
         self.assertEqual(self.lens_problems(GOOD), [])
+
+    def test_only_a_superseded_pull_request_run_is_cancelled(self):
+        # On 2026-11-09, 13 of a day's 47 pull request runs ran on after a newer push to the same pull request, about 870
+        # runner-minutes on the Free plan's 20 runners. A newer push cancels them; a merge group's run is never
+        # cancelled, nor cancels another, which would eject its entries from the queue.
+        block = ("concurrency:\n  group: %s\n  cancel-in-progress: %s\n"
+                 % (check_workflows.PR_LANE, check_workflows.PR_CANCEL))
+        self.assertEqual(GOOD.count(block), 1)
+        self.assertEqual((rules(GOOD), self.lens_problems(GOOD)), ([], []))
+        # A re-run's group is its own run's id, so it takes the place of no newer push's run waiting in the pull request's
+        # group (cubic and CodeAnt on pull request 802).
+        self.assertIn("github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number",
+                      check_workflows.PR_LANE)
+        # The two expressions stand in the required check's workflow alone: in any other, each is an expression where text
+        # from outside could stand (the Claude review of #679).
+        self.assertEqual(rules(GOOD, required=False), ["expression"])
+        self.assertEqual(rules(GOOD.replace(block, ""), required=False), [])
+        # Each expression alone, in another workflow (Astra), and the check of the repo's files gives the allowance to the
+        # required check's workflow by its name alone (the Claude review of step 4).
+        self.assertEqual(rules(GOOD.replace("  group: %s\n" % check_workflows.PR_LANE, "  group: other\n"), required=False), ["expression"])
+        self.assertEqual(rules(GOOD.replace("  cancel-in-progress: %s\n" % check_workflows.PR_CANCEL, "  cancel-in-progress: true\n"), required=False), ["expression"])
+        problems = check_workflows.run(clone({"examples/workflows/other.yml": GOOD}))
+        self.assertTrue(caught(problems, "examples/workflows/other.yml: [expression]"), problems)
+        self.assertFalse(caught(problems, "examples/workflows/verify.yml: [expression]"), problems)
+        self.assertEqual(self.lens_problems(GOOD.replace(block, "")), [], "a workflow that cancels nothing is held too")
+        said = "has a top-level concurrency: other than"
+        group, cancel = "  group: %s\n" % check_workflows.PR_LANE, "  cancel-in-progress: %s\n" % check_workflows.PR_CANCEL
+        for old, new in ((cancel, "  cancel-in-progress: true\n"),           # every merge group's run cancelled too
+                         (group, "  group: factory\n"),                      # one group: a merge group cancels another's
+                         (cancel, ""), (group, ""),
+                         (cancel, cancel + "  queue: max\n"),
+                         (block, "concurrency: factory\n")):
+            text = GOOD.replace(old, new, 1)
+            self.assertNotEqual(text, GOOD, new)
+            self.assertTrue(caught(self.lens_problems(text), said), new)
+        # Any other expression there is one where text from outside could stand.
+        for old, new in ((group, "  group: ${{ github.head_ref }}\n"),
+                         (cancel, "  cancel-in-progress: ${{ github.event_name != 'merge_group' }}\n")):
+            self.assertIn("expression", rules(GOOD.replace(old, new, 1)), new)
 
     def test_a_lens_job_that_judges_its_needs_runs_from_the_base(self):
         # verify's verdict is the base's tools/needs_passed.py: its one checkout is of the base, on a pull request and in
@@ -3549,19 +3594,20 @@ class Workflows(unittest.TestCase):
                      run.replace("permissions: {}\n", "permissions: {}\nconcurrency:\n  group: ${{ inputs.item }}\n"),
                      GOOD.replace("      - run: make verify\n", "      - run: make verify\n        outputs:\n"
                                   "          d: ${{ steps.a.outputs.b }}\n", 1)):
-            self.assertIn("expression", {rule for rule, _ in check_workflows.lint(text)})
+            # Read as the required check's workflow, so that GOOD's own concurrency is no expression out of place.
+            self.assertIn("expression", {rule for rule, _ in check_workflows.lint(text, required=True)}, text)
         outputs = GOOD.replace("    timeout-minutes: 28\n", "    timeout-minutes: 28\n    outputs:\n"
                                "      digest: ${{ steps.run.outputs.digest }}\n", 1)
-        self.assertNotIn("expression", {rule for rule, _ in check_workflows.lint(outputs)})
+        self.assertNotIn("expression", {rule for rule, _ in check_workflows.lint(outputs, required=True)})
         self.assertIn("expression", {rule for rule, _ in check_workflows.lint(outputs.replace(
-            "${{ steps.run.outputs.digest }}", "${{ github.event.pull_request.title }}"))})
+            "${{ steps.run.outputs.digest }}", "${{ github.event.pull_request.title }}"), required=True)})
         # A step's outcome is one of four words GitHub gives, so a job may hand it on (issue 757); nothing else of a step.
         self.assertNotIn("expression", {rule for rule, _ in check_workflows.lint(outputs.replace(
-            "${{ steps.run.outputs.digest }}", "${{ steps.run.outcome }}"))})
+            "${{ steps.run.outputs.digest }}", "${{ steps.run.outcome }}"), required=True)})
         for other in ("${{ steps.run.conclusion }}", "${{ steps.run.outcome }}x", "${{ steps.run.outcome.x }}",
                       "${{ steps.run.outcome || github.event.pull_request.title }}"):
             self.assertIn("expression", {rule for rule, _ in check_workflows.lint(outputs.replace(
-                "${{ steps.run.outputs.digest }}", other))}, other)
+                "${{ steps.run.outputs.digest }}", other), required=True)}, other)
 
     def run_tree(self, text: str, account, name: str = "run.yml") -> list:
         config = json.loads((ROOT / "config" / "controller.json").read_text())
@@ -4268,8 +4314,8 @@ class Workflows(unittest.TestCase):
     def test_a_dash_in_a_blocks_text_is_no_step(self):  # #416's review
         # A line of a | block that starts with "- " is text, not a step of bare text; one where the steps stand is.
         text = GOOD.replace(STEP, STEP + "        env:\n          NOTE: |\n            - a line of text\n", 1)
-        self.assertEqual(check_workflows.lint(text), [])
-        self.assertEqual([rule for rule, _ in check_workflows.lint(GOOD.replace("    steps:\n", "    steps:\n      - x\n", 1))],
+        self.assertEqual(check_workflows.lint(text, required=True), [])
+        self.assertEqual([rule for rule, _ in check_workflows.lint(GOOD.replace("    steps:\n", "    steps:\n      - x\n", 1), required=True)],
                          ["form"])
 
     def test_a_run_keeps_no_comment_of_its_own(self):  # Argon's read of #392

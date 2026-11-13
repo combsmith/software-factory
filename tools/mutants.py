@@ -137,6 +137,8 @@ OPENER_JOB = ("tests.test_tools.Workflows.test_the_job_refuses_for_the_commits_o
 COMMITS_JOB_TESTS = ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)
 JUDGING_SHAPE_TESTS = ("tests.test_tools.Workflows.test_the_judging_step_and_its_checkout_are_held_to_their_exact_shape",)
 SHARDS_TESTS = ("tests.test_tools.Workflows.test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix",)
+SUPERSEDED_TESTS = ("tests.test_tools.Workflows.test_only_a_superseded_pull_request_run_is_cancelled",)
+RUN_RULES_TESTS = ("tests.test_tools.Workflows.test_a_rule_with_no_counter_example_is_caught",)
 LEGS_TESTS = ("tests.test_tools.Workflows.test_the_legs_of_make_verify_are_told_their_place_and_count_by_the_matrix",)
 LEG_TESTS = ("tests.test_tools.Verify.test_the_legs_of_make_verify_run_every_test_once",)
 LIMITED = ("tests.test_tools.Workflows.test_each_run_step_stops_under_a_limit_of_its_own_below_its_jobs",)
@@ -8023,6 +8025,26 @@ MUTANTS = ISSUE + [
     ("the legs are not held at all", "tools/check_workflows.py",
      "        problems += _commits(text, entries, jobs) + _shards(entries, jobs) + _legs(entries, jobs)\n",
      "        problems += _commits(text, entries, jobs) + _shards(entries, jobs)\n", LEGS_TESTS),
+    ("the required check's concurrency may be anything", "tools/check_workflows.py",
+     '        if "concurrency" in top and superseded != {"group": PR_LANE, "cancel-in-progress": PR_CANCEL}:\n',
+     '        if False:\n', SUPERSEDED_TESTS),
+    ("a pull request's lane is no expression the check allows", "tools/check_workflows.py",
+     '                or (required and e["path"] == ["concurrency"] and (e["key"], e["value"]) in (("group", PR_LANE),\n',
+     '                or (required and e["path"] == ["concurrency"] and (e["key"], e["value"]) in (("group", None),\n', SUPERSEDED_TESTS),
+    ("any top-level concurrency expression is allowed", "tools/check_workflows.py",
+     '                or (required and e["path"] == ["concurrency"] and (e["key"], e["value"]) in (("group", PR_LANE),\n',
+     '                or e["path"] == ["concurrency"] or (required and e["path"] == ["concurrency"] and (e["key"], e["value"]) in (("group", PR_LANE),\n', SUPERSEDED_TESTS),
+    ("a re-run shares its pull request's lane", "tools/check_workflows.py",
+     "github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id) }}\"\n",
+     "github.event.pull_request.number || github.run_id) }}\"\n", SUPERSEDED_TESTS),
+    ("a pull request's lane stands in any workflow", "tools/check_workflows.py",
+     '                or (required and e["path"] == ["concurrency"] and', '                or (e["path"] == ["concurrency"] and', SUPERSEDED_TESTS),
+    ("every workflow is linted as the required check's", "tools/check_workflows.py",
+     'for rule, message in lint(text, required=path.name == REQUIRED_WORKFLOW):', 'for rule, message in lint(text, required=True):', SUPERSEDED_TESTS),
+    ("the cancel stands in any workflow", "tools/check_workflows.py",
+     '                or (required and e["path"] == ["concurrency"] and', '                or ((required or e["key"] == "cancel-in-progress") and e["path"] == ["concurrency"] and', SUPERSEDED_TESTS),
+    ("the required check's workflow is linted as any other", "tools/check_workflows.py",
+     'for rule, message in lint(text, required=path.name == REQUIRED_WORKFLOW):', 'for rule, message in lint(text):', RUN_RULES_TESTS),
     ("a leg may be told its place by a number", "tools/check_workflows.py",
      '        if told != {"CHECKS_SHARD": INDEX, "CHECKS_SHARDS": TOTAL}:\n', "        if False:\n", LEGS_TESTS),
     ("the legs' matrix may be any key", "tools/check_workflows.py",
