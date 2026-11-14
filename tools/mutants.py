@@ -99,6 +99,12 @@ WIRE_RUNNING = ("tests.test_adapters.EffectsRecorded.test_a_pass_still_running_i
 WIRE_UNMATCHED = ("tests.test_adapters.EffectsRecorded.test_a_write_by_a_pass_that_failed_and_recorded_nothing_is_unmatched_not_short",)
 WIRE_CARRY = ("tests.test_reconcile.Carried",)
 WIRE_ENTRY = ("tests.test_controller.Entry.test_the_entry_gathers_what_reconciliation_reads",)
+# The issues port's tests (decision 0218).
+ISSUE_WHOLE = ("tests.test_adapters.Issues.test_an_issues_timeline_is_whole_only_when_its_last_page_names_no_next",)
+ISSUE_CONTENT = ("tests.test_adapters.Issues.test_an_issues_content_time_is_the_newer_of_its_edit_and_its_rename",)
+ISSUE_LIFE = ("tests.test_adapters.Issues.test_a_reopening_by_a_writer_begins_a_life_and_anyone_elses_does_not",)
+ISSUE_REFUSED = ("tests.test_adapters.Issues.test_an_issue_github_did_not_answer_whole_is_refused",)
+ISSUE_OWN = ("tests.test_adapters.Issues.test_the_issues_own_facts_hold_to_the_schema_and_leave_its_linked_pull_requests_unread",)
 COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers",)
 ALSO_AT = ("tests.test_evals.Scoring.test_a_finding_at_any_place_the_case_gives_is_at_the_place",)
 SPAN = ("tests.test_evals.Scoring.test_a_result_that_raises_the_expected_finding_passes_and_one_that_does_not_fails",
@@ -13606,6 +13612,41 @@ MUTANTS = ISSUE + [
     ("the closing reference's rule is grounded by no fixture", 'sim/grounding.py',
      'one to another base carries no reference", ("P-33",), ("trials/P-33.json", "trials/P-33.port.json"), None),',
      'one to another base carries no reference", ("P-33",), None, None),', ('tests.test_tools.Trials.test_the_issue_fixtures_hold_what_grounds_the_four_rules',)),
+    ("changes of an issue's type that name a next page are whole", 'adapters/issues.py',
+     '"whole": not more}',
+     '"whole": True}', ISSUE_WHOLE),
+    ("an issue's timeline is whole whatever its pages say", 'adapters/issues.py',
+     '"timeline": whole and edited["whole"]',
+     '"timeline": edited["whole"]', ISSUE_WHOLE),
+    ('a key GraphQL left out is read as null', 'adapters/issues.py',
+     '    if not isinstance(node, dict) or key not in node:\n        raise Unanswered("the answer leaves out %s" % key)\n    return node[key]',
+     '    if not isinstance(node, dict):\n        raise Unanswered("the answer leaves out %s" % key)\n    return node.get(key)', ISSUE_REFUSED),
+    ("an issue's rename moves not its content time", 'adapters/issues.py',
+     '    times += [timeline._time(ev.get("created_at")) for ev in events if ev.get("event") == "renamed"]\n',
+     '', ISSUE_CONTENT),
+    ("an App's reopening with a person's token is the person's", 'adapters/issues.py',
+     '            if gate.is_person(accounts.acted(ev)):',
+     '            if gate.is_person(accounts.actor(ev.get("actor"))):', ISSUE_LIFE),
+    ("an issue's type change is read from its new type alone", 'adapters/issues.py',
+     '"IssueTypeChangedEvent": ("prevIssueType", "issueType")',
+     '"IssueTypeChangedEvent": (None, "issueType")', ISSUE_OWN),
+    ('the edits leave out lastEditedAt', 'adapters/issues.py',
+     'number updatedAt lastEditedAt',
+     'number updatedAt', ISSUE_OWN),
+    ("an issue's linked pull requests are read as whole", 'adapters/issues.py',
+     '"linked": False, "runs": True',
+     '"linked": True, "runs": True', ISSUE_OWN),
+    ("an issue's facts that do not hold to the schema are handed on", 'adapters/issues.py',
+     '    if problems:\n        raise Unanswered("the issue\'s facts',
+     '    if False:\n        raise Unanswered("the issue\'s facts', ISSUE_OWN),
+    ("an issue's facts are timed before its last read", 'adapters/issues.py',
+     *moved_before("adapters/issues.py", "    now = clock()\n", "    lived = life("), ISSUE_OWN),
+    ("any Bot's comment is a Factory App's", 'adapters/issues.py',
+     '        if (ident, kind) in accounts.factory:',
+     '        if kind == "Bot":', ('tests.test_adapters.Issues.test_the_writers_last_acts_and_each_apps_latest_comment_are_read',)),
+    ("anyone's comment is a writer's", 'adapters/issues.py',
+     '        elif gate.is_person(who):',
+     '        else:', ('tests.test_adapters.Issues.test_the_writers_last_acts_and_each_apps_latest_comment_are_read',)),
     ("the pass's token may write", 'controller/__main__.py',
      ' if n.startswith("read:")]',
      ']', ('tests.test_controller.Entry.test_the_entry_reads_through_the_ports_and_hands_the_pass_nothing_else',)),
