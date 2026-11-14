@@ -13,14 +13,18 @@ The open issues are listed by the same pages and held to the same wholeness, `is
 asked only of those updated at or after `issues.served_from`. That leaves out none the Kernel serves: an issue is served
 only if its present life began at or after that date (`kernel/issue.py`'s `served`), and its opening or the reopening
 that began that life moved its `updatedAt` then. So an issue that has not moved since the date is not served, and is
-not read: turning issues on serves what opens or moves from then, and sweeps no backlog. With no date, the default, no
-issue is served, and none is listed or read."""
+not read: turning issues on serves what opens or moves from then, and sweeps no backlog. GitHub is asked from a second
+before the date, since no trial has shown whether its `since` holds an issue updated in that very second; the Kernel's
+`served` leaves out what began before it. With no date, the default, no issue is served, and none is listed or read."""
 from __future__ import annotations
+
+import datetime
 
 from adapters.github import Unanswered, request
 
 PAGE = 100            # pull requests on one page
 PAGES = 10            # pages read at most: a thousand open pull requests
+STAMP = "%Y-%m-%dT%H:%M:%SZ"    # a time as the configuration and GitHub write one
 QUERY = ("query OpenPullRequests($owner: String!, $name: String!, $after: String) {\n"
          "  repository(owner: $owner, name: $name) {\n"
          "    nameWithOwner\n"
@@ -67,9 +71,13 @@ def open_issues(transport, repo: str, since) -> tuple:
     the order opened, and whether that was every one GitHub counts; with no `since`, none, whole, and nothing asked."""
     if since is None:
         return [], True
+    try:
+        asked = (datetime.datetime.strptime(since, STAMP) - datetime.timedelta(seconds=1)).strftime(STAMP)
+    except (TypeError, ValueError):
+        raise Unanswered("issues.served_from is no time") from None
     owner, name = repo.split("/")
     return _listed(repo, "issues", lambda after: transport.send(request("POST", "/graphql", body={
-        "query": ISSUES, "variables": {"owner": owner, "name": name, "after": after, "since": since}})))
+        "query": ISSUES, "variables": {"owner": owner, "name": name, "after": after, "since": asked}})))
 
 
 def _listed(repo: str, listed: str, ask) -> tuple:
