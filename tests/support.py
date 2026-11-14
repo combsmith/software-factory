@@ -321,11 +321,12 @@ QUEUE_APP = {"kind": "queue", "name": "combsmith-sf-queue[bot]", "can_write": Fa
 
 
 def thread(tid="T1", kind="lens", name="pr-review", can_write=True, severity="major", resolved=False,
-           at="2026-10-11T12:15:00Z", category=BY_KIND, resolved_by=BY_OPENER, ruling=BY_RESOLUTION) -> dict:
+           at="2026-10-11T12:15:00Z", category=BY_KIND, resolved_by=BY_OPENER, ruling=BY_RESOLUTION, dropped=None) -> dict:
     """A thread as GitHub holds it. A person's is a `human` Finding; by default a Lens's is a `functional` one.
 
     A resolved thread says who resolved it, by default whoever closes it: a person's, that person, and a Lens's, the
-    queue App on that Lens's accepted ruling. An open one says nobody, and a Lens's has no ruling.
+    queue App on that Lens's accepted ruling. An open one says nobody, and a Lens's has no ruling. `dropped`, where given,
+    is the port's word that its Lens's later review dropped it (decision 0212); by default it says nothing.
     """
     if category == BY_KIND:
         category = "human" if kind == "human" else "functional"
@@ -334,8 +335,9 @@ def thread(tid="T1", kind="lens", name="pr-review", can_write=True, severity="ma
         resolved_by = (dict(QUEUE_APP) if kind == "lens" else dict(opener)) if resolved else None
     if ruling == BY_RESOLUTION:
         ruling = "accepted" if kind == "lens" and resolved_by == QUEUE_APP else None
-    return {"id": tid, "resolved": resolved, "opened_by": opener, "category": category, "severity": severity,
-            "resolved_by": resolved_by, "opened_at": at, "ruling": ruling}
+    found = {"id": tid, "resolved": resolved, "opened_by": opener, "category": category, "severity": severity,
+             "resolved_by": resolved_by, "opened_at": at, "ruling": ruling}
+    return found if dropped is None else dict(found, dropped=dropped)
 
 
 def labelled(label: str, by=None, at="2026-10-11T12:01:00Z", action="labeled") -> dict:

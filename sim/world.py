@@ -209,6 +209,9 @@ class World:
         self.author = self.last_pusher = AUTHOR if self.cls == "agent" else MAINTAINER["name"]
         # The paths the pull request changes, and who has touched one on the list (ON_THE_LIST), from its own generator.
         self.paths = random.Random("paths %d" % seed)
+        # Whether a person's push leaves the diff as it was, and whether a Lens's later review drops a thread, from a
+        # generator of their own, so that the other draws stay as they were (issue 855).
+        self.keeps = random.Random("keeps %d" % seed)
         self.listed_by = set()
         if seed % 10 == DEPENDENCY_SEED:
             # GitHub: a_dependency_bot_updates_a_workflow_pin
@@ -601,6 +604,16 @@ class World:
     def note(self, what: str):
         self.trace.append("%s %s" % (self.now(), what))
 
+    def dropped_since_the_push(self, th: dict) -> bool:
+        """Whether a Lens's thread is one its later review dropped, as the world says it (decision 0212): marked dropped,
+        not ruled rejected, not a security Finding's, opened before the last push, with a review by its Lens that
+        succeeded on this content and began after that push."""
+        return th.get("dropped") is True and th["ruling"] != "rejected" and th["category"] != "security" \
+            and th["opened_at"] < self.last_push and any(
+                r["role"] == th["opened_by"]["name"] and r["intent"] == "review-change" and r["status"] == "completed"
+                and r["conclusion"] == "success" and r["content_id"] == self.cid() and r["started_at"] > self.last_push
+                for r in self.runs)
+
     def waits_for_its_author(self, decision: dict) -> bool:
         """Whether the item rests on its author: a pull request the Factory did not open, in addressing for what a fix
         answers, with nothing admitted and no Run of its open. The Factory's own item rests only where every other item
@@ -951,8 +964,9 @@ class World:
             # GitHub: an_app_resolves_any_thread
             for th in self.threads:
                 if th["id"] in d["evidence"]:
-                    self.check(th["opened_by"]["kind"] == "lens" and th["ruling"] == "accepted" and not th["resolved"],
-                               "the queue App resolves a thread no Lens accepted")
+                    self.check(th["opened_by"]["kind"] == "lens" and not th["resolved"]
+                               and (th["ruling"] == "accepted" or self.dropped_since_the_push(th)),
+                               "the queue App resolves a thread no Lens accepted or dropped")
                     th.update(resolved=True, resolved_by=dict(QUEUE_APP))
             # A resolution is no timeline event: the queue App's job is a Run, counted from the run records (0127),
             # and a Run on the item moves it.
@@ -1055,7 +1069,12 @@ class World:
             self.check(all(self.passed(k) for k in self.checks), "I-27 model review before checks passed")
             done = [r for r in self.runs if r["intent"] == "review-change" and r["conclusion"] == "success"
                     and r["content_id"] == run["content_id"]]
-            self.check(not done, "I-11 a second review of unchanged content")
+            # Unless the head was pushed past every such review while a thread of the Lens still stands: then its review
+            # is asked again on the same content (decision 0212, issue 855).
+            pushed_past = all(r["started_at"] <= self.last_push for r in done) and any(
+                th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"] and not th["resolved"]
+                for th in self.threads)
+            self.check(not done or pushed_past, "I-11 a second review of unchanged content")
 
     def finish_run(self):
         # An approval in flight ends as the next pass reads the list (UNNAMED), never here.
@@ -1096,6 +1115,13 @@ class World:
             return
         run["conclusion"] = "success"
         if run["intent"] == "review-change":
+            # The port says a Lens's thread dropped where this later review of its Lens, which succeeded on the current
+            # content, records nothing on its Finding (decision 0212): now and then, of a thread opened before it began.
+            for th in self.threads:
+                if th["opened_by"]["kind"] == "lens" and not th["resolved"] and not th.get("dropped") \
+                        and th["opened_at"] < run["started_at"] and self.keeps.random() < 0.5:
+                    th["dropped"] = True
+                    self.note("run %s: its review dropped thread %s" % (run["run"], th["id"]))
             if self.rng.random() < 0.5:
                 # GitHub: a_lens_review_opens_a_thread
                 category, severity = self.pick(["functional", "security", "architecture"]), \
@@ -1120,10 +1146,16 @@ class World:
         self.note("run %s: applied" % run["run"])
 
     # ---- the platform and the people
-    def push(self, who: str, writer: bool):
-        # GitHub: a_push_is_new_content
-        self.content += 1
-        self.changed.add(self.touched_by("role" if who == AUTHOR else "maintainer"))
+    def push(self, who: str, writer: bool, keep: bool = False):
+        if keep:
+            # GitHub: a_push_can_leave_the_diff_as_it_was
+            # A head pushed with the diff as it was, as a merge of the base that touches none of its files, keeps its
+            # content (trials/P-29.base.json): the head and its checks move, and nothing it changes does.
+            self.note("%s pushed a head that leaves the diff as it was" % who)
+        else:
+            # GitHub: a_push_is_new_content
+            self.content += 1
+            self.changed.add(self.touched_by("role" if who == AUTHOR else "maintainer"))
         # GitHub: the_pusher_is_the_last_pusher
         self.last_pusher, self.last_push = who, self.now()
         self.moves()
@@ -1495,7 +1527,7 @@ class World:
             self.writer_acted()
             self.note("maintainer toggled hold -> %s" % self.held())
         elif roll < 0.45:
-            self.push("don-petry", writer=True)
+            self.push("don-petry", writer=True, keep=self.keeps.random() < 0.25)
         elif roll < (0.55 if reviews else 0.60):
             self.open_thread()
         elif reviews and roll < 0.65:

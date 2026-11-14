@@ -105,7 +105,8 @@
       "severity": "major",
       "resolved_by": null,
       "opened_at": "2026-10-11T12:15:00Z",
-      "ruling": null
+      "ruling": null,
+      "dropped": false
     },
     {
       "id": "PRRT_kw1",

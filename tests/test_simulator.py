@@ -23,6 +23,9 @@ SEEDS = range(1, 1 + int(os.environ.get("SIM_SEEDS", "300")))
 # newer Run cancels the one waiting (a_run_waits_its_turn); and the first whose review left a criterion uncovered until
 # its attempts held the item (test_the_seeds_serve_a_review_that_left_a_criterion_uncovered).
 HOLD_SEED, LOST_SEED, GATE_SEED, APP_SEED, LANE_SEED, ISSUE_LANE_SEED, UNCOVERED_SEED = 1, 237, 351, 57, 2, 54, 221
+# The first seed on which a Lens's review is asked again on unchanged content, the head pushed past it with the diff as
+# it was while its thread stands (test_the_seeds_push_a_head_that_leaves_the_diff_as_it_was_and_say_a_thread_dropped).
+AGAIN_SEED = 261
 # Seeds on which the item is a dependency update with no acceptance contract: to a workflow's pin, and to neither list.
 DEPENDENCY_ON_THE_LIST, DEPENDENCY_OFF_THE_LIST = 4, 34
 
@@ -1366,9 +1369,9 @@ class Simulation(unittest.TestCase):
         # On their own pull request the Maintainer, its author, mends what waits for them, as a writer: on the first seed.
         pushes, push = [], World.push
 
-        def pushing(w, who, writer):
+        def pushing(w, who, writer, keep=False):
             pushes.append((w.trace[-1].endswith("the author mends it"), who, writer))
-            return push(w, who, writer)
+            return push(w, who, writer, keep)
 
         w = World(1)
         with mock.patch.object(World, "push", pushing):
@@ -1395,6 +1398,28 @@ class Simulation(unittest.TestCase):
                 w.invariants()
             else:
                 self.assertRaises(world.Broken, w.invariants)
+
+    def test_the_seeds_push_a_head_that_leaves_the_diff_as_it_was_and_say_a_thread_dropped(self):  # issue 855
+        # A person's push now and then leaves the diff as it was, its content the same (trials/P-29.base.json); a Lens's
+        # later review now and then drops a thread, which the queue App then resolves on no accepted ruling (decision
+        # 0212); and the Lens is asked again on unchanged content, pushed past while its thread stood. Every invariant
+        # holds throughout: the check on the act takes a dropped thread as an accepted one, and I-11 allows that review.
+        kept, dropped, resolved, again = False, False, False, False
+        for seed in sorted(set(SEEDS) | {AGAIN_SEED}):
+            w = World(seed)
+            contents = []
+            for _ in range(250):
+                before = w.cid()
+                w.step()
+                if any(line.endswith("pushed a head that leaves the diff as it was") for line in w.trace[-3:]):
+                    contents.append((before, w.cid()))
+            kept = kept or bool(contents) and all(a == b for a, b in contents)
+            dropped = dropped or any(th.get("dropped") is True for th in w.threads)
+            resolved = resolved or any(th.get("dropped") is True and th["resolved"] and th["ruling"] != "accepted"
+                                       and th["resolved_by"] == world.QUEUE_APP for th in w.threads)
+            reviews = [r["content_id"] for r in w.runs if r["intent"] == "review-change" and r["conclusion"] == "success"]
+            again = again or len(reviews) != len(set(reviews))
+        self.assertEqual((kept, dropped, resolved, again), (True, True, True, True))
 
     def test_every_invariant_not_yet_held_names_a_pending_test(self):
         # When a rule is built and its test loses @pending, its invariant here must start to raise too.
