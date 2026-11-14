@@ -4168,6 +4168,9 @@ class Snapshot(unittest.TestCase):
         # A first read that gave no merge state is kept, whatever the last gives: its facts say it is not worked out.
         for again in (unknown, stale, conflict):
             self.assertTrue(pull.unchanged(Answers(again), unknown), again["mergeable"])
+        # A number is no merge state either, though Python counts 1 as true and 0 as false.
+        self.assertTrue(pull.unchanged(Answers(stale), dict(stale, mergeable=1)))
+        self.assertTrue(pull.unchanged(Answers(conflict), dict(conflict, mergeable=0)))
 
     def test_a_pull_request_whose_updated_at_cannot_be_read_has_not_moved(self):  # issue 658
         # Either read without a time is a read GitHub did not answer, not a move: it earns no pass's grace.

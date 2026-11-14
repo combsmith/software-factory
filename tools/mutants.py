@@ -4054,6 +4054,8 @@ MUTANTS = ISSUE + [
     ('a first read of no merge state is a move', 'adapters/pull.py',
      '    if (first is True or first is False) and again.get("mergeable") is not first:\n',
      '    if again.get("mergeable") is not first:\n', ('tests.test_adapters.Snapshot.test_a_snapshot_whose_merge_state_changed_while_it_was_read_is_refused',)),
+    ('a first read of 1 is taken for a merge state', 'adapters/pull.py',
+     'if (first is True or first is False) and', 'if first in (True, False) and', ('tests.test_adapters.Snapshot.test_a_snapshot_whose_merge_state_changed_while_it_was_read_is_refused',)),
     ('a change that kept the head is not noticed', 'adapters/pull.py',
      '    return _same(again, pull) and again["updated_at"] == pull["updated_at"]\n',
      '    return _same(again, pull)\n', ('tests.test_adapters',)),
