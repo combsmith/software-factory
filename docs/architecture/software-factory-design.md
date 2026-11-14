@@ -2064,7 +2064,8 @@ room. That shapes every row.
 **Reconciliation.** The most useful control is a detective one, and the design already records
 what it needs. Each pass compares what the machine user and each App actually did on GitHub with
 the Effects `apply` recorded. A write with no matching Effect means a credential is being used
-outside the Factory, and raises one alert (I-33; `controller/reconcile.py`, decision 0061). This matters most for the machine user's token:
+outside the Factory, and raises one alert (I-33; `controller/reconcile.py`, decision 0061). One write of a person's is compared too: the
+resolution of a thread a Role opened, with the Kernel's act that named the thread (decision 0223). This matters most for the machine user's token:
 it is long-lived, it can approve, and it can merge.
 
 **Credentials.**
