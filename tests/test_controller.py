@@ -895,7 +895,9 @@ class Feed(unittest.TestCase):
         self.assertEqual((items["pass"], out["view"]["meta"]["pass"]), (out["record"]["pass"],) * 2)
         self.assertEqual([i["item"]["number"] for i in items["items"]], [2, 1, 5])
         self.assertEqual([(i["next_actor"], i["reason"]) for i in items["items"]],
-                         [("factory", "awaiting_review"), ("maintainer", "act_ceiling"), ("factory", "human_finding")])
+                         [("factory", "awaiting_review"), ("maintainer", "act_ceiling"), ("maintainer", "human_finding")])
+        # The last is a person's own pull request with a person's Finding: no fix is admitted on it (decision 0216), so
+        # the feed names the person asked, by its attention, where it named the Factory by the admission.
         self.assertEqual(items["items"][1]["decision_required"],
                          {"question": "allowance_spent", "choices": ["renew_allowance", "close"], "evidence": []})
         self.assertEqual(items["items"][2]["decision_required"],
