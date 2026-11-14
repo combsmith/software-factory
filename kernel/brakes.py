@@ -148,6 +148,17 @@ def dequeue_ceiling(_decision, facts: dict, since: list, limits: dict):
     return None
 
 
+def implementing_rounds(_decision, facts: dict, recent: list, limits: dict):
+    """The Hold an issue's implementing rounds meet, or None (decision 0217, issue 874). Every implementing Run that
+    completed since a person with write access acted is a round, whatever it concluded, since the checks it left failing
+    are what admit the next: so a count of failed Runs alone, as the attempts are, would never stop the loop. At
+    `max_attempts` rounds or past them the issue is held, with those Runs as evidence. A Run in flight is no round."""
+    rounds = [r for r in recent if r["intent"] == "implement" and r["status"] == "completed"]
+    if len(rounds) >= limits["max_attempts"]:
+        return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in rounds], t.HOLD)
+    return None
+
+
 def run_ceilings(_decision, facts: dict, evidence: list, intent: str, recent: list, limits: dict):
     """The Hold a Run of this Intent meets at its attempts, its rounds or the Run ceiling, or None. No deferral is read
     here: decide.py asks it alone while a Run is in flight, when a spent count holds the item whatever would defer."""
