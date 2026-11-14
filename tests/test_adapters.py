@@ -5950,6 +5950,14 @@ class Issues(unittest.TestCase):
         self.assertFalse(self.read(first[:2] + [later] + first[2:])["complete"]["timeline"])
         more = {"timelineItems": {"pageInfo": {"hasNextPage": True}, "nodes": []}}
         self.assertFalse(self.read(issue_read([said], edits=more))["complete"]["timeline"])
+        # A last page names its previous and first pages and no next, or carries no link at all: whole, and no page
+        # past it is asked (Carbon).
+        later = rest_answer("/repos/o/r/issues/41/timeline?per_page=100&page=2", [issue_event("commented", 5)],
+                            '<https://x>; rel="prev", <https://x>; rel="first"')
+        self.assertTrue(self.read(first[:2] + [later] + first[2:])["complete"]["timeline"])
+        bare = issue_read([said])
+        bare[1]["response"]["headers"] = {}
+        self.assertTrue(self.read(bare)["complete"]["timeline"])
 
     def test_an_issues_content_time_is_the_newer_of_its_edit_and_its_rename(self):  # P-34
         def changed(events=(), **change):
