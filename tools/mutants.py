@@ -16298,6 +16298,11 @@ MUTANTS = ISSUE + [
      'if type(ident) is not int or ident < 1 or', 'if not isinstance(ident, int) or ident < 1 or', ('tests.test_release_step.Writes.test_a_deployment_of_next_is_recorded_with_its_status',)),
     ('an eval dispatch of id True is read', 'adapters/candidate.py',
      'return ident if type(ident) is int and ident > 0 else None', 'return ident if isinstance(ident, int) and ident > 0 else None', ('tests.test_release_step.Candidate.test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed',)),
+    # Issue 866: a failed read of verify, or of main, reaches the plan through the candidate's facts.
+    ('a commit whose verify failed is said verified to the plan', 'adapters/candidate.py',
+     '            "verified": verified(transport, repo, commit),\n', '            "verified": True,\n', ('tests.test_release_step.Step.test_a_commit_github_does_not_answer_as_verified_and_on_main_is_refused_and_nothing_is_written',)),
+    ('a commit main does not hold is said on main to the plan', 'adapters/candidate.py',
+     '"on_main": on_main(transport, repo, commit, branch),\n', '"on_main": True,\n', ('tests.test_release_step.Step.test_a_commit_github_does_not_answer_as_verified_and_on_main_is_refused_and_nothing_is_written',)),
     # Decision 0131: an unanswered case says why, by its class, its place and its code, never in words.
     ("an unanswered case's class is not kept", 'harness/eval/__init__.py',
      '        said["exception"] = type(err).__name__\n', '        pass\n', ('tests.test_evals.EvalJob.test_an_unanswered_case_says_why_by_its_class_its_place_and_its_code',)),
