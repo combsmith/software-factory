@@ -225,6 +225,7 @@
       }
     ]
   },
+  "opened_for": null,
   "complete": {
     "acceptance": true,
     "reviews": true,

@@ -101,6 +101,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 **Failure.** Four of the Maintainer's review threads were resolved by the account the author agent ran as, and the pull request merged itself.
 **Rule.** No Role decides a Finding about its own work. A person's thread is closed by that person: resolved by anyone else, it stays open. A Lens's thread is closed only by a person with write access, or by the queue App on that Lens's accepted ruling, as the Kernel's act (decision 0086), or, for a thread whose Run's record is past retention, once a later review by that Lens has run (decision 0125). What a person placed, only a person ends.
 **Check.** `tools/check_authority.py`, `tests/test_decide.py::test_an_answered_human_thread_waits_for_that_person`, `tests/test_decide.py::test_a_persons_thread_resolved_by_anyone_but_that_person_stays_open`, `tests/test_decide.py::test_a_lens_thread_resolved_by_anyone_but_a_writer_or_the_queue_on_its_ruling_stays_open`, `tests/test_decide.py::test_only_a_person_ends_a_request_for_changes`
+**Since decision 0212.** The queue App's resolution also closes a Lens's thread that a later review of a newer head no longer records, never a security Finding's. Until the queue App exists that act may be carried out by hand through the Maintainer's account, which the Kernel reads as a person's, only as the decision says: what the act may name is held by `tests/test_decide.py::test_resolve_thread_never_names_a_thread_still_raised_or_unreadable`, and what a hand does with it by no check yet.
 
 ### L-18 The approver was the author, or the last to push
 **Failure.** GitHub does not count an approval from either. With two code owners, one the author and the other the last pusher, nobody could approve, and only an administrator's bypass merged anything.
@@ -116,6 +117,11 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 **Failure.** Every push cost a fresh pass by every reviewer, and outside reviewers posted again on every commit.
 **Rule.** No model Lens runs on content the deterministic Lenses have not passed.
 **Check.** `tests/test_decide.py::test_no_model_review_before_deterministic_checks_pass`
+
+### L-63 The reviewer's own thread stopped its pull request, and nothing said so
+**Failure.** The first thread the Factory's reviewer opened left its pull request deferred at every pass, with no alert. The configuration listed no account for the Lens, so the pass read the reviewer's App as any App, and the thread its Run had recorded as no Lens's. This repo's own failure, of November 2026.
+**Rule.** A model Lens the configuration requires, whose Role's App has an account on record, is listed as a Lens by that account. An App that is not listed is no Lens, whatever a Run recorded of its thread.
+**Check.** `tests/test_adapters.py::test_a_thread_the_required_reviewers_own_app_opened_is_its_lenss_by_the_configured_accounts`
 
 ## Lost work
 

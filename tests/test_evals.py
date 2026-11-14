@@ -812,7 +812,7 @@ class TheSet(unittest.TestCase):
             # The CLI's install, before the fetch, at the Engine's pin by its checksum, word for
             # word as the Run's jobs install it (issue 309, amendment 1).
             # Bubblewrap is in the block, and the block comes before the fetch: it runs as root, before the cases are here.
-            "no bubblewrap": (EVAL_WORKFLOW.replace("          sudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap\n", ""),
+            "no bubblewrap": (EVAL_WORKFLOW.replace("          sudo RES_OPTIONS='timeout:5 attempts:2' apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap\n", ""),
                               "its steps are"),
             "the install after the fetch": (EVAL_WORKFLOW.replace(FETCH_STEP, "").replace(
                 "      - env:\n          CLI_VERSION", FETCH_STEP + "      - env:\n          CLI_VERSION"), "its steps are"),
@@ -1746,7 +1746,7 @@ class EvalJob(unittest.TestCase):
             built.append(json.dumps(the_task, sort_keys=True))
             return answered(the_task, *given, **named)
 
-        def scored(heads=None, case=case):
+        def scored(heads=None, case=case, cli=None):
             seen["files"], seen["folders"] = {}, []
             self.clean()     # each run's scratch and heads are its own
             cases = {case["id"]: (json.dumps(case, indent=2) + "\n").encode()}
@@ -1755,7 +1755,7 @@ class EvalJob(unittest.TestCase):
             self.step(job.fetch, self.home(cases), *([heads] if heads else []))
             kept_plan = json.loads((self.temp / "heldout" / "plan.json").read_text())
             (self.temp / "heldout" / "plan.json").write_text(json.dumps(dict(kept_plan, planned_at=1000)))
-            cli = Reading(said=live.answer(live.judged(findings=[], effects={})))
+            cli = cli or Reading(said=live.answer(live.judged(findings=[], effects={})))
             with mock.patch.object(step.live, "answer", answering):
                 said = self.step(step.step, cli, lambda: 1000.0, env=live.JOB)
             return said, cli
@@ -1779,6 +1779,26 @@ class EvalJob(unittest.TestCase):
             self.assertNotIn(marker.encode("utf-8"), text, where)
             self.assertNotIn(answer.encode("utf-8"), text, where)
         self.assertNotIn(".git", [part.casefold() for path in seen["folders"] + list(seen["files"]) for part in path.split(os.sep)])
+        # Asked again after the vendor failed it, the case is given no more of its answer the second time than the first.
+
+        class Again(Reading):
+            def __init__(self, *said):
+                super().__init__()
+                self.queue = list(said)
+
+            def __call__(self, args, env, timeout, **given):
+                if args[1:] != ["--version"]:
+                    self.said, self.returncode = self.queue.pop(0)
+                return super().__call__(args, env, timeout, **given)
+        failed = live.answer(is_error=True, api_error_status=529, terminal_reason="api_error", structured_output=None,
+                             modelUsage={}), 1
+        with mock.patch.object(step, "RETRY_WAIT", 0):
+            said, cli = scored(cli=Again(failed, (live.answer(live.judged(findings=[], effects={})), 0)))
+        self.assertEqual(len(cli.asked()), 2)
+        for where, text in [("a call", "\n".join(words(each))) for each in cli.asked()] + sorted(seen["files"].items()):
+            text = text if isinstance(text, bytes) else text.encode("utf-8")
+            self.assertNotIn(marker.encode("utf-8"), text, where)
+            self.assertNotIn(answer.encode("utf-8"), text, where)
         # No part of it, either: cases that differ in their answer alone, each field of it, severity too, give the model
         # the same Task, the same call and the same head, byte for byte, the Run's fresh id and session held still.
         met = {"verdict": "met", "criterion": "PR-5", "finding": None}
@@ -1795,6 +1815,16 @@ class EvalJob(unittest.TestCase):
         self.assertTrue(given[0][2])
         self.assertEqual(given[1], given[0])
         self.assertEqual(given[2], given[0])
+        # Nor when it is asked again: the retry's calls are the same, byte for byte, whatever the answer.
+        again = []
+        with mock.patch.object(step, "run_id", lambda: "r_" + "A" * 20), mock.patch("uuid.uuid4", lambda: uuid.UUID(int=1)), \
+                mock.patch.object(step, "RETRY_WAIT", 0):
+            for expected in (case["expected"], other):
+                said, cli = scored(case=dict(case, expected=expected),
+                                   cli=Again(failed, (live.answer(live.judged(findings=[], effects={})), 0)))
+                again.append(cli.asked())
+        self.assertEqual(len(again[0]), 2)
+        self.assertEqual(again[1], again[0])
         # A head whose archive holds git's folder is refused whole: the case is unreadable by its code, and asks nothing.
 
         class Historied(Heads):
@@ -1969,6 +1999,234 @@ class EvalJob(unittest.TestCase):
         written = json.loads((self.work / job.REPORT).read_text())
         self.assertEqual({c["id"]: c["reasons"] for c in written["cases"]}[first], ["diff_not_whole"])
 
+    def test_a_case_the_vendor_or_the_network_failed_is_asked_again_and_marked(self):  # issue 615
+        # The CLI ends a run the vendor's API or the way to it failed at `api_error`, with the vendor's status, or none for
+        # a connection that failed (a local probe of the CLI at 2.1.322). A 5xx or none is asked again, a wait apart, at
+        # most RETRIES more times; a 4xx, a rate limit among them, and a model that ran out are not.
+        from harness import eval as job
+        from harness.eval import run as step
+        case, live = self.reviewed()
+
+        class Answers(live.CLI):
+            def __init__(self, *said):
+                super().__init__()
+                self.queue = list(said)
+
+            def __call__(self, args, env, timeout, **given):
+                if args[1:] != ["--version"]:
+                    # Asked more often than it has answers, it says so at once: a case asked again without end fails here.
+                    if not self.queue:
+                        raise AssertionError("asked more often than the test gave answers")
+                    given_now = self.queue.pop(0)
+                    if isinstance(given_now, BaseException):
+                        self.calls.append({"args": list(args)})
+                        raise given_now
+                    self.said, self.returncode = given_now
+                return super().__call__(args, env, timeout, **given)
+
+        def vendor(status):
+            return live.answer(is_error=True, api_error_status=status, terminal_reason="api_error", structured_output=None,
+                               modelUsage={}), 1
+        good = live.answer(live.judged(findings=[], effects={})), 0
+
+        def asked(*said, clock=lambda: 0.0):
+            cli, slept = Answers(*said), []
+            heads = self.temp / "heads"
+            (heads / case["id"]).mkdir(parents=True, exist_ok=True)
+            review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, clock, heads, sleep=slept.append)
+            with mock.patch.object(step, "run_id", lambda: live.RUN):
+                result = review(case)
+            return result, review, len(cli.asked()), slept
+        # An overload, then an answer: asked once more, after the wait, and the answer is the case's.
+        result, review, calls, slept = asked(vendor(529), good)
+        self.assertEqual((result["status"], review.retried, calls, slept), ("completed", {case["id"]: 1}, 2, [step.RETRY_WAIT]))
+        self.assertEqual((step.RETRIES, step.RETRY_WAIT), (2, 30))
+        # The allowance is each case's own: one that spent both its retries leaves the next case of the same run its two.
+        cli, other = Answers(vendor(529), vendor(529), good, vendor(529), good), dict(case, id=case["id"] + "-b")
+        heads = self.temp / "heads"
+        review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, lambda: 0.0, heads, sleep=lambda seconds: None)
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            said = []
+            for each in (case, other):
+                (heads / each["id"]).mkdir(parents=True, exist_ok=True)
+                said.append(review(each)["status"])
+        self.assertEqual((said, review.retried, len(cli.asked())), (["completed"] * 2, {case["id"]: 2, other["id"]: 1}, 5))
+        # A 5xx, or none, every time: asked RETRIES more times, then left as the Engine failed it, the last call's word kept.
+        for status in (500, 529, 599, None):
+            result, review, calls, slept = asked(*[vendor(status)] * 4)
+            self.assertEqual((result["reason"], review.retried, calls, slept),
+                             ("engine_failed", {case["id"]: 2}, 3, [step.RETRY_WAIT] * 2), status)
+            self.assertTrue(job.transient(result, review.seen), status)
+            self.assertEqual((review.seen["terminal_reason"], review.seen["api_error_status"]), ("api_error", status))
+        # A 4xx is met again if asked again, a rate limit's 429 among them: not asked again.
+        for status in (429, 401, 499, 600):
+            result, review, calls, slept = asked(vendor(status), good)
+            self.assertEqual((result["reason"], review.retried, calls, slept), ("engine_failed", {}, 1, []), status)
+        # Nor a model that ran out, nor an error the CLI says is not the API's.
+        ran_out = live.answer(is_error=True, subtype="error_max_turns", structured_output=None, modelUsage={}), 1
+        other = live.answer(is_error=True, api_error_status=529, terminal_reason="aborted", structured_output=None, modelUsage={}), 1
+        for said in (ran_out, other):
+            result, review, calls, slept = asked(said, good)
+            self.assertEqual((review.retried, calls, slept), ({}, 1, []))
+        # With less time left than a wait and another ask, it is not asked again: the job must end before its own limit.
+        with mock.patch.object(step, "RETRY_WAIT", step.BUDGET):
+            result, review, calls, slept = asked(vendor(529), good)
+        self.assertEqual((result["reason"], review.retried, calls), ("engine_failed", {}, 1))
+        # At the bound: with just a wait and the case's time left it is asked again, and with a second less it is not.
+        takes = json.loads((ROOT / "config" / "harness.json").read_text())["limits"]["standard"]["seconds"] + step.VERSION_READS
+        at = step.BUDGET - step.RETRY_WAIT - takes
+        result, review, calls, slept = asked(vendor(529), good, clock=lambda: at)
+        self.assertEqual((result["status"], review.retried), ("completed", {case["id"]: 1}))
+        result, review, calls, slept = asked(vendor(529), good, clock=lambda: at + 1)
+        self.assertEqual((review.retried, calls, slept), ({}, 1, []))
+        # A wait that ran long is read again before the ask: past the case's time, it is not asked again, though it waited.
+        late = []
+        cli = Answers(vendor(529), good)
+        heads = self.temp / "heads"
+        (heads / case["id"]).mkdir(parents=True, exist_ok=True)
+        review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, lambda: step.BUDGET - takes + 1 if late else 0.0, heads,
+                               sleep=late.append)
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            result = review(case)
+        self.assertEqual((result["reason"], review.retried, len(cli.asked()), late), ("engine_failed", {}, 1, [step.RETRY_WAIT]))
+        # Read again at the bound: with the case's whole time left once it has waited, and not a second more, it is asked.
+        waited = []
+        cli = Answers(vendor(529), good)
+        (heads / case["id"]).mkdir(parents=True, exist_ok=True)
+        start = step.BUDGET - step.RETRY_WAIT - takes
+        review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, lambda: start + step.RETRY_WAIT * len(waited), heads,
+                               sleep=waited.append)
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            result = review(case)
+        self.assertEqual((result["status"], review.retried, len(cli.asked()), waited),
+                         ("completed", {case["id"]: 1}, 2, [step.RETRY_WAIT]))
+        # Each attempt's use is the case's: the turns, the cost and the seconds of the one the vendor failed are summed with
+        # the answer's, on the answer's Result, its model the one that answered.
+        once, = [asked(good)[0]]
+        result, review, calls, slept = asked(vendor(529), good)
+        self.assertEqual((result["usage"]["turns"], result["usage"]["cost_usd"], result["usage"]["answering_model"]),
+                         (2 * once["usage"]["turns"], 2 * once["usage"]["cost_usd"], once["usage"]["answering_model"]))
+        # And the seconds, each attempt's own: 7 for the one the vendor failed, 11 for the answer.
+        tick, spans = [0.0], [7.0, 11.0]
+
+        class Timed(Answers):
+            def __call__(self, args, env, timeout, **given):
+                if args[1:] != ["--version"]:
+                    tick[0] += spans.pop(0)
+                return super().__call__(args, env, timeout, **given)
+        cli = Timed(vendor(529), good)
+        (heads / case["id"]).mkdir(parents=True, exist_ok=True)
+        review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, lambda: tick[0], heads, sleep=lambda seconds: None)
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            result = review(case)
+        self.assertEqual((result["status"], result["usage"]["seconds"], spans), ("completed", 18.0, []))
+        # So for every attempt RETRIES allows: three, of 7, 11 and 13 seconds, each one's turns and cost too.
+        tick, spans = [0.0], [7.0, 11.0, 13.0]
+        cli = Timed(vendor(529), vendor(503), good)
+        (heads / case["id"]).mkdir(parents=True, exist_ok=True)
+        review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, lambda: tick[0], heads, sleep=lambda seconds: None)
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            result = review(case)
+        self.assertEqual((result["status"], result["usage"]["seconds"], result["usage"]["turns"], result["usage"]["cost_usd"], spans),
+                         ("completed", 31.0, 3 * once["usage"]["turns"], 3 * once["usage"]["cost_usd"], []))
+        # The retry is the same case's Run: its Task keeps the Run id the first ask was given, however many are minted.
+        ids, runs, answered = iter([live.RUN, "r_" + "B" * 20]), [], step.live.answer
+
+        def answering(the_task, *given, **named):
+            runs.append(the_task["run"])
+            return answered(the_task, *given, **named)
+        cli = Answers(vendor(529), good)
+        (heads / case["id"]).mkdir(parents=True, exist_ok=True)
+        review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, lambda: 0.0, heads, sleep=lambda seconds: None)
+        with mock.patch.object(step, "run_id", lambda: next(ids)), mock.patch.object(step.live, "answer", answering):
+            result = review(case)
+        self.assertEqual((result["status"], runs), ("completed", [live.RUN] * 2))
+        # A retry judges its own call alone: one whose call cannot be made after a 5xx is the Engine's other fault, its
+        # word that call's, and it is not asked a third time.
+        result, review, calls, slept = asked(vendor(503), OSError("no such file"), good)
+        self.assertEqual((result["reason"], review.retried, calls), ("engine_failed", {case["id"]: 1}, 2))
+        self.assertEqual((review.seen.get("raised"), review.seen.get("terminal_reason")), ("OSError", None))
+        self.assertFalse(job.transient(result, review.seen))
+        # Of a case's several calls, the word kept is the first that did not succeed, the one whose Result the case returns.
+        def joined(the_task, env, config, call, clock, head=None):
+            results = [live_answer(the_task, env, config, call, clock, head=head) for _ in range(2)]
+            return passes.union(results)
+        from harness import passes, run as live_run
+        live_answer = live_run.answer
+        with mock.patch.object(step.live, "answer", joined):
+            result, review, calls, slept = asked(vendor(529), good, good, good)
+            self.assertEqual((result["status"], review.retried, calls), ("completed", {case["id"]: 1}, 4))
+            result, review, calls, slept = asked(vendor(401), vendor(503))
+            self.assertEqual((result["reason"], review.retried, calls, review.seen["api_error_status"]), ("engine_failed", {}, 2, 401))
+            # A call the CLI says succeeded with no answer to hold did not succeed either, as the Engine's `no_answer`:
+            # its word is kept, never a later call's error, and the case is not the vendor's.
+            result, review, calls, slept = asked((live.answer(structured_output=None), 0), vendor(503))
+            self.assertEqual((result["reason"], review.retried, calls), ("no_answer", {}, 2))
+            self.assertEqual((review.seen["exit"], review.seen["terminal_reason"], review.seen["api_error_status"]), (0, None, None))
+            # A call that raises after one that succeeded is kept alone, nothing of the first left on its word: a first call
+            # that said api_error and 529 beside its answer does not make the second's local fault the vendor's.
+            said = (live.answer(terminal_reason="api_error", api_error_status=529), 0)
+            result, review, calls, slept = asked(said, OSError("no such file"))
+            self.assertEqual((result["reason"], review.retried, review.seen), ("engine_failed", {}, {"raised": "OSError", "erred": True}))
+            result, review, calls, slept = asked(said, subprocess.TimeoutExpired(["claude"], 1))
+            self.assertEqual((result["reason"], review.retried, review.seen), ("engine_timeout", {}, {"timed_out": True, "erred": True}))
+        # The test is of a failed Result alone: a completed one is never transient, whatever the call said. Each probe is of
+        # a Result the Engine failed, so that it reaches the guard it is of.
+        result = dict(result, status="failed", reason="engine_failed")
+        self.assertTrue(job.transient(result, {"terminal_reason": "api_error", "api_error_status": 529}))
+        self.assertFalse(job.transient(dict(result, status="completed", reason=None), {"terminal_reason": "api_error"}))
+        self.assertFalse(job.transient(dict(result, status="completed"), {"terminal_reason": "api_error"}))
+        self.assertFalse(job.transient(dict(result, reason="no_answer"), {"terminal_reason": "api_error"}))
+        self.assertFalse(job.transient(result, {"terminal_reason": "api_error", "api_error_status": "529"}))
+        self.assertFalse(job.transient(result, None))
+
+    def test_a_transient_fault_is_reported_apart_and_a_retried_case_is_marked(self):  # issue 615
+        # A case the vendor or the network still failed after its retries is the Engine's, and closes the run as any of its
+        # faults does, but by a code of its own, apart from a model that ran out (`no_answer`) and from the Engine's other
+        # faults; each case asked again says how many times, and the cause names how the CLI ended and the vendor's status.
+        from harness import engine
+        from harness import eval as job
+        plan, fetch, judge = (getattr(getattr(job, n), n, getattr(job, n)) for n in ("plan", "fetch", "judge"))
+        first, second = list(self.cases)
+        usage = example_result()["usage"]
+        task = {"run": "r_ABC123", "release": "factory/v0.1.0"}
+        for status, code in ((529, "vendor_unavailable"), (None, "vendor_unavailable"), (429, "engine_failed")):
+            with self.subTest(status):
+                self.clean()
+                self.set(self.cases)
+                self.step(plan)
+                self.step(fetch, self.home(self.cases))
+                good = example_result()
+
+                def review(case):
+                    return engine.failed(task, "engine_failed", usage) if case["id"] == first else good
+                review.seen = dict({"subtype": "success", "exit": 1, "terminal_reason": "api_error"},
+                                   **({"api_error_status": status} if status is not None else {}))
+                review.retried = {first: 2, second: 1}
+                self.step(job.score, review)
+                written = json.loads((self.work / job.REPORT).read_text())
+                self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
+                self.assertEqual([(c["verdict"], c["reasons"], c.get("retried")) for c in written["cases"]],
+                                 [("unreadable", [code], 2), ("pass", [], 1)])
+                past = copy.deepcopy(written)
+                past["cases"][0]["retried"] = 3
+                self.assertTrue(validate(past, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()))
+                self.assertEqual(written["cases"][0]["cause"], dict({"subtype": "success", "terminal_reason": "api_error", "exit": 1},
+                                                                    **({"api_error_status": status} if status is not None else {})))
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                    self.assertEqual(self.step(judge), "engine_fault")
+                cause = " ".join("%s=%s" % kv for kv in sorted(written["cases"][0]["cause"].items()))
+                self.assertEqual(out.getvalue(), "1 of 2 passed; %s 1; %s 1\n" % (code, cause))
+        # How the CLI ended is a code from a short list, or `other`, and the status a number in HTTP's range: never words.
+        said = job.seen_of(type("R", (), {"seen": {"terminal_reason": "Overloaded: try later", "api_error_status": 99999}})())
+        self.assertEqual(said, {"terminal_reason": "other"})
+        said = job.seen_of(type("R", (), {"seen": {"terminal_reason": "structured_output_retry_exhausted", "api_error_status": True}})())
+        self.assertEqual(said, {"terminal_reason": "structured_output_retry_exhausted"})
+        # A case not asked again carries no mark at all.
+        self.assertNotIn("retried", job.report({"release": "r", "commit": "c", "set": {}}, {"role": "pr-review", "intent": "x",
+                                                                                              "cases": [{"id": "a", "sha256": "0" * 64}]},
+                                                {"a": ("pass", [])}, retried={"a": 0})["cases"][0])
+
     def test_a_fault_of_the_engine_or_the_factory_is_not_the_reviewers(self):  # decision 0106
         # The first eval on a runner read 42 cases as failed in 8 s: the CLI never started, and each failed Result was
         # scored as the reviewer's. A reason that says the model gave no answer is the case's code, tells nothing of what
@@ -2137,7 +2395,7 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(canary.install({"PATH": "/bin"}, run), 7)
         (args, env, check), = calls
         self.assertEqual(args, ["bash", "-e", "-c", "\n".join(check_workflows.CLI_INSTALL_RUN)])
-        self.assertIn("sudo apt-get update -q -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=0 -o Acquire::https::Timeout=10 || true\nsudo apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap", args[3])
+        self.assertIn("sudo RES_OPTIONS='timeout:5 attempts:2' apt-get update -q -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=0 -o Acquire::https::Timeout=10 || true\nsudo RES_OPTIONS='timeout:5 attempts:2' apt-get install -y --no-install-recommends -o Dir::Etc::sourcelist=/tmp/ubuntu.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=10 bubblewrap", args[3])
         self.assertEqual(env, {"PATH": "/bin", "CLI_VERSION": pin, "CLI_CHECKSUM": check_workflows.CLI_CHECKSUMS[pin]})
         self.assertFalse(check)
 
@@ -2878,6 +3136,46 @@ class EvalJob(unittest.TestCase):
             with mock.patch.object(job, "BLOCKING_LEAST", 0):
                 self.assertIs(job.split_ok(development, place), True)
 
+    def test_a_gate_sets_report_counts_the_cases_asked_again_and_its_ledger_marks_each(self):  # issue 615
+        # A gate set's report says how many of its own cases were asked again after the vendor or the network failed them,
+        # never which; its ledger marks each, as the per-case report does; and the gate refuses a count over the set's.
+        from harness import eval as job
+        with mock.patch.object(job, "BLOCKING_LEAST", 1):
+            self.set(self.cases, gate=True, natural=list(self.cases)[:1])
+            self.step(job.plan)
+            self.step(the_fetch(), self.home(self.cases, gate=True))
+            result = example_result()
+            first = list(self.cases)[0]
+
+            def review(case):
+                return result
+            # A case asked first, of the preflight, is marked in the ledger's preflight, and counted in nothing of the set's.
+            ahead = [e["id"] if isinstance(e, dict) else e for e in job.manifest(self.root, "pr-review-gate")[0]["preflight"]]
+            review.retried = {first: 2, ahead[0]: 1}
+            self.assertEqual(self.step(job.score, review), "scored 2 of 2 cases, 2 passed")
+            written = json.loads((self.work / job.REPORT).read_text())
+            self.assertEqual(written["retried"], 1)
+            self.assertNotIn(first, (self.work / job.REPORT).read_text())
+            ledger = json.loads((self.temp / "heldout" / job.LEDGER).read_text())
+            self.assertEqual([c.get("retried") for c in ledger["cases"]], [2, None])
+            self.assertEqual([c.get("retried") for c in ledger["preflight"]], [1] + [None] * (len(ledger["preflight"]) - 1))
+            self.assertEqual(ledger["preflight"][0]["id"], ahead[0])
+            self.assertEqual(validate(ledger, load("schemas/eval-ledger.schema.json"), schemas=eval_result.schemas()), [])
+            sealed = dict(written, ledger=dict(written["ledger"], sealed_sha256="f" * 64))
+            found, digest = job.manifest(self.root, "pr-review-gate")
+            self.assertEqual(job.aggregate_verdict(sealed, found, digest, "a" * 40, "factory/v0.1.0"), "pass")
+            self.assertEqual(job.aggregate_verdict(dict(sealed, retried=found["count"]), found, digest, "a" * 40, "factory/v0.1.0"), "pass")
+            self.assertEqual(job.aggregate_verdict(dict(sealed, retried=found["count"] + 1), found, digest, "a" * 40, "factory/v0.1.0"),
+                             "count_differs")
+            # The total is the report's to carry: one without it is no report of the job's. And no case says more tries
+            # than RETRIES, in the ledger's cases or its preflight.
+            missing = {k: v for k, v in sealed.items() if k != "retried"}
+            self.assertEqual(job.aggregate_verdict(missing, found, digest, "a" * 40, "factory/v0.1.0"), "report_unreadable")
+            for part in ("cases", "preflight"):
+                past = copy.deepcopy(ledger)
+                past[part][0]["retried"] = 3
+                self.assertTrue(validate(past, load("schemas/eval-ledger.schema.json"), schemas=eval_result.schemas()), part)
+
     def test_a_gate_sets_report_holds_counts_alone_and_its_ledger_every_case(self):  # issue 612
         from harness import eval as job
         result = self.gate_run()
@@ -3104,7 +3402,7 @@ class EvalJob(unittest.TestCase):
                   "criteria": {},     # the set floors no criterion (issue 692)
                   "origin": {"natural": {"cases": natural[0], "passed": natural[1]},
                              "constructed": {"cases": count - natural[0], "passed": passed - natural[1]}},
-                  "faults": [{"code": c, "count": n} for c, n in faults],
+                  "faults": [{"code": c, "count": n} for c, n in faults], "retried": 0,
                   "preflight": {"cases": 3, "passed": 3, "faults": []},
                   "usage": {"answered": count, "input_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
                             "output_tokens": 1, "turns": count, "cost_usd": 1.5, "seconds": 60.0},

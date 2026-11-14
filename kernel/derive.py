@@ -5,7 +5,7 @@ State is never stored. This function is the only definition of it.
 from __future__ import annotations
 
 from kernel import terms as t
-from kernel.gate import closed, gates, is_person, verdict_order
+from kernel.gate import SECURITY, closed, gates, gating_threads, is_person, verdict_order
 
 
 def incomplete(facts: dict) -> list:
@@ -112,15 +112,34 @@ def expired_threads(facts: dict, runs: list, config: dict) -> dict:
     return out
 
 
+def dropped_by_review(th, facts: dict, runs: list) -> bool:
+    """Whether a thread the port says its Lens's later review dropped is read as superseded (decision 0212): a Lens's,
+    of a category the Kernel knows that is not security, not ruled rejected, opened before the last push, with a review
+    by that Lens that succeeded on this content and started after that push: one of a head newer than the thread's."""
+    by, pushed = th.get("opened_by") if isinstance(th, dict) else None, facts.get("last_push_at")
+    known = [c for c in t.CATEGORIES if c != SECURITY]
+    if not isinstance(by, dict) or by.get("kind") != "lens" or th.get("dropped") is not True \
+            or th.get("category") not in known or th.get("ruling") == "rejected" \
+            or not is_time(th.get("opened_at")) or not is_time(pushed) or th["opened_at"] >= pushed \
+            or not isinstance(runs, list):
+        return False
+    return any(r.get("role") == by.get("name") and r.get("intent") == "review-change" and r.get("status") == "completed"
+               and r.get("conclusion") == "success" and r.get("content_id") == facts.get("content_id")
+               and is_time(r.get("started_at")) and r["started_at"] > pushed
+               and r.get("item") == facts.get("item") for r in runs if isinstance(r, dict))
+
+
 def as_read(facts: dict, runs: list, config: dict) -> dict:
     """The facts as the Kernel reads them: each expired Run's thread (expired_threads) marked `expired`, and `superseded`
     once its Lens has a review that succeeded and started after the Run that opened it, on any content. `kernel/gate.py`
     reads the marks: such a thread gates at any severity, since it may have been a security Finding, and the queue App's
     resolution closes it once it is superseded, with no ruling, since its Finding is gone (decision 0075). Its category,
-    severity and ruling stay as the port gave them. A mark the facts arrive with is no fact, and is dropped: only this
+    severity and ruling stay as the port gave them. A thread its Lens's later review dropped (dropped_by_review) is
+    marked `superseded` too, and closes the same way. A mark the facts arrive with is no fact, and is dropped: only this
     reading makes one. The facts given are never changed."""
     expired = expired_threads(facts, runs, config)
     marked = isinstance(facts.get("threads"), list) and any(isinstance(th, dict) and set(th) & MARKS for th in facts["threads"])
+    marked = marked or (isinstance(facts.get("threads"), list) and any(dropped_by_review(th, facts, runs) for th in facts["threads"]))
     if not expired and not marked:
         return facts
 
@@ -131,7 +150,20 @@ def as_read(facts: dict, runs: list, config: dict) -> dict:
     plain = [{k: v for k, v in th.items() if k not in MARKS} if isinstance(th, dict) else th for th in facts["threads"]]
     threads = [dict(th, expired=True, superseded=superseded(expired[place])) if place in expired else th
                for place, th in enumerate(plain)]
+    threads = [dict(th, superseded=True) if dropped_by_review(th, facts, runs) else th for th in threads]
     return dict(facts, threads=threads)
+
+
+def pushed_past_review(runs: list, facts: dict, role: str, config: dict, due: list) -> bool:
+    """Whether the head was pushed since `role` last reviewed this content, while a thread of its own gates and still
+    stands (decision 0212). A review that started in the push's own second may have read the head before it; a thread
+    the Kernel is to resolve, one of `due`, asks nothing."""
+    if not is_time(facts.get("last_push_at")) or not any(
+            th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == role and th["id"] not in due
+            for th in gating_threads(facts, config)):
+        return False
+    since = [r for r in runs if is_time(r["started_at"]) and r["started_at"] > facts["last_push_at"]]
+    return not reviewed_clean_or_not(since, facts, role)
 
 
 def contradicts(run: dict, facts: dict) -> bool:
@@ -333,9 +365,12 @@ def readable_rules(config: dict) -> bool:
     among them: each a list of at least one pattern, each in its shape (readable_pattern). The Controller builds both
     from the base branch's config/hooks.json, never the head's, by one function (decision 0020, issue 140). A list that
     is empty, or not there, would let a change to the Factory's own rules, or to what a model Lens is given, pass as any
-    other (I-13)."""
+    other (I-13). And the paths only a person decides, by which that wait is named (decision 0207): a list of patterns
+    in the same shape, which may name none, and is never taken as none where it is not there."""
+    persons = config.get("person_only_paths")
     return all(isinstance(rules, list) and len(rules) > 0 and all(readable_pattern(p) for p in rules)
-               for rules in (config.get("protected_paths"), config.get("model_lens_inputs")))
+               for rules in (config.get("protected_paths"), config.get("model_lens_inputs"))) \
+        and isinstance(persons, list) and all(readable_pattern(p) for p in persons)
 
 
 def fits(pattern: str, path: str) -> bool:
@@ -414,6 +449,13 @@ def lens_inputs_touched(facts: dict, config: dict) -> list:
     return [p for p in dict.fromkeys(config["model_lens_inputs"]) if any(matches(p, path) for path in changed)]
 
 
+def person_only_touched(facts: dict, config: dict) -> list:
+    """Each path only a person decides that this pull request changes, as the configuration names it, once, in its
+    order: no Lens reads one, and a person's approval is the only judgement of it (decisions 0200 and 0207)."""
+    changed = names(facts["changed_paths"])
+    return [p for p in dict.fromkeys(config["person_only_paths"]) if any(matches(p, path) for path in changed)]
+
+
 def judged_by_a_person(facts: dict) -> bool:
     """Whether a person has judged this head, so that no model Lens is the only judge of a change to its own inputs: an
     approval of this content that stands, by a person with write access other than its author and its last pusher
@@ -467,6 +509,9 @@ def unreadable_thread(th: dict, lenses: list, facts: dict, config: dict) -> bool
     if th["resolved"] and not readable_actor(th.get("resolved_by"), facts, config):
         return True
     if not th["resolved"] and th.get("resolved_by") is not None:
+        return True
+    # What the port says of a later review is a yes or a no (decision 0212).
+    if "dropped" in th and type(th["dropped"]) is not bool:
         return True
     # An expired Run's open thread has no category to read, and gates as if it were a security Finding (as_read, issue
     # 420), open or resolved by the queue App ahead of the review that lets it close. One resolved by anyone else is not
@@ -1293,9 +1338,17 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     odd = [r["run"] for r in mine if r["role"] in lenses and contradicts(r, facts)]
     if odd:
         return {"state": None, "reason": "run_unreadable", "evidence": odd}
+    # A Lens's thread that the Kernel is to resolve, read with the gates below, asks no review of its Lens.
+    # No security Finding's thread is one, whatever ruling the facts carry (decisions 0007 and 0086).
+    plain = [th for th in facts["threads"] if th.get("category") != SECURITY]
+    due = [th["id"] for th in plain
+           if th["opened_by"]["kind"] == "lens" and not th["resolved"]
+           and (th["ruling"] == "accepted" or th.get("superseded") is True)]
     for lens in lenses:
-        # A review whose record is past retention is asked for again (issue 346).
-        if (not reviewed_clean_or_not(mine, facts, lens) or review_expired(mine, facts, lens)) \
+        # A review whose record is past retention is asked for again (issue 346), and so is one the head was pushed
+        # past while its Lens's own thread gates (decision 0212).
+        if ((not reviewed_clean_or_not(mine, facts, lens) or review_expired(mine, facts, lens))
+                or pushed_past_review(mine, facts, lens, config, due)) \
                 and ("awaiting_review" not in past or rules):
             return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens] + rules}
 
@@ -1306,10 +1359,8 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     # (issue 389). A person's gate comes first: it holds the merge whatever the Lens's threads do, and is never hidden
     # behind an act. A queued item reads past it, so a gating thread open on it takes it out of the queue first: the
     # queue checks threads only as an item enters it.
-    # So is an expired Run's thread its Lens's fresh review has superseded (issue 420), on no ruling.
-    due = [th["id"] for th in facts["threads"]
-           if th["opened_by"]["kind"] == "lens" and not th["resolved"]
-           and (th["ruling"] == "accepted" or th.get("superseded") is True)]
+    # So is a thread its Lens's later review has superseded, on no ruling: an expired Run's (issue 420), or one that
+    # review dropped (decision 0212). They are `due`, read above.
     if due and "resolve_due" not in past and not any(g["by"]["kind"] == "human" for g in open_gates):
         return {"state": t.ADJUDICATING, "reason": "resolve_due", "evidence": due}
     if open_gates:
@@ -1335,8 +1386,15 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
 
     # A change to a model Lens's own inputs needs a person as well as every model Lens's review: with one model family,
     # the only judge that is not the Lens is a person (issue 140). It is no wait a queued item is read past.
+    # So does a change to a path only a person decides, which no Lens reads (decision 0200). Where such paths are all
+    # the change touches of either list, the wait is named for itself; beside a model Lens's input it keeps the
+    # Lens's code (decision 0207).
+    alone = person_only_touched(facts, config)
     own = lens_inputs_touched(facts, config)
+    own = own + [p for p in alone if p not in own]
     if own and not judged_by_a_person(facts):
+        if all(p in alone for p in own):
+            return {"state": t.VERIFYING, "reason": "path_needs_person", "evidence": own}
         return {"state": t.VERIFYING, "reason": "model_lens_input_needs_person", "evidence": own}
 
     # GitHub does not count an approval by the author or the last pusher, so nothing may merge on one (I-26). It is
