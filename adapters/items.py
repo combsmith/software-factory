@@ -1,12 +1,20 @@
-"""The items port: the open pull requests of a repo, by number, with whether the list was read whole (design section
-3.3, L-53). Each is then read on its own by `adapters/facts.py`; nothing here is a fact.
+"""The items port: the open pull requests of a repo, and its open issues, by number, with whether each list was read
+whole (design section 3.3, L-53). Each is then read on its own, by `adapters/facts.py` or `adapters/issues.py`; nothing
+here is a fact.
 
 They are read by GraphQL, `pullRequests(states: OPEN)`, page by page in the order they were opened, so that a pull
 request updated while the pages are read moves no other across a page (the shape `trials/P-32.json` recorded, read
 there newest updated first). The list is whole only when every page was read, the last naming no next one, with as
 many pull requests as GitHub counted on the first page and on every page since, each once, each of this repo. A page
 GitHub answered with an error, or without the repo, is refused; a list read short says so and is never the whole
-(L-53), so that the pass, refusing it, never reads a pull request that was not read as one that is not open."""
+(L-53), so that the pass, refusing it, never reads a pull request that was not read as one that is not open.
+
+The open issues are listed by the same pages and held to the same wholeness, `issues(states: OPEN, filterBy: {since})`,
+asked only of those updated at or after `issues.served_from`. That leaves out none the Kernel serves: an issue is served
+only if its present life began at or after that date (`kernel/issue.py`'s `served`), and its opening or the reopening
+that began that life moved its `updatedAt` then. So an issue that has not moved since the date is not served, and is
+not read: turning issues on serves what opens or moves from then, and sweeps no backlog. With no date, the default, no
+issue is served, and none is listed or read."""
 from __future__ import annotations
 
 from adapters.github import Unanswered, request
@@ -23,26 +31,53 @@ QUERY = ("query OpenPullRequests($owner: String!, $name: String!, $after: String
          "    }\n"
          "  }\n"
          "}" % PAGE)
+ISSUES = ("query OpenIssues($owner: String!, $name: String!, $after: String, $since: DateTime!) {\n"
+          "  repository(owner: $owner, name: $name) {\n"
+          "    nameWithOwner\n"
+          "    issues(states: OPEN, first: %d, after: $after, filterBy: {since: $since}, "
+          "orderBy: {field: CREATED_AT, direction: ASC}) {\n"
+          "      totalCount\n"
+          "      pageInfo { hasNextPage endCursor }\n"
+          "      nodes { number }\n"
+          "    }\n"
+          "  }\n"
+          "}" % PAGE)
 
 
-def _page(transport, repo: str, after) -> dict:
-    owner, name = repo.split("/")
-    answer = transport.send(request("POST", "/graphql", body={
-        "query": QUERY, "variables": {"owner": owner, "name": name, "after": after}}))
+def _page(answer: dict, repo: str, listed: str) -> dict:
+    """The connection `listed` of one page GitHub answered; refused where it is not this repo's, or has errors."""
     body = answer["body"] if answer["status"] == 200 and isinstance(answer["body"], dict) else None
     data = body.get("data") if isinstance(body, dict) and "errors" not in body else None
     found = data.get("repository") if isinstance(data, dict) else None
-    if not isinstance(found, dict) or found.get("nameWithOwner") != repo or not isinstance(found.get("pullRequests"), dict):
-        raise Unanswered("the open pull requests of %s could not be read" % repo)
-    return found["pullRequests"]
+    if not isinstance(found, dict) or found.get("nameWithOwner") != repo or not isinstance(found.get(listed), dict):
+        raise Unanswered("the open %s of %s could not be read" % (listed, repo))
+    return found[listed]
 
 
 def open_pull_requests(transport, repo: str) -> tuple:
     """`(numbers, whole)`: every open pull request of `repo` read, by number, in the order opened, and whether that was
     every one GitHub counts."""
+    owner, name = repo.split("/")
+    return _listed(repo, "pullRequests", lambda after: transport.send(request("POST", "/graphql", body={
+        "query": QUERY, "variables": {"owner": owner, "name": name, "after": after}})))
+
+
+def open_issues(transport, repo: str, since) -> tuple:
+    """`(numbers, whole)`: every open issue of `repo` updated at or after `since`, `issues.served_from`, by number, in
+    the order opened, and whether that was every one GitHub counts; with no `since`, none, whole, and nothing asked."""
+    if since is None:
+        return [], True
+    owner, name = repo.split("/")
+    return _listed(repo, "issues", lambda after: transport.send(request("POST", "/graphql", body={
+        "query": ISSUES, "variables": {"owner": owner, "name": name, "after": after, "since": since}})))
+
+
+def _listed(repo: str, listed: str, ask) -> tuple:
+    """The numbers on every page of one list, `listed`, each page asked by `ask` after the last one's cursor, and
+    whether they were every one GitHub counts, each once."""
     numbers, count, after, whole = [], None, None, True
     for _ in range(PAGES):
-        page = _page(transport, repo, after)
+        page = _page(ask(after), repo, listed)
         total, info, nodes = page.get("totalCount"), page.get("pageInfo"), page.get("nodes")
         if type(total) is not int or total < 0 or not isinstance(info, dict) or not isinstance(nodes, list) \
                 or not isinstance(info.get("hasNextPage"), bool):

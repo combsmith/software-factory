@@ -28,6 +28,7 @@ import pathlib
 
 from adapters import acceptance, applied, checks, edits, pull, threads, timeline
 from adapters.github import Unanswered
+from kernel.terms import BOT_SUFFIX
 from tools.jsonschema_lite import validate
 
 
@@ -160,6 +161,17 @@ def accounts_of(controller: dict) -> tuple:
     factory = bots(held["agents"]) | set(lenses) | ({(held["controller"]["id"], "Bot")} if held["controller"] else set())
     queue = queue_of(controller)
     return identities, approver, lenses, factory | ({queue} if queue else set())
+
+
+def app_names_of(controller: dict, apps: dict) -> dict:
+    """`{(id, "Bot"): name}`: each Factory App whose bot account `controller/1` holds, the Controller's and each Role's,
+    by the name config/apps.json gives it with the suffix REST spells a Bot's login with, so that
+    `adapters/timeline.Accounts` names that App by its id. An App the configuration does not name is left out, and is
+    named by its login."""
+    held = controller["accounts"]
+    accounts = [("controller", held.get("controller"))] + sorted((held.get("roles") or {}).items())
+    return {(account["id"], "Bot"): apps[code]["name"] + BOT_SUFFIX for code, account in accounts
+            if isinstance(account, dict) and isinstance(apps.get(code), dict) and apps[code].get("name")}
 
 
 def queue_of(controller: dict):

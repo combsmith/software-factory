@@ -105,6 +105,9 @@ ISSUE_CONTENT = ("tests.test_adapters.Issues.test_an_issues_content_time_is_the_
 ISSUE_LIFE = ("tests.test_adapters.Issues.test_a_reopening_by_a_writer_begins_a_life_and_anyone_elses_does_not",)
 ISSUE_REFUSED = ("tests.test_adapters.Issues.test_an_issue_github_did_not_answer_whole_is_refused",)
 ISSUE_OWN = ("tests.test_adapters.Issues.test_the_issues_own_facts_hold_to_the_schema_and_leave_its_linked_pull_requests_unread",)
+# S3, the issues pass: the tests that kill its mutants.
+S3_PORT = ("tests.test_adapters.Issues.test_a_factory_app_is_named_by_the_id_the_configuration_holds_and_a_person_never_is",)
+S3_LIST = ("tests.test_adapters.Items.test_open_issues_are_listed_from_served_from_by_the_same_pages_and_none_with_no_date",)
 COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers",)
 ALSO_AT = ("tests.test_evals.Scoring.test_a_finding_at_any_place_the_case_gives_is_at_the_place",)
 SPAN = ("tests.test_evals.Scoring.test_a_result_that_raises_the_expected_finding_passes_and_one_that_does_not_fails",
@@ -13601,6 +13604,32 @@ MUTANTS = ISSUE + [
     ("a type change is grounded by no fixture", 'sim/grounding.py',
      'and the type before and after", ("P-61",), "trials/P-61.json", None),',
      'and the type before and after", ("P-61",), None, None),', ('tests.test_tools.Trials.test_p61_holds_what_grounds_its_three_rules',)),
+    # S3: the open issues are listed from `issues.served_from`; an App is named by the id the configuration holds (the
+    # Factory Builder's ruling A).
+    ('open issues are listed whatever their last update', 'adapters/items.py',
+     'filterBy: {since: $since}, ',
+     '', S3_LIST),
+    ('open issues are listed with no date asked', 'adapters/items.py',
+     '"after": after, "since": since}',
+     '"after": after}', S3_LIST),
+    ('with no date, open issues are asked for', 'adapters/items.py',
+     '    if since is None:\n        return [], True\n',
+     '', S3_LIST),
+    ('an App the configuration names by its id is named by its login', 'adapters/timeline.py',
+     'return {"kind": "app", "name": self.named(login, ident, kind), "can_write": False}',
+     'return {"kind": "app", "name": login, "can_write": False}', S3_PORT),
+    ("an App's comment on an issue is kept by the login it shows", 'adapters/issues.py',
+     '            login = accounts.named(login, ident, kind)\n',
+     '', S3_PORT),
+    ('the issues port hands back no title', 'adapters/issues.py',
+     '    return found, title',
+     '    return found, None', ('tests.test_adapters.Issues.test_an_issues_timeline_is_whole_only_when_its_last_page_names_no_next',)),
+    ('an App is named by its id with no suffix', 'adapters/facts.py',
+     'apps[code]["name"] + BOT_SUFFIX for code',
+     'apps[code]["name"] for code', S3_PORT),
+    ("a Role's App is not named by its id", 'adapters/facts.py',
+     ' + sorted((held.get("roles") or {}).items())\n    return {(account["id"], "Bot")',
+     '\n    return {(account["id"], "Bot")', S3_PORT),
     ("the closing reference's rule is grounded by no fixture", 'sim/grounding.py',
      'one to another base carries no reference", ("P-33",), ("trials/P-33.json", "trials/P-33.port.json"), None),',
      'one to another base carries no reference", ("P-33",), None, None),', ('tests.test_tools.Trials.test_the_issue_fixtures_hold_what_grounds_the_four_rules',)),
