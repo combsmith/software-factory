@@ -4382,8 +4382,8 @@ def second_page(found: dict, body) -> dict:
 
 # Each grounded rule of the fake that the port does not read here, by why: the Controller's, the workflows' or a
 # person's, which no port reads (`controller`); the Kernel's, held by its own boundary tests, a race no port can read
-# (`kernel`); or the issues port's, not built (`issues_port`). Every grounded fixture is recorded in the shape its port
-# asks (issue 807).
+# (`kernel`); or the issues port's linked read, not built (`issues_port`). Every grounded fixture is recorded in
+# the shape its port asks (issue 807).
 NOT_READ = {
     # The records port reads what GitHub lists and cannot see a Run it does not list: the race is the Kernel's, held by
     # the unidentified window (decision 0036).
@@ -4396,8 +4396,6 @@ NOT_READ = {
     # request's close and reopening; none of it is built yet (P-61, issue 551).
     "a_link_by_hand_is_timed": "issues_port", "a_type_change_is_timed": "issues_port",
     "a_pull_requests_close_and_reopening_are_timed": "issues_port",
-    "an_issues_content_time_is_read_apart": "issues_port", "a_reopening_names_its_actor": "issues_port",
-    "an_issues_close_and_reopening_say_when": "issues_port",
     "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing": "issues_port",
     # The queue's writes, which the effects port does not make until the App that enqueues is granted contents: write.
     "an_app_enters_the_queue": "controller", "an_app_leaves_the_queue": "controller",
@@ -4567,6 +4565,15 @@ class Contract(unittest.TestCase):
         short_events = timeline.events(github.Replay([per_hundred(p43[13]), second_page(per_hundred(p43[13]), {})]),
                                        {"number": 48, "base": {"repo": {"full_name": canary()}}})
         files = pull.changed_paths(github.Replay([as_compare(p43[10], body("P-43", 8))]), body("P-43", 8), PINNED_BASE)
+        # P-34: issue 42 edited, renamed, commented on, labelled, closed and reopened by the Maintainer, then closed; its
+        # timeline and the issue read by REST as the port reads them, its lastEditedAt as P-34's GraphQL read gave it.
+        # Not through read(): no trial has recorded the port's own GraphQL read, and P-34's, asked at another time,
+        # names another updatedAt (decision 0218). That trial is owed, issue 831.
+        p34 = issues.own(replay("P-34.rest", 1), canary(), 42)
+        p34_events, p34_whole = timeline.events(replay("P-34.rest", 0), {"number": 42, "base": {"repo": {"full_name": canary()}}})
+        p34_accounts = timeline.Accounts(Router(github.Replay([]), {"don-petry": "admin"}), canary(), MACHINE, {})
+        p34_edited = body("P-34", 0)["data"]["repository"]["issue"]["lastEditedAt"]
+        renamed = "2026-10-20T21:17:28Z"
         return {
             # A request made before the App's push stood until the pr-review App dismissed it: not the push.
             "a_request_for_changes_survives_a_push": ({"P-41"}, any(
@@ -4591,6 +4598,17 @@ class Contract(unittest.TestCase):
                 r["by"]["kind"] == "machine_user" and r["state"] == "dismissed" and r["dismissed_from"] == "approved"
                 and r["dismissed_by"]["kind"] == "app" for r in reviewed)),
             "a_push_is_new_content": ({"P-29.base"}, before != after),
+            # The title's rename, not the body's earlier edit nor updatedAt.
+            "an_issues_content_time_is_read_apart": ({"P-34", "P-34.rest"},
+                issues.content_changed_at(p34["created_at"], p34_edited, p34_events) == renamed > p34_edited
+                and renamed != p34["updated_at"]),
+            "a_reopening_names_its_actor": ({"P-34.rest"}, [p34_accounts.acted(ev) for ev in p34_events
+                                                            if ev["event"] == "reopened"] == [P41_WRITER]),
+            # The Maintainer's reopening began a life, whose first close is the trial's last.
+            "an_issues_close_and_reopening_say_when": ({"P-34.rest"}, p34_whole and p34["state"] == "closed"
+                and issues.life(p34["created_at"], p34_events, p34_accounts)
+                == {"life_started_at": "2026-10-20T21:21:54Z", "reopened_last_by": "writer",
+                    "reopened_last_at": "2026-10-20T21:21:54Z", "closed_first_at": "2026-10-20T21:31:23Z"}),
             "a_check_names_its_run_and_suite": ({"P-65"}, self.run_and_suite_read()),
             "any_app_posts_a_check_under_any_name": ({"P-42", "P-42.port"}, self.posted_under_a_name_read()),
             "a_push_restarts_the_checks": ({"P-42.push"}, self.pushed_pending_read()),
@@ -5968,6 +5986,27 @@ class Issues(unittest.TestCase):
         self.assertEqual(life("open", (closed, 0, PERSON), (reopened, 5, PERSON), (closed, 10, PERSON),
                               (reopened, 15, STRANGER)), (minute(5), "other", minute(15), minute(10)))
 
+    def test_label_events_are_read_with_who_made_them_in_the_timelines_order(self):
+        events = [issue_event("labeled", 0, CONTROLLER_APP, label={"name": "factory:triage"}),
+                  issue_event("unlabeled", 5, PERSON, label={"name": "factory:triage"}),
+                  issue_event("labeled", 3, STRANGER, label={"name": "bug"}),
+                  issue_event("labeled", 6, PERSON, {"id": 9}, label={"name": "factory:ready"})]
+        f = self.read(issue_read(events))
+        writer, app = {"kind": "human", "name": "don-petry", "can_write": True}, {"can_write": False}
+        self.assertEqual(f["label_events"], [
+            {"label": "factory:triage", "action": "labeled", "at": minute(0),
+             "by": dict(app, kind="app", name="combsmith-sf-controller[bot]")},
+            {"label": "factory:triage", "action": "unlabeled", "at": minute(5), "by": writer},
+            {"label": "bug", "action": "labeled", "at": minute(3), "by": dict(app, kind="human", name="stranger")},
+            # An App's label with a person's token is the App's (decision 0218).
+            {"label": "factory:ready", "action": "labeled", "at": minute(6), "by": dict(app, kind="app", name="don-petry")}])
+        self.assertEqual(f["author"], writer)
+        # An issue an App opened with a person's token is the App's (decision 0218).
+        self.assertEqual(self.read(issue_read(performed_via_github_app={"id": 9}))["author"],
+                         dict(app, kind="app", name="don-petry"))
+        with self.assertRaises(github.Unanswered):
+            self.read(issue_read([issue_event("labeled", 0, label=None)]))
+
     def test_the_writers_last_acts_and_each_apps_latest_comment_are_read(self):
         other_app = ("github-actions[bot]", 41898282, "Bot")  # an App outside the Factory
         events = [issue_event("commented", 0, CONTROLLER_APP), issue_event("commented", 6, PERSON),
@@ -6022,6 +6061,11 @@ class Issues(unittest.TestCase):
             with self.assertRaises(github.Unanswered, msg=at):
                 self.read(found)
 
+    def test_an_issue_that_changed_while_it_was_read_is_refused(self):
+        for edits, issue in (("2026-10-11T11:00:01Z", UPDATED), (UPDATED, "2026-10-11T11:00:01Z")):
+            with self.assertRaises(facts.Moved):
+                self.read(issue_read(edits={"updatedAt": edits}, updated_at=issue))
+
     def test_the_issues_own_facts_hold_to_the_schema_and_leave_its_linked_pull_requests_unread(self):
         from kernel import issue
         from tests.support import CONFIG
@@ -6055,6 +6099,16 @@ class Issues(unittest.TestCase):
         self.assertEqual(f["type_events"], [{"from": None, "to": "Bug", "at": minute(-50)},
                                             {"from": "Bug", "to": "Task", "at": minute(-40)},
                                             {"from": "Task", "to": None, "at": minute(-30)}])
+        # The content is the title and the body, each apart, an empty body as none, and nothing else.
+        content = lambda **change: self.read(issue_read(**change))["content_id"]
+        self.assertEqual(f["content_id"], "sha256:" + hashlib.sha256(b'["A title", "A body"]').hexdigest())
+        self.assertNotEqual(content(title="A ", body="B"), content(title="A", body=" B"))
+        self.assertEqual(content(body=None), content(body=""))
+        self.assertEqual(content(updated_at="2026-10-11T11:30:00Z", edits={"updatedAt": "2026-10-11T11:30:00Z"},
+                                 last=minute(-30)), f["content_id"])
+        # An issue with no labels and no one assigned is read so.
+        bare = self.read(issue_read(labels=[], assignees=[]))
+        self.assertEqual((bare["label_names"], bare["assignees"]), ([], []))
         # The Kernel defers on the pull requests not read yet, and reads the rest as an issue's facts.
         deferred = issue.derive(f, [], CONFIG)
         self.assertEqual((deferred["state"], deferred["reason"], deferred["evidence"]), (None, "facts_incomplete", ["linked"]))
