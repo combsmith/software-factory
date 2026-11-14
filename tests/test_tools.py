@@ -1002,10 +1002,12 @@ class Authority(unittest.TestCase):
                                                           {"harness/apply.py": {opener}}), [])
         self.assertTrue(caught(check_authority.opening_problems(named, tree(opens, bare), callers),
                                "never call harness/apply.py's opened"))
-        # There, with no def of its own at the top, opened is a parameter's, not its own.
-        self.assertTrue(caught(check_authority.opening_problems(named, tree(opens, "def run(opened):\n    return opened(1)\n",
-                                                                            "harness/apply.py"), {"harness/apply.py": {opener}}),
-                               "never call harness/apply.py's opened"))
+        # There, with no def of its own at the top, opened is a parameter's, not its own; decorated, it may be another's.
+        for harness in ("def run(opened):\n    return opened(1)\n", "@print\n" + bare):
+            with self.subTest(harness=harness):
+                self.assertTrue(caught(check_authority.opening_problems(named, tree(opens, harness, "harness/apply.py"),
+                                                                        {"harness/apply.py": {opener}}),
+                                       "never call harness/apply.py's opened"))
         # Fails open no more (reviews of PR 819). A name bound once is bound by `name = ` and nothing else in its scope:
         # re-bound, augmented, deleted, a loop's, a with's or a walrus's target, or a parameter that shadows a module's
         # constant, it is not read. request is adapters/github.py's, imported at the top by its name, under another, or

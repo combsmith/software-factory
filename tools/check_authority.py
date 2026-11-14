@@ -200,13 +200,13 @@ def openers(root: pathlib.Path = None) -> set:
 def records_the_opening(tree, rel: str) -> bool:
     """Whether a module calls harness/apply.py's `opened`: by that name imported from harness.apply, as an attribute of
     harness.apply however it is imported, relatively from the Harness too, or, in harness/apply.py, by its own name, as
-    its def at the top binds it. `harness.apply.opened` counts only where `import harness.apply` binds it. Each import
+    its def at the top binds it, with no decorator, which may replace it. `harness.apply.opened` counts only where `import harness.apply` binds it. Each import
     is at the module's top, and the name called is bound by it, or by that def, and by nothing else in the module. The
     call is in the module's own scope or a function's (`_own`, `_functions`), in a module that names nothing in
     DYNAMIC."""
     if _dynamic(tree):
         return False
-    own = any(isinstance(n, ast.FunctionDef) and n.name == "opened" for n in tree.body)
+    own = any(isinstance(n, ast.FunctionDef) and n.name == "opened" and not n.decorator_list for n in tree.body)
     names, modules, whole = {"opened"} if rel == "harness/apply.py" and own else set(), set(), False
     inside = rel.startswith("harness/")
     for node in tree.body:

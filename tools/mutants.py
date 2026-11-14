@@ -6275,6 +6275,8 @@ MUTANTS = ISSUE + [
      '                if isinstance(item, (ast.Return, ast.Raise)):\n', '                if False:\n', ("tests.test_tools.Authority.test_a_role_named_to_open_pull_requests_waits_on_its_writer",)),
     ("a step's calls are read in every scope", "tools/check_authority.py",
      'for call in (n for scope in scopes for n in _own(scope) if isinstance(n, ast.Call)):', 'for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):', ("tests.test_tools.Authority.test_a_role_named_to_open_pull_requests_waits_on_its_writer",)),
+    ('a decorated opened in harness/apply.py is its own', "tools/check_authority.py",
+     ' and not n.decorator_list for n in tree.body)', ' for n in tree.body)', ("tests.test_tools.Authority.test_a_role_named_to_open_pull_requests_waits_on_its_writer",)),
     ('the configuration is not held to the opening', "tools/check_authority.py",
      '    problems += opening_problems(c)\n', '', ("tests.test_tools.Authority.test_a_role_named_to_open_pull_requests_waits_on_its_writer",)),
     ('a counter-example configuration is not held to the opening', "tools/check_examples.py",
