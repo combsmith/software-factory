@@ -2731,7 +2731,7 @@ def thread_text(ident: str, body="It reads the head before the push.", opened=No
     login, account, kind = opened or LENS
     node = {"__typename": "PullRequestReviewThread", "id": ident,
             "pullRequest": {"number": number, "repository": {"nameWithOwner": repo}},
-            "comments": {"nodes": [{"body": body, "replyTo": None,
+            "comments": {"nodes": [{"body": body, "replyTo": None, "lastEditedAt": None,
                                     "author": {"__typename": kind, "login": login, "databaseId": account}}]}}
     node.update(change)
     return {"request": {"via": "graphql", "call": "POST /graphql", "headers": {},
@@ -2767,6 +2767,12 @@ class FindingTexts(unittest.TestCase):
         self.assertTrue(all(task.readable_text(t) for t in said))
         # No thread asked for is no text, and nothing is asked of GitHub.
         self.assertEqual(self.read([]), [])
+        # What it asks GitHub, word for word: the thread by its id, its pull request, and of its first comment the text,
+        # what it replies to, whether it was edited and who made it. No trial has recorded this read.
+        self.assertEqual(" ".join(texts.THREAD.split()), (
+            "query TextsThread($id: ID!) { node(id: $id) { __typename ... on PullRequestReviewThread { id "
+            "pullRequest { number repository { nameWithOwner } } comments(first: 1) { nodes { body replyTo { id } "
+            "lastEditedAt author { __typename login ... on User { databaseId } ... on Bot { databaseId } } } } } } }"))
 
     def test_a_threads_text_that_is_not_its_lenss_own_on_this_pull_request_builds_no_task(self):  # issue 856
         # What cannot be read whole, or is not what was asked for, raises, so that no Task lists a Finding it does not
@@ -2775,8 +2781,27 @@ class FindingTexts(unittest.TestCase):
         gone = dict(thread_text("PRRT_7"), response={"status": 200, "headers": {}, "body": {"data": {"node": None}}})
         refused = dict(thread_text("PRRT_7"), response={"status": 200, "headers": {}, "body": {
             "data": {"node": thread_text("PRRT_7")["response"]["body"]["data"]["node"]}, "errors": [{"message": "x"}]}})
-        failed = dict(thread_text("PRRT_7"), response={"status": 502, "headers": {}, "body": {}})
+        failed = dict(thread_text("PRRT_7"), response=dict(thread_text("PRRT_7")["response"], status=502))
+
+        def answering(body) -> dict:
+            return dict(thread_text("PRRT_7"), response={"status": 200, "headers": {}, "body": body})
+
+        def first(**change) -> dict:
+            """The thread, its first comment changed; a field given as `...` is one GitHub's answer does not hold."""
+            found = thread_text("PRRT_7")
+            comment = found["response"]["body"]["data"]["node"]["comments"]["nodes"][0]
+            comment.update(change)
+            for name in [n for n, value in change.items() if value is ...]:
+                del comment[name]
+            return found
         for why, found in (("a thread that is gone", gone), ("an answer with errors", refused), ("a read that failed", failed),
+                           ("a body that is no object", answering([])), ("data that is none", answering({"data": "unavailable"})),
+                           ("a node that is no object", answering({"data": {"node": "PRRT_7"}})),
+                           ("a repository that is no object", thread_text("PRRT_7", pullRequest={"number": 26, "repository": "o/r"})),
+                           ("a comment that is no object", thread_text("PRRT_7", comments={"nodes": [None]})),
+                           ("a reply", first(replyTo={"id": "PRRC_1"})), ("a reply GitHub does not say it is not", first(replyTo=...)),
+                           ("an edited comment", first(lastEditedAt="2026-11-14T08:00:00Z")),
+                           ("an edit GitHub does not say never was", first(lastEditedAt=...)),
                            ("another pull request's", thread_text("PRRT_7", number=27)),
                            ("another repo's", thread_text("PRRT_7", repo="o/other")),
                            ("a node that is no thread", thread_text("PRRT_7", __typename="PullRequestReviewComment")),
@@ -2792,20 +2817,17 @@ class FindingTexts(unittest.TestCase):
                            ("a body that is no text", thread_text("PRRT_7", 3))):
             with self.subTest(why), self.assertRaises(github.Unanswered):
                 self.read(["PRRT_7"], found)
-        reply = thread_text("PRRT_7")
-        reply["response"]["body"]["data"]["node"]["comments"]["nodes"][0]["replyTo"] = {"id": "PRRC_1"}
-        with self.assertRaises(github.Unanswered):
-            self.read(["PRRT_7"], reply)
         # The Lens asked for is the one whose words they must be: its own thread is another's to any other Lens.
         with self.assertRaises(github.Unanswered):
             self.read(["PRRT_7"], thread_text("PRRT_7"), lens="qa-lead")
         # A list that names a thread twice, an id that is none GitHub gives, or more than the port reads: nothing is asked.
-        for threads in (["PRRT_7", "PRRT_7"], ["PRRT 7"], ["a/b"], [""], [7], "PRRT_7", None,
+        for threads in (["PRRT_7", "PRRT_7"], ["PRRT 7"], ["a/b"], [""], [7], "PR_7", ("PRRT_7",), None, ["a" * 101],
                         ["PRRT_%d" % i for i in range(texts.THREADS + 1)]):
             with self.subTest(threads=threads):
                 with self.assertRaises(github.Unanswered):
                     self.read(threads)
                 self.assertEqual(self.sent, [])
+        self.assertEqual(len(self.read(["a" * 100], thread_text("a" * 100))), 1)
         # As many as it reads are read.
         most = ["PRRT_%d" % i for i in range(texts.THREADS)]
         self.assertEqual(len(self.read(most, *[thread_text(i) for i in most])), texts.THREADS)
