@@ -2378,8 +2378,9 @@ class Purity(unittest.TestCase):
                  if p.suffix == ".py"}
         takers = check_purity._takers(trees)
         self.assertEqual(sorted(takers), [("brakes.py", n) for n in ("approval_ceilings", "dequeue_ceiling",
-                                                                     "enqueue_ceilings", "on_act", "on_run", "paused",
-                                                                     "run_ceilings")] + [("derive.py", "run_deferral")])
+                                                                     "enqueue_ceilings", "implementing_rounds", "on_act",
+                                                                     "on_run", "paused", "run_ceilings")]
+                         + [("derive.py", "run_deferral")])
         tops = {n: check_purity._names(n, t, trees) for n, t in trees.items()}
         self.assertEqual([p for n, t in sorted(trees.items()) for p in check_purity._calls(n, t, trees, takers, tops)], [])
 
