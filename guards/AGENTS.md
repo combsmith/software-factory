@@ -1,6 +1,6 @@
 # guards/
 
-The guards on a Role's own writes, as pure functions: each says what such a write may land, or gives the one reason, a code, why nothing may. `patch.py` reads a Role's patch as git writes it; what applies it is still to come.
+The guards on a Role's own writes, as pure functions: each says what such a write may land, or gives the one reason, a code, why nothing may. `patch.py` reads a Role's patch and applies a file's hunks; what applies a patch to a tree is still to come.
 A guard binds the Role that writes this repo's code. So it lives here, never in `kernel/` or `adapters/`, where that Role may push; a port hands a guard what it read, and the Harness calls it. A guard reads nothing itself.
 
 | Rule | Held by |
@@ -19,4 +19,7 @@ A guard binds the Role that writes this repo's code. So it lives here, never in 
 | What is not a patch as git writes it is unreadable, never fewer changes | `tests/test_guards.py::test_what_is_not_a_patch_as_git_writes_it_is_unreadable` |
 | A section's hunks are read as their headers count them, each line on its side, with git's marker of a last line that ends in no newline | `tests/test_guards.py::test_a_sections_hunks_are_read_as_their_headers_count_them` |
 | A hunk or a side git does not write makes its patch unreadable, and so does a NUL: a binary change written as text | `tests/test_guards.py::test_a_hunk_or_a_side_git_does_not_write_is_unreadable` |
+| The files a patch reads are named once each, and a new file reads none | `tests/test_guards.py::test_sources_names_each_file_a_patch_reads_once_and_no_new_file` |
+| A hunk stands where its header says, past the one before it: nothing is searched for, and no line is matched loosely | `tests/test_guards.py::test_a_hunk_stands_where_its_header_says_and_nowhere_else` |
+| The newline at a file's end is as the patch says: git's marker stands only where a last line has none, and no line follows it | `tests/test_guards.py::test_the_newline_at_a_files_end_is_as_the_patch_says` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
