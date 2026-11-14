@@ -10,7 +10,7 @@ Not built yet, by the stories that hold their rules: push.py.
 | A Task is built from the Decision that admitted its Run, and nothing else | `tests/test_harness.py::test_a_task_is_built_from_the_decision_that_admitted_its_run` |
 | A Run no Decision admitted is refused; with no credential, nothing is asked | `tests/test_harness.py::test_a_run_no_decision_admitted_finds_none_and_does_nothing`, `tests/test_harness.py::test_no_credential_asks_nothing` |
 | A text's trust class is read from who wrote it, never from the text; an issue's is `outside` | `tests/test_harness.py::test_each_text_is_labelled_by_who_wrote_it_never_by_the_text` |
-| A Task keeps each text whole or leaves it out, the Maintainer's first, and says what it left out and how much | `tests/test_harness.py::test_a_task_says_what_it_left_out_and_how_much` |
+| A Task keeps each text whole or leaves it out, says what it left out, and shows each Finding it lists | `tests/test_harness.py::test_a_task_says_what_it_left_out_and_how_much`, `tests/test_harness.py::test_a_task_shows_each_finding_it_lists` |
 | The CLI is given exactly the named environment: the scrub set, the credential under its one name, no other secret | `tests/test_harness.py::test_the_cli_is_given_exactly_the_named_environment_and_the_one_credential` |
 | The CLI is given no tool, or a review the read tools alone held to its head (decision 0138), the Task as data after a fixed instruction, and the Task's limits | `tests/test_harness.py::test_the_cli_is_given_no_tool` |
 | A Task too long for one argument is refused before the CLI starts | `tests/test_harness.py::test_a_task_too_long_for_one_argument_is_refused_before_the_cli_starts` |
