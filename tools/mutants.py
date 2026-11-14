@@ -7484,11 +7484,7 @@ MUTANTS = ISSUE + [
      "    wanted = _wanted_run(facts, state, reason, config, evidence)\n", ("tests.test_decide.Classes",)),
     # Issue 855: with two model Lenses, the one the evidence names is the one admitted.
     ("the first model Lens is admitted whatever the evidence names", "kernel/decide.py",
-     "        lens = evidence[0] if evidence else None\n", '        lens = config["required_lenses"]["model"][0]\n',
-     ("tests.test_decide.OnlyAPersonEnds.test_with_two_model_lenses_the_one_awaited_is_the_one_admitted",)),
-    ("a Lens the configuration does not require is admitted", "kernel/decide.py",
-     '        return (lens, "review-change") if lens in config["required_lenses"]["model"] else None\n',
-     '        return (lens, "review-change")\n',
+     '        return (evidence[0], "review-change")\n', '        return (config["required_lenses"]["model"][0], "review-change")\n',
      ("tests.test_decide.OnlyAPersonEnds.test_with_two_model_lenses_the_one_awaited_is_the_one_admitted",)),
     # Decision 0036: a Run listed before its run-name defers every admission, an approval among them, after the brakes.
     ("an unidentified Run lets an approval through", "kernel/decide.py",

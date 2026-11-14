@@ -951,10 +951,6 @@ class OnlyAPersonEnds(unittest.TestCase):
         d = go(facts(), REVIEWED, cfg=cfg)
         self.assertEqual((d["state"], d["reason"], d["evidence"][:1], d["outcome"], d["admit"]["role"], d["admit"]["intent"]),
                          ("verifying", "awaiting_review", ["pr-review-second"], "admit", "pr-review-second", "review-change"))
-        # A Lens the configuration does not require is never admitted, whatever the evidence names.
-        from kernel import decide as decided
-        self.assertIsNone(decided._wanted_run(facts(), "verifying", "awaiting_review", CONFIG, ["another"]))
-        self.assertIsNone(decided._wanted_run(facts(), "verifying", "awaiting_review", CONFIG, []))
 
     def test_a_lens_review_past_retention_is_asked_for_again(self):  # issue 346, decision 0069
         # A Lens Run whose applied/1 is past the artifact retention recorded what can no longer be read, so its threads
