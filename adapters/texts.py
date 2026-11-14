@@ -90,7 +90,7 @@ def findings(transport, pull: dict, accounts, lens: str, threads: list) -> list:
         node = _held(_held(answer["body"].get("data")).get("node"))
         on = _held(node.get("pullRequest"))
         if node.get("__typename") != "PullRequestReviewThread" or node.get("id") != ident \
-                or on.get("number") != pull["number"] or _held(on.get("repository")).get("nameWithOwner") != repo:
+                or type(on.get("number")) is not int or on.get("number") != pull["number"] or _held(on.get("repository")).get("nameWithOwner") != repo:
             raise Unanswered("a thread asked for is not that review thread of this pull request")
         first = _held(node.get("comments")).get("nodes")
         said = first[0] if isinstance(first, list) and first and isinstance(first[0], dict) else {}

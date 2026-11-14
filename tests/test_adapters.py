@@ -2797,6 +2797,7 @@ class FindingTexts(unittest.TestCase):
         for why, found in (("a thread that is gone", gone), ("an answer with errors", refused), ("a read that failed", failed),
                            ("a body that is no object", answering([])), ("data that is none", answering({"data": "unavailable"})),
                            ("a node that is no object", answering({"data": {"node": "PRRT_7"}})),
+                           ("a number that is no whole number", thread_text("PRRT_7", number=26.0)),
                            ("a repository that is no object", thread_text("PRRT_7", pullRequest={"number": 26, "repository": "o/r"})),
                            ("a comment that is no object", thread_text("PRRT_7", comments={"nodes": [None]})),
                            ("a reply", first(replyTo={"id": "PRRC_1"})), ("a reply GitHub does not say it is not", first(replyTo=...)),
