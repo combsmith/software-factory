@@ -170,8 +170,7 @@ class Record(unittest.TestCase):
         self.assertNotIn("A title", json.dumps(record))
 
     def test_an_issue_decision_replays_through_the_issues_kernel_configuration(self):  # decisions 0002, 0218
-        # The record keeps the configuration as written; the issues' Kernel was asked with each App named as REST spells
-        # its Bot. Replayed through `pass_.issue_config`, the Controller's factory:triage counts as it did.
+        # Replayed through `pass_.issue_config`, as the pass asked it, the Controller's factory:triage counts.
         from kernel import issue
         triaged = an_issue(7, label_events=[test_issue.labelled(test_issue.TRIAGE, by=test_issue.CONTROLLER)])
         record = passed(reads(pulls=[], issues=[triaged]))["record"]
@@ -1078,8 +1077,7 @@ class Ports(unittest.TestCase):
                          (["item"], ["runs", "outcome", "facts"]))
 
 
-# The Apps of the issue world, as REST would show their Bots: the Controller's and the investigating Role's, each by an id
-# the configuration holds and under a login it no longer shows (decision 0218, the Factory Builder's ruling A on #835).
+# The Controller's and the investigating Role's Bots, by ids the configuration holds, under logins they no longer show.
 TRIAGE_BOT = ("an-old-login[bot]", 41, "Bot")
 ANALYST_BOT = ("another-old-login[bot]", 42, "Bot")
 
@@ -1114,8 +1112,7 @@ class Issues(unittest.TestCase):
     """The issues port's facts reach `kernel/issue.py` through the pass (S3)."""
 
     def test_with_no_app_declared_for_factory_triage_an_accepted_served_issue_gets_no_acceptance_act(self):  # row 10
-        # The narrow turn-on: issues served, epics and ideas left out, no App declared for a label and no triage Intent.
-        # Row 10 adds factory:triage only once its App is declared, so that the label counts: until then, nothing.
+        # The narrow turn-on: issues served, no App declared for a label, no triage Intent. Row 10 then adds nothing.
         narrow = dict(test_issue.SERVED, label_apps={"factory:triage": None, "factory:ready": None},
                       intents=dict(test_issue.INTENTS, **{test_issue.INVESTIGATE: None, test_issue.JUDGE: None}))
         entry = an_issue(7, repo="o/r", complete={"timeline": True, "linked": True, "runs": True})
@@ -1124,13 +1121,12 @@ class Issues(unittest.TestCase):
         # Declared, the same issue is accepted.
         declared = issue_passed(entry)
         self.assertEqual((declared["outcome"], declared.get("action")), ("act", "accept"))
-        # A name that is no name is not made one by the suffix the pass adds: the Kernel cannot read it, and defers.
+        # A name that is no name stays none: the Kernel cannot read it, and defers.
         unnamed = dict(test_issue.SERVED, label_apps={"factory:triage": "", "factory:ready": None})
         self.assertEqual(issue_passed(entry, unnamed)["reason"], "issues_unreadable")
 
     def test_an_app_is_named_by_the_id_the_configuration_holds_so_its_label_and_comment_count(self):  # ruling A
-        # The Controller's factory:triage and the investigating App's comment, each by a Bot the configuration names by
-        # its id, whatever login it shows: triage stands, the investigation is done, and the verdict is wanted next.
+        # The Controller's label and the investigating App's comment count by the App's id: the verdict is wanted next.
         from tests.test_adapters import issue_event
         labelled = issue_event("labeled", 1, actor=TRIAGE_BOT, label={"name": "factory:triage"})
         said = issue_event("commented", 2, actor=ANALYST_BOT)
@@ -1141,8 +1137,7 @@ class Issues(unittest.TestCase):
         self.assertEqual((alone["state"], alone["admit"]["intent"]), ("triage", "investigate-issue"))
 
     def test_a_person_whose_login_is_an_apps_name_without_its_suffix_is_not_that_app(self):  # ruling A
-        # A User named as config/defaults.json writes the Controller's App, labelling with its own token or through some
-        # App: neither is the App, so the label does not count and is taken back.
+        # A User named as config/defaults.json writes the Controller's App is not it, with its token or through an App.
         from tests.test_adapters import issue_event
         name = written(test_issue.SERVED)["label_apps"]["factory:triage"]
         person = (name, 77, "User")
@@ -1153,9 +1148,8 @@ class Issues(unittest.TestCase):
                              ("new", "act", "label_not_counted", "factory:triage"), via)
 
     def test_p34s_issue_read_by_the_port_is_deferred_on_its_linked_pull_requests(self):  # P-34, S3
-        # The canary's issue as REST gave it, through the issues port and the pass, served: its linked pull requests are
-        # `adapters/linked.py`'s, not read yet, so the Kernel defers on them. Its GraphQL read is P-34's lastEditedAt,
-        # asked in the port's own query, which no trial has recorded yet (issue 831).
+        # The canary's issue through the port and the pass defers on its linked pull requests, not read yet. Its GraphQL
+        # answer is P-34's lastEditedAt in the port's own query, which no trial has recorded (issue 831).
         from adapters import issues
         from tests.test_adapters import body, canary, exchanges as recorded
         repo = canary()
@@ -1696,10 +1690,8 @@ class Entry(unittest.TestCase):
         self.assertEqual(pass_.SUCCESSOR_WAIT, 30)
 
     def test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is(self):  # S3
-        # With no `issues.served_from`, the default, no issue is listed or read. With one, the open issues updated since
-        # are listed, and each is read by the issues port with the pull requests' account reader, dated as their reads
-        # are, its title beside it; one that moved or that GitHub did not answer is left out by its code. A list read
-        # short stops the pass, as the pull requests' does.
+        # Listed from `issues.served_from`, each issue is read with the pull requests' account reader and dated as they
+        # are; one not read is left out by its code, and a list read short stops the pass.
         since, spied = "2026-10-01T00:00:00Z", {"listed": [], "read": [], "who": []}
         real = entry.configuration
 
@@ -1779,16 +1771,13 @@ class Entry(unittest.TestCase):
         for whole in (False, None):
             self.assertEqual(entry_with([5], whole), (1, "issue_list_unreadable\n", {}), whole)
             self.assertEqual(spied["read"], [])
-        # No date: the port is asked with none, which lists nothing and sends nothing (adapters/items.py), and no issue
-        # is read. The one GraphQL read is the pull requests' list.
+        # No date: nothing is listed, asked or read; the one GraphQL read is the pull requests' list.
         code, _, files = entry_with(None, configured=real)
         self.assertEqual((code, spied["listed"], spied["read"], files["pass.json"]["issues"]), (0, [(self.HOME, None)], [], []))
         self.assertEqual(len(spied["graphql"]), 1)
 
     def test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry(self):  # S3, Astra
-        # Through the real issues port: an open issue the Maintainer opened after `served_from`, the triage App declared,
-        # no factory:triage on it. Its linked pull requests are `adapters/linked.py`'s, not read, so it defers on them,
-        # and no act is made, though read whole it would be accepted.
+        # Through the real port: an issue that read whole would be accepted defers on its unread linked pull requests.
         from tests.test_adapters import issue_read
         reads_ = issue_read()
         own, events, edits = (r["response"] for r in reads_)
