@@ -61,9 +61,15 @@ JUDGE_READINESS = "judge-readiness"
 OPENING = "open-pull-request"
 # The investigating Run, which reads the issue and comments what it found, for this content.
 INVESTIGATE = "investigate-issue"
-# Every Intent the issue's decision admits, the three above, each mapped in the configuration's `issues.intents` to
-# its Role and App. A module holds only constants, so they are written out again.
+# The three Intents above, each mapped in the configuration's `issues.intents` to its Role and App. A module holds
+# only constants, so they are written out again. The decision admits `implement` too, the author Role's, below.
 INTENTS = ("investigate-issue", "judge-readiness", "open-pull-request")
+# The implementing Run (slice 2's S9, issue 825): the author Role's, `author_role`, on the draft the Factory opened for
+# the issue, while that draft's required checks fail. No configuration names the author Role yet.
+IMPLEMENT = "implement"
+# How a linked pull request's head's required checks stand, as the facts give it (issue 825). A head whose required
+# check GitHub has not listed yet, as for a few seconds after a push (trial P-42), is pending, never failing.
+CHECKS = ("passing", "failing", "pending")
 
 # The work item lifecycle/issue.json names: an issue's limits are read from that Lifecycle and no other.
 WORK_ITEM = "issue"
@@ -983,10 +989,13 @@ def without_opening(runs: list) -> list:
 
 def _run_wanted(facts, state, reason, evidence, mine, config):
     """`_wanted`'s answer, read the same with a Run in flight or none: the Run the State calls for, as (role, intent,
-    what else its admission carries), or the Decision that admits none. In review or with a linked draft none is
-    wanted; nor while the Intents cannot be read whole, or two of them share a Role or an App."""
-    if state == IN_REVIEW or reason == "linked_draft":
+    what else its admission carries), or the Decision that admits none. In review none is wanted, and with a linked
+    draft only the implementing Run; nor while the Intents cannot be read whole, or two of them share a Role or an
+    App."""
+    if state == IN_REVIEW:
         return _decision(facts, state, reason, evidence, t.NOTHING)
+    if reason == "linked_draft":
+        return _implementing(facts, state, reason, evidence, mine, config)
     intents = config["issues"].get("intents")
     if not readable_intents(intents):
         return _decision(facts, state, "intents_unreadable", evidence, t.DEFER)
@@ -995,6 +1004,26 @@ def _run_wanted(facts, state, reason, evidence, mine, config):
     if shares_an_app(intents):
         return _decision(facts, state, "intents_share_an_app", evidence, t.DEFER)
     return _wanted(facts, state, reason, evidence, mine, intents)
+
+
+def _implementing(facts, state, reason, evidence, mine, config):
+    """The implementing Run a linked draft calls for (slice 2's S9, issue 825), or the Decision that admits none: while
+    the draft the Factory opened fails its required checks, another of the author Role's, for that draft. A person's or
+    a stranger's draft waits for its author, and every draft does while no author Role is named. The draft's checks are
+    read only where the rule would act on them, and checks that cannot be read defer. `max_attempts` bounds the rounds:
+    every implementing Run that completed since a writer acted is one, whatever it concluded, since the checks it left
+    failing are what admit the next; the Run ceiling bounds it as it bounds any Run, by the brakes."""
+    draft = [p for p in facts["linked"] if str(p["number"]) == evidence[0]][0]
+    if config["author_role"] is None or draft["class"] != "agent":
+        return _decision(facts, state, reason, evidence, t.NOTHING)
+    if draft.get("checks") not in CHECKS:
+        return _decision(facts, state, "draft_checks_unreadable", evidence, t.DEFER)
+    if draft["checks"] != "failing":
+        return _decision(facts, state, reason, evidence, t.NOTHING)
+    rounds = [r for r in since_writer(mine, facts) if r["intent"] == IMPLEMENT and r["status"] == "completed"]
+    if len(rounds) >= config["limits"]["max_attempts"]:
+        return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in rounds], t.HOLD)
+    return (config["author_role"], IMPLEMENT, {"pull_request": draft["number"]})
 
 
 def moved_at(facts: dict, runs: list, config: dict, now: str):
@@ -1096,7 +1125,8 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     # flight was admitted under the ceiling. Where no Run is wanted, none is asked (decision 0003). Row 7 is the one row
     # a Run in flight moves: an opening Run waiting shows the issue in progress, so the Run wanted is found from the
     # State it has with its opening Runs in flight left out, as `apply` reads it with its own Run left out (I-38).
-    # Every other Run in flight is still read, so that nothing it wrote counts.
+    # Every other Run in flight is still read, so that nothing it wrote counts. The implementing rounds' Hold is the
+    # Run wanted's own bound, and holds with a Run in flight as with none.
     limits = config["limits"]
     flight = in_progress(mine)
     bare = d if reason != "opening_run" else derive(facts, without_opening(runs), config)
@@ -1107,6 +1137,8 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
         if isinstance(wanted, tuple):
             done = [r for r in since_writer(mine, facts) if r["status"] == "completed"]
             held = brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits)
+        elif isinstance(wanted, dict) and wanted["outcome"] == t.HOLD:
+            held = wanted
         if held:
             return held
         return _decision(facts, state, reason, evidence, t.NOTHING, working=True)
