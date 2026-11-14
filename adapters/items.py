@@ -73,7 +73,7 @@ def open_issues(transport, repo: str, since) -> tuple:
         return [], True
     try:
         asked = (datetime.datetime.strptime(since, STAMP) - datetime.timedelta(seconds=1)).strftime(STAMP)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         raise Unanswered("issues.served_from is no time") from None
     owner, name = repo.split("/")
     return _listed(repo, "issues", lambda after: transport.send(request("POST", "/graphql", body={
