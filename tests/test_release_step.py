@@ -575,8 +575,11 @@ class Step(unittest.TestCase):
         # The facts the plan reads are what GitHub answered the port, each on its own read. With the eval gate open, a
         # commit whose verify failed, and one main does not hold, each reaches the plan as its own refusal, and
         # nothing is written: for a cut, and for a move forward to a Release at such a commit.
-        failed = lambda commit: compared(commit) + [verify_runs(commit, conclusion="failure")]
-        off_main = lambda commit: compared(commit, status="diverged") + [verify_runs(commit), verify_suite(commit)]
+        def failed(commit):
+            return compared(commit) + [verify_runs(commit, conclusion="failure")]
+
+        def off_main(commit):
+            return compared(commit, status="diverged") + [verify_runs(commit), verify_suite(commit)]
         cutting = {"RELEASE_COMMAND": "cut", "RELEASE_VERSION": VERSION, "RELEASE_CUT_COMMIT": D, "RELEASE_TOKEN": "t"}
         moving = {"RELEASE_COMMAND": "move", "RELEASE_TO": "factory/v0.2.0", "RELEASE_TOKEN": "t"}
         for env, refs, commit, release in ((cutting, REFS, D, VERSION), (moving, dict(REFS, **{NEXT: A}), B, "factory/v0.2.0")):
