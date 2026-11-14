@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "seen/1: the writes each Factory identity made on the served items since a moment, as adapters/seen.py read them from GitHub, by an identity's code from the configuration and never a login's spelling, with each write's kind, item and the key it is recorded by; and every merge of a served item, by anyone. Whole only when every list behind it was read whole. Ids and codes alone (decision 0061).",
+  "title": "seen/1: the writes each Factory identity made on the served items since a moment, as adapters/seen.py read them from GitHub, by an identity's code from the configuration and never a login's spelling, with each write's kind, item and the key it is recorded by; every merge of a served item, by anyone; and a person's resolution of a Role's thread, by `hand`. Whole only when every list behind it was read whole. Ids and codes alone (decision 0061).",
   "type": "object",
   "additionalProperties": false,
   "required": [

@@ -172,6 +172,8 @@ def carried(before, effects, seen, now: str, unread=(), gone=()) -> dict:
     matched = set().union(*_hands(seen, before)) if since is not None else set()
     held["hands"] = [e for e in held.get("hands", []) if e["key"] not in matched] + [
         {"key": thread, "at": now} for thread in sorted(matched)]
+    if since is None and "hands" not in _last(before):
+        del held["hands"]       # or the next pass judges every thread from before the rule
     if not _readable(effects):
         return held
     read = effects.get("read") if isinstance(effects.get("read"), dict) else {}

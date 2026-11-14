@@ -94,7 +94,7 @@ def _opener(thread: dict, identities: dict) -> tuple:
     nodes = _object(thread.get("comments")).get("nodes")
     if not isinstance(nodes, list) or not nodes or not isinstance(nodes[0], dict) or nodes[0].get("replyTo", 0) is not None:
         return None, False
-    author = nodes[0].get("author")
+    author = nodes[0].get("author", 0)
     if author is None:
         return None, True
     kind = _object(author).get("__typename")

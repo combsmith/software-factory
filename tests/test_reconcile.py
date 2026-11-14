@@ -274,6 +274,10 @@ class Hand(unittest.TestCase):
         # A pass that did not decide the item, one it could not read, says nothing of it: the one before it is read.
         self.assertEqual(check(seen(HAND), before=[passed([]), passed()])["unmatched"], [])
         self.assertEqual(check(seen(HAND), before=[passed(), passed([], item=OTHER)])["unmatched"], [])
+        # The item's Decision is read wherever it stands in its record.
+        second = passed(item=OTHER)
+        second["pull_requests"].append(passed([])["pull_requests"][0])
+        self.assertEqual(kinds(check(seen(HAND), before=[second])), [("hand", "resolution")])
         # A resolution whose thread or item cannot be read is matched to nothing, and a Run on its item makes it no Run's.
         for odd in (dict(HAND, key=None), dict(HAND, item=None), dict(HAND, kind="comment")):
             self.assertEqual(kinds(check(seen(odd), before=[passed()])), [("hand", odd["kind"])], odd)
@@ -336,6 +340,8 @@ class Hand(unittest.TestCase):
         # With no hand's resolution seen, such a record leaves nothing short, and the next record carries none.
         self.assertFalse(check(seen(), before=[passed(hands=None)])["short"])
         self.assertEqual(reconcile.carried([passed(hands=None)], effects, seen(), NOW)["hands"], [])
+        # Nor does a pass that could not read what was seen, or the next would judge every thread.
+        self.assertNotIn("hands", reconcile.carried([passed(hands=None)], effects, None, NOW))
 
 
 class Short(unittest.TestCase):
@@ -527,6 +533,7 @@ class SeenPort(unittest.TestCase):
         for why, odd in (("a reply", thread("PRRT_h", replyTo={"id": "PRRC_1"})), ("a reply not said", unsaid),
                          ("no comment", dict(thread("PRRT_h"), comments={"nodes": []})),
                          ("no comments", dict(thread("PRRT_h"), comments=None)),
+                         ("an author not said", dict(thread("PRRT_h"), comments={"nodes": [{"replyTo": None}]})),
                          ("an account of no id", thread("PRRT_h", author={"__typename": "Bot", "login": "x", "databaseId": None})),
                          ("an account whose type is not said", thread("PRRT_h", author={"login": "x", "databaseId": 5000002})),
                          ("an account whose type is no word", thread("PRRT_h", author={"__typename": 7, "databaseId": 5000002})),

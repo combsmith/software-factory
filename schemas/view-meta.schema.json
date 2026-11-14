@@ -55,7 +55,7 @@
       }
     },
     "reconciliation": {
-      "description": "What reconciliation found, each once: one alert, write_unmatched, is raised for all of them however many there are (decision 0061). Each entry is in the pass record too, so a rebuilt view says the same",
+      "description": "What reconciliation found, each once: one alert, write_unmatched or hand_unmatched (decision 0223), is raised for all of its kind however many there are (decision 0061). Each entry is in the pass record too, so a rebuilt view says the same",
       "type": "array",
       "uniqueItems": true,
       "items": {
