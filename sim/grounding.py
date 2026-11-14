@@ -54,12 +54,15 @@ RULES = (
     ("an_app_can_dismiss_a_review", "An App with pull_requests: write can dismiss a person's review, and the timeline "
      "says which App and what the review was before (previousReviewState)", ("P-41",), "trials/P-41.json", None),
     # trials/P-42.json: a pull request's head, its checks read at once and an hour later, and the new head after a push.
-    ("a_push_restarts_the_checks", "A push sets every required check pending again", ("P-42",), "trials/P-42.json",
+    # trials/P-42.push.json: in the port's own read, the required check concluded on head A and, read at once after head B
+    # was pushed, queued on B; for four seconds GitHub listed none on B at all, read and not kept, which the Kernel reads
+    # as pending too (issue 807).
+    ("a_push_restarts_the_checks", "A push sets every required check pending again", ("P-42",), "trials/P-42.push.json",
      None),
     # trials/P-42.rollup.json: the required check read queued in the status rollup, and 11 minutes later success, with
-    # nothing done between but reads.
+    # nothing done between but reads. trials/P-42.push.json: so in the port's own read, queued, then success 71 s on.
     ("a_check_reports_on_its_own", "A pending required check reports success or failure with no one asking",
-     ("P-42",), "trials/P-42.rollup.json", None),
+     ("P-42",), "trials/P-42.push.json", None),
     # trials/P-42.json: neutral, skipped and cancelled each kept an hour after the last post, and a job stopped at its
     # timeout concluded cancelled, with its check run and its run (issue 388; a step's own timeout fails,
     # trials/P-42.step-timeout.json). P-42 saw no timed_out and no stale: the rule below says why they stay (issue 496).
@@ -120,11 +123,12 @@ RULES = (
      "request adds in a workflow file of its own under a required Lens's check name among them, and its check run "
      "names that file", ("P-35",), "trials/P-35.json", None),
     # Overturning a failure is not shown, nor what an upload GitHub processes does: each of P-36's failed processing, as
-    # default setup refuses them. So the fake does neither.
+    # default setup refuses them. So the fake does neither. trials/P-36.port.json: the port's own read of both heads a
+    # fortnight on gives each the same check run, by its id, neutral (issue 807).
     ("an_upload_turns_codeqls_success_neutral", "An upload to code scanning under CodeQL's tool and category, by an "
      "identity holding security_events: write, turns the conclusion of the check run CodeQL that GitHub Advanced Security, "
      "57789, reports from success to neutral, on the same check run, though GitHub fails to process the upload",
-     ("P-36",), "trials/P-36.json", None),
+     ("P-36",), ("trials/P-36.json", "trials/P-36.port.json"), None),
     # Contradicted by P-2 (trials/P-2.queue.json): GitHub refuses an App's push, through the contents API, to a queued
     # pull request's branch (409), and the queue merges it unchanged; a git push while queued is not asked. Left
     # unverified, as the fake applies it: changing the fake is a story of its own.
@@ -133,9 +137,17 @@ RULES = (
      "without it GitHub refuses the enqueue", ("P-2",), "trials/P-2.least.json", None),
     ("the_queue_merges", "A pull request in the merge queue merges, unless a push takes it out first",
      ("P-2",), None, None),
+    # trials/P-2.port.json: the timeline port's own read of 100, a person's enqueue, and 70, the queue App's, each the
+    # enqueue then the merge with no act of a Factory identity's between, and the facts port's read of each head's
+    # required check concluded success before it (issue 807). Its verdict stays fail against its condition as written,
+    # and grounds the rule as trials/P-5.json, failed as written, grounds its own (the Factory Builder's ruling on #844):
+    # the act between enqueue and merge on 70 was the Maintainer's review, a person's act; the queue's merge did not
+    # depend on it, since the approval the ruleset requires was already given at the enqueue, the machine user's at
+    # 01:59:21Z on 70's head before the queue App's enqueue at 02:24:59Z; and the condition was stricter than the rule,
+    # which forbids only a Factory identity's act between.
     ("the_queue_merges_on_its_required_checks", "The merge queue merges a queued pull request once its required checks "
      "pass, whoever enqueued it, with no read of the Factory's between", ("P-2",),
-     ("trials/P-2.no-pass.json", "trials/P-2.queue-app.json"), None),
+     ("trials/P-2.no-pass.json", "trials/P-2.queue-app.json", "trials/P-2.port.json"), None),
     ("an_app_leaves_the_queue", "An App can take a pull request out of the merge queue, with contents: write; "
      "without it GitHub refuses the dequeue", ("P-2",), "trials/P-2.least.json", None),
     ("a_writer_can_dismiss_an_approval", "A person with write access can dismiss the machine user's approval, and the "
@@ -150,29 +162,38 @@ RULES = (
      "environment, and its Run then concludes failure", (), None,
      "assumed, no trial can ask it: a fault of the item or of the environment that drops an approval cannot be forced "
      "on demand"),
+    # trials/P-2.port.json: the timeline port's own read of 58, the queue's removal after the enqueue and no merge, and
+    # its read of 58's reviews, the machine user's approval standing (issue 807).
     ("the_queue_can_eject", "The merge queue can take a pull request out without merging it, and its approval stays",
-     ("P-2",), "trials/P-2.queue.json", None),
+     ("P-2",), ("trials/P-2.queue.json", "trials/P-2.port.json"), None),
     ("the_timeline_shows_each_act", "Each approval, enqueue, dequeue and label a Factory identity makes is on the "
      "timeline, with its actor, so the acts since a person with write access acted can be counted",
      ("P-2", "P-41"), None, None),
+    # trials/P-5.json: the trial-author App's review opened a thread, and the App, given contents: write, resolved a
+    # person's thread and CodeRabbit's, refused them with pull_requests: write alone. trials/P-5.port.json: the threads
+    # port's own read of that pull request a fortnight on reads the App's thread as its opener's and both resolved by it,
+    # by its account id (issue 807).
     ("a_lens_review_opens_a_thread", "A Lens's review can open a review thread on the pull request",
-     ("P-5",), "trials/P-5.json", None),
+     ("P-5",), ("trials/P-5.json", "trials/P-5.port.json"), None),
     ("an_app_resolves_any_thread", "An App with contents: write and pull_requests: write can resolve any review "
      "thread, a person's too, and the thread says who resolved it; with pull_requests: write alone GitHub refuses it",
-     ("P-5",), "trials/P-5.json", None),
+     ("P-5",), ("trials/P-5.json", "trials/P-5.port.json"), None),
     ("an_app_can_label", "An App can add or remove a control label on a pull request, a Hold or hands-off among them",
      ("P-41",), "trials/P-41.json", None),
+    # trials/P-32.json: each label event read in GraphQL with its actor and time; trials/P-32.port.json: the timeline
+    # port's own read, the REST timeline, of a pull request a Factory App labelled, each event so (issue 807).
     ("a_label_event_names_its_actor", "The timeline's labeled and unlabeled events say who added or removed each "
      "label, "
-     "and when", ("P-32",), "trials/P-32.json", None),
+     "and when", ("P-32",), ("trials/P-32.json", "trials/P-32.port.json"), None),
     # trials/P-41.json read each actor on its reviews, dismissals and labels by its type; trials/P-41.threads.json each
     # on a thread as the threads port does (decision 0067): every comment's author by GraphQL's type, and the resolver,
     # whom resolvedBy types a User though it was an App, by the permission read of its login, which answers Bot, and
-    # User for a person who resolved one.
+    # User for a person who resolved one. trials/P-41.port.json: the threads port's own read of the same two pull
+    # requests, each thread's first comment with its time, and every opener and resolver read with a kind (issue 807).
     ("an_actor_has_a_kind", "Every actor GitHub names on a review, a dismissal, a thread or a label event has an "
      "account type, a User or a Bot, from which, with the configuration, the port tells a person, a Lens's App, any "
      "other App and the machine user apart, never from a name's spelling", ("P-41",),
-     ("trials/P-41.json", "trials/P-41.threads.json"), None),
+     ("trials/P-41.json", "trials/P-41.threads.json", "trials/P-41.port.json"), None),
     # trials/P-44.json: four pushes under one concurrency group, cancel-in-progress false; the second and third runs
     # were cancelled as a newer one queued, with no runner and no step, and the running one finished. GitHub lists a
     # Run waiting for the group as pending, which the records port reads as queued. That the group's first Run holds it
@@ -287,36 +308,45 @@ RULES = (
     # (section 6's fallback: the issue Lifecycle serves the default branch only). The reverse read from the issue is
     # no substitute: willCloseTarget is false for a closed-unmerged pull request that keeps its reference, false for
     # every one once the issue is closed, and a keyword link raises no ConnectedEvent; the port reads the pull request.
+    # trials/P-33.port.json: the acceptance port's own read of the five, each issue with its repo, and the timeline
+    # port's of 38, whose REST events name who changed the draft flag and when (issue 807).
     ("a_closing_reference_is_read_from_any_pull_request", "The issue a pull request to the default branch closes, and "
      "who opened the pull request, are read from a draft, an open, a merged and a closed-unmerged pull request alike; "
-     "one to another base carries no reference", ("P-33",), "trials/P-33.json", None),
+     "one to another base carries no reference", ("P-33",), ("trials/P-33.json", "trials/P-33.port.json"), None),
     ("who_changed_the_draft_flag_is_read", "The timeline says who last marked a pull request ready or converted it to a "
-     "draft", ("P-33",), "trials/P-33.json", None),
+     "draft", ("P-33",), ("trials/P-33.json", "trials/P-33.port.json"), None),
     # trials/P-33.json: pull request 38 marked ready, converted to a draft and marked ready again, each its own event a
     # second or two apart; pull request 37, opened as a draft, has none (decision 0141).
     ("a_draft_change_is_timed", "A pull request's timeline gives each conversion to a draft and each marking ready as an "
      "event of its own, with its time to the second; one opened as a draft has no event for it", ("P-33",),
      "trials/P-33.json", None),
-    # Trial P-61 (issue 551) asks these; until its fixture is recorded the world links nothing by hand and sets no type,
-    # so it gives none of either.
+    # trials/P-61.json (issue 551): a link by hand in the issue's Development box, its unlinking and a link again, each
+    # a ConnectedEvent or DisconnectedEvent of its own on the issue's timeline, timed between the reads either side of it,
+    # naming its actor and the pull request; trials/P-33.json: a closing keyword raises none. The world still links
+    # nothing by hand and sets no type, so it gives none of either. Each change in P-61 was made in a page signed in as the
+    # machine user, which every event names: no rule of who acted rests on it.
     ("a_link_by_hand_is_timed", "An issue's timeline gives each link of a pull request by hand, in its Development box, "
      "and each unlinking, as an event of its own with its time to the second; a link by a closing keyword raises none",
-     ("P-61",), None, None),
+     ("P-61",), "trials/P-61.json", None),
     # Seen in trials/P-48.json, whose pull request was closed, reopened, closed and reopened, and merged, each a timed
     # event, the merge's close among them; but P-48's row in section 6 does not ask it, so it waits on P-61's run (issue 672).
+    # trials/P-61.json: pull request 120 closed, reopened and merged, each its own timed event, a ClosedEvent beside the
+    # MergedEvent in the same second, and closedAt null again once reopened.
     ("a_pull_requests_close_and_reopening_are_timed", "A pull request's own timeline gives each close and each reopening "
      "as an event of its own with its time, a merge's close among them, and a reopening clears its closed_at",
-     ("P-61",), None, None),
+     ("P-61",), "trials/P-61.json", None),
+    # trials/P-61.json: a type set, changed and removed, each its own timed event, the change naming the type before it.
     ("a_type_change_is_timed", "An issue's timeline gives each setting, change and removal of its type as an event of "
-     "its own with its time to the second, and the type before and after", ("P-61",), None, None),
+     "its own with its time to the second, and the type before and after", ("P-61",), "trials/P-61.json", None),
     # trials/P-46.json: an edit to a merged pull request's description after the merge adds the issue its new keyword
     # names to closingIssuesReferences, and closes nothing: the issue stays open and its timeline gains no close; undoing
     # the edit takes it out again. trials/P-33.json: the merge's own close of the issue names the pull request as the
-    # closer. The Kernel reads a merge by that close, never by the references now (issue 267).
+    # closer. The Kernel reads a merge by that close, never by the references now (issue 267). trials/P-67.json: the
+    # queue's squash merge closed each issue 2 s after, its ClosedEvent naming the pull request, not the commit (issue 821).
     ("a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing", "A merge closes the open issue its "
      "closing references name, and the issue's timeline names the pull request the closer; an edit to its description "
-     "after the merge can add an issue to its references, and closes nothing", ("P-33", "P-46"), "trials/P-46.json",
-     None),
+     "after the merge can add an issue to its references, and closes nothing", ("P-33", "P-46", "P-67"),
+     ("trials/P-46.json", "trials/P-67.json"), None),
     # trials/P-34.json: lastEditedAt moves for the body alone; the title's change is the timeline's RenamedTitleEvent,
     # so the content's time is the newer of the two, which the port computes; updatedAt moves for anything.
     ("an_issues_content_time_is_read_apart", "When an issue's title or body last changed is read apart from when "
@@ -516,6 +546,7 @@ ASKS = {
               "pull request alike",
         "P-46": "Does a merged pull request's closing reference change when its description is edited after the "
               "merge",
+        "P-67": "does the issue's timeline name the pull request as the close's closer",
     },
     "an_issues_content_time_is_read_apart": {
         "P-34": "Can the time an issue's title or body last changed be read, apart from the time anything on it "

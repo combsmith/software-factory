@@ -63,14 +63,20 @@ def _same(again: dict, pull: dict) -> bool:
 
 
 def unchanged(transport, pull: dict) -> bool:
-    """`same_head`, and nothing else on the pull request changed while its parts were read: GitHub moves its
-    `updated_at` when its base moves (P-29) and is taken to move it on a label, a review or a change of state too,
-    which no trial has asked yet. So a snapshot is never of a pull request that changed between its first read and
-    its last; one that did is read again at the next pass."""
+    """`same_head`, and nothing else on the pull request changed while its parts were read: GitHub is taken to move
+    its `updated_at` on a label, a review or a change of state, which no trial has asked yet. A move of the base does
+    not move it: for a second or so after one, a read gives the merge state of before it, then none, then the answer
+    against the new base, each under the same `updated_at` (trials/P-40.at-once.json). So a merge state the first read
+    gave, true or false, is one the last read must give too (decision 0214). A first read that gave none is kept: its
+    facts say so. So a snapshot is never of a pull request seen to change between its first read and its last; one
+    that did is read again at the next pass."""
     again = read(transport, pull["base"]["repo"]["full_name"], pull["number"])
     if not (isinstance(pull.get("updated_at"), str) and isinstance(again.get("updated_at"), str)):
         # A time that cannot be read is no move: the read GitHub did not answer, not one that earns a pass's grace (#658).
         raise Unanswered("the pull request's updated_at cannot be read")
+    first = pull.get("mergeable")
+    if (first is True or first is False) and again.get("mergeable") is not first:
+        return False
     return _same(again, pull) and again["updated_at"] == pull["updated_at"]
 
 

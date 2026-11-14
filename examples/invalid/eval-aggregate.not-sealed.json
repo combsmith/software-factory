@@ -82,6 +82,7 @@
     "met": true
   },
   "blocking_pass": false,
+  "retried": 0,
   "ledger": {
     "salted_sha256": "3f1d0c1e2a7b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5"
   }

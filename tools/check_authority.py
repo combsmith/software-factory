@@ -1,6 +1,7 @@
 """Mechanical checks on who decides what: who owns each category of Finding, and that nothing speaks for a Lens."""
 from __future__ import annotations
 
+import ast
 import json
 import re
 import pathlib
@@ -13,6 +14,21 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 ROLE_NAME = re.compile(r"[a-z][a-z-]*[a-z]")
 MODEL_JUDGED = {"functional", "security", "architecture", "delivery", "reliability",
                 "requirements", "uncategorised"}
+# What opens a pull request for the Factory, read from the code's syntax (issue 808): an adapter that sends a write to a
+# repo's pulls, which only an opening does; a step of the Harness that tools/check_writes.py's CALLERS lists as reaching
+# it; and, in that step's module, a call of harness/apply.py's `opened`, which records the Run that opened the pull
+# request (decision 0097). The writer of "Acceptance: a pull request the Factory opens is bound to its issue by the Run
+# that opened it" (issue 342) is what makes all three true.
+HOLE = "\0"         # a value formatted into a path, as `_written` reads one; no text read as written may hold it
+OPENS = re.compile(re.escape("/repos/%s/pulls" % HOLE))
+CREATES = "PO" + "ST"      # the one write that opens a pull request; spelt apart, as tools/check_writes.py spells its verbs
+# What may rebind a name where the syntax cannot see it: a module that names one, as a name, an attribute or an import,
+# is read as no opening and no record of one.
+DYNAMIC = {"globals", "locals", "vars", "setattr", "delattr", "exec", "eval", "compile", "__import__", "importlib",
+           "modules", "__dict__", "__builtins__"}
+# A scope of its own inside a function or a module, whose body runs only when it is called, or not as the scope's.
+NESTED = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef, ast.ListComp, ast.SetComp, ast.DictComp,
+          ast.GeneratorExp)
 
 
 def _folded(name: str) -> str:
@@ -29,6 +45,217 @@ def manifests(root: pathlib.Path = ROOT) -> dict:
         except (OSError, ValueError):
             out[p.name[: -len(".json")]] = None
     return out
+
+
+def _parsed(path: pathlib.Path):
+    """A Python file's syntax, or None where it cannot be read."""
+    try:
+        return ast.parse(path.read_text(encoding="utf-8"), str(path))
+    except (OSError, SyntaxError, ValueError, UnicodeDecodeError):
+        return None
+
+
+def _functions(tree):
+    """Each top-level function of a module, and each method of a top-level class, by the name tools/check_writes.py
+    gives a writer: `name`, or `Class.name`. One decorated, or whose name, or its class's, is bound again in the module
+    or the class, is passed over: the name may not be the def's."""
+    def once(node, scope):
+        return not node.decorator_list and len(_binds(scope, node.name)) == 1
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and once(node, tree):
+            yield node.name, node
+        elif isinstance(node, ast.ClassDef) and once(node, tree):
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and once(item, node):
+                    yield "%s.%s" % (node.name, item.name), item
+
+
+def _own(node):
+    """Each node a scope runs as its own: not inside a def, a lambda, a class or a comprehension within it, and not a
+    statement after a return or a raise in the same block."""
+    for value in (v for _, v in ast.iter_fields(node)):
+        for item in value if isinstance(value, list) else [value]:
+            if isinstance(item, ast.AST) and not isinstance(item, NESTED):
+                yield item
+                yield from _own(item)
+                if isinstance(item, (ast.Return, ast.Raise)):
+                    break
+
+
+def _dynamic(tree) -> bool:
+    """Whether a module names anything in DYNAMIC, as a name, an attribute or an import."""
+    words = (n.id if isinstance(n, ast.Name) else n.attr if isinstance(n, ast.Attribute) else
+             "%s.%s" % (n.name, n.asname) if isinstance(n, ast.alias) else "" for n in ast.walk(tree))
+    return any(set(w.split(".")) & DYNAMIC for w in words)
+
+
+def _bound(node) -> list:
+    """The names a node binds or unbinds, in any scope: a target of any kind, a parameter, a def or a class, an import,
+    an exception's or a pattern's name, a global or a nonlocal; the name under an attribute or an item set or deleted,
+    which may replace what it holds; `*` for a star import, which may bind any."""
+    if isinstance(node, ast.Name):
+        return [] if isinstance(node.ctx, ast.Load) else [node.id]
+    if isinstance(node, (ast.Attribute, ast.Subscript)) and not isinstance(node.ctx, ast.Load):
+        while isinstance(node, (ast.Attribute, ast.Subscript)):
+            node = node.value
+        return [node.id] if isinstance(node, ast.Name) else []
+    if isinstance(node, ast.arg):
+        return [node.arg]
+    if isinstance(node, ast.alias):
+        return [(node.asname or node.name).split(".")[0]]
+    if isinstance(node, (ast.Global, ast.Nonlocal)):
+        return node.names
+    return [n for n in (getattr(node, "name", None), getattr(node, "rest", None)) if isinstance(n, str)]
+
+
+def _binds(scope, name: str) -> list:
+    """Each node in a scope, or in any scope nested in it, that binds `name` or may: more than Python's scopes would
+    say, so that a name bound anywhere else is never read as bound once."""
+    return [n for n in ast.walk(scope) if name in _bound(n) or "*" in _bound(n)]
+
+
+def _parameter(node, scopes: tuple) -> bool:
+    """Whether a value formatted into a path is a parameter of the function, by place or by keyword and bound by
+    nothing else in it, or that parameter's attribute: no literal, no operator, no call, no tuple and no f-string, so
+    that nothing after the repo is written in. A parameter that holds a tuple is past what the syntax tells."""
+    fn, node = scopes[0], node.value if isinstance(node, ast.Attribute) else node
+    if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) or not isinstance(node, ast.Name):
+        return False
+    given = [a.arg for a in fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs]
+    return node.id in given and len(_binds(fn, node.id)) == 1
+
+
+def _written(node, scopes: tuple, depth: int = 0):
+    """A method or a path as text, or None: a literal, one formatted with `%` by one value, a parameter
+    (`_parameter`), into its one `%s`, an f-string whose holes are such values with no conversion and no format, each
+    value read as HOLE, or a name bound once, by `name = ` in the scope's own body and nothing else anywhere in it, to
+    one of those, in the function or else in its module, whose value is read in that scope."""
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
+        text = _written(node.left, scopes, depth)
+        one = _parameter(node.right, scopes) and text is not None
+        return text.replace("%s", HOLE) if one and text.count("%") == 1 and "%s" in text else None
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return None if HOLE in node.value else node.value
+    if isinstance(node, ast.JoinedStr):
+        parts = [_written(v, scopes) if isinstance(v, ast.Constant) else HOLE if v.conversion == -1
+                 and v.format_spec is None and _parameter(v.value, scopes) else None for v in node.values]
+        return None if None in parts else "".join(parts)
+    if isinstance(node, ast.Name) and depth < 4:
+        for at, scope in enumerate(scopes):
+            bound = _binds(scope, node.id)
+            if bound:
+                value = [n.value for n in scope.body if isinstance(n, ast.Assign) and n.targets[0] in bound
+                         and len(n.targets) == 1]
+                return _written(value[0], scopes[at:], depth + 1) if len(bound) == 1 and value else None
+    return None
+
+
+def _requests(tree) -> tuple:
+    """The names adapters/github.py's `request` is called by in a module, and the names that module is called by:
+    `from adapters.github import request`, `from adapters import github`, `import adapters.github as github`, at the
+    module's top, each name bound by its import and by nothing else."""
+    names, modules = set(), set()
+    for node in tree.body:
+        module = node.module if isinstance(node, ast.ImportFrom) and node.level == 0 else None
+        if module == "adapters.github":
+            names |= {a.asname or a.name for a in node.names if a.name == "request"}
+        elif module == "adapters":
+            modules |= {a.asname or a.name for a in node.names if a.name == "github"}
+        elif isinstance(node, ast.Import):
+            modules |= {a.asname for a in node.names if a.name == "adapters.github" and a.asname}
+    alone = {n for n in names | modules if len(_binds(tree, n)) == 1}
+    return names & alone, modules & alone
+
+
+def _given(call: ast.Call, at: int, name: str):
+    """A call's argument by its place or its keyword, or None."""
+    return call.args[at] if len(call.args) > at else next((k.value for k in call.keywords if k.arg == name), None)
+
+
+def openers(root: pathlib.Path = None) -> set:
+    """The adapter functions that open a pull request, as `adapters.module:function`: each calls adapters/github.py's
+    `request` (`_requests`) with a method that is the write that creates, CREATES, and a path that is text (`_written`),
+    a repo's pulls, formatted once, and nothing after it, in the function's own scope (`_own`), in a module that names
+    nothing in DYNAMIC. A method or a path that cannot be read as text is no opening: what is not read is not counted
+    as the writer."""
+    found = set()
+    for path in sorted(((ROOT if root is None else root) / "adapters").glob("*.py")):
+        tree = _parsed(path)
+        tree = None if tree is None or _dynamic(tree) else tree
+        names, modules = _requests(tree) if tree is not None else ((), ())
+        for name, fn in _functions(tree) if tree is not None else ():
+            for call in (n for n in _own(fn) if isinstance(n, ast.Call)):
+                f = call.func
+                called = isinstance(f, ast.Name) and f.id in names or isinstance(f, ast.Attribute) \
+                    and f.attr == "request" and isinstance(f.value, ast.Name) and f.value.id in modules
+                verb, where = _given(call, 0, "method"), _given(call, 1, "path")
+                if not called or verb is None or where is None:
+                    continue
+                verb, where = _written(verb, (fn, tree)), _written(where, (fn, tree))
+                if verb == CREATES and where is not None and OPENS.fullmatch(where):
+                    found.add("adapters.%s:%s" % (path.stem, name))
+    return found
+
+
+def records_the_opening(tree, rel: str) -> bool:
+    """Whether a module calls harness/apply.py's `opened`: by that name imported from harness.apply, as an attribute of
+    harness.apply however it is imported, relatively from the Harness too, or, in harness/apply.py, by its own name, as
+    its def at the top binds it, with no decorator, which may replace it. `harness.apply.opened` counts only where `import harness.apply` binds it. Each import
+    is at the module's top, and the name called is bound by it, or by that def, and by nothing else in the module. The
+    call is in the module's own scope or a function's (`_own`, `_functions`), in a module that names nothing in
+    DYNAMIC."""
+    if _dynamic(tree):
+        return False
+    own = any(isinstance(n, ast.FunctionDef) and n.name == "opened" and not n.decorator_list for n in tree.body)
+    names, modules, whole = {"opened"} if rel == "harness/apply.py" and own else set(), set(), False
+    inside = rel.startswith("harness/")
+    for node in tree.body:
+        module = node.module if isinstance(node, ast.ImportFrom) and node.level == 0 else None
+        if isinstance(node, ast.ImportFrom) and node.level == 1 and inside:
+            module = "harness" if node.module is None else "harness." + node.module
+        if module == "harness.apply":
+            names |= {a.asname or a.name for a in node.names if a.name == "opened"}
+        elif module == "harness":
+            modules |= {a.asname or a.name for a in node.names if a.name == "apply"}
+        elif isinstance(node, ast.Import):
+            modules |= {a.asname for a in node.names if a.name == "harness.apply" and a.asname}
+            whole = whole or any(a.name == "harness.apply" and not a.asname for a in node.names)
+    alone = {n for n in names | modules | {"harness"} if len(_binds(tree, n)) == 1}
+    scopes = [tree] + [fn for _, fn in _functions(tree)]
+    for call in (n for scope in scopes for n in _own(scope) if isinstance(n, ast.Call)):
+        f = call.func
+        if isinstance(f, ast.Name) and f.id in names & alone:
+            return True
+        if isinstance(f, ast.Attribute) and f.attr == "opened" and (
+                isinstance(f.value, ast.Name) and f.value.id in modules & alone
+                or whole and isinstance(f.value, ast.Attribute) and f.value.attr == "apply"
+                and isinstance(f.value.value, ast.Name) and f.value.value.id == "harness" and "harness" in alone):
+            return True
+    return False
+
+
+def opening_problems(config: dict, root: pathlib.Path = None, callers: dict = None) -> list:
+    """A configuration that names a Role for `open-pull-request` while `open_pull_request` has no writer, with the first
+    part of the writer missing (OPENS): the gap a pull request's author's closing link leaves must not outlive the
+    first Role named to open pull requests (issue 808, restating issue 295's limit). None named, as in slice 1, passes."""
+    issues = config.get("issues") if isinstance(config, dict) else None
+    intents = issues.get("intents") if isinstance(issues, dict) else None
+    if not isinstance(intents, dict) or intents.get("open-pull-request") is None:
+        return []
+    from tools.check_writes import CALLERS
+    root, callers = ROOT if root is None else root, CALLERS if callers is None else callers
+    said = "the configuration names a Role to open pull requests, and "
+    found = openers(root)
+    if not found:
+        return [said + "no adapter sends a write to a repo's pulls; name none until open_pull_request has its writer (issue 342)"]
+    reaching = sorted(rel for rel, writers in callers.items() if rel.startswith("harness/") and set(writers) & found)
+    if not reaching:
+        return [said + "no step of the Harness reaches %s as tools/check_writes.py's CALLERS lists; name none until one "
+                "does (issue 342)" % ", ".join(sorted(found))]
+    if not any(records_the_opening(tree, rel) for rel in reaching for tree in [_parsed(root / rel)] if tree is not None):
+        return [said + "%s, which reach the opening, never call harness/apply.py's opened to record the Run that opened "
+                "it; name none until one does (issue 342)" % ", ".join(reaching)]
+    return []
 
 
 def _read(path: pathlib.Path):
@@ -164,6 +391,7 @@ def run(authority: dict = None, config: dict = None, facts: dict = None, result:
         elif not (ROOT / "roles" / ("%s.json" % name)).is_file():
             problems.append("the configuration's %s is %r, and roles/ holds no %s.json%s"
                             % (field, name, name, "; name none until it does" if field == "author_role" else ""))
+    problems += opening_problems(c)
     if a["max_rounds"] != c["limits"]["max_rounds"]:
         problems.append("max_rounds differs between the authority table and the configuration")
     # A Lens or a check named twice, deterministic or model, could pin two Apps or be read as the other, and which one

@@ -12,6 +12,7 @@ import json
 import pathlib
 import random
 
+from controller import configuration
 from kernel import terms as t
 from kernel.decide import decide, stuck_runs
 from tools import check_lifecycle
@@ -20,10 +21,11 @@ from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # The Kernel is given the defaults, the Lifecycle whose staleness limits it reads, and the protected paths and Lenses'
-# inputs from config/hooks.json.
+# inputs from config/hooks.json, and which of them only a person decides, as the Controller gives it them.
 CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()), lifecycle=check_lifecycle.load(),
               protected_paths=protected.protected_paths())
 CONFIG["model_lens_inputs"] = protected.model_lens_inputs(CONFIG["required_lenses"]["model"])
+CONFIG["person_only_paths"] = configuration.person_only(protected.load(), CONFIG["required_lenses"]["model"])
 # The world models the Factory once its author Role exists, as the authority table names it: the live configuration
 # names none until roles/dev-lead.json does, and defers each fix to a person meanwhile (issue 675).
 CONFIG["author_role"] = json.loads((ROOT / "config" / "authority.json").read_text())["author_role"]
@@ -57,6 +59,7 @@ START = datetime.datetime(2026, 10, 11, 12, 0, 0)
 # On an even seed the pull request is an agent's, and the Maintainer reviews it as a colleague's (UJ-4). On an odd
 # seed it is the Maintainer's own, as the simulator has always served, and GitHub refuses a review by its author.
 AUTHOR = "combsmith-sf-dev-lead[bot]"
+ISSUE = 7     # each pull request is opened for it, the Maintainer's too, so the author Role mends each: until issue 824
 MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
 # The reviewer's App holds pull_requests: write, and GitHub cannot grant it less.
 REVIEWER_APP = {"kind": "lens", "name": "pr-review", "can_write": True}
@@ -418,6 +421,7 @@ class World:
             # GitHub: an_acceptance_result_names_its_reporter
             # GitHub: a_contract_approval_stays_on_its_commit
             "acceptance": self.acceptance(),
+            "opened_for": ISSUE,
             "complete": {"acceptance": True, "reviews": True, "threads": True, "checks": True, "diff": True,
                          "changed_paths": True, "runs": True, "timeline": True},
             "read_at": self.now(),
