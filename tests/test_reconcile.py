@@ -249,35 +249,45 @@ HAND = wrote("hand", "resolution", "PRRT_t", at=None)
 
 
 class Hand(unittest.TestCase):
-    """A person's resolution of a thread a Role opened, matched to the Kernel's act that named the thread (issue 854)."""
+    """A person's resolution of a thread a Role opened, matched to the Kernel's act that named the thread (decision 0223)."""
 
     def test_a_hands_resolution_of_a_roles_thread_is_matched_to_the_act_the_last_pass_named(self):  # issue 854
         # Until the queue App exists a session carries out the Kernel's `resolve_thread` by hand, as a person's account
         # (decision 0212). The pass that first sees the resolution matches it to the act of the last pass that decided
-        # the item: that act named the thread, or the resolution is one nobody recorded.
+        # the item: that act named the thread, or the resolution is one nobody recorded, an alert of its own.
         found = check(seen(HAND), before=[passed()])
-        self.assertEqual((found["unmatched"], found["short"], reconcile.alerts(found)), ([], False, []))
-        for why, before in (("another thread", [passed(["PRRT_u"])]), ("another item's act", [passed(item=OTHER)]),
-                            ("no thread", [passed([])]),
+        self.assertEqual((found["unmatched"], found["unjudged"], found["short"], reconcile.alerts(found)), ([], [], False, []))
+        review = dict(state="verifying", reason="awaiting_review", outcome="admit", action=None)
+        for why, before in (("another thread", [passed(["PRRT_u"])]), ("no thread", [passed([])]),
                             ("an act a brake held", [passed(outcome="defer")]),
                             ("another act", [passed(action="enqueue")]),
-                            ("a Decision that is no act", [passed(state="addressing", reason="findings_open", outcome="admit")]),
+                            ("a Decision that is no act", [passed(**review)]),
                             # The last pass that decided the item is the one read: the head may have moved since an earlier.
-                            ("an act an earlier pass named and the last did not", [passed(), passed([])])):
+                            ("an act an earlier pass named and the last did not", [passed(), passed([])]),
+                            ("an act an earlier pass named, and the last a review", [passed(), passed(**review)])):
             with self.subTest(why):
                 found = check(seen(HAND), before=before)
-                self.assertEqual((kinds(found), found["short"]), ([("hand", "resolution")], False))
-                self.assertEqual(reconcile.alerts(found), ["write_unmatched"])
-                self.assertEqual(reconcile.entries(found), [{"alert": "write_unmatched", "by": "hand", "write": "resolution",
+                self.assertEqual((kinds(found), found["unjudged"], found["short"]), ([("hand", "resolution")], [], False))
+                self.assertEqual(reconcile.alerts(found), ["hand_unmatched"])
+                self.assertEqual(reconcile.entries(found), [{"alert": "hand_unmatched", "by": "hand", "write": "resolution",
                                                              "item": URL, "key": "PRRT_t"}])
         # A pass that did not decide the item, one it could not read, says nothing of it: the one before it is read.
         self.assertEqual(check(seen(HAND), before=[passed([]), passed()])["unmatched"], [])
         self.assertEqual(check(seen(HAND), before=[passed(), passed([], item=OTHER)])["unmatched"], [])
-        # A resolution whose thread cannot be read is matched to nothing, and a Run on its item makes it no Run's write.
-        self.assertEqual(kinds(check(seen(dict(HAND, key=None)), before=[passed()])), [("hand", "resolution")])
+        # A resolution whose thread or item cannot be read is matched to nothing, and a Run on its item makes it no Run's.
+        for odd in (dict(HAND, key=None), dict(HAND, item=None), dict(HAND, kind="comment")):
+            self.assertEqual(kinds(check(seen(odd), before=[passed()])), [("hand", odd["kind"])], odd)
         running = [{"run": "r_01JA7Q", "item": ITEM, "started_at": AT, "status": "in_progress"}]
         found = check(seen(HAND), r=running, before=[passed([])], accounts=dict(KNOWN, workflow_token=None))
         self.assertEqual((kinds(found), found["short"]), ([("hand", "resolution")], False))
+        # A hand's resolution has its own alert, so that one standing never hides an identity's write nobody recorded.
+        both = check(seen(HAND, wrote("approver", "approval", "PRR_a")), before=[passed([])])
+        self.assertEqual(reconcile.alerts(both), ["hand_unmatched", "write_unmatched"])
+        self.assertEqual(reconcile.alerts(check(seen(wrote("approver", "approval", "PRR_a")), before=[passed()])),
+                         ["write_unmatched"])
+        # A Role named as a hand's writes are could not be told from a person: no identity is known, and it is short.
+        named = dict(KNOWN, roles=dict(KNOWN["roles"], hand=KNOWN["roles"]["pr-review"]))
+        self.assertTrue(check(seen(), before=[passed()], accounts=named)["short"])
 
     def test_a_hands_resolution_once_matched_is_carried_while_it_is_seen(self):  # issue 854
         # A resolution has no time and is seen at every pass, long after the pass that named its thread: once matched, its
@@ -286,7 +296,8 @@ class Hand(unittest.TestCase):
         held = reconcile.carried([passed()], effects, seen(HAND), NOW)
         self.assertEqual(held["hands"], [{"key": "PRRT_t", "at": NOW}])
         later = dict(passed([], now=NOW), reconciled=held)
-        self.assertEqual(check(seen(HAND), before=[later])["unmatched"], [])
+        found = check(seen(HAND), before=[later])
+        self.assertEqual((found["unmatched"], found["unjudged"], found["short"], reconcile.alerts(found)), ([], [], False, []))
         again = reconcile.carried([later], effects, seen(HAND), "2026-10-11T13:20:00Z")
         self.assertEqual(again["hands"], [{"key": "PRRT_t", "at": "2026-10-11T13:20:00Z"}])
         # A pass that did not see it, its pull request unread, carries it on as it was, until the window passes it.
@@ -298,19 +309,30 @@ class Hand(unittest.TestCase):
         self.assertEqual(reconcile.carried([passed([])], effects, seen(HAND), NOW)["hands"], [])
         self.assertEqual(reconcile.carried([passed()], effects, seen(dict(HAND, key=None)), NOW)["hands"], [])
         # What is carried is what `pass/1` holds.
-        record = dict(passed(), reconciled=held)
+        record = dict(passed(), reconciled=held, alerts=["hand_unmatched"])
         self.assertEqual(validate(record, SCHEMAS["pass"], schemas=SCHEMAS), [])
 
-    def test_a_hands_resolution_no_record_can_judge_is_short_once_and_carried(self):  # issue 854
-        # With no record before, or one written before a hand's resolutions were carried, nothing says whether an act
-        # named the thread: reconciliation is short for that pass, never silent, and the thread is carried, so that one
-        # resolved before the rule does not alarm for as long as its pull request is open.
+    def test_a_hands_resolution_no_record_can_judge_is_short_once_carried_and_named(self):  # issue 854
+        # Where no record before can say whether an act named the thread, reconciliation is short for that pass, never
+        # silent, the thread is carried, and the view names it as information: with no record before; with one written
+        # before a hand's resolutions were carried, so that a thread resolved before the rule does not alarm for as
+        # long as its pull request is open; and with none that decided the item, which two passes could not read.
         effects = dict(recorded(), read={"runs": [], "passes": []}, at={})
-        for before in ([], [passed(hands=None)], [passed([], hands=None)]):
+        waved = [{"alert": "hand_unjudged", "by": "hand", "write": "resolution", "item": URL, "key": "PRRT_t"}]
+        for before in ([], [passed(hands=None)], [passed([], hands=None)], [passed(item=OTHER), passed(item=OTHER)]):
             found = check(seen(HAND), before=before)
             self.assertEqual((found["unmatched"], found["short"]), ([], True), before)
-            self.assertEqual(reconcile.alerts(found), ["reconciliation_unreadable"])
-            self.assertEqual(reconcile.carried(before, effects, seen(HAND), NOW)["hands"], [{"key": "PRRT_t", "at": NOW}])
+            self.assertEqual((reconcile.alerts(found), reconcile.entries(found)), (["reconciliation_unreadable"], waved))
+            self.assertEqual(validate(waved[0], SCHEMAS["view-meta"]["$defs"]["entry"], schemas=SCHEMAS), [])
+            held = reconcile.carried(before, effects, seen(HAND), NOW)
+            self.assertEqual(held["hands"], [{"key": "PRRT_t", "at": NOW}])
+            # The pass after it reads what was carried: matched, and short no more.
+            after = check(seen(HAND), before=[dict(passed([], now=NOW), reconciled=held)])
+            self.assertEqual((after["unmatched"], after["unjudged"], after["short"], reconcile.alerts(after)), ([], [], False, []))
+        # A resolution whose thread cannot be read is unmatched even then, and never carried: `pass/1` holds no such key.
+        nameless = seen(dict(HAND, key=None))
+        self.assertEqual(kinds(check(nameless)), [("hand", "resolution")])
+        self.assertEqual(reconcile.carried([], effects, nameless, NOW)["hands"], [])
         # With no hand's resolution seen, such a record leaves nothing short, and the next record carries none.
         self.assertFalse(check(seen(), before=[passed(hands=None)])["short"])
         self.assertEqual(reconcile.carried([passed(hands=None)], effects, seen(), NOW)["hands"], [])
@@ -485,12 +507,14 @@ class SeenPort(unittest.TestCase):
             return {"id": ident, "isResolved": True, "resolvedBy": by and {"login": by["login"], "databaseId": by["id"]},
                     "comments": {"nodes": [comment]}}
 
+        queue = {"id": 5000009, "type": "Bot", "login": "combsmith-sf-queue[bot]"}
         threads_ = [thread("PRRT_h"), thread("PRRT_p", opened=PERSON), thread("PRRT_a", opened=APPROVER),
-                    thread("PRRT_c", opened=CONTROLLER), thread("PRRT_g", opened=None),
+                    thread("PRRT_c", opened=CONTROLLER), thread("PRRT_g", opened=None), thread("PRRT_q", opened=queue),
                     thread("PRRT_m", author={"__typename": "Mannequin", "login": "gone"}),
                     thread("PRRT_r", by=ROLE), thread("PRRT_n", by=None),
                     dict(thread("PRRT_o"), isResolved=False, resolvedBy=None)]
-        writes, _, whole = port(kept(threads=threads_))
+        writes, _, whole = seen_.read(GitHub(), ITEM, kept(threads=threads_), {**IDENTITIES, (5000009, "Bot"): "queue"},
+                                      APPS, SINCE)
         self.assertTrue(whole)
         self.assertEqual([(w["by"], w["kind"], w["key"], w["at"]) for w in writes],
                          [("hand", "resolution", "PRRT_h", None), ("pr-review", "resolution", "PRRT_r", None),
@@ -504,6 +528,10 @@ class SeenPort(unittest.TestCase):
                          ("no comment", dict(thread("PRRT_h"), comments={"nodes": []})),
                          ("no comments", dict(thread("PRRT_h"), comments=None)),
                          ("an account of no id", thread("PRRT_h", author={"__typename": "Bot", "login": "x", "databaseId": None})),
+                         ("an account whose type is not said", thread("PRRT_h", author={"login": "x", "databaseId": 5000002})),
+                         ("an account whose type is no word", thread("PRRT_h", author={"__typename": 7, "databaseId": 5000002})),
+                         # A resolver whose account cannot be read is nobody that can be told, a person least of all.
+                         ("a resolver of no id", dict(thread("PRRT_h"), resolvedBy={"login": "don-petry"})),
                          ("an account whose id is no number", thread("PRRT_h", author={"__typename": "Bot", "databaseId": True}))):
             writes, _, whole = port(kept(threads=[odd]))
             self.assertEqual((writes, whole), ([], False), why)

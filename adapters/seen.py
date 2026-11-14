@@ -88,14 +88,21 @@ def _who(actor, identities: dict):
 def _opener(thread: dict, identities: dict) -> tuple:
     """`(code, told)`: the identity that opened a thread, by its first comment's author as GraphQL gives it, or None;
     and whether it could be told from one. A first comment GitHub does not say replies to none is not the opener's.
-    An author GitHub no longer names, or of a type no identity has, is none."""
+    An author GitHub no longer names, or of a type no identity has, is none; one whose type is not said cannot be told.
+    A thread whose first comment was deleted reads its next as its first (trials P-49 and P-53), so its opener is
+    whoever replied: that is not told here."""
     nodes = _object(thread.get("comments")).get("nodes")
     if not isinstance(nodes, list) or not nodes or not isinstance(nodes[0], dict) or nodes[0].get("replyTo", 0) is not None:
         return None, False
     author = nodes[0].get("author")
-    if author is None or _object(author).get("__typename") not in ("User", "Bot"):
+    if author is None:
         return None, True
-    actor = {"id": author.get("databaseId"), "type": author["__typename"]}
+    kind = _object(author).get("__typename")
+    if not isinstance(kind, str) or not kind:
+        return None, False
+    if kind not in ("User", "Bot"):
+        return None, True
+    actor = {"id": author.get("databaseId"), "type": kind}
     return _who(actor, identities), _readable(actor)
 
 
@@ -249,6 +256,8 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         # account id alone, which names one account whatever its type (decision 0067).
         by = "unattributed" if resolver is None else next(
             (code for (told, _), code in identities.items() if told == ident and _positive(ident)), None)
+        if by is None and not _positive(ident):
+            continue        # what was seen is short already: who resolved it cannot be told, a person least of all
         if by is None:
             # A resolver that is no Factory identity is a person's hand. The Kernel takes it as closing a Lens's Finding,
             # so its resolution of a thread a Role opened is a write to reconcile (issue 854); of any other, nobody's.

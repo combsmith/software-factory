@@ -65,7 +65,7 @@
   },
   "$defs": {
     "entry": {
-      "description": "One thing reconciliation found, ids and codes alone (decision 0061): a write a Factory identity made that no Effect recorded, write_unmatched, by whom, what, on which item and its key; or a merge read as an Override, merged_by_override, its item, with by and key null and write merge",
+      "description": "One thing reconciliation found, ids and codes alone (decision 0061): a write a Factory identity made that no Effect recorded, write_unmatched, by whom, what, on which item and its key; a person's resolution of a thread a Role opened that no act named, hand_unmatched, or that no record before could judge, hand_unjudged, which is information (decision 0223); or a merge read as an Override, merged_by_override, its item, with by and key null and write merge",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -79,7 +79,9 @@
         "alert": {
           "enum": [
             "write_unmatched",
-            "merged_by_override"
+            "merged_by_override",
+            "hand_unmatched",
+            "hand_unjudged"
           ]
         },
         "by": {
