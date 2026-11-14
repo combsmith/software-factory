@@ -39,7 +39,7 @@ RAW = {
     "adapters.effects.tracking": {"issues": W}, "adapters.effects.write_status": {"checks": W},
     # An installation's token, asked by the App's own key, and revoked by itself: no grant of the repo's.
     "adapters.identity.mint": {}, "adapters.identity.revoke": {},
-    "adapters.items._page": {"pull_requests": R},
+    "adapters.items.open_pull_requests": {"pull_requests": R}, "adapters.items.open_issues": {"issues": R},
     "adapters.passes.find": {"actions": R}, "adapters.passes.records": {"actions": R},
     "adapters.passes.started": {"actions": R}, "adapters.passes.written": {"actions": R},
     # FACTORY_PAUSED, the repo's and the org's through the repo.
@@ -84,7 +84,8 @@ SITES = {
     "adapters.effects.write_status": 3,
     "adapters.identity.mint": 2,
     "adapters.identity.revoke": 1,
-    "adapters.items._page": 1,
+    "adapters.items.open_issues": 1,
+    "adapters.items.open_pull_requests": 1,
     "adapters.passes.find": 1,
     "adapters.passes.records": 1,
     "adapters.passes.started": 1,
@@ -354,7 +355,7 @@ class TokenNeeds(unittest.TestCase):
         self.assertTrue({"adapters.passes.find", "adapters.checks._read", "adapters.pause._value"}
                         <= reached("harness.apply_step", "written"))
         self.assertTrue({"adapters.queue.pull", "adapters.queue.enqueue"} <= reached("harness.queue_step", "written"))
-        self.assertTrue({"adapters.items._page", "adapters.checks._read", "adapters.pause._value",
+        self.assertTrue({"adapters.items.open_pull_requests", "adapters.checks._read", "adapters.pause._value",
                          "adapters.seen._check_runs"} <= reached("controller.__main__", "main"))
         self.assertTrue({"adapters.pause._value", "adapters.effects.open_issues", "adapters.effects.write_status"}
                         <= reached("adapters.effects", "main"))
