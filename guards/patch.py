@@ -1,17 +1,23 @@
-"""A Role's patch, read as `git diff` writes it, and its hunks applied to a file's bytes (issue 838; FR-14; decision
-0188's residual, "the push's write must land exactly that patch, and no other bytes"). What applies a whole patch to a
-tree is still to come.
+"""A Role's patch, applied byte for byte to the files it names (issue 838; FR-14; decision 0188's residual, "the push's
+write must land exactly that patch, and no other bytes").
 
-`read(patch)` gives a patch's sections, or None for what it does not read. It reads a narrower patch than
-`harness/bundle.py` does, on purpose, and what it does not read it refuses: a name is read one way only, unquoted, of
-the characters `NAME_CHARS` holds, with no space, so the header alone names both files and every other line that names
-one must agree with it; and of no more parts than `DEEPEST` bounds. `named(path)` is that reading of a name, for text.
+`applied(patch, tree, contents)` gives what a push writes: each path's new bytes and mode, and each path it removes, or
+the one reason, a code, why nothing may land. Nothing is searched for and nothing is guessed: a hunk's lines are the
+file's lines at the place the hunk names, or the patch is not this tree's. So what lands is what the patch says, of the
+commit the Decision admitted, and of no other. It is what `git apply` lands of a hunk that stands where its header
+says. `git apply --unidiff-zero`, which git wants for a hunk with no line of context, differs in one shape: removals
+alone that end at a last line with no newline, which it takes a line higher where the line above reads alike or
+differs only in white space at its end.
 
-`sources(patch)` names the files whose bytes a patch needs, and `content(old, hunks)` applies one file's hunks to its
-bytes. Nothing is searched for and nothing is guessed: a hunk's lines are the file's lines at the place the hunk names,
-or the hunks are not this file's. It is what `git apply` lands of a hunk that stands where its header says.
-`git apply --unidiff-zero`, which git wants for a hunk with no line of context, differs in one shape: removals alone
-that end at a last line with no newline, which it takes a line higher where the line above reads alike.
+It reads a narrower patch than `harness/bundle.py` does, on purpose, and what it does not read it refuses:
+- a name is read one way only: unquoted, of the characters `NAME_CHARS` holds, with no space, so the header alone
+  names both files and every other line that names one must agree with it; and of no more parts than `DEEPEST` bounds;
+- a file is a file: a link, a submodule, a path under a file, and a mode other than a file's two are refused;
+- no file is written twice or copied twice, and none is written where the tree holds one the patch does not say it
+  changes.
+
+`tree` is every path the admitted commit holds that is not a directory, with its mode as git writes it; `contents` is
+the bytes of each path `sources` names. Both are the port's reads (`adapters/push.py`); this reads nothing itself.
 """
 from __future__ import annotations
 
@@ -34,6 +40,8 @@ RENAME_TO = b"rename to "
 COPY_FROM = b"copy from "
 COPY_TO = b"copy to "
 INDEX = b"index "
+# A file's two modes. A link's, 120000, and a submodule's, 160000, are no file's: such a change is a person's to push.
+FILE_MODES = ("100644", "100755")
 DIGITS = b"0123456789"
 HEX = b"0123456789abcdef"
 MOST_DIGITS = b"999999999"      # a count of more digits than this is no count (decision 0188)
@@ -53,6 +61,9 @@ GIT_SHORT = "git~"
 MODES = (b"100644", b"100755", b"120000", b"160000")
 NUL = b"\x00"
 
+UNREADABLE = "bundle_unreadable"        # no patch this reads: the Role's, as decision 0188 has it
+NOT_APPLIED = "patch_does_not_apply"    # a patch, but not of the admitted commit's files
+NOT_A_FILE = "push_not_a_file"          # it writes what is no file, or through one
 
 
 def _number(said):
@@ -317,3 +328,74 @@ def content(old: bytes, hunks: list):
     if not out:
         return b""
     return b"\n".join(out) + (b"" if open_end else b"\n")
+
+
+def _above(path: str) -> list:
+    """Each directory `path` stands under, the nearest last."""
+    names = path.split("/")
+    return ["/".join(names[:n]) for n in range(1, len(names))]
+
+
+def _placed(path: str, tree: dict, folders: dict) -> bool:
+    """Whether `path` can be a file in `tree`, whose directories are `folders`: nothing above it is a file, and it is no
+    directory there."""
+    return not any(part in tree for part in _above(path)) and path not in folders
+
+
+def applied(patch, tree: dict, contents: dict) -> tuple:
+    """`(changes, None)`, or `(None, reason)` where nothing may land. `changes` is `{"written": {path: (mode, bytes)},
+    "removed": [path], "read": [path]}`: what the push writes, what it removes, and what a rename or a copy read, each
+    path once; `harness/apply.py`'s `push_refusal` is asked about what was read as it is about what is written.
+    Every reason is the Role's: what a port did not read is told apart by the next part."""
+    sections = read(patch)
+    if sections is None:
+        return None, UNREADABLE
+    folders = {}
+    for path in tree:
+        for part in _above(path):
+            folders[part] = True
+    written, removed, gone, taken, copied = {}, [], {}, {}, {}
+    for section in sections:
+        kind, old, new = section["kind"], section["old"], section["new"]
+        target = old if kind == "deleted" else new
+        if target in written or target in gone or (kind == "rename" and (old in written or old in gone)):
+            return None, UNREADABLE
+        # A copy writes a file's bytes again: one copy of a file to a patch, so what lands is bounded by what was read.
+        if kind == "copy" and old in copied:
+            return None, UNREADABLE
+        if kind == "new":
+            before, mode = b"", section["new_mode"]
+            if new in tree:
+                return None, NOT_APPLIED
+        else:
+            before, mode = contents.get(old), tree.get(old)
+            if mode is None:
+                return None, NOT_APPLIED
+            if mode not in FILE_MODES:
+                return None, NOT_A_FILE
+            if section["old_mode"] not in (None, mode) or section["index_mode"] not in (None, mode):
+                return None, NOT_APPLIED
+            if kind in ("rename", "copy") and new in tree:
+                return None, NOT_APPLIED
+            mode = section["new_mode"] or mode
+        if mode not in FILE_MODES:
+            return None, NOT_A_FILE
+        # A section of no hunk leaves the bytes as they are: the same bytes, not a copy of them.
+        after = content(before, section["hunks"]) if section["hunks"] else before
+        if after is None or (kind == "deleted" and after != b""):
+            return None, NOT_APPLIED
+        if kind in ("deleted", "rename"):
+            removed.append(old)
+            gone[old] = True
+        if kind == "deleted":
+            continue
+        if not _placed(new, tree, folders):
+            return None, NOT_A_FILE
+        written[new] = (mode, after)
+        if kind in ("rename", "copy"):
+            taken[old] = True
+        if kind == "copy":
+            copied[old] = True
+    if any(part in written for path in written for part in _above(path)):
+        return None, NOT_A_FILE
+    return {"written": written, "removed": removed, "read": list(taken)}, None
