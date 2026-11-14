@@ -4355,6 +4355,10 @@ NOT_READ = {
     "a_pass_starts_its_successor": "controller", "a_public_event_starts_a_pass": "controller",
     # The issue port that reads each linked pull request's draft events is not built yet (decision 0141).
     "a_draft_change_is_timed": "issues_port",
+    # The issue port reads an issue's type and its links by hand from the issue's timeline, and each linked pull
+    # request's close and reopening; none of it is built yet (P-61, issue 551).
+    "a_link_by_hand_is_timed": "issues_port", "a_type_change_is_timed": "issues_port",
+    "a_pull_requests_close_and_reopening_are_timed": "issues_port",
     "an_issues_content_time_is_read_apart": "issues_port", "a_reopening_names_its_actor": "issues_port",
     "an_issues_close_and_reopening_say_when": "issues_port",
     "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing": "issues_port",

@@ -42,6 +42,8 @@ from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = check_authority.ROOT
+# A time as GitHub gives one, in UTC to the second: the only form that sorts as text in time's order.
+SECOND = r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$"
 GOOD = (ROOT / "examples" / "workflows" / "verify.yml").read_text()
 # The poller's shim, as issue 196's ruling 4 gives it in full: the shape the rules shim and wake hold.
 POLLER = 'name: sf-poller\non:\n  schedule:\n    - cron: "13 * * * *"\n    - cron: "33 * * * *"\n    - cron: "53 * * * *"\n  workflow_dispatch:\n  workflow_run:\n    workflows:\n      - factory\n      - ci\n    types:\n      - completed\npermissions: {}\njobs:\n  pass:\n    permissions:\n      actions: write\n      contents: read\n    concurrency:\n      group: sf-poller\n      cancel-in-progress: false\n    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next\n    secrets: inherit\n'
@@ -6338,6 +6340,87 @@ class Trials(unittest.TestCase):
         self.assertEqual((renamed["actor"]["login"], reopened["actor"]["login"], issue["stateReason"]),
                          ("don-petry", "don-petry", "REOPENED"))
         self.assertEqual([n["editor"]["login"] for n in issue["userContentEdits"]["nodes"]], ["don-petry", "don-petry"])
+
+    def test_p61_holds_what_grounds_its_three_rules(self):
+        # trials/P-61.json (issue 551) grounds three rules of the issue world, each held to the content that grounds it,
+        # read step by step: each change between the reads either side of it, as one event of its own.
+        by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
+        for code in ("a_link_by_hand_is_timed", "a_type_change_is_timed", "a_pull_requests_close_and_reopening_are_timed"):
+            self.assertEqual(by_code[code], "trials/P-61.json", code)
+        p61 = json.loads((ROOT / "trials" / "P-61.json").read_text())
+        self.assertEqual(p61["verdict"], "pass")
+        reads = [e["response"] for e in p61["exchanges"]]
+        self.assertEqual(len(reads), 11)
+        at = [email.utils.parsedate_to_datetime(r["headers"]["date"]).strftime("%Y-%m-%dT%H:%M:%SZ") for r in reads]
+        issues = [r["body"]["data"]["repository"]["issue"] for r in reads]
+        prs = [r["body"]["data"]["repository"]["pullRequest"] for r in reads]
+        for kind in (issues, prs):
+            self.assertTrue(all(k["timelineItems"]["pageInfo"]["hasNextPage"] is False for k in kind))
+
+        def nodes(kind, step):
+            return kind[step - 1]["timelineItems"]["nodes"]
+
+        def new(kind, step):
+            # A read is the read before it, every event kept, and the new events after them: none lost or changed.
+            before = nodes(kind, step - 1)
+            self.assertEqual(nodes(kind, step)[:len(before)], before, step)
+            return nodes(kind, step)[len(before):]
+        # Each step changes the one timeline it touches: the issue's for steps 2 to 7, the pull request's for 8 to 10,
+        # the issue's again at 10 for its close, and neither at 11.
+        for step in range(2, 12):
+            for kind, touched in ((issues, list(range(2, 8)) + [10]), (prs, [8, 9, 10])):
+                if step not in touched:
+                    self.assertEqual(nodes(kind, step), nodes(kind, step - 1), step)
+        self.assertEqual(len(nodes(issues, 1)), 0)
+        # Every event of the run names the one actor who made each change, the machine user's page: its login and type.
+        run = nodes(issues, 11) + nodes(prs, 11)[len(nodes(prs, 1)):]
+        self.assertEqual({(n["actor"]["login"], n["actor"]["__typename"]) for n in run}, {("donpetry-bot", "User")})
+        # Steps 2 to 7, on the issue: a type set, changed, removed; the pull request linked by hand, unlinked, linked.
+        named = []
+        for step, kind in zip(range(2, 8), ("IssueTypeAddedEvent", "IssueTypeChangedEvent", "IssueTypeRemovedEvent",
+                                             "ConnectedEvent", "DisconnectedEvent", "ConnectedEvent")):
+            found = new(issues, step)
+            self.assertEqual([n["__typename"] for n in found], [kind], step)
+            # Compared as text only in UTC to the second, as GitHub gives it: a fraction or an offset would sort wrong.
+            self.assertRegex(found[0]["createdAt"], SECOND, step)
+            self.assertTrue(at[step - 2] <= found[0]["createdAt"] <= at[step - 1], step)
+            self.assertEqual(found[0]["actor"]["__typename"], "User", step)
+            named.append((found[0].get("issueType") or {}).get("name")
+                         or (found[0]["source"]["__typename"], found[0]["source"]["number"],
+                             found[0]["subject"]["__typename"], found[0]["subject"]["number"]))
+        self.assertEqual(named[:3], ["Task", "Bug", "Bug"])
+        self.assertEqual(new(issues, 3)[0]["prevIssueType"], {"name": "Task"})
+        self.assertEqual(named[3:], [("Issue", 123, "PullRequest", 120)] * 3)
+        self.assertEqual([i["issueType"] for i in issues[:4]], [None, {"name": "Task"}, {"name": "Bug"}, None])
+        # Steps 8 to 10, on the pull request: closed, reopened, merged, a close beside the merge; a reopening clears
+        # closedAt.
+        for step, kinds in ((8, ["ClosedEvent"]), (9, ["ReopenedEvent"]), (10, ["MergedEvent", "ClosedEvent"])):
+            found = new(prs, step)
+            self.assertEqual([n["__typename"] for n in found], kinds, step)
+            self.assertTrue(all(re.match(SECOND, n["createdAt"]) for n in found), step)
+            self.assertTrue(all(at[step - 2] <= n["createdAt"] <= at[step - 1] for n in found), step)
+        self.assertEqual([(p["state"], p["closedAt"] is None) for p in prs[7:10]],
+                         [("CLOSED", False), ("OPEN", True), ("MERGED", False)])
+        self.assertEqual(len({n["createdAt"] for n in new(prs, 10)}), 1)
+        # The merge of the pull request linked by hand closed the issue, naming it the closer.
+        # It stood open until the merge, and its close came after the merge.
+        self.assertEqual([i["state"] for i in issues], ["OPEN"] * 9 + ["CLOSED"] * 2)
+        closed = new(issues, 10)
+        self.assertEqual([(n["__typename"], n["closer"]["__typename"], n["closer"]["number"]) for n in closed],
+                         [("ClosedEvent", "PullRequest", 120)])
+        self.assertGreaterEqual(closed[0]["createdAt"], prs[9]["mergedAt"])
+        # A link by a closing keyword raises no ConnectedEvent: P-33 asked issue 36's timeline for its connected and
+        # disconnected events, with pull requests 37, 38 and 40 naming it by keyword, before and after 38's merge.
+        p33 = json.loads((ROOT / "trials" / "P-33.json").read_text())["exchanges"]
+        # Each read is held only to the events it asked for, read whole: the first asked both, the one after the merge
+        # the connected alone.
+        for at, asked in ((1, ("ConnectedEvent", "DisconnectedEvent")), (4, ("ConnectedEvent",))):
+            query = p33[at]["request"]["body"]["query"]
+            self.assertTrue(all(re.sub(r"(?<=.)(?=[A-Z])", "_", kind).upper() in query for kind in asked), at)
+            items = p33[at]["response"]["body"]["data"]["repository"]["issue"]["timelineItems"]
+            self.assertEqual(items["totalCount"], len(items["nodes"]), at)
+            kinds = {n["__typename"] for n in items["nodes"]}
+            self.assertTrue(kinds and not kinds & set(asked), at)
 
     def test_the_lane_keeps_one_running_and_one_waiting(self):
         # trials/P-44.json (issue 251) grounds a_run_waits_its_turn: the pass is computed here from the run lists and the
