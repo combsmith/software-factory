@@ -19,7 +19,8 @@ MODEL_JUDGED = {"functional", "security", "architecture", "delivery", "reliabili
 # it; and, in that step's module, a call of harness/apply.py's `opened`, which records the Run that opened the pull
 # request (decision 0097). The writer of "Acceptance: a pull request the Factory opens is bound to its issue by the Run
 # that opened it" (issue 342) is what makes all three true.
-OPENS = re.compile(r"/repos/%s/pulls")
+HOLE = "\0"         # a value formatted into a path, as `_written` reads one; no text read as written may hold it
+OPENS = re.compile(re.escape("/repos/%s/pulls" % HOLE))
 CREATES = "PO" + "ST"      # the one write that opens a pull request; spelt apart, as tools/check_writes.py spells its verbs
 
 
@@ -59,22 +60,65 @@ def _functions(tree):
                     yield "%s.%s" % (node.name, item.name), item
 
 
+def _bound(node) -> list:
+    """The names a node binds or unbinds, in any scope: a target of any kind, a parameter, a def or a class, an import,
+    an exception's or a pattern's name, a global or a nonlocal; `*` for a star import, which may bind any."""
+    if isinstance(node, ast.Name):
+        return [] if isinstance(node.ctx, ast.Load) else [node.id]
+    if isinstance(node, ast.arg):
+        return [node.arg]
+    if isinstance(node, ast.alias):
+        return [(node.asname or node.name).split(".")[0]]
+    if isinstance(node, (ast.Global, ast.Nonlocal)):
+        return node.names
+    return [n for n in (getattr(node, "name", None), getattr(node, "rest", None)) if isinstance(n, str)]
+
+
+def _binds(scope, name: str) -> list:
+    """Each node in a scope, or in any scope nested in it, that binds `name` or may: more than Python's scopes would
+    say, so that a name bound anywhere else is never read as bound once."""
+    return [n for n in ast.walk(scope) if name in _bound(n) or "*" in _bound(n)]
+
+
 def _written(node, scopes: tuple, depth: int = 0):
-    """A method or a path as text, or None: a literal, one formatted with `%`, an f-string with each hole read as `%s`,
-    or a name bound once, to one of those, in the function or else at its module's top level."""
-    node = node.left if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod) else node
+    """A method or a path as text, or None: a literal, one formatted with `%` by one value into its one `%s`, an
+    f-string whose holes have no conversion and no format, each value formatted read as HOLE, or a name bound once, by
+    `name = ` and nothing else, to one of those, in the function or else in its module."""
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
+        text, right = _written(node.left, scopes, depth), node.right
+        one = not isinstance(right, ast.Tuple) or len(right.elts) == 1 and not isinstance(right.elts[0], ast.Starred)
+        return text.replace("%s", HOLE) if one and text is not None and text.count("%") == 1 and "%s" in text else None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return node.value
+        return None if HOLE in node.value else node.value
     if isinstance(node, ast.JoinedStr):
-        return "".join(v.value if isinstance(v, ast.Constant) else "%s" for v in node.values)
+        parts = [_written(v, scopes) if isinstance(v, ast.Constant) else
+                 HOLE if v.conversion == -1 and v.format_spec is None else None for v in node.values]
+        return None if None in parts else "".join(parts)
     if isinstance(node, ast.Name) and depth < 4:
         for scope in scopes:
-            bound = [n.value for n in (ast.walk(scope) if isinstance(scope, ast.AST) and not isinstance(scope, ast.Module)
-                                       else scope.body) if isinstance(n, ast.Assign) and len(n.targets) == 1
-                     and isinstance(n.targets[0], ast.Name) and n.targets[0].id == node.id]
+            bound = _binds(scope, node.id)
             if bound:
-                return _written(bound[0], scopes, depth + 1) if len(bound) == 1 else None
+                value = [n.value for n in ast.walk(scope) if isinstance(n, ast.Assign) and n.targets[0] in bound
+                         and len(n.targets) == 1]
+                return _written(value[0], scopes, depth + 1) if len(bound) == 1 and value else None
     return None
+
+
+def _requests(tree) -> tuple:
+    """The names adapters/github.py's `request` is called by in a module, and the names that module is called by:
+    `from adapters.github import request`, `from adapters import github`, `import adapters.github as github`, at the
+    module's top, each name bound by its import and by nothing else."""
+    names, modules = set(), set()
+    for node in tree.body:
+        module = node.module if isinstance(node, ast.ImportFrom) and node.level == 0 else None
+        if module == "adapters.github":
+            names |= {a.asname or a.name for a in node.names if a.name == "request"}
+        elif module == "adapters":
+            modules |= {a.asname or a.name for a in node.names if a.name == "github"}
+        elif isinstance(node, ast.Import):
+            modules |= {a.asname for a in node.names if a.name == "adapters.github" and a.asname}
+    alone = {n for n in names | modules if len(_binds(tree, n)) == 1}
+    return names & alone, modules & alone
 
 
 def _given(call: ast.Call, at: int, name: str):
@@ -83,18 +127,21 @@ def _given(call: ast.Call, at: int, name: str):
 
 
 def openers(root: pathlib.Path = None) -> set:
-    """The adapter functions that open a pull request, as `adapters.module:function`: each builds a request whose method
-    is the write that creates, CREATES, and whose path is text (`_written`), a repo's pulls and nothing
-    after it. A method or a path that cannot be read as text is no opening: what is not read is not counted as the
-    writer."""
+    """The adapter functions that open a pull request, as `adapters.module:function`: each calls adapters/github.py's
+    `request` (`_requests`) with a method that is the write that creates, CREATES, and a path that is text (`_written`),
+    a repo's pulls, formatted once, and nothing after it. A method or a path that cannot be read as text is no
+    opening: what is not read is not counted as the writer."""
     found = set()
     for path in sorted(((ROOT if root is None else root) / "adapters").glob("*.py")):
         tree = _parsed(path)
+        names, modules = _requests(tree) if tree is not None else ((), ())
         for name, fn in _functions(tree) if tree is not None else ():
             for call in (n for n in ast.walk(fn) if isinstance(n, ast.Call)):
-                called = call.func.id if isinstance(call.func, ast.Name) else getattr(call.func, "attr", None)
+                f = call.func
+                called = isinstance(f, ast.Name) and f.id in names or isinstance(f, ast.Attribute) \
+                    and f.attr == "request" and isinstance(f.value, ast.Name) and f.value.id in modules
                 verb, where = _given(call, 0, "method"), _given(call, 1, "path")
-                if called != "request" or verb is None or where is None:
+                if not called or verb is None or where is None:
                     continue
                 verb, where = _written(verb, (fn, tree)), _written(where, (fn, tree))
                 if verb == CREATES and where is not None and OPENS.fullmatch(where):
@@ -104,11 +151,13 @@ def openers(root: pathlib.Path = None) -> set:
 
 def records_the_opening(tree, rel: str) -> bool:
     """Whether a module calls harness/apply.py's `opened`: by that name imported from harness.apply, as an attribute of
-    harness.apply however it is imported, relatively from the Harness too, or, in harness/apply.py, by its own name.
-    `harness.apply.opened` counts only where `import harness.apply` binds it."""
-    names, modules, whole = {"opened"} if rel == "harness/apply.py" else set(), set(), False
+    harness.apply however it is imported, relatively from the Harness too, or, in harness/apply.py, by its own name, as
+    its def at the top binds it. `harness.apply.opened` counts only where `import harness.apply` binds it. Each import
+    is at the module's top, and the name called is bound by it, or by that def, and by nothing else in the module."""
+    own = any(isinstance(n, ast.FunctionDef) and n.name == "opened" for n in tree.body)
+    names, modules, whole = {"opened"} if rel == "harness/apply.py" and own else set(), set(), False
     inside = rel.startswith("harness/")
-    for node in ast.walk(tree):
+    for node in tree.body:
         module = node.module if isinstance(node, ast.ImportFrom) and node.level == 0 else None
         if isinstance(node, ast.ImportFrom) and node.level == 1 and inside:
             module = "harness" if node.module is None else "harness." + node.module
@@ -119,14 +168,15 @@ def records_the_opening(tree, rel: str) -> bool:
         elif isinstance(node, ast.Import):
             modules |= {a.asname for a in node.names if a.name == "harness.apply" and a.asname}
             whole = whole or any(a.name == "harness.apply" and not a.asname for a in node.names)
+    alone = {n for n in names | modules | {"harness"} if len(_binds(tree, n)) == 1}
     for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
         f = call.func
-        if isinstance(f, ast.Name) and f.id in names:
+        if isinstance(f, ast.Name) and f.id in names & alone:
             return True
         if isinstance(f, ast.Attribute) and f.attr == "opened" and (
-                isinstance(f.value, ast.Name) and f.value.id in modules
+                isinstance(f.value, ast.Name) and f.value.id in modules & alone
                 or whole and isinstance(f.value, ast.Attribute) and f.value.attr == "apply"
-                and isinstance(f.value.value, ast.Name) and f.value.value.id == "harness"):
+                and isinstance(f.value.value, ast.Name) and f.value.value.id == "harness" and "harness" in alone):
             return True
     return False
 
