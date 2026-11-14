@@ -1069,11 +1069,12 @@ class World:
             self.check(all(self.passed(k) for k in self.checks), "I-27 model review before checks passed")
             done = [r for r in self.runs if r["intent"] == "review-change" and r["conclusion"] == "success"
                     and r["content_id"] == run["content_id"]]
-            # Unless the head was pushed past every such review while a thread of the Lens still stands: then its review
-            # is asked again on the same content (decision 0212, issue 855).
+            # Unless the head was pushed past every such review while a thread of the Lens still stands that asks for it:
+            # not one the Kernel is to resolve, accepted or dropped since the push (decision 0212, issue 855).
             pushed_past = all(r["started_at"] <= self.last_push for r in done) and any(
                 th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"] and not th["resolved"]
-                for th in self.threads)
+                and (th["severity"] in ("blocking", "major") or th["category"] == "security")
+                and th["ruling"] != "accepted" and not self.dropped_since_the_push(th) for th in self.threads)
             self.check(not done or pushed_past, "I-11 a second review of unchanged content")
 
     def finish_run(self):
@@ -1118,7 +1119,8 @@ class World:
             # The port says a Lens's thread dropped where this later review of its Lens, which succeeded on the current
             # content, records nothing on its Finding (decision 0212): now and then, of a thread opened before it began.
             for th in self.threads:
-                if th["opened_by"]["kind"] == "lens" and not th["resolved"] and not th.get("dropped") \
+                if th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"] and not th["resolved"] \
+                        and not th.get("dropped") and run["content_id"] == self.cid() \
                         and th["opened_at"] < run["started_at"] and self.keeps.random() < 0.5:
                     th["dropped"] = True
                     self.note("run %s: its review dropped thread %s" % (run["run"], th["id"]))
@@ -1156,6 +1158,9 @@ class World:
             # GitHub: a_push_is_new_content
             self.content += 1
             self.changed.add(self.touched_by("role" if who == AUTHOR else "maintainer"))
+            # The port's word that a review dropped a thread is of a review on the content it replaced: none says it now.
+            for th in self.threads:
+                th.pop("dropped", None)
         # GitHub: the_pusher_is_the_last_pusher
         self.last_pusher, self.last_push = who, self.now()
         self.moves()
