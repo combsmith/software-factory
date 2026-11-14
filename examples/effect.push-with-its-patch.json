@@ -1,0 +1,14 @@
+{
+  "push_commits": [
+    {
+      "id": "e1",
+      "bundle": {
+        "artifact": "result",
+        "digest": "sha256:0fb74dcb42b0f25a59ba119604442c48b9a59ac8d635edb1ed8e2ab08e58e866"
+      },
+      "patch": {
+        "body": "diff --git a/docs/glossary.md b/docs/glossary.md\n--- a/docs/glossary.md\n+++ b/docs/glossary.md\n@@ -1,3 +1,3 @@\n # Glossary\n \n-One term, one meaning\n+One term, one meaning.\n"
+      }
+    }
+  ]
+}

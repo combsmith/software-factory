@@ -656,6 +656,30 @@ class Examples(unittest.TestCase):
             self.assertNotIn(act, effect["properties"])
         self.assertNotIn("event", effect["properties"]["submit_review"]["items"]["properties"])
 
+    def test_a_pushs_patch_is_text_under_body_and_names_nothing_else(self):  # issue 880
+        # A Run that writes code answers with its change as one patch: text, under `body`, in its push. The bundle
+        # stays required: what a Run uploads names the bytes it handed over, by artifact and digest. A patch names
+        # nothing of where it lands. That the Harness fills the bundle from the patch is not held here: it is not built.
+        effect = json.loads((ROOT / "schemas" / "effect.schema.json").read_text())
+        push = effect["properties"]["push_commits"]["items"]
+        self.assertEqual((sorted(push["properties"]), sorted(push["required"])), (["bundle", "id", "patch"], ["bundle", "id"]))
+        self.assertEqual(sorted(push["properties"]["patch"]["properties"]), ["body"])
+        bundle = {"artifact": "result", "digest": "sha256:" + "5d" * 32}
+        text = "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b\n"
+        refused = lambda **item: validate({"push_commits": [dict(id="e1", **item)]}, effect) != []
+        # The example shows the digest a bundle is to carry: of its patch's text as UTF-8.
+        shown = json.loads((ROOT / "examples" / "effect.push-with-its-patch.json").read_text())["push_commits"][0]
+        self.assertEqual(shown["bundle"]["digest"], "sha256:" + hashlib.sha256(shown["patch"]["body"].encode()).hexdigest())
+        self.assertIs(refused(bundle=bundle), False)
+        self.assertIs(refused(bundle=bundle, patch={"body": text}), False)
+        for name, item in (("no bundle", dict(patch={"body": text})), ("a bare string", dict(bundle=bundle, patch=text)),
+                           ("no body", dict(bundle=bundle, patch={})), ("nothing", dict(bundle=bundle, patch={"body": ""})),
+                           ("a body that is no text", dict(bundle=bundle, patch={"body": 7})),
+                           ("its commit", dict(bundle=bundle, patch={"body": text, "commit": "0" * 40})),
+                           ("its branch", dict(bundle=bundle, patch={"body": text, "branch": "main"})),
+                           ("a patch that is none", dict(bundle=bundle, patch=None))):
+            self.assertIs(refused(**item), True, name)
+
     def test_only_success_can_pass_a_check(self):  # I-27, L-07
         # The configuration may say what a conclusion means, but never that one with no verdict has passed.
         schema = json.loads((ROOT / "schemas" / "config.schema.json").read_text())
