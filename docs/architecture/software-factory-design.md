@@ -19,7 +19,9 @@ next. If a tick is lost, the next one reaches the same answer.
 **A Run is one workflow run with up to three jobs.** `run` gives a model a Task and gets back a
 Result that only requests changes. `verify` runs the checks where the author controls nothing.
 `apply` reads the item again, and only then makes the changes, through the Role's own GitHub App.
-The model never holds a credential that can write.
+The model never holds a credential that can write. The bytes a Role's own push may land are bounded
+by the guards (`guards/`): pure functions, in a place the Role they bind may not change once it is a
+protected path. None is called yet.
 
 **A change converges when** every required check has passed, no required reviewer and no person
 with write access has an open objection, and, once acceptance contracts are in force, every
@@ -100,6 +102,12 @@ Some of it is rule and some of it is record. An implementer builds from the rule
 | Rules | Record of how the rules were reached |
 |---|---|
 | §2.4, the four rules; §3, the contracts; §4, behaviour and invariants; §5, Roles and authority; §8.4, the feed; §9.1, the build order; §9.6, the serving channel and cutover | §7, options weighed and the build-or-adopt research; §8.3, what came from another analysis; §9.3 to §9.5 and §9.7 to §9.11, the review passes; §9.12 to §9.14, how it is built; §10, edits made to other documents |
+
+A rule on what a Role's own write lands (§3.6, §4.1, §4.8) is built as a guard: a pure function in
+`guards/`, held as the Kernel is (`tools/check_purity.py`), and called by `apply` with what a port read.
+A guard is never built in `kernel/` or `adapters/`, where the Role it binds may push. Whether a push
+touches a path a person must judge is asked before any guard, and stays `harness/apply.py`'s
+(decision 0188); the first guard is not built yet.
 
 The architecture review in `factory-mvp-architecture-review.md` is history. It records
 recommendations that were later replaced, and nothing should be built from it.
