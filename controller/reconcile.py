@@ -18,14 +18,10 @@ queued in the last pass before it is an Override, reported as information. Recon
 what was seen or what was recorded cannot be read whole, or when an identity's account is not known, since its writes
 cannot be told.
 
-One write of a person's is reconciled too: the resolution of a thread a Role opened, which `adapters/seen.py` reads as
-a `hand`'s. Until the queue App exists a session carries out the Kernel's act `resolve_thread` so (decision 0212), and
-the Kernel takes any person's resolution as closing a Lens's Finding. It is matched to the act of the last pass before
-that decided its item, which must name the thread; once matched its thread is carried, since a resolution has no time
-and is seen at every pass. One no act named raises an alert of its own, `hand_unmatched`, so that it never stands in
-for a Factory identity's write. One no record before can judge, there being none, or none that carried a hand's, or
-none that decided its item, is `unjudged`: reconciliation is short for that pass, the thread is carried, and the view
-names it, `hand_unjudged`, as information (decision 0223).
+One write of a person's is reconciled too, a `hand`'s: the resolution of a thread a Role opened (decision 0223). It
+is matched to the act `resolve_thread` of the last pass before that decided its item, and then carried, since it has
+no time and is seen at every pass. One no act named raises `hand_unmatched`, an alert of its own. One no record before
+can judge is `unjudged`: short for that pass, carried, and named in the view, `hand_unjudged`.
 """
 from __future__ import annotations
 
