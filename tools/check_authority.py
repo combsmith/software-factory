@@ -200,15 +200,16 @@ def openers(root: pathlib.Path = None) -> set:
 def records_the_opening(tree, rel: str) -> bool:
     """Whether a module calls harness/apply.py's `opened`: by that name imported from harness.apply, as an attribute of
     harness.apply however it is imported, relatively from the Harness too, or, in harness/apply.py, by its own name, as
-    its def at the top binds it, with no decorator, which may replace it. `harness.apply.opened` counts only where `import harness.apply` binds it. Each import
-    is at the module's top, and the name called is bound by it, or by that def, and by nothing else in the module. The
-    call is in the module's own scope or a function's (`_own`, `_functions`), in a module that names nothing in
-    DYNAMIC."""
-    if _dynamic(tree):
+    its def at the top binds it, with no decorator, which may replace it. `harness.apply.opened` counts only where
+    `import harness.apply` binds it. Each import is at the module's top, and the name called is bound by it, or by that
+    def, and by nothing else in the module; a relative import is read only in a module directly in harness/. The call
+    is in the module's own scope or a function's (`_own`, `_functions`), in a module that names nothing in DYNAMIC. A
+    module that cannot be read records nothing."""
+    if tree is None or _dynamic(tree):
         return False
     own = any(isinstance(n, ast.FunctionDef) and n.name == "opened" and not n.decorator_list for n in tree.body)
     names, modules, whole = {"opened"} if rel == "harness/apply.py" and own else set(), set(), False
-    inside = rel.startswith("harness/")
+    inside = rel.startswith("harness/") and rel.count("/") == 1      # `.` is harness itself only directly inside it
     for node in tree.body:
         module = node.module if isinstance(node, ast.ImportFrom) and node.level == 0 else None
         if isinstance(node, ast.ImportFrom) and node.level == 1 and inside:
@@ -237,7 +238,8 @@ def records_the_opening(tree, rel: str) -> bool:
 def opening_problems(config: dict, root: pathlib.Path = None, callers: dict = None) -> list:
     """A configuration that names a Role for `open-pull-request` while `open_pull_request` has no writer, with the first
     part of the writer missing (OPENS): the gap a pull request's author's closing link leaves must not outlive the
-    first Role named to open pull requests (issue 808, restating issue 295's limit). None named, as in slice 1, passes."""
+    first Role named to open pull requests (issue 808, restating issue 295's limit). Every step that reaches the opening
+    records it, and one that cannot be read records nothing. None named, as in slice 1, passes."""
     issues = config.get("issues") if isinstance(config, dict) else None
     intents = issues.get("intents") if isinstance(issues, dict) else None
     if not isinstance(intents, dict) or intents.get("open-pull-request") is None:
@@ -252,9 +254,10 @@ def opening_problems(config: dict, root: pathlib.Path = None, callers: dict = No
     if not reaching:
         return [said + "no step of the Harness reaches %s as tools/check_writes.py's CALLERS lists; name none until one "
                 "does (issue 342)" % ", ".join(sorted(found))]
-    if not any(records_the_opening(tree, rel) for rel in reaching for tree in [_parsed(root / rel)] if tree is not None):
+    silent = [rel for rel in reaching if not records_the_opening(_parsed(root / rel), rel)]
+    if silent:
         return [said + "%s, which reach the opening, never call harness/apply.py's opened to record the Run that opened "
-                "it; name none until one does (issue 342)" % ", ".join(reaching)]
+                "it; name none until each does (issue 342)" % ", ".join(silent)]
     return []
 
 
