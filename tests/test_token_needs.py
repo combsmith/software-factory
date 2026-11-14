@@ -33,6 +33,7 @@ RAW = {
     # The head's rollup, with each check suite's App and workflow run, and the pull request's place in the queue.
     "adapters.checks._read": {"pull_requests": R, "checks": R, "actions": R},
     "adapters.edits.last_edited_at": {"pull_requests": R},
+    "adapters.linked.joined": {"issues": R, "pull_requests": R},       # the pull requests that close an issue
     "adapters.effects._check": {"checks": W}, "adapters.effects._comment": {"pull_requests": W},
     "adapters.effects._review": {"pull_requests": W}, "adapters.effects._threads": {"pull_requests": R},
     "adapters.effects._dispatch": {"actions": W}, "adapters.effects.open_issues": {"issues": R},
@@ -89,6 +90,7 @@ SITES = {
     "adapters.issues.own": 1,
     "adapters.items.open_issues": 1,
     "adapters.items.open_pull_requests": 1,
+    "adapters.linked.joined": 1,
     "adapters.passes.find": 1,
     "adapters.passes.records": 1,
     "adapters.passes.started": 1,
@@ -358,7 +360,8 @@ class TokenNeeds(unittest.TestCase):
         self.assertTrue({"adapters.passes.find", "adapters.checks._read", "adapters.pause._value"}
                         <= reached("harness.apply_step", "written"))
         self.assertTrue({"adapters.queue.pull", "adapters.queue.enqueue"} <= reached("harness.queue_step", "written"))
-        self.assertTrue({"adapters.items.open_pull_requests", "adapters.items.open_issues", "adapters.issues.own", "adapters.checks._read", "adapters.pause._value",
+        self.assertTrue({"adapters.items.open_pull_requests", "adapters.items.open_issues", "adapters.issues.own", "adapters.linked.joined",
+                         "adapters.checks._read", "adapters.pause._value",
                          "adapters.seen._check_runs"} <= reached("controller.__main__", "main"))
         self.assertTrue({"adapters.pause._value", "adapters.effects.open_issues", "adapters.effects.write_status"}
                         <= reached("adapters.effects", "main"))

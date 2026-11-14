@@ -224,7 +224,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     for number in listed:
         through = Dated(transport)
         try:
-            facts, title = issues_.read(through, home, number, who, lambda: utc(clock))
+            facts, title = issues_.read(through, home, number, who, lambda: utc(clock), identities=identities)
             issues.append({"facts": facts, "title": title})
             facts_reads += dated(through.first)
         except Unanswered as err:

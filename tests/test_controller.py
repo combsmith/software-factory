@@ -1082,20 +1082,17 @@ TRIAGE_BOT = ("an-old-login[bot]", 41, "Bot")
 ANALYST_BOT = ("another-old-login[bot]", 42, "Bot")
 
 
-def issue_through_the_port(events=(), repo="o/r", exchanges=None, users=None, linked=True) -> dict:
-    """An issue's pass entry as the issues port reads it, its linked pull requests read whole as `adapters/linked.py`
-    will read them unless `linked` is None, which keeps the port's own word: by default issue 41 of `issue_read` in
-    tests/test_adapters.py, with `events` on its timeline."""
+def issue_through_the_port(events=(), repo="o/r", exchanges=None, users=None) -> dict:
+    """An issue's pass entry as the issues port reads it, its linked pull requests read by `adapters/linked.py`: by
+    default issue 41 of `issue_read` in tests/test_adapters.py, with `events` on its timeline and no pull request."""
     from adapters import issues, timeline
-    from tests.test_adapters import MACHINE, Router, issue_read
+    from tests.test_adapters import IDENTITIES, MACHINE, Router, issue_read
     found = issue_read(list(events)) if exchanges is None else exchanges
     router = Router(github.Replay(found), dict({"don-petry": "admin"}, **(users or {})))
     names = {TRIAGE_BOT[1:]: test_issue.CONTROLLER["name"], ANALYST_BOT[1:]: test_issue.ANALYST["name"]}
     accounts = timeline.Accounts(router, repo, MACHINE, {}, factory=set(names), apps=names)
     number = found[0]["response"]["body"]["number"]
-    facts, title = issues.read(router, repo, number, accounts, lambda: "2026-10-11T12:00:00Z")
-    if linked is not None:
-        facts["complete"]["linked"] = linked
+    facts, title = issues.read(router, repo, number, accounts, lambda: "2026-10-11T12:00:00Z", identities=IDENTITIES)
     return {"facts": facts, "title": title}
 
 
@@ -1148,10 +1145,10 @@ class Issues(unittest.TestCase):
                              ("new", "act", "label_not_counted", "factory:triage"), via)
 
     def test_p34s_issue_read_by_the_port_is_deferred_on_its_linked_pull_requests(self):  # P-34, S3
-        # The canary's issue through the port and the pass defers on its linked pull requests, not read yet. Its GraphQL
+        # The canary's issue through the port and the pass defers on its linked pull requests, which one names. Its GraphQL
         # answer is P-34's lastEditedAt in the port's own query, which no trial has recorded (issue 831).
         from adapters import issues
-        from tests.test_adapters import body, canary, exchanges as recorded
+        from tests.test_adapters import body, canary, crossed, exchanges as recorded, linked_read
         repo = canary()
         rest = recorded("P-34.rest")
         own = rest[1]["response"]["body"]
@@ -1163,14 +1160,16 @@ class Issues(unittest.TestCase):
         graphql = {"request": {"via": "graphql", "call": "POST /graphql", "headers": {}, "body": asked},
                    "response": {"status": 200, "headers": {},
                                 "body": {"data": {"repository": {"nameWithOwner": repo, "issue": edited}}}}}
-        # The port's own word on its linked pull requests, which it does not read yet, reaches the pass (Carbon).
-        entry = issue_through_the_port(repo=repo, exchanges=[rest[1], rest[0], graphql], linked=None)
-        self.assertIs(entry["facts"]["complete"]["linked"], False)
+        # The port's own word on its linked pull requests reaches the pass (Carbon).
+        named = linked_read(events=[crossed()], updated=own["updated_at"], repo=repo, number=42)
+        entry = issue_through_the_port(repo=repo, exchanges=[rest[1], rest[0], graphql, named, rest[1]])
+        self.assertEqual((entry["facts"]["linked"], entry["facts"]["complete"]["linked"]), ([], False))
         d = issue_passed(entry, repo=repo, now="2026-11-13T09:00:00Z")
         self.assertEqual((d["state"], d["outcome"], d["reason"], d["evidence"]), (None, "defer", "facts_incomplete", ["linked"]))
         self.assertEqual(entry["title"], own["title"])
-        # Read whole, the Maintainer's closed issue is declined, and nothing is done.
-        entry["facts"]["complete"]["linked"] = True
+        # Named by none, read whole, the Maintainer's closed issue is declined, and nothing is done.
+        none = linked_read(updated=own["updated_at"], repo=repo, number=42)
+        entry = issue_through_the_port(repo=repo, exchanges=[rest[1], rest[0], graphql, none, rest[1]])
         whole = issue_passed(entry, repo=repo, now="2026-11-13T09:00:00Z")
         self.assertEqual((whole["state"], whole["outcome"], whole["reason"]), ("declined", "nothing", "closed"))
 
@@ -1692,7 +1691,7 @@ class Entry(unittest.TestCase):
     def test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is(self):  # S3
         # Listed from `issues.served_from`, each issue is read with the pull requests' account reader and dated as they
         # are; one not read is left out by its code, and a list read short stops the pass.
-        since, spied = "2026-10-01T00:00:00Z", {"listed": [], "read": [], "who": []}
+        since, spied = "2026-10-01T00:00:00Z", {"listed": [], "read": [], "who": [], "identities": []}
         real = entry.configuration
 
         def served(root, release):
@@ -1721,8 +1720,9 @@ class Entry(unittest.TestCase):
                 return list(listed), whole
             return open_issues
 
-        def read(transport, repo, number, accounts, clock):
+        def read(transport, repo, number, accounts, clock, *, identities):
             spied["read"].append((repo, number, accounts))
+            spied["identities"].append(identities)
             if number == 6:
                 raise entry.facts_.Moved("moved")
             if number == 9:
@@ -1751,6 +1751,8 @@ class Entry(unittest.TestCase):
         self.assertEqual(spied["listed"], [(self.HOME, since)])
         self.assertEqual([n for _, n, _ in spied["read"]], [5, 6, 9])
         self.assertTrue(all(who is spied["who"][0] for _, _, who in spied["read"]))
+        # Each is read with the pull requests' class accounts.
+        self.assertEqual(spied["identities"], [entry.facts_.accounts_of(CONTROLLER)[0]] * 3)
         # The reader names each App the configuration holds by its account's id, as REST spells its Bot's login.
         catalogue = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
         self.assertEqual(spied["who"][0].apps, {(CONTROLLER["accounts"]["controller"]["id"], "Bot"):
@@ -1777,11 +1779,12 @@ class Entry(unittest.TestCase):
         self.assertEqual(len(spied["graphql"]), 1)
 
     def test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry(self):  # S3, Astra
-        # Through the real port: an issue that read whole would be accepted defers on its unread linked pull requests.
-        from tests.test_adapters import issue_read
+        # Through the real port: an issue that read whole would be accepted defers while a pull request names it.
+        from tests.test_adapters import crossed, issue_read, linked_read
         reads_ = issue_read()
-        own, events, edits = (r["response"] for r in reads_)
+        own, events, edits = (r["response"] for r in reads_[:3])
         edits["body"]["data"]["repository"]["nameWithOwner"] = self.HOME
+        named = [linked_read(events=[crossed()], repo=self.HOME)["response"]]
         listed = {"data": {"repository": {"nameWithOwner": self.HOME, "issues": {
             "totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"number": 41}]}}}}
         real = entry.configuration
@@ -1806,8 +1809,10 @@ class Entry(unittest.TestCase):
             class Routed:
                 def send(self, req):
                     query = (req.get("body") or {}).get("query", "") if req["path"] == "/graphql" else ""
-                    if query.startswith(("query OpenIssues", "query IssueEdits")):
+                    if query.startswith(("query OpenIssues", "query IssueEdits", "query IssueLinked")):
                         hub.sent.append((credential, req))
+                        if "IssueLinked" in query:
+                            return copy.deepcopy(named[0])
                         return copy.deepcopy({"status": 200, "headers": {}, "body": listed} if "OpenIssues" in query else edits)
                     return through.send(req)
             return Routed()
@@ -1820,6 +1825,13 @@ class Entry(unittest.TestCase):
         self.assertEqual((d["item"]["number"], d["outcome"], d["reason"], d["evidence"]), (41, "defer", "facts_incomplete", ["linked"]))
         # Nothing is written for the issue: the one write is the tracking issue's, which reports the pass's alerts.
         self.assertEqual([w["type"] for w in files["writes.json"]["writes"]], ["tracking_issue"])
+        # Named by none, it is whole, and accepted.
+        named[0] = linked_read(repo=self.HOME)["response"]
+        hub.sent.clear()
+        with unittest.mock.patch.object(entry, "configuration", served):
+            code, _, files, _ = self.run_entry(hub)
+        (decided,) = files["pass.json"]["issues"]
+        self.assertEqual((code, decided["decision"]["outcome"], decided["decision"].get("action")), (0, "act", "accept"))
 
     def test_what_the_entry_cannot_read_writes_nothing(self):
         for environ, want in (({"RELEASE": None}, "release_untagged"), ({"RELEASE": "v1"}, "release_untagged"),

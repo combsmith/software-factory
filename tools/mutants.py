@@ -104,7 +104,7 @@ ISSUE_WHOLE = ("tests.test_adapters.Issues.test_an_issues_timeline_is_whole_only
 ISSUE_CONTENT = ("tests.test_adapters.Issues.test_an_issues_content_time_is_the_newer_of_its_edit_and_its_rename",)
 ISSUE_LIFE = ("tests.test_adapters.Issues.test_a_reopening_by_a_writer_begins_a_life_and_anyone_elses_does_not",)
 ISSUE_REFUSED = ("tests.test_adapters.Issues.test_an_issue_github_did_not_answer_whole_is_refused",)
-ISSUE_OWN = ("tests.test_adapters.Issues.test_the_issues_own_facts_hold_to_the_schema_and_leave_its_linked_pull_requests_unread",)
+ISSUE_OWN = ("tests.test_adapters.Issues.test_the_issues_own_facts_hold_to_the_schema_with_its_linked_pull_requests",)
 # S3, the issues pass: the tests that kill its mutants.
 S3_PORT = ("tests.test_adapters.Issues.test_a_factory_app_is_named_by_the_id_the_configuration_holds_and_a_person_never_is",)
 S3_REUSE = ("tests.test_adapters.Issues.test_an_account_showing_a_configured_apps_name_by_another_id_is_refused",)
@@ -114,6 +114,8 @@ S3_BASE = ("tests.test_adapters.Linked.test_only_a_pull_request_to_the_default_b
 S3_CLOSER = ("tests.test_adapters.Linked.test_a_closer_of_the_present_life_is_listed_whatever_its_references",)
 S3_DRAFT = ("tests.test_adapters.Linked.test_a_linked_drafts_flag_at_a_time_undoes_its_later_changes",)
 S3_OWN = ("tests.test_adapters.Linked.test_a_linked_pull_requests_own_facts_are_read_as_a_pull_requests_are",)
+S3_GATE = ("tests.test_adapters.Linked.test_the_linked_pull_requests_are_whole_only_where_no_pull_request_names_the_issue",)
+S3_RIVAL = ("tests.test_adapters.Linked.test_a_merge_beside_a_rival_keyword_link_is_never_read_with_no_spans",)
 S3_SHORT = ("tests.test_adapters.Linked.test_the_linked_pull_requests_read_short_are_not_whole_and_one_not_answered_refuses_the_issue",)
 S3_LIST = ("tests.test_adapters.Items.test_open_issues_are_listed_from_served_from_by_the_same_pages_and_none_with_no_date",)
 S3_ENTRY = ("tests.test_controller.Entry.test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is",)
@@ -13738,8 +13740,20 @@ MUTANTS = ISSUE + [
      'number updatedAt lastEditedAt',
      'number updatedAt', ISSUE_OWN),
     ("an issue's linked pull requests are read as whole", 'adapters/issues.py',
-     '"linked": False, "runs": True',
-     '"linked": True, "runs": True', ISSUE_OWN + ('tests.test_controller.Issues.test_p34s_issue_read_by_the_port_is_deferred_on_its_linked_pull_requests',)),
+     '"linked": closing_whole, "runs": True',
+     '"linked": True, "runs": True', S3_RIVAL),
+    ("an issue's linked pull requests are read in a life begun when it last changed", 'adapters/issues.py',
+     'edited["updated_at"], lived["life_started_at"],',
+     'edited["updated_at"], edited["updated_at"],', S3_RIVAL),
+    ("an issue moved by a merge after its own reads is read", 'adapters/issues.py',
+     '    if _field(own(transport, repo, number), "updated_at") != _field(issue, "updated_at"):\n',
+     '    if False:\n', ('tests.test_adapters.Issues.test_an_issue_that_changed_while_it_was_read_is_refused',)),
+    ("an issue's linked pull requests read whole are read as short", 'adapters/issues.py',
+     '"linked": closing_whole, "runs": True',
+     '"linked": False, "runs": True', ISSUE_OWN),
+    ("an issue's linked pull requests are not handed on", 'adapters/issues.py',
+     '"linked": closing,',
+     '"linked": [],', S3_RIVAL),
 ] + [(name, 'adapters/linked.py', old, new, tests) for name, old, new, tests in [
     ("a pull request to another base is listed as linked",
      '        if not on_default(got):\n',
@@ -13882,6 +13896,45 @@ MUTANTS = ISSUE + [
     ("an unlinking by hand is read as a link",
      '"DisconnectedEvent": "disconnected"',
      '"DisconnectedEvent": "connected"', S3_OWN),
+    ("a pull request listed while its keyword spans are unread leaves the list whole",
+     'bool(join["refs"] or join["links"] or join["closers"] or join["crossed"])',
+     'bool(join["crossed"])', S3_GATE),
+    ("a pull request's cross-reference leaves the list whole",
+     'bool(join["refs"] or join["links"] or join["closers"] or join["crossed"])',
+     'bool(join["refs"] or join["links"] or join["closers"])', S3_GATE),
+    ("a reference the read leaves out names nothing",
+     'bool(join["refs"] or join["links"]',
+     'bool(join["links"]', S3_GATE),
+    ("a link by hand the read leaves out names nothing",
+     'join["refs"] or join["links"] or join["closers"]',
+     'join["refs"] or join["closers"]', S3_GATE),
+    ("a closer the read leaves out names nothing",
+     'join["links"] or join["closers"] or join["crossed"]',
+     'join["links"] or join["crossed"]', S3_GATE),
+    ("a pull request the read leaves out names nothing",
+     'bool(join["refs"] or join["links"] or join["closers"] or join["crossed"])',
+     'bool(linked) or join["crossed"]', S3_GATE),
+    ("an issue's cross-reference holds the list short",
+     'out["crossed"] = out["crossed"] or source is None or field(source, "__typename") != "Issue"',
+     'out["crossed"] = True', S3_GATE),
+    ("a cross-reference of no type, or one not asked, leaves the list whole",
+     'field(source, "__typename") != "Issue"',
+     'field(source, "__typename") == "PullRequest"', S3_GATE),
+    ("an issue's cross-reference after a pull request's undoes it",
+     'out["crossed"] = out["crossed"] or source is None',
+     'out["crossed"] = source is None', S3_GATE),
+    ("the linked read asks no cross-references",
+     'DISCONNECTED_EVENT, CROSS_REFERENCED_EVENT]',
+     'DISCONNECTED_EVENT]', S3_GATE),
+    ("a short list is whole where nothing names the issue",
+     '    return linked, whole and not named\n',
+     '    return linked, not named\n', S3_GATE),
+    ("a cross-reference whose source cannot be read leaves the list whole",
+     'out["crossed"] or source is None or ',
+     'out["crossed"] or source is not None and ', S3_GATE),
+    ("the linked pull requests are whole while their keyword spans are unread",
+     '    return linked, whole and not named\n',
+     '    return linked, whole\n', S3_GATE + S3_RIVAL),
     ("references counted beyond those read are whole",
      '"whole": total == len(nodes) and not more',
      '"whole": not more', S3_SHORT),
@@ -13923,13 +13976,13 @@ MUTANTS = ISSUE + [
      *moved_before("adapters/issues.py", "    now = clock()\n", "    lived = life("), ISSUE_OWN),
     ("an issue's content is its title alone", 'adapters/issues.py',
      'json.dumps([title, body or ""], ensure_ascii=False)',
-     'json.dumps([title], ensure_ascii=False)', ('tests.test_adapters.Issues.test_the_issues_own_facts_hold_to_the_schema_and_leave_its_linked_pull_requests_unread',)),
+     'json.dumps([title], ensure_ascii=False)', ('tests.test_adapters.Issues.test_the_issues_own_facts_hold_to_the_schema_with_its_linked_pull_requests',)),
     ("an issue's title and body are hashed run together", 'adapters/issues.py',
      'raw(json.dumps([title, body or ""], ensure_ascii=False))',
-     'raw(title + (body or ""))', ('tests.test_adapters.Issues.test_the_issues_own_facts_hold_to_the_schema_and_leave_its_linked_pull_requests_unread',)),
+     'raw(title + (body or ""))', ('tests.test_adapters.Issues.test_the_issues_own_facts_hold_to_the_schema_with_its_linked_pull_requests',)),
     ("an issue's empty body is not its empty content", 'adapters/issues.py',
      '[title, body or ""]',
-     '[title, body]', ('tests.test_adapters.Issues.test_the_issues_own_facts_hold_to_the_schema_and_leave_its_linked_pull_requests_unread',)),
+     '[title, body]', ('tests.test_adapters.Issues.test_the_issues_own_facts_hold_to_the_schema_with_its_linked_pull_requests',)),
     ("an issue's label events are not read", 'adapters/issues.py',
      'timeline.label_events(events, accounts)',
      '[]', ('tests.test_adapters.Issues.test_label_events_are_read_with_who_made_them_in_the_timelines_order',)),
@@ -13973,7 +14026,7 @@ MUTANTS = ISSUE + [
      'author, labels = accounts.actor(opened["actor"])', ('tests.test_adapters.Issues.test_label_events_are_read_with_who_made_them_in_the_timelines_order',)),
     ('an issue with no labels or no assignees is refused', 'adapters/issues.py',
      '    if not all(isinstance(name, str) and name for name in names):',
-     '    if not any(isinstance(name, str) and name for name in names):', ('tests.test_adapters.Issues.test_the_issues_own_facts_hold_to_the_schema_and_leave_its_linked_pull_requests_unread',)),
+     '    if not any(isinstance(name, str) and name for name in names):', ('tests.test_adapters.Issues.test_the_issues_own_facts_hold_to_the_schema_with_its_linked_pull_requests',)),
     ("an issue's edits answered with errors are read", 'adapters/issues.py',
      ' or "errors" in body',
      '', ISSUE_REFUSED),
