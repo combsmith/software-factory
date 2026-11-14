@@ -78,8 +78,13 @@ class Accounts:
 
     def named(self, login: str, ident: int, kind: str) -> str:
         """A Bot's name: the one configured for its id, else the login it shows. A User's login, which holds no bracket,
-        can never be an App's configured name with its `[bot]`."""
-        return self.apps.get((ident, kind), login)
+        can never be an App's configured name with its `[bot]`. Another account showing that name, as a slug reused after
+        a rename could, is refused: it is no App the configuration names, and the read cannot say whose act it was."""
+        if (ident, kind) in self.apps:
+            return self.apps[(ident, kind)]
+        if login in self.apps.values():
+            raise Unanswered("an account shows the name of an App the configuration holds by another id")
+        return login
 
     def _permission(self, login: str) -> dict:
         """The repo's permission answer for `login`, read once a login for all the reader serves."""

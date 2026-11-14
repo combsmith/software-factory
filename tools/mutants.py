@@ -107,6 +107,7 @@ ISSUE_REFUSED = ("tests.test_adapters.Issues.test_an_issue_github_did_not_answer
 ISSUE_OWN = ("tests.test_adapters.Issues.test_the_issues_own_facts_hold_to_the_schema_and_leave_its_linked_pull_requests_unread",)
 # S3, the issues pass: the tests that kill its mutants.
 S3_PORT = ("tests.test_adapters.Issues.test_a_factory_app_is_named_by_the_id_the_configuration_holds_and_a_person_never_is",)
+S3_REUSE = ("tests.test_adapters.Issues.test_an_account_showing_a_configured_apps_name_by_another_id_is_refused",)
 S3_LIST = ("tests.test_adapters.Items.test_open_issues_are_listed_from_served_from_by_the_same_pages_and_none_with_no_date",)
 COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers",)
 ALSO_AT = ("tests.test_evals.Scoring.test_a_finding_at_any_place_the_case_gives_is_at_the_place",)
@@ -13610,11 +13611,23 @@ MUTANTS = ISSUE + [
      'filterBy: {since: $since}, ',
      '', S3_LIST),
     ('open issues are listed with no date asked', 'adapters/items.py',
-     '"after": after, "since": since}',
+     '"after": after, "since": asked}',
      '"after": after}', S3_LIST),
     ('with no date, open issues are asked for', 'adapters/items.py',
      '    if since is None:\n        return [], True\n',
      '', S3_LIST),
+    ('open issues are asked from served_from itself', 'adapters/items.py',
+     ' - datetime.timedelta(seconds=1)',
+     '', S3_LIST),
+    ('a served_from that is no time is asked', 'adapters/items.py',
+     '    except (TypeError, ValueError):\n        raise Unanswered("issues.served_from is no time")',
+     '    except ZeroDivisionError:\n        raise Unanswered("issues.served_from is no time")', S3_LIST),
+    ("an account showing a configured App's name by another id is that App", 'adapters/timeline.py',
+     '        if login in self.apps.values():\n            raise Unanswered(',
+     '        if False:\n            raise Unanswered(', S3_REUSE),
+    ('an account whose App the catalogue does not name is named', 'adapters/facts.py',
+     ' and isinstance(apps.get(code), dict)',
+     '', S3_PORT),
     ('an App the configuration names by its id is named by its login', 'adapters/timeline.py',
      'return {"kind": "app", "name": self.named(login, ident, kind), "can_write": False}',
      'return {"kind": "app", "name": login, "can_write": False}', S3_PORT),

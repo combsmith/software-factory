@@ -5881,9 +5881,11 @@ class Items(unittest.TestCase):
         since = "2026-10-01T00:00:00Z"
 
         def page(numbers, total=None, more=False, after=None, cursor="c1"):
+            # Asked from a second before the date: whether GitHub's `since` holds that second is not grounded, and the
+            # Kernel's `served` leaves out an issue whose life began before it.
             found = open_page(numbers, total, more, after, cursor)
             found["request"]["body"] = {"query": items.ISSUES, "variables": dict(found["request"]["body"]["variables"],
-                                                                                 since=since)}
+                                                                                 since="2026-09-30T23:59:59Z")}
             found["response"]["body"]["data"]["repository"]["issues"] = \
                 found["response"]["body"]["data"]["repository"].pop("pullRequests")
             return found
@@ -5893,8 +5895,10 @@ class Items(unittest.TestCase):
         self.assertEqual(read(page([4, 5], total=3, more=True), page([9], total=3, after="c1")), ([4, 5, 9], True))
         self.assertEqual(read(page([4, 5], total=3, more=True), page([9], total=4, after="c1"))[1], False)
         self.assertEqual(read(page([4], total=2))[1], False)
-        # With no date no issue is served: none is listed, and nothing is asked.
+        # With no date no issue is served: none is listed, and nothing is asked. One that is no time lists nothing.
         self.assertEqual(items.open_issues(github.Replay([]), HOME, None), ([], True))
+        with self.assertRaises(github.Unanswered):
+            items.open_issues(github.Replay([]), HOME, "2026-10-01")
 
     def test_open_pull_requests_of_another_repo_or_with_errors_are_refused(self):
         other = open_page([1])
@@ -6000,10 +6004,28 @@ class Issues(unittest.TestCase):
         self.assertEqual([e["by"]["name"] for e in found["label_events"]],
                          ["combsmith-sf-controller[bot]", "combsmith-sf-controller"])
         self.assertEqual(found["role_comments"], [{"by": "combsmith-sf-business-analyst[bot]", "at": minute(2)}])
-        # Each App whose account `controller/1` holds, the Controller's and each Role's, by config/apps.json's name.
+        # Each App whose account `controller/1` holds, the Controller's and each Role's, by config/apps.json's name; an
+        # account whose App the catalogue does not name is named by its login.
         held = {"accounts": {"controller": {"id": 41}, "roles": {"business-analyst": {"id": 42}, "dev-lead": None}}}
         catalogue = {"controller": {"name": "combsmith-sf-controller"}, "business-analyst": {"name": "combsmith-sf-business-analyst"}}
         self.assertEqual(facts.app_names_of(held, catalogue), names)
+        self.assertEqual(facts.app_names_of(held, {"controller": catalogue["controller"]}), {(41, "Bot"): names[(41, "Bot")]})
+
+    def test_an_account_showing_a_configured_apps_name_by_another_id_is_refused(self):  # decision 0218, Astra
+        # A slug reused after a rename: another Bot under the Controller's name, labelling or commenting. It is not that
+        # App, and the read cannot say whose act it was: refused, so the issue defers, never decided on it.
+        names = {(41, "Bot"): "combsmith-sf-controller[bot]"}
+        spoof = ("combsmith-sf-controller[bot]", 99, "Bot")
+        for event in (issue_event("labeled", 1, actor=spoof, label={"name": "factory:triage"}), issue_event("commented", 1, actor=spoof)):
+            router = Router(github.Replay(issue_read([event])), {"don-petry": "admin"})
+            accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory=set(names), apps=names)
+            with self.assertRaises(github.Unanswered, msg=event["event"]):
+                issues.read(router, "o/r", 41, accounts, lambda: self.NOW)
+        # The App itself, by its id, is read.
+        events = [issue_event("labeled", 1, actor=("combsmith-sf-controller[bot]", 41, "Bot"), label={"name": "factory:triage"})]
+        router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
+        found, _ = issues.read(router, "o/r", 41, timeline.Accounts(router, "o/r", MACHINE, {}, apps=names), lambda: self.NOW)
+        self.assertEqual(found["label_events"][0]["by"]["name"], names[(41, "Bot")])
 
     def test_an_issues_content_time_is_the_newer_of_its_edit_and_its_rename(self):  # P-34
         def changed(events=(), **change):
