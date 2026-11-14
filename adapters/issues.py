@@ -143,8 +143,9 @@ def _names(listed, key: str) -> list:
 
 
 def comments(events: list, accounts: timeline.Accounts) -> tuple:
-    """`(role_comments, last_writer_comment_at)`: each Factory App's latest comment, by its login, and a person with
-    write access's last comment, or None. A comment an App made with a person's token is no person's."""
+    """`(role_comments, last_writer_comment_at)`: each Factory App's latest comment, by its name, the one configured for
+    its id where the configuration holds it (`timeline.Accounts.named`), and a person with write access's last comment,
+    or None. A comment an App made with a person's token is no person's."""
     latest, said = {}, None
     for ev in events:
         if ev.get("event") != "commented":
@@ -153,15 +154,17 @@ def comments(events: list, accounts: timeline.Accounts) -> tuple:
         login, ident, kind = accounts.account(ev.get("actor"))
         at = timeline._time(ev.get("created_at"))
         if (ident, kind) in accounts.factory:
+            login = accounts.named(login, ident, kind)
             latest[login] = max(at, latest.get(login, at))
         elif gate.is_person(who):
             said = at if said is None or at > said else said
     return [{"by": login, "at": latest[login]} for login in sorted(latest)], said
 
 
-def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=facts._utc) -> dict:
-    """`issue-facts/1` for one issue of `repo`, held to its schema. `accounts` tells who acted, the Factory's Apps among
-    them, and `clock` gives the time after the last read."""
+def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=facts._utc) -> tuple:
+    """`(facts, title)`: `issue-facts/1` for one issue of `repo`, held to its schema, and its title beside the facts,
+    never in them, for the view alone. `accounts` tells who acted, the Factory's Apps among them, and `clock` gives the
+    time after the last read."""
     issue = own(transport, repo, number)
     events, whole = timeline.events(transport, {"number": number, "base": {"repo": {"full_name": repo}}})
     edited = edits(transport, repo, number)
@@ -202,4 +205,4 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
     problems = validate(found, SCHEMA)
     if problems:
         raise Unanswered("the issue's facts do not hold to issue-facts/1: %s" % problems[0])
-    return found
+    return found, title
