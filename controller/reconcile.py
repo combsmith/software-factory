@@ -17,6 +17,12 @@ included ("Alarm on all of them", the Maintainer, 2026-10-22). A merge whose ite
 queued in the last pass before it is an Override, reported as information. Reconciliation is short, never silent, when
 what was seen or what was recorded cannot be read whole, or when an identity's account is not known, since its writes
 cannot be told.
+
+One write of a person's is reconciled too: the resolution of a thread a Role opened, which `adapters/seen.py` reads as
+a `hand`'s. Until the queue App exists a session carries out the Kernel's act `resolve_thread` so (decision 0212), and
+the Kernel takes any person's resolution as closing a Lens's Finding. It is matched to the act of the last pass before
+that decided its item, which must name the thread; once matched its thread is carried, since a resolution has no time
+and is seen at every pass. One no record before can judge leaves reconciliation short once, and is carried (issue 854).
 """
 from __future__ import annotations
 
@@ -42,6 +48,7 @@ DISPATCHES = ("dispatch_run", "dispatch_approval", "dispatch_queue")
 # A Decision that says the item had what a merge needs: an approval of its content standing, read by the Kernel.
 MERGEABLE = ("converged", "queued")
 LANDED = ("applied", "already_applied")
+HAND = "hand"           # who a person's resolution of a thread a Role opened is by, as `adapters/seen.py` reads it
 STAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 LATE = 60 * 60          # how much later than its record's own making a pass's or a Run's write can be: the job's limits
 
@@ -102,6 +109,28 @@ def left(before, since=None) -> list:
     return [e["number"] for e in _last(before).get("left", []) if since is None or _within(e["at"], since)]
 
 
+def _named(before, item: str) -> set:
+    """The threads that the last pass before which decided `item` named in its act `resolve_thread`: none if its
+    Decision was any other. A pass that did not decide the item, which it could not read, says nothing of it."""
+    for record in reversed(before if isinstance(before, list) else []):
+        for e in record["pull_requests"]:
+            if key(e["facts"]["item"]) == item:
+                d = e["decision"]
+                return set(d["evidence"]) if d["outcome"] == "act" and d.get("action") == "resolve_thread" else set()
+    return set()
+
+
+def _hands(seen: dict, before) -> tuple:
+    """`(matched, blind)`: the threads whose resolution by a hand is matched, to what a record before carried or to the
+    act that named the thread; and whether one was seen that no record before can judge, which is then matched."""
+    held = _last(before).get("hands")
+    writes = [w for w in seen["writes"] if w["by"] == HAND and w["key"] is not None]
+    if held is None:
+        return {w["key"] for w in writes}, bool(writes)
+    carried_ = {e["key"] for e in held if _within(e["at"], seen["since"])}
+    return {w["key"] for w in writes if w["key"] in carried_ or w["key"] in _named(before, key(w["item"]))}, False
+
+
 def _one(doc: dict, kind: str) -> dict:
     return {"applied": [doc], "written": []} if kind == APPLIED else {"applied": [], "written": [doc]}
 
@@ -127,6 +156,10 @@ def carried(before, effects, seen, now: str, unread=(), gone=()) -> dict:
     held["owed"] = sorted(set(unread))
     held["left"] = [e for e in held.get("left", []) if e["number"] not in set(gone)] + [
         {"number": n, "at": now} for n in sorted(set(gone))]
+    # A hand's resolution that was matched is stamped again each pass it is seen, so it is carried while it is.
+    matched = _hands(seen, before)[0] if since is not None else set()
+    held["hands"] = [e for e in held.get("hands", []) if e["key"] not in matched] + [
+        {"key": thread, "at": now} for thread in sorted(matched)]
     if not _readable(effects):
         return held
     read = effects.get("read") if isinstance(effects.get("read"), dict) else {}
@@ -197,7 +230,14 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
     since = seen["since"] if readable else None
     keys, items = _keys(effects, before, since) if recorded else _keys({"applied": [], "written": []}, before, since)
     unmatched, override = [], []
+    hands, blind = _hands(seen, before) if readable else (set(), False)
+    short = short or blind
     for w in seen["writes"] if readable else []:
+        if w["by"] == HAND:
+            # A person's write is no Run's: it is matched to the Kernel's act alone, whatever runs on its item.
+            if w["key"] not in hands:
+                unmatched.append({"by": w["by"], "kind": w["kind"], "item": w["item"], "key": w["key"]})
+            continue
         kind = identities.get(w["by"])
         if w["by"] == "unattributed":
             # GitHub names no resolver when an App resolved a thread: nobody's that can be told, it raises nothing here

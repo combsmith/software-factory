@@ -42,6 +42,8 @@ PAGE = 100          # the activity is read once: a list as long as a page may be
 AT = re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z")
 KEY = re.compile(r"[A-Za-z0-9_=:-]{1,100}")
 PARTS = ("events", "reviews", "threads", "check_runs")
+HAND = "hand"       # who a write is by when a person resolved a thread a Role opened: no identity, and no Role's name
+NOT_ROLES = ("approver", "controller", "queue")     # the identities that are no Role's App
 # The timeline's events that are writes, and what each is: those a Factory write makes, and those that change a pull
 # request's state, which none makes yet.
 EVENTS = {"labeled": "label", "unlabeled": "label", "added_to_merge_queue": "enqueue",
@@ -81,6 +83,20 @@ def _readable(actor) -> bool:
 
 def _who(actor, identities: dict):
     return identities.get((actor["id"], actor["type"])) if _readable(actor) else None
+
+
+def _opener(thread: dict, identities: dict) -> tuple:
+    """`(code, told)`: the identity that opened a thread, by its first comment's author as GraphQL gives it, or None;
+    and whether it could be told from one. A first comment GitHub does not say replies to none is not the opener's.
+    An author GitHub no longer names, or of a type no identity has, is none."""
+    nodes = _object(thread.get("comments")).get("nodes")
+    if not isinstance(nodes, list) or not nodes or not isinstance(nodes[0], dict) or nodes[0].get("replyTo", 0) is not None:
+        return None, False
+    author = nodes[0].get("author")
+    if author is None or _object(author).get("__typename") not in ("User", "Bot"):
+        return None, True
+    actor = {"id": author.get("databaseId"), "type": author["__typename"]}
+    return _who(actor, identities), _readable(actor)
 
 
 def _at(text, since: str):
@@ -234,7 +250,13 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         by = "unattributed" if resolver is None else next(
             (code for (told, _), code in identities.items() if told == ident and _positive(ident)), None)
         if by is None:
-            continue
+            # A resolver that is no Factory identity is a person's hand. The Kernel takes it as closing a Lens's Finding,
+            # so its resolution of a thread a Role opened is a write to reconcile (issue 854); of any other, nobody's.
+            opened, told = _opener(t, identities)
+            whole &= told
+            if opened is None or opened in NOT_ROLES:
+                continue
+            by = HAND
         whole &= _key(t.get("id")) is not None
         add(by, "resolution", _key(t.get("id")), None)
     for r in map(_object, parts["check_runs"]):

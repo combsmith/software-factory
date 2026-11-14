@@ -35,7 +35,7 @@
         ],
         "properties": {
           "by": {
-            "description": "approver, controller, a Role App's name in config/apps.json, or unattributed: a thread GitHub names no resolver for",
+            "description": "approver, controller, a Role App's name in config/apps.json, unattributed: a thread GitHub names no resolver for, or hand: a person's resolution of a thread a Role opened (issue 854)",
             "type": "string",
             "pattern": "^[a-z][a-z-]{0,60}[a-z]$"
           },
