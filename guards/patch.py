@@ -1,6 +1,5 @@
-"""The sections of a Role's patch, read as `git diff` writes them (issue 838; FR-14; decision 0188's residual, "the
-push's write must land exactly that patch, and no other bytes"). A section's hunks are not read yet, and what applies
-the patch is still to come.
+"""A Role's patch, read as `git diff` writes it (issue 838; FR-14; decision 0188's residual, "the push's write must
+land exactly that patch, and no other bytes"). What applies the patch that is read here is still to come.
 
 `read(patch)` gives a patch's sections, or None for what it does not read. It reads a narrower patch than
 `harness/bundle.py` does, on purpose, and what it does not read it refuses: a name is read one way only, unquoted, of
@@ -10,8 +9,13 @@ one must agree with it; and of no more parts than `DEEPEST` bounds. `named(path)
 from __future__ import annotations
 
 HEADER = b"diff --git "
+MINUS = b"--- "
+PLUS = b"+++ "
+HUNK = b"@@ -"
 OLD_SIDE = b"a/"
 NEW_SIDE = b"b/"
+NULL = b"/dev/null"
+NO_NEWLINE = b"\\ No newline at end of file"
 # The extended headers git writes between a section's first line and its sides, each at most once to a section.
 OLD_MODE = b"old mode "
 NEW_MODE = b"new mode "
@@ -40,6 +44,7 @@ GIT_OWN = ".git"
 GIT_SHORT = "git~"
 # The modes git writes: a file's two, a link's and a submodule's. No other is a mode to it.
 MODES = (b"100644", b"100755", b"120000", b"160000")
+NUL = b"\x00"
 
 
 
@@ -79,6 +84,59 @@ def _path(said):
 def _mode(said):
     """A mode git writes, one of `MODES`, or None."""
     return str(said, "ascii") if said in MODES else None
+
+
+def _range(said):
+    """`(start, count)` from one side of a hunk's header, `start` or `start,count`, or None."""
+    start, comma, count = said.partition(b",")
+    first = _number(start)
+    many = _number(count) if comma else 1
+    if first is None or many is None:
+        return None
+    return first, many
+
+
+def _hunk(lines: list, i: int):
+    """`(hunk, next line)` for the hunk whose header is line `i`, or None. Its lines are as many as its header counts,
+    each a line both sides hold, one the old side holds, or one the new side holds, and one at least is not held by
+    both. git's marker, on a line of its own, says the line before it has no newline at its end: so no later line of
+    the hunk is on that line's side, and the line it marks is not empty, since an empty line that ends in no newline
+    is no line at all. After its header's second `@@` git writes nothing, or a space and the line the hunk stands
+    under, which is not read."""
+    old, plus, rest = lines[i][len(HUNK):].partition(b" +")
+    new, end, under = rest.partition(b" @@")
+    was, now = _range(old), _range(new)
+    if not plus or not end or was is None or now is None or (under and not under.startswith(b" ")):
+        return None
+    old_left, new_left, body = was[1], now[1], []
+    old_ended, new_ended = False, False     # a side is ended by git's marker on a line of it
+    i += 1
+    while old_left or new_left:
+        if i == len(lines):
+            return None
+        line = lines[i]
+        sign = line[:1]
+        if line == NO_NEWLINE and body and body[-1]["text"] and not body[-1]["bare"]:
+            body[-1] = dict(body[-1], bare=True)
+            old_ended, new_ended = old_ended or body[-1]["sign"] != b"+", new_ended or body[-1]["sign"] != b"-"
+        elif sign == b" " and old_left and new_left and not old_ended and not new_ended:
+            old_left, new_left = old_left - 1, new_left - 1
+            body.append({"sign": sign, "text": line[1:], "bare": False})
+        elif sign == b"-" and old_left and not old_ended:
+            old_left -= 1
+            body.append({"sign": sign, "text": line[1:], "bare": False})
+        elif sign == b"+" and new_left and not new_ended:
+            new_left -= 1
+            body.append({"sign": sign, "text": line[1:], "bare": False})
+        else:
+            return None
+        i += 1
+    if not any(line["sign"] != b" " for line in body):
+        return None
+    if i < len(lines) and lines[i] == NO_NEWLINE and body[-1]["text"]:
+        body[-1] = dict(body[-1], bare=True)
+        i += 1
+    return {"old_start": was[0], "old_count": was[1], "new_start": now[0], "new_count": now[1], "lines": body}, i
 
 
 def _named(said: dict, first: bytes, second: bytes, old: bytes, new: bytes):
@@ -141,6 +199,31 @@ def _section(lines: list, i: int):
     if not all(mode is not None for mode in modes.values()):
         return None
     hunks = []
+    if i < len(lines) and lines[i].startswith(MINUS):
+        # The two sides name what the header names, the old side of a new file and the new side of a removed one nothing.
+        if i + 1 == len(lines) or lines[i] != MINUS + (NULL if made else OLD_SIDE + raw_old) \
+                or lines[i + 1] != PLUS + (NULL if gone else NEW_SIDE + raw_new):
+            return None
+        i += 1 + 1
+        while i < len(lines) and lines[i].startswith(HUNK):
+            # git's marker says a file ends at its line, so it stands in a section's last hunk and in no other.
+            if hunks and any(line["bare"] for line in hunks[-1]["lines"]):
+                return None
+            read = _hunk(lines, i)
+            if read is None:
+                return None
+            hunks.append(read[0])
+            i = read[1]
+        if not hunks:
+            return None
+    # A new file has no old line and a removed one no new line, in the one hunk git writes for either: it stands at
+    # the first line of the side that has lines, and at no line of the side that has none.
+    if (made or gone) and len(hunks) > 1:
+        return None
+    if made and any((hunk["old_start"], hunk["old_count"], hunk["new_start"]) != (0, 0, 1) for hunk in hunks):
+        return None
+    if gone and any((hunk["new_start"], hunk["new_count"], hunk["old_start"]) != (0, 0, 1) for hunk in hunks):
+        return None
     kind = "new" if made else "deleted" if gone else "rename" if renamed else "copy" if copied else "change"
     if kind == "change" and not hunks and not moded:
         return None
@@ -150,9 +233,10 @@ def _section(lines: list, i: int):
 
 def read(patch):
     """The sections of a patch as `git diff` writes it, in its order, or None where it is not one this reads: bytes that
-    end a line short, a line before its first section, a line no section holds, or no section at all. No hunk is read
-    yet: a section with sides under it is not one this reads."""
-    if not isinstance(patch, bytes):
+    end a line short, a line before its first section, a line no section holds, no section at all, or a NUL, which
+    makes a change a binary one written as text (decision 0188). Where a hunk stands is not asked here: a hunk at
+    line 0 that holds lines, and hunks out of their order, are read; that is asked where they are applied."""
+    if not isinstance(patch, bytes) or NUL in patch:
         return None
     lines = patch.split(b"\n")
     if lines.pop() != b"" or not lines:
