@@ -6556,8 +6556,8 @@ class Trials(unittest.TestCase):
         by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
         for code in ("a_closing_reference_is_read_from_any_pull_request", "who_changed_the_draft_flag_is_read"):
             self.assertEqual(by_code[code], ("trials/P-33.json", "trials/P-33.port.json"), code)
-        for code in ("an_issues_content_time_is_read_apart", "a_reopening_names_its_actor"):
-            self.assertEqual(by_code[code], "trials/P-34.json", code)
+        self.assertEqual(by_code["an_issues_content_time_is_read_apart"], ("trials/P-34.json", "trials/P-34.rest.json"))
+        self.assertEqual(by_code["a_reopening_names_its_actor"], "trials/P-34.rest.json")
         p33 = json.loads((ROOT / "trials" / "P-33.json").read_text())
         self.assertEqual(p33["verdict"], "pass")
         prs = p33["exchanges"][0]["response"]["body"]["data"]["repository"]
