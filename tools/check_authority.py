@@ -238,10 +238,11 @@ def records_the_opening(tree, rel: str, within=None) -> bool:
 def _calls_a_recorder(tree, rel: str, read: dict, writers: set) -> bool:
     """Whether a module of the Harness that records nothing reaches the opening only by calling, as a step calls its
     job, a function of another module in `read` (those that reach the opening, read) that records it: the module names
-    nothing in DYNAMIC; it imports none of the writers' adapter modules, nor their package's name for one, nor a name
-    from one; a relative import is read only directly in harness/; and each name it binds once for a module in `read`,
-    or for a function of one, is called, never named otherwise, as a function that records the opening
-    (`records_the_opening` within it), at least once. A call into a module that does the same is not read."""
+    nothing in DYNAMIC; it imports none of the writers' adapter modules, nor a package that holds one, under any name
+    (`import adapters as api` reaches api.opening), nor a name from one; a relative import is read only directly in
+    harness/; and each name it binds once for a module in `read`, or for a function of one, is called, never named
+    otherwise, as a function that records the opening (`records_the_opening` within it), at least once. A call into a
+    module that does the same is not read."""
     adapters, held = {w.partition(":")[0] for w in writers}, {}
     inside = rel.startswith("harness/") and rel.count("/") == 1
     if _dynamic(tree):
@@ -257,7 +258,8 @@ def _calls_a_recorder(tree, rel: str, read: dict, writers: set) -> bool:
                      for a in node.names]
         for full, base, name, function, alias in pairs:
             if any(full == m or full.startswith(m + ".") or base is not None and (base == m or base.startswith(m + "."))
-                   or alias is None and full.split(".")[0] == m.split(".")[0] for m in adapters):
+                   or m.startswith(full + ".") or alias is None and full.split(".")[0] == m.split(".")[0]
+                   for m in adapters):
                 return False
             module = full.replace(".", "/") + ".py"
             if module in read or function and function[0] in read:
