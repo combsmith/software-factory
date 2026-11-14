@@ -122,11 +122,12 @@ def _hunk(lines: list, i: int):
     each a line both sides hold, one the old side holds, or one the new side holds, and one at least is not held by
     both. git's marker, on a line of its own, says the line before it has no newline at its end: so no later line of
     the hunk is on that line's side, and the line it marks is not empty, since an empty line that ends in no newline
-    is no line at all."""
+    is no line at all. After its header's second `@@` git writes nothing, or a space and the line the hunk stands
+    under, which is not read."""
     old, plus, rest = lines[i][len(HUNK):].partition(b" +")
-    new, end, _ = rest.partition(b" @@")
+    new, end, under = rest.partition(b" @@")
     was, now = _range(old), _range(new)
-    if not plus or not end or was is None or now is None:
+    if not plus or not end or was is None or now is None or (under and not under.startswith(b" ")):
         return None
     old_left, new_left, body = was[1], now[1], []
     old_ended, new_ended = False, False     # a side is ended by git's marker on a line of it
@@ -344,15 +345,26 @@ def _placed(path: str, tree: dict, folders: dict) -> bool:
     return not any(part in tree for part in _above(path)) and path not in folders
 
 
+def _handed(tree, contents) -> bool:
+    """Whether `tree` and `contents` are in a shape a port gives. A tree is a mapping of paths, as text, to the modes
+    git writes of what is no directory, and no path of it is a directory to another. Contents are a mapping of paths,
+    as text, to bytes."""
+    if not isinstance(tree, dict) or not isinstance(contents, dict):
+        return False
+    if not all(isinstance(path, str) and tree[path] in TREE_MODES for path in tree):
+        return False
+    if not all(isinstance(path, str) and isinstance(contents[path], bytes) for path in contents):
+        return False
+    return not any(part in tree for path in tree for part in _above(path))
+
+
 def applied(patch, tree: dict, contents: dict) -> tuple:
     """`(changes, None)`, or `(None, reason)` where nothing may land. `changes` is `{"written": {path: (mode, bytes)},
-    "removed": [path], "read": [path]}`: what the push writes, what it removes, and what a rename or a copy read, which
-    `harness/apply.py`'s `push_refusal` is asked about as it is about what is written. A tree or contents in no shape a
-    port gives, and a file the tree holds whose bytes it did not hand over, are the Factory's fault, under its own
-    code; every other reason is the Role's."""
-    if not isinstance(tree, dict) or not isinstance(contents, dict):
-        return None, TREE_UNREAD
-    if not all(isinstance(path, str) and tree[path] in TREE_MODES for path in tree):
+    "removed": [path], "read": [path]}`: what the push writes, what it removes, and what a rename or a copy read, each
+    path once; `harness/apply.py`'s `push_refusal` is asked about what was read as it is about what is written.
+    A tree or contents in no shape a port gives, and a file the tree holds whose bytes it did not hand over, are the
+    Factory's fault, under its own code; every other reason is the Role's."""
+    if not _handed(tree, contents):
         return None, TREE_UNREAD
     sections = read(patch)
     if sections is None:
@@ -361,7 +373,7 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
     for path in tree:
         for part in _above(path):
             folders[part] = True
-    written, removed, gone, taken, copied = {}, [], {}, [], {}
+    written, removed, gone, taken, copied = {}, [], {}, {}, {}
     for section in sections:
         kind, old, new = section["kind"], section["old"], section["new"]
         target = old if kind == "deleted" else new
@@ -402,9 +414,9 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
             return None, NOT_A_FILE
         written[new] = (mode, after)
         if kind in ("rename", "copy"):
-            taken.append(old)
+            taken[old] = True
         if kind == "copy":
             copied[old] = True
     if any(part in written for path in written for part in _above(path)):
         return None, NOT_A_FILE
-    return {"written": written, "removed": removed, "read": taken}, None
+    return {"written": written, "removed": removed, "read": list(taken)}, None
