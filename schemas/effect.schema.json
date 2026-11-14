@@ -5,7 +5,7 @@
   "additionalProperties": false,
   "properties": {
     "push_commits": {
-      "description": "A Role's push: the bundle its Run handed over, a patch as git diff writes it, by the artifact it was handed over in and its digest. The model writes the patch's text, under patch.body, and the Harness fills the bundle from it: the digest is of that text's bytes as UTF-8, nothing added or taken away (issue 880). The branch it lands on, and the commit it lands on top of, are apply's, never the Result's; apply refuses one that touches a protected path or a model Lens's input on the base's list before it mints any token (issue 139). One to a Result. No Role permits it yet.",
+      "description": "A Role's push: the bundle its Run handed over, a patch as git diff writes it, by the artifact it was handed over in and its digest. The patch's text is the model's to write, under patch.body; the bundle names the bytes handed over, and its digest is of that text as UTF-8, nothing added or taken away. Filling the bundle from the patch is the Harness's, and waits on harness/ (issue 880). The branch it lands on, and the commit it lands on top of, are apply's, never the Result's; apply refuses one that touches a protected path or a model Lens's input on the base's list before it mints any token (issue 139). One to a Result. No Role permits it yet.",
       "type": "array",
       "maxItems": 1,
       "items": {
