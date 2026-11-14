@@ -1,9 +1,8 @@
 # adapters/
 
-All of the Factory's I/O. `github.py` is the one transport; no other reaches the network. `items.py` open pull requests, `pull.py` one, `timeline.py` reviews, labels, actors, `checks.py` checks, queue, `threads.py` its threads, `edits.py` description edits,
-`applied.py` Lenses' records, `facts.py` its snapshot, `records.py` run records, `artifacts.py` a Run's outcome, `seen.py` writes made, `passes.py` past passes, `acceptance.py` a contract's ask, `heldout.py` held-out cases, `rules.py` base rules; `effects.py`
-the Controller's and Roles' writes, `pause.py` the Pause, `tags.py` the tags, `candidate.py` a Release's facts, `deployments.py` its moves, `identity.py` a token, and `queue.py` the queue App's acts. A port decides nothing and hands the Kernel no text.
-Not built yet, by the stories that hold their rules: contract.py, binding.py, issues.py and linked.py, an issue's facts and its linked pull requests, settings.py, usage.py, and of `texts.py`, the port of the issue a change serves, a thread's text.
+All the Factory's I/O; `github.py` alone reaches the network. `items.py` open pull requests, `pull.py` one, `timeline.py` reviews, labels, actors, `checks.py` checks, queue, `threads.py`, `edits.py`, `applied.py` Lenses' records, `facts.py` the snapshot,
+`records.py`, `artifacts.py`, `seen.py` writes made, `passes.py`, `acceptance.py`, `heldout.py`, `rules.py`, `texts.py` a Task's texts; `effects.py` writes, `pause.py`, `tags.py`, `candidate.py` a Release's facts, `deployments.py`, `identity.py`, `queue.py`.
+Not built yet, by the stories that hold their rules: contract.py, binding.py, issues.py and linked.py, an issue's facts and its linked pull requests, settings.py and usage.py. A port decides nothing and hands the Kernel no text.
 
 | Rule | Held by |
 |---|---|
@@ -28,6 +27,7 @@ Not built yet, by the stories that hold their rules: contract.py, binding.py, is
 | Each review thread is read with who opened and resolved it, told by account; a person's is `human`, and no comment's text is read | `tests/test_adapters.py::test_each_thread_is_read_with_who_opened_and_resolved_it_and_a_persons_is_human` |
 | A Lens's thread is one its own App opened; one a Lens recorded must be, and takes its owned Finding's category | `tests/test_adapters.py::test_only_a_required_lenss_own_apps_open_thread_defers`, `tests/test_adapters.py::test_a_recorded_thread_is_its_lenss` |
 | Threads are whole only when every one counted was read, once, and no cursor repeats | `tests/test_adapters.py::test_threads_are_read_page_by_page_and_whole_only_when_every_one_was_read_once` |
+| A thread's text is its Lens's own, unedited | `tests/test_adapters.py::test_a_lenss_own_words_on_each_thread_asked_for_are_read_as_a_text`, `tests/test_adapters.py::test_a_threads_text_that_is_not_its_lenss_own_on_this_pull_request_builds_no_task` |
 | A review's dismissal, its dismisser and its state before are read from the timeline; no text of GitHub's is kept | `tests/test_adapters.py::test_reviews_are_read_with_their_commit_content_and_who_dismissed_them` |
 | Each check run is whole, with no file if not its job's | `tests/test_adapters.py::test_every_check_run_on_the_head_is_read_with_its_name_app_and_workflow`, `tests/test_adapters.py::test_a_checks_details_are_its_own_jobs_only_in_that_form_with_those_ids` |
 | An issue asks for a contract only by an Intent that asks or a person's `factory:contract` label; if none asks, `acceptance` is null and whole | `tests/test_adapters.py::test_an_issue_asks_for_a_contract_only_by_a_persons_label` |
