@@ -58,6 +58,7 @@ def ran(step, *given):
 
 
 ISSUE_TEXT = {"id": "issue:7", "by": {"kind": "human", "name": "don-petry", "can_write": True}, "body": "What it asks."}
+LENS = {"kind": "lens", "name": "pr-review", "can_write": False}
 
 class Shared(unittest.TestCase):
     def test_a_steps_files_are_new_and_its_own(self):
@@ -195,7 +196,7 @@ class Reader(unittest.TestCase):
     """The reader's step, its ports stood in for: what it reads, what it holds them to, and its token."""
 
     def go(self, record=RECORD, head=HEAD, first=HEAD, change=DIFF, revoked=True, argv=None, environ=None, complete=True,
-           refs=TAGS, commit=CHECKED_OUT, tarred=None, tree=None, raising=None):
+           refs=TAGS, commit=CHECKED_OUT, tarred=None, tree=None, raising=None, threads=(), said=None):
         """`commit` is what `steps.commit()` gives, or a function that stands in for it; `tarred` what the head's
         tarball read gives for a commit, or raises; `tree` what the read of the commit's tree gives, or raises: by default
         the tree of the one file `support.tarball` holds. `raising`, where given, is `(module, name, error)`: that read
@@ -223,7 +224,7 @@ class Reader(unittest.TestCase):
                 calls["revoked"] += 1
                 return revoked
             return "the reader's transport", revoke
-        facts = support.facts(item=dict(support.ITEM, number=42), content_id=CONTENT)
+        facts = support.facts(item=dict(support.ITEM, number=42), content_id=CONTENT, threads=list(threads))
         pulled = {"head": {"sha": first}, "number": 42}
         listed = {"runs": [], "unidentified": [], "complete": complete, "reads": [], "github_ids": {}}
         calls["recorded"], calls["listed"], calls["asked"], calls["opener"] = [], [], [], []
@@ -239,6 +240,11 @@ class Reader(unittest.TestCase):
         def read_issues(transport, pull_read, who, opener, opened):
             calls["issues"] = (pull_read is pulled, opener, opened is made)
             return [ISSUE_TEXT]
+
+        def read_findings(transport, pull_read, who, lens, asked):
+            calls.setdefault("findings", []).append((transport, pull_read is pulled, lens, list(asked)))
+            return [{"id": "thread:%s" % ident, "by": dict(LENS), "body": "What it said on %s." % ident}
+                    for ident in asked] if said is None else said
 
         def read_opened(transport, repo, runs, role):
             calls["opened_role"].append(role)
@@ -259,6 +265,7 @@ class Reader(unittest.TestCase):
                 unittest.mock.patch.object(read.pull, "base", lambda *a: {"head": "b" * 40}), \
                 unittest.mock.patch.object(read.pull, "change", lambda *a: change), \
                 unittest.mock.patch.object(read.texts, "issues", read_issues), \
+                unittest.mock.patch.object(read.texts, "findings", read_findings), \
                 unittest.mock.patch.object(read.head_, "fetch", fetched), \
                 unittest.mock.patch.object(read.head_, "tree", tree_read), \
                 contextlib.ExitStack() as more:
@@ -316,6 +323,30 @@ class Reader(unittest.TestCase):
             pathlib.Path(d, "task", "run").write_text("../../x\n")
             with self.assertRaises(run.task.Refused):
                 run.from_folder("task", "result", d)
+
+    def test_the_reader_hands_a_review_its_lenss_open_findings_and_what_it_said(self):  # issue 856
+        # A review rules on a Finding only if it is shown it. The reader lists each open thread of the Run's own Lens
+        # that gates, `apply.shown` of the facts, as a Finding of the Task, and reads what the Lens said on it, by the
+        # thread's id, as the text `finding:` and the Finding's id, before the issue's.
+        fid = lambda key: read.apply.finding_id("pr-review", {"type": "thread", "key": key})
+        threads = [support.thread("PRRT_kw7"), support.thread("PRRT_kw9", kind="human", name="don-petry"),
+                   support.thread("PRRT_kw8", category="security"), support.thread("PRRT_kw14", severity="blocking")]
+        code, printed, files, kept, calls = self.go(threads=threads)
+        self.assertEqual(code, 0, printed)
+        self.assertEqual(calls["findings"], [("the reader's transport", True, "pr-review", ["PRRT_kw7", "PRRT_kw14"])])
+        self.assertEqual(json.loads(kept["findings.json"]), [fid("PRRT_kw7"), fid("PRRT_kw14")])
+        self.assertEqual(json.loads(kept["texts.json"]), [
+            {"id": "finding:" + fid("PRRT_kw7"), "by": LENS, "body": "What it said on PRRT_kw7."},
+            {"id": "finding:" + fid("PRRT_kw14"), "by": LENS, "body": "What it said on PRRT_kw14."}, ISSUE_TEXT])
+        # With none to show, nothing is asked of the texts port for it.
+        self.assertNotIn("findings", self.go(threads=threads[1:3])[4])
+        # What the Lens said that cannot be read, an edited comment's among them, builds no Task: the step stops by
+        # its code, the token revoked, and so it does where the port answers other than one text for each thread.
+        for raising, said in (((read.texts, "findings", read.Unanswered("a thread's first comment was edited")), None),
+                              (None, []), (None, [{"id": "thread:PRRT_kw7", "by": LENS, "body": "x"}] * 3)):
+            code, printed, files, kept, calls = self.go(threads=threads, raising=raising, said=said)
+            self.assertEqual((code, files, calls["revoked"]), (1, [], 1), printed)
+            self.assertIn("finding_texts_unreadable", printed)
 
     def test_a_head_that_cannot_be_read_or_unpacked_whole_builds_no_task(self):
         # Decision 0138: the review reads the head, so a head the reader cannot read, or an archive it will not write,

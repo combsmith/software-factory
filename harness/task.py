@@ -21,6 +21,8 @@ ADMIT = "admit"
 # advisory reviewers', then anyone else's, each kind in the order given, newest first as the reads give them (L-56).
 RANK = ("maintainer", "role", "advisory", "outside")
 TEXT_ID = re.compile(r"[a-z]+:[A-Za-z0-9_-]+")
+# What leads the id of a text that is a Finding the Task lists: what its Lens said when it raised it (issue 856).
+FINDING = "finding:"
 # A writer's name as task/1 carries it in `source`.
 SOURCE = re.compile(r"[A-Za-z0-9-]+(\[bot\])?")
 # Where one file's part of a diff begins, as git writes it: the diff is cut only there, never inside a file.
@@ -212,6 +214,9 @@ def from_admission(admit: dict, item: dict, run: str, facts: dict, texts: list, 
     kept, omitted = texts_of(texts, config)
     # The change is the first text a pull request's Task carries, apart from the others and their budget.
     change, cut = diff_of(diff, facts, admit, config)
+    # A Task shows each Finding it lists: one whose text was left out, or was never read, is no Task (issue 856).
+    if any(FINDING + f not in {text["id"] for text in kept} for f in findings):
+        raise Refused("a Finding the Task lists is not among the texts it keeps")
     kept = ([change] if change is not None else []) + kept
     omitted = sorted(omitted + ([cut] if cut is not None else []), key=lambda o: o["kind"])
     task = {"schema": "task/1", "run": run, "release": config["release"], "role": admit["role"],

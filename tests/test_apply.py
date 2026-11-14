@@ -682,6 +682,41 @@ class Apply(unittest.TestCase):
                                    "result")
             self.assertEqual(errors == [], ok, (ok, errors))
 
+    def test_a_review_rules_on_every_finding_it_was_shown(self):  # issue 856
+        # A review that says nothing of a Finding its Lens raised before has not ruled on it. So a review is shown each
+        # open thread of its own that gates, of a category its Role owns and no security Finding's, and its Result
+        # gives a Disposition on each: `apply` reads which they are again, of the item as it is now.
+        fid = lambda key, lens="pr-review": apply.finding_id(lens, {"type": "thread", "key": key})
+        person = {"kind": "human", "name": "don-petry", "can_write": True}
+        threads = [support.thread("PRRT_kw7"), support.thread("PRRT_kw8", category="security"),
+                   support.thread("PRRT_kw9", kind="human", name="don-petry"), support.thread("PRRT_kw10", severity="minor"),
+                   support.thread("PRRT_kw11", resolved=True, resolved_by=person),
+                   support.thread("PRRT_kw13", name="qa-lead"), support.thread("PRRT_kw14", severity="blocking")]
+        facts = the_facts(threads=threads)
+        both = [(fid("PRRT_kw7"), "PRRT_kw7"), (fid("PRRT_kw14"), "PRRT_kw14")]
+        self.assertEqual(apply.shown(facts, ROLE, support.CONFIG), both)
+        # An expired Run's thread gates, and its category cannot be read: it is none a review is shown.
+        gone = dict(support.thread("PRRT_kw12", category=None, severity=None), expired=True)
+        self.assertEqual(apply.shown(the_facts(threads=threads + [gone]), ROLE, support.CONFIG), both)
+        # Another Role is shown none of them, nor is this one of a category it does not own.
+        self.assertEqual(apply.shown(facts, dict(ROLE, name="qa-lead"), dict(support.CONFIG)), [])
+        self.assertEqual(apply.shown(facts, dict(ROLE, owns=["security"]), support.CONFIG), [])
+        self.assertEqual(apply.shown(facts, {k: v for k, v in ROLE.items() if k != "owns"}, support.CONFIG), [])
+
+        def asked(*rulings):
+            given = [{"finding": fid(key), "decision": {"result": said}} for key, said in rulings]
+            return refused(res=result(dispositions=given), facts=facts)
+        self.assertIsNone(asked(("PRRT_kw7", "accepted"), ("PRRT_kw14", "rejected")))
+        for rulings in ((), (("PRRT_kw7", "accepted"),), (("PRRT_kw14", "rejected"),)):
+            self.assertEqual(asked(*rulings), ("item", "finding_not_ruled"), rulings)
+        # A Finding it was not shown, and the Task does not list, is none it may rule on.
+        for other in ("PRRT_kw10", "PRRT_kw11", "PRRT_kw8"):
+            self.assertEqual(asked(("PRRT_kw7", "accepted"), ("PRRT_kw14", "rejected"), (other, "rejected")),
+                             ("item", "disposition_of_no_finding"), other)
+        # With none to show, a Result with no Disposition is as it was.
+        self.assertIsNone(refused(res=result(dispositions=[]), facts=the_facts(threads=threads[1:6])))
+        self.assertEqual(apply.shown(the_facts(threads=threads[1:6]), ROLE, support.CONFIG), [])
+
     def test_a_disposition_gives_one_half_and_only_the_half_its_role_may_make(self):  # section 3.8
         threads = [support.thread("PRRT_kw7"), support.thread("PRRT_kw8", category="security"),
                    support.thread("PRRT_kw9", kind="human", name="don-petry")]
@@ -720,7 +755,8 @@ class Apply(unittest.TestCase):
         # (Muse's read, issue 389). A rejection is taken, and so is the author's proposal of any outcome.
         self.assertEqual(asked([{"finding": fid("PRRT_kw8"), "decision": {"result": "accepted"}}]),
                          ("item", "security_proposal_unread"))
-        self.assertIsNone(asked([{"finding": fid("PRRT_kw8"), "decision": {"result": "rejected"}}]))
+        standing = {"finding": fid("PRRT_kw7"), "decision": {"result": "rejected"}}
+        self.assertIsNone(asked([{"finding": fid("PRRT_kw8"), "decision": {"result": "rejected"}}, standing]))
         for outcome in ("declined", "deferred", "fixed"):
             self.assertIsNone(asked([{"finding": fid("PRRT_kw8"), "proposal": {"outcome": outcome}}], role=author))
         # A Finding the Task lists whose thread is not on the item is no Finding of this item's.
@@ -728,9 +764,11 @@ class Apply(unittest.TestCase):
         self.assertEqual(refused(task=astray, facts=facts, role=author, res=result(dispositions=[
             {"finding": "f_0000", "proposal": {"outcome": "fixed"}}])), ("item", "disposition_of_no_finding"))
         # A Finding the Task does not list is no Run's to dispose of, even with its thread on the item.
-        unlisted = the_task(permitted_effects=task["permitted_effects"], findings=[fid("PRRT_kw8")])
+        # The security Finding's is one: a review is not shown it, and this Task lists only the other.
+        unlisted = the_task(permitted_effects=task["permitted_effects"], findings=[fid("PRRT_kw7")])
         self.assertEqual(refused(task=unlisted, facts=facts, res=result(dispositions=[
-            {"finding": fid("PRRT_kw7"), "decision": {"result": "accepted"}}])), ("item", "disposition_of_no_finding"))
+            {"finding": fid("PRRT_kw8"), "decision": {"result": "rejected"}}, standing])),
+            ("item", "disposition_of_no_finding"))
         # An Effect on a thread is on one of this item's: a thread id is global.
         wide = the_task(permitted_effects=["submit_review", "create_check_run", "comment"])
         self.assertEqual(refused(task=wide, facts=facts, res=result(effects=dict(
@@ -1688,8 +1726,11 @@ class Job(unittest.TestCase):
         # A comment carries when the Run began, from its record or, listed before its name, its run's creation; its
         # place is among the Run's comments on the item; none is sent after one on the item that was not written.
         talk = the_task(permitted_effects=["comment"])
-        said = result(findings=[], coverage=[dict(c, verdict="met", reason=None) if c["verdict"] == "finding" else c
-                                             for c in result()["coverage"]],
+        ruled = [{"finding": apply.finding_id("pr-review", {"type": "thread", "key": "PRRT_kw7"}),
+                  "decision": {"result": "rejected"}}]
+        said = result(findings=[], dispositions=ruled,
+                      coverage=[dict(c, verdict="met", reason=None) if c["verdict"] == "finding" else c
+                                for c in result()["coverage"]],
                       effects={"comment": [{"id": "e1", "on": "PRRT_kw7", "body": "a"}, {"id": "e2", "on": "item", "body": "b"},
                                            {"id": "e3", "on": "item", "body": "c"}]})
         facts_threads = the_facts(threads=[support.thread("PRRT_kw7")])

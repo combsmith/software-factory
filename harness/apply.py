@@ -37,7 +37,7 @@ from adapters.applied import OPENED
 from adapters.rules import UNREADABLE as LIST_UNREADABLE
 from harness import engine, shared
 from harness import task as task_
-from kernel import derive
+from kernel import derive, gate
 from kernel import terms as t
 from kernel.coverage import covered
 from kernel.decide import decide
@@ -128,6 +128,17 @@ def finding_id(lens: str, surface: dict) -> str:
     """A Finding's id, from its source and its surface's key, never from its text (section 3.7)."""
     said = "%s %s %s" % (lens, surface["type"], surface["key"])
     return "f_" + hashlib.sha256(said.encode()).hexdigest()[:16]
+
+
+def shown(facts: dict, role: dict, kernel: dict) -> list:
+    """`[(finding id, thread id)]`: the Findings a review is shown and must rule on, in the facts' order (issue 856). Each
+    is an open thread of the Role's own that gates, as `kernel/gate.py` reads one, of a category the Role owns and no
+    security Finding's, which no Run may yet accept. So an expired Run's thread, whose category cannot be read, is none.
+    The reader builds the Task's Findings from it, and `apply` reads it again of the item as it then is."""
+    return [(finding_id(role["name"], {"type": "thread", "key": th["id"]}), th["id"])
+            for th in gate.gating_threads(facts, kernel)
+            if th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == role["name"]
+            and th["category"] in role.get("owns", ()) and th["category"] != gate.SECURITY]
 
 
 def posts(effects: dict) -> list:
@@ -298,11 +309,14 @@ def _head_name(said: str):
     return said[2:] if said.startswith("b/") and len(said) > 2 else None
 
 
-def _dispositions(task: dict, result: dict, facts: dict, role: dict, authority: dict):
+def _dispositions(task: dict, result: dict, facts: dict, role: dict, authority: dict, kernel: dict):
     """A Disposition gives one half, the one this Run's Role may make: a proposal is the author's, and a decision the
-    owner's of the Finding's category, read from its thread in the facts (section 3.8)."""
+    owner's of the Finding's category, read from its thread in the facts (section 3.8). A review rules on every Finding
+    it was shown, `shown` of the item as it is now: one left with no Disposition refuses the Result (issue 856)."""
     threads = {fid: th for th in facts["threads"] for fid in _findings_of(facts, th["id"])}
     named = [d["finding"] for d in result["dispositions"]]
+    asked = [fid for fid, _ in shown(facts, role, kernel)]
+    listed = set(task["findings"]) | set(asked)
     if len(named) != len(set(named)):
         return "disposition_given_twice"
     for d in result["dispositions"]:
@@ -310,7 +324,7 @@ def _dispositions(task: dict, result: dict, facts: dict, role: dict, authority: 
         if len(halves) != 1:
             return "disposition_halves"
         # A Disposition is on a Finding the Task lists, whose thread is on this item.
-        if d["finding"] not in task["findings"] or d["finding"] not in threads:
+        if d["finding"] not in listed or d["finding"] not in threads:
             return "disposition_of_no_finding"
         if halves[0] == "proposal":
             if role["kind"] != PROPOSES or role["name"] != authority["author_role"]:
@@ -326,6 +340,9 @@ def _dispositions(task: dict, result: dict, facts: dict, role: dict, authority: 
     for d in result["dispositions"]:
         if d.get("decision", {}).get("result") == "accepted" and threads[d["finding"]]["category"] == "security":
             return "security_proposal_unread"
+    # Silence on a Finding the review was shown is no ruling on it.
+    if any(fid not in named for fid in asked):
+        return "finding_not_ruled"
     return None
 
 
@@ -366,7 +383,7 @@ def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, ke
         said, _ = covered(rubric, result["coverage"], result["findings"], facts["changed_paths"])
         if said != "covered":
             return ("item", "uncovered") if said == "uncovered" else ("environment", "coverage_unreadable")
-    why = _effects(task, result, facts, advisory) or _dispositions(task, result, facts, role, authority)
+    why = _effects(task, result, facts, advisory) or _dispositions(task, result, facts, role, authority, kernel)
     if why is None and lines:
         # A Finding's lines are held of the Task's diff: a Task that carries none was handed in without it, which is
         # the Factory's slip, never the Role's, and nothing is written (decision 0148).

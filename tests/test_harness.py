@@ -33,6 +33,7 @@ HARNESS = json.loads((ROOT / "config" / "harness.json").read_text())
 PIN = HARNESS["engine"]["version"]
 MODEL = HARNESS["engine"]["model"]
 MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
+LENS = {"kind": "lens", "name": "pr-review", "can_write": False}
 # The change Run RUN judges, as GitHub serves a pull request's diff: two files, each its own part.
 DIFF = (b"diff --git a/kernel/decide.py b/kernel/decide.py\n--- a/kernel/decide.py\n+++ b/kernel/decide.py\n"
         b"@@ -88,1 +88,1 @@\n-    return \"hold\"\n+    return \"act\"\n"
@@ -173,10 +174,28 @@ class Task(unittest.TestCase):
         deep = built(role=manifest(tier="deep"))
         self.assertEqual((deep["tier"], deep["limits"]), ("deep", HARNESS["limits"]["deep"]))
         self.assertEqual((t["result_schema"], t["omitted"]), ("result/1", []))
-        self.assertEqual(built(findings=["f_9c1e", "f_2b7d"])["findings"], ["f_9c1e", "f_2b7d"])
+        said = [text("finding:f_9c1e", LENS), text("finding:f_2b7d", LENS)]
+        self.assertEqual(built(said, findings=["f_9c1e", "f_2b7d"])["findings"], ["f_9c1e", "f_2b7d"])
         for findings in (None, 1, {"f_9c1e": "x"}, "f_9c1e"):
             with self.assertRaises(task.Refused, msg=repr(findings)):
                 built(findings=findings)
+
+    def test_a_task_shows_each_finding_it_lists(self):  # issue 856
+        # A review rules on a Finding only if it is shown what its Lens said. The text is `finding:` and the Finding's
+        # id, under its writer's trust; a Finding listed with no such text among those the Task keeps is no Task.
+        said = text("finding:f_9c1e", LENS, "It reads the head before the push.")
+        t = built([text("issue:7"), said], findings=["f_9c1e"])
+        self.assertEqual(others(t), [{"id": "finding:f_9c1e", "trust": "role", "source": "pr-review",
+                                      "body": "It reads the head before the push."},
+                                     {"id": "issue:7", "trust": "outside", "source": MAINTAINER["name"],
+                                      "body": text()["body"]}])
+        for why, texts, config_ in (("no text", [], config()), ("another Finding's", [text("finding:f_2b7d", LENS)], config()),
+                                    ("a thread's", [text("thread:f_9c1e", LENS)], config()),
+                                    ("a text left out", [said], config(texts={"characters": 10}))):
+            with self.subTest(why), self.assertRaises(task.Refused):
+                built(texts, findings=["f_9c1e"], config=config_)
+        # A Finding's text with no Finding listed is a text as any other.
+        self.assertEqual(built([said])["findings"], [])
 
     def test_a_run_no_decision_admitted_finds_none_and_does_nothing(self):  # section 3.5
         moved = facts()
