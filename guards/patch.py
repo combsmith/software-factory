@@ -6,7 +6,8 @@ the one reason, a code, why nothing may land. Nothing is searched for and nothin
 file's lines at the place the hunk names, or the patch is not this tree's. So what lands is what the patch says, of the
 commit the Decision admitted, and of no other. It is what `git apply` lands of a hunk that stands where its header
 says. `git apply --unidiff-zero`, which git wants for a hunk with no line of context, differs in one shape: removals
-alone that end at a last line with no newline, which it takes a line higher where the line above reads alike.
+alone that end at a last line with no newline, which it takes a line higher where the line above reads alike or
+differs only in white space at its end.
 
 It reads a narrower patch than `harness/bundle.py` does, on purpose, and what it does not read it refuses:
 - a name is read one way only: unquoted, of the characters `NAME_CHARS` holds, with no space, so the header alone
@@ -120,7 +121,8 @@ def _hunk(lines: list, i: int):
     """`(hunk, next line)` for the hunk whose header is line `i`, or None. Its lines are as many as its header counts,
     each a line both sides hold, one the old side holds, or one the new side holds, and one at least is not held by
     both. git's marker, on a line of its own, says the line before it has no newline at its end: so no later line of
-    the hunk is on that line's side."""
+    the hunk is on that line's side, and the line it marks is not empty, since an empty line that ends in no newline
+    is no line at all."""
     old, plus, rest = lines[i][len(HUNK):].partition(b" +")
     new, end, _ = rest.partition(b" @@")
     was, now = _range(old), _range(new)
@@ -134,7 +136,7 @@ def _hunk(lines: list, i: int):
             return None
         line = lines[i]
         sign = line[:1]
-        if line == NO_NEWLINE and body and not body[-1]["bare"]:
+        if line == NO_NEWLINE and body and body[-1]["text"] and not body[-1]["bare"]:
             body[-1] = dict(body[-1], bare=True)
             old_ended, new_ended = old_ended or body[-1]["sign"] != b"+", new_ended or body[-1]["sign"] != b"-"
         elif sign == b" " and old_left and new_left and not old_ended and not new_ended:
@@ -151,7 +153,7 @@ def _hunk(lines: list, i: int):
         i += 1
     if not any(line["sign"] != b" " for line in body):
         return None
-    if i < len(lines) and lines[i] == NO_NEWLINE:
+    if i < len(lines) and lines[i] == NO_NEWLINE and body[-1]["text"]:
         body[-1] = dict(body[-1], bare=True)
         i += 1
     return {"old_start": was[0], "old_count": was[1], "new_start": now[0], "new_count": now[1], "lines": body}, i
@@ -253,7 +255,7 @@ def read(patch):
     """The sections of a patch as `git diff` writes it, in its order, or None where it is not one this reads: bytes that
     end a line short, a line before its first section, a line no section holds, no section at all, or a NUL, which
     makes a change a binary one written as text (decision 0188). Where a hunk stands is not asked here: a hunk at
-    line 0 that holds lines, and hunks out of their order, are read, and `content` refuses both."""
+    line 0 that holds lines, and hunks out of their order, are read; that is asked where they are applied."""
     if not isinstance(patch, bytes) or NUL in patch:
         return None
     lines = patch.split(b"\n")
@@ -289,7 +291,10 @@ def content(old: bytes, hunks: list):
     them, as git writes two hunks; each line of its old side is the file's line there, byte for byte; and where the
     new side begins is where this puts it. git's marker stands on the file's last line exactly where that line has no
     newline at its end, and on a new line only where nothing follows it: `read` gives a marker in a section's last
-    hunk alone, and here no line of the file follows that hunk's."""
+    hunk alone, and here no line of the file follows that hunk's. An `old` that is no bytes is no file's content, an
+    empty one's least of all: None. `hunks` are `read`'s own, and no other shape is asked for."""
+    if not isinstance(old, bytes):
+        return None
     held = old.split(b"\n") if old else []
     bare = bool(held) and held[-1] != b""
     if held and not bare:
