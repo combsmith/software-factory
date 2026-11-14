@@ -3725,9 +3725,9 @@ class EvalJob(unittest.TestCase):
             spread = [("PR-3", "finding", 20, 10), ("PR-4", "finding", 10, 5), ("PR-5", "finding", 10, 5), ("PR-1", "met", 20, 10)]
             self.assertEqual((ok(spread), ok(spread, floors={"PR-3": [1, 2], "PR-4": [1, 2]}), ok(spread, floors={})),
                              (True, False, True))
-            # Each floored criterion's cells are its own: four cells of five, and not two of ten.
+            # Each floored criterion's cells are its own, in the criteria's order whatever the manifest's: four of five.
             self.assertEqual(job.cells_of(*self.floored([("PR-3", "finding", 10, 5), ("PR-4", "finding", 10, 5), ("PR-1", "met", 20, 10)],
-                                                        floors={"PR-3": [1, 2], "PR-4": [1, 2]})),
+                                                        floors={"PR-4": [1, 2], "PR-3": [1, 2]})),
                              [cell("finding", None, False, 0), cell("finding", None, True, 0),
                               cell("finding", "PR-3", False, 5), cell("finding", "PR-3", True, 5),
                               cell("finding", "PR-4", False, 5), cell("finding", "PR-4", True, 5),
