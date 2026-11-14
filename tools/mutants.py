@@ -1108,6 +1108,27 @@ ISSUE = [
     ("the implementing rounds' Hold is dropped while a Run is in flight", ISSUE_PY,
      '        elif isinstance(wanted, dict) and wanted["outcome"] == t.HOLD:\n            held = wanted\n', '',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
+    # Carbon's read of #827: the other sides of the implementing rule, and its dormancy.
+    ("whatever the Run wanted says stands while a Run is in flight", ISSUE_PY,
+     '        elif isinstance(wanted, dict) and wanted["outcome"] == t.HOLD:\n',
+     '        elif isinstance(wanted, dict):\n',
+     ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
+    ("a draft's passing checks admit an implementing Run", ISSUE_PY,
+     '    if draft["checks"] != "failing":\n', '    if draft["checks"] == "pending":\n',
+     ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
+    ("the implementing rounds are spent whatever the draft's checks", ISSUE_PY,
+     '    if draft["checks"] != "failing":\n        return _decision(facts, state, reason, evidence, t.NOTHING)\n'
+     '    rounds = [r for r in since_writer(mine, facts) if r["intent"] == IMPLEMENT and r["status"] == "completed"]\n'
+     '    if len(rounds) >= config["limits"]["max_attempts"]:\n'
+     '        return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in rounds], t.HOLD)\n',
+     '    rounds = [r for r in since_writer(mine, facts) if r["intent"] == IMPLEMENT and r["status"] == "completed"]\n'
+     '    if len(rounds) >= config["limits"]["max_attempts"]:\n'
+     '        return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in rounds], t.HOLD)\n'
+     '    if draft["checks"] != "failing":\n        return _decision(facts, state, reason, evidence, t.NOTHING)\n',
+     ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
+    ("the author Role is named before the implementing rule's reads", "config/defaults.json",
+     '"author_role": null,', '"author_role": "dev-lead",',
+     ("tests.test_issue.Outcomes.test_no_author_role_is_named_while_the_implementing_rule_is_owed_its_reads",)),
     ("Intents that cannot be read are trusted", ISSUE_PY,
      "    if not readable_intents(intents):\n", "    if False:\n", ISSUE_TESTS),
     ("an Intent left out of the Intents is read", ISSUE_PY,

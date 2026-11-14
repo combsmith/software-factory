@@ -1628,6 +1628,11 @@ class Outcomes(unittest.TestCase):
         before = agents(number=9, is_open=False, closed=2, checks="passing")
         d = decide(facts(linked=[before, agents(draft=True, checks="failing")]), cfg=named)
         self.assertEqual((d["outcome"], d["reason"], d["admit"].get("pull_request")), ("admit", "linked_draft", 11))
+        # Two open drafts are no one draft to read: the issue is held linked twice, whosever they are, in either order.
+        for linked in ([pr(number=9, draft=True), agents(draft=True, checks="failing")],
+                       [agents(number=9, draft=True, checks="passing"), agents(draft=True, checks="failing")]):
+            for order in (linked, linked[::-1]):
+                self.assertEqual(what(decide(facts(linked=order), cfg=named))[:2], ("hold", "linked_twice"))
         # Not the Factory's draft: a person's, or a stranger's, waits for its author.
         for other in (pr(draft=True, checks="failing"), strangers(admitted=True, draft=True, checks="failing")):
             self.assertEqual(what(decide(facts(linked=[other]), cfg=named))[:2], ("nothing", "linked_draft"), other["class"])
@@ -1646,12 +1651,26 @@ class Outcomes(unittest.TestCase):
         flying = run(intent=issue.IMPLEMENT, status="in_progress", role="dev-lead", name="m1", minute=7)
         d = decide(failing, [flying], cfg=named)
         self.assertEqual((what(d), d["attention"]), (("nothing", "linked_draft", None), "working"))
+        # So with its checks pending, or unreadable, behind a Run in flight: the issue working, no deferral and no Hold.
+        for draft in (agents(draft=True, checks="pending"), dict(agents(draft=True), checks=None)):
+            d = decide(facts(linked=[draft]), [flying], cfg=named)
+            self.assertEqual((what(d), d["attention"]), (("nothing", "linked_draft", None), "working"), draft["checks"])
         # max_attempts implementing Runs completed, each of which left the checks failing: held, the issue calls a person.
         rounds = [run(intent=issue.IMPLEMENT, role="dev-lead", name="m%d" % n, minute=7 + n)
                   for n in range(LIMITS["max_attempts"])]
         self.assertEqual(what(decide(failing, rounds[:-1], cfg=named)), ("admit", "linked_draft", issue.IMPLEMENT))
         held = ("held", "hold", "attempts_exhausted", "needs_you", [r["run"] for r in rounds])
         d = decide(failing, rounds, cfg=named)
+        self.assertEqual((d["state"], d["outcome"], d["reason"], d["attention"], d["evidence"]), held)
+        # The rounds are spent only on a draft whose checks fail: pending or passing, its rounds spent are nothing.
+        for checks in ("pending", "passing"):
+            self.assertEqual(what(decide(facts(linked=[agents(draft=True, checks=checks)]), rounds, cfg=named)),
+                             ("nothing", "linked_draft", None), checks)
+        # A Run of another Intent that completed is no round: one short of the rounds beside it still admits, and at the
+        # rounds it is not named among them.
+        judged = run(intent="judge-readiness", name="j1", minute=6)
+        self.assertEqual(what(decide(failing, [judged] + rounds[:-1], cfg=named)), ("admit", "linked_draft", issue.IMPLEMENT))
+        d = decide(failing, [judged] + rounds, cfg=named)
         self.assertEqual((d["state"], d["outcome"], d["reason"], d["attention"], d["evidence"]), held)
         # Past the bound too, as where the limit was lowered, with the Run ceiling not yet spent.
         past = rounds + [run(intent=issue.IMPLEMENT, role="dev-lead", name="mx", minute=7 + len(rounds))]
@@ -1670,6 +1689,14 @@ class Outcomes(unittest.TestCase):
         # The Run ceiling bounds it too, whatever Runs spent it.
         spent = [run(intent="judge-readiness", name="j%d" % n, minute=7 + n) for n in range(LIMITS["max_runs_per_item"])]
         self.assertEqual(what(decide(failing, spent, cfg=named))[:2], ("hold", "run_ceiling"))
+
+    def test_no_author_role_is_named_while_the_implementing_rule_is_owed_its_reads(self):  # issue 825, decision 0217
+        # The implementing rule is dormant until the author Role is named, and four things are owed before it is: the
+        # facts port's read of a draft's checks, the records port's reading of an implementing Run as the issue's, the
+        # draft's head in the admission, and the draft held to the issue it was opened for (decision 0217). Naming it is
+        # a change to this test, made with them.
+        named = json.loads((ROOT / "config" / "defaults.json").read_text())["author_role"]
+        self.assertIsNone(named, "decision 0217's four reads are owed before the author Role is named")
 
     def test_in_review_and_with_a_linked_draft_nothing_is_admitted_whatever_the_intents(self):
         for f, reason in ((facts(linked=[pr()]), "linked_ready"), (facts(linked=[agents(draft=True)]), "linked_draft")):
