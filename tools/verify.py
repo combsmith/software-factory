@@ -28,6 +28,7 @@ CHECKS = [
     ("apps", check_apps.run),
     ("rulesets", check_rulesets.run),
     ("kernel purity", check_purity.run),
+    ("guards purity", check_purity.guards),
     ("trials", check_trials.run),
     ("release", check_release.run),
     ("repo", check_repo.run),

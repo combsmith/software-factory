@@ -19,6 +19,7 @@ This page holds only the words this repo uses that the requirements do not defin
 | Acceptance contract | The criteria a change is judged against, written before the work by a Role other than the one that does it. `schemas/acceptance.schema.json` |
 | Boundary case | One input at the edge of a Kernel rule, with the Decision it must give. A test in `tests/test_decide.py` |
 | Mutant | A Kernel rule broken on purpose, which some test must notice. An entry in `tools/mutants.py` |
+| Guard | A pure function that says what a Role's own write may land, or the one reason, a code, why nothing may. It reads nothing: a port hands it what was read, and the Harness calls it. It lives in `guards/`, where the Role it binds may not push once that path is protected |
 | Trial | One question from section 6 of the design, put once to the real GitHub in the canary repo, combsmith/software-factory-canary. Run by the skill `.claude/skills/run-a-platform-trial/SKILL.md` |
 | Fixture | What one trial sent and what GitHub answered, with every credential removed, and its verdict. A file in `trials/`, whose form is `schemas/trial.schema.json` |
 | Unverified | Said of a rule the simulator's fake GitHub applies that no fixture grounds yet. `sim/grounding.py` lists every rule; `make verify` prints each that is unverified |

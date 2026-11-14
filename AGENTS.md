@@ -1,7 +1,7 @@
 # software-factory
 
 The decision core of the Factory: a set of agent Roles that turn an issue into a reviewed, merged change, and a Kernel that decides what each Role may do next.
-So far this repo holds the Kernel, its schemas, its checks, a simulator, the Lifecycle, the Controller, the Harness, the evals, the workflows, the Release's rules, the Role `pr-review` and the ports built so far. Only `adapters/github.py` talks to GitHub.
+So far this repo holds the Kernel, the guards, schemas, checks, a simulator, the Lifecycle, the Controller, the Harness, the evals, the workflows, the Release's rules, the Role `pr-review` and the ports built so far. Only `adapters/github.py` talks to GitHub.
 
 It follows the org's standards, [combsmith/.github/AGENTS.md](https://github.com/combsmith/.github/blob/main/AGENTS.md),
 except where `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standards.md` says why not.
@@ -21,7 +21,7 @@ Each rule names the check that holds it. A rule no check holds does not belong i
 
 | Rule | Held by |
 |---|---|
-| The Kernel does no I/O, reads no clock, keeps nothing between calls and calls no function it is given but `_decision` | `tools/check_purity.py` |
+| The Kernel does no I/O, reads no clock, keeps nothing between calls and calls no function it is given but `_decision`; nor do the guards, which import only themselves | `tools/check_purity.py` |
 | State is derived from facts and run records at every call, never stored | `tests/test_decide.py::test_the_same_inputs_give_the_same_decision` |
 | An unreadable fact yields a deferral or a Hold, never an action | `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit` |
 | A reason is a code, never a sentence, and no text from outside reaches a decision | `tools/check_examples.py` |
