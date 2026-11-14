@@ -197,14 +197,14 @@ def openers(root: pathlib.Path = None) -> set:
     return found
 
 
-def records_the_opening(tree, rel: str) -> bool:
+def records_the_opening(tree, rel: str, within=None) -> bool:
     """Whether a module calls harness/apply.py's `opened`: by that name imported from harness.apply, as an attribute of
     harness.apply however it is imported, relatively from the Harness too, or, in harness/apply.py, by its own name, as
     its def at the top binds it, with no decorator, which may replace it. `harness.apply.opened` counts only where
     `import harness.apply` binds it. Each import is at the module's top, and the name called is bound by it, or by that
     def, and by nothing else in the module; a relative import is read only in a module directly in harness/. The call
-    is in the module's own scope or a function's (`_own`, `_functions`), in a module that names nothing in DYNAMIC. A
-    module that cannot be read records nothing."""
+    is in the module's own scope or a function's (`_own`, `_functions`), or, given `within`, that function's alone, in a
+    module that names nothing in DYNAMIC. A module that cannot be read records nothing."""
     if tree is None or _dynamic(tree):
         return False
     own = any(isinstance(n, ast.FunctionDef) and n.name == "opened" and not n.decorator_list for n in tree.body)
@@ -222,7 +222,7 @@ def records_the_opening(tree, rel: str) -> bool:
             modules |= {a.asname for a in node.names if a.name == "harness.apply" and a.asname}
             whole = whole or any(a.name == "harness.apply" and not a.asname for a in node.names)
     alone = {n for n in names | modules | {"harness"} if len(_binds(tree, n)) == 1}
-    scopes = [tree] + [fn for _, fn in _functions(tree)]
+    scopes = [tree] + [fn for _, fn in _functions(tree)] if within is None else [within]
     for call in (n for scope in scopes for n in _own(scope) if isinstance(n, ast.Call)):
         f = call.func
         if isinstance(f, ast.Name) and f.id in names & alone:
@@ -235,11 +235,53 @@ def records_the_opening(tree, rel: str) -> bool:
     return False
 
 
+def _calls_a_recorder(tree, rel: str, read: dict, writers: set) -> bool:
+    """Whether a module of the Harness that records nothing reaches the opening only by calling, as a step calls its
+    job, a function of another module in `read` (those that reach the opening, read) that records it: the module names
+    nothing in DYNAMIC; it imports none of the writers' adapter modules, nor their package's name for one, nor a name
+    from one; a relative import is read only directly in harness/; and each name it binds once for a module in `read`,
+    or for a function of one, is called, never named otherwise, as a function that records the opening
+    (`records_the_opening` within it), at least once. A call into a module that does the same is not read."""
+    adapters, held = {w.partition(":")[0] for w in writers}, {}
+    inside = rel.startswith("harness/") and rel.count("/") == 1
+    if _dynamic(tree):
+        return False
+    for node in (n for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom))):
+        if isinstance(node, ast.ImportFrom) and node.level and not (node.level == 1 and inside):
+            return False
+        if isinstance(node, ast.Import):        # `import adapters.x` binds adapters, and any of its modules with it
+            pairs = [(a.name, None, a.asname or a.name.split(".")[0], None, a.asname) for a in node.names]
+        else:
+            base = node.module if not node.level else ".".join(["harness"] + [node.module] * bool(node.module))
+            pairs = [(base + "." + a.name, base, a.asname or a.name, (base.replace(".", "/") + ".py", a.name), a.name)
+                     for a in node.names]
+        for full, base, name, function, alias in pairs:
+            if any(full == m or full.startswith(m + ".") or base is not None and (base == m or base.startswith(m + "."))
+                   or alias is None and full.split(".")[0] == m.split(".")[0] for m in adapters):
+                return False
+            module = full.replace(".", "/") + ".py"
+            if module in read or function and function[0] in read:
+                held[name] = (module, None) if module in read else function
+    parents, calls = {id(c): p for p in ast.walk(tree) for c in ast.iter_child_nodes(p)}, 0
+    for name in (n for n in ast.walk(tree) if isinstance(n, ast.Name) and n.id in held):
+        where, function = held[name.id]
+        called = name if function else parents.get(id(name))
+        function, call = function or getattr(called, "attr", None), parents.get(id(called))
+        fn = dict(_functions(read[where])).get(function) if where != rel else None
+        if not (isinstance(call, ast.Call) and call.func is called and fn is not None
+                and len(_binds(tree, name.id)) == 1 and records_the_opening(read[where], where, fn)):
+            return False
+        calls += 1
+    return calls > 0
+
+
 def opening_problems(config: dict, root: pathlib.Path = None, callers: dict = None) -> list:
     """A configuration that names a Role for `open-pull-request` while `open_pull_request` has no writer, with the first
     part of the writer missing (OPENS): the gap a pull request's author's closing link leaves must not outlive the
-    first Role named to open pull requests (issue 808, restating issue 295's limit). Every step that reaches the opening
-    records it, and one that cannot be read records nothing. None named, as in slice 1, passes."""
+    first Role named to open pull requests (issue 808, restating issue 295's limit). Every module of the Harness that
+    reaches the opening records it, or reaches it only by calling a function of another that records it
+    (`_calls_a_recorder`), as a step calls its job; one that cannot be read does neither. None named, as in slice 1,
+    passes."""
     issues = config.get("issues") if isinstance(config, dict) else None
     intents = issues.get("intents") if isinstance(issues, dict) else None
     if not isinstance(intents, dict) or intents.get("open-pull-request") is None:
@@ -254,7 +296,9 @@ def opening_problems(config: dict, root: pathlib.Path = None, callers: dict = No
     if not reaching:
         return [said + "no step of the Harness reaches %s as tools/check_writes.py's CALLERS lists; name none until one "
                 "does (issue 342)" % ", ".join(sorted(found))]
-    silent = [rel for rel in reaching if not records_the_opening(_parsed(root / rel), rel)]
+    read = {rel: tree for rel, tree in ((rel, _parsed(root / rel)) for rel in reaching) if tree is not None}
+    silent = [rel for rel in reaching if rel not in read
+              or not records_the_opening(read[rel], rel) and not _calls_a_recorder(read[rel], rel, read, found)]
     if silent:
         return [said + "%s, which reach the opening, never call harness/apply.py's opened to record the Run that opened "
                 "it; name none until each does (issue 342)" % ", ".join(silent)]

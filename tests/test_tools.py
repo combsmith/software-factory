@@ -1108,6 +1108,41 @@ class Authority(unittest.TestCase):
                 problems = check_authority.opening_problems(named, tree(opens, records, more={bypass: text}), both)
                 self.assertTrue(caught(problems, "harness/bypass.py, which reach the opening, never call"), problems)
                 self.assertFalse(caught(problems, "open_step.py"), problems)
+        # A module that records nothing passes when it reaches the opening only by calling a function of another that
+        # records it, as a step calls its job (the Claude+security read; the Factory Builder's call edge). Importing a
+        # recorder is no call: a step that imports apply, or calls the writer itself as well, or a job's function that
+        # records nothing, or names the recorder without calling it, or a job that opens and leaves the record to its
+        # step, or a relative import below harness/, where `.` is not harness, is refused.
+        job, at_job = "harness/open.py", ("from adapters import opening\nfrom harness import apply\n\ndef job(t):\n"
+                                          "    return apply.opened('e1', 1, 'b', opening.open_pull_request(t, 'r'))\n\n"
+                                          "def helper(t):\n    return opening.open_pull_request(t, 'r')\n")
+        calls_job = "from harness import open as job_\n\ndef main(t):\n    return job_.job(t)\n"
+        joined = dict(callers, **{job: {opener}})
+        self.assertEqual(check_authority.opening_problems(named, tree(opens, calls_job, more={job: at_job}), joined), [])
+        self.assertEqual(check_authority.opening_problems(named, tree(opens, calls_job.replace(
+            "from harness import open as job_", "from harness.open import job as run_job").replace("job_.job", "run_job"),
+            more={job: at_job}), joined), [])
+        own = "harness/apply.py"
+        for harness, more, listed in (
+                ("from adapters import opening\nfrom harness import apply\n\ndef main(t):\n"
+                 "    return opening.open_pull_request(t, 'r')\n", {own: "def opened(*a):\n    return a\n"},
+                 dict(callers, **{own: {opener}})),
+                ("from harness import apply\n\ndef main(t):\n    return t\n", {own: "def opened(*a):\n    return a\n"},
+                 dict(callers, **{own: {opener}})),
+                ("from adapters import opening\n" + calls_job.replace("return job_", "opening.open_pull_request(t, 'r')\n"
+                                                                       "    return job_"), {job: at_job}, joined),
+                (calls_job.replace("job_.job(t)", "job_.helper(t)"), {job: at_job}, joined),
+                (calls_job.replace("job_.job(t)", "t(job_.job)"), {job: at_job}, joined),
+                ("from harness import apply, open as job_\n\ndef main(t):\n    return apply.opened(job_.job(t))\n",
+                 {job: "from adapters import opening\n\ndef job(t):\n    return opening.open_pull_request(t, 'r')\n"},
+                 joined)):
+            with self.subTest(harness=harness):
+                self.assertTrue(caught(check_authority.opening_problems(named, tree(opens, harness, more=more), listed),
+                                       "which reach the opening, never call"))
+        below = "harness/sub/open_step.py"
+        self.assertTrue(caught(check_authority.opening_problems(
+            named, tree(opens, "from . import open as job_\n\ndef main(t):\n    return job_.job(t)\n", below,
+                        more={job: at_job}), {below: {opener}, job: {opener}}), "harness/sub/open_step.py, which reach"))
         # The silent step sorted last is named too (Astra), not only the first.
         last = "harness/zz_silent.py"
         problems = check_authority.opening_problems(named, tree(opens, records, more={last: silent}),
