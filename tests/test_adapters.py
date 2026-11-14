@@ -4128,13 +4128,46 @@ class Snapshot(unittest.TestCase):
             self.read(12)
 
     def test_a_snapshot_of_a_pull_request_that_changed_while_it_was_read_is_refused(self):
-        # trials/P-29.base.json: the base moved and the head did not, and GitHub moved the pull request's updated_at.
-        # Any change between the first read and the last, a label added after the timeline was read among them, makes
-        # the parts of two pull requests.
+        # trials/P-29.base.json: the head did not move and the pull request's updated_at did, 50 s after its base had.
+        # A move of the base does not itself move it (trials/P-40.at-once.json; decision 0214). Any change between the
+        # first read and the last, a label added after the timeline was read among them, makes the parts of two pull
+        # requests.
         self.assertEqual(body("P-29.base", 6)["head"]["sha"], body("P-29.base", 1)["head"]["sha"])
         self.assertNotEqual(body("P-29.base", 6)["updated_at"], body("P-29.base", 1)["updated_at"])
         with self.assertRaises(facts.Moved):
             self.read(6)
+
+    def test_a_snapshot_whose_merge_state_changed_while_it_was_read_is_refused(self):  # decision 0214
+        # trials/P-40.at-once.json: for a second after its base moved the pull request still read as merging, then as
+        # not worked out, then as conflicting, and its head and its updated_at were the same at each. So the last read
+        # is held to the merge state the first gave: one that no longer says it is of a pull request that moved.
+        repo = json.loads((ROOT / "trials" / "P-40.at-once.json").read_text())["repo"]
+        at = lambda i: dict(body("P-40.at-once", i), base=dict(body("P-40.at-once", i)["base"], repo={"full_name": repo}))
+
+        class Answers:
+            def __init__(self, answer):
+                self.answer = answer
+
+            def send(self, request):
+                return {"status": 200, "headers": {}, "body": copy.deepcopy(self.answer)}
+        before, stale, unknown, conflict = at(8), at(11), at(13), at(16)
+        self.assertEqual([r["mergeable"] for r in (before, stale, unknown, conflict)], [True, True, None, False])
+        self.assertEqual({(r["updated_at"], r["head"]["sha"]) for r in (before, stale, unknown, conflict)},
+                         {(before["updated_at"], before["head"]["sha"])})
+        # A last read that repeats the first is no move, and that is all this can see: a first read from before the
+        # base moved and a last one from the stale second after it are one merge state.
+        self.assertTrue(pull.unchanged(Answers(stale), before))
+        self.assertTrue(pull.unchanged(Answers(conflict), conflict))
+        for was, again in ((stale, unknown), (stale, conflict), (conflict, unknown), (conflict, stale),
+                           (stale, dict(stale, mergeable=1)), (conflict, dict(conflict, mergeable=0))):
+            self.assertFalse(pull.unchanged(Answers(again), was), (was["mergeable"], again["mergeable"]))
+        # The time is read first: a last read with none is a read GitHub did not answer, whatever its merge state.
+        with self.assertRaises(github.Unanswered) as raised:
+            pull.unchanged(Answers(dict(conflict, updated_at=None)), stale)
+        self.assertNotIsInstance(raised.exception, facts.Moved)
+        # A first read that gave no merge state is kept, whatever the last gives: its facts say it is not worked out.
+        for again in (unknown, stale, conflict):
+            self.assertTrue(pull.unchanged(Answers(again), unknown), again["mergeable"])
 
     def test_a_pull_request_whose_updated_at_cannot_be_read_has_not_moved(self):  # issue 658
         # Either read without a time is a read GitHub did not answer, not a move: it earns no pass's grace.
