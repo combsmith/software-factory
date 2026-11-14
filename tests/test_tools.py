@@ -1108,17 +1108,25 @@ class Authority(unittest.TestCase):
                 problems = check_authority.opening_problems(named, tree(opens, records, more={bypass: text}), both)
                 self.assertTrue(caught(problems, "harness/bypass.py, which reach the opening, never call"), problems)
                 self.assertFalse(caught(problems, "open_step.py"), problems)
+        # The silent step sorted last is named too (Astra), not only the first.
+        last = "harness/zz_silent.py"
+        problems = check_authority.opening_problems(named, tree(opens, records, more={last: silent}),
+                                                    dict(callers, **{last: {opener}}))
+        self.assertTrue(caught(problems, "harness/zz_silent.py, which reach the opening, never call"), problems)
         self.assertTrue(caught(check_authority.opening_problems(named, tree(opens, silent, more={bypass: records}),
                                                                 callers), "never call harness/apply.py's opened"))
         # opened from another module of the Harness, under an alias with a def of its own name called, a relative import
-        # in a module below harness/, where `.` is not harness, harness.apply under another name with a parameter
-        # called harness, another root's or another module's attribute, record nothing.
+        # in a module below harness/, where `.` is not harness, harness.apply under another name with harness bound
+        # once by something else (a parameter, an assignment) or by nothing, another root's or another module's
+        # attribute, record nothing.
         for harness, at in (("from harness.read import opened\n\ndef run(t):\n    return opened(1)\n", step),
                             ("from harness.apply import opened as rec\n\ndef opened(*a):\n    return a\n\n"
                              "def run(t):\n    return opened(1)\n", step),
                             ("from . import apply\n\ndef run(t):\n    return apply.opened(1)\n", "harness/sub/open_step.py"),
                             ("from .apply import opened\n\ndef run(t):\n    return opened(1)\n", "harness/sub/open_step.py"),
                             ("import harness.apply as ap\n\ndef run(harness):\n    return harness.apply.opened(1)\n", step),
+                            ("import harness.apply as ap\nharness = ap\n\ndef run(t):\n    return harness.apply.opened(1)\n", step),
+                            ("import harness.apply as ap\n\ndef run(t):\n    return harness.apply.opened(1)\n", step),
                             ("import harness.apply\n\ndef run(other):\n    return other.apply.opened(1)\n", step),
                             ("import harness.apply\n\ndef run(t):\n    return harness.read.opened(1)\n", step)):
             with self.subTest(harness=harness, at=at):

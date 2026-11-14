@@ -6295,6 +6295,8 @@ MUTANTS = ISSUE + [
      '                or whole and isinstance(f.value, ast.Attribute) and f.value.attr == "apply"\n', '                or whole and isinstance(f.value, ast.Attribute)\n', ("tests.test_tools.Authority.test_a_role_named_to_open_pull_requests_waits_on_its_writer",)),
     ('a name bound twice is read by its last', "tools/check_authority.py",
      'return _written(value[0], scopes[at:], depth + 1) if len(bound) == 1 and value else None', 'return _written(value[-1], scopes[at:], depth + 1) if value else None', ("tests.test_tools.Authority.test_a_role_named_to_open_pull_requests_waits_on_its_writer",)),
+    ('only the first step reaching the opening need record it', "tools/check_authority.py",
+     '    silent = [rel for rel in reaching if not records_the_opening(', '    silent = [rel for rel in reaching[:1] if not records_the_opening(', ("tests.test_tools.Authority.test_a_role_named_to_open_pull_requests_waits_on_its_writer",)),
     ('the configuration is not held to the opening', "tools/check_authority.py",
      '    problems += opening_problems(c)\n', '', ("tests.test_tools.Authority.test_a_role_named_to_open_pull_requests_waits_on_its_writer",)),
     ('a counter-example configuration is not held to the opening', "tools/check_examples.py",
