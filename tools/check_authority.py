@@ -1,6 +1,7 @@
 """Mechanical checks on who decides what: who owns each category of Finding, and that nothing speaks for a Lens."""
 from __future__ import annotations
 
+import ast
 import json
 import re
 import pathlib
@@ -13,6 +14,13 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 ROLE_NAME = re.compile(r"[a-z][a-z-]*[a-z]")
 MODEL_JUDGED = {"functional", "security", "architecture", "delivery", "reliability",
                 "requirements", "uncategorised"}
+# What opens a pull request for the Factory, read from the code's syntax (issue 808): an adapter that sends a write to a
+# repo's pulls, which only an opening does; a step of the Harness that tools/check_writes.py's CALLERS lists as reaching
+# it; and, in that step's module, a call of harness/apply.py's `opened`, which records the Run that opened the pull
+# request (decision 0097). The writer of "Acceptance: a pull request the Factory opens is bound to its issue by the Run
+# that opened it" (issue 342) is what makes all three true.
+OPENS = re.compile(r"/repos/%s/pulls")
+CREATES = "PO" + "ST"      # the one write that opens a pull request; spelt apart, as tools/check_writes.py spells its verbs
 
 
 def _folded(name: str) -> str:
@@ -29,6 +37,122 @@ def manifests(root: pathlib.Path = ROOT) -> dict:
         except (OSError, ValueError):
             out[p.name[: -len(".json")]] = None
     return out
+
+
+def _parsed(path: pathlib.Path):
+    """A Python file's syntax, or None where it cannot be read."""
+    try:
+        return ast.parse(path.read_text(encoding="utf-8"), str(path))
+    except (OSError, SyntaxError, ValueError, UnicodeDecodeError):
+        return None
+
+
+def _functions(tree):
+    """Each top-level function of a module, and each method of a top-level class, by the name tools/check_writes.py
+    gives a writer: `name`, or `Class.name`."""
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            yield node.name, node
+        elif isinstance(node, ast.ClassDef):
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    yield "%s.%s" % (node.name, item.name), item
+
+
+def _written(node, scopes: tuple, depth: int = 0):
+    """A method or a path as text, or None: a literal, one formatted with `%`, an f-string with each hole read as `%s`,
+    or a name bound once, to one of those, in the function or else at its module's top level."""
+    node = node.left if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod) else node
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        return "".join(v.value if isinstance(v, ast.Constant) else "%s" for v in node.values)
+    if isinstance(node, ast.Name) and depth < 4:
+        for scope in scopes:
+            bound = [n.value for n in (ast.walk(scope) if isinstance(scope, ast.AST) and not isinstance(scope, ast.Module)
+                                       else scope.body) if isinstance(n, ast.Assign) and len(n.targets) == 1
+                     and isinstance(n.targets[0], ast.Name) and n.targets[0].id == node.id]
+            if bound:
+                return _written(bound[0], scopes, depth + 1) if len(bound) == 1 else None
+    return None
+
+
+def _given(call: ast.Call, at: int, name: str):
+    """A call's argument by its place or its keyword, or None."""
+    return call.args[at] if len(call.args) > at else next((k.value for k in call.keywords if k.arg == name), None)
+
+
+def openers(root: pathlib.Path = None) -> set:
+    """The adapter functions that open a pull request, as `adapters.module:function`: each builds a request whose method
+    is the write that creates, CREATES, and whose path is text (`_written`), a repo's pulls and nothing
+    after it. A method or a path that cannot be read as text is no opening: what is not read is not counted as the
+    writer."""
+    found = set()
+    for path in sorted(((ROOT if root is None else root) / "adapters").glob("*.py")):
+        tree = _parsed(path)
+        for name, fn in _functions(tree) if tree is not None else ():
+            for call in (n for n in ast.walk(fn) if isinstance(n, ast.Call)):
+                called = call.func.id if isinstance(call.func, ast.Name) else getattr(call.func, "attr", None)
+                verb, where = _given(call, 0, "method"), _given(call, 1, "path")
+                if called != "request" or verb is None or where is None:
+                    continue
+                verb, where = _written(verb, (fn, tree)), _written(where, (fn, tree))
+                if verb == CREATES and where is not None and OPENS.fullmatch(where):
+                    found.add("adapters.%s:%s" % (path.stem, name))
+    return found
+
+
+def records_the_opening(tree, rel: str) -> bool:
+    """Whether a module calls harness/apply.py's `opened`: by that name imported from harness.apply, as an attribute of
+    harness.apply however it is imported, relatively from the Harness too, or, in harness/apply.py, by its own name.
+    `harness.apply.opened` counts only where `import harness.apply` binds it."""
+    names, modules, whole = {"opened"} if rel == "harness/apply.py" else set(), set(), False
+    inside = rel.startswith("harness/")
+    for node in ast.walk(tree):
+        module = node.module if isinstance(node, ast.ImportFrom) and node.level == 0 else None
+        if isinstance(node, ast.ImportFrom) and node.level == 1 and inside:
+            module = "harness" if node.module is None else "harness." + node.module
+        if module == "harness.apply":
+            names |= {a.asname or a.name for a in node.names if a.name == "opened"}
+        elif module == "harness":
+            modules |= {a.asname or a.name for a in node.names if a.name == "apply"}
+        elif isinstance(node, ast.Import):
+            modules |= {a.asname for a in node.names if a.name == "harness.apply" and a.asname}
+            whole = whole or any(a.name == "harness.apply" and not a.asname for a in node.names)
+    for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
+        f = call.func
+        if isinstance(f, ast.Name) and f.id in names:
+            return True
+        if isinstance(f, ast.Attribute) and f.attr == "opened" and (
+                isinstance(f.value, ast.Name) and f.value.id in modules
+                or whole and isinstance(f.value, ast.Attribute) and f.value.attr == "apply"
+                and isinstance(f.value.value, ast.Name) and f.value.value.id == "harness"):
+            return True
+    return False
+
+
+def opening_problems(config: dict, root: pathlib.Path = None, callers: dict = None) -> list:
+    """A configuration that names a Role for `open-pull-request` while `open_pull_request` has no writer, with the first
+    part of the writer missing (OPENS): the gap a pull request's author's closing link leaves must not outlive the
+    first Role named to open pull requests (issue 808, restating issue 295's limit). None named, as in slice 1, passes."""
+    issues = config.get("issues") if isinstance(config, dict) else None
+    intents = issues.get("intents") if isinstance(issues, dict) else None
+    if not isinstance(intents, dict) or intents.get("open-pull-request") is None:
+        return []
+    from tools.check_writes import CALLERS
+    root, callers = ROOT if root is None else root, CALLERS if callers is None else callers
+    said = "the configuration names a Role to open pull requests, and "
+    found = openers(root)
+    if not found:
+        return [said + "no adapter sends a write to a repo's pulls; name none until open_pull_request has its writer (issue 342)"]
+    reaching = sorted(rel for rel, writers in callers.items() if rel.startswith("harness/") and set(writers) & found)
+    if not reaching:
+        return [said + "no step of the Harness reaches %s as tools/check_writes.py's CALLERS lists; name none until one "
+                "does (issue 342)" % ", ".join(sorted(found))]
+    if not any(records_the_opening(tree, rel) for rel in reaching for tree in [_parsed(root / rel)] if tree is not None):
+        return [said + "%s, which reach the opening, never call harness/apply.py's opened to record the Run that opened "
+                "it; name none until one does (issue 342)" % ", ".join(reaching)]
+    return []
 
 
 def _read(path: pathlib.Path):
@@ -164,6 +288,7 @@ def run(authority: dict = None, config: dict = None, facts: dict = None, result:
         elif not (ROOT / "roles" / ("%s.json" % name)).is_file():
             problems.append("the configuration's %s is %r, and roles/ holds no %s.json%s"
                             % (field, name, name, "; name none until it does" if field == "author_role" else ""))
+    problems += opening_problems(c)
     if a["max_rounds"] != c["limits"]["max_rounds"]:
         problems.append("max_rounds differs between the authority table and the configuration")
     # A Lens or a check named twice, deterministic or model, could pin two Apps or be read as the other, and which one
