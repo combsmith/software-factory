@@ -934,12 +934,12 @@ class Authority(unittest.TestCase):
         opener = "adapters.opening:open_pull_request"
         step = "harness/open_step.py"
 
-        def tree(adapter, harness, at=step, head="from adapters.github import request\n\n"):
+        def tree(adapter, harness, at=step, head="from adapters.github import request\n\n", more=None):
             folder = tempfile.TemporaryDirectory()
             self.addCleanup(folder.cleanup)
             root = pathlib.Path(folder.name)
-            for part, text in (("adapters/opening.py", head + adapter), (at, harness)):
-                (root / part).parent.mkdir(exist_ok=True)
+            for part, text in [("adapters/opening.py", head + adapter), (at, harness)] + sorted((more or {}).items()):
+                (root / part).parent.mkdir(parents=True, exist_ok=True)
                 (root / part).write_text(text)
             return root
 
@@ -1098,6 +1098,87 @@ class Authority(unittest.TestCase):
             with self.subTest(harness=harness):
                 self.assertTrue(caught(check_authority.opening_problems(named, tree(opens, harness), callers),
                                        "never call harness/apply.py's opened"))
+        # Carbon's read of PR 819. Every step that reaches the opening records it: a second that does not, or one that
+        # cannot be read, is named, and a module CALLERS does not list records nothing for a step it does.
+        bypass, silent = "harness/bypass.py", "def run(t):\n    return None\n"
+        both = dict(callers, **{bypass: {opener}})
+        self.assertEqual(check_authority.opening_problems(named, tree(opens, records, more={bypass: records}), both), [])
+        for text in (silent, "def run(t:\n"):
+            with self.subTest(bypass=text):
+                problems = check_authority.opening_problems(named, tree(opens, records, more={bypass: text}), both)
+                self.assertTrue(caught(problems, "harness/bypass.py, which reach the opening, never call"), problems)
+                self.assertFalse(caught(problems, "open_step.py"), problems)
+        # A module that records nothing passes when it reaches the opening only by calling a function of another that
+        # records it, as a step calls its job (the Claude+security read; the Factory Builder's call edge). Importing a
+        # recorder is no call: a step that imports apply, or calls the writer itself as well, or a job's function that
+        # records nothing, or names the recorder without calling it, or a job that opens and leaves the record to its
+        # step, or a relative import below harness/, where `.` is not harness, is refused.
+        job, at_job = "harness/open.py", ("from adapters import opening\nfrom harness import apply\n\ndef job(t):\n"
+                                          "    return apply.opened('e1', 1, 'b', opening.open_pull_request(t, 'r'))\n\n"
+                                          "def helper(t):\n    return opening.open_pull_request(t, 'r')\n")
+        calls_job = "from harness import open as job_\n\ndef main(t):\n    return job_.job(t)\n"
+        joined = dict(callers, **{job: {opener}})
+        self.assertEqual(check_authority.opening_problems(named, tree(opens, calls_job, more={job: at_job}), joined), [])
+        self.assertEqual(check_authority.opening_problems(named, tree(opens, calls_job.replace(
+            "from harness import open as job_", "from harness.open import job as run_job").replace("job_.job", "run_job"),
+            more={job: at_job}), joined), [])
+        own = "harness/apply.py"
+        for harness, more, listed in (
+                ("from adapters import opening\nfrom harness import apply\n\ndef main(t):\n"
+                 "    return opening.open_pull_request(t, 'r')\n", {own: "def opened(*a):\n    return a\n"},
+                 dict(callers, **{own: {opener}})),
+                ("from harness import apply\n\ndef main(t):\n    return t\n", {own: "def opened(*a):\n    return a\n"},
+                 dict(callers, **{own: {opener}})),
+                ("from adapters import opening\n" + calls_job.replace("return job_", "opening.open_pull_request(t, 'r')\n"
+                                                                       "    return job_"), {job: at_job}, joined),
+                (calls_job.replace("job_.job(t)", "job_.helper(t)"), {job: at_job}, joined),
+                (calls_job.replace("job_.job(t)", "t(job_.job)"), {job: at_job}, joined),
+                ("from harness import apply, open as job_\n\ndef main(t):\n    return apply.opened(job_.job(t))\n",
+                 {job: "from adapters import opening\n\ndef job(t):\n    return opening.open_pull_request(t, 'r')\n"},
+                 joined)):
+            with self.subTest(harness=harness):
+                self.assertTrue(caught(check_authority.opening_problems(named, tree(opens, harness, more=more), listed),
+                                       "which reach the opening, never call"))
+        below = "harness/sub/open_step.py"
+        self.assertTrue(caught(check_authority.opening_problems(
+            named, tree(opens, "from . import open as job_\n\ndef main(t):\n    return job_.job(t)\n", below,
+                        more={job: at_job}), {below: {opener}, job: {opener}}), "harness/sub/open_step.py, which reach"))
+        # The silent step sorted last is named too (Astra), not only the first.
+        last = "harness/zz_silent.py"
+        problems = check_authority.opening_problems(named, tree(opens, records, more={last: silent}),
+                                                    dict(callers, **{last: {opener}}))
+        self.assertTrue(caught(problems, "harness/zz_silent.py, which reach the opening, never call"), problems)
+        self.assertTrue(caught(check_authority.opening_problems(named, tree(opens, silent, more={bypass: records}),
+                                                                callers), "never call harness/apply.py's opened"))
+        # opened from another module of the Harness, under an alias with a def of its own name called, a relative import
+        # in a module below harness/, where `.` is not harness, harness.apply under another name with harness bound
+        # once by something else (a parameter, an assignment) or by nothing, another root's or another module's
+        # attribute, record nothing.
+        for harness, at in (("from harness.read import opened\n\ndef run(t):\n    return opened(1)\n", step),
+                            ("from harness.apply import opened as rec\n\ndef opened(*a):\n    return a\n\n"
+                             "def run(t):\n    return opened(1)\n", step),
+                            ("from . import apply\n\ndef run(t):\n    return apply.opened(1)\n", "harness/sub/open_step.py"),
+                            ("from .apply import opened\n\ndef run(t):\n    return opened(1)\n", "harness/sub/open_step.py"),
+                            ("import harness.apply as ap\n\ndef run(harness):\n    return harness.apply.opened(1)\n", step),
+                            ("import harness.apply as ap\nharness = ap\n\ndef run(t):\n    return harness.apply.opened(1)\n", step),
+                            ("import harness.apply as ap\n\ndef run(t):\n    return harness.apply.opened(1)\n", step),
+                            ("import harness.apply\n\ndef run(other):\n    return other.apply.opened(1)\n", step),
+                            ("import harness.apply\n\ndef run(t):\n    return harness.read.opened(1)\n", step)):
+            with self.subTest(harness=harness, at=at):
+                self.assertTrue(caught(check_authority.opening_problems(named, tree(opens, harness, at), {at: {opener}}),
+                                       "never call harness/apply.py's opened"))
+        # A name bound twice is not read by its last binding either; a write to the pulls other than POST, and a POST to
+        # one pull request's reviews formatted with `%`, open none.
+        start = "def open_pull_request(transport, repo):\n    "
+        for adapter in (start + "pulls = '/repos/%s/issues' % repo\n    pulls = '/repos/%s/pulls' % repo\n"
+                        "    return request('POST', pulls)\n",
+                        "PULLS = '/repos/%s/issues'\nPULLS = '/repos/%s/pulls'\n\n" + start + "return request('POST', PULLS % repo)\n",
+                        start + "return request('PUT', '/repos/%s/pulls' % repo)\n",
+                        start + "return request('PATCH', '/repos/%s/pulls' % repo)\n",
+                        start + "return request('POST', '/repos/%s/pulls/1/reviews' % repo)\n"):
+            with self.subTest(adapter=adapter):
+                self.assertTrue(caught(check_authority.opening_problems(named, tree(adapter, records), callers),
+                                       "no adapter sends a write"))
 
     def test_a_value_held_twice_must_agree(self):
         self.table["max_rounds"] = 9
