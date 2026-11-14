@@ -28,6 +28,9 @@ RULES = (
      "after it opens among them", ("P-58",),
      ("trials/P-58.json", "trials/P-58.reader.json", "trials/P-58.deleted.json"), None),
     ("a_push_is_new_content", "A push gives the pull request new content", ("P-29",), "trials/P-29.base.json", None),
+    ("a_push_can_leave_the_diff_as_it_was", "A push that changes none of the pull request's own diff, as a merge of the "
+     "base that touches none of its files, leaves its content as it was: the content is the hash of that diff",
+     ("P-29",), "trials/P-29.base.json", None),
     ("the_pusher_is_the_last_pusher", "The account that pushed the head is read as its last pusher, from the newest "
      "entry of the head branch's activity, a person's push and an App's alike: the entry names the App's bot login, "
      "with actor.type Bot", ("P-28",), ("trials/P-28.json", "trials/P-28.app.json"), None),
@@ -378,6 +381,7 @@ RULES = (
 # rule; so does a quote of a trial the rule does not name.
 ASKS = {
     "a_push_is_new_content": {"P-29": "Is the hash of a pull request's own diff stable"},
+    "a_push_can_leave_the_diff_as_it_was": {"P-29": "Is the hash of a pull request's own diff stable"},
     "the_pusher_is_the_last_pusher": {
         "P-28": "Can the actor who last pushed a pull request's head be read as a fact?",
     },
