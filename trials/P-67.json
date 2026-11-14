@@ -1,0 +1,526 @@
+{
+  "schema": "trial/1",
+  "trial": "P-67",
+  "question": "When the merge queue squash-merges a pull request whose description closes an issue, does GitHub close the issue, and does the issue's timeline name the pull request as the close's closer, or the squash commit, or neither? How long after the merge is the close recorded?",
+  "pass": "Written before the run, in issue 821 at 2026-11-13T06:12Z, nothing having run: the canary's main merge queue, squash, ALLGREEN, required check p2-queue-check, riding on trial P-66's sitting (issue 812), with no click beyond P-66's four. Canary pull requests 114 (A) and 116 (C) are the clean first merges of P-66's two pairs, and each description closes one canary issue of its own. Pass: for each of A and C, once the queue has merged it, the issue it names is closed; the issue's timeline holds a closed event whose closer is that pull request, by repository and number, or its squash commit, which the port also accepts (section 4.1); and the close is recorded within max_close_lag_seconds of the merge (300 s, config/defaults.json). Fail: the issue is not closed, or the closer is neither the pull request nor its squash commit, or the close comes later than that bound. Recorded: each pull request's merge (its merged_at and squash commit); the issue's state and closed_at; its timeline events, with the closer as GitHub gives it; the issue's closedByPullRequestsReferences read by GraphQL. Run on 2026-11-13 in the canary through the Maintainer's own login, by gh api from his terminal, during P-66 (trials/P-66.json, trials/P-66.queued.json): 116's description ends \"Closes #119\" and 114's \"Closes #118\"; the issues and the descriptions are writes not recorded here, and the approvals were made by the Maintainer by hand in the browser as the machine user donpetry-bot, not by the machine-user-approves workflow. The Maintainer's login enqueued both, so the queue's merges name him: merged_by don-petry. C was merged by the queue at 13:01:15Z, squash commit dc59dca9; issue 119 was closed at 13:01:17Z, 2 s after, state reason completed, its closed event timed 13:01:18Z. A was merged at 13:06:32Z, squash commit bc011848; issue 118 was closed at 13:06:34Z, 2 s after, its closed event timed 13:06:35Z. In each, GraphQL's ClosedEvent names the pull request as its closer, a PullRequest, 116 and 114, with its squash commit as mergeCommit, not a Commit; its actor is don-petry, the enqueuer. The run's closer reads asked the closer's number alone, so one more read, after the run, asked its repository too: each closer is of combsmith/software-factory-canary, the same number and squash commit. That the queue made each merge is in P-66's fixtures: each pull request's squash commit is the beforeCommit of its RemovedFromMergeQueueEvent of reason merged (trials/P-66.json, trials/P-66.queued.json). REST's closed event gives commit_id null and the actor don-petry, so REST names no closer at all, and closed_by on the issue is don-petry too. closedByPullRequestsReferences gives [116] and [114], each MERGED. Passed.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-11-13T12:56:08Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/116 (gh api): C (116), after the queue merged it; client time 2026-11-13T13:01:42Z; of the answer, its number, node id, state, title, description, merge, close, squash commit, merger, head and base are kept",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 13:01:42 GMT"
+        },
+        "body": {
+          "number": 116,
+          "node_id": "PR_kwDOVFD6788AAAABO1yjPQ",
+          "state": "closed",
+          "title": "Trial P-66: pull request C adds p66/two.md",
+          "body": "Platform trial P-66 (combsmith/software-factory#812), and P-67 (combsmith/software-factory#821). Waits for the machine user's approval in the Maintainer's sitting; nothing here is to be merged by hand.\n\nCloses #119",
+          "merged": true,
+          "merged_at": "2026-11-13T13:01:15Z",
+          "closed_at": "2026-11-13T13:01:15Z",
+          "merge_commit_sha": "dc59dca92f70efeec1c6589a11d2b4f1b6e5de90",
+          "merged_by": {
+            "login": "don-petry"
+          },
+          "head": {
+            "sha": "5901012ba06cee296e4df9f85cbeec9266d58cf1"
+          },
+          "base": {
+            "ref": "main",
+            "sha": "6cc643a999dcc2280b46fcdc7681f1974748070b"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/issues/119 (gh api): issue 119, which C's description closes; client time 2026-11-13T13:01:43Z; of the answer, its number, node id, state and its reason, title, description, close, closer and last change are kept",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 13:01:43 GMT"
+        },
+        "body": {
+          "number": 119,
+          "node_id": "I_kwDOVFD6788AAAABe3DDkA",
+          "state": "closed",
+          "state_reason": "completed",
+          "title": "Trial P-67: closed by pull request 116 when the queue squashes it",
+          "body": "Platform trial P-67 (combsmith/software-factory#821), riding on P-66 (combsmith/software-factory#812). Pull request 116, P-66's clean first merge of its second pair, closes this issue; nothing else is to close it.",
+          "closed_at": "2026-11-13T13:01:17Z",
+          "closed_by": {
+            "login": "don-petry"
+          },
+          "updated_at": "2026-11-13T13:01:17Z"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/issues/119/timeline?per_page=100 (gh api): issue 119's REST timeline; client time 2026-11-13T13:01:43Z; of the answer, every event is kept, each with its kind, id, actor's login and type, commit, time and reason, and a cross-reference with its source's number, node id and state",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 13:01:44 GMT"
+        },
+        "body": [
+          {
+            "event": "cross-referenced",
+            "created_at": "2026-11-13T06:12:19Z",
+            "actor": {
+              "login": "don-petry",
+              "type": "User"
+            },
+            "source": {
+              "type": "issue",
+              "issue": {
+                "number": 116,
+                "node_id": "PR_kwDOVFD6788AAAABO1yjPQ",
+                "state": "closed"
+              }
+            }
+          },
+          {
+            "event": "closed",
+            "id": 36029971047,
+            "node_id": "CE_lADOVFD6788AAAABe3DDkM8AAAAIY426Zw",
+            "commit_id": null,
+            "created_at": "2026-11-13T13:01:18Z",
+            "state_reason": null,
+            "actor": {
+              "login": "don-petry",
+              "type": "User"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 119's close and its closer by GraphQL; client time 2026-11-13T13:01:44Z",
+        "headers": {},
+        "body": {
+          "query": "query($n:Int!){repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:$n){number state closedAt stateReason timelineItems(itemTypes:[CLOSED_EVENT],last:5){nodes{... on ClosedEvent{createdAt stateReason actor{login} closer{__typename ... on PullRequest{number mergeCommit{oid}} ... on Commit{oid}}}}}}}}",
+          "variables": {
+            "n": 119
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 13:01:45 GMT"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 119,
+                "state": "CLOSED",
+                "closedAt": "2026-11-13T13:01:17Z",
+                "stateReason": "COMPLETED",
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "createdAt": "2026-11-13T13:01:18Z",
+                      "stateReason": "COMPLETED",
+                      "actor": {
+                        "login": "don-petry"
+                      },
+                      "closer": {
+                        "__typename": "PullRequest",
+                        "number": 116,
+                        "mergeCommit": {
+                          "oid": "dc59dca92f70efeec1c6589a11d2b4f1b6e5de90"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/114 (gh api): A (114), after the queue merged it; client time 2026-11-13T13:06:58Z; of the answer, its number, node id, state, title, description, merge, close, squash commit, merger, head and base are kept",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 13:06:59 GMT"
+        },
+        "body": {
+          "number": 114,
+          "node_id": "PR_kwDOVFD6788AAAABO1yd8g",
+          "state": "closed",
+          "title": "Trial P-66: pull request A adds p66/one.md",
+          "body": "Platform trial P-66 (combsmith/software-factory#812), and P-67 (combsmith/software-factory#821). Waits for the machine user's approval in the Maintainer's sitting; nothing here is to be merged by hand.\n\nCloses #118",
+          "merged": true,
+          "merged_at": "2026-11-13T13:06:32Z",
+          "closed_at": "2026-11-13T13:06:32Z",
+          "merge_commit_sha": "bc011848f77fb252d41ae63924d7b7973f0cfe0e",
+          "merged_by": {
+            "login": "don-petry"
+          },
+          "head": {
+            "sha": "7555a9a202dfa5f33bac1c7958d3e55f71715993"
+          },
+          "base": {
+            "ref": "main",
+            "sha": "6cc643a999dcc2280b46fcdc7681f1974748070b"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/issues/118 (gh api): issue 118, which A's description closes; client time 2026-11-13T13:06:59Z; of the answer, its number, node id, state and its reason, title, description, close, closer and last change are kept",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 13:07:00 GMT"
+        },
+        "body": {
+          "number": 118,
+          "node_id": "I_kwDOVFD6788AAAABe3DCyA",
+          "state": "closed",
+          "state_reason": "completed",
+          "title": "Trial P-67: closed by pull request 114 when the queue squashes it",
+          "body": "Platform trial P-67 (combsmith/software-factory#821), riding on P-66 (combsmith/software-factory#812). Pull request 114, P-66's clean first merge of its first pair, closes this issue; nothing else is to close it.",
+          "closed_at": "2026-11-13T13:06:34Z",
+          "closed_by": {
+            "login": "don-petry"
+          },
+          "updated_at": "2026-11-13T13:06:34Z"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/issues/118/timeline?per_page=100 (gh api): issue 118's REST timeline; client time 2026-11-13T13:07:00Z; of the answer, every event is kept, each with its kind, id, actor's login and type, commit, time and reason, and a cross-reference with its source's number, node id and state",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 13:07:00 GMT"
+        },
+        "body": [
+          {
+            "event": "cross-referenced",
+            "created_at": "2026-11-13T06:12:17Z",
+            "actor": {
+              "login": "don-petry",
+              "type": "User"
+            },
+            "source": {
+              "type": "issue",
+              "issue": {
+                "number": 114,
+                "node_id": "PR_kwDOVFD6788AAAABO1yd8g",
+                "state": "closed"
+              }
+            }
+          },
+          {
+            "event": "closed",
+            "id": 36030441080,
+            "node_id": "CE_lADOVFD6788AAAABe3DCyM8AAAAIY5TmeA",
+            "commit_id": null,
+            "created_at": "2026-11-13T13:06:35Z",
+            "state_reason": null,
+            "actor": {
+              "login": "don-petry",
+              "type": "User"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issue 118's close and its closer by GraphQL; client time 2026-11-13T13:07:00Z",
+        "headers": {},
+        "body": {
+          "query": "query($n:Int!){repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:$n){number state closedAt stateReason timelineItems(itemTypes:[CLOSED_EVENT],last:5){nodes{... on ClosedEvent{createdAt stateReason actor{login} closer{__typename ... on PullRequest{number mergeCommit{oid}} ... on Commit{oid}}}}}}}}",
+          "variables": {
+            "n": 118
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 13:07:01 GMT"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 118,
+                "state": "CLOSED",
+                "closedAt": "2026-11-13T13:06:34Z",
+                "stateReason": "COMPLETED",
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "createdAt": "2026-11-13T13:06:35Z",
+                      "stateReason": "COMPLETED",
+                      "actor": {
+                        "login": "don-petry"
+                      },
+                      "closer": {
+                        "__typename": "PullRequest",
+                        "number": 114,
+                        "mergeCommit": {
+                          "oid": "bc011848f77fb252d41ae63924d7b7973f0cfe0e"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the pull requests that closed issue 118, by GraphQL, after the run; client time 2026-11-13T13:24:27Z",
+        "headers": {},
+        "body": {
+          "query": "query($n:Int!){repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:$n){number state closedAt closedByPullRequestsReferences(first:10,includeClosedPrs:true){totalCount nodes{number state mergedAt}}}}}",
+          "variables": {
+            "n": 118
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 13:24:28 GMT"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 118,
+                "state": "CLOSED",
+                "closedAt": "2026-11-13T13:06:34Z",
+                "closedByPullRequestsReferences": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "number": 114,
+                      "state": "MERGED",
+                      "mergedAt": "2026-11-13T13:06:32Z"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the pull requests that closed issue 119, by GraphQL, after the run; client time 2026-11-13T13:24:28Z",
+        "headers": {},
+        "body": {
+          "query": "query($n:Int!){repository(owner:\"combsmith\",name:\"software-factory-canary\"){issue(number:$n){number state closedAt closedByPullRequestsReferences(first:10,includeClosedPrs:true){totalCount nodes{number state mergedAt}}}}}",
+          "variables": {
+            "n": 119
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 13:24:28 GMT"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "number": 119,
+                "state": "CLOSED",
+                "closedAt": "2026-11-13T13:01:17Z",
+                "closedByPullRequestsReferences": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "number": 116,
+                      "state": "MERGED",
+                      "mergedAt": "2026-11-13T13:01:15Z"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): issues 118's and 119's closes, each closer with its repository, which the run's closer reads did not ask, read after the run for this fixture; client time 2026-11-13T16:53:23Z",
+        "headers": {},
+        "body": {
+          "query": "query{repository(owner:\"combsmith\",name:\"software-factory-canary\"){a:issue(number:118){number state closedAt timelineItems(itemTypes:[CLOSED_EVENT],last:5){nodes{... on ClosedEvent{createdAt closer{__typename ... on PullRequest{number repository{nameWithOwner} mergeCommit{oid}} ... on Commit{oid}}}}}} b:issue(number:119){number state closedAt timelineItems(itemTypes:[CLOSED_EVENT],last:5){nodes{... on ClosedEvent{createdAt closer{__typename ... on PullRequest{number repository{nameWithOwner} mergeCommit{oid}} ... on Commit{oid}}}}}}}}",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 13 Nov 2026 16:53:24 GMT"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "a": {
+                "number": 118,
+                "state": "CLOSED",
+                "closedAt": "2026-11-13T13:06:34Z",
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "createdAt": "2026-11-13T13:06:35Z",
+                      "closer": {
+                        "__typename": "PullRequest",
+                        "number": 114,
+                        "repository": {
+                          "nameWithOwner": "combsmith/software-factory-canary"
+                        },
+                        "mergeCommit": {
+                          "oid": "bc011848f77fb252d41ae63924d7b7973f0cfe0e"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "b": {
+                "number": 119,
+                "state": "CLOSED",
+                "closedAt": "2026-11-13T13:01:17Z",
+                "timelineItems": {
+                  "nodes": [
+                    {
+                      "createdAt": "2026-11-13T13:01:18Z",
+                      "closer": {
+                        "__typename": "PullRequest",
+                        "number": 116,
+                        "repository": {
+                          "nameWithOwner": "combsmith/software-factory-canary"
+                        },
+                        "mergeCommit": {
+                          "oid": "dc59dca92f70efeec1c6589a11d2b4f1b6e5de90"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
+    "exchanges[6].request.headers.authorization",
+    "exchanges[7].request.headers.authorization",
+    "exchanges[8].request.headers.authorization",
+    "exchanges[9].request.headers.authorization",
+    "exchanges[10].request.headers.authorization",
+    "exchanges[*].response.headers: the headers tools/redact_trial.py took out of each answer, an OAuth client id and scopes among them; of the rest, only date is kept here"
+  ],
+  "verdict": "pass"
+}
