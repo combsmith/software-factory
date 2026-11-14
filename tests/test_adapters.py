@@ -5897,8 +5897,9 @@ class Items(unittest.TestCase):
         self.assertEqual(read(page([4], total=2))[1], False)
         # With no date no issue is served: none is listed, and nothing is asked. One that is no time lists nothing.
         self.assertEqual(items.open_issues(github.Replay([]), HOME, None), ([], True))
-        with self.assertRaises(github.Unanswered):
-            items.open_issues(github.Replay([]), HOME, "2026-10-01")
+        for unreadable in ("2026-10-01", "0001-01-01T00:00:00Z"):     # no time, or none a second before it (Carbon)
+            with self.assertRaises(github.Unanswered):
+                items.open_issues(github.Replay([]), HOME, unreadable)
 
     def test_open_pull_requests_of_another_repo_or_with_errors_are_refused(self):
         other = open_page([1])
@@ -5997,12 +5998,14 @@ class Issues(unittest.TestCase):
         events = [issue_event("labeled", 1, actor=("old[bot]", 41, "Bot"), label={"name": "factory:triage"}),
                   issue_event("commented", 2, actor=("older[bot]", 42, "Bot")),
                   issue_event("labeled", 3, actor=("combsmith-sf-controller", 77, "User"), via={"id": 9},
-                              label={"name": "factory:ready"})]
+                              label={"name": "factory:ready"}),
+                  issue_event("labeled", 4, actor=("dependabot[bot]", 99, "Bot"), label={"name": "x"})]
         router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory=set(names), apps=names)
         found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW)
+        # An App the configuration does not name keeps its login (Carbon).
         self.assertEqual([e["by"]["name"] for e in found["label_events"]],
-                         ["combsmith-sf-controller[bot]", "combsmith-sf-controller"])
+                         ["combsmith-sf-controller[bot]", "combsmith-sf-controller", "dependabot[bot]"])
         self.assertEqual(found["role_comments"], [{"by": "combsmith-sf-business-analyst[bot]", "at": minute(2)}])
         # Each App whose account `controller/1` holds, the Controller's and each Role's, by config/apps.json's name; an
         # account whose App the catalogue does not name is named by its login.
@@ -6010,6 +6013,8 @@ class Issues(unittest.TestCase):
         catalogue = {"controller": {"name": "combsmith-sf-controller"}, "business-analyst": {"name": "combsmith-sf-business-analyst"}}
         self.assertEqual(facts.app_names_of(held, catalogue), names)
         self.assertEqual(facts.app_names_of(held, {"controller": catalogue["controller"]}), {(41, "Bot"): names[(41, "Bot")]})
+        # One the catalogue names whose account `controller/1` does not hold is named by no id (Carbon).
+        self.assertEqual(facts.app_names_of(held, dict(catalogue, **{"dev-lead": {"name": "combsmith-sf-dev-lead"}})), names)
 
     def test_an_account_showing_a_configured_apps_name_by_another_id_is_refused(self):  # decision 0218, Astra
         # A slug reused after a rename: another Bot under the Controller's name, labelling or commenting. It is not that
@@ -6021,6 +6026,12 @@ class Issues(unittest.TestCase):
             accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory=set(names), apps=names)
             with self.assertRaises(github.Unanswered, msg=event["event"]):
                 issues.read(router, "o/r", 41, accounts, lambda: self.NOW)
+        # A name the configuration declares, though it holds no account of that App's, no account may show (Carbon).
+        event = issue_event("labeled", 1, actor=("combsmith-sf-dev-lead[bot]", 99, "Bot"), label={"name": "factory:ready"})
+        router = Router(github.Replay(issue_read([event])), {"don-petry": "admin"})
+        reserved = timeline.Accounts(router, "o/r", MACHINE, {}, apps=names, reserved={"combsmith-sf-dev-lead[bot]"})
+        with self.assertRaises(github.Unanswered):
+            issues.read(router, "o/r", 41, reserved, lambda: self.NOW)
         # The App itself, by its id, is read.
         events = [issue_event("labeled", 1, actor=("combsmith-sf-controller[bot]", 41, "Bot"), label={"name": "factory:triage"})]
         router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
