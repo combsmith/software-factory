@@ -1131,6 +1131,8 @@ class Authority(unittest.TestCase):
                  dict(callers, **{own: {opener}})),
                 ("from adapters import opening\n" + calls_job.replace("return job_", "opening.open_pull_request(t, 'r')\n"
                                                                        "    return job_"), {job: at_job}, joined),
+                ("import adapters as api\n" + calls_job.replace("return job_", "api.opening.open_pull_request(t, 'r')\n"
+                                                                     "    return job_"), {job: at_job}, joined),
                 (calls_job.replace("job_.job(t)", "job_.helper(t)"), {job: at_job}, joined),
                 (calls_job.replace("job_.job(t)", "t(job_.job)"), {job: at_job}, joined),
                 ("from harness import apply, open as job_\n\ndef main(t):\n    return apply.opened(job_.job(t))\n",

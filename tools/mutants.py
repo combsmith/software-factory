@@ -6387,6 +6387,8 @@ MUTANTS = ISSUE + [
      '        if isinstance(node, ast.ImportFrom) and node.level and not (node.level == 1 and inside):\n            return False\n', '        if isinstance(node, ast.ImportFrom) and node.level > 1:\n            return False\n', ("tests.test_tools.Authority.test_a_role_named_to_open_pull_requests_waits_on_its_writer",)),
     ("a recorder's whole module is read as the function a step calls", "tools/check_authority.py",
      '    scopes = [tree] + [fn for _, fn in _functions(tree)] if within is None else [within]\n', '    scopes = [tree] + [fn for _, fn in _functions(tree)]\n', ("tests.test_tools.Authority.test_a_role_named_to_open_pull_requests_waits_on_its_writer",)),
+    ("the adapters package imported under another name is no import of the writer's adapter", "tools/check_authority.py",
+     ' or m.startswith(full + ".") or alias is None', ' or alias is None', ("tests.test_tools.Authority.test_a_role_named_to_open_pull_requests_waits_on_its_writer",)),
     ('the configuration is not held to the opening', "tools/check_authority.py",
      '    problems += opening_problems(c)\n', '', ("tests.test_tools.Authority.test_a_role_named_to_open_pull_requests_waits_on_its_writer",)),
     ('a counter-example configuration is not held to the opening', "tools/check_examples.py",
