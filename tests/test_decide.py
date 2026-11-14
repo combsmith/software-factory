@@ -3512,9 +3512,13 @@ class Queue(unittest.TestCase):
         # queue if it is there. A merge state not worked out between the two changes neither.
         late = go(facts(reviews=APPROVED), REVIEWED)
         self.assertEqual((late["state"], late["reason"], late["action"]), ("converged", "approved", "enqueue"))
-        d = go(facts(reviews=APPROVED, mergeable=False), REVIEWED)
+        # The fix is the author Role's only on a pull request the Factory opened (decision 0216); another's waits for
+        # its own author, in the same State.
+        d = go(facts(reviews=APPROVED, mergeable=False, **OURS), REVIEWED)
         self.assertEqual((d["state"], d["reason"], d["outcome"], d["admit"]["intent"]),
                          ("addressing", "conflict", "admit", "fix-findings"))
+        d = go(facts(reviews=APPROVED, mergeable=False), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("addressing", "conflict", "nothing"))
         d = go(facts(reviews=APPROVED, queue=True, mergeable=False), REVIEWED)
         self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"]), ("addressing", "conflict", "act", "dequeue"))
         d = go(facts(reviews=APPROVED, queue=True, mergeable=None), REVIEWED)
