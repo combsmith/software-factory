@@ -42,6 +42,8 @@ COPY_TO = b"copy to "
 INDEX = b"index "
 # A file's two modes. A link's, 120000, and a submodule's, 160000, are no file's: such a change is a person's to push.
 FILE_MODES = ("100644", "100755")
+# The modes of what a tree holds that is no directory: a file's two, a link's and a submodule's.
+TREE_MODES = ("100644", "100755", "120000", "160000")
 DIGITS = b"0123456789"
 HEX = b"0123456789abcdef"
 MOST_DIGITS = b"999999999"      # a count of more digits than this is no count (decision 0188)
@@ -64,6 +66,7 @@ NUL = b"\x00"
 UNREADABLE = "bundle_unreadable"        # no patch this reads: the Role's, as decision 0188 has it
 NOT_APPLIED = "patch_does_not_apply"    # a patch, but not of the admitted commit's files
 NOT_A_FILE = "push_not_a_file"          # it writes what is no file, or through one
+TREE_UNREAD = "push_tree_unreadable"    # the port's reads are in no shape this reads: the Factory's, never the Role's
 
 
 def _number(said):
@@ -342,11 +345,27 @@ def _placed(path: str, tree: dict, folders: dict) -> bool:
     return not any(part in tree for part in _above(path)) and path not in folders
 
 
+def _handed(tree, contents) -> bool:
+    """Whether `tree` and `contents` are in a shape a port gives. A tree is a mapping of paths, as text, to the modes
+    git writes of what is no directory, and no path of it is a directory to another. Contents are a mapping of paths,
+    as text, to bytes."""
+    if not isinstance(tree, dict) or not isinstance(contents, dict):
+        return False
+    if not all(isinstance(path, str) and tree[path] in TREE_MODES for path in tree):
+        return False
+    if not all(isinstance(path, str) and isinstance(contents[path], bytes) for path in contents):
+        return False
+    return not any(part in tree for path in tree for part in _above(path))
+
+
 def applied(patch, tree: dict, contents: dict) -> tuple:
     """`(changes, None)`, or `(None, reason)` where nothing may land. `changes` is `{"written": {path: (mode, bytes)},
     "removed": [path], "read": [path]}`: what the push writes, what it removes, and what a rename or a copy read, each
     path once; `harness/apply.py`'s `push_refusal` is asked about what was read as it is about what is written.
-    Every reason is the Role's: what a port did not read is told apart by the next part."""
+    A tree or contents in no shape a port gives, and a file the tree holds whose bytes it did not hand over, are the
+    Factory's fault, under its own code; every other reason is the Role's."""
+    if not _handed(tree, contents):
+        return None, TREE_UNREAD
     sections = read(patch)
     if sections is None:
         return None, UNREADABLE
@@ -373,6 +392,8 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
                 return None, NOT_APPLIED
             if mode not in FILE_MODES:
                 return None, NOT_A_FILE
+            if not isinstance(before, bytes):
+                return None, TREE_UNREAD
             if section["old_mode"] not in (None, mode) or section["index_mode"] not in (None, mode):
                 return None, NOT_APPLIED
             if kind in ("rename", "copy") and new in tree:
