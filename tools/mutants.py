@@ -108,6 +108,8 @@ ISSUE_OWN = ("tests.test_adapters.Issues.test_the_issues_own_facts_hold_to_the_s
 # S3, the issues pass: the tests that kill its mutants.
 S3_PORT = ("tests.test_adapters.Issues.test_a_factory_app_is_named_by_the_id_the_configuration_holds_and_a_person_never_is",)
 S3_REUSE = ("tests.test_adapters.Issues.test_an_account_showing_a_configured_apps_name_by_another_id_is_refused",)
+S3_REPLAY = ("tests.test_controller.Record.test_an_issue_decision_replays_through_the_issues_kernel_configuration",)
+S3_LINKED = ("tests.test_controller.Entry.test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry",)
 S3_LIST = ("tests.test_adapters.Items.test_open_issues_are_listed_from_served_from_by_the_same_pages_and_none_with_no_date",)
 S3_ENTRY = ("tests.test_controller.Entry.test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is",)
 S3_NAMED = ("tests.test_controller.Issues.test_an_app_is_named_by_the_id_the_configuration_holds_so_its_label_and_comment_count",)
@@ -13669,13 +13671,16 @@ MUTANTS = ISSUE + [
      'if isinstance(name, str) else name', S3_ROW10),
     ("the Apps declared for an issue's labels are given without their suffix", 'controller/pass_.py',
      'issues["label_apps"] = {label: bot(name) for',
-     'issues["label_apps"] = {label: name for', S3_NAMED + S3_PERSON),
+     'issues["label_apps"] = {label: name for', S3_NAMED + S3_PERSON + S3_REPLAY),
     ("each Intent's App is given without its suffix", 'controller/pass_.py',
      'dict(who, app=bot(who.get("app")))',
      'dict(who)', S3_NAMED),
     ('an open issue list read short is decided from', 'controller/__main__.py',
-     '    if not listed_whole:\n        raise Stop("issues_unreadable")\n',
+     '    if not listed_whole:\n        raise Stop("issue_list_unreadable")\n',
      '', S3_ENTRY),
+    ("an issue's linked pull requests not read are read as whole", 'controller/__main__.py',
+     '            issues.append({"facts": facts, "title": title})\n',
+     '            facts["complete"]["linked"] = True\n            issues.append({"facts": facts, "title": title})\n', S3_LINKED),
     ('the issues are listed from no date', 'controller/__main__.py',
      'items.open_issues(transport, home, config["kernel"]["issues"]["served_from"])',
      'items.open_issues(transport, home, None)', S3_ENTRY),
