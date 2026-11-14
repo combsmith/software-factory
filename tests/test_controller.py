@@ -1084,9 +1084,10 @@ TRIAGE_BOT = ("an-old-login[bot]", 41, "Bot")
 ANALYST_BOT = ("another-old-login[bot]", 42, "Bot")
 
 
-def issue_through_the_port(events=(), repo="o/r", exchanges=None, users=None) -> dict:
+def issue_through_the_port(events=(), repo="o/r", exchanges=None, users=None, linked=True) -> dict:
     """An issue's pass entry as the issues port reads it, its linked pull requests read whole as `adapters/linked.py`
-    will read them: by default issue 41 of `issue_read` in tests/test_adapters.py, with `events` on its timeline."""
+    will read them unless `linked` is None, which keeps the port's own word: by default issue 41 of `issue_read` in
+    tests/test_adapters.py, with `events` on its timeline."""
     from adapters import issues, timeline
     from tests.test_adapters import MACHINE, Router, issue_read
     found = issue_read(list(events)) if exchanges is None else exchanges
@@ -1095,7 +1096,8 @@ def issue_through_the_port(events=(), repo="o/r", exchanges=None, users=None) ->
     accounts = timeline.Accounts(router, repo, MACHINE, {}, factory=set(names), apps=names)
     number = found[0]["response"]["body"]["number"]
     facts, title = issues.read(router, repo, number, accounts, lambda: "2026-10-11T12:00:00Z")
-    facts["complete"]["linked"] = True
+    if linked is not None:
+        facts["complete"]["linked"] = linked
     return {"facts": facts, "title": title}
 
 
@@ -1167,8 +1169,9 @@ class Issues(unittest.TestCase):
         graphql = {"request": {"via": "graphql", "call": "POST /graphql", "headers": {}, "body": asked},
                    "response": {"status": 200, "headers": {},
                                 "body": {"data": {"repository": {"nameWithOwner": repo, "issue": edited}}}}}
-        entry = issue_through_the_port(repo=repo, exchanges=[rest[1], rest[0], graphql])
-        entry["facts"]["complete"]["linked"] = False
+        # The port's own word on its linked pull requests, which it does not read yet, reaches the pass (Carbon).
+        entry = issue_through_the_port(repo=repo, exchanges=[rest[1], rest[0], graphql], linked=None)
+        self.assertIs(entry["facts"]["complete"]["linked"], False)
         d = issue_passed(entry, repo=repo, now="2026-11-13T09:00:00Z")
         self.assertEqual((d["state"], d["outcome"], d["reason"], d["evidence"]), (None, "defer", "facts_incomplete", ["linked"]))
         self.assertEqual(entry["title"], own["title"])
@@ -1703,6 +1706,11 @@ class Entry(unittest.TestCase):
         def served(root, release):
             found = real(root, release)
             found["kernel"]["issues"]["served_from"] = since
+            # One App declared by its id, the Controller's, and one the configuration holds no account of.
+            found["kernel"]["issues"]["label_apps"] = {"factory:triage": found["apps"]["controller"]["name"],
+                                                       "factory:ready": "combsmith-sf-readiness"}
+            found["kernel"]["issues"]["intents"] = dict(found["kernel"]["issues"]["intents"], **{
+                "investigate-issue": {"role": "business-analyst", "app": "combsmith-sf-business-analyst"}})
             return found
 
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
@@ -1757,6 +1765,9 @@ class Entry(unittest.TestCase):
                                                 catalogue["controller"]["name"] + "[bot]",
                                                 (CONTROLLER["accounts"]["roles"]["pr-review"]["id"], "Bot"):
                                                 catalogue["pr-review"]["name"] + "[bot]"})
+        # Each name the issues' Kernel is told is an App's is reserved, held by an id or not (Carbon).
+        self.assertEqual(spied["who"][0].reserved, {catalogue["controller"]["name"] + "[bot]", "combsmith-sf-readiness[bot]",
+                                                    "combsmith-sf-business-analyst[bot]"})
         item = lambda n: {"repo": self.HOME, "type": "issue", "number": n}
         self.assertEqual([e["decision"]["item"] for e in record["issues"]], [item(5)])
         self.assertEqual(record["left_out"], [{"item": item(6), "code": "pull_moved"}, {"item": item(9), "code": "facts_unanswered"}])

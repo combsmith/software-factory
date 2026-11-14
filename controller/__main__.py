@@ -193,8 +193,12 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     except Unanswered:
         runs = None
     identities, approver, lenses, factory = accounts(controller)
+    # Each name the issues' Kernel is told is an App's is reserved: only that App, by the id held, may show it (Carbon).
+    declared = pass_.issue_config(config["kernel"])["issues"]
+    reserved = [name for name in declared["label_apps"].values() if name] \
+        + [intent["app"] for intent in declared["intents"].values() if isinstance(intent, dict)]
     who = timeline.Accounts(transport, home, approver, lenses, factory, queue_of(controller),
-                            app_names_of(controller, config["apps"]))
+                            app_names_of(controller, config["apps"]), reserved)
     opens = opener(controller, config["kernel"], config["apps"])
     runs_whole = isinstance(runs, dict) and runs.get("complete") is True
     # What each Lens recorded on each open pull request, in its Runs' applied/1, which the threads are held to.
