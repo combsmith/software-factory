@@ -20,8 +20,8 @@ import urllib.parse
 import zipfile
 from unittest import mock
 
-from adapters import acceptance, applied, artifacts, checks, edits, effects, facts, github, heldout, items, passes, pull, records, \
-    issues, pause, rules, texts, threads, timeline
+from adapters import acceptance, applied, artifacts, checks, edits, effects, facts, github, heldout, issues, items, linked, passes, \
+    pull, records, pause, rules, texts, threads, timeline
 from controller import shared
 from harness import task
 from kernel import brakes
@@ -5936,6 +5936,21 @@ def issue_event(kind: str, m: int, actor=PERSON, via=None, **more) -> dict:
                  "performed_via_github_app": via}, **more)
 
 
+def linked_read(refs=(), events=(), total=None, more=False, updated=UPDATED, repo="o/r", number=41) -> dict:
+    """`adapters/linked.py`'s GraphQL read of an issue: its references, each `(number, repo)`, and timeline events."""
+    issue = {"number": number, "updatedAt": updated, "closedByPullRequestsReferences": {
+        "totalCount": len(refs) if total is None else total,
+        "nodes": [{"number": n, "repository": {"nameWithOwner": r}} for n, r in refs]},
+        "timelineItems": {"pageInfo": {"hasNextPage": more}, "nodes": list(events)}}
+    owner, name = repo.split("/")
+    asked = {"query": linked.QUERY, "variables": {"owner": owner, "name": name, "number": number}}
+    return {"request": {"via": "graphql", "call": "POST /graphql", "headers": {}, "body": asked},
+            "response": {"status": 200, "headers": {}, "body": {"data": {"repository": {"nameWithOwner": repo, "issue": issue}}}}}
+
+
+IDENTITIES = {"agent": {CONTROLLER_APP[1:]}, "maintainer": {(MAINTAINER, "User")}, "dependency": set()}
+
+
 def issue_read(events=(), more=False, last=None, types=(), edits=None, **change) -> list:
     """The issues port's reads of issue 41 of o/r: the issue and its timeline by REST, and its edits by GraphQL, which no
     trial has recorded in the port's query yet (decision 0218)."""
@@ -6202,6 +6217,105 @@ class Issues(unittest.TestCase):
         self.assertIsNotNone(issue.derive(dict(f, complete=dict(f["complete"], linked=True)), [], CONFIG)["state"])
         with self.assertRaises(github.Unanswered):
             self.read(issue_read(), clock=lambda: "noon")
+
+
+def pull_read(number, base="main", default="main", opened=-30, merged=None, closed=None, draft=False, user=PERSON,
+              files=1, sha=None, head_repo=1, created=None) -> dict:
+    """REST's read of pull request `number` of o/r; times in minutes after ten."""
+    login, ident, typed = user
+    body = {"number": number, "state": "closed" if closed is not None else "open", "draft": draft,
+            "created_at": created or minute(opened), "merged_at": None if merged is None else minute(merged),
+            "closed_at": None if closed is None else minute(closed), "changed_files": files, "merge_commit_sha": sha,
+            "user": {"login": login, "id": ident, "type": typed},
+            "head": {"sha": "a" * 40, "ref": "work", "repo": {"id": head_repo}},
+            "base": {"ref": base, "repo": {"id": 1, "full_name": "o/r", "default_branch": default}}}
+    return rest_answer("/repos/o/r/pulls/%d" % number, body)
+
+
+def pull_timeline(number, events=(), more=False) -> dict:
+    return rest_answer("/repos/o/r/issues/%d/timeline?per_page=100" % number, list(events),
+                       '<https://x>; rel="next"' if more else "")
+
+
+def ref(*numbers, repo="o/r") -> list:
+    return [(n, repo) for n in numbers]
+
+
+def closed_by(m: int, number=None, oid=None, repo="o/r") -> dict:
+    """A close on the issue's timeline, by a pull request, as the queue's squash (trial P-67), or a commit, or none."""
+    closer = None
+    if number is not None:
+        closer = {"__typename": "PullRequest", "number": number, "repository": {"nameWithOwner": repo}}
+    elif oid is not None:
+        closer = {"__typename": "Commit", "oid": oid}
+    return {"__typename": "ClosedEvent", "createdAt": minute(m), "closer": closer}
+
+
+def link(kind: str, m: int, number: int, repo="o/r", typed="PullRequest") -> dict:
+    """A link by hand or an unlinking on the issue's timeline, its pull request the subject (P-33, P-46)."""
+    return {"__typename": kind, "createdAt": minute(m),
+            "subject": {"__typename": typed, "number": number, "repository": {"nameWithOwner": repo}}}
+
+
+class Linked(unittest.TestCase):
+    """The pull requests that close an issue (decisions 0028, 0141)."""
+
+    def accounts(self, router):
+        return timeline.Accounts(router, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]})
+
+    def listed(self, exchanges, began=CREATED) -> tuple:
+        router = Router(github.Replay(exchanges), {"don-petry": "admin", "stranger": "read"})
+        return linked.listing(router, "o/r", 41, UPDATED, began, IDENTITIES, self.accounts(router))
+
+    def test_only_a_pull_request_to_the_default_branch_is_listed_as_linked(self):  # P-33, decision 0028
+        # 8 is to another base, which carries no closing reference (P-33), as 9, linked by hand, is.
+        found, whole = self.listed([
+            linked_read(ref(7, 8), [link("ConnectedEvent", 1, 9), link("ConnectedEvent", 2, 10)]),
+            pull_read(7), pull_timeline(7), pull_read(8, base="trial"), pull_read(9, base="trial"), pull_read(10),
+            pull_timeline(10)])
+        self.assertEqual([(p["number"], p["keyword"], p["link_events"]) for p in found],
+                         [(7, True, []), (10, False, [{"action": "connected", "at": minute(2)}])])
+        self.assertTrue(whole)
+        # A base or default branch that cannot be read is refused, never left out.
+        for broken in (pull_read(7, default=None), pull_read(7, base="")):
+            with self.assertRaises(github.Unanswered):
+                self.listed([linked_read(ref(7)), broken])
+
+    def test_a_closer_of_the_present_life_is_listed_whatever_its_references(self):  # P-33, P-46, P-67
+        # The life began at 10:10. 12 closed the issue in it, its reference edited out since (trials/P-46.json); 13 in a
+        # life before, not read whatever its base; 14's merge commit closed it at 10:30.
+        began = minute(10)
+        found, whole = self.listed([
+            linked_read(ref(14), [closed_by(3, 12), closed_by(5, 13), closed_by(20, 12), closed_by(30, oid="b" * 40)]),
+            pull_read(12, merged=19, closed=19), pull_timeline(12),
+            pull_read(14, merged=29, closed=29, sha="b" * 40), pull_timeline(14)], began)
+        self.assertEqual([(p["number"], p["keyword"], p["closed_issue_at"]) for p in found],
+                         [(12, False, minute(20)), (14, True, minute(30))])
+        self.assertTrue(whole)
+        # A commit closer with no id is refused, never matched to a merge that names none.
+        no_id = {"__typename": "ClosedEvent", "createdAt": minute(30), "closer": {"__typename": "Commit", "oid": None}}
+        with self.assertRaises(github.Unanswered):
+            self.listed([linked_read(ref(14), [no_id]), pull_read(14, merged=29, closed=29), pull_timeline(14)], began)
+
+    def test_a_linked_drafts_flag_at_a_time_undoes_its_later_changes(self):  # P-33, 0141
+        # trials/P-33.json: 37 a draft from its opening, with no event; 38 marked ready, converted and marked ready again.
+        recorded = exchanges("P-33")[0]["response"]["body"]["data"]["repository"]
+        named = {"ReadyForReviewEvent": "ready_for_review", "ConvertToDraftEvent": "convert_to_draft"}
+        rest = lambda pr: [dict(issue_event(named[n["__typename"]], 0), created_at=n["createdAt"])
+                           for n in pr["timelineItems"]["nodes"]]
+        draft, opened = recorded["draft"], recorded["open"]
+        found, _ = self.listed([
+            linked_read(ref(37, 38)),
+            pull_read(37, draft=draft["isDraft"], created=draft["createdAt"]), pull_timeline(37, rest(draft)),
+            pull_read(38, draft=opened["isDraft"], created=opened["createdAt"]), pull_timeline(38, rest(opened))])
+        left, changed = found
+        self.assertEqual((left["draft"], left["draft_events"]), (True, []))
+        self.assertEqual(changed["draft_events"], [{"action": "ready_for_review", "at": "2026-10-20T21:15:03Z"},
+                                                   {"action": "converted_to_draft", "at": "2026-10-20T21:15:04Z"},
+                                                   {"action": "ready_for_review", "at": "2026-10-20T21:15:06Z"}])
+        # Its flag at a time, read either way in a change's own second: a draft at :03 and :06, as before each change.
+        self.assertEqual([linked.draft_at(changed, "2026-10-20T21:15:%02dZ" % s) for s in (2, 3, 4, 5, 6, 7)],
+                         [True, True, True, True, True, False])
 
 
 class Rules(unittest.TestCase):

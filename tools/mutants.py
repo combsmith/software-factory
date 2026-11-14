@@ -110,6 +110,9 @@ S3_PORT = ("tests.test_adapters.Issues.test_a_factory_app_is_named_by_the_id_the
 S3_REUSE = ("tests.test_adapters.Issues.test_an_account_showing_a_configured_apps_name_by_another_id_is_refused",)
 S3_REPLAY = ("tests.test_controller.Record.test_an_issue_decision_replays_through_the_issues_kernel_configuration",)
 S3_LINKED = ("tests.test_controller.Entry.test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry",)
+S3_BASE = ("tests.test_adapters.Linked.test_only_a_pull_request_to_the_default_branch_is_listed_as_linked",)
+S3_CLOSER = ("tests.test_adapters.Linked.test_a_closer_of_the_present_life_is_listed_whatever_its_references",)
+S3_DRAFT = ("tests.test_adapters.Linked.test_a_linked_drafts_flag_at_a_time_undoes_its_later_changes",)
 S3_LIST = ("tests.test_adapters.Items.test_open_issues_are_listed_from_served_from_by_the_same_pages_and_none_with_no_date",)
 S3_ENTRY = ("tests.test_controller.Entry.test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is",)
 S3_NAMED = ("tests.test_controller.Issues.test_an_app_is_named_by_the_id_the_configuration_holds_so_its_label_and_comment_count",)
@@ -13735,6 +13738,32 @@ MUTANTS = ISSUE + [
     ("an issue's linked pull requests are read as whole", 'adapters/issues.py',
      '"linked": False, "runs": True',
      '"linked": True, "runs": True', ISSUE_OWN + ('tests.test_controller.Issues.test_p34s_issue_read_by_the_port_is_deferred_on_its_linked_pull_requests',)),
+] + [(name, 'adapters/linked.py', old, new, tests) for name, old, new, tests in [
+    ("a pull request to another base is listed as linked",
+     '        if not on_default(got):\n',
+     '        if False:\n', S3_BASE),
+    ("a closer the references no longer name is not listed",
+     'sorted(join["refs"] | set(join["links"]) | present)',
+     'sorted(join["refs"] | set(join["links"]))', S3_CLOSER),
+    ("a commit closer is never a listed pull request's merge",
+     '        if merged and (was is None or was < began or at < was):\n            merged[0]["closed_issue_at"] = at\n',
+     '', S3_CLOSER),
+    ("a pull request's close in the present life is shadowed by its earlier one",
+     'min([at for at in ats if at >= began] or ats)',
+     'min(ats)', S3_CLOSER),
+    ("a commit closer with no id is read",
+     '                if not timeline.SHA.match(str(oid)):\n',
+     '                if False:\n', S3_CLOSER),
+    ("a draft's flag at a time undoes no later change",
+     '        state = change["action"] == "ready_for_review"\n',
+     '', S3_DRAFT),
+    ("a draft's flag at a time is not read either way in a change's second",
+     '    return drafted or state\n',
+     '    return state\n', S3_DRAFT),
+    ("a linked pull request's conversion to a draft is not read",
+     'DRAFTS = {"convert_to_draft": "converted_to_draft", ',
+     'DRAFTS = {', S3_DRAFT),
+]] + [
     ("an issue's facts that do not hold to the schema are handed on", 'adapters/issues.py',
      '    if problems:\n        raise Unanswered("the issue\'s facts',
      '    if False:\n        raise Unanswered("the issue\'s facts', ISSUE_OWN),
