@@ -603,9 +603,10 @@ class World:
 
     def waits_for_its_author(self, decision: dict) -> bool:
         """Whether the item rests on its author: a pull request the Factory did not open, in addressing for what a fix
-        answers, with nothing admitted. The Factory's own item rests only where every other item does."""
+        answers, with nothing admitted and no Run of its open. The Factory's own item rests only where every other item
+        does."""
         return self.opened_for is None and decision["state"] == t.ADDRESSING and decision["reason"] in MENDS \
-            and decision["outcome"] == t.NOTHING
+            and decision["outcome"] == t.NOTHING and all(r["status"] == "completed" for r in self.runs)
 
     def check(self, ok: bool, invariant: str):
         if not ok:

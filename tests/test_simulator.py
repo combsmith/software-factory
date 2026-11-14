@@ -1352,6 +1352,15 @@ class Simulation(unittest.TestCase):
             for other in (dict(waiting, state=terms.HELD), dict(waiting, outcome=terms.ADMIT),
                           dict(waiting, outcome=terms.HOLD), dict(waiting, reason="awaiting_review")):
                 self.assertFalse(w.waits_for_its_author(other), (w.cls, other))
+        # Nor while a Run of its is open, queued or in progress: the item waits on that Run first.
+        for status in ("queued", "in_progress"):
+            w = World(1)
+            while not w.runs:
+                w.step()
+            w.runs = [dict(r, status="completed") for r in w.runs] + [dict(w.runs[0], run="open", status=status)]
+            self.assertFalse(w.waits_for_its_author(waiting), status)
+            w.runs = w.runs[:-1]
+            self.assertTrue(w.waits_for_its_author(waiting), status)
         self.assertEqual(set(world.MENDS), {"check_failed", "findings_open", "human_finding", "conflict",
                                             "acceptance_failed"})
         # On their own pull request the Maintainer, its author, mends what waits for them, as a writer: on the first seed.
