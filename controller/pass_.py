@@ -267,7 +267,8 @@ def issue_config(kernel: dict) -> dict:
     """The Kernel's configuration as `kernel.issue.decide` is given it: each App `issues.label_apps` declares and each
     Intent's `app`, named in the configuration as config/apps.json names an App, carries the suffix REST spells a Bot's
     login with, as the issues port names an App; null stays null. A person's login holds no bracket, so none is read as
-    an App's (decision 0218). What is not a name is left as it is, for the Kernel to read as unreadable."""
+    an App's (decision 0218). What is not a name is left as it is, for the Kernel to read as unreadable. The pass record
+    keeps the configuration as written, so an issue's Decision replays through this, as the pass asked it."""
     issues = copy.deepcopy(kernel.get("issues"))
     if not isinstance(issues, dict):
         return kernel

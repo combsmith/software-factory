@@ -183,7 +183,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     except Unanswered:
         listed, listed_whole = [], False
     if not listed_whole:
-        raise Stop("issues_unreadable")
+        raise Stop("issue_list_unreadable")
     earlier = pass_.earlier(reads_.previous_records(previous), now) or []
     try:
         runs = records.runs(transport, home, branch, run_files(controller), dispatcher(controller),

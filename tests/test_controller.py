@@ -169,6 +169,22 @@ class Record(unittest.TestCase):
                              entry["decision"])
         self.assertNotIn("A title", json.dumps(record))
 
+    def test_an_issue_decision_replays_through_the_issues_kernel_configuration(self):  # decisions 0002, 0218
+        # The record keeps the configuration as written; the issues' Kernel was asked with each App named as REST spells
+        # its Bot. Replayed through `pass_.issue_config`, the Controller's factory:triage counts as it did.
+        from kernel import issue
+        triaged = an_issue(7, label_events=[test_issue.labelled(test_issue.TRIAGE, by=test_issue.CONTROLLER)])
+        record = passed(reads(pulls=[], issues=[triaged]))["record"]
+        (entry,) = record["issues"]
+        self.assertEqual((entry["decision"]["state"], entry["decision"]["admit"]["intent"]), ("triage", "investigate-issue"))
+        kernel = dict(pass_.issue_config(config()["kernel"]), lifecycle=config()["lifecycles"]["issue"])
+        self.assertEqual(issue.decide(entry["facts"], record["runs"], record["context"], kernel, record["now"]),
+                         entry["decision"])
+        # As written, without the suffix, the App's label would not count.
+        written_ = dict(config()["kernel"], lifecycle=config()["lifecycles"]["issue"])
+        self.assertEqual(issue.decide(entry["facts"], record["runs"], record["context"], written_, record["now"])["reason"],
+                         "label_not_counted")
+
     def test_an_issue_is_asked_of_the_issues_kernel_with_its_own_lifecycle(self):  # decision 0028
         out = passed(reads(pulls=[], issues=[an_issue(7), an_issue(8, repo=OTHER_REPO)]))
         got = [(d["schema"], d["state"], d["outcome"], d.get("action")) for d in decisions(out)]
@@ -1750,13 +1766,60 @@ class Entry(unittest.TestCase):
         self.assertEqual([i["untrusted"] for i in shown], [{"title": "Issue five"}])
         # A list read short, or not answered, stops the pass before any issue is read; nothing is written.
         for whole in (False, None):
-            self.assertEqual(entry_with([5], whole), (1, "issues_unreadable\n", {}), whole)
+            self.assertEqual(entry_with([5], whole), (1, "issue_list_unreadable\n", {}), whole)
             self.assertEqual(spied["read"], [])
         # No date: the port is asked with none, which lists nothing and sends nothing (adapters/items.py), and no issue
         # is read. The one GraphQL read is the pull requests' list.
         code, _, files = entry_with(None, configured=real)
         self.assertEqual((code, spied["listed"], spied["read"], files["pass.json"]["issues"]), (0, [(self.HOME, None)], [], []))
         self.assertEqual(len(spied["graphql"]), 1)
+
+    def test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry(self):  # S3, Astra
+        # Through the real issues port: an open issue the Maintainer opened after `served_from`, the triage App declared,
+        # no factory:triage on it. Its linked pull requests are `adapters/linked.py`'s, not read, so it defers on them,
+        # and no act is made, though read whole it would be accepted.
+        from tests.test_adapters import issue_read
+        reads_ = issue_read()
+        own, events, edits = (r["response"] for r in reads_)
+        edits["body"]["data"]["repository"]["nameWithOwner"] = self.HOME
+        listed = {"data": {"repository": {"nameWithOwner": self.HOME, "issues": {
+            "totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"number": 41}]}}}}
+        real = entry.configuration
+
+        def served(root, release):
+            found = real(root, release)
+            found["kernel"]["issues"] = dict(found["kernel"]["issues"], served_from="2026-10-01T00:00:00Z",
+                                             label_apps={"factory:triage": found["apps"]["controller"]["name"], "factory:ready": None})
+            return found
+
+        table = self.table(numbers=[])
+        table.update({("GET", "/repos/%s/issues/41" % self.HOME): own,
+                      ("GET", "/repos/%s/issues/41/timeline?per_page=100" % self.HOME): events,
+                      ("GET", "/repos/%s/collaborators/don-petry/permission" % self.HOME):
+                          {"status": 200, "headers": {}, "body": {"permission": "admin"}}})
+        hub = Hub(table)
+        connect = hub.connect
+
+        def routed(credential):
+            through = connect(credential)
+
+            class Routed:
+                def send(self, req):
+                    query = (req.get("body") or {}).get("query", "") if req["path"] == "/graphql" else ""
+                    if query.startswith(("query OpenIssues", "query IssueEdits")):
+                        hub.sent.append((credential, req))
+                        return copy.deepcopy({"status": 200, "headers": {}, "body": listed} if "OpenIssues" in query else edits)
+                    return through.send(req)
+            return Routed()
+        hub.connect = routed
+        with unittest.mock.patch.object(entry, "configuration", served):
+            code, printed, files, _ = self.run_entry(hub)
+        self.assertEqual((code, printed), (0, "passed\n"))
+        (decided,) = files["pass.json"]["issues"]
+        d = decided["decision"]
+        self.assertEqual((d["item"]["number"], d["outcome"], d["reason"], d["evidence"]), (41, "defer", "facts_incomplete", ["linked"]))
+        # Nothing is written for the issue: the one write is the tracking issue's, which reports the pass's alerts.
+        self.assertEqual([w["type"] for w in files["writes.json"]["writes"]], ["tracking_issue"])
 
     def test_what_the_entry_cannot_read_writes_nothing(self):
         for environ, want in (({"RELEASE": None}, "release_untagged"), ({"RELEASE": "v1"}, "release_untagged"),
