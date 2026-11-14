@@ -63,6 +63,9 @@ ISSUE = 7     # the issue the Factory opened an agent's pull request for; the Ma
 # What a fix answers in addressing (kernel/decide.py). On a pull request the Factory did not open, the author Role
 # pushes nothing to a branch that is not the Factory's: its author, a person, mends it, or it waits (decision 0216).
 MENDS = ("check_failed", "findings_open", "human_finding", "conflict", "acceptance_failed")
+# How many times a person mends what waits for its author once the faults stop, in the check that drives such a world
+# on (issue 861): each time a push as a writer and the Lens's threads resolved by that person's hand.
+MEND_BOUND = 3
 MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
 # The reviewer's App holds pull_requests: write, and GitHub cannot grant it less.
 REVIEWER_APP = {"kind": "lens", "name": "pr-review", "can_write": True}
@@ -1686,7 +1689,7 @@ class World:
         self.check(len(uncovered) <= CONFIG["limits"]["max_attempts"],
                    "I-8 a review that leaves a criterion uncovered is admitted past its attempts")
 
-    def settle(self, steps: int = 400):
+    def settle(self, steps: int = 400, mend: bool = False):
         """Stop the faults and the people, and let the Factory finish."""
         self.faults = self.people = False
         # The Maintainer acts after the last step: a request and an approval in the same second leave the request
@@ -1747,4 +1750,42 @@ class World:
             self.caused("human")
             for _ in range(steps):
                 self.step()
-        return decide(self.facts(), self.records(), self.context(), CONFIG, self.now())
+        last = decide(self.facts(), self.records(), self.context(), CONFIG, self.now())
+        # Where the check asks it, a person mends what waits for its author, while it waits, up to MEND_BOUND times: a
+        # person's act, never the author Role's, and outside the bounded tests, whose worlds no person moves (issue 861).
+        self.mended_at, self.mends = None, 0
+        for _ in range(MEND_BOUND if mend else 0):
+            if not self.waits_for_its_author(last):
+                break
+            self.minute += 1
+            self.mend()
+            for _ in range(steps):
+                self.step()
+            last = decide(self.facts(), self.records(), self.context(), CONFIG, self.now())
+        return last
+
+    def mend(self):
+        """A person with write access mends the pull request: a push for what failed, as a writer, and the Lens's threads
+        answered and resolved by that person's hand, which the gate takes as closed (kernel/gate.py)."""
+        self.mended_at, self.mends = self.now(), self.mends + 1
+        self.note("a person mends it")
+        self.push(MAINTAINER["name"], writer=True)
+        self.caused("human")
+        mine = [th for th in self.threads if th["opened_by"]["kind"] == "lens" and not th["resolved"]]
+        for th in mine:
+            th.update(resolved=True, resolved_by=dict(MAINTAINER))
+        if mine:
+            self.caused("human")
+
+    def waits_on_what_came_after_the_mend(self, decision: dict) -> bool:
+        """Whether an item that waits for its author waits only on what failed after the last mend: a check that concluded
+        failing since, or a Lens's thread opened since. Anything older is what the mend was for."""
+        if self.mended_at is None or not self.waits_for_its_author(decision):
+            return False
+        if decision["reason"] == "check_failed":
+            return all(self.completed.get(name) is not None and self.completed[name] > self.mended_at
+                       for name in decision["evidence"])
+        if decision["reason"] == "findings_open":
+            opened = {th["id"]: th["opened_at"] for th in self.threads}
+            return all(opened.get(tid) is not None and opened[tid] > self.mended_at for tid in decision["evidence"])
+        return False

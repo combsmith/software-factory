@@ -1396,6 +1396,57 @@ class Simulation(unittest.TestCase):
             else:
                 self.assertRaises(world.Broken, w.invariants)
 
+    def test_a_world_a_person_mends_once_the_faults_stop_merges_or_holds(self):  # issue 861
+        # The bounded tests leave a pull request the Factory did not open waiting for its author, since no person acts
+        # once the faults stop. Here a person does, apart from them: while the world waits, up to MEND_BOUND times, a push
+        # as a writer and the Lens's threads resolved by that person's hand. Each such world then ends merged or held, or
+        # waits only on what failed after its last mend; never on what the mend was for.
+        self.assertEqual(world.MEND_BOUND, 3)
+        mended, used = [], set()
+        for seed in SEEDS:
+            w = World(seed)
+            if w.cls == "agent":
+                continue
+            for _ in range(150):
+                w.step()
+            last = w.settle(mend=True)
+            stuck = last["reason"] == "check_unreadable" and last["attention"] == "needs_you"
+            self.assertTrue(last["state"] in ("merged", "held") or stuck or w.waits_on_what_came_after_the_mend(last),
+                            "seed %d rests in %s (%s) after %d mends\n%s" % (seed, last["state"], last["reason"], w.mends,
+                                                                               "\n".join(w.trace[-15:])))
+            self.assertLessEqual(w.mends, world.MEND_BOUND)
+            used.add(w.mends)
+            if w.mends and last["state"] == "merged":
+                mended.append(seed)
+        # Some world merged only once a person mended it, and some took every mend the bound allows.
+        self.assertTrue(mended)
+        self.assertIn(world.MEND_BOUND, used)
+        # The mend is the person's: its push is a writer's, and it resolves the Lens's threads by that person's hand.
+        w = World(1)
+        for _ in range(150):
+            w.step()
+        w.settle()
+        lens = [th for th in w.threads if th["opened_by"]["kind"] == "lens" and not th["resolved"]]
+        pusher, writer = w.last_pusher, w.last_writer
+        w.minute += 1
+        w.mend()
+        self.assertEqual((w.last_pusher, w.last_writer == w.now()), (world.MAINTAINER["name"], True))
+        self.assertTrue(all(th["resolved_by"] == world.MAINTAINER for th in lens))
+        # What waits on a failure older than the mend is not excused: a thread opened before it, or a check that failed
+        # before it. (No Run of its is left open here, so that the item waits for its author alone.)
+        w.runs = [dict(r, status="completed") for r in w.runs]
+        older = dict(w.threads[0], id="old", opened_at=World.at(w.minute - 1), resolved=False) if w.threads else None
+        if older is not None:
+            w.threads.append(older)
+            waiting = {"state": terms.ADDRESSING, "reason": "findings_open", "outcome": terms.NOTHING, "evidence": ["old"]}
+            self.assertFalse(w.waits_on_what_came_after_the_mend(waiting))
+            w.threads[-1]["opened_at"] = World.at(w.minute + 1)
+            self.assertTrue(w.waits_on_what_came_after_the_mend(waiting))
+        name = next(iter(w.checks))
+        w.completed[name] = World.at(w.minute - 1)
+        failed = {"state": terms.ADDRESSING, "reason": "check_failed", "outcome": terms.NOTHING, "evidence": [name]}
+        self.assertFalse(w.waits_on_what_came_after_the_mend(failed))
+
     def test_every_invariant_not_yet_held_names_a_pending_test(self):
         # When a rule is built and its test loses @pending, its invariant here must start to raise too.
         text = (pathlib.Path(__file__).resolve().parent / "test_decide.py").read_text()
