@@ -24,8 +24,9 @@ SEEDS = range(1, 1 + int(os.environ.get("SIM_SEEDS", "300")))
 # its attempts held the item (test_the_seeds_serve_a_review_that_left_a_criterion_uncovered).
 HOLD_SEED, LOST_SEED, GATE_SEED, APP_SEED, LANE_SEED, ISSUE_LANE_SEED, UNCOVERED_SEED = 1, 237, 351, 57, 2, 54, 221
 # The first seed on which a Lens's review is asked again on unchanged content, the head pushed past it with the diff as
-# it was while its thread stands (test_the_seeds_push_a_head_that_leaves_the_diff_as_it_was_and_say_a_thread_dropped).
-AGAIN_SEED = 261
+# it was while its thread stands, and the first on which a later review of the Lens drops a thread that the queue App
+# then resolves (test_the_seeds_push_a_head_that_leaves_the_diff_as_it_was_and_say_a_thread_dropped).
+AGAIN_SEED, DROPPED_SEED = 261, 46
 # Seeds on which the item is a dependency update with no acceptance contract: to a workflow's pin, and to neither list.
 DEPENDENCY_ON_THE_LIST, DEPENDENCY_OFF_THE_LIST = 4, 34
 
@@ -1404,22 +1405,45 @@ class Simulation(unittest.TestCase):
         # later review now and then drops a thread, which the queue App then resolves on no accepted ruling (decision
         # 0212); and the Lens is asked again on unchanged content, pushed past while its thread stood. Every invariant
         # holds throughout: the check on the act takes a dropped thread as an accepted one, and I-11 allows that review.
-        kept, dropped, resolved, again = False, False, False, False
-        for seed in sorted(set(SEEDS) | {AGAIN_SEED}):
+        contents, dropped, resolved, again = [], False, False, False
+        for seed in sorted(set(SEEDS) | {AGAIN_SEED, DROPPED_SEED}):
             w = World(seed)
-            contents = []
             for _ in range(250):
-                before = w.cid()
+                before, lines = w.cid(), len(w.trace)
                 w.step()
-                if any(line.endswith("pushed a head that leaves the diff as it was") for line in w.trace[-3:]):
-                    contents.append((before, w.cid()))
-            kept = kept or bool(contents) and all(a == b for a, b in contents)
+                if any(line.endswith("pushed a head that leaves the diff as it was") for line in w.trace[lines:]):
+                    contents.append((seed, before, w.cid()))
             dropped = dropped or any(th.get("dropped") is True for th in w.threads)
             resolved = resolved or any(th.get("dropped") is True and th["resolved"] and th["ruling"] != "accepted"
                                        and th["resolved_by"] == world.QUEUE_APP for th in w.threads)
             reviews = [r["content_id"] for r in w.runs if r["intent"] == "review-change" and r["conclusion"] == "success"]
             again = again or len(reviews) != len(set(reviews))
-        self.assertEqual((kept, dropped, resolved, again), (True, True, True, True))
+        # Every push that left the diff as it was kept the content, on every seed.
+        self.assertTrue(contents)
+        self.assertEqual([c for c in contents if c[1] != c[2]], [])
+        self.assertEqual((dropped, resolved, again), (True, True, True))
+
+    def test_the_queue_app_resolves_a_dropped_thread_only_as_the_kernel_may(self):  # issue 855, decision 0212
+        # The world's check on the queue App's act takes a dropped thread as an accepted one only where the Kernel may
+        # resolve it: marked dropped, not ruled rejected, not a security Finding's, opened before the last push, with a
+        # review of its own Lens that succeeded on this content and began after that push. Each other case is refused.
+        w = World(2)
+        w.minute = 30
+        w.last_push = w.at(20)
+        th = {"id": "D", "resolved": False, "opened_by": {"kind": "lens", "name": "pr-review", "can_write": True},
+              "category": "functional", "severity": "major", "resolved_by": None, "opened_at": w.at(10), "ruling": None,
+              "dropped": True}
+        review = {"run": "rv", "role": "pr-review", "intent": "review-change", "content_id": w.cid(),
+                  "status": "completed", "conclusion": "success", "started_at": w.at(25)}
+        w.runs = [review]
+        self.assertTrue(w.dropped_since_the_push(th))
+        for change in ({"category": "security"}, {"ruling": "rejected"}, {"opened_at": w.at(22)}, {"dropped": False},
+                       {"opened_by": dict(th["opened_by"], name="another-lens")}):
+            self.assertFalse(w.dropped_since_the_push(dict(th, **change)), change)
+        for change in ({"started_at": w.at(15)}, {"content_id": "sha256:other"}, {"role": "another-lens"},
+                       {"conclusion": "failure"}, {"intent": "fix-findings"}):
+            w.runs = [dict(review, **change)]
+            self.assertFalse(w.dropped_since_the_push(th), change)
 
     def test_every_invariant_not_yet_held_names_a_pending_test(self):
         # When a rule is built and its test loses @pending, its invariant here must start to raise too.

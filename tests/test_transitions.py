@@ -1090,9 +1090,12 @@ class Transitions(unittest.TestCase):
         passed = ("the check verify success", "the check Secret scan (gitleaks) success", "the check CodeQL success")
         readings = {}
         for base in ("findings_open", "conflict, after a review"):
-            item = moves["a person pushes a head that leaves the diff as it was"].make(BASES[base])
-            self.assertEqual(item["facts"]["content_id"], BASES[base]["facts"]["content_id"], base)
-            self.assertEqual(item["facts"]["diff"], BASES[base]["facts"]["diff"], base)
+            # A diff unlike the one a push of new content gives, so that keeping it shows.
+            start = copy.deepcopy(BASES[base])
+            start["facts"]["diff"] = {"files": 2, "lines": 41, "truncated": False, "characters": 1700}
+            item = moves["a person pushes a head that leaves the diff as it was"].make(start)
+            self.assertEqual(item["facts"]["content_id"], start["facts"]["content_id"], base)
+            self.assertEqual(item["facts"]["diff"], start["facts"]["diff"], base)
             self.assertEqual(item["facts"]["last_push_at"], now(item), base)
             self.assertEqual(kernel(item)["reason"], "awaiting_checks", base)
             for step in passed:

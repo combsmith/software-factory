@@ -29,7 +29,9 @@ RULES = (
      ("trials/P-58.json", "trials/P-58.reader.json", "trials/P-58.deleted.json"), None),
     ("a_push_is_new_content", "A push gives the pull request new content", ("P-29",), "trials/P-29.base.json", None),
     ("a_push_can_leave_the_diff_as_it_was", "A push that changes none of the pull request's own diff, as a merge of the "
-     "base that touches none of its files, leaves its content as it was: the content is the hash of that diff",
+     "base that touches none of its files, leaves its content as it was. P-29 pushed no such head; it stands for one "
+     "because it shows the content is the hash of that diff alone, the same while the head's commits stood against a "
+     "moved base and another once a push changed a file, as pull request 847 later did of a merge of the base",
      ("P-29",), "trials/P-29.base.json", None),
     ("the_pusher_is_the_last_pusher", "The account that pushed the head is read as its last pusher, from the newest "
      "entry of the head branch's activity, a person's push and an App's alike: the entry names the App's bot login, "
