@@ -66,12 +66,20 @@ class Accounts:
 
     `approver` is the machine user, `(id, "User")`; `lenses` maps each Lens's App, `(id, "Bot")`, to the Lens's name;
     `factory` is every App account of the Factory's, `(id, "Bot")`, whose acts the act ceiling counts; `queue` is the
-    queue App's, `(id, "Bot")`, or None while it has none, which types no account queue (issue 389)."""
+    queue App's, `(id, "Bot")`, or None while it has none, which types no account queue (issue 389). `apps` maps each
+    Factory App whose account the configuration holds, `(id, "Bot")`, to the name it is configured under, as REST spells
+    a Bot's login, `[bot]` and all: that App is named by its id, as a Lens is, never by the login it shows."""
 
-    def __init__(self, transport, repo: str, approver: tuple, lenses: dict, factory=(), queue=None):
+    def __init__(self, transport, repo: str, approver: tuple, lenses: dict, factory=(), queue=None, apps=None):
         self.transport, self.repo, self.approver = transport, repo, tuple(approver)
         self.lenses, self.factory, self.answers = dict(lenses), set(factory), {}
         self.queue = tuple(queue) if queue is not None else None
+        self.apps = dict(apps or {})
+
+    def named(self, login: str, ident: int, kind: str) -> str:
+        """A Bot's name: the one configured for its id, else the login it shows. A User's login, which holds no bracket,
+        can never be an App's configured name with its `[bot]`."""
+        return self.apps.get((ident, kind), login)
 
     def _permission(self, login: str) -> dict:
         """The repo's permission answer for `login`, read once a login for all the reader serves."""
@@ -130,7 +138,7 @@ class Accounts:
                 return {"kind": "lens", "name": self.lenses[(ident, kind)], "can_write": False}
             if (ident, kind) == self.queue:
                 return {"kind": "queue", "name": login, "can_write": False}
-            return {"kind": "app", "name": login, "can_write": False}
+            return {"kind": "app", "name": self.named(login, ident, kind), "can_write": False}
         _user(login)
         if (ident, kind) == self.approver:
             return {"kind": "machine_user", "name": login, "can_write": self._can_write(login)}
