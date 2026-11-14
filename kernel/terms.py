@@ -31,6 +31,8 @@ ISSUE_APPROVAL = "issue-approval"
 RESOLVE_THREAD = "resolve-thread"
 # The Intents of the queue App's jobs that enqueue and dequeue an item (issue 381).
 ENQUEUE_MERGE, DEQUEUE_MERGE = "enqueue-merge", "dequeue-merge"
+# The Intent of the author Role's implementing Run on an issue's draft, whose rounds the brakes bound (issue 874).
+IMPLEMENT = "implement"
 
 # Attention classes, in the order the control room lists them.
 NEEDS_YOU = "needs_you"

@@ -66,7 +66,7 @@ INVESTIGATE = "investigate-issue"
 INTENTS = ("investigate-issue", "judge-readiness", "open-pull-request")
 # The implementing Run (slice 2's S9, issue 825): the author Role's, `author_role`, on the draft the Factory opened for
 # the issue, while that draft's required checks fail. No configuration names the author Role yet.
-IMPLEMENT = "implement"
+IMPLEMENT = "implement"     # terms.IMPLEMENT, the code the brakes count its rounds by
 # How a linked pull request's head's required checks stand, as the facts give it (issue 825). A head whose required
 # check GitHub has not listed yet, as for a few seconds after a push (trial P-42), is pending, never failing.
 CHECKS = ("passing", "failing", "pending")

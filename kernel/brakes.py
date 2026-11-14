@@ -153,7 +153,7 @@ def implementing_rounds(_decision, facts: dict, recent: list, limits: dict):
     completed since a person with write access acted is a round, whatever it concluded, since the checks it left failing
     are what admit the next: so a count of failed Runs alone, as the attempts are, would never stop the loop. At
     `max_attempts` rounds or past them the issue is held, with those Runs as evidence. A Run in flight is no round."""
-    rounds = [r for r in recent if r["intent"] == "implement" and r["status"] == "completed"]
+    rounds = [r for r in recent if r["intent"] == t.IMPLEMENT and r["status"] == "completed"]
     if len(rounds) >= limits["max_attempts"]:
         return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in rounds], t.HOLD)
     return None
