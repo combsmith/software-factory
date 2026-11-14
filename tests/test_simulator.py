@@ -1367,6 +1367,16 @@ class Simulation(unittest.TestCase):
                 w.step()
         self.assertEqual(w.cls, "maintainer")
         self.assertEqual({(who, writer) for mends, who, writer in pushes if mends}, {(world.MAINTAINER["name"], True)})
+        # And only there: on an agent's pull request a Role mends it, and the bot's waits for its own author, on the seed
+        # whose bot's pull request comes to wait while the Maintainer acts.
+        for seed in (2, world.DEPENDENCY_SEED, DEPENDENCY_OFF_THE_LIST):
+            w, pushes[:] = World(seed), []
+            with mock.patch.object(World, "push", pushing):
+                for _ in range(250):
+                    w.step()
+            self.assertNotEqual(w.cls, "maintainer")
+            self.assertEqual([p for p in pushes if p[0]], [], seed)
+            self.assertFalse(any(line.endswith("the author mends it") for line in w.trace), seed)
         # No fix Run is ever admitted on one that names no issue: the world's own invariant says so if one is.
         for w in worlds:
             while not w.runs:
