@@ -1039,13 +1039,43 @@ class Authority(unittest.TestCase):
                 built = tree(adapter, records) if head is None else tree(adapter, records, head=head)
                 self.assertTrue(caught(check_authority.opening_problems(named, built, callers), "no adapter sends a write"))
         for adapter in ("from adapters.github import request as build\n\ndef open_pull_request(transport, repo):\n"
-                        "    return build('POST', '/repos/%s/pulls' % (repo,))\n",
+                        "    return build('POST', '/repos/%s/pulls' % repo)\n",
+                        "from adapters.github import request\n\ndef open_pull_request(transport, config):\n"
+                        "    return request('POST', '/repos/%s/pulls' % config.repo)\n",
                         "from adapters import github\n\ndef open_pull_request(transport, repo):\n"
                         "    return github.request('POST', '/repos/%s/pulls' % repo)\n",
                         "import adapters.github as gh\n\ndef open_pull_request(transport, repo):\n"
                         "    return gh.request('POST', '/repos/%s/pulls' % repo)\n"):
             with self.subTest(adapter=adapter):
                 self.assertEqual(check_authority.opening_problems(named, tree(adapter, records, head=""), callers), [])
+        # Nor do these (the second reviews of PR 819). A name is read from the scope's own body alone, never from a def,
+        # a class, a branch or a module's value read in the function; the value formatted in is a parameter or its
+        # attribute, given once: no tuple behind a name, no literal, no operator, no star; an attribute of request's
+        # module set replaces it; an opener decorated or named again is not the def; a module that names what rebinds
+        # names unseen is not read; and a call in a nested def, or after a return, is not made.
+        bare = "def open_pull_request(transport, repo):\n    "
+        for adapter in ("PULLS = '/repos/o/r/pulls/1/reviews'\n\n" + bare + "def unused():\n        PULLS = "
+                        "'/repos/%s/pulls' % repo\n    return request('POST', PULLS)\n",
+                        "class C:\n    PULLS = '/repos/%s/pulls'\n\n" + bare + "return request('POST', PULLS % repo)\n",
+                        bare + "if False:\n        m = 'POST'\n    return request(m, '/repos/%s/pulls' % repo)\n",
+                        "repo = 'o/r/issues/1/comments?'\nPULLS = '/repos/%s/pulls' % repo\n\n" + bare
+                        + "return request('POST', PULLS)\n",
+                        bare + "values = (repo, 1)\n    return request('POST', '/repos/%s/pulls' % values)\n",
+                        bare + "return request('POST', '/repos/%s/pulls' % 'o/r/issues/1/comments?')\n",
+                        bare + "return request('POST', '/repos/%s/pulls' % (repo + '/issues/1/comments?'))\n",
+                        bare + "return request('POST', f\"/repos/{'o/r/issues/1/comments?'}/pulls\")\n",
+                        bare + "return request('POST', '/repos/%s/pulls' % (repo,))\n",
+                        bare + "repo = 'o/r/issues/1/comments?'\n    return request('POST', '/repos/%s/pulls' % repo)\n",
+                        "def open_pull_request(transport, *repo):\n    return request('POST', '/repos/%s/pulls' % repo)\n",
+                        opens.replace("def open", "import adapters.github as gh\ngh.request = print\n\ndef open")
+                        .replace("return request", "return gh.request"),
+                        "@print\n" + opens, opens + "\nopen_pull_request = print\n",
+                        opens + "\nglobals()['request'] = print\n", opens + "\nexec('request = print')\n",
+                        bare + "def never():\n        return request('POST', '/repos/%s/pulls' % repo)\n    return None\n",
+                        bare + "return None\n    request('POST', '/repos/%s/pulls' % repo)\n"):
+            with self.subTest(adapter=adapter):
+                self.assertTrue(caught(check_authority.opening_problems(named, tree(adapter, records), callers),
+                                       "no adapter sends a write"))
         # opened, or the module it is called on, is bound by its one import and by nothing else in the module: not by a
         # parameter, an assignment, a def or a class, a later rebinding, a comprehension's target or a lambda's parameter.
         name, module = "from harness.apply import opened\n\n", "from harness import apply\n\n"
@@ -1057,6 +1087,11 @@ class Authority(unittest.TestCase):
                         name + "def run(t):\n    return opened(1)\n\nopened = print\n",
                         module + "def run(t):\n    return [apply.opened(1) for apply in t]\n",
                         name + "run = lambda opened: opened(1)\n",
+                        module + "apply.opened = print\n\ndef run(t):\n    return apply.opened(1)\n",
+                        "import harness.apply\nharness.apply.opened = print\n\ndef run(t):\n    return harness.apply.opened(1)\n",
+                        name + "def run(t):\n    return opened(1)\n\nglobals()['opened'] = print\n",
+                        name + "def run(t):\n    return None\n    opened(1)\n",
+                        name + "def run(t):\n    def never():\n        opened(1)\n",
                         "import harness.apply\n\ndef run(harness):\n    return harness.apply.opened(1)\n"):
             with self.subTest(harness=harness):
                 self.assertTrue(caught(check_authority.opening_problems(named, tree(opens, harness), callers),
