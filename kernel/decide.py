@@ -72,12 +72,14 @@ def _opened_by_the_factory(facts: dict) -> bool:
     return type(issue) is int and issue >= 1
 
 
-def _wanted_run(facts: dict, state: str, reason: str, config: dict):
-    """The Run this State calls for, as (role, intent), or None. A fix is the author Role's push, so one is wanted only
-    on a pull request the Factory opened, `opened_for` an issue's number: on a person's or a builder's, whose branch
-    is theirs, the author mends it (decision 0216)."""
+def _wanted_run(facts: dict, state: str, reason: str, config: dict, evidence: list):
+    """The Run this State calls for, as (role, intent), or None. A review is the one of the Lens the evidence names, which
+    the configuration requires: with two model Lenses, the second once the first has reviewed (issue 855). A fix is the
+    author Role's push, so one is wanted only on a pull request the Factory opened, `opened_for` an issue's number: on a
+    person's or a builder's, whose branch is theirs, the author mends it (decision 0216)."""
     if state == t.VERIFYING and reason == "awaiting_review":
-        return (config["required_lenses"]["model"][0], "review-change")
+        lens = evidence[0] if evidence else None
+        return (lens, "review-change") if lens in config["required_lenses"]["model"] else None
     if state == t.ADDRESSING and reason in ("check_failed", "findings_open", "human_finding", "conflict",
                                               "acceptance_failed"):
         if config["author_role"] is None or not _opened_by_the_factory(facts):
@@ -213,7 +215,7 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
         return _decision(facts, state, reason, evidence, t.HOLD)
 
     mine = runs_on(runs, facts)
-    wanted = _wanted_run(facts, state, reason, config)
+    wanted = _wanted_run(facts, state, reason, config, evidence)
     if in_progress(mine):
         # No Run in flight lowers a count: attempts, rounds and the Run ceiling count completed Runs, and only a
         # writer's action renews them. So a count the completed Runs have spent holds the item, whatever Run waits and

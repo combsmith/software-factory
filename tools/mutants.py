@@ -7478,10 +7478,18 @@ MUTANTS = ISSUE + [
     ("an unreadable check is not the Maintainer's to see", "kernel/decide.py",
      '"act_ceiling", "check_unreadable",', '"act_ceiling",', ("tests.test_decide.Content",)),
     ("the act ceiling stops a Run", "kernel/decide.py",
-     "    wanted = _wanted_run(facts, state, reason, config)\n",
+     "    wanted = _wanted_run(facts, state, reason, config, evidence)\n",
      '    if facts.get("acts_since_writer") is None or facts["acts_since_writer"] >= config["limits"]["max_acts_per_item"]:\n'
      '        return _decision(facts, t.HELD, "act_ceiling", [], t.HOLD)\n'
-     "    wanted = _wanted_run(facts, state, reason, config)\n", ("tests.test_decide.Classes",)),
+     "    wanted = _wanted_run(facts, state, reason, config, evidence)\n", ("tests.test_decide.Classes",)),
+    # Issue 855: with two model Lenses, the one the evidence names is the one admitted.
+    ("the first model Lens is admitted whatever the evidence names", "kernel/decide.py",
+     "        lens = evidence[0] if evidence else None\n", '        lens = config["required_lenses"]["model"][0]\n',
+     ("tests.test_decide.OnlyAPersonEnds.test_with_two_model_lenses_the_one_awaited_is_the_one_admitted",)),
+    ("a Lens the configuration does not require is admitted", "kernel/decide.py",
+     '        return (lens, "review-change") if lens in config["required_lenses"]["model"] else None\n',
+     '        return (lens, "review-change")\n',
+     ("tests.test_decide.OnlyAPersonEnds.test_with_two_model_lenses_the_one_awaited_is_the_one_admitted",)),
     # Decision 0036: a Run listed before its run-name defers every admission, an approval among them, after the brakes.
     ("an unidentified Run lets an approval through", "kernel/decide.py",
      '    if action == "issue_approval" and unnamed_within(context, now, config["limits"]) != []:\n', "    if False:\n",

@@ -942,6 +942,20 @@ class OnlyAPersonEnds(unittest.TestCase):
         d = go(facts(queue=True, reviews=APPROVED, threads=[minor]), REVIEWED)
         self.assertEqual((d["state"], d["outcome"]), ("queued", "nothing"))
 
+    def test_with_two_model_lenses_the_one_awaited_is_the_one_admitted(self):  # issue 855
+        # With two model Lenses required, the review admitted is the one the evidence names: once the first has reviewed
+        # this content, the second, never the first again, which would run the item to its Run ceiling.
+        cfg = config(required_lenses=dict(CONFIG["required_lenses"], model=["pr-review", "pr-review-second"]))
+        d = go(facts(), [], cfg=cfg)
+        self.assertEqual((d["reason"], d["evidence"][:1], d["admit"]["role"]), ("awaiting_review", ["pr-review"], "pr-review"))
+        d = go(facts(), REVIEWED, cfg=cfg)
+        self.assertEqual((d["state"], d["reason"], d["evidence"][:1], d["outcome"], d["admit"]["role"], d["admit"]["intent"]),
+                         ("verifying", "awaiting_review", ["pr-review-second"], "admit", "pr-review-second", "review-change"))
+        # A Lens the configuration does not require is never admitted, whatever the evidence names.
+        from kernel import decide as decided
+        self.assertIsNone(decided._wanted_run(facts(), "verifying", "awaiting_review", CONFIG, ["another"]))
+        self.assertIsNone(decided._wanted_run(facts(), "verifying", "awaiting_review", CONFIG, []))
+
     def test_a_lens_review_past_retention_is_asked_for_again(self):  # issue 346, decision 0069
         # A Lens Run whose applied/1 is past the artifact retention recorded what can no longer be read, so its threads
         # cannot be joined to their Findings. Its Lens's review of the current content is asked for again, after it,
