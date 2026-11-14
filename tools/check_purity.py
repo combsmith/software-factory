@@ -534,18 +534,96 @@ def _said(problem: str, package: str) -> str:
             % (problem, package, package, package))
 
 
-def _alone(trees: dict, package: str) -> list:
+def _modules(tree, trees: dict, package: str) -> tuple:
+    """`(names, imports)`: the names a file binds to modules of `package`, and the imports that bind them, each by its
+    id: `import package.x as name`, and `from package[.y] import name` where that names a file or a folder of the
+    package's."""
+    found, imports = set(), set()
+    for node in ast.walk(tree):
+        own = []
+        if isinstance(node, ast.Import):
+            own = [alias for alias in node.names if alias.asname and alias.name.split(".")[0] == package]
+        elif isinstance(node, ast.ImportFrom) and not node.level and (node.module or "").split(".")[0] == package:
+            folder = "/".join(node.module.split(".")[1:] + [""]).lstrip("/")
+            own = [alias for alias in node.names
+                   if folder + alias.name + ".py" in trees or folder + alias.name + "/__init__.py" in trees]
+        found |= {alias.asname or alias.name for alias in own}
+        imports |= {id(alias) for alias in own}
+    return found, imports
+
+
+def _bound(node) -> list:
+    """The names a node binds, other than by an import: a parameter, a name assigned or looped over, a function's or a
+    class's own, and what an `except` names."""
+    if isinstance(node, ast.arg):
+        return [node.arg]
+    if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+        return [node.id]
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return [node.name]
+    if isinstance(node, ast.ExceptHandler) and node.name:
+        return [node.name]
+    return []
+
+
+def _alone(root: pathlib.Path, read: set, trees: dict, package: str) -> list:
     """What is asked of a package held as the Kernel is, under its own name, beyond the Kernel's rules: `guards/`
-    (issue 838). It imports itself alone, by its name, and never the Kernel, which is not protected whole: so what it
-    decides is changed nowhere but in it. A relative import is refused: the package is then imported in one way, and
-    `from .. import x`, of which the Kernel's rules say nothing, reaches nothing above it. And no module of it bears a
-    name the rules below are keyed by for a module of the Kernel's."""
+    (issue 838).
+
+    - It is the package Python imports, and what Python imports of it is what is read here: each folder of it has an
+      `__init__.py`; it holds the source this check reads and an `AGENTS.md` alone, so no compiled module stands in a
+      source's place and no file Python could run goes unread; and it holds no link.
+    - It imports itself alone, by its name, and never the Kernel, which is not protected whole: so what it decides is
+      changed nowhere but in it. A relative import is refused: the package is then imported in one way, and
+      `from .. import x`, of which the Kernel's rules say nothing, reaches nothing above it.
+    - No rule written for a module of the Kernel's by that module's name is read of one of its own, and it takes no
+      parameter the Kernel may call: it calls nothing it is given.
+    - It reads nothing of a value but by a built-in type's method that it calls: a generator's frame, and through it
+      every builtin and every module's names, is one attribute away from any function. A name of one of its own
+      modules is read off, and so that name is bound by its import alone: no parameter, local or other import takes it.
+    """
     problems = []
+    if (root / package).is_symlink():
+        problems.append("%s is a link; what Python imports as %s is then kept somewhere else, which nothing protects"
+                        % (package, package))
+    held = [path.relative_to(root / package).as_posix() for path in walk.files(root, package)]
+    for name in held:
+        if name not in read and name.split("/")[-1] != "AGENTS.md":
+            problems.append("%s/%s is neither Python's source nor an AGENTS.md; %s/ holds nothing else, so that nothing "
+                            "compiled is imported in a source's place" % (package, name, package))
+    for link in walk.links(root):
+        if package in [parent.relative_to(root).as_posix() for parent in link.parents if root in parent.parents]:
+            problems.append("%s is a link; Python imports through it, and what it points at is not read here"
+                            % link.relative_to(root).as_posix())
+    folders = {"/".join(name.split("/")[:n]) for name in held for n in range(name.count("/") + 1)}
+    for folder in sorted(folders):
+        if "/".join(filter(None, [folder, "__init__.py"])) not in held:
+            problems.append("%s has no __init__.py; Python may then import another %s, which this does not read"
+                            % ("/".join([package, folder]), package))
     for name, tree in trees.items():
         if name in KEYED:
             problems.append("%s/%s bears the name of a module the Kernel's rules are written for, and they would be "
                             "read of it; name it otherwise" % (package, name))
+        called = {id(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)}
+        modules, imports = _modules(tree, trees, package)
         for node in ast.walk(tree):
+            taken = _bound(node)
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                taken = [alias.asname or alias.name.split(".")[0] for alias in node.names if id(alias) not in imports]
+            for word in taken:
+                if word in modules:
+                    problems.append("%s:%d binds %s, which names a module of %s/; a module's name is bound by its "
+                                    "import alone, so that what is read off it is the module's"
+                                    % (name, getattr(node, "lineno", 0), word, package))
+            if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
+                own = isinstance(node.value, ast.Name) and node.value.id in modules
+                if not own and not (id(node) in called and node.attr in BUILTIN_METHODS):
+                    problems.append("%s:%d reads %s off a value; %s/ reads a name of a module of its own, calls a "
+                                    "built-in type's method, and reads nothing else of a value"
+                                    % (name, node.lineno, node.attr, package))
+            elif type(node).__name__ == "Match":
+                problems.append("%s:%d matches a value against patterns, which can read its attributes; %s/ reads "
+                                "nothing of a value but by a built-in type's method" % (name, node.lineno, package))
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     if alias.name.split(".")[0] == "kernel":
@@ -558,6 +636,9 @@ def _alone(trees: dict, package: str) -> list:
                 if node.module.split(".")[0] == "kernel":
                     problems.append("%s:%d imports %s; %s/ imports itself alone" % (name, node.lineno, node.module, package))
                 node.module = _swapped(node.module, package)
+            elif isinstance(node, ast.arg) and node.arg in CALLABLE_PARAMETERS:
+                problems.append("%s:%d takes %s, which the Kernel alone is given to call; %s/ calls nothing it is given"
+                                % (name, node.lineno, node.arg, package))
     return problems
 
 
@@ -575,10 +656,12 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
     for path in files:
         name = path.relative_to(root / package).as_posix()
         try:
-            trees[name] = ast.parse(path.read_text(errors="replace"), str(path))
+            # The bytes, as Python reads them: a file that declares an encoding is the code that encoding makes of it.
+            trees[name] = ast.parse(path.read_bytes(), str(path))
         except (SyntaxError, ValueError) as err:
             unread.append("%s cannot be read as Python: %s" % (name, err))
-    own = _alone(trees, package) if package != "kernel" else []
+    read = {path.relative_to(root / package).as_posix() for path in files}
+    own = _alone(root, read, trees, package) if package != "kernel" else []
     owned = {name: _defined(name, tree) for name, tree in trees.items() if name in CONFINED}
     takers = _takers(trees)
     tops = {name: _names(name, tree, trees) for name, tree in trees.items()}
