@@ -280,6 +280,7 @@ PATCH_KINDS = ('tests.test_guards.Patch.test_a_new_a_removed_a_renamed_and_a_cop
 PATCH_ONCE = ('tests.test_guards.Patch.test_a_file_is_written_once_and_only_where_the_patch_says_it_stands',)
 PATCH_NO_FILE = ('tests.test_guards.Patch.test_what_is_no_file_is_never_written',)
 PATCH_PORT = ('tests.test_guards.Patch.test_what_a_port_did_not_read_is_the_factorys_under_its_own_code',)
+PATCH_GIT = ('tests.test_guards.Patch.test_a_patch_as_git_writes_it_lands_what_git_would',)
 ISSUE = [
     # What is read short or cannot be read, before row 1.
     ("an issue's lists read short are trusted", ISSUE_PY,
@@ -16368,6 +16369,10 @@ MUTANTS = ISSUE + [
     ("a directory's mode is a mode of what a tree holds", 'guards/patch.py',
      'TREE_MODES = ("100644", "100755", "120000", "160000")\n',
      'TREE_MODES = ("100644", "100755", "120000", "160000", "040000")\n', PATCH_PORT),
+    # guards/patch.py lands what git itself lands.
+    ('every file lands as a plain one, whatever its mode', 'guards/patch.py',
+     '        written[new] = (mode, after)\n',
+     '        written[new] = (FILE_MODES[0], after)\n', PATCH_GIT),
     # Issue 823: the facts name the issue the Factory opened a pull request for, a fact the schema does not require.
     ("the schema requires the issue a pull request was opened for", "schemas/facts.schema.json",
      '    "acceptance",\n    "complete",\n', '    "acceptance",\n    "opened_for",\n    "complete",\n', ("tests.test_tools.Examples.test_the_issue_a_pull_request_was_opened_for_is_a_number_from_1_or_null_or_left_out",)),
