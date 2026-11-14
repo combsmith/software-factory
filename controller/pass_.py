@@ -22,7 +22,8 @@ is refused whole, so that nothing is dispatched from a pass that cannot be repla
 - `effects`: the Effects recorded in the window, `{"applied": [applied/1], "written": [written/1], "whole"}`, or None;
   reconciliation matches the one to the other (`controller/reconcile.py`, decision 0061).
 
-`config` holds `kernel`, the Kernel's configuration; `lifecycles`, each Work item's; `feed`, `config/feed.json`;
+`config` holds `kernel`, the Kernel's configuration, which the issues' Kernel is given with each App named as REST spells
+its Bot (`issue_config`); `lifecycles`, each Work item's; `feed`, `config/feed.json`;
 `controller`, `config/controller.json`; and `release`, the Release that runs. `previous` is the pass records before this
 one, or None if they could not be read; a list holding a record that is not a `pass/1` is read as None.
 """
@@ -53,7 +54,7 @@ PAUSED, NOT_PAUSED = "true", "false"
 CAPACITY, ENVIRONMENT = health_.CAPACITY, health_.ENVIRONMENT
 NOT_RUN = "not_run"
 NEVER_STARTED = "runs_never_started"
-__all__ = ["Refused", "run", "rebuild", "wait_before_reading", "context_of"]
+__all__ = ["Refused", "run", "rebuild", "wait_before_reading", "context_of", "issue_config"]
 
 
 def earlier(previous, now: str):
@@ -262,6 +263,23 @@ def status_head(entry: dict, kernel: dict) -> dict:
     return {} if pull_request.left_alone(facts, kernel) else {"head": entry["head"]}
 
 
+def issue_config(kernel: dict) -> dict:
+    """The Kernel's configuration as `kernel.issue.decide` is given it: each App `issues.label_apps` declares and each
+    Intent's `app`, named in the configuration as config/apps.json names an App, carries the suffix REST spells a Bot's
+    login with, as the issues port names an App; null stays null. A person's login holds no bracket, so none is read as
+    an App's (decision 0218). What is not a name is left as it is, for the Kernel to read as unreadable."""
+    issues = copy.deepcopy(kernel.get("issues"))
+    if not isinstance(issues, dict):
+        return kernel
+    bot = lambda name: name + t.BOT_SUFFIX if isinstance(name, str) and name else name
+    if isinstance(issues.get("label_apps"), dict):
+        issues["label_apps"] = {label: bot(name) for label, name in issues["label_apps"].items()}
+    if isinstance(issues.get("intents"), dict):
+        issues["intents"] = {name: dict(who, app=bot(who.get("app"))) if isinstance(who, dict) and "app" in who else who
+                             for name, who in issues["intents"].items()}
+    return dict(kernel, issues=issues)
+
+
 def moved_once(left_out: list, why: list, before) -> set:
     """The pages of the items left out because they moved while read that the last pass record read and did not leave
     out as moved: each is deferred with no alert, once, and its writes are owed to the next pass (#658). It is derived
@@ -297,8 +315,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     listed, whole, runs, pause, automatic, capacity, context = context_of(records, reads.get("pause"), repos, rules,
                                                                            now, before, previous)
 
-    def asked(entries: list, decide, lifecycle: dict) -> list:
-        kernel = dict(config["kernel"], lifecycle=lifecycle)
+    def asked(entries: list, decide, lifecycle: dict, given: dict) -> list:
+        kernel = dict(given, lifecycle=lifecycle)
         out = []
         for entry in entries:
             facts = entry["facts"]
@@ -320,8 +338,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
               "started_by": started_by(reads.get("started"), rules["accounts"]), "context": context, "runs": runs,
               "reads": (copy.deepcopy(records["reads"]) if listed else [])
               + [dict(r, read="facts") if isinstance(r, dict) else r for r in reads.get("facts_reads") or []],
-              "pull_requests": asked(pulls, pull_request.decide, config["lifecycles"]["pull_request"]),
-              "issues": asked(issues, issue.decide, config["lifecycles"]["issue"]),
+              "pull_requests": asked(pulls, pull_request.decide, config["lifecycles"]["pull_request"], config["kernel"]),
+              "issues": asked(issues, issue.decide, config["lifecycles"]["issue"], issue_config(config["kernel"])),
               "left_out": [{"item": reads_.item(i), "code": code} for i, code in zip(left_out, why)],
               "reconciliation": reconcile_.entries(found),
               "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or (),
