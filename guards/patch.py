@@ -347,11 +347,13 @@ def _placed(path: str, tree: dict, folders: dict) -> bool:
 
 def _handed(tree, contents) -> bool:
     """Whether `tree` and `contents` are in a shape a port gives. A tree is a mapping of paths, as text, to the modes
-    git writes of what is no directory, and no path of it is a directory to another. Contents are a mapping of paths,
-    as text, to bytes."""
+    git writes of what is no directory; no path of it has an empty part or a NUL, which git holds in no name, and
+    none is a directory to another. Contents are a mapping of paths, as text, to bytes."""
     if not isinstance(tree, dict) or not isinstance(contents, dict):
         return False
     if not all(isinstance(path, str) and tree[path] in TREE_MODES for path in tree):
+        return False
+    if not all(all(path.split("/")) and str(NUL, "ascii") not in path for path in tree):
         return False
     if not all(isinstance(path, str) and isinstance(contents[path], bytes) for path in contents):
         return False
