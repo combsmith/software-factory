@@ -1,0 +1,92 @@
+{
+  "schema": "config/1",
+  "approver": "donpetry-bot",
+  "author_role": null,
+  "owner_role": "pr-review",
+  "required_lenses": {
+    "deterministic": [
+      {
+        "lens": "verify",
+        "check": "verify",
+        "app_id": 15368,
+        "workflow": ".github/workflows/verify.yml"
+      },
+      {
+        "lens": "secret-scan",
+        "check": "Secret scan (gitleaks)",
+        "app_id": 15368,
+        "workflow": ".github/workflows/ci.yml"
+      },
+      {
+        "lens": "code-scanning",
+        "check": "CodeQL",
+        "app_id": 57789,
+        "workflow": null
+      }
+    ],
+    "model": [
+      "pr-review"
+    ],
+    "model_not_required_for": [
+      "dependency"
+    ]
+  },
+  "status_on_item": "factory",
+  "check_conclusions": {
+    "success": "passing",
+    "failure": "failing",
+    "timed_out": "failing",
+    "queued": "pending",
+    "in_progress": "pending",
+    "pending": "pending",
+    "waiting": "pending",
+    "requested": "pending",
+    "expected": "pending",
+    "neutral": "unreadable",
+    "skipped": "unreadable",
+    "cancelled": "unreadable",
+    "stale": "unreadable",
+    "action_required": "unreadable",
+    "startup_failure": "unreadable",
+    "error": "unreadable"
+  },
+  "acceptance_reporters": {
+    "test": "verify",
+    "scenario": null,
+    "mutation": null,
+    "static": null,
+    "role": null
+  },
+  "limits": {
+    "max_attempts": 3,
+    "max_rounds": 3,
+    "max_runs_per_item": 10,
+    "max_environment_runs_per_item": 30,
+    "max_unmerged_closes": 1,
+    "org_max_active_runs": 4,
+    "max_diff_lines": 4000,
+    "max_diff_characters": 60000,
+    "max_acts_per_item": 6,
+    "max_path_length": 255,
+    "max_close_lag_seconds": 300,
+    "max_unnamed_run_seconds": 60,
+    "max_unnamed_runs": 1
+  },
+  "issues": {
+    "served_from": null,
+    "left_out_labels": [],
+    "left_out_types": [],
+    "label_apps": {
+      "factory:triage": null,
+      "factory:ready": null
+    },
+    "intents": {
+      "investigate-issue": null,
+      "judge-readiness": null,
+      "open-pull-request": {
+        "role": "dev-lead",
+        "app": "combsmith-sf-dev-lead"
+      }
+    }
+  }
+}

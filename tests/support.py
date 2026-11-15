@@ -9,6 +9,7 @@ import sys
 import time
 import unittest
 
+from controller import configuration
 from tools.hooks import protected
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -21,6 +22,8 @@ CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()),
 # configuration names none until that Role has its manifest under roles/ (issue 675).
 CONFIG["author_role"] = json.loads((ROOT / "config" / "authority.json").read_text())["author_role"]
 CONFIG["model_lens_inputs"] = protected.model_lens_inputs(CONFIG["required_lenses"]["model"])
+# Which of them only a person decides and no model Lens reads, by which the wait is named, as the Controller gives them.
+CONFIG["person_only_paths"] = configuration.person_only(protected.load(), CONFIG["required_lenses"]["model"])
 ITEM = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 42}
 NOW = "2026-10-11T13:00:00Z"
 # Every required check passing, each under its check run's name as GitHub gives it, from its Lens's own App.

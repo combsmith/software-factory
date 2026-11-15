@@ -36,6 +36,7 @@
     {"path": ".git/refs/remotes/", "is": "a remote branch, which a stop compares the branch with"},
     {"path": ".git/packed-refs", "is": "git's packed branches, which a stop compares the branch with"},
     {"path": ".git/info/grafts", "is": "git's grafts, which change the history a stop compares the branch with"},
+    {"path": "guards/", "is": "the guards: what a Role's own write may land"},
     {"path": "release/decision-points.json", "is": "the Maintainer's continue or stop, which he alone decides"}
   ],
   "reported": [
@@ -64,6 +65,7 @@
     {"lens": "verify", "path": "harness/", "is": "the Harness, which gives the review its Task and takes its answer"},
     {"lens": "verify", "path": "release/", "is": "the Release's rules and ring file, whose tests and check verify runs"},
     {"lens": "verify", "path": "evals/", "is": "the held-out set's manifest and the context's test, which verify holds"},
+    {"lens": "verify", "path": "guards/", "is": "the guards: what a Role's own write may land"},
     {"lens": "pr-review", "path": "roles/pr-review.*", "is": "the review Role's manifest and its prompt beside it"},
     {"lens": "pr-review", "path": "roles/pr-review/", "is": "the review Role's own files"},
     {"lens": "pr-review", "path": "config/rubric-pr-review.json", "is": "a rubric"},

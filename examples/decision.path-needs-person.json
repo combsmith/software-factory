@@ -1,0 +1,15 @@
+{
+  "schema": "decision/1",
+  "item": {
+    "repo": "combsmith/software-factory",
+    "type": "pull_request",
+    "number": 42
+  },
+  "state": "verifying",
+  "reason": "path_needs_person",
+  "evidence": [
+    "release/decision-points.json"
+  ],
+  "attention": "needs_you",
+  "outcome": "nothing"
+}

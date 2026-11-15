@@ -319,7 +319,7 @@ class Candidate(unittest.TestCase):
                                   for kind, p in (("finding", finding), ("met", met))},
                         "criteria": {},
                         "origin": {"natural": {"cases": 0, "passed": 0}, "constructed": {"cases": 40, "passed": finding + met}},
-                        "faults": [], "preflight": {"cases": 3, "passed": 3, "faults": []},
+                        "faults": [], "retried": 0, "preflight": {"cases": 3, "passed": 3, "faults": []},
                         "usage": {"answered": 40, "input_tokens": 1, "cache_creation_input_tokens": 0,
                                                 "cache_read_input_tokens": 0, "output_tokens": 1, "turns": 40,
                                                 "cost_usd": 1.5, "seconds": 60.0},
@@ -570,6 +570,28 @@ class Step(unittest.TestCase):
         reads = [refs_read(REFS)] + facts_reads(D, report(verdict="fail"))
         done, code, _, replay = self.run_step(env, reads)
         self.assertEqual((done, code, replay._left), ({"writes": [], "deployments": []}, cut.EVAL_GATE_CLOSED, []))
+
+    def test_a_commit_github_does_not_answer_as_verified_and_on_main_is_refused_and_nothing_is_written(self):  # issue 866
+        # The facts the plan reads are what GitHub answered the port, each on its own read. With the eval gate open, a
+        # commit whose verify failed, and one main does not hold, each reaches the plan as its own refusal, and
+        # nothing is written: for a cut, and for a move forward to a Release at such a commit.
+        def failed(commit):
+            return compared(commit) + [verify_runs(commit, conclusion="failure")]
+
+        def off_main(commit):
+            return compared(commit, status="diverged") + [verify_runs(commit), verify_suite(commit)]
+        cutting = {"RELEASE_COMMAND": "cut", "RELEASE_VERSION": VERSION, "RELEASE_CUT_COMMIT": D, "RELEASE_TOKEN": "t"}
+        moving = {"RELEASE_COMMAND": "move", "RELEASE_TO": "factory/v0.2.0", "RELEASE_TOKEN": "t"}
+        for env, refs, commit, release in ((cutting, REFS, D, VERSION), (moving, dict(REFS, **{NEXT: A}), B, "factory/v0.2.0")):
+            judged = gate_reads(commit, report(commit=commit, release=release))
+            for reads, said, code in ((failed(commit) + judged, {"on_main": True, "verified": False}, cut.NOT_VERIFIED),
+                                      (off_main(commit) + judged, {"on_main": False, "verified": True}, cut.NOT_ON_MAIN)):
+                with self.subTest(command=env["RELEASE_COMMAND"], code=code):
+                    facts = candidate.facts(github.Replay(reads), REPO, commit, release)
+                    self.assertEqual(facts, dict(said, commit=commit, gate="pass", release=release))
+                    done, refused, _, replay = self.run_step(env, [refs_read(refs)] + reads)
+                    self.assertEqual((done, refused, replay._left), ({"writes": [], "deployments": []}, code, []))
+                    self.assertEqual([a for a in self.asked if not a.startswith("GET ")], [])
 
     def test_a_write_not_read_back_stops_the_step_there(self):
         env = {"RELEASE_COMMAND": "cut", "RELEASE_VERSION": VERSION, "RELEASE_CUT_COMMIT": D, "RELEASE_TOKEN": "t"}

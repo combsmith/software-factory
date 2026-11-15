@@ -133,7 +133,7 @@ def outcome(transport, repo: str, github_id: int, run: str, seen=None, started=N
     return record["outcome"], True
 
 
-def applied(transport, repo: str, github_id: int, run: str, seen=None, required: bool = False) -> tuple:
+def applied(transport, repo: str, github_id: int, run: str, seen=None, required: bool = False, fresh: bool = False) -> tuple:
     """`(applied/1, whole)` of the Run GitHub numbers `github_id` and the Factory names `run`: None and whole for a Run
     that uploaded none, as one that wrote nothing or was killed; None and not whole for one that cannot be read, is not
     `applied/1` or is another Run's, so that reconciliation is short and never matches a write to it (decision 0061).
@@ -141,10 +141,11 @@ def applied(transport, repo: str, github_id: int, run: str, seen=None, required:
     downloaded under `STORED`, since `PASSED` is a pass record's alone; only the file in it may be larger, as JSON
     zipped is (issue 329). `required`, for a Run that succeeded, which uploads one whatever it wrote: one that lists
     none was deleted, and is not whole (decision 0069). One past its retention is `EXPIRED`, whole: it recorded what
-    can no longer be read, and its Lens's review is asked for again (issue 346)."""
+    can no longer be read, and its Lens's review is asked for again (issue 346). `fresh` asks for the list uncached, for
+    a look that a second look must not find answered from the first's (issue 709)."""
     told = []
     held, whole = read(transport, repo, github_id, seen, APPLIED, APPLIED_MEMBER, ZIPPED, APPLIED_MOST, required,
-                       expired=told)
+                       expired=told, fresh=fresh)
     if told:
         return EXPIRED, True
     if held is None:

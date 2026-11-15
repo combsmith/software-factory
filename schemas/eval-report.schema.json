@@ -130,6 +130,7 @@
                 "task_too_large",
                 "rubric_unreadable",
                 "head_unreadable",
+                "vendor_unavailable",
                 "answer_off_rubric",
                 "result_not_completed",
                 "finding_not_raised",
@@ -168,7 +169,7 @@
             "const": true
           },
           "cause": {
-            "description": "Why a case was unanswered or stopped by the Engine, where the job found it: an exception's class and the last line of this repo's code it passed, a step's code, the CLI's subtype and exit, or that it timed out. Never a message.",
+            "description": "Why a case was unanswered or stopped by the Engine, where the job found it: an exception's class and the last line of this repo's code it passed, a step's code, the CLI's subtype and exit, how it says it ended and the vendor's status (issue 615), or that it timed out. Never a message.",
             "type": "object",
             "additionalProperties": false,
             "properties": {
@@ -177,13 +178,21 @@
               "stop": { "type": "string", "pattern": "^[a-z][a-z_]{0,63}$" },
               "subtype": { "type": "string", "pattern": "^[a-z][a-z_]{0,63}$" },
               "exit": { "type": "integer", "minimum": -255, "maximum": 255 },
-              "timed_out": { "const": true }
+              "timed_out": { "const": true },
+              "terminal_reason": { "enum": ["api_error", "structured_output_retry_exhausted", "other"] },
+              "api_error_status": { "type": "integer", "minimum": 100, "maximum": 599 }
             }
           },
           "surplus_gating": {
             "description": "On a case that expects a Finding, how many gating Findings the Result put away from every place the case gives (issue 610): a count the report can sum, saying no place.",
             "type": "integer",
             "minimum": 1
+          },
+          "retried": {
+            "description": "How many times the case was asked again after the vendor or the network failed it (issue 615), where it was.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2
           }
         }
       }

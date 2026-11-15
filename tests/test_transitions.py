@@ -87,8 +87,11 @@ def unstarted(count: int) -> list:
 
 
 def base(runs=(), **over) -> dict:
-    """A pull request as the Kernel reads it: its facts, its Runs, and the minute of its last change."""
-    return {"facts": facts(**over), "runs": [copy.deepcopy(r) for r in runs], "minute": FIRST_MOVE}
+    """A pull request as the Kernel reads it: its facts, its Runs, and the minute of its last change. Each is one the
+    Factory opened, for issue 7, as each of the simulator's is: the author Role mends no other (decision 0216), and
+    what an item that waits for its author may do is issue 824's to explore."""
+    return {"facts": facts(**dict({"opened_for": 7}, **over)), "runs": [copy.deepcopy(r) for r in runs],
+            "minute": FIRST_MOVE}
 
 
 PERSONS_THREAD = thread(kind="human", name=MAINTAINER["name"], severity=None)
@@ -113,6 +116,9 @@ BASES = {
     # An agent's change to the review Role's manifest: reviewed, it waits for a person's approval of its head (issue 140).
     "an agent's change to a model Lens's input, awaiting a person": base(
         [reviewed()], changed_paths=[a_file("roles/pr-review.json"), a_file("docs/notes.md")], **AGENT),
+    # And to a path only a person decides, which no Lens reads: the same wait, under its own code (issue 746).
+    "an agent's change to a path only a person decides, awaiting a person": base(
+        [reviewed()], changed_paths=[a_file("release/decision-points.json"), a_file("docs/notes.md")], **AGENT),
     # A dependency bot's rebase at the act ceiling: held, then rebased, then its last check passes, and held again.
     "a dependency update held at the act ceiling": base(content_id="sha256:bbbb", reviews=APPROVED,
                                                         acts_since_writer=LIMITS["max_acts_per_item"], **DEPENDENCY),
