@@ -17,7 +17,7 @@ import unittest.mock
 
 from adapters import effects, github, identity
 from adapters.facts import Moved
-from harness import apply, bundle, engine, shared
+from harness import apply, bundle, engine, run, shared
 from harness import task as task_
 from tests import support
 
@@ -1189,6 +1189,24 @@ class Bundle(unittest.TestCase):
             said = bundle.held({"push_commits": [push_effect(data)]}, self.BASE, "the read token", REPO,
                                fetch or (lambda artifact, digest: data))
         return said, asked
+
+    def test_what_run_hands_over_is_what_the_hold_reads(self):  # issue 880: the seam, from both sides
+        # The bundle the Harness fills and the bytes `run` writes beside the Result are what the hold takes: a fetch that
+        # reads that file passes a clean patch, and one byte changed is not the digest the push names.
+        answered = {"effects": {"push_commits": [{"id": "e9", "patch": {"body": changed("docs/café.md")}}]}}
+        result, data = run.handed_over(engine.bundled(answered))
+        self.assertEqual(result["effects"], {"push_commits": [{"id": "e9", "bundle": {
+            "artifact": shared.BUNDLE_ARTIFACT, "digest": "sha256:" + hashlib.sha256(data).hexdigest()}}]})
+        asked = []
+
+        def fetch(artifact, digest, handed=data):
+            asked.append((artifact, digest))
+            return handed
+        with unittest.mock.patch.object(bundle.rules, "listed_at", lambda *a: (own_list(), None)):
+            self.assertIsNone(bundle.held(result["effects"], self.BASE, "the read token", REPO, fetch))
+            self.assertEqual(asked, [("result", result["effects"]["push_commits"][0]["bundle"]["digest"])])
+            self.assertEqual(bundle.held(result["effects"], self.BASE, "the read token", REPO,
+                                         lambda a, d: fetch(a, d, data[:-2] + b"d\n")), ("item", "bundle_digest_differs"))
 
     def test_every_name_a_patch_writes_or_reads_is_read_from_it(self):
         self.assertEqual(bundle.names(a_bundle(changed("docs/a.md"))), (["docs/a.md"], []))

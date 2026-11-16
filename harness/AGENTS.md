@@ -1,8 +1,7 @@
 # harness/
 
-The Harness: the jobs of one Run. `task.py` builds the Task from the Run's Decision, `engine.py` runs the CLI with no tool or secret but its own, `run.py` writes the Result and its digest alone. `apply.py` reads the item again, refuses what may not be
-written, writes the Effects by a token narrowed to them, records what it read back; `bundle.py` holds a Role's push to the base's list before any token is minted; `approve.py` is the approving act, by the machine user's token alone (decision 0055). Steps:
-`read.py`; `verify.py`; `apply_step.py`, `outcome.py`; `approve_step.py`; `reread.py`; `queue.py`, `queue_step.py`, the queue App's act (decision 0130); `steps.py`, their files. `eval/`: decision 0053, `eval/AGENTS.md`. Tests drive a stand-in CLI.
+One Run's jobs. `task.py` builds the Task, `engine.py` runs the CLI with no tool or secret but its own, `run.py` writes the Result, its digest and a push's patch. `apply.py` reads the item again and writes what it may by a narrowed token; `bundle.py` holds
+a push to the base's list; `approve.py` approves (decision 0055). Steps: `read.py`, `verify.py`, `apply_step.py`, `outcome.py`, `approve_step.py`, `reread.py`, `queue.py`, `queue_step.py` (decision 0130), `steps.py`. `eval/`: decision 0053, `eval/AGENTS.md`.
 Not built yet, by the stories that hold their rules: push.py.
 
 | Rule | Held by |
@@ -22,6 +21,7 @@ Not built yet, by the stories that hold their rules: push.py.
 | A CLI that fails or runs past its time is a `failed` Result | `tests/test_harness.py::test_a_cli_that_fails_or_runs_past_its_time_is_a_failed_result` |
 | The `run` job writes the Result and its digest; the log carries the digest alone | `tests/test_harness.py::test_the_job_writes_the_result_and_its_digest_and_nothing_else`, `tests/test_harness.py::test_the_log_carries_the_digest_alone` |
 | The CLI starts in an empty directory, or a review's head, with nothing on its input and only its environment | `tests/test_harness.py::test_the_cli_starts_in_an_empty_directory_with_only_its_environment` |
+| A Run that writes code reads its commit as a review its head; the Harness fills its push's bundle, and `run` hands the patch over | `tests/test_harness.py::test_a_writing_run_reads_its_commit`, `tests/test_harness.py::test_the_job_hands_over_the_patch` |
 | `apply` writes nothing on an item closed, held, paused, moved or no longer admitted for the Run, the Kernel asked again with the Run left out | `tests/test_apply.py::test_a_change_under_the_run_writes_nothing_and_is_superseded` |
 | `apply` writes nothing for a Result not the Run's, not completed or uncovered | `tests/test_apply.py::test_a_result_not_the_runs_or_not_completed_writes_nothing`, `tests/test_apply.py::test_an_uncovered_result_writes_nothing` |
 | `apply` refuses an Effect not permitted, a thread off the item, or a Finding posted other than once or out of place | `tests/test_apply.py::test_effects_the_task_does_not_permit_or_findings_posted_other_than_once_write_nothing` |
