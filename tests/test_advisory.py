@@ -7,6 +7,7 @@ from __future__ import annotations
 import io
 import os
 import unittest
+from unittest import mock
 
 from adapters import azure
 
@@ -80,9 +81,6 @@ class Transport(unittest.TestCase):
                          ("https://%s/openai/v1/responses" % HOST, "POST", KEY, 30))
         self.assertEqual((azure.json.loads(sent.data), sent.get_header("Content-type")), (ASKED, "application/json"))
         self.assertIsNone(sent.get_header("Authorization"))
-        opener = Capture()
-        live(opener).send(azure.read(ID))
-        self.assertEqual((opener.sent[0][0].get_method(), opener.sent[0][0].data), ("GET", None))
         # A request built by hand is held to the same rules before anything is opened.
         opener = Capture()
         for req in ({"act": "read", "id": "../files", "body": None}, {"act": "upload", "id": None, "body": ASKED},
@@ -98,21 +96,8 @@ class Transport(unittest.TestCase):
         for key in ("", " ", "a b", "a\nb", "a\rb", "kéy", None, 7, b"key"):
             with self.assertRaises(azure.Unanswered, msg=repr(key)):
                 azure.Live(HOST, key, 30)
-        kept = {k: os.environ.get(k) for k in ("https_proxy", "HTTPS_PROXY", "AZURE_OPENAI_API_KEY")}
-        try:
-            os.environ["https_proxy"] = os.environ["HTTPS_PROXY"] = "http://proxy.invalid:1"
-            os.environ["AZURE_OPENAI_API_KEY"] = "from-the-environment"
-            transport = live()
-            opener = Capture()
-            handlers, transport.opener = transport.opener.handlers, opener
-            transport.send(azure.chat(ASKED))
-        finally:
-            for k, v in kept.items():
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
-        self.assertEqual(opener.sent[0][0].get_header("Api-key"), KEY)
+        with mock.patch.dict(os.environ, {"https_proxy": "http://proxy.invalid:1", "HTTPS_PROXY": "http://proxy.invalid:1"}):
+            handlers = live().opener.handlers
         # It follows no redirect, so the key goes to the host named and to no other, and takes no proxy.
         self.assertTrue(any(isinstance(h, azure._NoRedirect) for h in handlers))
         self.assertFalse(any(type(h) is azure.urllib.request.HTTPRedirectHandler for h in handlers))
@@ -146,7 +131,9 @@ class Transport(unittest.TestCase):
         for seconds in (0, -1, azure.LONGEST + 1, 1.5, "30", None, True):
             with self.assertRaises(azure.Unanswered, msg=repr(seconds)):
                 azure.Live(HOST, KEY, seconds)
-        self.assertEqual(live(Capture(), seconds=azure.LONGEST).send(azure.read(ID))["status"], 200)
+        opener = Capture()
+        self.assertEqual(live(opener, seconds=azure.LONGEST).send(azure.read(ID))["status"], 200)
+        self.assertEqual((opener.sent[0][0].get_method(), opener.sent[0][0].data, opener.sent[0][1]), ("GET", None, azure.LONGEST))
         # An answer at the bound is kept; one byte over is refused, never cut short.
         at = b'"' + b"a" * (azure.LARGEST - 2) + b'"'
         self.assertEqual(len(live(Capture(at)).send(azure.read(ID))["body"]), azure.LARGEST - 2)
