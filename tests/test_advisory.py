@@ -19,7 +19,12 @@ ASKED = {"model": "a-deployment", "input": "the prompt", "background": True, "st
 
 class Answer(io.BytesIO):
     status = 200
-    headers = {"Content-Type": "application/json", "Retry-After": "7", "Set-Cookie": "c=1"}
+    headers = {"Content-Type": "application/json; charset=utf-8", "Retry-After": "7", "Set-Cookie": "c=1"}
+    asked = []
+
+    def read(self, size=-1):
+        self.asked.append(size)
+        return super().read(size)
 
 
 class Capture:
@@ -62,7 +67,18 @@ class Transport(unittest.TestCase):
         # user, no path, no other case, and no host that only ends as one does.
         for host in (HOST, "f.openai.azure.com", "factory-readers.services.ai.azure.com",
                      "factory-readers.cognitiveservices.azure.com"):
-            self.assertEqual(azure.Live(host, KEY, 30).host, host)
+            opener = Capture()
+            live(opener, host).send(azure.read(ID))
+            self.assertEqual(opener.sent[0][0].full_url, "https://%s/openai/v1/responses/%s" % (host, ID))
+        azure.Live("f" * 63 + ".openai.azure.com", KEY, 30)
+
+        class Text(str):
+            def __str__(self):
+                return "example.com"
+        with self.assertRaises(azure.Unanswered):
+            azure.Live(Text(HOST), KEY, 30)
+        with self.assertRaises(azure.Unanswered):
+            azure.read(Text(ID))
         for host in ("openai.azure.com", ".openai.azure.com", "a.b.openai.azure.com", "Factory.openai.azure.com",
                      "factory.openai.azure.com:8443", "u@factory.openai.azure.com", "factory.openai.azure.com/x",
                      "factory.openai.azure.com.example.com", "factory.openai.azure.com\n", "-f.openai.azure.com",
@@ -74,7 +90,7 @@ class Transport(unittest.TestCase):
         # What it sends: HTTPS to that host, the path asked, the body as JSON, and its caller's key under Azure's header.
         opener = Capture()
         answer = live(opener).send(azure.create(ASKED))
-        self.assertEqual(answer, {"status": 200, "headers": {"content-type": "application/json", "retry-after": "7"},
+        self.assertEqual(answer, {"status": 200, "headers": {"content-type": "application/json; charset=utf-8", "retry-after": "7"},
                                   "body": {"status": "queued"}})
         sent, timeout = opener.sent[0]
         self.assertEqual((sent.full_url, sent.get_method(), sent.get_header("Api-key"), timeout),
@@ -113,6 +129,7 @@ class Transport(unittest.TestCase):
             with self.assertRaises(azure.Unanswered, msg=code) as refused:
                 live(Moved()).send(azure.create(ASKED))
             self.assertIn("redirect", str(refused.exception))
+            self.assertIsNone(refused.exception.__context__)
         # No refusal names the key, the host or the address, and none is chained to an error that does.
         secret = "s3cr3t-" + "k" * 20
 
@@ -128,6 +145,8 @@ class Transport(unittest.TestCase):
 
     def test_the_azure_transport_bounds_every_answer_in_size_and_time(self):
         # The seconds are its caller's, a whole number from one to the longest a step may wait on one request.
+        self.assertEqual(azure.LONGEST, 20 * 60)
+        live(seconds=1)
         for seconds in (0, -1, azure.LONGEST + 1, 1.5, "30", None, True):
             with self.assertRaises(azure.Unanswered, msg=repr(seconds)):
                 azure.Live(HOST, KEY, seconds)
@@ -139,6 +158,7 @@ class Transport(unittest.TestCase):
         self.assertEqual(len(live(Capture(at)).send(azure.read(ID))["body"]), azure.LARGEST - 2)
         with self.assertRaises(azure.Unanswered):
             live(Capture(at + b" ")).send(azure.read(ID))
+        self.assertEqual(set(Answer.asked), {azure.CHUNK})      # never the whole of what is sent, read to be refused
         # Azure out of reach, or an answer cut short while it is read, a body's or an error's, is refused and never
         # another exception.
         class Short:
@@ -172,14 +192,22 @@ class Transport(unittest.TestCase):
         class Large:
             def open(self, request, timeout=None):
                 raise azure.urllib.error.HTTPError(request.full_url, 500, "x", {}, io.BytesIO(b"x" * (azure.LARGEST + 1)))
-        with self.assertRaises(azure.Unanswered):
+        with self.assertRaises(azure.Unanswered) as refused:
             live(Large()).send(azure.create(ASKED))
+        self.assertIsNone(refused.exception.__context__)
+        # What cannot be sent as JSON, or read as it however deep, is refused or text, and never another exception.
+        for body in ({"a": {1}}, {"a": float("nan")}):
+            with self.assertRaises(azure.Unanswered):
+                live(Capture()).send(azure.create(body))
+        self.assertEqual(len(live(Capture(b"[" * 200000)).send(azure.read(ID))["body"]), 200000)
+        self.assertIsNone(live(Capture(b"")).send(azure.read(ID))["body"])
         # A body that is not JSON, or says it is and is not, is text, and no header is kept but the ones named.
         class Plain(io.BytesIO):
             status = 502
             headers = {"Content-Type": "text/html", "X-Other": "1"}
         self.assertEqual(live(Capture(b"<html>", Plain)).send(azure.read(ID)),
                          {"status": 502, "headers": {"content-type": "text/html"}, "body": "<html>"})
+        self.assertEqual(live(Capture(b"{}", Plain)).send(azure.read(ID))["body"], "{}")
         self.assertEqual(live(Capture(b"{not json")).send(azure.read(ID))["body"], "{not json")
 
 

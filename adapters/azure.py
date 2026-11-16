@@ -7,8 +7,9 @@ An answer is `{status, headers, body}`.
 `Live` sends HTTPS to the one host its caller names, which is the configuration's, held to the forms Azure serves a
 model's API under, on its own port. It sends the paths of two APIs alone: Responses, to create a response, read it and
 cancel it, and Chat Completions, to create one. It takes its key from its caller and never from the environment, and
-sends it under Azure's own header to that host and no other: it follows no redirect and uses no proxy. Every request
-has its caller's limit in seconds, every answer is bounded and refused past the bound, never cut short, and of an
+sends it under Azure's own header to that host and no other: it follows no redirect and uses no proxy. Each wait on
+the connection has its caller's limit in seconds, which bounds no answer that comes slowly: the whole is bounded by the
+limit of the step that calls. Every answer is bounded in size and refused past the bound, never cut short, and of an
 answer's headers it keeps the two a caller reads. No refusal names the host, the address or the key, and none is chained
 to an error of urllib's, which holds the address asked. Nothing is installed: the standard library does the rest.
 
@@ -31,7 +32,7 @@ CHAT = "/openai/v1/chat/completions"
 IDENT = re.compile(r"[A-Za-z0-9_-]{1,200}")
 LARGEST = 4 * 1024 * 1024       # bytes an answer may hold; one larger is refused, never cut short silently
 CHUNK = 1024 * 1024             # bytes read at a time, so the bound costs no more memory than the answer
-LONGEST = 1200                  # seconds a caller may give one request: the advise step's own limit (decision 0224)
+LONGEST = 1200                  # seconds a caller may give one wait: the advise step's own limit (decision 0224)
 REDIRECTS = {301, 302, 303, 307, 308}
 KEPT = ("content-type", "retry-after")      # the headers of an answer a caller reads; no other is kept
 
@@ -46,13 +47,6 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
             fp.close()
         raise Unanswered("Azure answered %d, a redirect; the transport follows none" % code)
 
-    def http_error_302(self, req, fp, code, msg, headers):
-        if fp is not None:
-            fp.close()
-        raise Unanswered("Azure answered %d, a redirect; the transport follows none" % code)
-
-    http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
-
 
 ACTS = ("create", "read", "cancel", "chat")
 
@@ -61,7 +55,7 @@ def request(act: str, ident, body) -> dict:
     """One of the four requests, or a refusal: `create` or `chat` with a JSON object that is not empty and no id, or
     `read` or `cancel` with a response's id and no body."""
     made = act in ("create", "chat") and ident is None and isinstance(body, dict) and bool(body)
-    named = act in ("read", "cancel") and isinstance(ident, str) and IDENT.fullmatch(ident) is not None and body is None
+    named = act in ("read", "cancel") and type(ident) is str and IDENT.fullmatch(ident) is not None and body is None
     if not isinstance(act, str) or not (made or named):
         raise Unanswered("the transport sends a response's create, read and cancel and a chat completion's create alone")
     return {"act": act, "id": ident, "body": body}
@@ -108,7 +102,7 @@ def _answer(status: int, headers, raw: bytes) -> dict:
     if kept.get("content-type", "").split(";")[0].strip().endswith("json"):
         try:
             return {"status": status, "headers": kept, "body": json.loads(text) if text else None}
-        except ValueError:
+        except (ValueError, RecursionError):
             pass
     return {"status": status, "headers": kept, "body": text}
 
@@ -116,7 +110,7 @@ def _answer(status: int, headers, raw: bytes) -> dict:
 def _bounded(stream) -> bytes:
     parts, size = [], 0
     while True:
-        part = stream.read(min(CHUNK, LARGEST + 1))
+        part = stream.read(CHUNK)
         if not part:
             return b"".join(parts)
         size += len(part)
@@ -128,16 +122,16 @@ def _bounded(stream) -> bytes:
 class Live:
     """HTTPS to the one host named, with the key and the seconds its caller gives it."""
 
-    __slots__ = ("host", "opener", "_key", "_seconds")
+    __slots__ = ("opener", "_host", "_key", "_seconds")
 
     def __init__(self, host: str, key: str, seconds: int):
-        if not isinstance(host, str) or not HOSTS.fullmatch(host):
+        if type(host) is not str or not HOSTS.fullmatch(host):
             raise Unanswered("the host is one of Azure's, for a model's API, as the configuration names it")
-        if not isinstance(key, str) or not key or not key.isascii() or any(not c.isprintable() or c == " " for c in key):
+        if type(key) is not str or not key or not key.isascii() or any(not c.isprintable() or c == " " for c in key):
             raise Unanswered("a key is one word, given by the caller")
         if type(seconds) is not int or not 1 <= seconds <= LONGEST:
-            raise Unanswered("a request's limit is a whole number of seconds, from 1 to %d" % LONGEST)
-        self.host, self._key, self._seconds = host, key, seconds
+            raise Unanswered("a wait's limit is a whole number of seconds, from 1 to %d" % LONGEST)
+        self._host, self._key, self._seconds = host, key, seconds
         # No proxy from the environment, and no redirect: the request and its key go to the host named, or nowhere.
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect,
                                                   urllib.request.HTTPSHandler)
@@ -148,12 +142,12 @@ class Live:
     def send(self, req: dict) -> dict:
         verb, path, body = wire(req)
         headers = {"api-key": self._key, "Accept": "application/json", "User-Agent": "software-factory"}
-        data = None
-        if body is not None:
-            data, headers["Content-Type"] = json.dumps(body).encode(), "application/json"
-        sent = urllib.request.Request("https://%s%s" % (self.host, path), data=data, headers=headers, method=verb)
         # A refusal is raised only once every handler has ended, so that it is chained to no error of urllib's.
         try:
+            data = None
+            if body is not None:
+                data, headers["Content-Type"] = json.dumps(body, allow_nan=False).encode(), "application/json"
+            sent = urllib.request.Request("https://%s%s" % (self._host, path), data=data, headers=headers, method=verb)
             try:
                 with self.opener.open(sent, timeout=self._seconds) as got:
                     return _answer(got.status, got.headers, _bounded(got))
@@ -164,7 +158,7 @@ class Live:
                     return _answer(err.code, err.headers, _bounded(err))
         except Unanswered as err:
             refused = str(err)
-        except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as err:
+        except (urllib.error.URLError, OSError, ValueError, TypeError, http.client.HTTPException) as err:
             refused = "Azure could not be reached, or its answer was cut short: %s" % type(err).__name__
         raise Unanswered(refused)
 
