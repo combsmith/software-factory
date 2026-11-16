@@ -1,7 +1,7 @@
 """The second transport, `adapters/azure.py`: what an advisory Lens's reader is asked through (decision 0224).
 
 Nothing here reaches the network: the live transport is held by what it refuses before it sends anything, and by what a
-stand-in opener was handed; the replay answers what a test recorded, each once and in order."""
+stand-in opener was handed."""
 from __future__ import annotations
 
 import io
@@ -194,30 +194,6 @@ class Transport(unittest.TestCase):
         self.assertEqual(live(Capture(b"<html>", Plain)).send(azure.read(ID)),
                          {"status": 502, "headers": {"content-type": "text/html"}, "body": "<html>"})
         self.assertEqual(live(Capture(b"{not json")).send(azure.read(ID))["body"], "{not json")
-
-    def test_an_azure_replay_answers_only_what_was_recorded_and_each_once(self):
-        queued = {"request": azure.create(ASKED), "response": {"status": 200, "headers": {}, "body": {"id": ID}}}
-        done = {"request": azure.read(ID), "response": {"status": 200, "headers": {}, "body": {"status": "completed"}}}
-        replay = azure.Replay([queued, done])
-        self.assertEqual(replay.send(azure.create(ASKED))["body"], {"id": ID})
-        self.assertEqual(replay.send(azure.read(ID))["body"], {"status": "completed"})
-        with self.assertRaises(azure.Unanswered):
-            replay.send(azure.read(ID))
-        # Out of the order recorded, with another body, or a request the live transport would not send: refused.
-        with self.assertRaises(azure.Unanswered):
-            azure.Replay([queued, done]).send(azure.read(ID))
-        with self.assertRaises(azure.Unanswered):
-            azure.Replay([queued]).send(azure.create(dict(ASKED, input="another prompt")))
-        with self.assertRaises(azure.Unanswered):
-            azure.Replay([queued]).send({"act": "upload", "id": None, "body": ASKED})
-        # A recording of a request the live transport would not send is no recording.
-        with self.assertRaises(azure.Unanswered):
-            azure.Replay([{"request": {"act": "upload", "id": None, "body": ASKED},
-                           "response": {"status": 200}}])
-        # What it hands back is a copy: a caller that changes an answer changes no recording.
-        replay = azure.Replay([queued, queued])
-        replay.send(azure.create(ASKED))["body"]["id"] = "changed"
-        self.assertEqual(replay.send(azure.create(ASKED))["body"], {"id": ID})
 
 
 if __name__ == "__main__":

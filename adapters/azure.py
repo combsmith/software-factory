@@ -12,12 +12,9 @@ has its caller's limit in seconds, every answer is bounded and refused past the 
 answer's headers it keeps the two a caller reads. No refusal names the host, the address or the key, and none is chained
 to an error of urllib's, which holds the address asked. Nothing is installed: the standard library does the rest.
 
-`Replay` answers from exchanges recorded as `{request, response}`, each once and in order, matched by its act, its id and
-the whole body, and refuses anything else, as `adapters.github.Replay` does (L-51).
 """
 from __future__ import annotations
 
-import copy
 import http.client
 import json
 import re
@@ -171,18 +168,3 @@ class Live:
             refused = "Azure could not be reached, or its answer was cut short: %s" % type(err).__name__
         raise Unanswered(refused)
 
-
-class Replay:
-    """Answers from recorded exchanges, each once, in the order recorded: a request asked out of that order, or one the
-    next exchange does not hold, is refused, and so is one `Live` would not send."""
-
-    def __init__(self, exchanges: list):
-        self._left = [(e["request"], e["response"]) for e in exchanges if wire(e["request"])]
-
-    def send(self, req: dict) -> dict:
-        # Each recorded request was held to `request` when the replay was made, so one equal to it is one `Live` sends.
-        if self._left and json.dumps(self._left[0][0], sort_keys=True) == json.dumps(req, sort_keys=True):
-            answer = self._left.pop(0)[1]
-            return {"status": answer["status"], "headers": dict(answer.get("headers") or {}),
-                    "body": copy.deepcopy(answer.get("body"))}
-        raise Unanswered("the recording holds no answer, next, to the request asked")
