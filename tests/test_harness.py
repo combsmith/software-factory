@@ -938,6 +938,43 @@ class Engine(unittest.TestCase):
                                           "is_error": False, "modelUsage": {MODEL: {}}}])))
         self.assertEqual((r["status"], r["usage"]["turns"]), ("completed", 1))
 
+    def test_the_harness_fills_shown(self):  # issue 856
+        # What a review was shown of its Lens's open Findings is the Harness's to say, from the Task alone: each Finding
+        # the Task lists whose text it kept, in the Task's order, by its id and the digest of that text as UTF-8. The
+        # Result's digest binds it, so `apply` can hold a Disposition to what was shown and to nothing read again.
+        first, second = "f_9c1e", "f_22ab"
+        texts = [text("finding:" + first, body="Return early.\n"), text("finding:" + second, body="café")]
+        the_task = built(texts, findings=[first, second])
+        r = engined(the_task=the_task)
+        self.assertEqual((r["status"], shared.errors(r, "result")), ("completed", []))
+        self.assertEqual(r["shown"], [{"finding": first, "text": sha(b"Return early.\n")},
+                                      {"finding": second, "text": sha("café".encode("utf-8"))}])
+        self.assertEqual(shared.FINDING_TEXT, "finding:")
+        # The Task's order, whatever the texts' or the ids'; and a text edited is another digest.
+        self.assertEqual([s["finding"] for s in engine.shown(built(texts, findings=[second, first]))], [second, first])
+        self.assertEqual([s["finding"] for s in engine.shown(built(texts[::-1], findings=[first, second]))], [first, second])
+        edited = engine.shown(built([text("finding:" + first, body="Return early."), texts[1]], findings=[first, second]))
+        self.assertEqual([s["text"] for s in edited], [sha(b"Return early."), r["shown"][1]["text"]])
+        # A Finding listed with no text kept was not shown, and a text under another id is not its text; a Task that
+        # lists none showed none, and says so.
+        self.assertEqual(engine.shown(built([texts[1], text("thread:" + first)], findings=[first, second])), [r["shown"][1]])
+        self.assertEqual(engine.shown(built(texts)), [])
+        self.assertEqual(engined()["shown"], [])
+        # The model is not handed the field, and an answer that names it, empty or not, is no Result.
+        self.assertNotIn("shown", engine.handed(the_task)["properties"])
+        for named in ([], r["shown"], [{"finding": "f_0bad", "text": sha(b"x")}]):
+            forged = engined(CLI(said=answer(result=judged(shown=named))), the_task)
+            self.assertEqual((forged["status"], forged["reason"]), ("failed", "result_invalid"), named)
+            self.assertNotIn("shown", forged)
+        # result/1 holds each entry to an id and a digest, and nothing else: no text of the Finding's reaches a Result.
+        example = json.loads((ROOT / "examples" / "result.adjudication.json").read_text())
+        self.assertEqual(([s["finding"] for s in example["shown"]], shared.errors(example, "result")), ([first, second], []))
+        for name in ("a-finding-shown-with-its-text", "a-finding-shown-by-no-digest", "a-finding-shown-by-its-id-alone"):
+            odd = json.loads((ROOT / "examples" / "invalid" / ("result.%s.json" % name)).read_text())
+            self.assertEqual(len(shared.errors(odd, "result")), 1, name)
+        twice = dict(example, shown=example["shown"][:1] * 2)
+        self.assertNotEqual(shared.errors(twice, "result"), [])
+
     def test_an_answer_that_does_not_validate_is_no_result(self):  # decision 0038, decision 0004
         bad = [answer(result={}), answer(result=judged(run="r_01JA7Z")), answer(result=judged(reason="all_good")),
                answer(result=judged(status="refused")), answer(result=judged(status="failed", reason="x")),

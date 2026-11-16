@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "result/1: what one Run judged, and only that, as `run` uploads it. The Engine writes schema, run, status (completed, incomplete or refused), reason, dispositions, findings, effects and coverage; the Harness fills release and usage, and writes a failed Result whole. No field names a Role, an App, an actor, a content id or a commit.",
+  "title": "result/1: what one Run judged, and only that, as `run` uploads it. The Engine writes schema, run, status (completed, incomplete or refused), reason, dispositions, findings, effects and coverage; the Harness fills release, usage and shown, and writes a failed Result whole. No field names a Role, an App, an actor, a content id or a commit.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -72,6 +72,29 @@
     },
     "effects": {
       "$ref": "effect.schema.json"
+    },
+    "shown": {
+      "description": "The Harness's, never the model's: each Finding the Run's Task listed whose text the Task kept, in the Task's order, by its id and the digest of that text as UTF-8. It is what the review was shown, bound by the Result's own digest, so that apply holds a Disposition to it and to nothing it reads again (issue 856). The model is not handed the field, and an answer that names it is no Result.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "finding",
+          "text"
+        ],
+        "properties": {
+          "finding": {
+            "type": "string",
+            "pattern": "^f_[0-9a-f]{4,64}$"
+          },
+          "text": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        }
+      }
     },
     "coverage": {
       "$ref": "coverage.schema.json"
