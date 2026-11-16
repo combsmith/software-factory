@@ -820,6 +820,12 @@ def readable_head(facts: dict) -> bool:
                                        or (isinstance(facts["branch_head"], str) and facts["branch_head"] != ""))
 
 
+def readable_base(facts: dict) -> bool:
+    """The default branch's head as the pass read it, the commit an opening Run reads and lands its one commit on: a
+    name. Never null, and never defaulted: the default branch always has a head, and a guess would be another commit."""
+    return isinstance(facts.get("base_head"), str) and facts["base_head"] != ""
+
+
 def readable_intents(intents) -> bool:
     """Whether `issues.intents` can be read whole: each Intent named, and mapped to null, which admits nothing, or to a
     Role and its App, each a name."""
@@ -979,7 +985,12 @@ def _wanted(facts, state, reason, evidence, mine, intents):
         return _decision(facts, state, "no_statement", evidence, t.NOTHING)
     if not readable_head(facts):
         return _decision(facts, state, "branch_unreadable", evidence, t.DEFER)
-    return (who["role"], OPENING, {"branch_head": facts["branch_head"]})
+    if facts["branch_head"] is not None:
+        # An earlier Run's commit stands on the branch: this Run pushes none, and lands on nothing.
+        return (who["role"], OPENING, {"branch_head": facts["branch_head"]})
+    if not readable_base(facts):
+        return _decision(facts, state, "base_unreadable", evidence, t.DEFER)
+    return (who["role"], OPENING, {"branch_head": None, "base_head": facts["base_head"]})
 
 
 def without_opening(runs: list) -> list:
@@ -1167,5 +1178,14 @@ def still_admitted(admitted: dict, again: dict) -> bool:
     """Whether `apply` may write. Before any Effect it asks the Kernel again, leaving its own Run out of the records
     (I-38), and writes nothing unless that admits the same Run: the same Role and Intent, which only one State admits,
     for the same content, and for the opening Run the same branch head (I-21). So a label removed, a Hold added, an
-    edit made or a head moved while the Run was in flight each stop it."""
-    return again.get("admit") is not None and again.get("admit") == admitted.get("admit")
+    edit made or a head moved while the Run was in flight each stop it. The default branch moving does not: the Run's
+    commit lands on the commit it was admitted for, `base_head`, which is left out of the comparison, and nothing
+    holds the default branch still meanwhile."""
+    was, now = admitted.get("admit"), again.get("admit")
+    if not isinstance(was, dict) or not isinstance(now, dict):
+        return False
+    return _but_base(now) == _but_base(was)
+
+
+def _but_base(admit: dict) -> dict:
+    return {part: admit[part] for part in admit if part != "base_head"}

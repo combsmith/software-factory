@@ -597,6 +597,7 @@ An issue has facts of its own (§4.1, the issue Lifecycle):
 | `last_writer_action_at`, `last_writer_comment_at` | The last action on the issue by a person with write access, and that person's last comment |
 | `acts_since_writer` | As for a pull request: the Factory's acts on the issue since a person with write access last acted, which the act ceiling bounds (decision 0031) |
 | `branch_head` | The head of the branch the next opening Run would push to, or null while it does not exist. The opening Run is admitted for it, and `apply` refuses once it has moved (decision 0031) |
+| `base_head` | The default branch's head as the pass read it. Where `branch_head` is null, the opening Run is admitted for it: the Run reads that commit and its one commit lands on it. Left out, it is unread and that Run is deferred. `apply` does not refuse when the default branch has moved since |
 | `complete`, `read_at` | As for a pull request; `complete` says whether the `timeline`, the `linked` pull requests and the `runs` were read in full |
 
 No field holds prose. Thread and comment bodies are read by the port into a separate `texts` set,
