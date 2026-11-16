@@ -1053,6 +1053,46 @@ class Status(unittest.TestCase):
         self.assertEqual(self.write(o, self.listing(), {"status": 200, "headers": {}, "body": self.run_on(external_id=want)})[0][0], "failed")
         self.assertEqual(self.write(o, self.listing(self.run_on(external_id="x")), {"status": 201, "headers": {}, "body": self.run_on(external_id=want)})[0][0], "failed")
 
+    def test_each_status_write_says_when_its_pass_wrote_it(self):
+        # #857: GitHub keeps a check run's times through an edit that names none, so a status a later pass wrote read as
+        # old as the first. The run here was completed when P-12 made it; each write names its own pass's `now`.
+        o = self.record(state=None, reason="mergeable_unreadable")
+        first = o["record"]["now"]
+        made = self.run_on(external_id=effects.status_id(o["record"]["pull_requests"][0]["decision"]))
+        self.assertNotEqual(made["completed_at"], first)
+        got, sent = self.write(o, self.listing(), {"status": 201, "headers": {}, "body": made})
+        self.assertEqual((got[0], sent[1]["method"], sent[1]["body"]["completed_at"]), ("applied", "POST", first))
+        # A later pass that decides otherwise on the same head edits that run, and says when: its own `now`, not the first's.
+        later = self.record(state="converged", reason="approved")
+        later["record"]["now"] = "2026-11-13T18:21:24Z"
+        want = effects.status_id(later["record"]["pull_requests"][0]["decision"])
+        self.assertNotEqual((want, later["record"]["now"]), (made["external_id"], first))
+        got, sent = self.write(later, self.listing(made), {"status": 200, "headers": {}, "body": dict(made, external_id=want)})
+        self.assertEqual((got, sent[1]["method"]), (("applied", "CR_kw", None, True), "PATCH"))
+        self.assertEqual((sent[1]["body"]["external_id"], sent[1]["body"]["completed_at"]), (want, "2026-11-13T18:21:24Z"))
+        self.assertEqual(sent[1]["body"]["output"]["title"], "converged: approved")
+        # A pass that decides the same sends nothing, so the time stays that of the pass that last wrote it.
+        got, sent = self.write(later, self.listing(dict(made, external_id=want)))
+        self.assertEqual((got[0], len(sent)), ("already_applied", 1))
+        # The read-back is not held to the time: no trial grounds what GitHub keeps of it.
+        back = dict(made, external_id=want, completed_at=made["completed_at"])
+        self.assertEqual(self.write(later, self.listing(made), {"status": 200, "headers": {}, "body": back})[0][0], "applied")
+        # The Controller's token sends a status only with a time, and one that is a time.
+        asked = self.Asked(controller(), self.listing())
+        edit = dict(self.write(later, self.listing(made), {"status": 200, "headers": {}, "body": back})[1][1]["body"])
+        asked.answers[:] = [self.listing(), self.listing()]
+        asked.allowed.send({"method": "PATCH", "path": "/repos/combsmith/software-factory/check-runs/1", "body": edit})
+        asked.allowed.send({"method": "POST", "path": "/repos/combsmith/software-factory/check-runs",
+                            "body": dict(edit, name="factory", head_sha=self.HEAD)})
+        without = {k: v for k, v in edit.items() if k != "completed_at"}
+        for body in (without, dict(edit, completed_at=None), dict(edit, completed_at=7), dict(edit, completed_at="now"),
+                     dict(edit, completed_at="2026-11-13T18:21:24Z\n"), dict(edit, completed_at="2026-11-13T18:21:24+00:00")):
+            with self.assertRaises(github.Unanswered):
+                asked.allowed.send({"method": "PATCH", "path": "/repos/combsmith/software-factory/check-runs/1", "body": body})
+            with self.assertRaises(github.Unanswered):
+                asked.allowed.send({"method": "POST", "path": "/repos/combsmith/software-factory/check-runs",
+                                    "body": dict(body, name="factory", head_sha=self.HEAD)})
+
     def test_the_status_neither_passes_nor_fails(self):
         o = self.record()
         want = effects.status_id(o["record"]["pull_requests"][0]["decision"])
@@ -1198,9 +1238,9 @@ class Status(unittest.TestCase):
         got, sent = self.write(o, self.listing(*runs), {"status": 200, "headers": {}, "body": dict(later, external_id=want)})
         self.assertEqual(got, ("applied", later["node_id"], None, True))
         self.assertEqual(sent[1]["path"], "/repos/combsmith/software-factory/check-runs/%d" % later["id"])
-        # What is sent is what the trial sent, and details_url beside it.
+        # What is sent is what the trial sent, and details_url and completed_at beside it: the trial sent neither.
         _, sent = self.write(o, self.listing(), {"status": 201, "headers": {}, "body": dict(runs[0], external_id=want)})
-        self.assertLessEqual(set(sent[1]["body"]) - {"details_url"}, set(made["request"]["body"]))
+        self.assertLessEqual(set(sent[1]["body"]) - {"details_url", "completed_at"}, set(made["request"]["body"]))
         self.assertLessEqual(set(sent[1]["body"]["output"]), set(made["request"]["body"]["output"]))
 
     def test_the_step_gives_the_status_its_name_its_app_and_its_run(self):

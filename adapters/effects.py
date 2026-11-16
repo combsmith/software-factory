@@ -235,19 +235,20 @@ def controller_permits(config: dict, org: str, repos: list) -> tuple:
         permits[("GET", listed(home, account))] = none
     permits[("POST", "/repos/%s/issues" % home)] = opened
 
-    def status_written(body, fields=("external_id", "status", "conclusion", "output")) -> bool:
+    def status_written(body, fields=("external_id", "status", "conclusion", "completed_at", "output")) -> bool:
         if not (isinstance(body, dict) and set(fields) <= set(body) <= set(fields) | {"details_url"}):
             return False
         output = body["output"]
         return body["status"] == "completed" and body["conclusion"] == "neutral" \
             and isinstance(body["external_id"], str) and STATUS_ID.fullmatch(body["external_id"]) is not None \
+            and isinstance(body["completed_at"], str) and SINCE.fullmatch(body["completed_at"]) is not None \
             and isinstance(output, dict) and set(output) == {"title", "summary"} \
             and isinstance(output["title"], str) and len(output["title"]) <= TITLE_MOST \
             and isinstance(output["summary"], str) and len(output["summary"]) <= SUMMARY_MOST \
             and ("details_url" not in body or (isinstance(body["details_url"], str) and run_url.fullmatch(body["details_url"]) is not None))
 
     def status_made(body) -> bool:
-        return status_written(body, ("name", "head_sha", "external_id", "status", "conclusion", "output")) \
+        return status_written(body, ("name", "head_sha", "external_id", "status", "conclusion", "completed_at", "output")) \
             and body["name"] == status_name and isinstance(body["head_sha"], str) and SHA.fullmatch(body["head_sha"]) is not None
 
     status_name = json.loads((ROOT / "config" / "defaults.json").read_text())["status_on_item"]
@@ -436,7 +437,10 @@ def write_status(transport, entry: dict, record: dict, config: dict, status: dic
     not stale for ever. It never passes or fails, so it can be read as no gate; GitHub would count a neutral check as met, so
     what keeps it from being one is that no ruleset names it. P-12: `filter=all`, since `latest` lists only the later of two,
     and that later one is what GitHub shows; and GitHub answers a 200 that may not hold what was sent, so it is read back.
-    `wrote` says a write was sent, whatever it answered: a write GitHub limited still counts against the bound."""
+    `wrote` says a write was sent, whatever it answered: a write GitHub limited still counts against the bound.
+    Each write sends `completed_at`, the pass's `now`: GitHub keeps a check run's times through an edit that names none, so
+    without it a status reads as old as its first write (#857). No trial grounds what GitHub keeps of it, so the
+    read-back is not held to it."""
     decision, head, home = entry["decision"], entry["head"], config["home"]["repo"]
     want, name, app = status_id(decision), status["name"], status["app_id"]
     listed = _body(_sent(transport, request("GET", "/repos/%s/commits/%s/check-runs?check_name=%s&app_id=%d&filter=all&per_page=100" % (
@@ -456,7 +460,7 @@ def write_status(transport, entry: dict, record: dict, config: dict, status: dic
     target = max(mine, key=lambda r: r["id"]) if mine else None
     if target is not None and target.get("external_id") == want and target.get("status") == "completed" and target.get("conclusion") == "neutral":
         return ("already_applied", target["node_id"], None, False) if keyed(target) else ("failed", None, "not_read_back", False)
-    fields = {"external_id": want, "status": "completed", "conclusion": "neutral",
+    fields = {"external_id": want, "status": "completed", "conclusion": "neutral", "completed_at": record["now"],
               "output": status_output(decision, record, status["feed"])}
     if status.get("run_id"):
         fields["details_url"] = "https://github.com/%s/actions/runs/%s" % (home, status["run_id"])
