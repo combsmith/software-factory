@@ -1,15 +1,15 @@
 # adapters/
 
-All of the Factory's I/O. `github.py` is the one transport; no other reaches the network. `items.py` open pull requests, `pull.py` one, `timeline.py` reviews, labels, actors, `checks.py` checks, queue, `threads.py` its threads, `edits.py` description edits,
-`applied.py` Lenses' records, `facts.py` its snapshot, `records.py` run records, `artifacts.py` a Run's outcome, `seen.py` writes made, `passes.py` past passes, `acceptance.py` a contract's ask, `heldout.py` held-out cases, `rules.py` base rules; `effects.py`
-the Controller's and Roles' writes, `pause.py` the Pause, `tags.py` the tags, `candidate.py` a Release's facts, `deployments.py` its moves, `identity.py` a token, `queue.py` the queue App's acts, `issues.py` an issue's own facts.
+All of the Factory's I/O. `github.py` and `azure.py` are the transports; no other reaches the network. `items.py` open pull requests, `pull.py` one, `timeline.py` reviews, labels, actors, `checks.py` checks, queue, `threads.py` its threads, `edits.py`
+description edits, `applied.py` Lenses' records, `facts.py` its snapshot, `records.py` run records, `artifacts.py` a Run's outcome, `seen.py` writes made, `passes.py` past passes, `acceptance.py` a contract's ask, `heldout.py` held-out cases, `rules.py` base
+rules; `effects.py` the Controller's and Roles' writes, `pause.py` the Pause, `tags.py` the tags, `candidate.py` a Release's facts, `deployments.py` its moves, `identity.py` a token, `queue.py` the queue App's acts, `issues.py` an issue's own facts.
 Not built yet, by their stories: contract.py, binding.py, linked.py, an issue's linked pull requests, settings.py, usage.py, and of `texts.py`, the port of the issue a change serves, a thread's text. A port decides nothing and hands the Kernel no text.
 
 | Rule | Held by |
 |---|---|
-| Only `github.py` imports what reaches the network, or names the storage | `tests/test_tools.py::test_only_the_transport_reaches_the_network`, `tests/test_tools.py::test_only_the_transport_names_githubs_artifact_storage` |
-| It sends HTTPS to GitHub's API alone, by a path from its root | `tests/test_adapters.py::test_a_request_stays_on_githubs_api` |
-| It follows no redirect but an artifact's download and a tarball's (0138), takes no proxy, bounds every answer, and uses its caller's token | `tests/test_adapters.py::test_the_live_transport_takes_its_token_from_its_caller_and_follows_no_redirect` |
+| Only `github.py` and `azure.py` import what reaches the network; only `github.py` names the storage | `tests/test_tools.py::test_only_the_transport_reaches_the_network`, `tests/test_tools.py::test_only_the_transport_names_githubs_artifact_storage` |
+| `github.py` sends HTTPS to GitHub's API alone, by a path from its root; `azure.py` four acts to one Azure host | `tests/test_adapters.py::test_a_request_stays_on_githubs_api`, `tests/test_advisory.py::test_the_azure_transport_reaches_one_host_and_one_api` |
+| `github.py` follows no redirect but an artifact's download and a tarball's (0138), takes no proxy, bounds every answer, and uses its caller's token | `tests/test_adapters.py::test_the_live_transport_takes_its_token_from_its_caller_and_follows_no_redirect` |
 | An artifact's download follows its redirect to GitHub's artifact storage alone, over HTTPS | `tests/test_adapters.py::test_only_an_artifacts_download_follows_its_redirect_and_only_to_githubs_storage` |
 | No token is sent to the storage, and what it answers is bounded | `tests/test_adapters.py::test_the_live_transport_sends_no_token_to_the_storage_and_bounds_what_it_holds` |
 | A download is bounded at 64 KiB, 1 MiB for a pass record, read out to 8 MiB; a Run's record is found by its pass id | `tests/test_adapters.py::test_a_pass_record_alone_is_downloaded_under_a_wider_bound`, `tests/test_steps.py::test_a_runs_record_is_found` |
