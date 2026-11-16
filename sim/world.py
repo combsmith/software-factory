@@ -1802,12 +1802,15 @@ class World:
 
     def mend(self):
         """A person with write access mends the pull request: a push for what failed, as a writer, and the Lens's threads
-        answered and resolved by that person's hand, which the gate takes as closed (kernel/gate.py)."""
+        answered and resolved by that person's hand, which the gate takes as closed (kernel/gate.py). So is one somebody
+        else resolved on no accepted ruling: the queue App's resolution of a thread a review dropped closes it only on
+        the content that review read (decision 0212), and the mend's push replaced it."""
         self.mended_at, self.mends = self.now(), self.mends + 1
         self.note("a person mends it")
         self.push(MAINTAINER["name"], writer=True)
         self.caused("human")
-        mine = [th for th in self.threads if th["opened_by"]["kind"] == "lens" and not th["resolved"]]
+        mine = [th for th in self.threads if th["opened_by"]["kind"] == "lens"
+                and (not th["resolved"] or th["resolved_by"]["kind"] != "human" and th["ruling"] != "accepted")]
         for th in mine:
             th.update(resolved=True, resolved_by=dict(MAINTAINER))
         if mine:

@@ -18,7 +18,7 @@ from tools.hooks import protected
 SEEDS = range(1, 1 + int(os.environ.get("SIM_SEEDS", "300")))
 # The first Maintainer's world that waits for its author on a Lens's thread and merges on a person's third mend, and
 # the first that merges with no mend (test_a_world_a_person_mends_once_the_faults_stop_merges_or_holds).
-MENDED_SEED, UNMENDED_SEED = 15, 5
+MENDED_SEED, UNMENDED_SEED = 15, 11
 # The first seed whose Hold takes a queued item out, the first whose lost approval does since a killed Run may leave no
 # outcome (issue 286), the first whose open gate does, and the first that shows another App's check under a Lens's
 # name, since only an agent's pull request is mended by a Role (issue 824)
@@ -1447,6 +1447,7 @@ class Simulation(unittest.TestCase):
                        {"conclusion": "failure"}, {"intent": "fix-findings"}):
             w.runs = [dict(review, **change)]
             self.assertFalse(w.dropped_since_the_push(th), change)
+
     def test_a_world_a_person_mends_once_the_faults_stop_merges_or_holds(self):  # issue 861
         # The bounded tests leave a pull request the Factory did not open waiting for its author, since no person acts
         # once the faults stop. Here a person does, apart from them: while the world waits, up to MEND_BOUND times, a push
@@ -1484,9 +1485,14 @@ class Simulation(unittest.TestCase):
         lens = [th for th in w.threads if th["opened_by"]["kind"] == "lens" and not th["resolved"]]
         self.assertTrue(lens and w.waits_for_its_author(last))
         self.assertFalse(w.waits_on_what_came_after_the_mend(last))
+        # A thread the queue App resolved on a review's dropped word is closed only on the content that review read, so
+        # the person takes it too; one resolved on the Lens's accepted ruling stays the queue App's.
+        for tid, ruling in (("taken", None), ("ruled", "accepted")):
+            w.threads.append(dict(lens[0], id=tid, resolved=True, resolved_by=dict(world.QUEUE_APP), ruling=ruling))
         w.mend()
         self.assertEqual((w.last_pusher, w.last_writer, w.mended_at, w.mends), (world.MAINTAINER["name"], w.now(), w.now(), 1))
         self.assertTrue(all(th["resolved"] and th["resolved_by"] == world.MAINTAINER for th in lens))
+        self.assertEqual([th["resolved_by"] for th in w.threads[-2:]], [world.MAINTAINER, world.QUEUE_APP])
         # What waits is excused only by what came after the mend: every thread it names opened since, or every check it
         # names concluded since. One older, one of the mend's own minute or one unknown is enough to refuse it, and so
         # is a Run still open or any other reason to wait. (No Run is left open here, so the item waits for its author.)
