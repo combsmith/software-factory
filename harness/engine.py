@@ -160,16 +160,21 @@ def bundled(found: dict):
     pushes = found["effects"].get(PUSH) if isinstance(found.get("effects"), dict) else None
     if not isinstance(pushes, list):
         return found
-    filled = copy.deepcopy(found)
-    for push in filled["effects"][PUSH]:
+    # Copied no deeper than the push itself: what the model answered is held to no schema yet, and may be nested past
+    # what a deep copy walks.
+    filled = []
+    for push in pushes:
         patch = push.get("patch") if isinstance(push, dict) else None
         if isinstance(patch, dict) and isinstance(patch.get("body"), str):
             try:
                 data = patch["body"].encode("utf-8")
             except UnicodeEncodeError:
-                continue
-            push["bundle"] = {"artifact": shared.BUNDLE_ARTIFACT, "digest": "sha256:" + hashlib.sha256(data).hexdigest()}
-    return filled
+                data = None
+            if data is not None:
+                push = dict(push, bundle={"artifact": shared.BUNDLE_ARTIFACT,
+                                          "digest": "sha256:" + hashlib.sha256(data).hexdigest()})
+        filled.append(push)
+    return dict(found, effects=dict(found["effects"], **{PUSH: filled}))
 
 
 def environment(job_env: dict) -> dict:

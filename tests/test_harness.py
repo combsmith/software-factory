@@ -869,7 +869,10 @@ class Engine(unittest.TestCase):
         named = {"artifact": shared.BUNDLE_ARTIFACT, "digest": sha(PATCH.encode())}
         for why, said in (("a bundle named", pushed(bundle=named)), ("no patch", pushed(patch=None)),
                           ("a push with nothing", judged(findings=[], effects={"push_commits": [{"id": "e1"}]})),
-                          ("a patch of nothing", pushed(body="")),
+                          ("a patch of nothing", pushed(body="")), ("a body that is no text", pushed(body=5)),
+                          ("a push that is no object", judged(findings=[], effects={"push_commits": ["x"]})),
+                          # Nested past what a deep copy walks: still no Result, never a fault of the job's own.
+                          ("an answer nested deep", judged(findings=[], effects={"push_commits": json.loads("[" * 600 + "]" * 600)})),
                           ("two pushes", judged(findings=[], effects={"push_commits": [
                               {"id": "e1", "patch": {"body": PATCH}}, {"id": "e2", "patch": {"body": PATCH}}]}))):
             r = engined(CLI(said=answer(result=said)), the_task, read=True)
@@ -1429,6 +1432,10 @@ class Job(unittest.TestCase):
         # The job holds that much and no more: a push with no text, or a bundle that is not its text's, writes no Result.
         whole = engine.bundled(pushed(body))
         self.assertEqual(run.handed_over(whole)[1], body.encode("utf-8"))
+        # Every other Effect of the Result is kept as it was.
+        said = {"id": "e2", "body": "x"}
+        both = run.handed_over(dict(whole, effects=dict(whole["effects"], comment=[said])))[0]["effects"]
+        self.assertEqual((both["comment"], sorted(both["push_commits"][0])), ([said], ["bundle", "id"]))
         self.assertEqual(run.handed_over(judged()), (judged(), None))
         push = whole["effects"]["push_commits"][0]
         for why, odd in (("no patch", {k: v for k, v in push.items() if k != "patch"}),
