@@ -265,6 +265,18 @@ class Validator(unittest.TestCase):
         for schema in ({"type": "array"}, {"type": "array", "uniqueItems": False}):
             self.assertEqual(validate(["AC-1", "AC-1"], schema), [])
 
+    def test_a_text_longer_than_the_most_is_an_error(self):  # issue 880
+        # Counted in characters, as `minLength` is, never in bytes.
+        most = {"type": "string", "maxLength": 3}
+        for value in ("", "a", "abc", "caf", "éèê"):
+            self.assertEqual(validate(value, most), [], value)
+        self.assertEqual(validate("abcd", most), ["$: longer than 3"])
+        # A most of none is a bound, not an absent keyword; without the keyword a text may be as long as it is.
+        self.assertEqual(validate("", {"type": "string", "maxLength": 0}), [])
+        self.assertEqual(validate("a", {"type": "string", "maxLength": 0}), ["$: longer than 0"])
+        self.assertEqual(validate("a" * 1000, {"type": "string"}), [])
+        self.assertEqual(validate([1, 2, 3, 4], {"maxLength": 3}), [])     # and it bounds a text alone
+
     def test_more_items_than_the_most_is_an_error(self):  # decision 0143
         most = {"type": "array", "maxItems": 3}
         for value in ([], [1], [1, 2, 3]):
@@ -679,6 +691,13 @@ class Examples(unittest.TestCase):
                            ("its branch", dict(bundle=bundle, patch={"body": text, "branch": "main"})),
                            ("a patch that is none", dict(bundle=bundle, patch=None))):
             self.assertIs(refused(**item), True, name)
+        # The Engine's answer is outside text, so the patch's text is bounded here, in characters, and nowhere else:
+        # 200,000, well over the change a Task carries, which stays the Kernel's to hold with its own code, and what
+        # keeps a guard's reading of a patch within memory. One character more is no push.
+        body = push["properties"]["patch"]["properties"]["body"]
+        self.assertEqual(body, {"type": "string", "minLength": 1, "maxLength": 200000})
+        self.assertIs(refused(bundle=bundle, patch={"body": text + "x" * (200000 - len(text))}), False)
+        self.assertIs(refused(bundle=bundle, patch={"body": text + "x" * (200001 - len(text))}), True)
 
     def test_only_success_can_pass_a_check(self):  # I-27, L-07
         # The configuration may say what a conclusion means, but never that one with no verdict has passed.
