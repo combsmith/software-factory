@@ -227,6 +227,7 @@ class World:
         self.opened_for = ISSUE if self.cls == "agent" else None
         self.asked = False         # the Maintainer's request for changes stands, as the world keeps it
         self.unheld = []           # breaches of invariants the Kernel does not hold yet (NOT_YET_HELD)
+        self.mended_at, self.mends = None, 0   # when a person last mended it, and how many times (issue 861)
         self.labels = set()        # the labels on the pull request, as GitHub shows them
         self.events = []           # the timeline's labeled and unlabeled events
         # What binds, in the world's own words: a Hold stands until a person removes it, whoever placed it or took the
@@ -1790,11 +1791,9 @@ class World:
         last = decide(self.facts(), self.records(), self.context(), CONFIG, self.now())
         # Where the check asks it, a person mends what waits for its author, while it waits, up to MEND_BOUND times: a
         # person's act, never the author Role's, and outside the bounded tests, whose worlds no person moves (issue 861).
-        self.mended_at, self.mends = None, 0
         for _ in range(MEND_BOUND if mend else 0):
             if not self.waits_for_its_author(last):
                 break
-            self.minute += 1
             self.mend()
             for _ in range(steps):
                 self.step()
@@ -1816,7 +1815,8 @@ class World:
 
     def waits_on_what_came_after_the_mend(self, decision: dict) -> bool:
         """Whether an item that waits for its author waits only on what failed after the last mend: a check that concluded
-        failing since, or a Lens's thread opened since. Anything older is what the mend was for."""
+        failing since, or a Lens's thread opened since. Anything older, or of the mend's own minute, is what the mend was for,
+        and so is any other reason to wait."""
         if self.mended_at is None or not self.waits_for_its_author(decision):
             return False
         if decision["reason"] == "check_failed":
