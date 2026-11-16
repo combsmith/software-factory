@@ -375,6 +375,11 @@ def run(root: pathlib.Path = ROOT) -> list:
             errors = check_release.fixture_problems(value, "invalid/" + path.name)
         if kind == "result" and not errors:
             errors = _reason_unsuited(value)
+        if kind == "config" and not errors:
+            # A Role named to open pull requests before open_pull_request has its writer is tools/check_authority.py's
+            # to refuse (issue 808).
+            from tools import check_authority
+            errors = check_authority.opening_problems(value, root)
         if kind == "consumer" and not errors:
             errors = _unprotected(value)
         if not errors:

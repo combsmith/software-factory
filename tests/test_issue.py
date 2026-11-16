@@ -69,7 +69,8 @@ def unlabelled(label: str, by=None, minute: int = 2) -> dict:
 
 
 def pr(number=11, by=None, cls="maintainer", is_open=True, draft=False, merged=None, closed=None, empty=False,
-       events=(), opened=0, closed_issue="merge", drafts=(), links=(), keyword=True, spans=(), closes=None) -> dict:
+       events=(), opened=0, closed_issue="merge", drafts=(), links=(), keyword=True, spans=(), closes=None,
+       **read) -> dict:
     """A pull request that closes the issue. By default the Maintainer's, opened with the issue, open and ready. A
     merged one closed then, and closed the issue in its second, as the issue's timeline records it (P-33);
     `closed_issue=None` is one the issue's timeline never names, as one whose reference an edit added (P-46). `drafts`
@@ -77,12 +78,13 @@ def pr(number=11, by=None, cls="maintainer", is_open=True, draft=False, merged=N
     its links to the issue by hand and unlinkings, as (action, minute), none by default, as a closing keyword's; `keyword`
     whether its references name the issue by one now, and `spans` each time it stood as the passes saw it, as (minute
     first seen, minute first seen gone or None), none by default; `closes` its closes and reopenings, as (action, minute),
-    by default its one close if it is closed, a merge's among them (issue 672, trials/P-48.json)."""
+    by default its one close if it is closed, a merge's among them (issue 672, trials/P-48.json). `checks`, where given,
+    is how its head's required checks stand (issue 825)."""
     if merged is not None and closed is None:
         closed = merged
     if closed_issue == "merge":
         closed_issue = merged
-    return {"number": number, "class": cls, "opener": dict(WRITER if by is None else by), "open": is_open,
+    return dict({"number": number, "class": cls, "opener": dict(WRITER if by is None else by), "open": is_open,
             "draft": draft, "opened_at": at(opened), "merged_at": None if merged is None else at(merged),
             "closed_at": None if closed is None else at(closed), "empty": empty, "label_events": list(events),
             "closed_issue_at": None if closed_issue is None else at(closed_issue),
@@ -91,7 +93,7 @@ def pr(number=11, by=None, cls="maintainer", is_open=True, draft=False, merged=N
             "keyword": keyword, "keyword_spans": [{"seen_at": at(seen), "gone_at": None if gone is None else at(gone)}
                                                   for seen, gone in spans],
             "close_events": [{"action": action, "by": dict(WRITER), "at": at(minute)}
-                             for action, minute in (closes if closes is not None else ([("closed", closed)] if closed is not None else []))]}
+                             for action, minute in (closes if closes is not None else ([("closed", closed)] if closed is not None else []))]}, **read)
 
 
 def closes(when: str) -> list:
@@ -100,8 +102,8 @@ def closes(when: str) -> list:
 
 
 def agents(**over) -> dict:
-    """The Factory's own pull request: its author's App opened it."""
-    return pr(**dict({"by": AUTHOR_APP, "cls": "agent"}, **over))
+    """The Factory's own pull request: its author's App opened it, its head's required checks pending."""
+    return pr(**dict({"by": AUTHOR_APP, "cls": "agent", "checks": "pending"}, **over))
 
 
 def strangers(admitted=False, **over) -> dict:
@@ -1606,6 +1608,95 @@ class Outcomes(unittest.TestCase):
         for name, f, runs, _ in CASES:
             with self.subTest(name):
                 decide(f, runs, cfg=config(served_from=None) if name == UNSERVED else config())
+
+    def test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted(self):  # issue 825
+        # Slice 2's S9 (rulings-422, section 3): while the draft the Factory opened for the issue fails its required checks,
+        # the issue admits another implementing Run, the author Role's, for that draft; bounded by max_attempts, every
+        # implementing Run that completed counted as a round, and by the Run ceiling. Dormant while no author Role is named.
+        named = dict(config(), author_role="dev-lead")
+        failing = facts(linked=[agents(draft=True, checks="failing")])
+        d = decide(failing, cfg=named)
+        self.assertEqual((d["outcome"], d["reason"], d["admit"]), ("admit", "linked_draft", {
+            "role": "dev-lead", "intent": issue.IMPLEMENT, "content_id": THIS, "pull_request": 11}))
+        # Its checks pending, or passing, or its head's checks not yet listed after a push (trial P-42): nothing.
+        for checks in ("pending", "passing"):
+            self.assertEqual(what(decide(facts(linked=[agents(draft=True, checks=checks)]), cfg=named)),
+                             ("nothing", "linked_draft", None), checks)
+        # No author Role named, as config/defaults.json names none today: nothing, whatever its checks.
+        self.assertEqual(what(decide(failing, cfg=dict(named, author_role=None))), ("nothing", "linked_draft", None))
+        # The draft read is the one the issue is in progress on, not the first pull request linked.
+        before = agents(number=9, is_open=False, closed=2, checks="passing")
+        d = decide(facts(linked=[before, agents(draft=True, checks="failing")]), cfg=named)
+        self.assertEqual((d["outcome"], d["reason"], d["admit"].get("pull_request")), ("admit", "linked_draft", 11))
+        # Two open drafts are no one draft to read: the issue is held linked twice, whosever they are, in either order.
+        for linked in ([pr(number=9, draft=True), agents(draft=True, checks="failing")],
+                       [agents(number=9, draft=True, checks="passing"), agents(draft=True, checks="failing")]):
+            for order in (linked, linked[::-1]):
+                self.assertEqual(what(decide(facts(linked=order), cfg=named))[:2], ("hold", "linked_twice"))
+        # Not the Factory's draft: a person's, or a stranger's, waits for its author.
+        for other in (pr(draft=True, checks="failing"), strangers(admitted=True, draft=True, checks="failing")):
+            self.assertEqual(what(decide(facts(linked=[other]), cfg=named))[:2], ("nothing", "linked_draft"), other["class"])
+        # Nor are its checks read there: a person's or a stranger's draft, or any while no author Role is named, with
+        # no checks at all is nothing too, never a deferral.
+        bare = lambda q: {k: v for k, v in q.items() if k != "checks"}
+        for other, cfg in ((pr(draft=True), named), (strangers(admitted=True, draft=True), named),
+                           (bare(agents(draft=True)), dict(named, author_role=None))):
+            self.assertEqual(what(decide(facts(linked=[other]), cfg=cfg))[:2], ("nothing", "linked_draft"), other["class"])
+        # Its checks unreadable, where the rule would read them: a deferral, never a Run.
+        for unread in ({}, {"checks": None}, {"checks": "red"}):
+            draft = dict(bare(agents(draft=True)), **unread)
+            self.assertEqual(what(decide(facts(linked=[draft]), cfg=named)), ("defer", "draft_checks_unreadable", None),
+                             unread)
+        # One implementing Run in flight: nothing more, the issue working.
+        flying = run(intent=issue.IMPLEMENT, status="in_progress", role="dev-lead", name="m1", minute=7)
+        d = decide(failing, [flying], cfg=named)
+        self.assertEqual((what(d), d["attention"]), (("nothing", "linked_draft", None), "working"))
+        # So with its checks pending, or unreadable, behind a Run in flight: the issue working, no deferral and no Hold.
+        for draft in (agents(draft=True, checks="pending"), dict(agents(draft=True), checks=None)):
+            d = decide(facts(linked=[draft]), [flying], cfg=named)
+            self.assertEqual((what(d), d["attention"]), (("nothing", "linked_draft", None), "working"), draft["checks"])
+        # max_attempts implementing Runs completed, each of which left the checks failing: held, the issue calls a person.
+        rounds = [run(intent=issue.IMPLEMENT, role="dev-lead", name="m%d" % n, minute=7 + n)
+                  for n in range(LIMITS["max_attempts"])]
+        self.assertEqual(what(decide(failing, rounds[:-1], cfg=named)), ("admit", "linked_draft", issue.IMPLEMENT))
+        held = ("held", "hold", "attempts_exhausted", "needs_you", [r["run"] for r in rounds])
+        d = decide(failing, rounds, cfg=named)
+        self.assertEqual((d["state"], d["outcome"], d["reason"], d["attention"], d["evidence"]), held)
+        # The rounds are spent only on a draft whose checks fail: pending or passing, its rounds spent are nothing.
+        for checks in ("pending", "passing"):
+            self.assertEqual(what(decide(facts(linked=[agents(draft=True, checks=checks)]), rounds, cfg=named)),
+                             ("nothing", "linked_draft", None), checks)
+        # A Run of another Intent that completed is no round: one short of the rounds beside it still admits, and at the
+        # rounds it is not named among them.
+        judged = run(intent="judge-readiness", name="j1", minute=6)
+        self.assertEqual(what(decide(failing, [judged] + rounds[:-1], cfg=named)), ("admit", "linked_draft", issue.IMPLEMENT))
+        d = decide(failing, [judged] + rounds, cfg=named)
+        self.assertEqual((d["state"], d["outcome"], d["reason"], d["attention"], d["evidence"]), held)
+        # Past the bound too, as where the limit was lowered, with the Run ceiling not yet spent.
+        past = rounds + [run(intent=issue.IMPLEMENT, role="dev-lead", name="mx", minute=7 + len(rounds))]
+        self.assertLess(len(past), LIMITS["max_runs_per_item"])
+        self.assertEqual(what(decide(failing, past, cfg=named))[:2], ("hold", "attempts_exhausted"))
+        # With another Run in flight, of any Intent, the spent rounds still hold, as every brake does (decision 0003);
+        # the implementing Run in flight is no round until it completes.
+        other = run(intent="judge-readiness", status="in_progress", name="j0", minute=30)
+        d = decide(failing, rounds + [other], cfg=named)
+        self.assertEqual((d["state"], d["outcome"], d["reason"], d["attention"], d["evidence"]), held)
+        d = decide(failing, rounds[:-1] + [flying], cfg=named)
+        self.assertEqual((what(d), d["attention"]), (("nothing", "linked_draft", None), "working"))
+        # A writer's action renews the rounds, as it renews every count.
+        renewed = dict(failing, last_writer_action_at=at(7 + LIMITS["max_attempts"]))
+        self.assertEqual(what(decide(renewed, rounds, cfg=named)), ("admit", "linked_draft", issue.IMPLEMENT))
+        # The Run ceiling bounds it too, whatever Runs spent it.
+        spent = [run(intent="judge-readiness", name="j%d" % n, minute=7 + n) for n in range(LIMITS["max_runs_per_item"])]
+        self.assertEqual(what(decide(failing, spent, cfg=named))[:2], ("hold", "run_ceiling"))
+
+    def test_no_author_role_is_named_while_the_implementing_rule_is_owed_its_reads(self):  # issue 825, decision 0217
+        # The implementing rule is dormant until the author Role is named, and four things are owed before it is: the
+        # facts port's read of a draft's checks, the records port's reading of an implementing Run as the issue's, the
+        # draft's head in the admission, and the draft held to the issue it was opened for (decision 0217). Naming it is
+        # a change to this test, made with them.
+        named = json.loads((ROOT / "config" / "defaults.json").read_text())["author_role"]
+        self.assertIsNone(named, "decision 0217's four reads are owed before the author Role is named")
 
     def test_in_review_and_with_a_linked_draft_nothing_is_admitted_whatever_the_intents(self):
         for f, reason in ((facts(linked=[pr()]), "linked_ready"), (facts(linked=[agents(draft=True)]), "linked_draft")):

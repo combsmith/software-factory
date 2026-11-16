@@ -87,8 +87,11 @@ def unstarted(count: int) -> list:
 
 
 def base(runs=(), **over) -> dict:
-    """A pull request as the Kernel reads it: its facts, its Runs, and the minute of its last change."""
-    return {"facts": facts(**over), "runs": [copy.deepcopy(r) for r in runs], "minute": FIRST_MOVE}
+    """A pull request as the Kernel reads it: its facts, its Runs, and the minute of its last change. Each is one the
+    Factory opened, for issue 7, as each of the simulator's is: the author Role mends no other (decision 0216), and
+    what an item that waits for its author may do is issue 824's to explore."""
+    return {"facts": facts(**dict({"opened_for": 7}, **over)), "runs": [copy.deepcopy(r) for r in runs],
+            "minute": FIRST_MOVE}
 
 
 PERSONS_THREAD = thread(kind="human", name=MAINTAINER["name"], severity=None)

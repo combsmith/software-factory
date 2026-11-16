@@ -21,7 +21,7 @@ import zipfile
 from unittest import mock
 
 from adapters import acceptance, applied, artifacts, checks, edits, effects, facts, github, heldout, items, passes, pull, records, \
-    pause, rules, texts, threads, timeline
+    issues, pause, rules, texts, threads, timeline
 from controller import shared
 from harness import task
 from kernel import brakes
@@ -4128,13 +4128,50 @@ class Snapshot(unittest.TestCase):
             self.read(12)
 
     def test_a_snapshot_of_a_pull_request_that_changed_while_it_was_read_is_refused(self):
-        # trials/P-29.base.json: the base moved and the head did not, and GitHub moved the pull request's updated_at.
-        # Any change between the first read and the last, a label added after the timeline was read among them, makes
-        # the parts of two pull requests.
+        # trials/P-29.base.json: the head did not move and the pull request's updated_at did, 50 s after its base had.
+        # A move of the base does not itself move it (trials/P-40.at-once.json; decision 0214). Any change between the
+        # first read and the last, a label added after the timeline was read among them, makes the parts of two pull
+        # requests.
         self.assertEqual(body("P-29.base", 6)["head"]["sha"], body("P-29.base", 1)["head"]["sha"])
         self.assertNotEqual(body("P-29.base", 6)["updated_at"], body("P-29.base", 1)["updated_at"])
         with self.assertRaises(facts.Moved):
             self.read(6)
+
+    def test_a_snapshot_whose_merge_state_changed_while_it_was_read_is_refused(self):  # decision 0214
+        # trials/P-40.at-once.json: for a second after its base moved the pull request still read as merging, then as
+        # not worked out, then as conflicting, and its head and its updated_at were the same at each. So the last read
+        # is held to the merge state the first gave: one that no longer says it is of a pull request that moved.
+        repo = json.loads((ROOT / "trials" / "P-40.at-once.json").read_text())["repo"]
+        at = lambda i: dict(body("P-40.at-once", i), base=dict(body("P-40.at-once", i)["base"], repo={"full_name": repo}))
+
+        class Answers:
+            def __init__(self, answer):
+                self.answer = answer
+
+            def send(self, request):
+                return {"status": 200, "headers": {}, "body": copy.deepcopy(self.answer)}
+        before, stale, unknown, conflict = at(8), at(11), at(13), at(16)
+        self.assertEqual([r["mergeable"] for r in (before, stale, unknown, conflict)], [True, True, None, False])
+        self.assertEqual({(r["updated_at"], r["head"]["sha"]) for r in (before, stale, unknown, conflict)},
+                         {(before["updated_at"], before["head"]["sha"])})
+        # A last read that repeats the first is no move, and that is all this can see: a first read from before the
+        # base moved and a last one from the stale second after it are one merge state.
+        self.assertTrue(pull.unchanged(Answers(stale), before))
+        self.assertTrue(pull.unchanged(Answers(conflict), conflict))
+        for was, again in ((stale, unknown), (stale, conflict), (conflict, unknown), (conflict, stale),
+                           (stale, dict(stale, mergeable=1)), (conflict, dict(conflict, mergeable=0))):
+            self.assertFalse(pull.unchanged(Answers(again), was), (was["mergeable"], again["mergeable"]))
+        # The time is read first: a last read with none is a read GitHub did not answer, whatever its merge state.
+        with self.assertRaises(github.Unanswered) as raised:
+            pull.unchanged(Answers(dict(conflict, updated_at=None)), stale)
+        self.assertNotIsInstance(raised.exception, facts.Moved)
+        # A first read that gave no merge state is kept, whatever the last gives: its facts say it is not worked out.
+        for again in (unknown, stale, conflict):
+            self.assertTrue(pull.unchanged(Answers(again), unknown), again["mergeable"])
+        # A number is no merge state either, though Python counts 1 as true and 0 as false.
+        for first in (dict(stale, mergeable=1), dict(conflict, mergeable=0)):
+            for again in (unknown, stale, conflict):
+                self.assertTrue(pull.unchanged(Answers(again), first), (first["mergeable"], again["mergeable"]))
 
     def test_a_pull_request_whose_updated_at_cannot_be_read_has_not_moved(self):  # issue 658
         # Either read without a time is a read GitHub did not answer, not a move: it earns no pass's grace.
@@ -4355,6 +4392,10 @@ NOT_READ = {
     "a_pass_starts_its_successor": "controller", "a_public_event_starts_a_pass": "controller",
     # The issue port that reads each linked pull request's draft events is not built yet (decision 0141).
     "a_draft_change_is_timed": "issues_port",
+    # The issue port reads an issue's type and its links by hand from the issue's timeline, and each linked pull
+    # request's close and reopening; none of it is built yet (P-61, issue 551).
+    "a_link_by_hand_is_timed": "issues_port", "a_type_change_is_timed": "issues_port",
+    "a_pull_requests_close_and_reopening_are_timed": "issues_port",
     "an_issues_content_time_is_read_apart": "issues_port", "a_reopening_names_its_actor": "issues_port",
     "an_issues_close_and_reopening_say_when": "issues_port",
     "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing": "issues_port",
@@ -5824,6 +5865,202 @@ class Items(unittest.TestCase):
         for answer in (other, erred, failed):
             with self.assertRaises(github.Unanswered):
                 self.read(answer)
+
+
+STRANGER = ("stranger", 7, "User")  # a person without write access
+CONTROLLER_APP = ("combsmith-sf-controller[bot]", 41, "Bot")  # a Factory App, as REST names its Bot
+CREATED = "2026-10-11T09:00:00Z"
+UPDATED = "2026-10-11T11:00:00Z"
+
+
+def minute(m: int) -> str:
+    """`m` minutes after ten, the day the issue was opened at nine."""
+    return "2026-10-11T%02d:%02d:00Z" % divmod(600 + m, 60)
+
+
+def rest_answer(path: str, body, link: str = "") -> dict:
+    return {"request": {"via": "rest", "call": "GET " + path, "headers": {}, "body": None},
+            "response": {"status": 200, "headers": {"link": link}, "body": body}}
+
+
+def issue_event(kind: str, m: int, actor=PERSON, via=None, **more) -> dict:
+    """An event of an issue's REST timeline, as trials/P-34.rest.json recorded one."""
+    login, account, typed = actor
+    return dict({"event": kind, "actor": {"login": login, "id": account, "type": typed}, "created_at": minute(m),
+                 "performed_via_github_app": via}, **more)
+
+
+def issue_read(events=(), more=False, last=None, types=(), edits=None, **change) -> list:
+    """The issues port's reads of issue 41 of o/r: the issue and its timeline by REST, and its edits by GraphQL, which no
+    trial has recorded in the port's query yet (decision 0218)."""
+    issue = dict({"number": 41, "state": "open", "title": "A title", "body": "A body", "created_at": CREATED,
+                  "updated_at": UPDATED, "user": {"login": "don-petry", "id": MAINTAINER, "type": "User"},
+                  "type": {"name": "Task"}, "labels": [{"name": "kernel"}], "assignees": [{"login": "don-petry"}],
+                  "performed_via_github_app": None},
+                 **change)
+    edited = {"number": 41, "updatedAt": UPDATED, "lastEditedAt": last,
+              "timelineItems": {"pageInfo": {"hasNextPage": False}, "nodes": list(types)}}
+    edited.update(edits or {})
+    asked = {"query": issues.QUERY, "variables": {"owner": "o", "name": "r", "number": 41}}
+    return [rest_answer("/repos/o/r/issues/41", issue),
+            rest_answer("/repos/o/r/issues/41/timeline?per_page=100", list(events),
+                        '<https://x>; rel="next"' if more else ""),
+            {"request": {"via": "graphql", "call": "POST /graphql", "headers": {}, "body": asked},
+             "response": {"status": 200, "headers": {},
+                          "body": {"data": {"repository": {"nameWithOwner": "o/r", "issue": edited}}}}}]
+
+
+class Issues(unittest.TestCase):
+    NOW = "2026-10-11T12:00:00Z"
+
+    def read(self, exchanges, clock=None, transport=None):
+        router = transport or Router(github.Replay(exchanges), {"don-petry": "admin", "stranger": "read"})
+        accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]})
+        return issues.read(router, "o/r", 41, accounts, clock or (lambda: self.NOW))
+
+    def test_an_issues_timeline_is_whole_only_when_its_last_page_names_no_next(self):  # P-33, decision 0218
+        said = issue_event("commented", 0)
+        whole = self.read(issue_read([said]))
+        self.assertEqual((whole["complete"]["timeline"], whole["last_writer_comment_at"]), (True, minute(0)))
+        # A page that names a next one is read on, however short, and the next page ends it.
+        first = issue_read([said], more=True)
+        later = rest_answer("/repos/o/r/issues/41/timeline?per_page=100&page=2", [issue_event("commented", 5)])
+        read = self.read(first[:2] + [later] + first[2:])
+        self.assertEqual((read["complete"]["timeline"], read["last_writer_comment_at"]), (True, minute(5)))
+        # A next page that is no list, or changes of type that name a next page, are not the whole.
+        later["response"]["body"] = {}
+        self.assertFalse(self.read(first[:2] + [later] + first[2:])["complete"]["timeline"])
+        more = {"timelineItems": {"pageInfo": {"hasNextPage": True}, "nodes": []}}
+        self.assertFalse(self.read(issue_read([said], edits=more))["complete"]["timeline"])
+
+    def test_an_issues_content_time_is_the_newer_of_its_edit_and_its_rename(self):  # P-34
+        def changed(events=(), **change):
+            return self.read(issue_read(list(events), **change))["content_changed_at"]
+        self.assertEqual(changed(), CREATED)
+        self.assertEqual(changed(last=minute(-30)), minute(-30))
+        self.assertEqual(changed([issue_event("renamed", -20)]), minute(-20))
+        self.assertEqual(changed([issue_event("renamed", -40)], last=minute(-30)), minute(-30))
+        self.assertEqual(changed([issue_event("renamed", -20), issue_event("renamed", -10)], last=minute(-30)), minute(-10))
+        # A comment, a label, a close and updatedAt move nothing.
+        self.assertEqual(changed([issue_event("commented", 0), issue_event("labeled", 1, label={"name": "bug"}),
+                                  issue_event("closed", 2)], state="closed"), CREATED)
+
+    def test_a_reopening_by_a_writer_begins_a_life_and_anyone_elses_does_not(self):
+        from kernel import issue
+
+        def life(state, *steps):
+            events = [issue_event(kind, m, actor, via) for kind, m, actor, via in ((s + (None,))[:4] for s in steps)]
+            f = self.read(issue_read(events, state=state))
+            self.assertTrue(issue.readable_close(f) and issue.readable_reopening(f), steps)
+            return f["life_started_at"], f["reopened_last_by"], f["reopened_last_at"], f["closed_first_at"]
+        closed, reopened = "closed", "reopened"
+        self.assertEqual(life("open"), (CREATED, "never", None, None))
+        self.assertEqual(life("closed", (closed, 0, PERSON)), (CREATED, "never", None, minute(0)))
+        # Anyone else's reopening, a stranger's, an App's or an App's with a person's token, leaves the life as it was.
+        for other in ((STRANGER,), (CONTROLLER_APP,), (PERSON, {"id": 9})):
+            self.assertEqual(life("open", (closed, 0, PERSON), (reopened, 5) + other), (CREATED, "other", minute(5), minute(0)))
+        self.assertEqual(life("closed", (closed, 0, PERSON), (reopened, 5, STRANGER), (closed, 10, STRANGER)),
+                         (CREATED, "other", minute(5), minute(0)))
+        # A writer's begins a new life, whose first close is the first since.
+        self.assertEqual(life("open", (closed, 0, PERSON), (reopened, 5, PERSON)), (minute(5), "writer", minute(5), None))
+        self.assertEqual(life("closed", (closed, 0, PERSON), (reopened, 5, PERSON), (closed, 20, STRANGER)),
+                         (minute(5), "writer", minute(5), minute(20)))
+        self.assertEqual(life("open", (closed, 0, PERSON), (reopened, 5, PERSON), (closed, 10, PERSON),
+                              (reopened, 15, STRANGER)), (minute(5), "other", minute(15), minute(10)))
+
+    def test_the_writers_last_acts_and_each_apps_latest_comment_are_read(self):
+        other_app = ("github-actions[bot]", 41898282, "Bot")  # an App outside the Factory
+        events = [issue_event("commented", 0, CONTROLLER_APP), issue_event("commented", 6, PERSON),
+                  issue_event("commented", 2, PERSON), issue_event("labeled", 7, CONTROLLER_APP, label={"name": "x"}),
+                  issue_event("commented", 8, CONTROLLER_APP), issue_event("commented", 5, CONTROLLER_APP),
+                  issue_event("commented", 9, other_app), issue_event("commented", 10, STRANGER),
+                  issue_event("commented", 11, PERSON, {"id": 9})]
+        f = self.read(issue_read(events))
+        self.assertEqual(f["role_comments"], [{"by": "combsmith-sf-controller[bot]", "at": minute(8)}])
+        self.assertEqual((f["last_writer_action_at"], f["last_writer_comment_at"], f["acts_since_writer"]),
+                         (minute(6), minute(6), 1))
+        # A writer's label is an act and no comment: the two are read apart (Carbon).
+        f = self.read(issue_read([issue_event("commented", 2, PERSON), issue_event("labeled", 6, PERSON, label={"name": "x"})]))
+        self.assertEqual((f["last_writer_action_at"], f["last_writer_comment_at"]), (minute(6), minute(2)))
+        # A comment whose App cannot be told refuses the read, a Factory App's as a person's.
+        for who in (CONTROLLER_APP, PERSON):
+            with self.assertRaises(github.Unanswered):
+                self.read(issue_read([issue_event("commented", 0, who, {"name": "an App"})]))
+
+    def test_an_issue_github_did_not_answer_whole_is_refused(self):  # decision 0218
+        def edits(drop=None, **change):
+            found = issue_read(**change)
+            if drop:
+                *path, key = drop
+                node = found[2]["response"]["body"]
+                for step in path:
+                    node = node[step]
+                del node[key]
+            return found
+        erred = issue_read()
+        erred[2]["response"]["body"]["errors"] = [{"type": "RATE_LIMITED"}]
+        failed = issue_read()
+        failed[0]["response"]["status"] = 404
+        other = issue_read()
+        other[2]["response"]["body"]["data"]["repository"]["nameWithOwner"] = "a/fork"
+        issue = ("data", "repository", "issue")
+        refused = [erred, failed, other, issue_read(number=42), issue_read(pull_request={}), issue_read(state="merged"),
+                   issue_read(title=None), issue_read(user=None), issue_read(labels=[{}]), issue_read(edits={"number": 42}),
+                   issue_read([issue_event("closed", 0, via={"name": "an App"})]), issue_read([issue_event("closed", 0, created_at="yesterday")]),
+                   issue_read(types=[{"__typename": "LabeledEvent", "createdAt": minute(0)}]),
+                   issue_read(types=[{"__typename": ["IssueTypeAddedEvent"], "createdAt": minute(0)}])]
+        # A key GraphQL left out is never read as null.
+        refused += [edits(issue + (key,)) for key in ("lastEditedAt", "updatedAt", "number", "timelineItems")]
+        refused += [edits(issue + ("timelineItems", "pageInfo", "hasNextPage")),
+                    issue_read(types=[{"__typename": "IssueTypeChangedEvent", "createdAt": minute(0), "issueType": None}])]
+        # So is a key REST's issue left out that the facts rest on; an empty body is null, and read.
+        for key in ("type", "body", "title", "updated_at", "performed_via_github_app"):
+            left_out = issue_read()
+            del left_out[0]["response"]["body"][key]
+            refused.append(left_out)
+        for at, found in enumerate(refused):
+            with self.assertRaises(github.Unanswered, msg=at):
+                self.read(found)
+
+    def test_the_issues_own_facts_hold_to_the_schema_and_leave_its_linked_pull_requests_unread(self):
+        from kernel import issue
+        from tests.support import CONFIG
+        from tools.jsonschema_lite import validate
+        types = [{"__typename": "IssueTypeAddedEvent", "createdAt": minute(-50), "issueType": {"name": "Bug"}},
+                 {"__typename": "IssueTypeChangedEvent", "createdAt": minute(-40), "prevIssueType": {"name": "Bug"},
+                  "issueType": {"name": "Task"}},
+                 {"__typename": "IssueTypeRemovedEvent", "createdAt": minute(-30), "issueType": {"name": "Task"}}]
+        sent, seen = [], []
+
+        class Counted:
+            def send(self, req):
+                sent.append(req)
+                return router.send(req)
+        router = Router(github.Replay(issue_read(types=types, type=None)), {"don-petry": "admin"})
+        f = self.read(None, transport=Counted(), clock=lambda: seen.append(len(sent)) or self.NOW)
+        self.assertEqual(validate(f, issues.SCHEMA), [])
+        # The reads, each asking what the facts need, written out; the time is taken after the last.
+        self.assertEqual([r["path"] for r in sent], ["/repos/o/r/issues/41", "/repos/o/r/issues/41/timeline?per_page=100",
+                                                     "/graphql", "/repos/o/r/collaborators/don-petry/permission"])
+        query = " ".join(sent[2]["body"]["query"].split())
+        for need in ("nameWithOwner", "issue(number: $number) { number updatedAt lastEditedAt",
+                     "itemTypes: [ISSUE_TYPE_ADDED_EVENT, ISSUE_TYPE_CHANGED_EVENT, ISSUE_TYPE_REMOVED_EVENT]",
+                     "pageInfo { hasNextPage }", "__typename", "... on IssueTypeAddedEvent { createdAt issueType { name } }",
+                     "... on IssueTypeChangedEvent { createdAt prevIssueType { name } issueType { name } }",
+                     "... on IssueTypeRemovedEvent { createdAt issueType { name } }"):
+            self.assertIn(need, query)
+        self.assertEqual(seen, [len(sent)])
+        self.assertEqual((f["linked"], f["branch_head"], f["complete"]), ([], None, {"timeline": True, "linked": False, "runs": True}))
+        self.assertEqual((f["type"], f["label_names"], f["assignees"]), (None, ["kernel"], ["don-petry"]))
+        self.assertEqual(f["type_events"], [{"from": None, "to": "Bug", "at": minute(-50)},
+                                            {"from": "Bug", "to": "Task", "at": minute(-40)},
+                                            {"from": "Task", "to": None, "at": minute(-30)}])
+        # The Kernel defers on the pull requests not read yet, and reads the rest as an issue's facts.
+        deferred = issue.derive(f, [], CONFIG)
+        self.assertEqual((deferred["state"], deferred["reason"], deferred["evidence"]), (None, "facts_incomplete", ["linked"]))
+        self.assertIsNotNone(issue.derive(dict(f, complete=dict(f["complete"], linked=True)), [], CONFIG)["state"])
+        with self.assertRaises(github.Unanswered):
+            self.read(issue_read(), clock=lambda: "noon")
 
 
 class Rules(unittest.TestCase):
