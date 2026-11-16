@@ -99,6 +99,12 @@ WIRE_RUNNING = ("tests.test_adapters.EffectsRecorded.test_a_pass_still_running_i
 WIRE_UNMATCHED = ("tests.test_adapters.EffectsRecorded.test_a_write_by_a_pass_that_failed_and_recorded_nothing_is_unmatched_not_short",)
 WIRE_CARRY = ("tests.test_reconcile.Carried",)
 WIRE_ENTRY = ("tests.test_controller.Entry.test_the_entry_gathers_what_reconciliation_reads",)
+# The issues port's tests (decision 0218).
+ISSUE_WHOLE = ("tests.test_adapters.Issues.test_an_issues_timeline_is_whole_only_when_its_last_page_names_no_next",)
+ISSUE_CONTENT = ("tests.test_adapters.Issues.test_an_issues_content_time_is_the_newer_of_its_edit_and_its_rename",)
+ISSUE_LIFE = ("tests.test_adapters.Issues.test_a_reopening_by_a_writer_begins_a_life_and_anyone_elses_does_not",)
+ISSUE_REFUSED = ("tests.test_adapters.Issues.test_an_issue_github_did_not_answer_whole_is_refused",)
+ISSUE_OWN = ("tests.test_adapters.Issues.test_the_issues_own_facts_hold_to_the_schema_and_leave_its_linked_pull_requests_unread",)
 COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers",)
 ALSO_AT = ("tests.test_evals.Scoring.test_a_finding_at_any_place_the_case_gives_is_at_the_place",)
 SPAN = ("tests.test_evals.Scoring.test_a_result_that_raises_the_expected_finding_passes_and_one_that_does_not_fails",
@@ -1076,32 +1082,33 @@ ISSUE = [
     ("a draft's pending checks admit an implementing Run", ISSUE_PY,
      '    if draft["checks"] != "failing":\n', '    if draft["checks"] == "passing":\n',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
-    ("the implementing rounds are unbounded", ISSUE_PY,
-     'if len(rounds) >= config["limits"]["max_attempts"]:', 'if False:',
+    ("the implementing rounds are unbounded", "kernel/brakes.py",
+     'if len(rounds) >= limits["max_attempts"]:', 'if False:',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
-    ("max_attempts rounds admit one more", ISSUE_PY,
-     'if len(rounds) >= config["limits"]["max_attempts"]:', 'if len(rounds) > config["limits"]["max_attempts"]:',
+    ("max_attempts rounds admit one more", "kernel/brakes.py",
+     'if len(rounds) >= limits["max_attempts"]:', 'if len(rounds) > limits["max_attempts"]:',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
-    ("every Run counts as an implementing round", ISSUE_PY, 'r["intent"] == IMPLEMENT and ', '',
+    ("every Run counts as an implementing round", "kernel/brakes.py", 'r["intent"] == t.IMPLEMENT and ', '',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
     ("a writer's action does not renew the rounds", ISSUE_PY,
-     'since_writer(mine, facts) if r["intent"] == IMPLEMENT', 'mine if r["intent"] == IMPLEMENT',
+     'brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"])',
+     'brakes.implementing_rounds(_decision, facts, mine, config["limits"])',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
     ("the implementing Run is not told its draft", ISSUE_PY, '{"pull_request": draft["number"]}', '{}',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
     ("the first pull request linked is read as the draft", ISSUE_PY, 'if str(p["number"]) == evidence[0]]', 'if True]',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
-    ("the implementing rounds hold only at the bound", ISSUE_PY,
-     'if len(rounds) >= config["limits"]["max_attempts"]:', 'if len(rounds) == config["limits"]["max_attempts"]:',
+    ("the implementing rounds hold only at the bound", "kernel/brakes.py",
+     'if len(rounds) >= limits["max_attempts"]:', 'if len(rounds) == limits["max_attempts"]:',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
-    ("an implementing Run in flight counts as a round", ISSUE_PY,
-     'r["intent"] == IMPLEMENT and r["status"] == "completed"]', 'r["intent"] == IMPLEMENT]',
+    ("an implementing Run in flight counts as a round", "kernel/brakes.py",
+     'r["intent"] == t.IMPLEMENT and r["status"] == "completed"]', 'r["intent"] == t.IMPLEMENT]',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
-    ("the implementing rounds' Hold leaves the State", ISSUE_PY,
+    ("the implementing rounds' Hold leaves the State", "kernel/brakes.py",
      'return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in rounds], t.HOLD)',
-     'return _decision(facts, state, "attempts_exhausted", [r["run"] for r in rounds], t.HOLD)',
+     'return _decision(facts, "in_progress", "attempts_exhausted", [r["run"] for r in rounds], t.HOLD)',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
-    ("the implementing rounds' Hold names no Run", ISSUE_PY,
+    ("the implementing rounds' Hold names no Run", "kernel/brakes.py",
      '"attempts_exhausted", [r["run"] for r in rounds], t.HOLD)', '"attempts_exhausted", [], t.HOLD)',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
     ("a draft's checks are read before whose draft it is", ISSUE_PY,
@@ -1121,14 +1128,15 @@ ISSUE = [
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
     ("the implementing rounds are spent whatever the draft's checks", ISSUE_PY,
      '    if draft["checks"] != "failing":\n        return _decision(facts, state, reason, evidence, t.NOTHING)\n'
-     '    rounds = [r for r in since_writer(mine, facts) if r["intent"] == IMPLEMENT and r["status"] == "completed"]\n'
-     '    if len(rounds) >= config["limits"]["max_attempts"]:\n'
-     '        return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in rounds], t.HOLD)\n',
-     '    rounds = [r for r in since_writer(mine, facts) if r["intent"] == IMPLEMENT and r["status"] == "completed"]\n'
-     '    if len(rounds) >= config["limits"]["max_attempts"]:\n'
-     '        return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in rounds], t.HOLD)\n'
+     '    held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"])\n'
+     '    if held:\n        return held\n',
+     '    held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"])\n'
+     '    if held:\n        return held\n'
      '    if draft["checks"] != "failing":\n        return _decision(facts, state, reason, evidence, t.NOTHING)\n',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
+    ("the implementing rounds are not asked of the brakes", ISSUE_PY,
+     '    if held:\n        return held\n    return (config["author_role"], IMPLEMENT,',
+     '    return (config["author_role"], IMPLEMENT,', ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
     ("the author Role is named before the implementing rule's reads", "config/defaults.json",
      '"author_role": null,', '"author_role": "dev-lead",',
      ("tests.test_issue.Outcomes.test_no_author_role_is_named_while_the_implementing_rule_is_owed_its_reads",)),
@@ -7478,10 +7486,14 @@ MUTANTS = ISSUE + [
     ("an unreadable check is not the Maintainer's to see", "kernel/decide.py",
      '"act_ceiling", "check_unreadable",', '"act_ceiling",', ("tests.test_decide.Content",)),
     ("the act ceiling stops a Run", "kernel/decide.py",
-     "    wanted = _wanted_run(facts, state, reason, config)\n",
+     "    wanted = _wanted_run(facts, state, reason, config, evidence)\n",
      '    if facts.get("acts_since_writer") is None or facts["acts_since_writer"] >= config["limits"]["max_acts_per_item"]:\n'
      '        return _decision(facts, t.HELD, "act_ceiling", [], t.HOLD)\n'
-     "    wanted = _wanted_run(facts, state, reason, config)\n", ("tests.test_decide.Classes",)),
+     "    wanted = _wanted_run(facts, state, reason, config, evidence)\n", ("tests.test_decide.Classes",)),
+    # Issue 855: with two model Lenses, the one the evidence names is the one admitted.
+    ("the first model Lens is admitted whatever the evidence names", "kernel/decide.py",
+     '        return (evidence[0], "review-change")\n', '        return (config["required_lenses"]["model"][0], "review-change")\n',
+     ("tests.test_decide.OnlyAPersonEnds.test_with_two_model_lenses_the_one_awaited_is_the_one_admitted",)),
     # Decision 0036: a Run listed before its run-name defers every admission, an approval among them, after the brakes.
     ("an unidentified Run lets an approval through", "kernel/decide.py",
      '    if action == "issue_approval" and unnamed_within(context, now, config["limits"]) != []:\n', "    if False:\n",
@@ -13670,6 +13682,41 @@ MUTANTS = ISSUE + [
     ("the closing reference's rule is grounded by no fixture", 'sim/grounding.py',
      'one to another base carries no reference", ("P-33",), ("trials/P-33.json", "trials/P-33.port.json"), None),',
      'one to another base carries no reference", ("P-33",), None, None),', ('tests.test_tools.Trials.test_the_issue_fixtures_hold_what_grounds_the_four_rules',)),
+    ("changes of an issue's type that name a next page are whole", 'adapters/issues.py',
+     '"whole": not more}',
+     '"whole": True}', ISSUE_WHOLE),
+    ("an issue's timeline is whole whatever its pages say", 'adapters/issues.py',
+     '"timeline": whole and edited["whole"]',
+     '"timeline": edited["whole"]', ISSUE_WHOLE),
+    ('a key GraphQL left out is read as null', 'adapters/issues.py',
+     '    if not isinstance(node, dict) or key not in node:\n        raise Unanswered("the answer leaves out %s" % key)\n    return node[key]',
+     '    if not isinstance(node, dict):\n        raise Unanswered("the answer leaves out %s" % key)\n    return node.get(key)', ISSUE_REFUSED),
+    ("an issue's rename moves not its content time", 'adapters/issues.py',
+     '    times += [timeline._time(ev.get("created_at")) for ev in events if ev.get("event") == "renamed"]\n',
+     '', ISSUE_CONTENT),
+    ("an App's reopening with a person's token is the person's", 'adapters/issues.py',
+     '            if gate.is_person(accounts.acted(ev)):',
+     '            if gate.is_person(accounts.actor(ev.get("actor"))):', ISSUE_LIFE),
+    ("an issue's type change is read from its new type alone", 'adapters/issues.py',
+     '"IssueTypeChangedEvent": ("prevIssueType", "issueType")',
+     '"IssueTypeChangedEvent": (None, "issueType")', ISSUE_OWN),
+    ('the edits leave out lastEditedAt', 'adapters/issues.py',
+     'number updatedAt lastEditedAt',
+     'number updatedAt', ISSUE_OWN),
+    ("an issue's linked pull requests are read as whole", 'adapters/issues.py',
+     '"linked": False, "runs": True',
+     '"linked": True, "runs": True', ISSUE_OWN),
+    ("an issue's facts that do not hold to the schema are handed on", 'adapters/issues.py',
+     '    if problems:\n        raise Unanswered("the issue\'s facts',
+     '    if False:\n        raise Unanswered("the issue\'s facts', ISSUE_OWN),
+    ("an issue's facts are timed before its last read", 'adapters/issues.py',
+     *moved_before("adapters/issues.py", "    now = clock()\n", "    lived = life("), ISSUE_OWN),
+    ("any Bot's comment is a Factory App's", 'adapters/issues.py',
+     '        if (ident, kind) in accounts.factory:',
+     '        if kind == "Bot":', ('tests.test_adapters.Issues.test_the_writers_last_acts_and_each_apps_latest_comment_are_read',)),
+    ("anyone's comment is a writer's", 'adapters/issues.py',
+     '        elif gate.is_person(who):',
+     '        else:', ('tests.test_adapters.Issues.test_the_writers_last_acts_and_each_apps_latest_comment_are_read',)),
     ("the pass's token may write", 'controller/__main__.py',
      ' if n.startswith("read:")]',
      ']', ('tests.test_controller.Entry.test_the_entry_reads_through_the_ports_and_hands_the_pass_nothing_else',)),
@@ -14674,6 +14721,22 @@ MUTANTS = ISSUE + [
     ('a Result may push twice', 'schemas/effect.schema.json',
      '      "type": "array",\n      "maxItems": 1,\n',
      '      "type": "array",\n', ('tests.test_apply.Job.test_a_push_is_held_before_anything_is_minted_and_its_refusal_recorded',)),
+    # Issue 880: a push holds its patch's text under body, and its bundle stays required.
+    ("a push's patch may name more than its body", 'schemas/effect.schema.json',
+     '          "patch": {\n            "type": "object",\n            "additionalProperties": false,\n',
+     '          "patch": {\n            "type": "object",\n            "additionalProperties": true,\n', ('tests.test_tools.Examples.test_a_pushs_patch_is_text_under_body_and_names_nothing_else',)),
+    ("a push's patch may be of nothing", 'schemas/effect.schema.json',
+     '                "type": "string",\n                "minLength": 1\n',
+     '                "type": "string"\n', ('tests.test_tools.Examples.test_a_pushs_patch_is_text_under_body_and_names_nothing_else',)),
+    ("a push's patch may have no body", 'schemas/effect.schema.json',
+     '            "required": [\n              "body"\n            ],\n',
+     '', ('tests.test_tools.Examples.test_a_pushs_patch_is_text_under_body_and_names_nothing_else',)),
+    ("a push's patch may be a bare string", 'schemas/effect.schema.json',
+     '          "patch": {\n            "type": "object",\n',
+     '          "patch": {\n', ('tests.test_tools.Examples.test_a_pushs_patch_is_text_under_body_and_names_nothing_else',)),
+    ('a push with its patch needs no bundle', 'schemas/effect.schema.json',
+     '        "required": [\n          "id",\n          "bundle"\n        ],\n',
+     '        "required": [\n          "id"\n        ],\n', ('tests.test_tools.Examples.test_a_pushs_patch_is_text_under_body_and_names_nothing_else',)),
     # Issue 139: a Role's push that touches the base's list is refused; the list is read at the base commit.
     ('a push that touches the list lands', 'harness/apply.py',
      '            return "push_protected"\n', '            pass\n', ('tests.test_apply.Push.test_a_push_that_touches_the_list_is_refused',)),

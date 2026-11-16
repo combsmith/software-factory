@@ -779,6 +779,27 @@ class Engine(unittest.TestCase):
         self.assertEqual(engine.handed(task_)["properties"]["reason"]["enum"],
                          [None, "change_not_reviewed_whole", "task_not_a_review"])
 
+    def test_a_review_is_handed_no_push_and_no_patch(self):  # issue 880
+        # `effect/1` holds a push and its patch, and a review's Task permits no push: the schema its CLI is handed
+        # names neither, at any depth. Property names are walked, never the text, where another word could hold one.
+        def names(schema) -> set:
+            found = set()
+            if isinstance(schema, dict):
+                for name, value in schema.items():
+                    if name == "properties" and isinstance(value, dict):
+                        found |= set(value)
+                    found |= names(value)
+            elif isinstance(schema, list):
+                for value in schema:
+                    found |= names(value)
+            return found
+        task_ = built()
+        self.assertEqual(task_["permitted_effects"], ["submit_review", "create_check_run", "comment"])
+        self.assertEqual(names(engine.handed(task_)) & {"push_commits", "patch", "bundle"}, set())
+        # The other side: the walk finds them where a Task permits a push.
+        pushing = dict(task_, permitted_effects=["push_commits"])
+        self.assertEqual(names(engine.handed(pushing)) & {"push_commits", "patch", "bundle"}, {"push_commits", "patch", "bundle"})
+
     def test_the_version_is_held_before_and_after_the_call(self):  # L-35
         for versions, asked in (((PIN, "2.1.307"), 1), (("2.1.305", PIN), 0), ((None, PIN), 0), ((PIN, None), 1),
                                 (((PIN, 1), PIN), 0)):
