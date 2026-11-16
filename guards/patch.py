@@ -4,10 +4,11 @@ write must land exactly that patch, and no other bytes").
 `applied(patch, tree, contents)` gives what a push writes: each path's new bytes and mode, and each path it removes, or
 the one reason, a code, why nothing may land. Nothing is searched for and nothing is guessed: a hunk's lines are the
 file's lines at the place the hunk names, or the patch is not this tree's. So what lands is what the patch says, of the
-commit the Decision admitted, and of no other. It is what `git apply` lands of a hunk that stands where its header
-says. `git apply --unidiff-zero`, which git wants for a hunk with no line of context, differs in one shape: removals
-alone that end at a last line with no newline, which it takes a line higher where the line above reads alike or
-differs only in white space at its end.
+commit the Decision admitted, and of no other. It is what `git apply --unidiff-zero` lands, which holds a hunk to the
+place its header names, but for one shape: removals alone that end at a last line with no newline, which git takes a
+line higher where the line above reads alike or differs only in white space at its end. Plain `git apply` parts from
+both where a hunk's last line is a change and the file goes on after it: git looks for such a hunk at the file's end,
+lands it there where the lines read alike, and refuses it otherwise. `git diff` writes no such hunk but with `-U0`.
 
 It reads a narrower patch than `harness/bundle.py` does, on purpose, and what it does not read it refuses:
 - a name is read one way only: unquoted, of the characters `NAME_CHARS` holds, with no space, so the header alone

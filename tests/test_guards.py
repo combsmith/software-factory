@@ -737,9 +737,10 @@ class Patch(unittest.TestCase):
                 # The same patch, broken: most of it is then no patch of this tree. What still lands, git lands alike,
                 # read in one of its two ways: with `--unidiff-zero`, which it wants for a hunk of no context, or
                 # without, where that takes removals at a last line with no newline a line higher than they stand.
-                # A patch of that shape with another hunk of no context neither way lands rightly (the first takes the
-                # wrong line, the second refuses the other hunk): no turn of these seeds draws one, and none is left
-                # out; the shape is held below.
+                # That it does only where the line above reads alike, or differs in white space at its end alone; a
+                # patch of that shape with another hunk of no context neither way lands rightly (the first takes the
+                # wrong line, the second refuses the other hunk). Turns of these seeds draw the removals, none with
+                # such a line above, and no turn is left out; the shape is held below.
                 for turn in range(40):
                     wrong = broken(rng, data)
                     need = patch.sources(wrong)
