@@ -960,6 +960,16 @@ class Engine(unittest.TestCase):
         self.assertEqual(engine.shown(built([texts[1], text("thread:" + first)], findings=[first, second])), [r["shown"][1]])
         self.assertEqual(engine.shown(built(texts)), [])
         self.assertEqual(engined()["shown"], [])
+        # Two kept texts under one Finding's id were both read, and one digest names one text: that Finding was not
+        # shown, whichever came first, and the other still was.
+        for twice in ([texts[0], text("finding:" + first, body="Other words."), texts[1]],
+                      [text("finding:" + first, body="Other words."), texts[1], texts[0]]):
+            self.assertEqual(engine.shown(built(twice, findings=[first, second])), [r["shown"][1]])
+        # A lone surrogate, which a Task's JSON can carry and UTF-8 cannot, is digested as its own bytes: the step gives
+        # a Result, and never ends on a text.
+        lone = engined(the_task=built([text("finding:" + first, body="bad \ud800 text")], findings=[first]))
+        self.assertEqual((lone["status"], lone["shown"]),
+                         ("completed", [{"finding": first, "text": sha(b"bad \xed\xa0\x80 text")}]))
         # The model is not handed the field, and an answer that names it, empty or not, is no Result.
         self.assertNotIn("shown", engine.handed(the_task)["properties"])
         for named in ([], r["shown"], [{"finding": "f_0bad", "text": sha(b"x")}]):
@@ -974,6 +984,9 @@ class Engine(unittest.TestCase):
             self.assertEqual(len(shared.errors(odd, "result")), 1, name)
         twice = dict(example, shown=example["shown"][:1] * 2)
         self.assertNotEqual(shared.errors(twice, "result"), [])
+        for odd in ("f_zz", "f_9c1", "9c1e", "F_9C1E", "f_9c1e "):
+            named = dict(example, shown=[dict(example["shown"][0], finding=odd)])
+            self.assertEqual(len(shared.errors(named, "result")), 1, odd)
 
     def test_an_answer_that_does_not_validate_is_no_result(self):  # decision 0038, decision 0004
         bad = [answer(result={}), answer(result=judged(run="r_01JA7Z")), answer(result=judged(reason="all_good")),
