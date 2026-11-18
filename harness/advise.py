@@ -7,7 +7,8 @@ TASK is the folder `python3 -m harness.read` wrote; OUT a folder that does not e
 is no dependency's, the step asks each reader `config/harness.json` configures, in the order `advisory` names them,
 once, and once more only after the wait a rate limit names. It reads the diff and the Run's own files and nothing from
 GitHub, and it holds one secret, the Azure key, under `ADVISORY_AZURE_KEY`. It writes `advice.<lens>.json`, an
-`advice/1`, and its digest beside it, for every reader configured: `completed`, `incomplete` or `failed`.
+`advice/1`, and its digest beside it, for every reader configured: `completed`, `incomplete` or `failed`; and one
+`advice-cost.json`, an `advice-cost/1`, the Run's asks and their cost summed, which is all the Controller reads of it.
 
 The step never fails its job. A reader that cannot be asked, or does not answer, has a Result that says why by a code,
 and anything this file did not foresee is the code `transport`; the review then runs without that reader. It asks
@@ -154,7 +155,7 @@ def job(task_folder: str, out: str, env: dict, root: pathlib.Path = ROOT, base=N
     readers = config.get("readers", {})
     names = [name for name in config["advisory"] if name in readers]
     clock = how.get("clock", time.monotonic)
-    until, written = clock() + WHOLE, []
+    until, written, spent = clock() + WHOLE, [], []
     for n, lens in enumerate(names):
         reader = readers[lens]
         told = {"run": run, "release": record["release"], "lens": lens, "content_id": facts["content_id"],
@@ -169,6 +170,15 @@ def job(task_folder: str, out: str, env: dict, root: pathlib.Path = ROOT, base=N
         steps.write(made, "advice.%s.json" % lens, data)
         steps.write(made, "advice.%s.sha256" % lens, (digest + "\n").encode())
         written.append((lens, digest))
+        spent.append(result["usage"])
+    # What the Controller's pass reads of this Run, and all it reads: how many requests were sent and what they cost,
+    # summed here from the tokens each answer counted and the configured prices, and never from a reader's text. A cost
+    # is null where a reader that was asked gave no count, so that it is never taken for nought (decision 0224).
+    asked_ = [usage for usage in spent if usage["asks"] > 0]
+    known = all(usage["cost_usd"] is not None for usage in asked_)
+    steps.write(made, "advice-cost.json", {"schema": "advice-cost/1", "run": run, "release": record["release"],
+                                           "asks": sum(usage["asks"] for usage in spent),
+                                           "cost_usd": round(sum(usage["cost_usd"] for usage in asked_), 6) if known else None})
     return written
 
 

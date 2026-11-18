@@ -107,8 +107,12 @@ def advised(answers: list, env=None, **made) -> tuple:
             assert (base / "advice" / ("advice.%s.sha256" % lens)).read_text() == digest + "\n"
             results[lens] = json.loads(data)
             assert jsonschema_lite.validate(results[lens], shared.SCHEMAS["advice"], schemas=shared.SCHEMAS) == []
+        cost = base / "advice" / "advice-cost.json"
         assert sorted(p.name for p in (base / "advice").iterdir()) == sorted(
-            "advice.%s.%s" % (lens, kind) for lens in results for kind in ("json", "sha256"))
+            ["advice.%s.%s" % (lens, kind) for lens in results for kind in ("json", "sha256")] + ["advice-cost.json"] * bool(results))
+        if results:
+            stand_in.cost = json.loads(cost.read_text())
+            assert sorted(stand_in.cost) == ["asks", "cost_usd", "release", "run", "schema"] and stand_in.cost["run"] == RUN
         return results, stand_in, clock
 
 
@@ -142,6 +146,11 @@ class Advise(unittest.TestCase):
         self.assertNotIn("--- x ---", prompt)
         self.assertEqual(results["astra"]["findings"][0]["location"], {"path": "kernel/derive.py", "start_line": 88})
         self.assertEqual(results["astra"]["usage"]["effort"], "max")       # the example's change touches the Kernel
+        # The Run's cost for the Controller: the asks and the dollars summed from each answer's tokens and the prices.
+        each = [results[lens]["usage"]["cost_usd"] for lens in ("astra", "kimi")]
+        self.assertEqual(azure_.cost, {"schema": "advice-cost/1", "run": RUN, "release": results["astra"]["release"], "asks": 2,
+                                       "cost_usd": round(sum(each), 6)})
+        self.assertTrue(all(cost > 0 for cost in each))
         elsewhere, _, _ = advised([response(), completion()],
                                   change={"changed_paths": [{"path": "docs/glossary.md", "previous": None}]})
         self.assertEqual(elsewhere["astra"]["usage"]["effort"], "xhigh")
@@ -153,6 +162,7 @@ class Advise(unittest.TestCase):
         for ask in (False, None, "yes", 1):
             results, azure_, _ = advised([], ask=ask)
             self.assertEqual(codes(results), {"astra": ("incomplete", "budget", 0, 0), "kimi": ("incomplete", "budget", 0, 0)}, ask)
+            self.assertEqual((azure_.cost["asks"], azure_.cost["cost_usd"]), (0, 0))       # nothing asked costs nothing
             self.assertEqual((azure_.made, azure_.sent), ([], []))
         for env in ({}, {"ADVISORY_AZURE_KEY": ""}, {"AZURE_OPENAI_API_KEY": "k" * 32}):
             results, azure_, _ = advised([], env=env)
@@ -172,6 +182,8 @@ class Advise(unittest.TestCase):
         results, azure_, clock = advised([LIMITED, response(), LIMITED, LIMITED])
         self.assertEqual(codes(results), {"astra": ("completed", None, 1, 2), "kimi": ("incomplete", "rate_limited", 0, 2)})
         self.assertEqual((clock.slept, len(azure_.sent)), ([20, 20], 4))
+        # A reader that was asked and gives no count makes the Run's cost unknown, never the others' sum or nought.
+        self.assertEqual((azure_.cost["asks"], azure_.cost["cost_usd"]), (4, None))
         # A wait it does not name as a short whole number, or that does not fit, is not waited for.
         for header in ("91", "soon", "-1", "1.5", "0020", ""):
             results, azure_, clock = advised([dict(LIMITED, headers={"retry-after": header})] * 2)
