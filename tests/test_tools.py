@@ -2593,9 +2593,12 @@ class Repo(unittest.TestCase):
     def test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default(self):  # decision 0224
         # A schema here has no rule on a key, so the check holds what harness/1 cannot: a reader's block is under the
         # name of an advisory Lens of the same file, a name advice/1 can hold.
-        harness = json.loads((ROOT / "config" / "harness.json").read_text())
+        loaded = json.loads((ROOT / "config" / "harness.json").read_text())
         schema = json.loads((ROOT / "schemas" / "harness.schema.json").read_text())
-        self.assertEqual(check_examples._readers(harness), [])
+        self.assertEqual(check_examples._readers(loaded), [])
+        # The pin's file as it is with no reader and no ceiling, whatever it holds of them now.
+        harness = dict({k: v for k, v in loaded.items() if k not in ("readers", "advisory_ceiling_usd_per_day")}, advisory=["coderabbit"])
+        self.assertEqual((validate(harness, schema), check_examples._readers(harness)), ([], []))
         block = json.loads((ROOT / "examples" / "invalid" / "harness.a-reader-that-is-no-advisory-lens.json").read_text())["readers"]["astra"]
         named = dict(harness, advisory=["coderabbit", "astra", "kimi"])
         self.assertEqual(check_examples._readers(dict(named, readers={"astra": block, "kimi": block})), [])
@@ -2613,7 +2616,6 @@ class Repo(unittest.TestCase):
         self.assertFalse(caught(run_on(dict(named, readers={"astra": block})), "config/harness.json"))
         # The day's ceiling is a figure in dollars beside the advisory Lenses, never among a reader's own settings, and
         # it has no default: the pin's file holds none until a person writes one, and nought is no figure.
-        self.assertNotIn("advisory_ceiling_usd_per_day", harness)
         self.assertNotIn("advisory_ceiling_usd_per_day", schema["required"])
         self.assertEqual(validate(dict(named, advisory_ceiling_usd_per_day=30), schema), [])
         for figure in (0, -1, 0.001, "30", None, True, 10001, float("inf")):
@@ -2667,7 +2669,8 @@ class Repo(unittest.TestCase):
         # harness/1 holds a reader's block, and a pin's file with none is whole.
         schema = json.loads((ROOT / "schemas" / "harness.schema.json").read_text())
         whole = json.loads((ROOT / "config" / "harness.json").read_text())
-        self.assertNotIn("readers", whole)
+        whole = {key: value for key, value in whole.items() if key != "readers"}
+        self.assertEqual(validate(whole, schema), [])
         reader = {"host": "factory-readers.openai.azure.com", "deployment": "astra-reader", "model": "astra-model", "api": "responses",
                   "effort": {"critical": "max", "elsewhere": "xhigh"}, "output_tokens": 32000, "prompt_characters": 600000,
                   "seconds": 900, "usd_per_million": {"input": 2.5, "output": 20}}
