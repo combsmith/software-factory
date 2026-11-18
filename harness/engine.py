@@ -154,8 +154,11 @@ def shown(task: dict) -> list:
     """What a Task showed of the Findings it lists, `result/1`'s `shown`: each one whose text the Task kept, in the
     Task's order, by its id and the digest of that text. It is read from the Task alone, never from what the model
     answered, and the Result's digest binds it, so `apply` can hold a Disposition to the Findings a review was shown
-    and to the words it was shown (issue 856). A Finding listed with no text kept was not shown."""
-    kept = {t["id"]: t["body"] for t in task["texts"]}
+    and to the words it was shown (issue 856). A Finding listed with no text kept was not shown, and neither was one
+    whose id two kept texts share: the review read both, and one digest names one text. A lone surrogate, which JSON
+    can carry and UTF-8 cannot, is digested as its own three bytes, so that no text a Task keeps ends the step."""
+    ids = [t["id"] for t in task["texts"]]
+    kept = {t["id"]: t["body"] for t in task["texts"] if ids.count(t["id"]) == 1}
     return [{"finding": f, "text": "sha256:" + hashlib.sha256(
         kept[shared.FINDING_TEXT + f].encode("utf-8", "surrogatepass")).hexdigest()}
         for f in task["findings"] if shared.FINDING_TEXT + f in kept]

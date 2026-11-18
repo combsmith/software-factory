@@ -187,8 +187,10 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
         try:
             shown = apply.shown(facts, role, config["kernel"])
         except (AttributeError, KeyError, TypeError):
-            # Facts the Kernel has not read yet, in a shape its own reading of a thread does not take.
-            raise Unanswered("the facts' threads cannot be read for the Findings to show") from None
+            # A thread in a shape the Kernel's own reading does not take, one resolved by an account the port cannot
+            # type among them: the item's own state, made since the Run was admitted. No Finding is listed, as before
+            # a review was shown any; `apply` asks the Kernel again, which defers on such a thread and writes nothing.
+            shown = []
         for fid, thread in shown if len(shown) <= texts.THREADS else ():
             try:
                 said = texts.findings(transport, first, who, role["name"], [thread])

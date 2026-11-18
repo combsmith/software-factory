@@ -1,0 +1,29 @@
+# 0227. A Run that cannot show a review a Finding it lists is never asked, and ends as the item's own
+
+Status: accepted. The Factory Builder's ruling of 2026-11-16 on step 2 of issue 856, "A re-review is given none of its Lens's open Findings, so a thread closes on the silence of one more review", that the reader's fail-closed stops end as the item's own outcome, held for a person, and never as an environment fault; the Builder gave this record its number on 2026-11-18.
+
+## Decision
+
+| What | Decided | Because |
+|---|---|---|
+| The code | `result/1` gains the reason `findings_not_shown`, a code of the Harness's on a `failed` Result, beside the codes of decision 0146 and `engine_model` of decision 0147 | Decision 0146: a code that is needed is added under a record of its own |
+| What a review is shown | The reader lists, as the Task's Findings, each open thread of the Run's own Lens that gates, of a category its Role owns and no `security` Finding's (`apply.shown`), and reads what the Lens said on each as the text `finding:` and the Finding's id | That issue: a review handed none of its Lens's open Findings has not ruled on one by saying nothing of it |
+| When no review is asked | `run` asks nothing, and writes a `failed` Result with this code, where the Task lists a Finding whose text it does not keep, or keeps every Finding's text and leaves the issue's out. A text is not kept where the thread's first comment is not the Lens's own unedited words (`texts.NotOwn`), where the Lens has more open threads than the texts port reads, or where it is over the texts' room | A ruling is on words the review read. A review that rules Findings accepted with no issue to hold the change to is not the review the item is owed. No model call is spent on a Result `apply` would refuse |
+| Whose fault | `apply` ends such a Run as the item's own: an attempt of the item, a Hold for a person at the attempts bound (`attempts_exhausted`), and never the environment's | Decisions 0121 and 0147: a state an item's text, or anyone who can write to it, can bring about stays the item's. An edited comment on two pull requests would otherwise count toward the automatic pause of every item |
+| A read that failed | A read of a thread's text that GitHub did not answer still stops the reader, `finding_texts_unreadable`, as any read not answered does | It is the environment's, and the pause exists for it |
+| A thread the Kernel cannot read | Where the facts hold a thread in a shape the Kernel's reading does not take, the reader lists no Finding and stops nothing | `apply` asks the Kernel again, and the Kernel defers on such a thread, so nothing is written for the Run |
+
+## Why
+
+Step 2 of that issue shows a review its Lens's open Findings and holds its rulings to them. The reader fails closed where it cannot show one. Each of those stops was first written as a stopped step, which the Controller counts as the environment's fault, and three such faults from two items pause Admission for every item. The states that cause them are the item's: a comment edited, a thread reopened, a long text. So they end as the item's outcome, by a code that says which.
+
+What is not held: whether a review rules `accepted` rightly is measured by no eval case yet (issue 886, "An eval case shows a review its Lens's open Findings and expects a ruling on each: Dispositions are unevaluated until then, before author_role is named"). The thread stays open and gates until a person resolves it or a later review rules on it.
+
+## Boundaries
+
+| Boundary | Check |
+|---|---|
+| A review is listed its own Lens's open Findings that gate, of a category its Role owns, and no `security` one | `tests/test_apply.py::test_a_review_is_shown_its_lenss_open_findings_that_gate`, `harness/apply.py`, mutant: "a review is shown a security Finding", mutant: "a review is shown a thread that does not gate" |
+| The reader hands each listed Finding's text by the Finding's id; a thread not its Lens's own, or more than the port reads, is listed and given no text; a read not answered stops the step | `tests/test_steps.py::test_the_reader_hands_a_review_its_lenss_open_findings_and_what_it_said`, `harness/read.py`, mutant: "the reader lists none of the Findings a review is shown", mutant: "a comment that is not its Lens's own stops the reader, as a read that failed", mutant: "a read GitHub did not answer is taken for the thread's own state" |
+| A Run whose Task lists a Finding it does not show, or shows them and leaves the issue out, is never asked: `failed`, `findings_not_shown` | `tests/test_harness.py::test_a_run_is_asked_only_if_shown_each_finding`, `harness/run.py`, mutant: "a Run is asked to rule on a Finding it is not shown", mutant: "a review that rules Findings is asked with its issue left out" |
+| `findings_not_shown` is an attempt of its item in a live Run, never the environment's | `tests/test_apply.py::test_a_result_not_the_runs_or_not_completed_writes_nothing`, `harness/apply.py`, mutant: "a Run never asked for a Finding not shown is the Factory's fault" |

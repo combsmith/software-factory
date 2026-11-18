@@ -14,7 +14,7 @@ author is who made a comment, not who wrote the words it holds now, which anyone
 design's 3.3): an edited one is nobody's words that can be told, and is refused, the Lens's own edit with it. GitHub says
 each with an explicit null, and a field it does not give proves nothing. No trial has recorded a review comment's
 `lastEditedAt`; P-58 records a description's. It is a text as any other: data a Task carries under its writer's trust,
-never a fact, a decision or a code. Which threads to ask for is the caller's, from the facts; no caller asks yet.
+never a fact, a decision or a code. Which threads to ask for is the caller's, from the facts: `harness/read.py` asks.
 
 What it cannot tell: a thread whose first comment was deleted reads its next as its first (trials P-49 and P-53), so a
 Lens's own reply would be read as what it first said. No Factory write replies on a thread. And it bounds how many

@@ -193,6 +193,10 @@ def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.mo
         # words not the Lens's own or over the texts' room, is the item's own state: no model call is spent, the
         # Run ends as the item's, and the thread gates on (issue 856).
         fault = "findings_not_shown"
+    elif the_task["findings"] and any(o["kind"] == "issue" for o in the_task["omitted"]):
+        # Nor is it asked where the Findings' texts, kept first, left the issue's out: a review that rules Findings
+        # accepted is not one that reads no issue. The item's own too, by the same code.
+        fault = "findings_not_shown"
     elif reads and not (isinstance(head, str) and os.path.isdir(head)):
         fault = "head_unreadable"
     else:
