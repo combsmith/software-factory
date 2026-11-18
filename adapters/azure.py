@@ -49,9 +49,6 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         raise Unanswered("Azure answered %d, a redirect; the transport follows none" % code)
 
 
-ACTS = ("create", "read", "cancel", "chat")
-
-
 def request(act: str, ident, body) -> dict:
     """One of the four requests, or a refusal: `create` or `chat` with a JSON object that is not empty and no id, or
     `read` or `cancel` with a response's id and no body."""

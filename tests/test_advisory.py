@@ -46,7 +46,7 @@ def live(opener=None, host: str = HOST, key: str = KEY, seconds: int = 30) -> az
 
 
 class Transport(unittest.TestCase):
-    def test_the_azure_transport_reaches_one_host_and_two_apis(self):
+    def test_the_azure_transport_asks_four_requests_and_no_other(self):
         # The four requests of the two APIs, and no other. A caller names an act, never a method or a path: the
         # transport alone writes those.
         self.assertEqual([azure.wire(r) for r in (azure.create(ASKED), azure.chat(ASKED), azure.read(ID), azure.cancel(ID))],
@@ -69,8 +69,23 @@ class Transport(unittest.TestCase):
 
             def __eq__(self, other):
                 return True
+
+        class Text(str):        # and one that writes itself as another text
+            def __str__(self):
+                return "../files"
         with self.assertRaises(azure.Unanswered):
             azure.request(Any("delete"), None, ASKED)
+        with self.assertRaises(azure.Unanswered):
+            azure.read(Text(ID))
+        # A request built by hand is held to the same rules before it is written as a method and a path.
+        for req in ({"act": "read", "id": "../files", "body": None}, {"act": "upload", "id": None, "body": ASKED},
+                    {"act": "create", "id": None, "body": ASKED, "path": "/openai/v1/files"},
+                    {"act": "create", "id": None, "body": ASKED, "host": "example.com"},
+                    {"method": "POST", "path": "/openai/v1/files", "body": ASKED, "accept": "x"}, None):
+            with self.assertRaises(azure.Unanswered, msg=req):
+                azure.wire(req)
+
+    def test_the_azure_transport_reaches_one_host_and_two_apis(self):
         # One host, of the forms Azure serves a model's API under, written as the configuration names it: no port, no
         # user, no path, no other case, and no host that only ends as one does.
         for host in (HOST, "f.openai.azure.com", "factory-readers.services.ai.azure.com",
@@ -85,8 +100,6 @@ class Transport(unittest.TestCase):
                 return "example.com"
         with self.assertRaises(azure.Unanswered):
             azure.Live(Text(HOST), KEY, 30)
-        with self.assertRaises(azure.Unanswered):
-            azure.read(Text(ID))
         for host in ("openai.azure.com", ".openai.azure.com", "a.b.openai.azure.com", "Factory.openai.azure.com",
                      "factory.openai.azure.com:8443", "u@factory.openai.azure.com", "factory.openai.azure.com/x",
                      "factory.openai.azure.com.example.com", "factory.openai.azure.com\n", "-f.openai.azure.com",
