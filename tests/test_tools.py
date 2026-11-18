@@ -2590,6 +2590,69 @@ class Repo(unittest.TestCase):
         self.assertTrue(caught(check_repo.run(tree({"config/x.json": '"gpt-' + '4o-mini"'})), "names a model"))
         self.assertFalse(caught(check_repo.run(tree({"docs/notes.md": name})), "names a model"))
 
+    def test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else(self):  # decision 0224
+        # A second place a model is named: an advisory Lens's reader, in the pin's own file, by its model and by its
+        # deployment, which Azure may name after a model. The pin's file and its copies may name a model at three paths
+        # and no other, and a copy names only what the pin's file pins.
+        name, model, deployment = "claude-" + "opus-5-5", "gpt-" + "6-astra-2026", "gpt-" + "6-astra"
+        misplaced = ": names a model outside the Engine's pin and a reader's model and deployment"
+        full = ": names a model by its full id"
+
+        def config(**more) -> str:
+            reader = {"host": "f.openai.azure.com", "deployment": deployment, "model": model, "api": "responses"}
+            return json.dumps(dict({"engine": {"model": name}, "readers": {"astra": reader, "kimi": dict(reader, api="chat")}}, **more))
+
+        def problems(copy: str, pin: str = None) -> list:
+            found = check_repo.run(tree({"config/harness.json": config() if pin is None else pin,
+                                         "examples/invalid/harness.a-copy.json": copy, "tools/a.py": "X = 1\n"}))
+            return [p for p in found if p.endswith(misplaced) or p.endswith(full)]
+        self.assertEqual(problems(config()), [])
+        # Outside the pin's file and its copies a reader's model is a model named, as the Engine's is.
+        for where in ("tools/a.py", "harness/advise.py", "examples/advice.json", "config/defaults.json", "examples/harness.json"):
+            for text in (model, deployment):
+                found = check_repo.run(tree({"config/harness.json": config(), where: 'X = "%s"\n' % text}))
+                self.assertIn(where + full, found, (where, text))
+        # A copy names no reader's model the pin's file does not pin, and with no reader pinned it names none.
+        self.assertEqual(problems(config(), json.dumps({"engine": {"model": name}})), ["examples/invalid/harness.a-copy.json" + full])
+        self.assertEqual(problems(config().replace(model, "gpt-" + "6-other")), ["examples/invalid/harness.a-copy.json" + full])
+        self.assertEqual(problems(config(), "{not json"), ["examples/invalid/harness.a-copy.json" + full])
+        # At any other path a pinned name is refused, in the pin's file and in a copy: beside the block, in a list, as
+        # a key, under another field of a reader, under another top field, and the Engine's pin under a reader.
+        for more in ({"texts": {"model": model}}, {"advisory": [deployment]}, {"model": model}, {"deployment": deployment},
+                     {"x": name}, {"engine": {"model": name, "also": model}}, {"engine": {"model": name, "model2": name}},
+                     {"readers": {"astra": {"model": model, "deployment": deployment, "host": deployment}}},
+                     {"readers": {"astra": {"model": [model]}}}, {"readers": {"astra": {"model": {"model": model}}}},
+                     {"readers": {model: {"model": model}}}, {"readers": {"model": model}}, {"readers": [{"model": model}]},
+                     {"reader": {"astra": {"model": model}}}, {"readers": {"astra": {"model": model, "api": name}}},
+                     {"engine": {"model": name, "readers": {"astra": {"model": model}}}}):
+            self.assertEqual(problems(config(**more)), ["examples/invalid/harness.a-copy.json" + misplaced], more)
+            self.assertTrue(any(p.startswith("config/harness.json: names a model") for p in problems(config(), config(**more))), more)
+        # The Engine's pin may not stand where a reader's does, nor a reader's where the Engine's does: each path's own
+        # form is the schema's, and this check holds that neither names a model anywhere else.
+        self.assertEqual(problems(config(readers={"astra": {"model": name, "deployment": name}})), [])
+        # A copy that cannot be read as JSON has no paths, so it copies no reader's pin; the Engine's it may, as before.
+        self.assertEqual(problems('{"engine": {"model": "%s"}' % name), [])
+        self.assertEqual(problems('{"readers": {"astra": {"model": "%s"}}' % model), ["examples/invalid/harness.a-copy.json" + misplaced])
+        # harness/1 holds a reader's block, and a pin's file with none is whole.
+        schema = json.loads((ROOT / "schemas" / "harness.schema.json").read_text())
+        whole = json.loads((ROOT / "config" / "harness.json").read_text())
+        self.assertNotIn("readers", whole)
+        reader = {"host": "factory-readers.openai.azure.com", "deployment": "astra-reader", "model": "astra-model", "api": "responses",
+                  "effort": {"critical": "max", "elsewhere": "xhigh"}, "output_tokens": 32000, "prompt_characters": 600000,
+                  "seconds": 900, "usd_per_million": {"input": 2.5, "output": 20}}
+        self.assertEqual(validate(dict(whole, readers={"astra": reader, "kimi": dict(reader, api="chat")}), schema), [])
+        self.assertEqual(validate(dict(whole, readers={}), schema), [])
+        for change in ({"host": "example.com"}, {"host": "factory.openai.azure.com:8443"}, {"host": "a.b.openai.azure.com"},
+                       {"deployment": "a deployment"}, {"model": "A Model"}, {"api": "assistants"}, {"effort": "max"},
+                       {"effort": {"critical": "max"}}, {"effort": {"critical": "most", "elsewhere": "xhigh"}}, {"output_tokens": 0},
+                       {"prompt_characters": 0}, {"seconds": 0}, {"seconds": 1201}, {"usd_per_million": {"input": 2.5}},
+                       {"usd_per_million": {"input": -1, "output": 20}}, {"key": "k" * 32}, {"tools": ["shell"]}):
+            self.assertTrue(validate(dict(whole, readers={"astra": dict(reader, **change)}), schema), change)
+        for field in reader:
+            self.assertTrue(validate(dict(whole, readers={"astra": {k: v for k, v in reader.items() if k != field}}),
+                                                     schema), field)
+        self.assertTrue(validate(dict(whole, readers=[reader]), schema))
+
     def test_a_model_is_named_by_the_engines_pin_and_its_counter_examples_alone(self):
         name, other = "claude-" + "opus-5-5", "claude-" + "sonnet-5-5"
         copy = '{"engine": {"model": "%s"}}'
