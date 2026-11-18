@@ -245,6 +245,11 @@ def result(**over) -> dict:
     return r
 
 
+def showing(*findings) -> list:
+    """`result/1`'s `shown` as the Harness fills it for a Task that showed these Findings."""
+    return [{"finding": f, "text": "sha256:" + hashlib.sha256(f.encode()).hexdigest()} for f in findings]
+
+
 # The advisory reviewer's thread the example Result's first Finding adopts.
 ADOPTED = support.thread("PRRT_kw1", name="coderabbit", can_write=False, severity=None, category=None)
 
@@ -682,6 +687,48 @@ class Apply(unittest.TestCase):
                                    "result")
             self.assertEqual(errors == [], ok, (ok, errors))
 
+    def test_each_finding_shown_is_ruled(self):  # issue 856
+        # A review that says nothing of a Finding its Lens raised before has not ruled on it. So a Result gives a
+        # Disposition on each Finding its Run was shown, and on no other. No reader shows a review any yet.
+        fid = lambda key, lens="pr-review": apply.finding_id(lens, {"type": "thread", "key": key})
+        person = {"kind": "human", "name": "don-petry", "can_write": True}
+        threads = [support.thread("PRRT_kw7"), support.thread("PRRT_kw8", category="security"),
+                   support.thread("PRRT_kw9", kind="human", name="don-petry"), support.thread("PRRT_kw10", severity="minor"),
+                   support.thread("PRRT_kw11", resolved=True, resolved_by=person),
+                   support.thread("PRRT_kw13", name="qa-lead"), support.thread("PRRT_kw14", severity="blocking")]
+        facts = the_facts(threads=threads)
+
+        def asked(*rulings, shown=("PRRT_kw7", "PRRT_kw14"), **over):
+            given = [{"finding": fid(key), "decision": {"result": said}} for key, said in rulings]
+            return refused(res=result(dispositions=given, shown=showing(*map(fid, shown)), **over), facts=facts)
+        # What a Run was shown is its Result's `shown`, the Harness's word from the Task, and nothing `apply` works
+        # out again: it rules on each of those, and on no other.
+        self.assertIsNone(asked(("PRRT_kw7", "accepted"), ("PRRT_kw14", "rejected")))
+        for rulings in ((), (("PRRT_kw7", "accepted"),), (("PRRT_kw14", "rejected"),)):
+            self.assertEqual(asked(*rulings), ("item", "finding_not_ruled"), rulings)
+        # A Finding it was not shown is none it may rule on: one that gates now and was opened, or opened again, since
+        # the Run read the item (kw14 here, shown to a Run that read only kw7), and any other thread's.
+        self.assertEqual(asked(("PRRT_kw7", "accepted"), ("PRRT_kw14", "accepted"), shown=("PRRT_kw7",)),
+                         ("item", "disposition_of_no_finding"))
+        self.assertIsNone(asked(("PRRT_kw7", "accepted"), shown=("PRRT_kw7",)))
+        for other in ("PRRT_kw10", "PRRT_kw11", "PRRT_kw8"):
+            self.assertEqual(asked(("PRRT_kw7", "accepted"), ("PRRT_kw14", "rejected"), (other, "rejected")),
+                             ("item", "disposition_of_no_finding"), other)
+        # A Finding shown whose thread a person has since resolved is still ruled on, and its ruling taken.
+        self.assertIsNone(asked(("PRRT_kw7", "accepted"), ("PRRT_kw11", "rejected"), shown=("PRRT_kw7", "PRRT_kw11")))
+        # With none shown, a Result with no Disposition is as it was, whatever gates now; with no `shown` at all, as a
+        # Result written before the field, none was shown.
+        self.assertIsNone(asked(shown=()))
+        self.assertIsNone(refused(res=result(dispositions=[]), facts=facts))
+        self.assertEqual(refused(res=result(dispositions=[{"finding": fid("PRRT_kw7"), "decision": {"result": "accepted"}}]),
+                                 facts=facts), ("item", "disposition_of_no_finding"))
+        # A criterion set aside because a Finding stands needs a Finding this Result rules as standing.
+        aside = [dict(c, verdict="not_applicable", reason="finding_stands") if n == 0 else c
+                 for n, c in enumerate(result()["coverage"])]
+        self.assertEqual(asked(("PRRT_kw7", "accepted"), ("PRRT_kw14", "accepted"), coverage=aside),
+                         ("item", "finding_stands_unruled"))
+        self.assertEqual(asked(shown=(), coverage=aside), ("item", "finding_stands_unruled"))
+
     def test_a_disposition_gives_one_half_and_only_the_half_its_role_may_make(self):  # section 3.8
         threads = [support.thread("PRRT_kw7"), support.thread("PRRT_kw8", category="security"),
                    support.thread("PRRT_kw9", kind="human", name="don-petry")]
@@ -692,7 +739,9 @@ class Apply(unittest.TestCase):
         author = dict(ROLE, name="dev-lead", kind="author")
 
         def asked(dispositions, role=ROLE):
-            return refused(task=task, res=result(dispositions=dispositions), facts=facts, role=role)
+            # The Run was shown each Finding of the Task's it rules on, as the Harness says in the Result.
+            shown = showing(*[f for f in task["findings"] if f in {d["finding"] for d in dispositions}])
+            return refused(task=task, res=result(dispositions=dispositions, shown=shown), facts=facts, role=role)
         self.assertIsNone(asked([{"finding": fid("PRRT_kw7"), "decision": {"result": "accepted"}}]))
         self.assertIsNone(asked([{"finding": fid("PRRT_kw7"), "proposal": {"outcome": "fixed"}}], role=author))
         for dispositions, role, code in (
@@ -723,21 +772,23 @@ class Apply(unittest.TestCase):
         self.assertIsNone(asked([{"finding": fid("PRRT_kw8"), "decision": {"result": "rejected"}}]))
         for outcome in ("declined", "deferred", "fixed"):
             self.assertIsNone(asked([{"finding": fid("PRRT_kw8"), "proposal": {"outcome": outcome}}], role=author))
-        # A Finding the Task lists whose thread is not on the item is no Finding of this item's.
-        astray = the_task(permitted_effects=task["permitted_effects"], findings=["f_0000"])
-        self.assertEqual(refused(task=astray, facts=facts, role=author, res=result(dispositions=[
+        # A Finding the Run was shown whose thread is not on the item is no Finding of this item's.
+        self.assertEqual(refused(task=task, facts=facts, role=author, res=result(shown=showing("f_0000"), dispositions=[
             {"finding": "f_0000", "proposal": {"outcome": "fixed"}}])), ("item", "disposition_of_no_finding"))
-        # A Finding the Task does not list is no Run's to dispose of, even with its thread on the item.
-        unlisted = the_task(permitted_effects=task["permitted_effects"], findings=[fid("PRRT_kw8")])
-        self.assertEqual(refused(task=unlisted, facts=facts, res=result(dispositions=[
-            {"finding": fid("PRRT_kw7"), "decision": {"result": "accepted"}}])), ("item", "disposition_of_no_finding"))
+        # A Finding the Run was not shown is none of its to dispose of, even with its thread on the item and its id in
+        # the Task `apply` builds again: what was shown is the Result's word alone.
+        standing = {"finding": fid("PRRT_kw7"), "decision": {"result": "rejected"}}
+        for shown in (showing(fid("PRRT_kw7")), [], None):
+            res = result(dispositions=[{"finding": fid("PRRT_kw8"), "decision": {"result": "rejected"}}, standing],
+                         **({} if shown is None else {"shown": shown}))
+            self.assertEqual(refused(task=task, facts=facts, res=res), ("item", "disposition_of_no_finding"), shown)
         # An Effect on a thread is on one of this item's: a thread id is global.
         wide = the_task(permitted_effects=["submit_review", "create_check_run", "comment"])
         self.assertEqual(refused(task=wide, facts=facts, res=result(effects=dict(
             result()["effects"], comment=[{"id": "e5", "on": "PRRT_elsewhere", "body": "x"}]))),
                          ("item", "thread_not_on_item"))
         wide = the_task(permitted_effects=["submit_review", "create_check_run", "comment"], findings=[fid("PRRT_kw7")])
-        self.assertIsNone(refused(task=wide, facts=facts, res=result(dispositions=[
+        self.assertIsNone(refused(task=wide, facts=facts, res=result(shown=showing(fid("PRRT_kw7")), dispositions=[
             {"finding": fid("PRRT_kw7"), "decision": {"result": "accepted"}}], effects=dict(
             result()["effects"], comment=[{"id": "e6", "on": "PRRT_kw7", "body": "x"},
                                           {"id": "e7", "on": "item", "body": "y"}]))))
@@ -1616,7 +1667,7 @@ class Job(unittest.TestCase):
         ruled = [{"finding": fid, "thread": "PRRT_kw7", "result": "accepted"}]
         for effects in ({}, {"comment": [{"id": "e1", "on": "PRRT_kw7", "body": "Fixed as proposed."}]}):
             res = result(dispositions=[{"finding": fid, "decision": {"result": "accepted"}}], findings=[],
-                         effects=effects, coverage=[])
+                         effects=effects, coverage=[], shown=showing(fid))
             # An adjudication reviews nothing, so it is held to no rubric.
             record, ended, calls = self.go(res, task=task, records=records, facts=facts,
                                            config=dict(self.CONFIG, rubric=None))
@@ -1632,6 +1683,18 @@ class Job(unittest.TestCase):
             self.assertIsNone(apply.taken(given, at))
         record, ended, calls = self.go(None)
         self.assertEqual((ended["outcome"], ended["reason"], calls["mint"]), ("environment", "result_unreadable", []))
+        # What a Run was shown rides on that digest (issue 856): a Result whose `shown` drops a Finding, adds one,
+        # lists them in another order or names another text is other bytes, and is not taken.
+        first, second = showing("f_9c1e", "f_22ab")
+        told = result(shown=[first, second])
+        data = json.dumps(told).encode()
+        digest = "sha256:" + hashlib.sha256(data).hexdigest()
+        self.assertEqual(apply.taken(data, digest), told)
+        for why, forged in (("dropped", [first]), ("added", [first, second] + showing("f_0bad")),
+                            ("reordered", [second, first]), ("an edited text", [first, dict(second, text=first["text"])]),
+                            ("none", [])):
+            self.assertIsNone(apply.taken(json.dumps(result(shown=forged)).encode(), digest), why)
+        self.assertIsNone(apply.taken(json.dumps(result()).encode(), digest))
 
     def test_the_live_path_holds_a_result_to_what_was_admitted_and_the_diff_read_again(self):  # issue 567
         # As the apply step runs it: what the Decision admitted, from the pass record, and no Task built by hand, so the
