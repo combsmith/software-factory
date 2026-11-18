@@ -169,10 +169,15 @@ class Scoring(unittest.TestCase):
             self.assertEqual(validate(odd, known["eval-case"], schemas=known), [])
             self.assertEqual(answered(*right, case=odd, covered=stood), ("unreadable", ["answer_disagrees_with_verdict"]))
         # What eval-case/1 refuses of the Findings shown.
-        for name in ("a-finding-shown-with-no-ruling", "a-finding-shown-twice", "no-finding-shown",
-                     "a-reason-that-is-no-code-of-a-standing-finding", "a-finding-shown-under-a-writer"):
-            self.assertNotEqual(validate(load("examples/invalid/eval-case.%s.json" % name), known["eval-case"], schemas=known), [], name)
-        self.assertEqual(validate(load("examples/eval-case.shown.json"), known["eval-case"], schemas=known), [])
+        self.assertNotEqual(validate(load("examples/invalid/eval-case.a-finding-shown-with-no-ruling.json"),
+                                     known["eval-case"], schemas=known), [])
+        person = {"kind": "human", "name": "don-petry", "can_write": True}
+        for why, odd in (("with no ruling", dict(case, shown=[{k: v for k, v in shown[0].items() if k != "expected"}])),
+                         ("twice", dict(case, shown=shown[:1] * 2)), ("none", dict(case, shown=[])),
+                         ("under a writer", dict(case, shown=[dict(shown[0], by=person)])),
+                         ("a ruling that is none", dict(case, shown=[dict(shown[0], expected="fixed")])),
+                         ("another code", dict(aside, expected=dict(aside["expected"], reason="no_rule_added")))):
+            self.assertEqual(len(validate(odd, known["eval-case"], schemas=known)), 1, why)
 
     def test_a_result_that_raises_the_expected_finding_passes_and_one_that_does_not_fails(self):
         case, result = load("examples/eval-case.json"), example_result()
