@@ -32,6 +32,7 @@ RINGS = "release/rings.json"
 FIXTURES = "release/fixtures"
 API_REPO = "/repos/combsmith/software-factory"
 WORKFLOW = ".github/workflows/release.yml"
+JOB = "release"                              # the workflow's one job, by its name there
 # A line of GitHub's log of a job: its time, then what was said. A fixture's log keeps the release step's lines
 # alone: its group; its inputs, two spaces, the name and its value; its last line; and how its process exited.
 LOG_LINE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z (.*)$")
@@ -180,7 +181,8 @@ def _disagrees(item, i: int) -> list:
                 % (i, run, WORKFLOW, item.get("conclusion"))]
     jobs = _answer(exchanges, "%s/actions/runs/%s/jobs" % (API_REPO, run))
     jobs = jobs.get("jobs") if isinstance(jobs, dict) else None
-    if not (isinstance(jobs, list) and len(jobs) == 1 and isinstance(jobs[0], dict) and jobs[0].get("run_id") == run):
+    if not (isinstance(jobs, list) and len(jobs) == 1 and isinstance(jobs[0], dict) and jobs[0].get("run_id") == run
+            and jobs[0].get("name") == JOB):
         return ["items[%d]: run %s's jobs are not read once, as its one job, the release job" % (i, run)]
     log = _answer(exchanges, "%s/actions/jobs/%s/logs" % (API_REPO, jobs[0].get("id")))
     if not isinstance(log, str):
