@@ -727,7 +727,16 @@ class Apply(unittest.TestCase):
                  for n, c in enumerate(result()["coverage"])]
         self.assertEqual(asked(("PRRT_kw7", "accepted"), ("PRRT_kw14", "accepted"), coverage=aside),
                          ("item", "finding_stands_unruled"))
-        self.assertEqual(asked(shown=(), coverage=aside), ("item", "finding_stands_unruled"))
+        self.assertIsNone(asked(("PRRT_kw7", "accepted"), ("PRRT_kw14", "rejected"), coverage=aside))
+        last = result()["coverage"][:-1] + [dict(result()["coverage"][-1], verdict="not_applicable", reason="finding_stands")]
+        self.assertEqual(asked(("PRRT_kw7", "accepted"), ("PRRT_kw14", "accepted"), coverage=last),
+                         ("item", "finding_stands_unruled"))
+        # With no Finding shown the code is a reason as any other, as it was before a review could be shown one.
+        self.assertIsNone(asked(shown=(), coverage=aside))
+        # A Finding shown whose thread has left the item is still one the Run was shown: silence on it is no ruling.
+        gone = result(dispositions=[{"finding": fid("PRRT_kw7"), "decision": {"result": "accepted"}}],
+                      shown=showing(fid("PRRT_kw7"), "f_0000"))
+        self.assertEqual(refused(res=gone, facts=facts), ("item", "finding_not_ruled"))
 
     def test_a_disposition_gives_one_half_and_only_the_half_its_role_may_make(self):  # section 3.8
         threads = [support.thread("PRRT_kw7"), support.thread("PRRT_kw8", category="security"),

@@ -335,8 +335,9 @@ def _dispositions(task: dict, result: dict, facts: dict, role: dict, authority: 
     # Silence on a Finding the review was shown is no ruling on it.
     if any(fid not in named for fid in asked):
         return "finding_not_ruled"
-    # A criterion set aside because a Finding stands names one this Result rules as standing.
-    stands = any(c.get("reason") == STANDS for c in result["coverage"])
+    # A criterion set aside because a Finding stands needs a Finding this Result rules as standing. With none shown the
+    # code is a reason as any other, as it was before a review could be shown one.
+    stands = asked and any(c.get("reason") == STANDS for c in result["coverage"])
     if stands and not any(d.get("decision", {}).get("result") == "rejected" for d in result["dispositions"]):
         return "finding_stands_unruled"
     return None
