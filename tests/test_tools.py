@@ -10062,7 +10062,14 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": "is-error"
 
     def test_the_stand_in_timeout_runs_what_gnu_timeout_runs(self):
         stand_in = self.stand_in() / "bin" / "timeout"
+        # The comparison is with GNU's timeout, which CI's runner has. Another machine may hold another at that path:
+        # macOS ships one that answers the duration `-1` with 1, not 125, and is no word on what GNU's runs. It is
+        # told by its own `--version`; where it is not GNU's the stand-in is held alone, and on Linux GNU's must be there,
+        # so the comparison is never passed over where it is made.
         real = shutil.which("timeout", path="/usr/bin:/bin")
+        gnu = bool(real) and b"GNU coreutils" in subprocess.run([real, "--version"], capture_output=True, timeout=30).stdout
+        self.assertTrue(gnu or not sys.platform.startswith("linux"), "no GNU timeout to hold the stand-in to: %s" % real)
+        real = real if gnu else None
         for given, runs in [(["180"], True), (["60"], True), (["1.5"], True), (["90s"], True), (["3m"], True),
                             ([".5"], True), (["18O"], False), ([""], False), (["5x"], False), (["-1"], False),
                             (["s"], False), (["."], False)]:
