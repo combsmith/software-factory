@@ -2170,6 +2170,43 @@ class EvalJob(unittest.TestCase):
             self.assertEqual((result["reason"], review.retried, review.seen), ("engine_failed", {}, {"raised": "OSError", "erred": True}))
             result, review, calls, slept = asked(said, subprocess.TimeoutExpired(["claude"], 1))
             self.assertEqual((result["reason"], review.retried, review.seen), ("engine_timeout", {}, {"timed_out": True, "erred": True}))
+            # An answer the Engine refuses after its call, another model's or one that fails its schema, is of a call the
+            # watch saw succeed, so the word it kept is a later call's: the cause is left out, never taken from that
+            # call, and the case is not the vendor's (issue 865).
+            others = (live.answer(modelUsage={live.MODEL + "-other": {}}), 0)
+            invalid = (live.answer(live.judged(status="no such status")), 0)
+            for first, reason in ((others, "engine_model"), (invalid, "result_invalid")):
+                for later in (vendor(503), OSError("no such file"), subprocess.TimeoutExpired(["claude"], 1), good):
+                    result, review, calls, slept = asked(first, later)
+                    self.assertEqual((result["reason"], review.retried, calls, review.seen, job.seen_of(review)),
+                                     (reason, {}, 2, {}, {}), reason)
+                    self.assertFalse(job.transient(result, review.seen))
+            # So is the word beside two answers that completed: neither call's is the pair's. And so is that of a call
+            # that erred where another model answered it: the watch cannot tell it from a later call's.
+            result, review, calls, slept = asked(good, good)
+            self.assertEqual((result["status"], calls, review.seen), ("completed", 2, {}))
+            erred = (live.answer(is_error=True, structured_output=None, modelUsage={live.MODEL + "-other": {}}), 1)
+            result, review, calls, slept = asked(erred, good)
+            self.assertEqual((result["reason"], calls, review.seen), ("engine_model", 2, {}))
+            # A retry's Result is held as the first ask's is.
+            result, review, calls, slept = asked(vendor(529), good, others, vendor(503))
+            self.assertEqual((result["reason"], review.retried, calls, review.seen), ("engine_model", {case["id"]: 1}, 4, {}))
+        # A case of one call keeps that call's word, whatever the Engine made of its answer: it is that Result's own.
+        for first, reason in ((others, "engine_model"), (invalid, "result_invalid")):
+            result, review, calls, slept = asked(first)
+            self.assertEqual((result["reason"], calls, job.seen_of(review)), (reason, 1, {"subtype": "success", "exit": 0}))
+        # Its calls are counted by the ask: not with the ask a retry follows, nor with a case before it that ended in
+        # what its call raised.
+        result, review, calls, slept = asked(vendor(529), others)
+        self.assertEqual((result["reason"], review.retried, job.seen_of(review)),
+                         ("engine_model", {case["id"]: 1}, {"subtype": "success", "exit": 0}))
+        cli, heads = Answers(RuntimeError("no such call"), others), self.temp / "heads"
+        review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, lambda: 0.0, heads, sleep=lambda seconds: None)
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            (heads / case["id"]).mkdir(parents=True, exist_ok=True)
+            self.assertRaises(RuntimeError, review, case)
+            (heads / case["id"]).mkdir(parents=True, exist_ok=True)
+            self.assertEqual((review(case)["reason"], job.seen_of(review)), ("engine_model", {"subtype": "success", "exit": 0}))
         # The test is of a failed Result alone: a completed one is never transient, whatever the call said. Each probe is of
         # a Result the Engine failed, so that it reaches the guard it is of.
         result = dict(result, status="failed", reason="engine_failed")
