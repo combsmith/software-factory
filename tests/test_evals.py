@@ -167,26 +167,6 @@ class Scoring(unittest.TestCase):
                          ("fail", ["result_not_completed", "criterion_not_met"]))
         # A case that shows none is scored as it was, whatever a Result disposes of.
         self.assertEqual(answered(*right, case=load("examples/eval-case.met.json")), ("pass", []))
-        # A criterion whose only fault is a shown Finding that stands is set aside by its code: `not_applicable`,
-        # `finding_stands`, and nothing raised again for it.
-        aside = dict(case, expected={"verdict": "not_applicable", "criterion": criterion, "finding": None, "reason": "finding_stands"})
-        self.assertEqual(validate(aside, known["eval-case"], schemas=known), [])
-        stood = {"verdict": "not_applicable", "reason": "finding_stands"}
-        self.assertEqual(answered(*right, case=aside, covered=stood), ("pass", []))
-        self.assertEqual(answered(*right, case=aside), ("fail", ["coverage_disagrees"]))
-        self.assertEqual(answered(*right, case=aside, covered={"verdict": "not_applicable", "reason": "no_rule_added"}),
-                         ("fail", ["coverage_disagrees"]))
-        self.assertEqual(answered(right[0], case=aside, covered=stood), ("fail", ["ruling_missing", "ruling_wrong"]))
-        self.assertEqual(answered(right[1], case=aside, covered=stood), ("fail", ["ruling_missing"]))
-        again = dict(example_result()["findings"][0], criterion=criterion)
-        self.assertEqual(answered(*right, case=aside, covered=stood, findings=[again]), ("fail", ["finding_raised_wrongly"]))
-        # The verdict and its reason go together, and only where the case shows a Finding it expects ruled `rejected`.
-        for odd in (dict(aside, expected={k: v for k, v in aside["expected"].items() if k != "reason"}),
-                    dict(case, expected=dict(case["expected"], reason="finding_stands")),
-                    {k: v for k, v in aside.items() if k != "shown"}, dict(aside, shown=shown[:1])):
-            self.assertEqual(validate(odd, known["eval-case"], schemas=known), [])
-            self.assertEqual(answered(*right, case=odd, covered=stood), ("unreadable", ["answer_disagrees_with_verdict"]))
-        # What eval-case/1 refuses of the Findings shown.
         person = {"kind": "human", "name": "don-petry", "can_write": True}
         for why, odd in (("with no ruling", dict(case, shown=[{k: v for k, v in shown[0].items() if k != "expected"}])),
                          ("twice", dict(case, shown=shown[:1] * 2)), ("none", dict(case, shown=[])),
@@ -199,8 +179,7 @@ class Scoring(unittest.TestCase):
                          ("a security Finding", dict(case, shown=[dict(shown[0], category="security")])),
                          ("a Finding that does not gate", dict(case, shown=[dict(shown[0], severity="minor")])),
                          ("no category", dict(case, shown=[{k: v for k, v in shown[0].items() if k != "category"}])),
-                         ("no severity", dict(case, shown=[{k: v for k, v in shown[0].items() if k != "severity"}])),
-                         ("another code", dict(aside, expected=dict(aside["expected"], reason="no_rule_added")))):
+                         ("no severity", dict(case, shown=[{k: v for k, v in shown[0].items() if k != "severity"}]))):
             self.assertEqual(len(validate(odd, known["eval-case"], schemas=known)), 1, why)
         fifty = dict(case, shown=[dict(shown[0], id="f_%04x" % n) for n in range(50)])
         self.assertEqual(validate(fifty, known["eval-case"], schemas=known), [])
@@ -1324,27 +1303,6 @@ class EvalJob(unittest.TestCase):
                 self.step(job.plan)
                 self.step(job.fetch, self.home(cases))
                 self.assertIs(job.split_ok(found(), self.temp / "heldout"), held)
-        # A case whose criterion is set aside for a shown Finding that stands holds a fault the review must keep held:
-        # it counts as one that expects a Finding, so a set that mixes it with the two other answers is read, and is
-        # short of a kind only where it is (decision 0228).
-        aside = dict(right, id="poc-aside", shown=[{"id": "f_9c1e", "category": "functional", "severity": "major", "text": "It indexes before it checks.",
-                            "expected": "rejected"}],
-                     expected={"verdict": "not_applicable", "criterion": one["expected"]["criterion"], "finding": None,
-                               "reason": "finding_stands"})
-        self.assertEqual(validate(aside, known["eval-case"], schemas=known), [])
-        stands = {"poc-aside": (json.dumps(aside, indent=2) + "\n").encode()}
-        for cases, held in ((dict(mixed, **stands), True), (dict(right_only, **stands), True), (stands, False),
-                            (dict({one["id"]: self.cases[one["id"]]}, **stands), False)):
-            with self.subTest(cases=sorted(cases)), mock.patch.object(job, "KIND_LEAST", 1), \
-                    mock.patch.object(job, "BLOCKING_LEAST", 0):
-                self.clean()
-                self.set(cases)
-                self.step(job.plan)
-                self.step(job.fetch, self.home(cases))
-                self.assertIs(job.split_ok(found(), self.temp / "heldout"), held)
-                self.assertEqual(job.kinds_of(found(), self.temp / "heldout")["poc-aside"], "finding")
-        self.assertEqual([job.kind_of(v) for v in ("finding", "met", "not_applicable", "maybe", None, ["met"])],
-                         ["finding", "met", "finding", None, None, None])
         # Short of a kind: the run says so by a code alone, and neither the log nor the report holds a count of a kind.
         with mock.patch.object(job, "KIND_LEAST", 1):
             self.clean()
@@ -3821,7 +3779,7 @@ class EvalJob(unittest.TestCase):
         for name, kind, many in groups:
             for _ in range(many):
                 ident = "c-%d" % len(cases)
-                finding = None if kind != "finding" else {"category": "functional", "severity": "major",
+                finding = None if kind == "met" else {"category": "functional", "severity": "major",
                                                       "location": {"path": "kernel/x.py", "start_line": 1, "end_line": 1}}
                 (place / "cases" / ("%s.json" % ident)).write_text(
                     json.dumps({"expected": {"verdict": kind, "criterion": name, "finding": finding}}))
@@ -3893,14 +3851,6 @@ class EvalJob(unittest.TestCase):
         self.assertTrue(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-4", "finding", 9), ("PR-1", "met", 20)])))
         self.assertFalse(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-4", "finding", 10), ("PR-1", "met", 20)])))
         self.assertFalse(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-1", "met", 20)])))
-        # A case set aside for a standing Finding is counted in the kind `finding`, which the report publishes, and on
-        # no floor: a few of them are a rest too small to hide one, as a few unfloored Findings are (decision 0228).
-        aside = "not_applicable"
-        self.assertTrue(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-3", aside, 1), ("PR-1", "met", 20)])))
-        self.assertTrue(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-4", "finding", 1), ("PR-4", aside, 8)])))
-        self.assertFalse(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-4", "finding", 1), ("PR-4", aside, 9)])))
-        found_, place_ = self.floored([("PR-3", "finding", 10), ("PR-3", aside, 10)])
-        self.assertEqual((job.floor_short(found_, place_), len(job.criteria_of(found_, place_)["PR-3"])), (False, 10))
         # Every floor is held to it, not one of them: PR-4 of one beside PR-3 of ten, ten beyond them (Muse's read).
         two = {"PR-3": [1, 2], "PR-4": [1, 2]}
         self.assertTrue(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-4", "finding", 1), ("PR-5", "finding", 10),
