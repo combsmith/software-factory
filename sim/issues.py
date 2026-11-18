@@ -112,6 +112,7 @@ class IssueWorld:
         self.last_act = None
         self.runs = []                 # every Run ever, with the minute it started, for the retention
         self.branch_head = None
+        self.landed_on_an_older_base = False   # an opening Run's apply passed after the default branch moved
         self.pause_from = 10 + seed * 37 % 200 if seed % 5 in PAUSES else None
         self.pause_reading = PAUSES.get(seed % 5)
         self.paused_passes = 0
@@ -229,7 +230,7 @@ class IssueWorld:
             if len(kept) < len(self.runs) and 5 not in self.reached:
                 self.reached.append(5)
                 self.note("a run record expired")
-        return [{k: v for k, v in r.items() if k not in ("minute", "head")} for r in copy.deepcopy(kept)]
+        return [{k: v for k, v in r.items() if k not in ("minute", "head", "base")} for r in copy.deepcopy(kept)]
 
     def pausing(self) -> bool:
         return self.pause_from is not None and self.pause_from <= self.minute < self.pause_from + PAUSE_FOR
@@ -506,6 +507,8 @@ class IssueWorld:
             run.update(conclusion="failure", outcome="superseded")
             self.note("run %s: apply refused, the issue changed (%s / %s)" % (run["run"], again["state"], again["reason"]))
             return
+        if admitted["admit"].get("base_head") not in (None, again["admit"].get("base_head")):
+            self.landed_on_an_older_base = True
         self.check(not self.held(), "I-21 an Effect on a held issue")
         self.check(not self.pausing(), "I-21 an Effect under a Pause")
         self.check(self.accepted(), "I-42 an Effect on an issue not accepted now")

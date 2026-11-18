@@ -1305,6 +1305,18 @@ ISSUE = [
     ("the issue world serves no default branch's head", "sim/issues.py",
      '            "base_head": "%040x" % (0xba5e0000 + self.minute),\n', "",
      ("tests.test_issue_simulator.IssueSimulation.test_invariants_hold_under_faults",)),
+    ("the issue world's default branch never moves", "sim/issues.py",
+     '"%040x" % (0xba5e0000 + self.minute),\n', '"%040x" % 0xba5e0000,\n',
+     ("tests.test_issue_simulator.IssueSimulation.test_invariants_hold_under_faults",)),
+    ("the issue world's apply asks again with no base", "sim/issues.py",
+     '            if run["base"] is not None:\n                admitted["admit"]["base_head"] = run["base"]\n', "",
+     ("tests.test_issue_simulator.IssueSimulation.test_invariants_hold_under_faults",)),
+    ("the issue world keeps no base for a Run", "sim/issues.py",
+     '"base": d["admit"].get("base_head")}', '"base": None}',
+     ("tests.test_issue_simulator.IssueSimulation.test_invariants_hold_under_faults",)),
+    ("the issue world lists a Run with the base it keeps", "sim/issues.py",
+     'if k not in ("minute", "head", "base")}', 'if k not in ("minute", "head")}',
+     ("tests.test_issue_simulator.IssueSimulation.test_invariants_hold_under_faults",)),
     # The brakes, a Run in flight, and capacity.
     ("an issue's Run is not braked", ISSUE_PY,
      "    brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since_writer(mine, facts), limits)\n"
