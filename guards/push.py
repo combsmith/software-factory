@@ -1,0 +1,374 @@
+"""What a Role's push may send, in what order, and what must be read back before it counts as landed (issue 838; FR-14).
+
+A push lands what `guards/patch.py`'s `applied` gave, `changes`, as one commit on the commit the Decision admitted,
+`parent`, on the Run's work branch. This holds the sequence, not each request alone: the caller carries a state, asks
+`permits` before a request leaves and gives `seen` GitHub's answer after, and stops at the first False or None.
+
+- `began(push)`: the first state, or None for a push told wrongly. `push` is `{"repo", "branch", "parent", "head",
+  "message", "changes", "blobs"}`: `head` is the branch's head the Decision admitted, None where it admitted none and
+  `parent` otherwise; `message` is the commit's, `apply`'s and never a model's text; `blobs` is the base64 of each
+  written file's bytes, by its path. A push of no `changes` and no `blobs` reads and writes nothing: the port reads
+  under one what `applied` needs.
+- `permits(state, method, path, body)`: whether the next request may leave.
+- `seen(state, method, path, body, answer)`: the state after GitHub's answer, `{"status", "body"}`, or None where
+  the request may not leave or the answer is none this takes of it.
+
+The order the state allows:
+1. Reads of the admitted commit, of its tree, whole and never truncated, of the blobs that tree names, and of the
+   branch, which is absent where `head` is None and at `head` where it is not. Nothing is written before the admitted
+   tree and the branch were read so.
+2. A blob of each written file's base64, once to each content; the name GitHub gives it is kept beside its paths.
+3. One tree upon the admitted commit's, naming each path of `changes` once and no other, each written path by the
+   blob made of its bytes. A tree that is the admitted one is no change, and nothing follows it.
+4. That tree read back, whole: the admitted listing with exactly `changes` in it. Only then:
+5. One commit of that tree, whose one parent is `parent`, with `message`.
+6. The branch made at that commit where `head` is None, or moved to it and never by force where it is not; once.
+7. The branch and the commit read again: `state["landed"]` is true only when both are what was made.
+
+So a tree that is not the admitted one with the changes in it gets no commit, and the branch is written at no other
+commit. Stated limits: a request is allowed once more where its answer never reached `seen`, so the caller stops
+there; a branch rewound between its read and its move takes the move, since it is a move forward and REST has no
+compare-and-swap; and that `blobs` is the base64 of the bytes `changes` holds is `apply`'s to say, which may import
+what encodes it.
+
+`touched(changes)` and `existing(changes, tree)` name the paths `harness/apply.py` is asked about: a push that touches
+a protected path is refused there, and so is one that changes or removes a test the admitted commit holds. One matcher
+reads the base's patterns (`tools/hooks/protected.py`); this names the paths, so what is asked about is what lands.
+
+`apply` and a port give every argument; this reads nothing itself.
+"""
+from __future__ import annotations
+
+from guards import patch
+
+HEX = "0123456789abcdef"
+DIGITS = "0123456789"
+# A commit's, a tree's and a blob's name are each as long as this, of `HEX`.
+SHA = "0000000000000000000000000000000000000000"
+# The characters an owner's and a repo's name hold, as GitHub names them.
+REPO_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
+# The branch a Run's push lands on, `factory-work/issue-<N>-<k>` (decision 0068): never the default branch or a
+# Release's tag, whatever this is told. Whose Run's branch it is, the Decision says; this cannot.
+WORK = "factory-work/issue-"
+HEADS = "refs/heads/"
+RECURSIVE = "?recursive=1"
+BLOB = "blob"
+TREE = "tree"
+COMMIT = "commit"
+BASE64 = "base64"
+# A directory's mode in a tree's listing, and a submodule's, whose entry names a commit and no blob.
+FOLDER = "040000"
+SUBMODULE = "160000"
+# GitHub's answers, as text: a number here would be a limit, and these are a protocol's names.
+OK = "200"
+CREATED = "201"
+ABSENT = "404"
+# What a file is written as: two things.
+WRITTEN = ("mode", "bytes")
+PUSH = ("repo", "branch", "parent", "head", "message", "changes", "blobs")
+CHANGES = ("written", "removed", "read")
+# What a state holds: the push; the admitted commit's tree and its listing, once read; whether the branch was read as
+# the Decision admitted it; the blob made for each written path; the tree made, and whether it was read back as the
+# admitted one with the changes in it; the commit made; whether the branch was written; whether the branch and the
+# commit were read again as made; and whether the push landed.
+STATE = ("push", "tree", "before", "branch_read", "made", "new", "checked", "commit", "moved", "ref_back",
+         "commit_back", "landed")
+# The requests of a push, each named for what `seen` then asks of its answer.
+REF_READ, COMMIT_READ, TREE_READ, BLOB_READ = "ref_read", "commit_read", "tree_read", "blob_read"
+BLOB_MADE, TREE_MADE, TREE_BACK, COMMIT_MADE = "blob_made", "tree_made", "tree_back", "commit_made"
+REF_MADE, REF_MOVED, COMMIT_BACK = "ref_made", "ref_moved", "commit_back"
+
+
+def _sha(said) -> bool:
+    return isinstance(said, str) and len(said) == len(SHA) and all(c in HEX for c in said)
+
+
+def _count(said: str) -> bool:
+    """A whole number from 1 as a branch's name holds one: digits, the first not 0."""
+    return bool(said) and all(c in DIGITS for c in said) and not said.startswith("0")
+
+
+def _work(branch) -> bool:
+    if not isinstance(branch, str) or not branch.startswith(WORK):
+        return False
+    issue, dash, opened = branch[len(WORK):].partition("-")
+    return bool(dash) and _count(issue) and _count(opened)
+
+
+def _repo(said) -> bool:
+    if not isinstance(said, str) or not all(c in REPO_CHARS or c == "/" for c in said):
+        return False
+    owner, slash, name = said.partition("/")
+    return bool(slash) and "/" not in name and all(part and part not in (".", "..") for part in (owner, name))
+
+
+def _changes(changes) -> bool:
+    """Whether `changes` is in the shape `guards/patch.py`'s `applied` gives, path by path: exactly its three keys;
+    files written, each with a file's mode and its bytes; files removed; files read; every path a name `patch.named`
+    reads; no path written or removed twice, or both, and none of them above another; and one at least."""
+    if not isinstance(changes, dict) or set(changes) != set(CHANGES):
+        return False
+    written, removed, read = changes["written"], changes["removed"], changes["read"]
+    if not isinstance(written, dict) or not isinstance(removed, list) or not isinstance(read, list):
+        return False
+    paths = list(written) + removed
+    if not paths or not all(patch.named(path) for path in paths + read):
+        return False
+    if len(set(paths)) != len(paths) or len(set(read)) != len(read):
+        return False
+    if any(other.startswith(path + "/") for path in paths for other in paths):
+        return False
+    return all(isinstance(to, tuple) and len(to) == len(WRITTEN) and to[0] in patch.FILE_MODES
+               and isinstance(to[1], bytes) for to in written.values())
+
+
+def _told(push) -> bool:
+    """Whether `push` says one push whole: a repo, a work branch, the commit it stands on, the head admitted, which is
+    none or that commit, a message, and changes with the base64 of each written file, or neither."""
+    if not isinstance(push, dict) or set(push) != set(PUSH):
+        return False
+    if not (_repo(push["repo"]) and _work(push["branch"]) and _sha(push["parent"])
+            and (push["head"] is None or push["head"] == push["parent"])
+            and isinstance(push["message"], str) and bool(push["message"])):
+        return False
+    changes, blobs = push["changes"], push["blobs"]
+    if changes is None or blobs is None:
+        return changes is None and blobs is None
+    return (_changes(changes) and isinstance(blobs, dict) and set(blobs) == set(changes["written"])
+            and all(isinstance(text, str) for text in blobs.values()))
+
+
+def began(push):
+    """The state of a push of which nothing was sent yet, or None for a push told in part or wrongly."""
+    if not _told(push):
+        return None
+    return {"push": push, "tree": None, "before": None, "branch_read": False, "made": {}, "new": None,
+            "checked": False, "commit": None, "moved": False, "ref_back": False, "commit_back": False, "landed": False}
+
+
+def _tree(body, state: dict) -> bool:
+    """One tree upon the admitted commit's, naming each path of the changes once and no other: a file written as the
+    blob made of its bytes, in the mode the changes hold, and a file removed as no blob."""
+    if not isinstance(body, dict) or set(body) != {"base_tree", "tree"} or body["base_tree"] != state["tree"]:
+        return False
+    written, removed = state["push"]["changes"]["written"], state["push"]["changes"]["removed"]
+    entries, made = body["tree"], state["made"]
+    if not isinstance(entries, list) or len(entries) != len(written) + len(removed):
+        return False
+    named = []
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != {"path", "mode", "type", "sha"} or entry["type"] != BLOB:
+            return False
+        path = entry["path"]
+        if not isinstance(path, str) or path in named:
+            return False
+        named.append(path)
+        if path in removed:
+            if entry["sha"] is not None or entry["mode"] not in patch.FILE_MODES:
+                return False
+        elif path not in made or entry["sha"] != made[path] or entry["mode"] != written[path][0]:
+            return False
+    return True
+
+
+def _step(state, method, path, body):
+    """Which request of the push this is, as the state stands, or None where it may not leave. A state that is none
+    of `began`'s, or of a push told wrongly, lets nothing leave; nor does a path outside this repo's git data,
+    whatever the method."""
+    if not isinstance(state, dict) or set(state) != set(STATE) or not _told(state["push"]):
+        return None
+    if not isinstance(method, str) or not isinstance(path, str):
+        return None
+    push = state["push"]
+    root = "/repos/" + push["repo"] + "/git/"
+    if not path.startswith(root):
+        return None
+    rest, branch, changes, commit = path[len(root):], push["branch"], push["changes"], state["commit"]
+    if method == "GET":
+        if body is not None:
+            return None
+        if rest == "ref/heads/" + branch:
+            return REF_READ
+        if rest == "commits/" + push["parent"]:
+            return COMMIT_READ
+        if state["tree"] is not None and rest == "trees/" + state["tree"] + RECURSIVE:
+            return TREE_READ
+        if state["new"] is not None and rest == "trees/" + state["new"] + RECURSIVE:
+            return TREE_BACK
+        if state["moved"] and rest == "commits/" + commit:
+            return COMMIT_BACK
+        if state["before"] is not None and any(rest == "blobs/" + held[1] for held in state["before"].values()
+                                               if held[0] != SUBMODULE):
+            return BLOB_READ
+        return None
+    # Nothing is written by a push of no changes, or before the admitted tree and the branch were read.
+    if changes is None or state["before"] is None or not state["branch_read"]:
+        return None
+    if method == "POST" and rest == "blobs":
+        asked = isinstance(body, dict) and set(body) == {"content", "encoding"} and body["encoding"] == BASE64
+        if asked and any(push["blobs"][path] == body["content"] and path not in state["made"]
+                         for path in changes["written"]):
+            return BLOB_MADE
+        return None
+    if method == "POST" and rest == "trees":
+        return TREE_MADE if state["new"] is None and _tree(body, state) else None
+    if method == "POST" and rest == "commits":
+        if (state["checked"] and commit is None and isinstance(body, dict) and set(body) == {"message", "tree", "parents"}
+                and body["message"] == push["message"] and body["tree"] == state["new"]
+                and isinstance(body["parents"], list) and body["parents"] == [push["parent"]]):
+            return COMMIT_MADE
+        return None
+    if commit is None or state["moved"] or not isinstance(body, dict):
+        return None
+    if method == "POST" and rest == "refs":
+        # The branch is made only where the Decision admitted none; GitHub refuses to make one that stands.
+        return REF_MADE if push["head"] is None and body == {"ref": HEADS + branch, "sha": commit} else None
+    if method == "PATCH" and rest == "refs/heads/" + branch:
+        # It is moved only where the Decision admitted its head, and never by force: GitHub then refuses a move that
+        # would discard a commit.
+        if push["head"] is not None and body == {"sha": commit, "force": False} and body["force"] is False:
+            return REF_MOVED
+    return None
+
+
+def permits(state, method, path, body) -> bool:
+    """Whether the next request of the push may leave, as the state stands."""
+    return _step(state, method, path, body) is not None
+
+
+def _listing(body, name):
+    """`{path: (mode, sha)}` for everything that is no directory in a tree's listing, read whole, or None: a listing
+    of another tree, a truncated one, a path twice, or an entry that is none git writes."""
+    if not isinstance(body, dict) or body.get("sha") != name or body.get("truncated") is not False:
+        return None
+    entries = body.get("tree")
+    if not isinstance(entries, list):
+        return None
+    out, folders = {}, {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            return None
+        path, mode, kind = entry.get("path"), entry.get("mode"), entry.get("type")
+        if not isinstance(path, str) or not path or path in out or path in folders or not _sha(entry.get("sha")):
+            return None
+        if mode == FOLDER and kind == TREE:
+            folders[path] = True
+        elif mode in patch.TREE_MODES and kind == (COMMIT if mode == SUBMODULE else BLOB):
+            out[path] = (mode, entry.get("sha"))
+        else:
+            return None
+    return out
+
+
+def _holds(before: dict, after: dict, changes: dict, made: dict) -> bool:
+    """Whether `after` is `before` with exactly `changes` in it: no path more or fewer, each file left alone the same
+    blob in the same mode, each file written the blob made of its bytes, in the mode `changes` holds."""
+    written, removed = changes["written"], changes["removed"]
+    if not all(path in before for path in removed):
+        return False
+    if set(after) != set(path for path in before if path not in removed) | set(written):
+        return False
+    return all(after[path] == ((written[path][0], made[path]) if path in written else before[path]) for path in after)
+
+
+def _ref(got, branch):
+    """The commit a branch's read or write answers with, or None where the answer names another ref or no commit."""
+    if not isinstance(got, dict) or got.get("ref") != HEADS + branch or not isinstance(got.get("object"), dict):
+        return None
+    return got["object"].get("sha")
+
+
+def _commit(got, name, tree, parent, message) -> bool:
+    """Whether a commit's read answers with the commit made: its name, its tree, its one parent and its message."""
+    if not isinstance(got, dict) or got.get("sha") != name or got.get("message") != message:
+        return False
+    if not isinstance(got.get("tree"), dict) or got["tree"].get("sha") != tree:
+        return False
+    parents = got.get("parents")
+    return (isinstance(parents, list) and len(parents) == 1 and isinstance(parents[0], dict)
+            and parents[0].get("sha") == parent)
+
+
+def seen(state, method, path, body, answer):
+    """The state after GitHub's answer to a request, or None: the request may not leave as the state stands, or the
+    answer is none this takes of it. An answer is `{"status": the number GitHub gave, "body": what it said}`."""
+    step = _step(state, method, path, body)
+    if step is None or not isinstance(answer, dict) or set(answer) != {"status", "body"}:
+        return None
+    if type(answer["status"]) is not int:
+        return None
+    status, got, push = str(answer["status"]), answer["body"], state["push"]
+    if step == REF_READ and not state["moved"]:
+        # Before the branch is written it is as the Decision admitted it: absent, or at the admitted head.
+        if status == (ABSENT if push["head"] is None else OK) and (push["head"] is None
+                                                                   or _ref(got, push["branch"]) == push["head"]):
+            return dict(state, branch_read=True)
+        return None
+    if step == REF_READ:
+        if status != OK or _ref(got, push["branch"]) != state["commit"]:
+            return None
+        return dict(state, ref_back=True, landed=state["commit_back"])
+    if step in (BLOB_MADE, TREE_MADE, COMMIT_MADE, REF_MADE):
+        if status != CREATED:
+            return None
+    elif status != OK:
+        return None
+    if step == COMMIT_READ:
+        tree = got.get("tree") if isinstance(got, dict) and got.get("sha") == push["parent"] else None
+        name = tree.get("sha") if isinstance(tree, dict) else None
+        if not _sha(name) or state["tree"] not in (None, name):
+            return None
+        return dict(state, tree=name)
+    if step == TREE_READ:
+        listing = _listing(got, state["tree"])
+        if listing is None or state["before"] not in (None, listing):
+            return None
+        return dict(state, before=listing)
+    if step == BLOB_READ:
+        return state
+    if step == BLOB_MADE:
+        name = got.get("sha") if isinstance(got, dict) else None
+        if not _sha(name):
+            return None
+        made = dict(state["made"])
+        for written in push["changes"]["written"]:
+            if push["blobs"][written] == body["content"] and written not in made:
+                made[written] = name
+        return dict(state, made=made)
+    if step == TREE_MADE:
+        name = got.get("sha") if isinstance(got, dict) else None
+        if not _sha(name) or name == state["tree"]:
+            return None
+        return dict(state, new=name)
+    if step == TREE_BACK:
+        listing = _listing(got, state["new"])
+        if listing is None or not _holds(state["before"], listing, push["changes"], state["made"]):
+            return None
+        return dict(state, checked=True)
+    if step == COMMIT_MADE:
+        name = got.get("sha") if isinstance(got, dict) else None
+        return dict(state, commit=name) if _sha(name) else None
+    if step == COMMIT_BACK:
+        if not _commit(got, state["commit"], state["new"], push["parent"], push["message"]):
+            return None
+        return dict(state, commit_back=True, landed=state["ref_back"])
+    # The branch, made or moved: GitHub answers with the branch at the commit made.
+    if _ref(got, push["branch"]) != state["commit"]:
+        return None
+    return dict(state, moved=True)
+
+
+def touched(changes):
+    """`(paths, read)` for `harness/apply.py`'s `push_refusal`: every path the push writes or removes, and every path a
+    rename or a copy in it read. None for changes in no shape `applied` gives."""
+    if not _changes(changes):
+        return None
+    return sorted(set(changes["written"]) | set(changes["removed"])), list(changes["read"])
+
+
+def existing(changes, tree):
+    """The files of the admitted commit that the push changes or removes, each once, in order: what FR-14's rule on a
+    test is asked about. A file the push adds is none of them. None for changes in no shape `applied` gives."""
+    if not _changes(changes) or not isinstance(tree, dict):
+        return None
+    return sorted(set(path for path in changes["written"] if path in tree) | set(changes["removed"]))
