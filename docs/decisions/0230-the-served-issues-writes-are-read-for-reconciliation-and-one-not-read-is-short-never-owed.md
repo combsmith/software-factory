@@ -1,0 +1,27 @@
+# 0230. The served issues' writes are read for reconciliation, and one not read is short, never owed
+
+Status: accepted. The Factory Builder's ruling of 2026-11-13 on S3 PR3, held by "The Controller's writes on issues are reconciled before issues are served" (issue 837).
+
+## Decision
+
+| What | Decided | Because |
+|---|---|---|
+| What is read | Each pass reads the writes of every Factory identity on each open issue it serves, by the seen port, as it reads an open pull request's: the issue's timeline and its comments in the window. Nothing a snapshot kept is handed on, since the issues port keeps none | Once issues are served the Controller writes on them, and a write nobody recorded on an issue must alarm as one on a pull request does (I-33, decision 0061) |
+| Whether its facts were read | An issue is read for its writes whether the issues port read its facts or not, a moved one among them | The two reads are apart, and a moved pull request is owed only because its snapshot is what the seen port reads from |
+| What matches | A write on an issue is matched as a write on a pull request is, by its key and the Effect type its identity may make. No Effect yet records a label, a close or a status on a served issue, so each is unmatched until its writer and its Effect are built | A kind not listed for an identity is never its. The first write the Controller makes on a served issue brings its own Effect type and its row |
+| The tracking issue | The Controller's own tracking issue is no served issue: it is left out of the open issues the pass lists, by the number the pass recorded for it, in the items port. Until it is, issues are not served. This record adds no matching of the writes on it: read as a served issue, its assignment by the Controller would be an unmatched write for the whole window | The Factory never triages its own alert (the Factory Builder's ruling of 2026-11-18). The pass records the tracking issue's writes as `tracking_issue`, and reconciliation never read them, since no pass read an issue |
+| What cannot be read | An issue whose writes cannot be read whole, or not at all, leaves what was seen not whole: reconciliation is short, `reconciliation_unreadable` | Short, never silent |
+| Not owed | Such an issue is not put in `reconciled.owed`. What is owed is read by the next pass as a pull request that left, and an issue is no pull request. An open served issue is read again by the next pass as it is | `pass/1` keeps numbers, and a second list would change it for a case the next pass already covers |
+| Not here | An issue that closed, or stopped being served, between two passes is not read again, so a write made on it after the last pass that read it whole is not reconciled, and a Factory identity's close of an issue is never seen. A pull request that left is read (`controller/reconcile.py`'s `left`); the same for an issue is issue 916, "A Factory write on an issue that closes before the next pass is never reconciled: issues that left are read", which gates the turn-on as this does | It needs the pass record to keep the issues it served and those that left, which is a change to `pass/1` |
+
+## Why
+
+Reconciliation is the check that nothing with a Factory identity writes outside what the Factory recorded. Serving issues without reading their writes would leave half of what the Controller touches unwatched.
+
+## Boundaries
+
+| Boundary | Check |
+|---|---|
+| Each served issue's writes are read as an issue's, with nothing kept, beside the pull requests'. One read short, or not answered, is `reconciliation_unreadable` and is not owed; a pull request read short beside it is owed still | `tests/test_controller.py::test_the_served_issues_writes_are_read_for_reconciliation`, `controller/__main__.py`, mutant: "the served issues' writes are not read", mutant: "an issue's writes are read as a pull request's", mutant: "an issue's writes not answered leave reconciliation whole", mutant: "an issue whose writes were not answered is owed as a pull request", mutant: "a pull request's snapshot is handed on for an issue of its number" |
+| A Role's comment on an issue is matched by its key to the Effect that recorded it. One with no Effect, the Controller's label or close seen on an issue, and the machine user's comment are each the alert, named by the issue's page | `tests/test_reconcile.py::test_a_write_on_an_issue_is_matched_as_one_on_a_pull_request_is`, `controller/reconcile.py`, `controller/shared.py`, mutant: "a write on an issue is nobody's", mutant: "a write on an issue is named by a pull request's page" |
+| An issue that left between two passes has its writes read | waiting on `controller/issues_left.py`, with the pass record keeping the issues it served |
