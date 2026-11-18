@@ -7,7 +7,7 @@ import json
 import pathlib
 import unittest
 
-from adapters import azure
+from adapters import advice, azure
 from tools import jsonschema_lite
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -127,6 +127,182 @@ class Schemas(unittest.TestCase):
                 at = at[key]
             at[path[-1]] = value
             self.assertTrue(jsonschema_lite.validate(result, SCHEMAS["advice"], schemas=SCHEMAS), (path, value))
+
+
+TOLD = {"run": "r_01JA7Q", "release": "factory/v0.3.1", "lens": "astra", "content_id": "sha256:5d0c",
+        "changed_paths": ["kernel/decide.py", "tests/test_decide.py"], "api": "responses", "deployment": "astra-reader",
+        "model": "astra-model", "effort": "xhigh", "characters": 40000, "usd_per_million": {"input": 2.5, "output": 20}}
+KIMI = dict(TOLD, lens="kimi", api="chat", deployment="Kimi-Reader", model="kimi-model")
+
+
+def said(**changes) -> dict:
+    """One finding of a reader's answer."""
+    finding = {"severity": "major", "category": "functional", "criterion": "PR-3", "file": "kernel/decide.py", "line": 88,
+               "title": "A deferral is returned", "message": "`decide` defers on a whole read."}
+    return dict(finding, **changes)
+
+
+def answered(*findings, text=None, **changes) -> dict:
+    """The transport's answer for a response of the Responses API that completed with these findings."""
+    text = json.dumps({"schema": "advice-answer/1", "findings": list(findings)}) if text is None else text
+    body = {"id": "resp_1", "status": "completed", "model": "astra-model", "usage": {"input_tokens": 1000, "output_tokens": 500},
+            "output": [{"type": "reasoning", "summary": []},
+                       {"type": "message", "content": [{"type": "output_text", "text": text}]}]}
+    return {"status": 200, "headers": {}, "body": dict(body, **changes)}
+
+
+def chatted(*findings, text=None, ended="stop", **changes) -> dict:
+    """The same for a chat completion."""
+    text = json.dumps({"schema": "advice-answer/1", "findings": list(findings)}) if text is None else text
+    body = {"model": "kimi-model", "usage": {"prompt_tokens": 1000, "completion_tokens": 500},
+            "choices": [{"finish_reason": ended, "message": {"role": "assistant", "content": text}}]}
+    return {"status": 200, "headers": {}, "body": dict(body, **changes)}
+
+
+def read(answer: dict, told: dict = TOLD, asks: int = 1, seconds=12.5) -> dict:
+    """The Result the parser builds, which is an advice/1 whatever it was handed, and agrees with itself."""
+    result = advice.read(told, answer, asks, seconds, SCHEMAS)
+    assert jsonschema_lite.validate(result, SCHEMAS["advice"], schemas=SCHEMAS) == [], result
+    assert (result["status"] == "completed") == (result["reason"] is None), result
+    assert result["status"] == "completed" or not (result["findings"] or result["texts"] or result["off_change"]), result
+    assert [f["id"] for f in result["findings"]] == [t["id"] for t in result["texts"]], result
+    assert all(f["surface"]["key"] == f["id"] for f in result["findings"]), result
+    return result
+
+
+def outcome(answer: dict, told: dict = TOLD) -> tuple:
+    result = read(answer, told)
+    return result["status"], result["reason"], len(result["findings"])
+
+
+class Parser(unittest.TestCase):
+    def test_a_readers_findings_become_advisory_findings_whose_ids_are_not_of_their_text(self):
+        result = read(answered(said(), said(file=None, line=7, severity="minor"), said(line=None),
+                               said(file="kernel/brakes.py"), said(file="../kernel/decide.py")))
+        self.assertEqual((result["status"], result["reason"], result["off_change"]), ("completed", None, 2))
+        first, whole, unlined = result["findings"]
+        self.assertEqual(first, {"schema": "finding/1", "id": first["id"],
+                                 "source": {"lens": "astra", "kind": "advisory", "actor": "astra-reader@astra-model"},
+                                 "surface": {"type": "annotation", "key": first["id"]},
+                                 "location": {"path": "kernel/decide.py", "start_line": 88}, "category": "uncategorised",
+                                 "severity": "major", "criterion": None, "content_id": "sha256:5d0c"})
+        # A finding of no file has no place, whatever line it gave; one of a file and no line keeps its path alone.
+        self.assertNotIn("location", whole)
+        self.assertEqual(read(answered(said(file=None, line=9, severity="minor")))["findings"][0]["id"], whole["id"])
+        self.assertEqual((whole["severity"], unlined["location"]), ("minor", {"path": "kernel/decide.py"}))
+        # The reader's words are under `body` alone, with its category and criterion beside them as hints.
+        self.assertEqual(result["texts"][0], {"id": first["id"], "category": "functional", "criterion": "PR-3",
+                                              "body": "A deferral is returned\n\n`decide` defers on a whole read."})
+        self.assertEqual(len(read(answered(said(message="m" * 50000)))["texts"][0]["body"]), 40000)
+        # An id is the Lens's name and a digest of the source, the content, the place and the severity: the same
+        # for other words, another for another Lens, deployment, model, content, path, line or severity.
+        ident = first["id"]
+        self.assertRegex(ident, "^astra:[0-9a-f]{64}$")
+        self.assertEqual(read(answered(said(title="Other words", message="Others.", category="security", criterion=None)))
+                         ["findings"][0]["id"], ident)
+        others = [read(answered(said()), dict(TOLD, **change))["findings"][0]["id"]
+                  for change in ({"lens": "astra-2"}, {"deployment": "astra-reader-2"}, {"content_id": "sha256:5d0d"})]
+        others += [read(answered(said(), model="astra-model-2"), dict(TOLD, model="astra-model-2"))["findings"][0]["id"]]
+        others += [read(answered(said(**change)))["findings"][0]["id"]
+                   for change in ({"file": "tests/test_decide.py"}, {"line": 89}, {"line": None}, {"severity": "minor"})]
+        others += [read(chatted(said()), dict(KIMI, lens="astra", deployment="astra-reader", model="kimi-model"))["findings"][0]["id"]]
+        self.assertEqual(len(set(others + [ident])), len(others) + 1)
+        # Two findings alike in all of those are two Findings, told apart by their order and never by their words.
+        twice = read(answered(said(), said(title="Another")))["findings"]
+        self.assertEqual((twice[0]["id"], len({f["id"] for f in twice})), (ident, 2))
+        self.assertEqual(read(answered(said(title="Another"), said()))["findings"][0]["id"], ident)
+        self.assertEqual(read(answered())["findings"], [])
+        # A path the change holds that advice/1 cannot is no read, never a part of one.
+        odd = read(answered(said(file="a\nb")), dict(TOLD, changed_paths=["a\nb"]))
+        self.assertEqual((odd["status"], odd["reason"]), ("failed", "unparsed"))
+
+    def test_an_answer_is_a_read_only_when_it_completed_whole_from_the_pinned_model_and_parses(self):
+        self.assertEqual(outcome(answered(said())), ("completed", None, 1))
+        self.assertEqual(outcome(chatted(said()), KIMI), ("completed", None, 1))
+        fenced = "```json\n%s\n```" % json.dumps({"schema": "advice-answer/1", "findings": [said()]})
+        self.assertEqual(outcome(chatted(text="\n" + fenced + "\n"), KIMI), ("completed", None, 1))
+        whole = json.dumps({"schema": "advice-answer/1", "findings": [said()]})
+        cases = [
+            # What Azure answered that is no response: a rate limit, a key refused, anything else.
+            ({"status": 429, "headers": {"retry-after": "20"}, "body": {"error": {"code": "rate_limit_exceeded"}}}, "rate_limited"),
+            ({"status": 401, "headers": {}, "body": {"error": {}}}, "no_key"), ({"status": 403, "headers": {}, "body": {}}, "no_key"),
+            ({"status": 500, "headers": {}, "body": "<html>"}, "transport"), ({"status": 200, "headers": {}, "body": whole}, "transport"),
+            ({"status": 200, "headers": {}, "body": None}, "transport"), ({"status": 201, "headers": {}, "body": answered()["body"]}, "transport"),
+            ({}, "transport"),
+            # A response that did not complete, was cut short or was refused.
+            (answered(said(), status="in_progress"), "timed_out"), (answered(said(), status="queued"), "timed_out"),
+            (answered(said(), status="incomplete", incomplete_details={"reason": "max_output_tokens"}), "cut_short"),
+            (answered(said(), status="incomplete"), "cut_short"),
+            (answered(said(), status="incomplete", incomplete_details={"reason": "content_filter"}), "refused"),
+            (answered(said(), status="failed"), "transport"), (answered(said(), status="cancelled"), "transport"),
+            (answered(said(), status=None), "transport"),
+            (answered(said(), output=[{"type": "message", "content": [{"type": "refusal", "refusal": "No."}]}]), "refused"),
+            # Another model's answer, however good, is none (decision 0147).
+            (answered(said(), model="astra-model-mini"), "not_the_model"), (answered(said(), model=None), "not_the_model"),
+            (answered(said(), model="Astra-Model"), "not_the_model"),
+            # What does not parse whole against advice-answer/1.
+            (answered(text="No findings."), "unparsed"), (answered(text=""), "unparsed"), (answered(text="[]"), "unparsed"),
+            (answered(text=whole[:-1]), "unparsed"), (answered(text=whole + whole), "unparsed"),
+            (answered(text="Here it is:\n" + fenced), "unparsed"), (answered(text=fenced + "\n" + fenced), "unparsed"),
+            (answered(said(severity="critical")), "unparsed"), (answered(said(), said(line=0)), "unparsed"),
+            (answered(text='{"schema": "advice-answer/1", "findings": [], "cost": NaN}'), "unparsed"),
+            (answered(text='{"schema": "advice-answer/1", "findings": [], "verdict": "approve"}'), "unparsed"),
+            (answered(text="[" * 100000), "unparsed"), (answered(said(), output=[]), "unparsed"), (answered(said(), output=None), "unparsed"),
+            (answered(said(), output=[{"type": "message", "content": [{"type": "output_text", "text": whole}] * 2}]), "unparsed"),
+            (answered(said(), output=[{"type": "message", "content": [{"type": "output_text", "text": 7}]}]), "unparsed"),
+        ]
+        for answer, reason in cases:
+            status = "failed" if reason in ("unparsed", "not_the_model", "no_key", "transport") else "incomplete"
+            self.assertEqual(outcome(answer), (status, reason, 0), (reason, answer))
+        chats = [(chatted(said(), ended="length"), "cut_short"), (chatted(said(), ended="content_filter"), "refused"),
+                 (chatted(said(), ended="tool_calls"), "unparsed"), (chatted(said(), ended=None), "unparsed"),
+                 (chatted(said(), choices=[]), "unparsed"), (chatted(said(), choices=chatted(said())["body"]["choices"] * 2), "unparsed"),
+                 (chatted(said(), choices=[{"finish_reason": "stop", "message": {"content": None, "refusal": "No."}}]), "refused"),
+                 (chatted(said(), choices=[{"finish_reason": "stop", "message": {"content": None}}]), "unparsed"),
+                 (chatted(said(), choices=["stop"]), "unparsed"), (chatted(said(), model="kimi-model-2"), "not_the_model"),
+                 (answered(said(), model="kimi-model"), "unparsed")]
+        for answer, reason in chats:
+            status = "failed" if reason in ("unparsed", "not_the_model") else "incomplete"
+            self.assertEqual(outcome(answer, KIMI), (status, reason, 0), (reason, answer))
+        # A state checked before the model: a response cut short by another model is still cut short, and counted.
+        self.assertEqual(outcome(answered(said(), status="incomplete", model="astra-model-mini")), ("incomplete", "cut_short", 0))
+
+    def test_a_result_says_what_the_read_cost_and_a_read_never_asked_says_why(self):
+        usage = read(answered(said()), asks=2, seconds=318.4)["usage"]
+        self.assertEqual(usage, {"api": "responses", "deployment": "astra-reader", "model": "astra-model",
+                                 "answering_model": "astra-model", "effort": "xhigh", "asks": 2, "input_tokens": 1000,
+                                 "output_tokens": 500, "cost_usd": 0.0125, "seconds": 318.4})
+        self.assertEqual(read(chatted(said()), KIMI)["usage"]["cost_usd"], 0.0125)
+        # A read that failed after it was paid for still says what it cost, and names the model that answered.
+        other = read(answered(said(), model="astra-model-mini"))["usage"]
+        self.assertEqual((other["answering_model"], other["model"], other["cost_usd"]), ("astra-model-mini", "astra-model", 0.0125))
+        self.assertEqual(read(answered(text="No."))["usage"]["cost_usd"], 0.0125)
+        # Tokens Azure did not count as whole numbers are unknown, and so is the cost: never nought.
+        for spent in ({"input_tokens": 1000}, {"input_tokens": "1000", "output_tokens": 500}, {"input_tokens": -1, "output_tokens": 500},
+                      {"input_tokens": True, "output_tokens": 500}, {"prompt_tokens": 1000, "completion_tokens": 500}, None, []):
+            self.assertIsNone(read(answered(said(), usage=spent))["usage"]["cost_usd"], spent)
+        self.assertEqual(read(answered(said(), usage={"input_tokens": 0, "output_tokens": 0}))["usage"]["cost_usd"], 0)
+        self.assertIsNone(read(answered(said(), model="Astra Model"))["usage"]["answering_model"])
+        limited = read({"status": 429, "headers": {}, "body": {}})["usage"]
+        self.assertEqual((limited["answering_model"], limited["input_tokens"], limited["cost_usd"]), (None, None, None))
+        # No answer in hand: one of the reasons a step has for it, and no other.
+        for reason, status in (("budget", "incomplete"), ("too_large", "incomplete"), ("timed_out", "incomplete"),
+                               ("rate_limited", "incomplete"), ("no_key", "failed"), ("transport", "failed")):
+            result = advice.unasked(TOLD, reason, 0, 0, SCHEMAS)
+            self.assertEqual(jsonschema_lite.validate(result, SCHEMAS["advice"], schemas=SCHEMAS), [])
+            self.assertEqual((result["status"], result["reason"], result["findings"], result["usage"]["asks"],
+                              result["usage"]["cost_usd"]), (status, reason, [], 0, None))
+        for reason in (None, "unparsed", "not_the_model", "cut_short", "refused", "completed", "the key is missing"):
+            with self.assertRaises(ValueError, msg=reason):
+                advice.unasked(TOLD, reason, 0, 0, SCHEMAS)
+        # What the step was told that builds no advice/1 is the step's fault, and raised: it is no reader's.
+        for change in ({"run": "1"}, {"lens": "Astra"}, {"effort": "most"}, {"release": "next"}):
+            with self.assertRaises(ValueError, msg=change):
+                advice.read(dict(TOLD, **change), answered(said()), 1, 1, SCHEMAS)
+            with self.assertRaises(ValueError, msg=change):
+                advice.unasked(dict(TOLD, **change), "budget", 0, 0, SCHEMAS)
+        with self.assertRaises(ValueError):
+            advice.read(TOLD, answered(said()), 3, 1, SCHEMAS)
 
 
 if __name__ == "__main__":
