@@ -953,7 +953,7 @@ class Push(unittest.TestCase):
             "commit": None, "moved": False, "ref_back": False, "commit_back": False, "landed": False})
         less = {k: v for k, v in PUSH.items() if k != "message"}
         for said, told in (
-                ("no push", None), ("a list", [PUSH]), ("a key fewer", less), ("a key more", dict(PUSH, tree=ROOT_TREE)),
+                ("no push", None), ("a list", [PUSH]), ("a key more", dict(PUSH, tree=ROOT_TREE)), ("a key fewer", less),
                 ("a repo of one part", dict(PUSH, repo="software-factory")), ("no repo", dict(PUSH, repo=None)),
                 ("a repo of three parts", dict(PUSH, repo=REPO + "/git")), ("no owner", dict(PUSH, repo="/x")),
                 ("no name", dict(PUSH, repo="combsmith/")), ("the directory above", dict(PUSH, repo="combsmith/..")),
@@ -967,6 +967,10 @@ class Push(unittest.TestCase):
                 ("a work branch opened 0 times", dict(PUSH, branch="factory-work/issue-838-0")),
                 ("a branch under a work branch", dict(PUSH, branch=BRANCH + "/x")),
                 ("a branch that only ends as one", dict(PUSH, branch="x/" + BRANCH)),
+                ("a work branch of an issue that is no number", dict(PUSH, branch="factory-work/issue-x-1")),
+                ("a branch as long as a work branch's head", dict(PUSH, branch="x" * len("factory-work/issue-") + "838-1")),
+                ("a parent that is a list of characters", dict(PUSH, parent=list(PARENT))),
+                ("a message in parts", dict(PUSH, message=["Add the notes"])),
                 ("a parent by its short name", dict(PUSH, parent=PARENT[1:])), ("no parent", dict(PUSH, parent=None)),
                 ("a parent in capitals", dict(PUSH, parent=PARENT.upper())),
                 ("a parent that is a ref", dict(PUSH, parent="main")),
@@ -979,7 +983,7 @@ class Push(unittest.TestCase):
                 ("blobs that are a list", dict(PUSH, blobs=list(BLOBS)))):
             self.assertIsNone(push.began(told), said)
 
-    def test_the_changes_of_a_push_are_held_to_what_applied_gives_path_by_path(self):
+    def test_a_pushs_changes_are_what_applied_gives_path_by_path(self):
         def told(**changed):
             changes = dict(WROTE, **changed)
             blobs = {path: "QQo=" for path in changes["written"]} if isinstance(changes.get("written"), dict) else {}
@@ -1021,7 +1025,7 @@ class Push(unittest.TestCase):
             self.assertIsNone(push.touched(bad["changes"]), said)
             self.assertIsNone(push.existing(bad["changes"], {}), said)
 
-    def test_nothing_leaves_outside_this_repos_git_data_whatever_the_method(self):
+    def test_nothing_leaves_outside_this_repos_git_data(self):
         requests = [before(step, told) for told in (PUSH, MOVE) for step in
                     ("commit", "tree", "branch", "blob a", "new tree", "tree back", "new commit", "ref", "commit back")]
         self.assertEqual(sorted({request[0] for _, request in requests}), ["GET", "PATCH", "POST"])
@@ -1048,7 +1052,7 @@ class Push(unittest.TestCase):
             self.assertFalse(push.permits(bad, method, GIT + rest, body))
             self.assertIsNone(push.seen(bad, method, GIT + rest, body, said))
 
-    def test_a_push_reads_the_admitted_commit_its_tree_its_blobs_and_its_own_branch(self):
+    def test_a_push_reads_the_admitted_commit_and_its_own_branch(self):
         for told in (PUSH, MOVE, READING):
             state = push.began(told)
             # At first the commit and the branch alone: the tree is the one the commit names, the blobs that tree's.
@@ -1082,7 +1086,7 @@ class Push(unittest.TestCase):
                          "matching-refs/heads/", "../pulls", "../contents/config/hooks.json", ""):
                 self.assertFalse(may(state, "GET", rest), rest)
 
-    def test_the_admitted_commit_and_its_tree_are_read_whole_or_not_at_all(self):
+    def test_the_admitted_tree_is_read_whole_or_not_at_all(self):
         state, (method, rest, body, said) = before("commit")
         self.assertEqual(then(state, method, rest, body, said)["tree"], ROOT_TREE)
         for body_said in (None, [], {"sha": MADE, "tree": {"sha": ROOT_TREE}}, {"tree": {"sha": ROOT_TREE}},
@@ -1114,7 +1118,8 @@ class Push(unittest.TestCase):
                 ("a directory twice", listed(ROOT_TREE, BEFORE, tree=entries + [entries[0]])),
                 ("a file where a directory is", listed(ROOT_TREE, BEFORE, tree=entries + [dict(entries[2], path="docs")])),
                 ("a directory where a file is", listed(ROOT_TREE, BEFORE, tree=entries + [dict(entries[0], path="run.sh")])),
-                ("a path that is no text", listed(ROOT_TREE, BEFORE, tree=entry(2, path=None))),
+                ("a path that is no text", listed(ROOT_TREE, BEFORE, tree=entry(2, path=("docs", "a.md")))),
+                ("a path that is none", listed(ROOT_TREE, BEFORE, tree=entry(2, path=None))),
                 ("an empty path", listed(ROOT_TREE, BEFORE, tree=entry(2, path=""))),
                 ("an entry of no mode", listed(ROOT_TREE, BEFORE, tree=entry(2, mode=None))),
                 ("an entry with no mode at all", listed(ROOT_TREE, BEFORE, tree=[{"path": "x", "type": "blob", "sha": BLOB_A}])),
@@ -1134,7 +1139,7 @@ class Push(unittest.TestCase):
         fewer = {path: held for path, held in BEFORE.items() if path != "run.sh"}
         self.assertIsNone(then(state, method, rest, body, answer(200, listed(ROOT_TREE, fewer))))
 
-    def test_nothing_is_written_before_the_admitted_tree_and_the_branch_were_read(self):
+    def test_nothing_is_written_before_the_tree_and_the_branch_were_read(self):
         writes = [(told, request) for told in (PUSH, MOVE)
                   for step in ("blob a", "new tree", "new commit", "ref") for request in [before(step, told)[1]]]
         for told, (method, rest, body, said) in writes:
@@ -1160,9 +1165,13 @@ class Push(unittest.TestCase):
                       answer(200, {"object": {"sha": PARENT}}), answer(200, [ref(PARENT)]), answer(201, ref(PARENT))):
             self.assertIsNone(then(state, method, rest, body, other), other)
         # Read again before it is written, a branch that moved stops the push.
-        state, _ = before("new commit", MOVE)
-        self.assertEqual(then(state, method, rest, body, said), state)
-        self.assertIsNone(then(state, method, rest, body, answer(200, ref(MADE))))
+        for step in ("new commit", "ref"):
+            state, _ = before(step, MOVE)
+            self.assertEqual(then(state, method, rest, body, said), state)
+            self.assertIsNone(then(state, method, rest, body, answer(200, ref(MADE))))
+            state, _ = before(step)
+            self.assertEqual(then(state, method, rest, body, answer(404)), state)
+            self.assertIsNone(then(state, method, rest, body, answer(200, ref(MADE))))
         # A push of no changes reads, and writes nothing whatever it read.
         state, _ = before(None, READING)
         self.assertTrue(state["branch_read"] and state["before"] == BEFORE)
@@ -1170,14 +1179,14 @@ class Push(unittest.TestCase):
             self.assertFalse(push.permits(state, method, GIT + rest, body), rest)
             self.assertIsNone(push.seen(state, method, GIT + rest, body, said), rest)
 
-    def test_a_blob_is_made_once_of_each_written_files_base64_and_of_nothing_else(self):
+    def test_a_blob_is_made_once_of_each_written_files_base64(self):
         state, (method, rest, body, said) = before("blob a")
         self.assertTrue(may(state, method, rest, body))
         self.assertTrue(may(state, method, rest, {"content": "eAo=", "encoding": "base64"}))
-        for bad in (None, {"content": "A\n", "encoding": "utf-8"}, {"content": "QQo=", "encoding": "utf-8"},
-                    {"content": b"QQo=", "encoding": "base64"}, {"content": "QQo="}, {"content": "QUEK", "encoding": "base64"},
-                    {"content": "", "encoding": "base64"}, {"content": None, "encoding": "base64"},
-                    {"content": "QQo=", "encoding": "base64", "x": 1}, ["QQo="], "QQo="):
+        for bad in (None, {"content": "QQo=", "encoding": "base64", "x": 1}, {"content": "A\n", "encoding": "utf-8"},
+                    {"content": "QQo=", "encoding": "utf-8"}, {"content": b"QQo=", "encoding": "base64"},
+                    {"content": "QQo="}, {"content": "QUEK", "encoding": "base64"}, {"content": "", "encoding": "base64"},
+                    {"content": None, "encoding": "base64"}, ["QQo="], "QQo="):
             self.assertFalse(may(state, method, rest, bad), bad)
         self.assertFalse(may(state, method, "blobs/" + BLOB_A, body))
         self.assertFalse(may(state, "PATCH", rest, body))
@@ -1207,7 +1216,7 @@ class Push(unittest.TestCase):
         state = then(state, method, rest, {"content": "", "encoding": "base64"}, answer(201, {"sha": NEW_N}))
         self.assertEqual(state["made"], {"a": NEW_A, "b": NEW_A, "c": NEW_N})
 
-    def test_the_one_tree_is_made_upon_the_admitted_one_and_names_exactly_the_changes_by_the_blobs_made(self):
+    def test_the_one_tree_names_exactly_the_changes_by_the_blobs_made(self):
         state, (method, rest, body, said) = before("new tree")
         self.assertTrue(may(state, method, rest, NEW_TREE))
         self.assertTrue(may(state, method, rest, dict(NEW_TREE, tree=ENTRIES[::-1])))
@@ -1232,14 +1241,16 @@ class Push(unittest.TestCase):
                 ("a path that is no text", entry(0, path=["docs/a.md"])), ("an entry that is none", [None] + ENTRIES[1:]),
                 ("no list", {"docs/a.md": ENTRIES[0]})):
             self.assertFalse(may(state, method, rest, dict(NEW_TREE, tree=entries)), why)
-        for bad in (None, {"tree": ENTRIES}, dict(NEW_TREE, base_tree=MADE_TREE), dict(NEW_TREE, base_tree=PARENT),
-                    dict(NEW_TREE, base_tree=None), dict(NEW_TREE, x=1), [NEW_TREE]):
+        for bad in (None, dict(NEW_TREE, x=1), {"tree": ENTRIES}, dict(NEW_TREE, base_tree=MADE_TREE),
+                    dict(NEW_TREE, base_tree=PARENT), dict(NEW_TREE, base_tree=None), [NEW_TREE]):
             self.assertFalse(may(state, method, rest, bad), bad)
         self.assertFalse(may(state, method, "trees/" + ROOT_TREE, NEW_TREE))
         self.assertFalse(may(state, "PATCH", rest, NEW_TREE))
         # No tree before every written file's blob was made: a file's entry names the blob made of its bytes.
+        unmade = dict(NEW_TREE, tree=[dict(entry, sha=None) for entry in ENTRIES])
         for step in ("blob a", "blob n"):
             self.assertFalse(may(before(step)[0], method, rest, NEW_TREE), step)
+            self.assertFalse(may(before(step)[0], method, rest, unmade), step)
         made = then(state, method, rest, body, said)
         self.assertEqual(made["new"], MADE_TREE)
         for other in (answer(200, {"sha": MADE_TREE}), answer(201), answer(201, {"sha": "main"}), answer(201, {}),
@@ -1252,7 +1263,7 @@ class Push(unittest.TestCase):
         self.assertIsNone(then(made, method, rest, body, said))
         self.assertFalse(may(before("ref")[0], method, rest, NEW_TREE))
 
-    def test_the_tree_read_back_is_the_admitted_one_with_exactly_the_changes_in_it(self):
+    def test_the_tree_read_back_is_the_admitted_one_with_the_changes(self):
         state, (method, rest, body, said) = before("tree back")
         self.assertFalse(may(before("new tree")[0], method, rest))
         self.assertTrue(may(state, method, rest))
@@ -1295,7 +1306,7 @@ class Push(unittest.TestCase):
         else:
             self.fail("the tree was never read back")
 
-    def test_the_one_commit_is_of_the_tree_read_back_on_the_admitted_commit_and_says_what_apply_says(self):
+    def test_the_one_commit_is_of_the_tree_read_back_on_the_admitted_commit(self):
         state, (method, rest, body, said) = before("new commit")
         self.assertTrue(may(state, method, rest, COMMIT))
         for bad in (None, dict(COMMIT, parents=[]), dict(COMMIT, parents=[MADE]), dict(COMMIT, parents=[PARENT, MADE]),
@@ -1321,15 +1332,15 @@ class Push(unittest.TestCase):
         # The commit made is read only once the branch was written.
         self.assertFalse(may(made, "GET", "commits/" + MADE))
 
-    def test_the_branch_is_made_or_moved_once_at_the_commit_made_and_never_by_force(self):
+    def test_the_branch_is_written_once_at_the_commit_made_never_by_force(self):
         make, move = {"ref": "refs/heads/" + BRANCH, "sha": MADE}, {"sha": MADE, "force": False}
         state, (method, rest, body, said) = before("ref")
         self.assertEqual((method, rest, body), ("POST", "refs", make))
         self.assertTrue(may(state, method, rest, make))
-        for bad in (None, dict(make, ref="refs/heads/main"), dict(make, ref="refs/tags/factory/v0.1.13"),
+        for bad in (dict(make, ref="refs/heads/main"), dict(make, ref="refs/tags/factory/v0.1.13"),
                     dict(make, ref="refs/heads/" + BRANCH + "/x"), dict(make, ref="heads/" + BRANCH), dict(make, ref=BRANCH),
                     dict(make, sha=PARENT), dict(make, sha=MADE_TREE), dict(make, sha="main"), dict(make, sha=None),
-                    dict(make, force=True), dict(make, force=False), {"ref": make["ref"]}, {"sha": MADE}, [make]):
+                    dict(make, force=True), dict(make, force=False), {"ref": make["ref"]}, {"sha": MADE}, [make], None):
             self.assertFalse(may(state, method, rest, bad), bad)
         for path in ("refs/heads/" + BRANCH, "refs/heads", "ref"):
             self.assertFalse(may(state, method, path, make), path)
@@ -1345,9 +1356,9 @@ class Push(unittest.TestCase):
         state, (method, rest, body, said) = before("ref", MOVE)
         self.assertEqual((method, rest, body), ("PATCH", "refs/heads/" + BRANCH, move))
         self.assertTrue(may(state, method, rest, move))
-        for bad in (None, dict(move, force=True), dict(move, force=None), dict(move, force=0), dict(move, force="false"),
-                    {"sha": MADE}, dict(move, sha=PARENT), dict(move, sha=MADE_TREE), dict(move, sha="main"),
-                    dict(move, ref="refs/heads/main"), [move]):
+        for bad in (dict(move, ref="refs/heads/main"), dict(move, force=True), dict(move, force=None), dict(move, force=0),
+                    dict(move, force="false"), {"sha": MADE}, dict(move, sha=PARENT), dict(move, sha=MADE_TREE),
+                    dict(move, sha="main"), [move], None):
             self.assertFalse(may(state, method, rest, bad), bad)
         for path in ("refs/heads/main", "refs/heads/" + BRANCH + "0", "refs/heads/" + BRANCH + "/x", "refs/tags/factory/v0.1.12",
                      "refs", "refs/heads/", "ref/heads/" + BRANCH):
@@ -1355,18 +1366,19 @@ class Push(unittest.TestCase):
         for other in ("DELETE", "PUT", "POST"):
             self.assertFalse(may(state, other, rest, move), other)
         self.assertFalse(may(state, "POST", "refs", make))
-        moved = then(state, method, rest, body, said)
-        self.assertTrue(moved["moved"])
         for other in (answer(201, ref(MADE)), answer(200, ref(PARENT)), answer(200), answer(422, ref(MADE))):
             self.assertIsNone(then(state, method, rest, body, other), other)
+        moved = then(state, method, rest, body, said)
+        self.assertTrue(moved["moved"])
         self.assertFalse(may(moved, method, rest, move))
         # No branch is written before the commit is made.
         for told, write in ((PUSH, ("POST", "refs", make)), (MOVE, ("PATCH", "refs/heads/" + BRANCH, move))):
             for step in ("blob a", "new tree", "tree back", "new commit"):
                 self.assertFalse(may(before(step, told)[0], *write), step)
-                self.assertFalse(may(before(step, told)[0], write[0], write[1], dict(write[2], sha=PARENT)), step)
+                for name in (PARENT, None):
+                    self.assertFalse(may(before(step, told)[0], write[0], write[1], dict(write[2], sha=name)), step)
 
-    def test_a_push_lands_only_when_the_branch_and_the_commit_are_read_again_as_made(self):
+    def test_a_push_lands_when_the_branch_and_the_commit_are_read_again(self):
         for told in (PUSH, MOVE):
             state, (method, rest, body, said) = before("ref back", told)
             self.assertFalse(state["landed"])
@@ -1396,14 +1408,14 @@ class Push(unittest.TestCase):
                 self.assertIsNone(then(one, commit[0], commit[1], None, answer(200, wrong)), why)
             self.assertIsNone(then(one, commit[0], commit[1], None, answer(201, COMMITTED)))
 
-    def test_an_answer_is_what_github_gave_to_that_request_or_the_push_stops(self):
+    def test_an_answer_is_githubs_to_that_request_or_the_push_stops(self):
         for told in (PUSH, MOVE):
             for name, method, rest, body, said in honest(told):
                 state = before(name, told)[0]
                 self.assertIsNotNone(then(state, method, rest, body, said), name)
                 for why, wrong in (
-                        ("no answer", None), ("the body alone", said["body"]), ("no status", {"body": said["body"]}),
-                        ("no body", {"status": said["status"]}), ("a thing more", dict(said, headers={})),
+                        ("no answer", None), ("a thing more", dict(said, headers={})), ("the body alone", said["body"]),
+                        ("no status", {"body": said["body"]}), ("no body", {"status": said["status"]}),
                         ("a status in text", dict(said, status=str(said["status"]))),
                         ("a status that is true", dict(said, status=True)), ("a status in parts", dict(said, status=said["status"] + 0.0)),
                         ("no status at all", dict(said, status=None)), ("a pair", (said["status"], said["body"])),
@@ -1425,8 +1437,8 @@ class Push(unittest.TestCase):
         self.assertEqual(push.existing(changes, tree), ["config/x.json", "docs/a.md", "tests/t.py"])
         self.assertEqual(push.existing(dict(changes, removed=[]), tree), ["docs/a.md"])
         self.assertEqual(push.existing(changes, {}), ["config/x.json", "tests/t.py"])
-        self.assertIsNone(push.existing(changes, None))
         self.assertIsNone(push.existing(changes, list(tree)))
+        self.assertIsNone(push.existing(changes, None))
         # What `applied` gave is what is asked about, as it gave it.
         got, reason = patch.applied(CHANGE + NEW + GONE + COPIED, TREE, HELD)
         self.assertIsNone(reason)

@@ -111,8 +111,8 @@ def _changes(changes) -> bool:
     written, removed, read = changes["written"], changes["removed"], changes["read"]
     if not isinstance(written, dict) or not isinstance(removed, list) or not isinstance(read, list):
         return False
-    paths = list(written) + removed
-    if not paths or not all(patch.named(path) for path in paths + read):
+    paths = list(written) + list(removed)
+    if not paths or not all(patch.named(path) for path in paths + list(read)):
         return False
     if len(set(paths)) != len(paths) or len(set(read)) != len(read):
         return False
@@ -215,10 +215,10 @@ def _step(state, method, path, body):
     if method == "POST" and rest == "commits":
         if (state["checked"] and commit is None and isinstance(body, dict) and set(body) == {"message", "tree", "parents"}
                 and body["message"] == push["message"] and body["tree"] == state["new"]
-                and isinstance(body["parents"], list) and body["parents"] == [push["parent"]]):
+                and body["parents"] == [push["parent"]]):
             return COMMIT_MADE
         return None
-    if commit is None or state["moved"] or not isinstance(body, dict):
+    if commit is None or state["moved"]:
         return None
     if method == "POST" and rest == "refs":
         # The branch is made only where the Decision admitted none; GitHub refuses to make one that stands.
@@ -268,7 +268,8 @@ def _holds(before: dict, after: dict, changes: dict, made: dict) -> bool:
         return False
     if set(after) != set(path for path in before if path not in removed) | set(written):
         return False
-    return all(after[path] == ((written[path][0], made[path]) if path in written else before[path]) for path in after)
+    return all(after[path] == ((written[path][0], made[path]) if path in written else before.get(path))
+               for path in after)
 
 
 def _ref(got, branch):
@@ -300,10 +301,11 @@ def seen(state, method, path, body, answer):
     status, got, push = str(answer["status"]), answer["body"], state["push"]
     if step == REF_READ and not state["moved"]:
         # Before the branch is written it is as the Decision admitted it: absent, or at the admitted head.
-        if status == (ABSENT if push["head"] is None else OK) and (push["head"] is None
-                                                                   or _ref(got, push["branch"]) == push["head"]):
-            return dict(state, branch_read=True)
-        return None
+        if push["head"] is None:
+            return dict(state, branch_read=True) if status == ABSENT else None
+        if status != OK or _ref(got, push["branch"]) != push["head"]:
+            return None
+        return dict(state, branch_read=True)
     if step == REF_READ:
         if status != OK or _ref(got, push["branch"]) != state["commit"]:
             return None
@@ -332,7 +334,7 @@ def seen(state, method, path, body, answer):
             return None
         made = dict(state["made"])
         for written in push["changes"]["written"]:
-            if push["blobs"][written] == body["content"] and written not in made:
+            if push["blobs"][written] == body["content"]:
                 made[written] = name
         return dict(state, made=made)
     if step == TREE_MADE:

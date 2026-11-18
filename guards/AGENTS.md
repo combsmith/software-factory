@@ -1,6 +1,6 @@
 # guards/
 
-The guards on a Role's own writes, as pure functions: each says what such a write may land, or gives the one reason, a code, why nothing may. `patch.py` applies a Role's patch, byte for byte, to the files it names; the guard on a push is still to come.
+The guards on a Role's own writes, as pure functions: each says what such a write may land, or gives the one reason, a code, why nothing may. `patch.py` applies a Role's patch byte for byte; `push.py` holds the push that lands it to its order.
 A guard binds the Role that writes this repo's code. So it lives here, never in `kernel/` or `adapters/`, where that Role may push; a port hands a guard what it read, and the Harness calls it. A guard reads nothing itself.
 
 | Rule | Held by |
@@ -28,4 +28,11 @@ A guard binds the Role that writes this repo's code. So it lives here, never in 
 | What is no file is never written: a link, a submodule, a path under a file, or one where a directory stands | `tests/test_guards.py::test_what_is_no_file_is_never_written` |
 | A tree in no shape a port gives, and a file's bytes it did not hand over, are the Factory's fault, under its own code | `tests/test_guards.py::test_what_a_port_did_not_read_is_the_factorys_under_its_own_code` |
 | What it lands is what git lands, on fixed seeds, of a patch as git writes it and of the same patch broken | `tests/test_guards.py::test_a_patch_as_git_writes_it_lands_what_git_would` |
+| A push is told whole or begins nothing; its changes are `applied`'s, path by path | `tests/test_guards.py::test_a_push_is_told_whole_or_begins_nothing`, `tests/test_guards.py::test_a_pushs_changes_are_what_applied_gives_path_by_path` |
+| A push sends nothing outside this repo's git data, and reads the admitted commit alone | `tests/test_guards.py::test_nothing_leaves_outside_this_repos_git_data`, `tests/test_guards.py::test_a_push_reads_the_admitted_commit_and_its_own_branch` |
+| The admitted tree is read whole, and the branch as admitted, before any write | `tests/test_guards.py::test_the_admitted_tree_is_read_whole_or_not_at_all`, `tests/test_guards.py::test_nothing_is_written_before_the_tree_and_the_branch_were_read` |
+| One blob to each written content; one tree, of exactly the changes | `tests/test_guards.py::test_a_blob_is_made_once_of_each_written_files_base64`, `tests/test_guards.py::test_the_one_tree_names_exactly_the_changes_by_the_blobs_made` |
+| No commit before the tree is read back so; one commit, on the admitted one | `tests/test_guards.py::test_the_tree_read_back_is_the_admitted_one_with_the_changes`, `tests/test_guards.py::test_the_one_commit_is_of_the_tree_read_back_on_the_admitted_commit` |
+| The branch is written once, never by force; a push lands when read again | `tests/test_guards.py::test_the_branch_is_written_once_at_the_commit_made_never_by_force`, `tests/test_guards.py::test_a_push_lands_when_the_branch_and_the_commit_are_read_again` |
+| An answer is GitHub's to that request; `apply` is asked about the paths that land | `tests/test_guards.py::test_an_answer_is_githubs_to_that_request_or_the_push_stops`, `tests/test_guards.py::test_the_paths_apply_is_asked_about_are_the_paths_that_land` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
