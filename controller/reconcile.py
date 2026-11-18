@@ -63,7 +63,7 @@ def _identities(accounts) -> tuple:
     return found, known
 
 
-EMPTY = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}
+EMPTY = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": [], "left": []}
 # What a carried value may be, as `pass/1` holds it: a record's own schema may be wider, and one that does not fit is not
 # carried and leaves reconciliation short, so that one record never refuses a pass.
 FITS_KEY = re.compile(r"[A-Za-z0-9_=:-]{1,100}")
@@ -95,6 +95,13 @@ def owed(before) -> list:
     return list(_last(before)["owed"])
 
 
+def left(before, since=None) -> list:
+    """The pull requests a record before this pass read as left, inside the window from `since`, or all it holds with no
+    `since`: their writes are read on every pass until the window passes when one was first read gone, so a write nobody
+    matched keeps its alert as long (issue 787)."""
+    return [e["number"] for e in _last(before).get("left", []) if since is None or _within(e["at"], since)]
+
+
 def _one(doc: dict, kind: str) -> dict:
     return {"applied": [doc], "written": []} if kind == APPLIED else {"applied": [], "written": [doc]}
 
@@ -106,17 +113,20 @@ def unfit(effects) -> bool:
         or any(not FITS_ITEM.fullmatch(item) for _, item in items)
 
 
-def carried(before, effects, seen, now: str, unread=()) -> dict:
+def carried(before, effects, seen, now: str, unread=(), gone=()) -> dict:
     """What this pass's record carries for the next: what was read in the window and the keys it held, those older than the
     window dropped, and the pull requests whose writes it could not read. A key, which one write alone can match, is stamped
     with when it was read, so it outlasts the write it records. A write matched by its item is credit any such write could
     spend, so it is stamped with when its record was made, and kept for `LATE` after, as the writes it records are later
     than that; so a late first read does not stretch it. So a record holds what the Effects said, not the records
-    themselves, and a pass reads only what is new (decision 0112)."""
+    themselves, and a pass reads only what is new (decision 0112). Each pull request `gone`, first read as left by this
+    pass, is stamped with now, and one a record before stamped is kept until the window passes it (issue 787)."""
     since = seen["since"] if seen is not None and not errors(seen, "seen") else None
     held = {name: [e for e in rows if name == "owed" or since is None or _within(e["at"], since, name == "items")]
             for name, rows in _last(before).items()}
     held["owed"] = sorted(set(unread))
+    held["left"] = [e for e in held.get("left", []) if e["number"] not in set(gone)] + [
+        {"number": n, "at": now} for n in sorted(set(gone))]
     if not _readable(effects):
         return held
     read = effects.get("read") if isinstance(effects.get("read"), dict) else {}

@@ -32,6 +32,9 @@ from adapters import records, threads, timeline
 from adapters.github import Unanswered, request
 
 LEFT = "left"      # what `kept` is for an item the pass before served that is no longer open: nothing kept, read here
+# What `kept` is for a pull request a pass before read as left, inside the window: read as one that left, its close
+# already read, so a close older than the window still stands (issue 787).
+GONE = "gone"
 # GitHub's periods of a repo's activity, each by its days, shortest first: the one asked covers the window.
 PERIODS = (("day", 1), ("week", 7), ("month", 28), ("quarter", 89), ("year", 364))
 MARGIN = 1 / 24     # a day's hour: a period is asked only if it covers the window an hour over, for clocks apart
@@ -144,7 +147,7 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
     repo, number = item["repo"], item["number"]
     issue = "/repos/%s/issues/%d" % (repo, number)
     writes, merged = [], []
-    if item["type"] == "pull_request" and kept != LEFT:
+    if item["type"] == "pull_request" and kept not in (LEFT, GONE):
         parts = dict(kept) if isinstance(kept, dict) else {}
     elif item["type"] == "pull_request":
         parts = {"events": _pages(transport, issue + "/timeline?per_page=%d" % PAGE),
@@ -159,9 +162,9 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         got = parts.get(name)
         whole &= isinstance(got, tuple) and len(got) == 2 and isinstance(got[0], list) and got[1] is True
         parts[name] = got[0] if isinstance(got, tuple) and len(got) == 2 and isinstance(got[0], list) else []
-    if kept == LEFT and item["type"] == "pull_request":
-        whole &= any(_object(e).get("event") in ("closed", "merged") and _at(_object(e).get("created_at"), since)
-                     for e in parts["events"])
+    if kept in (LEFT, GONE) and item["type"] == "pull_request":
+        whole &= any(_object(e).get("event") in ("closed", "merged")
+                     and (kept == GONE or _at(_object(e).get("created_at"), since)) for e in parts["events"])
 
     def add(by, kind, key, at):
         writes.append({"by": by, "kind": kind, "item": dict(item), "key": key, "at": at})

@@ -42,6 +42,8 @@ from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = check_authority.ROOT
+# A time as GitHub gives one, in UTC to the second: the only form that sorts as text in time's order.
+SECOND = r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$"
 GOOD = (ROOT / "examples" / "workflows" / "verify.yml").read_text()
 # The poller's shim, as issue 196's ruling 4 gives it in full: the shape the rules shim and wake hold.
 POLLER = 'name: sf-poller\non:\n  schedule:\n    - cron: "13 * * * *"\n    - cron: "33 * * * *"\n    - cron: "53 * * * *"\n  workflow_dispatch:\n  workflow_run:\n    workflows:\n      - factory\n      - ci\n    types:\n      - completed\npermissions: {}\njobs:\n  pass:\n    permissions:\n      actions: write\n      contents: read\n    concurrency:\n      group: sf-poller\n      cancel-in-progress: false\n    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next\n    secrets: inherit\n'
@@ -654,6 +656,30 @@ class Examples(unittest.TestCase):
             self.assertNotIn(act, effect["properties"])
         self.assertNotIn("event", effect["properties"]["submit_review"]["items"]["properties"])
 
+    def test_a_pushs_patch_is_text_under_body_and_names_nothing_else(self):  # issue 880
+        # A Run that writes code answers with its change as one patch: text, under `body`, in its push. The bundle
+        # stays required: what a Run uploads names the bytes it handed over, by artifact and digest. A patch names
+        # nothing of where it lands. That the Harness fills the bundle from the patch is not held here: it is not built.
+        effect = json.loads((ROOT / "schemas" / "effect.schema.json").read_text())
+        push = effect["properties"]["push_commits"]["items"]
+        self.assertEqual((sorted(push["properties"]), sorted(push["required"])), (["bundle", "id", "patch"], ["bundle", "id"]))
+        self.assertEqual(sorted(push["properties"]["patch"]["properties"]), ["body"])
+        bundle = {"artifact": "result", "digest": "sha256:" + "5d" * 32}
+        text = "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b\n"
+        refused = lambda **item: validate({"push_commits": [dict(id="e1", **item)]}, effect) != []
+        # The example shows the digest a bundle is to carry: of its patch's text as UTF-8.
+        shown = json.loads((ROOT / "examples" / "effect.push-with-its-patch.json").read_text())["push_commits"][0]
+        self.assertEqual(shown["bundle"]["digest"], "sha256:" + hashlib.sha256(shown["patch"]["body"].encode()).hexdigest())
+        self.assertIs(refused(bundle=bundle), False)
+        self.assertIs(refused(bundle=bundle, patch={"body": text}), False)
+        for name, item in (("no bundle", dict(patch={"body": text})), ("a bare string", dict(bundle=bundle, patch=text)),
+                           ("no body", dict(bundle=bundle, patch={})), ("nothing", dict(bundle=bundle, patch={"body": ""})),
+                           ("a body that is no text", dict(bundle=bundle, patch={"body": 7})),
+                           ("its commit", dict(bundle=bundle, patch={"body": text, "commit": "0" * 40})),
+                           ("its branch", dict(bundle=bundle, patch={"body": text, "branch": "main"})),
+                           ("a patch that is none", dict(bundle=bundle, patch=None))):
+            self.assertIs(refused(**item), True, name)
+
     def test_only_success_can_pass_a_check(self):  # I-27, L-07
         # The configuration may say what a conclusion means, but never that one with no verdict has passed.
         schema = json.loads((ROOT / "schemas" / "config.schema.json").read_text())
@@ -916,6 +942,269 @@ class Authority(unittest.TestCase):
                 self.assertTrue(caught(check_authority.run(config=dict(config, **{field: name})), "no Role's name"),
                                 (field, name))
         self.assertTrue(caught(check_authority.run(config=dict(config, owner_role=None)), "no Role's name"))
+
+    def test_a_role_named_to_open_pull_requests_waits_on_its_writer(self):  # issue 808
+        # No Role is named to open pull requests until open_pull_request has its writer, issue 342's: an adapter that
+        # sends a write to a repo's pulls, a step of the Harness that CALLERS lists as reaching it, and, in that step, a
+        # call of harness/apply.py's opened. The refusal names the first missing; with none named, as in slice 1, it passes.
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        self.assertIsNone(config["issues"]["intents"]["open-pull-request"])
+        self.assertEqual(check_authority.opening_problems(config), [])
+        named = copy.deepcopy(config)
+        named["issues"]["intents"]["open-pull-request"] = {"role": "dev-lead", "app": "combsmith-sf-dev-lead"}
+        self.assertTrue(caught(check_authority.run(config=named), "no adapter sends a write to a repo's pulls"))
+        # Its counter-example is refused, for that alone.
+        self.assertFalse(caught(check_examples.run(), "config.an-opening-role-with-no-writer.json"))
+        opener = "adapters.opening:open_pull_request"
+        step = "harness/open_step.py"
+
+        def tree(adapter, harness, at=step, head="from adapters.github import request\n\n", more=None):
+            folder = tempfile.TemporaryDirectory()
+            self.addCleanup(folder.cleanup)
+            root = pathlib.Path(folder.name)
+            for part, text in [("adapters/opening.py", head + adapter), (at, harness)] + sorted((more or {}).items()):
+                (root / part).parent.mkdir(parents=True, exist_ok=True)
+                (root / part).write_text(text)
+            return root
+
+        opens = "def open_pull_request(transport, repo):\n    return request('POST', '/repos/%s/pulls' % repo, body={})\n"
+        records = "from harness import apply\n\ndef run(t):\n    return apply.opened('e1', 1, 'b', None)\n"
+        callers = {step: {opener}}
+        self.assertEqual(check_authority.opening_problems(named, tree(opens, records), callers), [])
+        # The path held in a name bound once in the function or at the module's top, given by keyword, or written as an
+        # f-string, is read; a name bound twice, and an f-string with a pull request's number after it, are not.
+        for adapter in ("def open_pull_request(transport, repo):\n    pulls = '/repos/%s/pulls' % repo\n"
+                        "    request('GET', pulls + '?head=x')\n    return request('POST', pulls, body={})\n",
+                        "PULLS = '/repos/%s/pulls'\n\ndef open_pull_request(transport, repo):\n    return request('POST', PULLS % repo)\n",
+                        "def open_pull_request(transport, repo):\n    return request(method='POST', path='/repos/%s/pulls' % repo)\n",
+                        "def open_pull_request(transport, repo):\n    return request('POST', f'/repos/{repo}/pulls')\n"):
+            with self.subTest(adapter=adapter):
+                self.assertEqual(check_authority.opening_problems(named, tree(adapter, records), callers), [])
+        for adapter in ("def open_pull_request(transport, repo):\n    pulls = '/repos/%s/pulls'\n    pulls = '/repos/%s/issues'\n"
+                        "    return request('POST', pulls % repo)\n",
+                        "def open_pull_request(transport, repo, n):\n    return request('POST', f'/repos/{repo}/pulls/{n}')\n"):
+            with self.subTest(adapter=adapter):
+                self.assertTrue(caught(check_authority.opening_problems(named, tree(adapter, records), callers),
+                                       "no adapter sends a write"))
+        # Each part missing in turn is named. A read of the pulls, a write to one pull request, a method or a path not
+        # written as text, a call that builds no request, and a write to the pulls that creates nothing open none.
+        for adapter in ("def open_pull_request(transport, repo):\n    return request('GET', '/repos/%s/pulls' % repo)\n",
+                        "def open_pull_request(transport, repo):\n    return request('PATCH', '/repos/%s/pulls/%d' % (repo, 1))\n",
+                        "def open_pull_request(transport, repo, verb):\n    return request(verb, '/repos/%s/pulls' % repo)\n",
+                        "def open_pull_request(transport, path):\n    return request('POST', path)\n",
+                        "def open_pull_request(transport, repo):\n    return send('POST', '/repos/%s/pulls' % repo)\n",
+                        "def open_pull_request(transport, repo):\n    return request('DELETE', '/repos/%s/pulls' % repo)\n"):
+            with self.subTest(adapter=adapter):
+                self.assertTrue(caught(check_authority.opening_problems(named, tree(adapter, records), callers),
+                                       "no adapter sends a write"))
+        # A caller outside the Harness, or a step that reaches another writer, does not reach the opening.
+        for listed in ({}, {"release/move.py": {opener}}, {step: {"adapters.effects:_review"}}):
+            with self.subTest(callers=listed):
+                self.assertTrue(caught(check_authority.opening_problems(named, tree(opens, records), listed),
+                                       "no step of the Harness reaches adapters.opening:open_pull_request"))
+        # A step that reaches the opening and calls no opened, or another module's, records no Run: harness.apply.opened
+        # spelt out, with harness.apply not imported, is another's.
+        for harness in ("def run(t):\n    return None\n", "from harness import read\n\ndef run(t):\n    return read.opened(1)\n",
+                        "from harness import apply\n\ndef run(t):\n    return apply.recorded(1)\n",
+                        "def run(harness):\n    return harness.apply.opened('e1', 1, 'b', None)\n",
+                        "import json as harness\n\ndef run(t):\n    return harness.apply.opened('e1', 1, 'b', None)\n"):
+            with self.subTest(harness=harness):
+                self.assertTrue(caught(check_authority.opening_problems(named, tree(opens, harness), callers),
+                                       "never call harness/apply.py's opened"))
+        # opened imported by its name, under another, or harness.apply imported whole, records it.
+        for harness in ("from harness.apply import opened\n\ndef run(t):\n    return opened('e1', 1, 'b', None)\n",
+                        "from harness.apply import opened as recorded\n\ndef run(t):\n    return recorded('e1', 1, 'b', None)\n",
+                        "import harness.apply\n\ndef run(t):\n    return harness.apply.opened('e1', 1, 'b', None)\n",
+                        "import harness.apply as a\n\ndef run(t):\n    return a.opened('e1', 1, 'b', None)\n",
+                        "from . import apply\n\ndef run(t):\n    return apply.opened('e1', 1, 'b', None)\n",
+                        "from .apply import opened\n\ndef run(t):\n    return opened('e1', 1, 'b', None)\n"):
+            with self.subTest(harness=harness):
+                self.assertEqual(check_authority.opening_problems(named, tree(opens, harness), callers), [])
+        # opened by its own name records the opening in harness/apply.py alone; elsewhere, unimported, it is another's.
+        bare = "def opened(*a):\n    return a\n\ndef run(t):\n    return opened('e1', 1, 'b', None)\n"
+        self.assertEqual(check_authority.opening_problems(named, tree(opens, bare, "harness/apply.py"),
+                                                          {"harness/apply.py": {opener}}), [])
+        self.assertTrue(caught(check_authority.opening_problems(named, tree(opens, bare), callers),
+                               "never call harness/apply.py's opened"))
+        # There, with no def of its own at the top, opened is a parameter's, not its own; decorated, it may be another's.
+        for harness in ("def run(opened):\n    return opened(1)\n", "@print\n" + bare):
+            with self.subTest(harness=harness):
+                self.assertTrue(caught(check_authority.opening_problems(named, tree(opens, harness, "harness/apply.py"),
+                                                                        {"harness/apply.py": {opener}}),
+                                       "never call harness/apply.py's opened"))
+        # Fails open no more (reviews of PR 819). A name bound once is bound by `name = ` and nothing else in its scope:
+        # re-bound, augmented, deleted, a loop's, a with's or a walrus's target, or a parameter that shadows a module's
+        # constant, it is not read. request is adapters/github.py's, imported at the top by its name, under another, or
+        # as its module's attribute, and shadowed nowhere: a helper of that name, another object's request, or a name
+        # the import binds and something else binds too, builds no request. The path is formatted once, by one value or
+        # by an f-string's one plain hole: unformatted, by two values, with a conversion or a format, it is not.
+        start = "def open_pull_request(transport, repo):\n    pulls = '/repos/%s/pulls' % repo\n"
+        for adapter, head in ((start + "    pulls += '/1/comments'\n    return request('POST', pulls)\n", None),
+                              (start + "    for pulls in [pulls + '/1']:\n        pass\n    return request('POST', pulls)\n", None),
+                              (start + "    with t() as pulls:\n        pass\n    return request('POST', pulls)\n", None),
+                              (start + "    (pulls := pulls + '/1')\n    return request('POST', pulls)\n", None),
+                              (start + "    del pulls\n    return request('POST', pulls)\n", None),
+                              ("PULLS = '/repos/%s/pulls'\n\ndef open_pull_request(transport, PULLS):\n"
+                               "    return request('POST', PULLS % 1)\n", None),
+                              ("PULLS = '/repos/%s/pulls'\n\ndef open_pull_request(transport, repo):\n"
+                               "    return request('POST', PULLS % repo)\n\ndef later():\n    global PULLS\n"
+                               "    PULLS = '/repos/%s/pulls/1'\n", None),
+                              ("def request(*a, **k):\n    return a\n\n" + opens, ""),
+                              (opens, ""),
+                              ("def open_pull_request(transport, repo):\n    return transport.request('POST', '/repos/%s/pulls' % repo)\n", None),
+                              ("def open_pull_request(request, repo):\n    return request('POST', '/repos/%s/pulls' % repo)\n", None),
+                              ("request = print\n\n" + opens, None),
+                              ("import adapters.github as github\n\ndef open_pull_request(github, repo):\n"
+                               "    return github.request('POST', '/repos/%s/pulls' % repo)\n", ""),
+                              ("def open_pull_request(transport, repo):\n    return request('POST', '/repos/%s/pulls')\n", None),
+                              ("def open_pull_request(transport, repo):\n    return request('POST', '/repos/%s/pulls' % (repo, 1))\n", None),
+                              ("def open_pull_request(transport, repo):\n    return request('POST', '/repos/\\x00/pulls')\n", None),
+                              ("def open_pull_request(transport, repo):\n    return request('POST', f'/repos/{repo!r}/pulls')\n", None),
+                              ("def open_pull_request(transport, repo):\n    return request('POST', f'/repos/{repo:>9}/pulls')\n", None)):
+            with self.subTest(adapter=adapter):
+                built = tree(adapter, records) if head is None else tree(adapter, records, head=head)
+                self.assertTrue(caught(check_authority.opening_problems(named, built, callers), "no adapter sends a write"))
+        for adapter in ("from adapters.github import request as build\n\ndef open_pull_request(transport, repo):\n"
+                        "    return build('POST', '/repos/%s/pulls' % repo)\n",
+                        "from adapters.github import request\n\ndef open_pull_request(transport, config):\n"
+                        "    return request('POST', '/repos/%s/pulls' % config.repo)\n",
+                        "from adapters import github\n\ndef open_pull_request(transport, repo):\n"
+                        "    return github.request('POST', '/repos/%s/pulls' % repo)\n",
+                        "import adapters.github as gh\n\ndef open_pull_request(transport, repo):\n"
+                        "    return gh.request('POST', '/repos/%s/pulls' % repo)\n"):
+            with self.subTest(adapter=adapter):
+                self.assertEqual(check_authority.opening_problems(named, tree(adapter, records, head=""), callers), [])
+        # Nor do these (the second reviews of PR 819). A name is read from the scope's own body alone, never from a def,
+        # a class, a branch or a module's value read in the function; the value formatted in is a parameter or its
+        # attribute, given once: no tuple behind a name, no literal, no operator, no star; an attribute of request's
+        # module set replaces it; an opener decorated or named again is not the def; a module that names what rebinds
+        # names unseen is not read; and a call in a nested def, or after a return, is not made.
+        bare = "def open_pull_request(transport, repo):\n    "
+        for adapter in ("PULLS = '/repos/o/r/pulls/1/reviews'\n\n" + bare + "def unused():\n        PULLS = "
+                        "'/repos/%s/pulls' % repo\n    return request('POST', PULLS)\n",
+                        "class C:\n    PULLS = '/repos/%s/pulls'\n\n" + bare + "return request('POST', PULLS % repo)\n",
+                        bare + "if False:\n        m = 'POST'\n    return request(m, '/repos/%s/pulls' % repo)\n",
+                        "repo = 'o/r/issues/1/comments?'\nPULLS = '/repos/%s/pulls' % repo\n\n" + bare
+                        + "return request('POST', PULLS)\n",
+                        bare + "values = (repo, 1)\n    return request('POST', '/repos/%s/pulls' % values)\n",
+                        bare + "return request('POST', '/repos/%s/pulls' % 'o/r/issues/1/comments?')\n",
+                        bare + "return request('POST', '/repos/%s/pulls' % (repo + '/issues/1/comments?'))\n",
+                        bare + "return request('POST', f\"/repos/{'o/r/issues/1/comments?'}/pulls\")\n",
+                        bare + "return request('POST', '/repos/%s/pulls' % (repo,))\n",
+                        bare + "repo = 'o/r/issues/1/comments?'\n    return request('POST', '/repos/%s/pulls' % repo)\n",
+                        "def open_pull_request(transport, *repo):\n    return request('POST', '/repos/%s/pulls' % repo)\n",
+                        opens.replace("def open", "import adapters.github as gh\ngh.request = print\n\ndef open")
+                        .replace("return request", "return gh.request"),
+                        "@print\n" + opens, opens + "\nopen_pull_request = print\n",
+                        opens + "\nglobals()['request'] = print\n", opens + "\nexec('request = print')\n",
+                        bare + "def never():\n        return request('POST', '/repos/%s/pulls' % repo)\n    return None\n",
+                        bare + "return None\n    request('POST', '/repos/%s/pulls' % repo)\n"):
+            with self.subTest(adapter=adapter):
+                self.assertTrue(caught(check_authority.opening_problems(named, tree(adapter, records), callers),
+                                       "no adapter sends a write"))
+        # opened, or the module it is called on, is bound by its one import and by nothing else in the module: not by a
+        # parameter, an assignment, a def or a class, a later rebinding, a comprehension's target or a lambda's parameter.
+        name, module = "from harness.apply import opened\n\n", "from harness import apply\n\n"
+        for harness in (name + "def run(opened):\n    return opened(1)\n",
+                        module + "def run(apply):\n    return apply.opened(1)\n",
+                        name + "def run(t):\n    opened = t\n    return opened(1)\n",
+                        name + "def run(t):\n    def opened(*a):\n        return a\n    return opened(1)\n",
+                        module + "class apply:\n    opened = print\n\ndef run(t):\n    return apply.opened(1)\n",
+                        name + "def run(t):\n    return opened(1)\n\nopened = print\n",
+                        module + "def run(t):\n    return [apply.opened(1) for apply in t]\n",
+                        name + "run = lambda opened: opened(1)\n",
+                        module + "apply.opened = print\n\ndef run(t):\n    return apply.opened(1)\n",
+                        "import harness.apply\nharness.apply.opened = print\n\ndef run(t):\n    return harness.apply.opened(1)\n",
+                        name + "def run(t):\n    return opened(1)\n\nglobals()['opened'] = print\n",
+                        name + "def run(t):\n    return None\n    opened(1)\n",
+                        name + "def run(t):\n    def never():\n        opened(1)\n",
+                        "import harness.apply\n\ndef run(harness):\n    return harness.apply.opened(1)\n"):
+            with self.subTest(harness=harness):
+                self.assertTrue(caught(check_authority.opening_problems(named, tree(opens, harness), callers),
+                                       "never call harness/apply.py's opened"))
+        # Carbon's read of PR 819. Every step that reaches the opening records it: a second that does not, or one that
+        # cannot be read, is named, and a module CALLERS does not list records nothing for a step it does.
+        bypass, silent = "harness/bypass.py", "def run(t):\n    return None\n"
+        both = dict(callers, **{bypass: {opener}})
+        self.assertEqual(check_authority.opening_problems(named, tree(opens, records, more={bypass: records}), both), [])
+        for text in (silent, "def run(t:\n"):
+            with self.subTest(bypass=text):
+                problems = check_authority.opening_problems(named, tree(opens, records, more={bypass: text}), both)
+                self.assertTrue(caught(problems, "harness/bypass.py, which reach the opening, never call"), problems)
+                self.assertFalse(caught(problems, "open_step.py"), problems)
+        # A module that records nothing passes when it reaches the opening only by calling a function of another that
+        # records it, as a step calls its job (the Claude+security read; the Factory Builder's call edge). Importing a
+        # recorder is no call: a step that imports apply, or calls the writer itself as well, or a job's function that
+        # records nothing, or names the recorder without calling it, or a job that opens and leaves the record to its
+        # step, or a relative import below harness/, where `.` is not harness, is refused.
+        job, at_job = "harness/open.py", ("from adapters import opening\nfrom harness import apply\n\ndef job(t):\n"
+                                          "    return apply.opened('e1', 1, 'b', opening.open_pull_request(t, 'r'))\n\n"
+                                          "def helper(t):\n    return opening.open_pull_request(t, 'r')\n")
+        calls_job = "from harness import open as job_\n\ndef main(t):\n    return job_.job(t)\n"
+        joined = dict(callers, **{job: {opener}})
+        self.assertEqual(check_authority.opening_problems(named, tree(opens, calls_job, more={job: at_job}), joined), [])
+        self.assertEqual(check_authority.opening_problems(named, tree(opens, calls_job.replace(
+            "from harness import open as job_", "from harness.open import job as run_job").replace("job_.job", "run_job"),
+            more={job: at_job}), joined), [])
+        own = "harness/apply.py"
+        for harness, more, listed in (
+                ("from adapters import opening\nfrom harness import apply\n\ndef main(t):\n"
+                 "    return opening.open_pull_request(t, 'r')\n", {own: "def opened(*a):\n    return a\n"},
+                 dict(callers, **{own: {opener}})),
+                ("from harness import apply\n\ndef main(t):\n    return t\n", {own: "def opened(*a):\n    return a\n"},
+                 dict(callers, **{own: {opener}})),
+                ("from adapters import opening\n" + calls_job.replace("return job_", "opening.open_pull_request(t, 'r')\n"
+                                                                       "    return job_"), {job: at_job}, joined),
+                ("import adapters as api\n" + calls_job.replace("return job_", "api.opening.open_pull_request(t, 'r')\n"
+                                                                     "    return job_"), {job: at_job}, joined),
+                (calls_job.replace("job_.job(t)", "job_.helper(t)"), {job: at_job}, joined),
+                (calls_job.replace("job_.job(t)", "t(job_.job)"), {job: at_job}, joined),
+                ("from harness import apply, open as job_\n\ndef main(t):\n    return apply.opened(job_.job(t))\n",
+                 {job: "from adapters import opening\n\ndef job(t):\n    return opening.open_pull_request(t, 'r')\n"},
+                 joined)):
+            with self.subTest(harness=harness):
+                self.assertTrue(caught(check_authority.opening_problems(named, tree(opens, harness, more=more), listed),
+                                       "which reach the opening, never call"))
+        below = "harness/sub/open_step.py"
+        self.assertTrue(caught(check_authority.opening_problems(
+            named, tree(opens, "from . import open as job_\n\ndef main(t):\n    return job_.job(t)\n", below,
+                        more={job: at_job}), {below: {opener}, job: {opener}}), "harness/sub/open_step.py, which reach"))
+        # The silent step sorted last is named too (Astra), not only the first.
+        last = "harness/zz_silent.py"
+        problems = check_authority.opening_problems(named, tree(opens, records, more={last: silent}),
+                                                    dict(callers, **{last: {opener}}))
+        self.assertTrue(caught(problems, "harness/zz_silent.py, which reach the opening, never call"), problems)
+        self.assertTrue(caught(check_authority.opening_problems(named, tree(opens, silent, more={bypass: records}),
+                                                                callers), "never call harness/apply.py's opened"))
+        # opened from another module of the Harness, under an alias with a def of its own name called, a relative import
+        # in a module below harness/, where `.` is not harness, harness.apply under another name with harness bound
+        # once by something else (a parameter, an assignment) or by nothing, another root's or another module's
+        # attribute, record nothing.
+        for harness, at in (("from harness.read import opened\n\ndef run(t):\n    return opened(1)\n", step),
+                            ("from harness.apply import opened as rec\n\ndef opened(*a):\n    return a\n\n"
+                             "def run(t):\n    return opened(1)\n", step),
+                            ("from . import apply\n\ndef run(t):\n    return apply.opened(1)\n", "harness/sub/open_step.py"),
+                            ("from .apply import opened\n\ndef run(t):\n    return opened(1)\n", "harness/sub/open_step.py"),
+                            ("import harness.apply as ap\n\ndef run(harness):\n    return harness.apply.opened(1)\n", step),
+                            ("import harness.apply as ap\nharness = ap\n\ndef run(t):\n    return harness.apply.opened(1)\n", step),
+                            ("import harness.apply as ap\n\ndef run(t):\n    return harness.apply.opened(1)\n", step),
+                            ("import harness.apply\n\ndef run(other):\n    return other.apply.opened(1)\n", step),
+                            ("import harness.apply\n\ndef run(t):\n    return harness.read.opened(1)\n", step)):
+            with self.subTest(harness=harness, at=at):
+                self.assertTrue(caught(check_authority.opening_problems(named, tree(opens, harness, at), {at: {opener}}),
+                                       "never call harness/apply.py's opened"))
+        # A name bound twice is not read by its last binding either; a write to the pulls other than POST, and a POST to
+        # one pull request's reviews formatted with `%`, open none.
+        start = "def open_pull_request(transport, repo):\n    "
+        for adapter in (start + "pulls = '/repos/%s/issues' % repo\n    pulls = '/repos/%s/pulls' % repo\n"
+                        "    return request('POST', pulls)\n",
+                        "PULLS = '/repos/%s/issues'\nPULLS = '/repos/%s/pulls'\n\n" + start + "return request('POST', PULLS % repo)\n",
+                        start + "return request('PUT', '/repos/%s/pulls' % repo)\n",
+                        start + "return request('PATCH', '/repos/%s/pulls' % repo)\n",
+                        start + "return request('POST', '/repos/%s/pulls/1/reviews' % repo)\n"):
+            with self.subTest(adapter=adapter):
+                self.assertTrue(caught(check_authority.opening_problems(named, tree(adapter, records), callers),
+                                       "no adapter sends a write"))
 
     def test_a_value_held_twice_must_agree(self):
         self.table["max_rounds"] = 9
@@ -2113,8 +2402,9 @@ class Purity(unittest.TestCase):
                  if p.suffix == ".py"}
         takers = check_purity._takers(trees)
         self.assertEqual(sorted(takers), [("brakes.py", n) for n in ("approval_ceilings", "dequeue_ceiling",
-                                                                     "enqueue_ceilings", "on_act", "on_run", "paused",
-                                                                     "run_ceilings")] + [("derive.py", "run_deferral")])
+                                                                     "enqueue_ceilings", "implementing_rounds", "on_act",
+                                                                     "on_run", "paused", "run_ceilings")]
+                         + [("derive.py", "run_deferral")])
         tops = {n: check_purity._names(n, t, trees) for n, t in trees.items()}
         self.assertEqual([p for n, t in sorted(trees.items()) for p in check_purity._calls(n, t, trees, takers, tops)], [])
 
@@ -6283,7 +6573,7 @@ class Trials(unittest.TestCase):
         by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
         # The events ground the rule about them; the association, which an App reads wrong, is no rule of the fake: write
         # access is read from the collaborator permission, which P-47 asks (decision 0048).
-        self.assertEqual(by_code["a_label_event_names_its_actor"], "trials/P-32.json")
+        self.assertEqual(by_code["a_label_event_names_its_actor"], ("trials/P-32.json", "trials/P-32.port.json"))
         self.assertNotIn("an_issues_author_has_an_association", by_code)
         self.assertIn("a_logins_permission_is_read_from_the_collaborator_endpoint", by_code)
 
@@ -6292,7 +6582,7 @@ class Trials(unittest.TestCase):
         # content that grounds it, so a fixture emptied or inverted ungrounds its rule.
         by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
         for code in ("a_closing_reference_is_read_from_any_pull_request", "who_changed_the_draft_flag_is_read"):
-            self.assertEqual(by_code[code], "trials/P-33.json", code)
+            self.assertEqual(by_code[code], ("trials/P-33.json", "trials/P-33.port.json"), code)
         for code in ("an_issues_content_time_is_read_apart", "a_reopening_names_its_actor"):
             self.assertEqual(by_code[code], "trials/P-34.json", code)
         p33 = json.loads((ROOT / "trials" / "P-33.json").read_text())
@@ -6338,6 +6628,87 @@ class Trials(unittest.TestCase):
         self.assertEqual((renamed["actor"]["login"], reopened["actor"]["login"], issue["stateReason"]),
                          ("don-petry", "don-petry", "REOPENED"))
         self.assertEqual([n["editor"]["login"] for n in issue["userContentEdits"]["nodes"]], ["don-petry", "don-petry"])
+
+    def test_p61_holds_what_grounds_its_three_rules(self):
+        # trials/P-61.json (issue 551) grounds three rules of the issue world, each held to the content that grounds it,
+        # read step by step: each change between the reads either side of it, as one event of its own.
+        by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
+        for code in ("a_link_by_hand_is_timed", "a_type_change_is_timed", "a_pull_requests_close_and_reopening_are_timed"):
+            self.assertEqual(by_code[code], "trials/P-61.json", code)
+        p61 = json.loads((ROOT / "trials" / "P-61.json").read_text())
+        self.assertEqual(p61["verdict"], "pass")
+        reads = [e["response"] for e in p61["exchanges"]]
+        self.assertEqual(len(reads), 11)
+        at = [email.utils.parsedate_to_datetime(r["headers"]["date"]).strftime("%Y-%m-%dT%H:%M:%SZ") for r in reads]
+        issues = [r["body"]["data"]["repository"]["issue"] for r in reads]
+        prs = [r["body"]["data"]["repository"]["pullRequest"] for r in reads]
+        for kind in (issues, prs):
+            self.assertTrue(all(k["timelineItems"]["pageInfo"]["hasNextPage"] is False for k in kind))
+
+        def nodes(kind, step):
+            return kind[step - 1]["timelineItems"]["nodes"]
+
+        def new(kind, step):
+            # A read is the read before it, every event kept, and the new events after them: none lost or changed.
+            before = nodes(kind, step - 1)
+            self.assertEqual(nodes(kind, step)[:len(before)], before, step)
+            return nodes(kind, step)[len(before):]
+        # Each step changes the one timeline it touches: the issue's for steps 2 to 7, the pull request's for 8 to 10,
+        # the issue's again at 10 for its close, and neither at 11.
+        for step in range(2, 12):
+            for kind, touched in ((issues, list(range(2, 8)) + [10]), (prs, [8, 9, 10])):
+                if step not in touched:
+                    self.assertEqual(nodes(kind, step), nodes(kind, step - 1), step)
+        self.assertEqual(len(nodes(issues, 1)), 0)
+        # Every event of the run names the one actor who made each change, the machine user's page: its login and type.
+        run = nodes(issues, 11) + nodes(prs, 11)[len(nodes(prs, 1)):]
+        self.assertEqual({(n["actor"]["login"], n["actor"]["__typename"]) for n in run}, {("donpetry-bot", "User")})
+        # Steps 2 to 7, on the issue: a type set, changed, removed; the pull request linked by hand, unlinked, linked.
+        named = []
+        for step, kind in zip(range(2, 8), ("IssueTypeAddedEvent", "IssueTypeChangedEvent", "IssueTypeRemovedEvent",
+                                             "ConnectedEvent", "DisconnectedEvent", "ConnectedEvent")):
+            found = new(issues, step)
+            self.assertEqual([n["__typename"] for n in found], [kind], step)
+            # Compared as text only in UTC to the second, as GitHub gives it: a fraction or an offset would sort wrong.
+            self.assertRegex(found[0]["createdAt"], SECOND, step)
+            self.assertTrue(at[step - 2] <= found[0]["createdAt"] <= at[step - 1], step)
+            self.assertEqual(found[0]["actor"]["__typename"], "User", step)
+            named.append((found[0].get("issueType") or {}).get("name")
+                         or (found[0]["source"]["__typename"], found[0]["source"]["number"],
+                             found[0]["subject"]["__typename"], found[0]["subject"]["number"]))
+        self.assertEqual(named[:3], ["Task", "Bug", "Bug"])
+        self.assertEqual(new(issues, 3)[0]["prevIssueType"], {"name": "Task"})
+        self.assertEqual(named[3:], [("Issue", 123, "PullRequest", 120)] * 3)
+        self.assertEqual([i["issueType"] for i in issues[:4]], [None, {"name": "Task"}, {"name": "Bug"}, None])
+        # Steps 8 to 10, on the pull request: closed, reopened, merged, a close beside the merge; a reopening clears
+        # closedAt.
+        for step, kinds in ((8, ["ClosedEvent"]), (9, ["ReopenedEvent"]), (10, ["MergedEvent", "ClosedEvent"])):
+            found = new(prs, step)
+            self.assertEqual([n["__typename"] for n in found], kinds, step)
+            self.assertTrue(all(re.match(SECOND, n["createdAt"]) for n in found), step)
+            self.assertTrue(all(at[step - 2] <= n["createdAt"] <= at[step - 1] for n in found), step)
+        self.assertEqual([(p["state"], p["closedAt"] is None) for p in prs[7:10]],
+                         [("CLOSED", False), ("OPEN", True), ("MERGED", False)])
+        self.assertEqual(len({n["createdAt"] for n in new(prs, 10)}), 1)
+        # The merge of the pull request linked by hand closed the issue, naming it the closer.
+        # It stood open until the merge, and its close came after the merge.
+        self.assertEqual([i["state"] for i in issues], ["OPEN"] * 9 + ["CLOSED"] * 2)
+        closed = new(issues, 10)
+        self.assertEqual([(n["__typename"], n["closer"]["__typename"], n["closer"]["number"]) for n in closed],
+                         [("ClosedEvent", "PullRequest", 120)])
+        self.assertGreaterEqual(closed[0]["createdAt"], prs[9]["mergedAt"])
+        # A link by a closing keyword raises no ConnectedEvent: P-33 asked issue 36's timeline for its connected and
+        # disconnected events, with pull requests 37, 38 and 40 naming it by keyword, before and after 38's merge.
+        p33 = json.loads((ROOT / "trials" / "P-33.json").read_text())["exchanges"]
+        # Each read is held only to the events it asked for, read whole: the first asked both, the one after the merge
+        # the connected alone.
+        for at, asked in ((1, ("ConnectedEvent", "DisconnectedEvent")), (4, ("ConnectedEvent",))):
+            query = p33[at]["request"]["body"]["query"]
+            self.assertTrue(all(re.sub(r"(?<=.)(?=[A-Z])", "_", kind).upper() in query for kind in asked), at)
+            items = p33[at]["response"]["body"]["data"]["repository"]["issue"]["timelineItems"]
+            self.assertEqual(items["totalCount"], len(items["nodes"]), at)
+            kinds = {n["__typename"] for n in items["nodes"]}
+            self.assertTrue(kinds and not kinds & set(asked), at)
 
     def test_the_lane_keeps_one_running_and_one_waiting(self):
         # trials/P-44.json (issue 251) grounds a_run_waits_its_turn: the pass is computed here from the run lists and the
@@ -6391,12 +6762,69 @@ class Trials(unittest.TestCase):
         by_code = {rule[0]: rule for rule in check_trials.rules()}
         self.assertNotIn("a_merged_pull_requests_closing_references_are_fixed", by_code)
         rule = by_code["a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing"]
-        self.assertEqual((rule[2], rule[3]), (("P-33", "P-46"), "trials/P-46.json"))
+        self.assertEqual((rule[2], rule[3]), (("P-33", "P-46", "P-67"), ("trials/P-46.json", "trials/P-67.json")))
         p33 = json.loads((ROOT / "trials" / "P-33.json").read_text())
         closes = [node for e in p33["exchanges"] if isinstance(e["response"].get("body"), dict)
                   for node in (((e["response"]["body"].get("data") or {}).get("repository") or {}).get("issue") or {})
                   .get("timelineItems", {}).get("nodes", []) if node.get("__typename") == "ClosedEvent"]
         self.assertEqual([c["closer"] for c in closes], [{"__typename": "PullRequest", "number": 38}])
+        # trials/P-67.json (issue 821), its verdict computed here by its pass condition: each issue a pull request's
+        # closing line names is closed, its ClosedEvent's closer that pull request of the canary, by repository and
+        # number, or its squash commit, within max_close_lag_seconds of the merge, which the queue made. The run's
+        # closer reads asked no repository; the read after the run did, and the run's reads must agree with it.
+        p67 = json.loads((ROOT / "trials" / "P-67.json").read_text())
+        bodies = [(e["request"], e["response"]["body"]) for e in p67["exchanges"]]
+        pulls = {b["merge_commit_sha"]: b for r, b in bodies if r["via"] == "rest" and "/pulls/" in r["call"].split(" ")[1]}
+        rest_issues = {b["number"]: b for r, b in bodies
+                       if r["via"] == "rest" and re.search(r"/issues/[0-9]+ ", r["call"])}
+        read = [node for r, b in bodies if r["via"] == "graphql"
+                for node in b["data"]["repository"].values()]
+        closes = [i for i in read if "timelineItems" in i]
+        closed_by = {i["number"]: [p["number"] for p in i["closedByPullRequestsReferences"]["nodes"]]
+                     for i in read if "closedByPullRequestsReferences" in i}
+        # The queue made each merge: the squash commit is the beforeCommit of a removal of reason merged in P-66's
+        # timelines (trials/P-66.json, trials/P-66.queued.json).
+        queued = {node["beforeCommit"]["oid"] for name in ("P-66.json", "P-66.queued.json")
+                  for e in json.loads((ROOT / "trials" / name).read_text())["exchanges"]
+                  if isinstance(e["response"]["body"], dict) and "data" in e["response"]["body"]
+                  for item in (e["response"]["body"]["data"].get("repository") or {}).values()
+                  if isinstance(item, dict)
+                  for node in (item.get("timelineItems") or {}).get("nodes", [])
+                  if node.get("__typename") == "RemovedFromMergeQueueEvent" and node.get("reason") == "merged"}
+        lag = json.loads((ROOT / "config" / "defaults.json").read_text())["limits"]["max_close_lag_seconds"]
+        at = lambda text: datetime.datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ")
+
+        def closed_by_its_pull(issue: dict) -> tuple:
+            """(the pull request the issue's one close names the closer, whether that close holds), or (None, False)."""
+            (close,) = issue["timelineItems"]["nodes"]
+            closer = close["closer"] or {}
+            if closer.get("__typename") == "Commit":
+                pull = pulls.get(closer["oid"])
+            elif closer.get("__typename") == "PullRequest":
+                pull = pulls.get(closer["mergeCommit"]["oid"])
+                pull = pull if pull and closer["number"] == pull["number"] else None
+            else:
+                pull = None
+            return (pull and pull["number"]), (pull is not None and pull["merged"] is True
+                                               and pull["merge_commit_sha"] in queued and issue["state"] == "CLOSED"
+                                               and re.search(r"(?m)^Closes #%d$" % issue["number"], pull["body"]) is not None
+                                               and 0 <= (at(issue["closedAt"]) - at(pull["merged_at"])).total_seconds() <= lag)
+
+        held = []
+        for issue in closes:
+            number, holds = closed_by_its_pull(issue)
+            closer = issue["timelineItems"]["nodes"][0]["closer"]
+            later = [i for i in closes if i["number"] == issue["number"]
+                     and "repository" in (i["timelineItems"]["nodes"][0]["closer"] or {})]
+            # A pull request closer is the canary's by the read that asked its repository, the same pull request.
+            of_the_canary = closer["__typename"] == "Commit" or bool(later) and all(
+                closed_by_its_pull(i)[0] == number
+                and i["timelineItems"]["nodes"][0]["closer"]["repository"]["nameWithOwner"] == check_trials.ORG + "/"
+                + check_trials.CANARY for i in later)
+            held.append(holds and of_the_canary and rest_issues[issue["number"]]["state"] == "closed"
+                        and number in closed_by.get(issue["number"], [number]))
+        self.assertEqual(sorted({i["number"] for i in closes}), [118, 119])
+        self.assertEqual(p67["verdict"], "pass" if held and all(held) else "fail")
         p46 = json.loads((ROOT / "trials" / "P-46.json").read_text())
         n = p46["exchanges"][0]["response"]["body"]["number"]           # the issue the trial opened
         reads = [e["response"]["body"]["data"]["repository"] for e in p46["exchanges"] if e["request"]["via"] == "graphql"]

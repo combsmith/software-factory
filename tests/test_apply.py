@@ -1308,7 +1308,8 @@ class Bundle(unittest.TestCase):
         refused = (".github/workflows/verify.yml", ".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS",
                    "lifecycle/pull_request.json", "config/authority.json", "kernel/gate.py", "kernel/brakes.py",
                    "config/hooks.json", "roles/pr-review.json", "roles/pr-review/prompt.md", "harness/apply.py",
-                   "config/rubric-pr-review.json", "config/harness.json", "tools/hooks/protected.py")
+                   "config/rubric-pr-review.json", "config/harness.json", "tools/hooks/protected.py", "guards/patch.py",
+                   "guards/sub/data.json")
         pushed = ("kernel/derive.py", "tests/test_apply.py", "tools/check_context.py", "README.md", ".gitleaks.toml",
                   "schemas/effect.schema.json", "Makefile", "docs/a.md", "docs/decisions/x.md")
         for path in refused:

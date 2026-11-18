@@ -96,8 +96,10 @@ def dated(answer) -> list:
 
 
 def writes_seen(transport, config: dict, numbers: list, kept: dict, before, since: str, clock, owed=()) -> tuple:
-    """`(seen/1, the pull requests read short)`: what each Factory identity wrote on what this pass served, or on what the
-    pass before served or could not read and has left (decision 0061). What a snapshot could not read is short, and one that
+    """`(seen/1, the pull requests read short, those read as left for the first time)`: what each Factory identity wrote
+    on what this pass served, on what the pass before served or could not read and has left (decision 0061), and on what
+    a pass before read as left inside the window, so that a write nobody matched keeps its alert until the window passes
+    it (issue 787). What a snapshot could not read is short, and one that
     is short is read again by the next pass, so that nothing leaves unread. So is a pass with no records before it to say
     what has left. Nothing is guessed. One `owed`, a pull request that moved for the first time, is not read: it is owed
     to the next pass, as one read short is, and leaves this reconciliation whole (#658)."""
@@ -106,9 +108,14 @@ def writes_seen(transport, config: dict, numbers: list, kept: dict, before, sinc
     identities, _ = seen_.identities(accounts_held)
     apps = seen_.apps_of(accounts_held, config["apps"])
     last = before[-1]["pull_requests"] if before else []
-    served = {e["facts"]["item"]["number"] for e in last} | set(reconcile.owed(before))
+    # One owed that a record before read as left is read as gone, and keeps its stamp; past the window it is read no
+    # more (issue 787). Any other no longer open has left since the last pass.
+    held = set(reconcile.left(before))
+    newly = ({e["facts"]["item"]["number"] for e in last} - set(numbers)) | (set(reconcile.owed(before)) - set(numbers) - held)
+    gone = set(reconcile.left(before, since)) - set(numbers) - newly
     parts, unread = [], []
-    for number, held in [(n, kept.get(n)) for n in numbers] + [(n, seen_.LEFT) for n in sorted(served - set(numbers))]:
+    for number, held in ([(n, kept.get(n)) for n in numbers] + [(n, seen_.LEFT) for n in sorted(newly)]
+                         + [(n, seen_.GONE) for n in sorted(gone)]):
         if number in owed:
             unread.append(number)
             continue
@@ -126,7 +133,7 @@ def writes_seen(transport, config: dict, numbers: list, kept: dict, before, sinc
         parts.append(([], False))
     if before is None:
         parts.append(([], False))
-    return seen_.seen(parts, since), unread
+    return seen_.seen(parts, since), unread, sorted(newly)
 
 
 def recorded_effects(transport, config: dict, runs, own: int, before, since: str, sleep=time.sleep) -> dict:
@@ -199,10 +206,10 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     left = [e for e in pulls if "unread" in e]
     graced = pass_.moved_once([e["facts"]["item"] for e in left], [e["unread"] for e in left], before)
     owed = {e["facts"]["item"]["number"] for e in left if page(e["facts"]["item"]) in graced}
-    seen, unread = writes_seen(transport, config, numbers, kept, before, since, clock, owed)
+    seen, unread, gone = writes_seen(transport, config, numbers, kept, before, since, clock, owed)
     return {"started": started, "pause": pause_.read(transport, home.split("/")[0], [home]),
             "records": runs, "pull_requests": pulls, "issues": [], "facts_reads": facts_reads, "usage": {},
-            "seen": seen, "unread": unread,
+            "seen": seen, "unread": unread, "gone": gone,
             "effects": recorded_effects(transport, config, runs, int(run_id), before, since, sleep)}
 
 

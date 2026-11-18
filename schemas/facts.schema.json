@@ -354,6 +354,10 @@
               "rejected",
               null
             ]
+          },
+          "dropped": {
+            "description": "A Lens's thread: true where every Run that recorded its Finding started before a later review of that Lens that succeeded on the current content and was read whole, so that review records nothing on it, joined by surface.key, never the comment text (issue 833). Left out, or false, where none did. The Kernel holds it to the run records, and then the thread is its to resolve, as one whose Run's record is past retention is (decision 0125); a security Finding's stays open",
+            "type": "boolean"
           }
         }
       }

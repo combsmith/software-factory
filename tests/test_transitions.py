@@ -87,8 +87,11 @@ def unstarted(count: int) -> list:
 
 
 def base(runs=(), **over) -> dict:
-    """A pull request as the Kernel reads it: its facts, its Runs, and the minute of its last change."""
-    return {"facts": facts(**over), "runs": [copy.deepcopy(r) for r in runs], "minute": FIRST_MOVE}
+    """A pull request as the Kernel reads it: its facts, its Runs, and the minute of its last change. Each is one the
+    Factory opened, for issue 7, as each of the simulator's is: the author Role mends no other (decision 0216), and
+    what an item that waits for its author may do is issue 824's to explore."""
+    return {"facts": facts(**dict({"opened_for": 7}, **over)), "runs": [copy.deepcopy(r) for r in runs],
+            "minute": FIRST_MOVE}
 
 
 PERSONS_THREAD = thread(kind="human", name=MAINTAINER["name"], severity=None)
@@ -321,10 +324,14 @@ def open_item(fn):
     return move
 
 
-def push(pr: dict, who: str, writer: bool, diff=None) -> dict:
+def push(pr: dict, who: str, writer: bool, diff=None, keep=False) -> dict:
+    """A push to the head: new content, or with `keep` a head that leaves the diff as it was, its content id the same, as
+    GitHub did on pull request 847 (issue 855). Either way the checks start again on the new head."""
     f = pr["facts"]
-    f.update(content_id="sha256:%04x" % pr["minute"], last_push_at=now(pr), last_pusher=who, queue=False,
-             mergeable=True, checks=copy.deepcopy(PENDING), diff=diff or {"files": 2, "lines": 40, "truncated": False, "characters": 1600})
+    content = f["content_id"] if keep else "sha256:%04x" % pr["minute"]
+    diff = f["diff"] if keep else diff or {"files": 2, "lines": 40, "truncated": False, "characters": 1600}
+    f.update(content_id=content, last_push_at=now(pr), last_pusher=who, queue=False,
+             mergeable=True, checks=copy.deepcopy(PENDING), diff=diff)
     if writer:
         f["last_writer_action_at"] = now(pr)
     pr.pop("rerun", None)
@@ -685,6 +692,8 @@ NORMAL = {"files": 2, "lines": 40, "truncated": False, "characters": 1600}
 MOVES = [
     # A person with write access.
     Move("a person pushes", "human", lambda pr: push(pr, MAINTAINER["name"], True)),
+    Move("a person pushes a head that leaves the diff as it was", "human",
+         lambda pr: push(pr, MAINTAINER["name"], True, keep=True)),
     Move("a person pushes an empty diff", "human", lambda pr: push(pr, MAINTAINER["name"], True,
                                                                    {"files": 0, "lines": 0, "truncated": False})),
     Move("a person pushes a diff too large", "human", lambda pr: push(pr, MAINTAINER["name"], True,
@@ -1101,6 +1110,33 @@ class Transitions(unittest.TestCase):
         # From a merge state not worked out, the move is not made: that is the slow way, through unknown.
         unknown = dict(BASES["conflict"], facts=dict(BASES["conflict"]["facts"], mergeable=None))
         self.assertIsNone(moves[at_once[0]].make(unknown))
+
+    def test_a_push_that_leaves_the_diff_as_it_was_asks_a_gating_lens_again(self):  # issue 855, decision 0212
+        # A head pushed with the diff as it was keeps its content id, and its checks start again. While a Lens's own thread
+        # gates, that Lens's review is asked again once they pass, on the same content; where none gates and the content
+        # was reviewed, the item goes on to its approval.
+        moves = {m.name: m for m in MOVES}
+        passed = ("the check verify success", "the check Secret scan (gitleaks) success", "the check CodeQL success")
+        readings = {}
+        for base in ("findings_open", "conflict, after a review"):
+            # A diff unlike the one a push of new content gives, so that keeping it shows.
+            start = copy.deepcopy(BASES[base])
+            start["facts"]["diff"] = {"files": 2, "lines": 41, "truncated": False, "characters": 1700}
+            item = moves["a person pushes a head that leaves the diff as it was"].make(start)
+            self.assertEqual(item["facts"]["content_id"], start["facts"]["content_id"], base)
+            self.assertEqual(item["facts"]["diff"], start["facts"]["diff"], base)
+            self.assertEqual(item["facts"]["last_push_at"], now(item), base)
+            self.assertEqual(kernel(item)["reason"], "awaiting_checks", base)
+            for step in passed:
+                item = moves[step].make(item)
+            readings[base] = tuple(kernel(item)[k] for k in ("state", "reason", "evidence"))
+        self.assertEqual(readings["findings_open"], (t.VERIFYING, "awaiting_review", ["pr-review"]))
+        self.assertEqual(readings["conflict, after a review"][:2], (t.CONVERGED, "approval_due"))
+        # And the explorer makes the push: from addressing, it alone takes the item to verifying, by a person.
+        alone = [moves["a person pushes a head that leaves the diff as it was"]]
+        made, _ = explore({"findings_open": BASES["findings_open"]}, alone, depth=1)
+        self.assertIn(("findings_open", "awaiting_checks"), made[(t.ADDRESSING, t.VERIFYING, "human")])
+        self.assertIn(alone[0], MOVES)
 
     def test_a_pause_changes_no_hold(self):  # decision 0003, §4.1
         # A Hold is a reading and no act, and a Pause leaves each item where it is: whatever Hold the Kernel gives

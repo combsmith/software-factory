@@ -398,6 +398,23 @@ class SeenPort(unittest.TestCase):
         self.assertEqual((github.asked, [(w["by"], w["kind"]) for w in writes], whole),
                          ([("GET", ISSUE + "/timeline?per_page=100"), COMMENTS], [("controller", "label")], True))
 
+    def test_a_pull_request_read_as_left_before_is_read_again_though_its_close_is_older_than_the_window(self):  # issue 787
+        # A pass before read it as left, inside the window: it is read as one that left, every part of it, and its close,
+        # already read then, stands though it is now older than the window. A timeline that names no close is short.
+        answers = {("GET", ISSUE + "/timeline?per_page=100"): [{"event": "merged", "actor": PERSON, "created_at": EARLY}],
+                   ("GET", PULL + "/reviews?per_page=100"): [
+                       {"user": APPROVER, "state": "APPROVED", "node_id": "PRR_g", "submitted_at": AT}],
+                   ("POST", "/graphql"): {"data": {"repository": {"pullRequest": {"reviewThreads": {
+                       "totalCount": 0, "pageInfo": {"hasNextPage": False}, "nodes": []}}}}},
+                   ("GET", PULL): {"head": {"sha": "c0ffee" + "0" * 34}},
+                   ("GET", "/repos/%s/commits/%s/check-runs?per_page=100" % (ITEM["repo"], "c0ffee" + "0" * 34)): {
+                       "total_count": 0, "check_runs": []}}
+        writes, _, whole = seen_.read(GitHub(answers), ITEM, seen_.GONE, IDENTITIES, APPS, SINCE)
+        self.assertEqual(([(w["by"], w["kind"], w["key"]) for w in writes], whole), ([("approver", "approval", "PRR_g")], True))
+        self.assertIs(seen_.read(GitHub(answers), ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], False)
+        none = {**answers, ("GET", ISSUE + "/timeline?per_page=100"): []}
+        self.assertIs(seen_.read(GitHub(none), ITEM, seen_.GONE, IDENTITIES, APPS, SINCE)[2], False)
+
     def test_an_item_that_left_the_open_list_has_its_timeline_read_here(self):  # issue 329
         # A pull request merged or closed between the passes is no longer open, so no snapshot reads it: its timeline
         # is read here, and with it a close by a Factory identity and a merge for an Override.
@@ -647,7 +664,7 @@ class Carried(unittest.TestCase):
     NEXT = "2026-10-11T13:20:00Z"
     MADE = "2026-10-11T12:00:00Z"
     RUN = "r_01JA7Q"
-    NONE = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}
+    NONE = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": [], "left": []}
 
     def effects(self, *a, written_=(), runs=(), passes=(), whole=True, at=None):
         return dict(recorded(a, written_, whole), read={"runs": list(runs), "passes": list(passes)}, at=at or {})
@@ -739,6 +756,22 @@ class Carried(unittest.TestCase):
         # A stamp that is no time is read as now: it is never read as older than it is.
         odd = reconcile.carried([], self.effects(written_=[written(("dequeue", ITEM, None, None, "applied"))], at={"p_01JA7Q": "x"}), seen(), self.NOW)
         self.assertEqual(odd["items"][0]["at"], self.NOW)
+
+    def test_a_pull_request_that_left_is_kept_until_the_window_passes_it(self):  # issue 787
+        # Each pull request a pass first reads as left is stamped with now, whatever else could be read; the next passes
+        # keep it, and read it, until the window passes the stamp; one that leaves again is stamped again.
+        first = reconcile.carried([], None, seen(), self.NOW, gone=[9])
+        self.assertEqual(first["left"], [{"number": 9, "at": self.NOW}])
+        before = [{"now": self.NOW, "pull_requests": [], "reconciled": first}]
+        self.assertEqual(reconcile.left(before, SINCE), [9])
+        kept = reconcile.carried(before, recorded(), seen(), self.NEXT, gone=[7])
+        self.assertEqual(kept["left"], [{"number": 9, "at": self.NOW}, {"number": 7, "at": self.NEXT}])
+        self.assertEqual(reconcile.carried(before, recorded(), seen(), self.NEXT, gone=[9])["left"], [{"number": 9, "at": self.NEXT}])
+        past = dict(seen(), since="2026-10-11T13:00:01Z")
+        self.assertEqual(reconcile.carried(before, recorded(), past, self.NEXT)["left"], [])
+        self.assertEqual(reconcile.left(before, "2026-10-11T13:00:01Z"), [])
+        # A record written before it holds none, and keeps none.
+        self.assertEqual(reconcile.left([{"now": self.NOW, "pull_requests": [], "reconciled": dict(self.NONE)}], SINCE), [])
 
     def test_a_record_that_holds_none_is_read_again_and_what_cannot_be_read_is_carried_on(self):
         # With no last record, or one written before this, nothing is known: everything in the window is read again.
