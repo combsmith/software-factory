@@ -194,7 +194,8 @@ def _tree(body, state: dict) -> bool:
 
 def _state(state) -> bool:
     """Whether `state` is in the shape `began` and `seen` give: its keys, a push told whole, each name a name or none
-    yet, each flag True or False, a listing of modes and names, and a blob's name for written paths alone."""
+    yet, each flag True or False, a listing that holds a pair with a name to each path, a blob's name for written
+    paths alone, and no tree made by a push of no changes or before the admitted one was listed."""
     if not isinstance(state, dict) or set(state) != set(STATE) or not _told(state["push"]):
         return False
     if not all(state[key] is None or _sha(state[key]) for key in NAMES):
@@ -204,6 +205,8 @@ def _state(state) -> bool:
     before, made, changes = state["before"], state["made"], state["push"]["changes"]
     if before is not None and not (isinstance(before, dict) and all(
             isinstance(held, tuple) and len(held) == len(HELD) and _sha(held[1]) for held in before.values())):
+        return False
+    if state["new"] is not None and (before is None or changes is None):
         return False
     written = changes["written"] if changes is not None else {}
     return isinstance(made, dict) and all(isinstance(path, str) and path in written and _sha(made[path])

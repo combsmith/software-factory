@@ -1062,6 +1062,8 @@ class Push(unittest.TestCase):
                     dict(state, moved=None), dict(state, moved=1), dict(state, branch_read=1), dict(state, checked=0),
                     dict(state, ref_back=None), dict(state, commit_back="yes"), dict(state, landed=0),
                     dict(state, before={"a": [FILE, BLOB_A]}), dict(state, before={"a": (FILE, BLOB_A, 1)}),
+                    dict(state, before={"a": (FILE, BLOB_A[1:])}), dict(state, before={"a": (FILE, NEW_A.upper())}),
+                    dict(push.began(PUSH), new=MADE_TREE), dict(before(None, READING)[0], new=MADE_TREE),
                     dict(state, before={"a": (FILE, 5)}), dict(state, before=[1]), dict(state, before={"a": None}),
                     dict(state, before={"a": ()}), dict(state, made=None), dict(state, made=5),
                     dict(state, made=dict(state["made"], zz=NEW_A)), dict(state, made={"docs/a.md": "main"}),
