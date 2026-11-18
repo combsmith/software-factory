@@ -62,7 +62,8 @@ ENGINE_WRITES = ["completed", "incomplete", "refused"]
 # by the status it writes, and the Harness's, with the `failed` Result it writes whole, here or in `harness/run.py`.
 MODEL_REASONS = {"incomplete": ("change_not_reviewed_whole",), "refused": ("task_not_a_review",)}
 HARNESS_REASONS = ("credential_missing", "engine_version", "engine_model", "task_too_large", "engine_failed",
-                   "engine_timeout", "no_answer", "result_invalid", "diff_not_whole", "head_unreadable", "rubric_unreadable")
+                   "engine_timeout", "no_answer", "result_invalid", "diff_not_whole", "head_unreadable", "rubric_unreadable",
+                   "findings_not_shown")
 REASONS = dict(MODEL_REASONS, failed=HARNESS_REASONS)
 FILLED = ("release", "usage", "shown")
 PUSH = "push_commits"       # the Effect whose bundle the Harness fills, and whose Task's Run reads the commit it writes on

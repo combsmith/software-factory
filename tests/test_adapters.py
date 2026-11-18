@@ -2816,8 +2816,13 @@ class FindingTexts(unittest.TestCase):
                            ("a body that is none", thread_text("PRRT_7", None)),
                            ("a body of nothing", thread_text("PRRT_7", "")),
                            ("a body that is no text", thread_text("PRRT_7", 3))):
-            with self.subTest(why), self.assertRaises(github.Unanswered):
+            with self.subTest(why), self.assertRaises(github.Unanswered) as raised:
                 self.read(["PRRT_7"], found)
+            # What GitHub says, and is not the Lens's own unedited first comment, is the thread's own state, told
+            # apart from a read that failed: anyone who can write can make it, and it must not pass for the Factory's.
+            own_state = why in ("a reply", "an edited comment", "a person's", "another App's", "another Lens's")
+            self.assertIs(type(raised.exception), texts.NotOwn if own_state else github.Unanswered, why)
+        self.assertTrue(issubclass(texts.NotOwn, github.Unanswered))
         # The Lens asked for is the one whose words they must be: its own thread is another's to any other Lens.
         with self.assertRaises(github.Unanswered):
             self.read(["PRRT_7"], thread_text("PRRT_7"), lens="qa-lead")

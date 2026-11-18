@@ -21,10 +21,15 @@ that token, on the commit the job checked out, `steps.commit()`, the one the job
 Run whose own Release is not its pass record's builds no Task: OUT holds its `outcome/1` alone, `superseded`,
 `release_moved`, and the step stops by that code. One whose own Release cannot be named stops `release_unresolved` and
 writes nothing; the pass record's Release is never taken for it; a checkout `steps.commit()` cannot read stops
-`release_unreadable`, before any key is read. Of the texts, the issues the change serves are read (`adapters/texts.py`).
-Not read yet, by the stories that hold them: a thread's text; the Finding records a Decision names (`harness/apply.py`
-writes them, and `adapters/applied.py` reads them for the threads alone), so the review Intent, which names none, is
-the one a Run can carry; an issue's Run, whose reads are the issue Lifecycle's."""
+`release_unreadable`, before any key is read. Of the texts, the issues the change serves are read (`adapters/texts.py`),
+and what the Run's own Lens said on each Finding the review is shown, `apply.shown` of the facts: its open threads that
+gate. Each is the Task's text `finding:` and the Finding's id, and the ids are the Task's Findings, so that the review
+rules on each (issue 856). One whose words are not the Lens's own, an edited comment among them, is listed and given
+no text: `run` then asks nothing and ends as the item's own, `findings_not_shown`, and the thread gates on. A read
+GitHub did not answer stops the step, `finding_texts_unreadable`.
+Not read yet, by the stories that hold them: any other thread's text; the Finding records a Decision names
+(`harness/apply.py` writes them, and `adapters/applied.py` reads them for the threads alone); an issue's Run, whose
+reads are the issue Lifecycle's."""
 from __future__ import annotations
 
 import contextlib
@@ -38,7 +43,7 @@ import time
 from adapters import applied, facts as facts_, identity, passes, pull, records, tags, texts, timeline
 from adapters.github import Live, Unanswered
 from controller import configuration
-from harness import approve, head as head_, shared, steps, task
+from harness import apply, approve, head as head_, shared, steps, task
 from harness.steps import Stop
 from kernel import terms as t
 from release import current, cut
@@ -173,8 +178,28 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
         raise Stop("head_unreadable") from None
     with reading("issue_texts"):
         issues = texts.issues(transport, first, who, opener, opened)
+    # What the Run's own Lens said on each Finding the review is shown, by the Finding's id (issue 856).
+    # A thread whose words are not its Lens's own, unedited, is listed and not shown, and so is every one where there
+    # are more than the port reads: `run` asks no review that would rule on a Finding it was not shown, and ends as
+    # the item's own (`findings_not_shown`), never as a read that failed. A read GitHub did not answer still stops here.
+    raised = []
+    with reading("finding_texts"):
+        try:
+            shown = apply.shown(facts, role, config["kernel"])
+        except (AttributeError, KeyError, TypeError):
+            # Facts the Kernel has not read yet, in a shape its own reading of a thread does not take.
+            raise Unanswered("the facts' threads cannot be read for the Findings to show") from None
+        for fid, thread in shown if len(shown) <= texts.THREADS else ():
+            try:
+                said = texts.findings(transport, first, who, role["name"], [thread])
+            except texts.NotOwn:
+                continue
+            if len(said) != 1:
+                raise Unanswered("a thread's text was not answered as one text")
+            raised.append(dict(said[0], id=shared.FINDING_TEXT + fid))
     return {"record.json": record, "run": (parts["run"] + "\n").encode(), "facts.json": facts, "diff": change,
-            "texts.json": issues, "role.json": role, "findings.json": [], "head": (head, tarred, tree)}
+            "texts.json": raised + issues, "role.json": role, "findings.json": [fid for fid, _ in shown],
+            "head": (head, tarred, tree)}
 
 
 def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:

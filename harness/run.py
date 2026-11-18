@@ -188,6 +188,11 @@ def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.mo
         # The Kernel holds a pull request whose diff no Task carries whole; one admitted all the same is never reviewed
         # in part (issue 327).
         fault = "diff_not_whole"
+    elif len(engine.shown(the_task)) != len(the_task["findings"]):
+        # A Run rules on a Finding only if it is shown what its Lens said. One listed with no text the Task keeps, its
+        # words not the Lens's own or over the texts' room, is the item's own state: no model call is spent, the
+        # Run ends as the item's, and the thread gates on (issue 856).
+        fault = "findings_not_shown"
     elif reads and not (isinstance(head, str) and os.path.isdir(head)):
         fault = "head_unreadable"
     else:
