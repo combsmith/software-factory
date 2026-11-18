@@ -340,6 +340,7 @@ class Record(unittest.TestCase):
         # An issue that moved once is graced as a pull request is, and one that moved twice in a row is the alert
         # (decision 0229, issue 839). The move is the item's own: an issue and a pull request of one number are two.
         theirs = dict(test_issue.ITEM, number=43)
+        older_than_left_out = {k: v for k, v in clean.items() if k != "left_out"}
         issue_moved = {"facts": {"item": dict(theirs)}, "title": None, "unread": "pull_moved"}
         first = passed(reads(pulls=[pr(42)], issues=[issue_moved], runs=[run()]), previous=[clean])
         self.assertEqual((first["alerts"], decisions(first), first["record"]["left_out"]),
@@ -353,6 +354,10 @@ class Record(unittest.TestCase):
             self.assertEqual(out["alerts"], [], entries)
         both = passed(reads(pulls=[pr(42), left()], issues=[issue_moved], runs=[run()]), previous=[clean, again])
         self.assertEqual(both["alerts"], ["facts_unreadable"])
+        # So is an issue's move after a last record that cannot say it is a first.
+        for previous in (None, (), [older_than_left_out], [dict(clean, now="2026-10-11T12:50:00")]):
+            out = passed(reads(pulls=[pr(42)], issues=[issue_moved], runs=[run()]), previous=previous)
+            self.assertEqual(out["alerts"], ["facts_unreadable"], previous)
         # Any other code on an issue is the alert at once, as on a pull request.
         out = passed(reads(pulls=[pr(42)], issues=[dict(issue_moved, unread="facts_unanswered")], runs=[run()]), previous=[clean])
         self.assertEqual(out["alerts"], ["facts_unreadable"])
