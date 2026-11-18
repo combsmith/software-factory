@@ -33,6 +33,7 @@ import copy
 import datetime
 import re
 
+from controller import advisory as advisory_
 from controller import credentials as credentials_
 from controller import feed as feed_
 from controller import health as health_
@@ -318,7 +319,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
 
     def asked(entries: list, decide, lifecycle: dict, given: dict) -> list:
         kernel = dict(given, lifecycle=lifecycle)
-        out = []
+        out, asking = [], []
         for entry in entries:
             facts = entry["facts"]
             facts["complete"] = dict(facts["complete"])
@@ -329,6 +330,11 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
                 or (queue_named and d["outcome"] == t.ACT and d.get("action") in writes_.QUEUE_INTENTS)
             out.append(dict({"facts": facts, "decision": d, "run": mint("r") if minted else None},
                             **status_head(entry, kernel)))
+            if d["outcome"] == t.ADMIT and d["admit"]["intent"] == advisory_.REVIEWING:
+                # Beside the Decision, never in it: whether the day's ceiling admits this Run's advisory reads
+                # (decision 0224). Each review this pass admits counts the ones admitted before it at the worst case.
+                out[-1]["advisory_ask"] = advisory_.admits(runs + asking, whole, now, config.get("harness") or {})
+                asking.append({"intent": advisory_.REVIEWING, "started_at": now})
         return out
 
     # Every write a Factory identity made, matched to an Effect the Factory recorded; one alert for any that is not, and

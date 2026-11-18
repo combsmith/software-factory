@@ -215,6 +215,33 @@ class Record(unittest.TestCase):
         approval = passed(reads(runs=[run()]))["record"]["pull_requests"][0]
         self.assertEqual((approval["decision"].get("action"), approval["run"]), ("issue_approval", "r_000002A"))
 
+    def test_an_admitted_review_is_told_beside_its_decision_whether_the_day_admits_its_readers(self):  # decision 0224
+        # The yes or no is beside the Decision and never in it: it changes no Decision, and only an admitted review
+        # holds one. Each review a pass admits counts the ones admitted before it, at the worst case.
+        harness = {"readers": {"astra": {}}, "advisory_ceiling_usd_per_day": 5, "advisory_worst_case_usd": 2}
+        told = dict(config(), harness=harness)
+
+        def asks(read, cfg=told) -> list:
+            record = passed(read, cfg=cfg)["record"]
+            self.assertEqual(shared.errors(record, "pass"), [])
+            return [(e["decision"]["outcome"], e.get("advisory_ask")) for e in record["pull_requests"]]
+        self.assertEqual(asks(reads(pulls=[pr(1), pr(2), pr(3)])), [("admit", True), ("admit", True), ("admit", False)])
+        plain = passed(reads(pulls=[pr(1), pr(2), pr(3)]))["record"]["pull_requests"]
+        with_it = passed(reads(pulls=[pr(1), pr(2), pr(3)]), cfg=told)["record"]["pull_requests"]
+        self.assertEqual([e["decision"] for e in plain], [e["decision"] for e in with_it])
+        # With no figure configured, or none of the configuration read, the answer is no.
+        self.assertEqual(asks(reads(pulls=[pr(1)]), config()), [("admit", False)])
+        self.assertEqual(asks(reads(pulls=[pr(1)]), dict(config(), harness=None)), [("admit", False)])
+        self.assertEqual(asks(reads(pulls=[pr(1)]), dict(config(), harness=dict(harness, advisory_worst_case_usd=None))), [("admit", False)])
+        # The day's finished reads count what they cost, and one of another day counts nothing.
+        spent = dict(run("r_000009Z", number=9), advisory_asks=2, advisory_cost_usd=3.5)
+        self.assertEqual(asks(reads(pulls=[pr(1)], runs=[spent])), [("admit", False)])
+        self.assertEqual(asks(reads(pulls=[pr(1)], runs=[dict(spent, advisory_cost_usd=3)])), [("admit", True)])
+        self.assertEqual(asks(reads(pulls=[pr(1)], runs=[dict(spent, started_at="2026-10-10T12:10:00Z")])), [("admit", True)])
+        # An entry that admits no review holds no answer: an approval here, the review having run.
+        entries = passed(reads(pulls=[pr(42)], runs=[run(number=42)]), cfg=told)["record"]["pull_requests"]
+        self.assertEqual([(e["decision"].get("action"), "advisory_ask" in e) for e in entries], [("issue_approval", False)])
+
     def test_a_queue_act_gets_a_run_id_and_a_dispatch_once_its_workflow_is_named(self):  # issue 381
         # The queue App's acts, an enqueue, a dequeue and a resolution, are each a dispatched Run of the queue workflow,
         # named by run-name/1 with an Intent of its own, so the records port counts each. Until the configuration names
