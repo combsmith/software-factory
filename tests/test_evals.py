@@ -2029,8 +2029,9 @@ class EvalJob(unittest.TestCase):
                                modelUsage={}), 1
         good = live.answer(live.judged(findings=[], effects={})), 0
 
-        def asked(*said, clock=lambda: 0.0):
+        def asked(*said, clock=lambda: 0.0, versions=None):
             cli, slept = Answers(*said), []
+            cli.versions = list(versions) if versions is not None else cli.versions
             heads = self.temp / "heads"
             (heads / case["id"]).mkdir(parents=True, exist_ok=True)
             review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, clock, heads, sleep=slept.append)
@@ -2175,7 +2176,8 @@ class EvalJob(unittest.TestCase):
             # call, and the case is not the vendor's (issue 865).
             others = (live.answer(modelUsage={live.MODEL + "-other": {}}), 0)
             invalid = (live.answer(live.judged(status="no such status")), 0)
-            for first, reason in ((others, "engine_model"), (invalid, "result_invalid")):
+            cut = (live.answer(live.judged(status="incomplete", reason="change_not_reviewed_whole", findings=[], effects={})), 0)
+            for first, reason in ((others, "engine_model"), (invalid, "result_invalid"), (cut, "change_not_reviewed_whole")):
                 for later in (vendor(503), OSError("no such file"), subprocess.TimeoutExpired(["claude"], 1), good):
                     result, review, calls, slept = asked(first, later)
                     self.assertEqual((result["reason"], review.retried, calls, review.seen, job.seen_of(review)),
@@ -2188,13 +2190,23 @@ class EvalJob(unittest.TestCase):
             erred = (live.answer(is_error=True, structured_output=None, modelUsage={live.MODEL + "-other": {}}), 1)
             result, review, calls, slept = asked(erred, good)
             self.assertEqual((result["reason"], calls, review.seen), ("engine_model", 2, {}))
+            # So is the word beside a Result of no call, or of a call the version changed under: the first is failed
+            # before its call, at the version read, and the one call made is the second Result's.
+            for versions, calls_made in (((None,), 1), ((live.PIN, None), 2)):
+                result, review, calls, slept = asked(*[vendor(503)] * calls_made, versions=versions)
+                self.assertEqual((result["reason"], review.retried, calls, review.seen), ("engine_version", {}, calls_made, {}))
             # A retry's Result is held as the first ask's is.
             result, review, calls, slept = asked(vendor(529), good, others, vendor(503))
             self.assertEqual((result["reason"], review.retried, calls, review.seen), ("engine_model", {case["id"]: 1}, 4, {}))
-        # A case of one call keeps that call's word, whatever the Engine made of its answer: it is that Result's own.
+        # A case of one Result keeps its call's word, whatever the Engine made of its answer: it is that Result's own. So
+        # with the version read before the call and after it, and none where the call was never made.
         for first, reason in ((others, "engine_model"), (invalid, "result_invalid")):
             result, review, calls, slept = asked(first)
             self.assertEqual((result["reason"], calls, job.seen_of(review)), (reason, 1, {"subtype": "success", "exit": 0}))
+        result, review, calls, slept = asked(vendor(503), versions=(live.PIN, None))
+        self.assertEqual((result["reason"], calls, review.seen["api_error_status"]), ("engine_version", 1, 503))
+        result, review, calls, slept = asked(versions=(None,))
+        self.assertEqual((result["reason"], calls, review.seen), ("engine_version", 0, {}))
         # Its calls are counted by the ask: not with the ask a retry follows, nor with a case before it that ended in
         # what its call raised.
         result, review, calls, slept = asked(vendor(529), others)

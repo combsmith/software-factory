@@ -41,6 +41,9 @@ RETRIES = 2
 RETRY_WAIT = 30
 # The reasons the Engine fails a Result for by its call alone: one that erred, timed out, or gave no answer to hold.
 CALL_FAILED = ("engine_failed", "engine_timeout", "no_answer")
+# What the Engine asks the CLI for one Result: its version, and where it goes on to its call, the call and its version
+# again (V and C). Anything more was asked for more Results than one, whether each made its call or failed before it.
+ONE_ASK = ("V", "VCV")
 ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 
@@ -72,8 +75,7 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, he
         the first that did not succeed is the one kept: one that erred, or that gave no answer to hold to a schema, the
         Engine's `no_answer`. An answer that fails its schema or another model's are the Engine's to tell after the
         call, and the watch cannot: `own` leaves the word out where it may be another call's."""
-        if args[1:] != ["--version"]:
-            calls.append(None)
+        calls.append("V" if args[1:] == ["--version"] else "C")
         if args[1:] == ["--version"] or seen.get("erred") is True:
             return asked(args, env=env, timeout=timeout, **given)
         try:
@@ -100,9 +102,10 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, he
         """One ask's Result, with the watch's word left beside it only where it is the word of the call that Result came
         of. `passes.union` returns the first Result of several that did not complete. Where that one failed by its call
         alone, CALL_FAILED, every call before it succeeded, so the first that did not is its own, and its word is kept.
-        Failed any other way, or completed, the Result may be of a call the watch saw succeed, and the word kept a
-        later call's: it is left out, never reported as that Result's cause (issue 865). One call's word is its own."""
-        if len(calls) > 1 and result.get("reason") not in CALL_FAILED:
+        Failed any other way, or completed, the Result may be of a call the watch saw succeed, or of none, and the word
+        kept a later call's: it is left out, never reported as that Result's cause (issue 865). Where one Result alone
+        was asked for, ONE_ASK, the word is its own."""
+        if "".join(calls) not in ONE_ASK and result.get("reason") not in CALL_FAILED:
             seen.clear()
         calls.clear()
         return result
