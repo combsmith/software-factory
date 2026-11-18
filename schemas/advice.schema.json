@@ -29,7 +29,7 @@
     },
     "lens": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+      "pattern": "^[a-z]{1,31}$"
     },
     "status": {
       "enum": [
@@ -79,7 +79,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[a-z0-9][a-z0-9-]{0,62}:[0-9a-f]{64}$"
+            "pattern": "^[a-z]{1,31}:[0-9a-f]{32}$"
           },
           "category": {
             "enum": [
@@ -169,25 +169,29 @@
             "integer",
             "null"
           ],
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 1000000000
         },
         "output_tokens": {
           "type": [
             "integer",
             "null"
           ],
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 1000000000
         },
         "cost_usd": {
           "type": [
             "number",
             "null"
           ],
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 100000
         },
         "seconds": {
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 86400
         }
       }
     }
@@ -212,7 +216,7 @@
         },
         "id": {
           "type": "string",
-          "pattern": "^[a-z0-9][a-z0-9-]{0,62}:[0-9a-f]{64}$"
+          "pattern": "^[a-z]{1,31}:[0-9a-f]{32}$"
         },
         "source": {
           "type": "object",
@@ -225,7 +229,7 @@
           "properties": {
             "lens": {
               "type": "string",
-              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+              "pattern": "^[a-z]{1,31}$"
             },
             "kind": {
               "const": "advisory"
@@ -249,7 +253,7 @@
             },
             "key": {
               "type": "string",
-              "pattern": "^[a-z0-9][a-z0-9-]{0,62}:[0-9a-f]{64}$"
+              "pattern": "^[a-z]{1,31}:[0-9a-f]{32}$"
             }
           }
         },
@@ -262,7 +266,7 @@
           "properties": {
             "path": {
               "type": "string",
-              "pattern": "^[^\\u0000-\\u001f\\u007f]{1,1024}$"
+              "pattern": "^[^\\s\\x00-\\x1f\\x7f-\\x9f\u202a-\u202e\u2066-\u2069]{1,1024}$"
             },
             "start_line": {
               "type": "integer",
