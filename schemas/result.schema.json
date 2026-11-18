@@ -74,7 +74,7 @@
       "$ref": "effect.schema.json"
     },
     "shown": {
-      "description": "The Harness's, never the model's: each Finding the Run's Task listed whose text the Task kept, in the Task's order, by its id and the digest of that text as UTF-8. It is what the review was shown, bound by the Result's own digest, so that apply holds a Disposition to it and to nothing it reads again (issue 856). The model is not handed the field, and an answer that names it is no Result.",
+      "description": "The Harness's, never the model's: each Finding the Run's Task listed whose text the Task kept, in the Task's order, by its id and the digest of that text as UTF-8, a lone surrogate as its own three bytes. A Finding whose id two kept texts share is not among them. It is what the review was shown, bound by the Result's own digest, so that apply holds a Disposition to it and to nothing it reads again (issue 856). The model is not handed the field, and an answer that names it is no Result.",
       "type": "array",
       "uniqueItems": true,
       "items": {
