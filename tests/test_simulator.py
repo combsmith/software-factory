@@ -17,8 +17,9 @@ from tools.hooks import protected
 # Fixed seeds: the required check cannot fail at random. SIM_SEEDS shortens a local run.
 SEEDS = range(1, 1 + int(os.environ.get("SIM_SEEDS", "300")))
 # The first Maintainer's world that waits for its author on a Lens's thread and merges on a person's third mend, and
-# the first that merges with no mend (test_a_world_a_person_mends_once_the_faults_stop_merges_or_holds).
-MENDED_SEED, UNMENDED_SEED = 15, 11
+# the first that merges with no mend, and the first with an acceptance contract that merges after a mend, which the
+# contract's person approved again at the mended head (test_a_world_a_person_mends_once_the_faults_stop_merges_or_holds).
+MENDED_SEED, UNMENDED_SEED, CONFIRMED_SEED = 15, 11, 31
 # The first seed whose Hold takes a queued item out, the first whose lost approval does since a killed Run may leave no
 # outcome (issue 286), the first whose open gate does, and the first that shows another App's check under a Lens's
 # name, since only an agent's pull request is mended by a Role (issue 824)
@@ -1461,8 +1462,7 @@ class Simulation(unittest.TestCase):
             for _ in range(150):
                 w.step()
             last = w.settle(mend=True)
-            stuck = last["reason"] == "check_unreadable" and last["attention"] == "needs_you"
-            self.assertTrue(last["state"] in ("merged", "held") or stuck or w.waits_on_what_came_after_the_mend(last),
+            self.assertTrue(last["state"] in ("merged", "held") or w.waits_on_what_came_after_the_mend(last),
                             "seed %d rests in %s (%s) after %d mends\n%s" % (seed, last["state"], last["reason"], w.mends,
                                                                                "\n".join(w.trace[-15:])))
             self.assertLessEqual(w.mends, 3, seed)
@@ -1470,12 +1470,15 @@ class Simulation(unittest.TestCase):
                 mended.append(seed)
         self.assertTrue(mended)
         # The bound is three, by what it does: the pinned world merges on its third mend and no sooner. And a person
-        # mends only what waits: a world that merged with nobody's help is pushed to by nobody.
-        for seed, mends in ((MENDED_SEED, 3), (UNMENDED_SEED, 0)):
+        # mends only what waits: a world that merged with nobody's help is pushed to by nobody. A mend is a push, so the
+        # contract's person approves the contract again at its head, as after a fix push: a world with a contract merges
+        # on its second mend, where it would stop held after the first, on the mend's own push.
+        for seed, mends in ((MENDED_SEED, 3), (UNMENDED_SEED, 0), (CONFIRMED_SEED, 2)):
             w = World(seed)
             for _ in range(150):
                 w.step()
             self.assertEqual((w.settle(mend=True)["state"], w.mends), ("merged", mends), seed)
+        self.assertIsNotNone(w.criteria)
         # The mend is the person's: its push is a writer's, and it resolves the Lens's threads by that person's hand. On
         # the pinned seed the world waits for its author on a Lens's thread, and nothing excuses it before a mend.
         w = World(MENDED_SEED)
@@ -1486,13 +1489,18 @@ class Simulation(unittest.TestCase):
         self.assertTrue(lens and w.waits_for_its_author(last))
         self.assertFalse(w.waits_on_what_came_after_the_mend(last))
         # A thread the queue App resolved on a review's dropped word is closed only on the content that review read, so
-        # the person takes it too; one resolved on the Lens's accepted ruling stays the queue App's.
+        # the person takes it too; one resolved on the Lens's accepted ruling stays the queue App's. A Lens's thread
+        # another person resolved stays theirs, and a thread a person opened is no Lens's: the mend leaves it open.
         for tid, ruling in (("taken", None), ("ruled", "accepted")):
             w.threads.append(dict(lens[0], id=tid, resolved=True, resolved_by=dict(world.QUEUE_APP), ruling=ruling))
+        w.threads.append(dict(lens[0], id="theirs", resolved=True, resolved_by=dict(world.COLLEAGUE), ruling=None))
+        w.threads.append(dict(lens[0], id="a person's", opened_by=dict(world.STRANGER)))
         w.mend()
         self.assertEqual((w.last_pusher, w.last_writer, w.mended_at, w.mends), (world.MAINTAINER["name"], w.now(), w.now(), 1))
         self.assertTrue(all(th["resolved"] and th["resolved_by"] == world.MAINTAINER for th in lens))
-        self.assertEqual([th["resolved_by"] for th in w.threads[-2:]], [world.MAINTAINER, world.QUEUE_APP])
+        self.assertEqual([th["resolved_by"] for th in w.threads[-4:]],
+                         [world.MAINTAINER, world.QUEUE_APP, world.COLLEAGUE, None])
+        self.assertFalse(w.threads[-1]["resolved"])
         # What waits is excused only by what came after the mend: every thread it names opened since, or every check it
         # names concluded since. One older, one of the mend's own minute or one unknown is enough to refuse it, and so
         # is a Run still open or any other reason to wait. (No Run is left open here, so the item waits for its author.)

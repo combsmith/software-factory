@@ -64,7 +64,8 @@ ISSUE = 7     # the issue the Factory opened an agent's pull request for; the Ma
 # pushes nothing to a branch that is not the Factory's: its author, a person, mends it, or it waits (decision 0216).
 MENDS = ("check_failed", "findings_open", "human_finding", "conflict", "acceptance_failed")
 # How many times a person mends what waits for its author once the faults stop, in the check that drives such a world
-# on (issue 861): each time a push as a writer and the Lens's threads resolved by that person's hand.
+# on (issue 861): each time a push as a writer and the Lens's threads resolved by that person's hand, and then the
+# contract approved again at the mended head by its person.
 MEND_BOUND = 3
 MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
 # The reviewer's App holds pull_requests: write, and GitHub cannot grant it less.
@@ -1797,6 +1798,16 @@ class World:
             self.mend()
             for _ in range(steps):
                 self.step()
+            # The mend is a push, so the person who approves the contract approves it again at the head, as after each
+            # fix push above: or the world would end held on the mend's own push, whatever the mend was for.
+            for _ in range(5):
+                if not self.awaits_a_person():
+                    break
+                self.minute += 1
+                self.confirm()
+                self.caused("human")
+                for _ in range(steps):
+                    self.step()
             last = decide(self.facts(), self.records(), self.context(), CONFIG, self.now())
         return last
 
