@@ -199,7 +199,7 @@ class Task(unittest.TestCase):
             with self.assertRaises(task.Refused, msg=repr(findings)):
                 built(findings=findings)
 
-    def test_a_run_is_asked_only_if_it_is_shown_each_finding_it_lists(self):  # issue 856
+    def test_a_run_is_asked_only_if_shown_each_finding(self):  # issue 856
         # A review rules on a Finding only if it is shown what its Lens said: the text `finding:` and the Finding's id,
         # under its writer's trust, before the issue's. A Task that lists one with no such text among those it keeps,
         # its words not the Lens's own or over the texts' room, is never asked: a failed Result, `findings_not_shown`,

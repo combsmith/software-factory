@@ -690,10 +690,10 @@ class Apply(unittest.TestCase):
                                    "result")
             self.assertEqual(errors == [], ok, (ok, errors))
 
-    def test_a_review_rules_on_every_finding_it_was_shown(self):  # issue 856
+    def test_each_finding_shown_is_ruled(self):  # issue 856
         # A review that says nothing of a Finding its Lens raised before has not ruled on it. So a review is shown each
         # open thread of its own that gates, of a category its Role owns and no security Finding's, and its Result
-        # gives a Disposition on each: `apply` reads which they are again, of the item as it is now.
+        # gives a Disposition on each. `apply.shown` is what the reader lists; `apply` itself holds a Result to its own `shown`.
         fid = lambda key, lens="pr-review": apply.finding_id(lens, {"type": "thread", "key": key})
         person = {"kind": "human", "name": "don-petry", "can_write": True}
         threads = [support.thread("PRRT_kw7"), support.thread("PRRT_kw8", category="security"),
