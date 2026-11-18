@@ -3049,6 +3049,98 @@ class Workflows(unittest.TestCase):
         root = tree({".github/workflows/pass.yml": flows["pass.yml"], "examples/workflows/verify.yml": GOOD})
         self.assertTrue(caught(check_workflows.run(root), "cannot be read, so no workflow's secrets can be checked"))
 
+    def test_a_workflow_on_pull_request_beside_a_secret_reads_listed_protected_files_or_the_base_alone(self):  # issue 845
+        # Decision 0225. A pull request's run of a workflow holds the repo's secrets beside a head a Role may have pushed
+        # (decision 0219). The live workflows pass; then each way one could read a head's settings beside a secret is
+        # caught, in a tree of the workflows' text and the protected list alone.
+        live = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+        self.assertEqual(check_workflows.head_problems(ROOT, live), [])
+        self.assertEqual({name: files for name, (files, _) in check_workflows.HEAD_SETTINGS.items()},
+                         {"sonarcloud.yml": ("sonar-project.properties",)})
+        checkout = "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n"
+        top = "name: w\non:\n  pull_request:\n  merge_group:\npermissions: {}\njobs:\n  one:\n    runs-on: ubuntu-24.04\n"
+        secret = "    env:\n      TOKEN: ${{ secrets.SONAR_TOKEN }}\n"
+        head = checkout + "          persist-credentials: false\n"
+        base = checkout + "          ref: %s\n" % check_workflows.BASE
+        scan = top + secret + "    steps:\n" + head
+        hooks = {"protected": [{"path": ".github/", "is": "the workflows"}, {"path": "sonar-project.properties", "is": "the scan's"}]}
+
+        def problems(other=None, scan=scan, hooks=json.dumps(hooks), kept=scan):
+            # The listed workflow is held by its row's hash: here the hash of `kept`, the pins left out.
+            row = (("sonar-project.properties",), hashlib.sha256(check_workflows.PIN.sub("@PIN", kept).encode()).hexdigest())
+            files = {".github/workflows/sonarcloud.yml": scan, ".github/workflows/other.yml": other, "config/hooks.json": hooks}
+            root = tree({name: text for name, text in files.items() if text is not None})
+            with mock.patch.dict(check_workflows.HEAD_SETTINGS, {"sonarcloud.yml": row}):
+                return root, check_workflows.head_problems(root, sorted((root / ".github" / "workflows").glob("*.yml")))
+
+        self.assertEqual(problems()[1], [])
+        # The file the scan takes its settings from is on the protected list, word for word.
+        for paths in ([".github/"], [".github/", "*/sonar-project.properties"], [".github/", "SONAR-PROJECT.PROPERTIES"]):
+            listed = json.dumps({"protected": [{"path": path, "is": "x"} for path in paths]})
+            self.assertTrue(caught(problems(hooks=listed)[1], "sonarcloud.yml runs on a pull request or a merge group beside a secret, and takes "
+                                   "its settings from the head's sonar-project.properties, which config/hooks.json's protected "
+                                   "list does not hold"), paths)
+        for unread in (None, "{", "{}", json.dumps({"protected": [{"is": "x"}]}), json.dumps({"protected": ["sonar-project.properties"]}),
+                       json.dumps({"protected": 1})):
+            self.assertTrue(caught(problems(hooks=unread)[1], "config/hooks.json's protected list cannot be read"), unread)
+        # A workflow with no row checks out the base alone, at either of the base's refs, or nothing.
+        not_base = "other.yml runs on a pull request or a merge group beside a secret, and is not read as checking out the base alone"
+        steps = top + secret + "    steps:\n"
+        for held in (steps + base, steps + base + base, steps + checkout + "          ref: %s\n" % check_workflows.SCAN_BASE,
+                     steps + "      - run: make checks\n",
+                     # No secret, or one a whole-line comment names; and no pull request's run.
+                     top + "    steps:\n" + head, top + "    # secrets.SONAR_TOKEN\n    steps:\n" + head,
+                     steps.replace("  pull_request:\n  merge_group:\n", "  push:\n") + head,
+                     steps.replace("on:\n  pull_request:\n  merge_group:\n", "on: push\n") + head):
+            self.assertEqual(problems(held)[1], [], held)
+        for why, wrong in {
+                "the head, by no ref": steps + head,
+                "the head, by its commit": steps + checkout + "          ref: %s\n" % check_workflows.HEAD,
+                "the base and then the head": steps + base + head,
+                "a checkout in another case": steps + head.replace("actions/checkout", "Actions/Checkout"),
+                "a checkout by a path of its repo": steps + head.replace("actions/checkout@", "actions/checkout/sub@"),
+                "the secret in another case": steps.replace("secrets.SONAR_TOKEN", "SECRETS.SONAR_TOKEN") + head,
+                "the secret by an index": steps.replace("secrets.SONAR_TOKEN", "secrets['SONAR_TOKEN']") + head,
+                "a workflow called with no secret named, which may hold an environment's":
+                    top + "    uses: ./.github/workflows/called.yml\n",
+                "a merge group's run alone": steps.replace("  pull_request:\n", "") + head,
+                "an event read() cannot read, beside push":
+                    steps.replace("  pull_request:\n  merge_group:\n", "  push:\n  \"pull_request\":\n") + head,
+                "every secret handed to a workflow it calls":
+                    top + "    uses: ./.github/workflows/called.yml\n    secrets: inherit\n",
+                "a secret handed to a workflow it calls, beside a job that checks out the base":
+                    steps + base + "  two:\n    uses: ./.github/workflows/called.yml\n    secrets:\n      T: ${{ secrets.T }}\n",
+                "a line that cannot be read": steps + base + "\t  - run: make checks\n",
+                "the event as a value": steps.replace("on:\n  pull_request:\n  merge_group:\n", "on: pull_request\n") + head,
+                "the events as a list": steps.replace("  pull_request:\n  merge_group:\n", "  - pull_request\n") + head,
+                "an event that is none": steps.replace("  pull_request:\n  merge_group:\n", "  pull_request_target:\n") + head,
+                "every secret at once": steps.replace("secrets.SONAR_TOKEN", "toJSON(secrets)") + head,
+                "no events": steps.replace("on:\n  pull_request:\n  merge_group:\n", "") + head}.items():
+            self.assertTrue(caught(problems(wrong)[1], not_base), why)
+        # The listed workflow checks out the head, so nothing of it is run beside the secret: no command, and no
+        # workflow called, whose steps are not read here.
+        runs = "sonarcloud.yml runs on a pull request or a merge group beside a secret and the head it checks out, and is not read as"
+        for why, wrong in {"a command of the head's": scan + "      - run: make checks\n",
+                           "a workflow called": scan + "  two:\n    uses: ./.github/workflows/called.yml\n",
+                           "a line that cannot be read": scan + "\t  - run: make checks\n"}.items():
+            self.assertEqual([p for p in problems(scan=wrong, kept=wrong)[1] if runs not in p], [], why)
+            self.assertTrue(caught(problems(scan=wrong, kept=wrong)[1], runs), why)
+        # It is held word for word, the pins left out: a step given a `with:`, which may move what it reads, is caught
+        # until its row's hash is the new text's, and a pin moved is not.
+        changed = "sonarcloud.yml reads a head beside a secret, so it is held word for word, and it has changed"
+        moved = scan + "      - uses: some/scan@%s # v8.3.0\n" % ("d" * 40)
+        self.assertEqual(problems(scan=moved.replace("d" * 40 + " # v8.3.0", "e" * 40 + " # v8.4.0"), kept=moved)[1], [])
+        self.assertTrue(caught(problems(scan=moved + "        with:\n          projectBaseDir: docs\n", kept=moved)[1], changed))
+        # A row for a workflow that is not there, or no longer runs on pull_request beside a secret, is stale.
+        stale = "sonarcloud.yml has a row in HEAD_SETTINGS, and is no workflow that runs on a pull request or a merge group beside a secret"
+        for scan_ in (None, scan.replace(secret, ""), scan.replace("  pull_request:\n  merge_group:\n", "  push:\n")):
+            self.assertTrue(caught(problems(scan=scan_, kept=scan_ or scan)[1], stale), scan_)
+        # The rule is run with the workflows, on the live tree alone.
+        root, found = problems(steps + head)
+        (root / "examples" / "workflows").mkdir(parents=True)
+        (root / "examples" / "workflows" / "verify.yml").write_text(GOOD)
+        self.assertTrue(found and caught(check_workflows.run(root), not_base))
+
     def test_a_rule_with_no_counter_example_is_caught(self):
         problems = check_workflows.run(tree({"examples/workflows/verify.yml": GOOD}))
         self.assertEqual(len(problems), len(check_workflows.RULES))

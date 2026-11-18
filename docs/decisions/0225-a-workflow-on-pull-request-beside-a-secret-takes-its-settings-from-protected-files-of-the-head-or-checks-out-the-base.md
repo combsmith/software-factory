@@ -1,0 +1,27 @@
+# 0225. A workflow on pull_request beside a secret takes its settings from protected files of the head, or checks out the base
+
+Status: accepted. The Factory Builder's ruling of 2026-11-15 on "Security: the SonarCloud scan reads a pull request's sonar-project.properties beside SONAR_TOKEN, and no list protects the file" (issue 845), found by the Claude review of decision 0219. It builds on decision 0188, a Role's push is refused where it touches a protected path, and on decision 0023, a verdict's rules run from the base.
+
+## Decision
+
+| What | Decided | Because |
+|---|---|---|
+| Which workflows | A workflow that runs on `pull_request` or `merge_group` and names a secret, by the word `secrets` outside a whole-line comment, or has a job that calls another workflow, which may hold an environment's secrets with none named. One whose events cannot be read as events that leave both out is taken to run on them. The job's own token is no secret here | A pull request from a branch of this repo runs with the repo's secrets, and decision 0219 has a Role's patch pushed to such a branch; a merge group carries the same code. A fork's run gets none. The job's token is granted reads alone, by the permissions rule |
+| Listed | `HEAD_SETTINGS` in `tools/check_workflows.py` names each such workflow that checks out the head, with the files of the head it takes its settings from. Each is a path of `config/hooks.json`'s `protected`, word for word. The workflow is held word for word by a hash, the pins left out. Today: `.github/workflows/sonarcloud.yml`, `sonar-project.properties` | `apply` refuses a Role's push that changes, renames or copies a protected path (decision 0188), so the settings the secret runs beside are a person's. A step, a `with:` or an `env:` changed may move what an action reads, so a change sends a person back to read it |
+| A listed workflow runs nothing | It has no `run:` and calls no workflow | A `run:` after a checkout of the head is `make` or `python3 -m` of the head's own code, beside the secret |
+| Not listed | Every checkout gives `ref:` the base's commit, as `verify`'s and the secret scan's do, and the workflow calls no other, whose steps the check does not read | No checkout step then reads a file of the head beside the secret; what a pinned action fetches by itself is under the limit below |
+| A stale row | A row whose workflow is gone, or no longer runs on `pull_request` beside a secret, is refused | The table says what is exposed, and is read as that |
+| What cannot be read | A protected list that cannot be read checks nothing and says so; a workflow with a line outside the narrow form is refused | An unreadable fact never passes |
+| The limit | The table lists settings, not what an action reads as data. The sources a scan analyses are the head's, and an analyser that loaded code from them would run it beside the token. Which files a pinned action takes its settings from, or fetches, is read from its source at the pin, by a person, when its row is written, its text changes or its pin moves. A workflow on `push` is not read: both that run on it today are filtered to `main`. `tools/check_workflows.py` itself is no protected path: a Role's push of it is read by `verify` and every model Lens's review, not refused. A secret spelt with an escape is not read | No check reads an action's source; the check holds the pin, the text and the row, and assumes a workflow written in good faith, by a person, since `.github/` is protected |
+
+## Why
+
+The scan runs with `SONAR_TOKEN` on the head, and takes its settings, the host it sends to among them, from the head's `sonar-project.properties`. Whether a setting can send the token elsewhere was not verified, and need not be: the file is now a person's to change, and the check holds every other workflow of the kind to the same two shapes.
+
+## Boundaries
+
+| Boundary | Check |
+|---|---|
+| A workflow on `pull_request` or `merge_group` beside a secret is listed, its head's settings each protected, no command run and its text held, or checks out the base alone | `tests/test_tools.py::test_a_workflow_on_pull_request_beside_a_secret_reads_listed_protected_files_or_the_base_alone`, `tools/check_workflows.py`, mutant: "a head's settings read beside a secret need not be protected", mutant: "one checkout of the base beside a secret is enough" |
+| The scan's settings are on the repo's own protected list, and a Role's push of them is refused | `tests/test_apply.py::test_the_repos_own_list_holds_the_settings_a_scan_reads_beside_its_token`, `config/hooks.json`, mutant: "the scan's settings are pushed by a Role" |
+| The limit: the list is read at the pull request's base, so a pull request against a branch that predates the entry is not held by it. The Factory opens against `main` alone | waiting on `harness/push.py`, which names the branch a Role pushes to |

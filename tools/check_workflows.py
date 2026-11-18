@@ -22,6 +22,11 @@ The secret scan, the exempt `ci.yml`, reads its rules from the base (scan_proble
 `.gitleaksignore` from a checkout of the base under `base/`, with the head's `.gitleaksignore` deleted first, since
 gitleaks also reads the one at the top of what it scans. Its install is held word for word, its version and checksum
 free only within their shapes; and every checkout in every workflow is the one CHECKOUT lists.
+
+A workflow that runs on pull_request or merge_group beside a secret, one it names or one a workflow it calls may hold,
+runs beside a head a Role may have pushed (head_problems, decision 0225): it is listed in HEAD_SETTINGS with the files
+of the head it takes its settings from, each a path of `config/hooks.json`'s protected list, which no Role's push may
+change, runs no command of the head's and is held word for word; or every checkout of it is of the base.
 """
 from __future__ import annotations
 
@@ -875,6 +880,15 @@ SCAN_ENV = {"GITLEAKS_VERSION": re.compile(r'"[0-9]+\.[0-9]+\.[0-9]+"'),
             "GITLEAKS_CHECKSUM": re.compile(r'"[0-9a-f]{64}"')}
 # The only events a workflow with a judging job runs on: on any other there is no base, and its checkout would be the head.
 JUDGED = {"pull_request", "merge_group"}
+# What a workflow that runs on pull_request or merge_group beside a secret takes its settings from in the head it checks
+# out, by its file: each a path, word for word, of config/hooks.json's protected list, so apply refuses a Role's push
+# that changes it (decision 0188). What it reads of the head as data alone, the sources a scan analyses, is not listed.
+# The workflow is held word for word by a hash taken with the pins left out, as EXEMPT holds ci.yml: a step, a `with:`
+# or an `env:` changed may change what it reads, so read its actions again, then record the new hash. A workflow with
+# no row here checks out the base alone (decision 0225, issue 845).
+HEAD_SETTINGS = {"sonarcloud.yml": (("sonar-project.properties",), "813af1f7166818949cca35fb26cb18e4a634fda80f433449321562af166309e8")}
+BASES = (BASE, SCAN_BASE)      # a checkout's `ref:` that is the base's commit, on pull_request and merge_group
+ANY_SECRET = re.compile(r"\bsecrets\b", re.I)      # named one by one, inherited or indexed: GitHub reads any case
 JOB = re.compile(r"^[A-Za-z_][\w-]*$")
 
 
@@ -1975,6 +1989,63 @@ def credential_problems(root: pathlib.Path, live: list) -> list:
     return problems
 
 
+def head_problems(root: pathlib.Path, live: list) -> list:
+    """Why a workflow in `live` could run a secret beside settings a Role's push wrote (decision 0225, issue 845).
+
+    A workflow is exposed when it runs on pull_request or merge_group, or its events cannot be read as events that
+    leave both out, and its text names `secrets` outside a whole-line comment or a job of it calls another workflow,
+    which may hold an environment's secrets with none named. One listed in HEAD_SETTINGS reads those files of the
+    head, each a path of `config/hooks.json`'s protected list, word for word; it has no `run:`, which would run the
+    head's own code beside the secret, and its text is the one its row's hash holds. One not listed gives every
+    checkout a `ref:` in BASES. Neither has a line read() could not read, nor calls another workflow, whose steps are
+    not read here. A workflow on `push` is not read: a limit decision 0225 names.
+    A row for a workflow that is not exposed, or not there, is stale. What cannot be read checks nothing, and says so."""
+    try:
+        protected = [entry["path"] for entry in json.loads((root / "config" / "hooks.json").read_text())["protected"]]
+    except (OSError, ValueError, KeyError, TypeError) as err:
+        return ["config/hooks.json's protected list cannot be read, so no workflow that reads a head beside a secret can "
+                "be checked against it: %r" % err]
+    problems, exposed = [], set()
+    for path in live:
+        text = raw(path)
+        entries, bad = read(text)
+        events = {e["key"] for e in entries if e["path"] == ["on"]} | {
+            e["value"] for e in entries if e["key"] == "on" and not e["path"] and e["value"]}
+        spared = not bad and bool(events) and events <= EVENTS and not events & JUDGED
+        called = [e for e in entries if e["key"] == "uses" and len(e["path"]) == 2 and e["path"][0] == "jobs"]
+        if spared or not (called or ANY_SECRET.search(_uncommented(text))):
+            continue
+        exposed.add(path.name)
+        where = path.relative_to(root)
+        listed, kept = HEAD_SETTINGS.get(path.name, ((), None))
+        if kept and hashlib.sha256(PIN.sub("@PIN", text).encode()).hexdigest() != kept:
+            problems.append("%s reads a head beside a secret, so it is held word for word, and it has changed: read "
+                            "again what of the head its actions take their settings from, list each in HEAD_SETTINGS, "
+                            "then record its new hash there" % where)
+        for name in listed:
+            if name not in protected:
+                problems.append("%s runs on a pull request or a merge group beside a secret, and takes its settings from the head's %s, "
+                                "which config/hooks.json's protected list does not hold: a Role's push could change it; "
+                                "add the path there, word for word" % (where, name))
+        if path.name in HEAD_SETTINGS:
+            if bad or called or any(e["key"] == "run" for e in entries):
+                problems.append("%s runs on a pull request or a merge group beside a secret and the head it checks out, and is not "
+                                "read as running no command and calling no workflow: a `run:` there is the head's own "
+                                "code, which a Role's push may have written; run it in a workflow that checks out the "
+                                "base" % where)
+            continue
+        refs = [_with(entries, e).get("ref") for e in entries if e["key"] == "uses" and CHECKOUT_USE.match(e["value"])]
+        if bad or called or any(ref not in BASES for ref in refs):
+            problems.append("%s runs on a pull request or a merge group beside a secret, and is not read as checking out the base alone, "
+                            "`ref: %s`, in every checkout, with no workflow called: it may read a head a Role pushed "
+                            "beside the secret; check out the base, or list it in HEAD_SETTINGS with the files of the "
+                            "head it takes its settings from" % (where, BASE))
+    for name in sorted(set(HEAD_SETTINGS) - exposed):
+        problems.append(".github/workflows/%s has a row in HEAD_SETTINGS, and is no workflow that runs on a pull request "
+                        "or a merge group beside a secret: take the row out" % name)
+    return problems
+
+
 def run(root: pathlib.Path = ROOT) -> list:
     problems = lens_workflows(root)
     live = sorted((root / ".github" / "workflows").glob("*.y*ml"))
@@ -2026,6 +2097,7 @@ def run(root: pathlib.Path = ROOT) -> list:
                                     "which are release.yml's alone" % (path.relative_to(root), number))
     if live:
         problems += credential_problems(root, live)
+        problems += head_problems(root, live)
     for folder in sorted((root / ".github").glob("actions*")):
         problems.append("%s: a local action is not read by this check; write a reusable workflow"
                         % folder.relative_to(root))
