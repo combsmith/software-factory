@@ -272,6 +272,11 @@
           }
         }
       }
+    },
+    "advisory_ceiling_usd_per_day": {
+      "type": "number",
+      "minimum": 0.01,
+      "maximum": 10000
     }
   }
 }

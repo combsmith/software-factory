@@ -2590,6 +2590,37 @@ class Repo(unittest.TestCase):
         self.assertTrue(caught(check_repo.run(tree({"config/x.json": '"gpt-' + '4o-mini"'})), "names a model"))
         self.assertFalse(caught(check_repo.run(tree({"docs/notes.md": name})), "names a model"))
 
+    def test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default(self):  # decision 0224
+        # A schema here has no rule on a key, so the check holds what harness/1 cannot: a reader's block is under the
+        # name of an advisory Lens of the same file, a name advice/1 can hold.
+        harness = json.loads((ROOT / "config" / "harness.json").read_text())
+        schema = json.loads((ROOT / "schemas" / "harness.schema.json").read_text())
+        self.assertEqual(check_examples._readers(harness), [])
+        block = json.loads((ROOT / "examples" / "invalid" / "harness.a-reader-that-is-no-advisory-lens.json").read_text())["readers"]["astra"]
+        named = dict(harness, advisory=["coderabbit", "astra", "kimi"])
+        self.assertEqual(check_examples._readers(dict(named, readers={"astra": block, "kimi": block})), [])
+        self.assertEqual(check_examples._readers(dict(named, readers={})), [])
+        self.assertTrue(caught(check_examples._readers(dict(harness, readers={"astra": block})), "the reader astra is no advisory Lens"))
+        self.assertTrue(caught(check_examples._readers(dict(named, readers={"astra": block, "muse": block})), "the reader muse is no advisory"))
+        for name in ("astra-2", "Astra", "a" * 32, "4o", ""):
+            odd = dict(harness, advisory=["coderabbit", name], readers={name: block})
+            self.assertTrue(caught(check_examples._readers(odd), "has a name advice/1 cannot hold"), name)
+        self.assertEqual(check_examples._readers(dict(harness, advisory=["a" * 31], readers={"a" * 31: block})), [])
+
+        def run_on(config: dict) -> list:
+            return check_examples.run(clone({"config/harness.json": json.dumps(config)}))
+        self.assertTrue(caught(run_on(dict(harness, readers={"astra": block})), "config/harness.json: harness: the reader astra is no advisory Lens"))
+        self.assertFalse(caught(run_on(dict(named, readers={"astra": block})), "config/harness.json"))
+        # The day's ceiling is a figure in dollars beside the advisory Lenses, never among a reader's own settings, and
+        # it has no default: the pin's file holds none until a person writes one, and nought is no figure.
+        self.assertNotIn("advisory_ceiling_usd_per_day", harness)
+        self.assertNotIn("advisory_ceiling_usd_per_day", schema["required"])
+        self.assertEqual(validate(dict(named, advisory_ceiling_usd_per_day=30), schema), [])
+        for figure in (0, -1, 0.001, "30", None, True, 10001, float("inf")):
+            self.assertTrue(validate(dict(named, advisory_ceiling_usd_per_day=figure), schema), figure)
+        self.assertTrue(validate(dict(named, readers={"astra": dict(block, advisory_ceiling_usd_per_day=30)}), schema))
+        self.assertTrue(validate(dict(named, readers={"astra": dict(block, ceiling_usd_per_day=30)}), schema))
+
     def test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else(self):  # decision 0224
         # A second place a model is named: an advisory Lens's reader, in the pin's own file, by its model and by its
         # deployment, which Azure may name after a model. The pin's file and its copies may name a model at three paths
