@@ -2801,8 +2801,13 @@ class FindingTexts(unittest.TestCase):
                            ("a repository that is no object", thread_text("PRRT_7", pullRequest={"number": 26, "repository": "o/r"})),
                            ("a comment that is no object", thread_text("PRRT_7", comments={"nodes": [None]})),
                            ("a reply", first(replyTo={"id": "PRRC_1"})), ("a reply GitHub does not say it is not", first(replyTo=...)),
+                           ("a reply to no comment", first(replyTo="PRRC_1")), ("a reply to nought", first(replyTo=0)),
                            ("an edited comment", first(lastEditedAt="2026-11-14T08:00:00Z")),
                            ("an edit GitHub does not say never was", first(lastEditedAt=...)),
+                           ("an edit at no time", first(lastEditedAt=0)), ("an edit that is a flag", first(lastEditedAt=False)),
+                           # An author GitHub gives as none, a deleted account's, is refused as the facts' read of the
+                           # same thread refuses it, before any text is asked for: a read that failed, as it was.
+                           ("an author that is none", first(author=None)), ("no author", first(author=...)),
                            ("another pull request's", thread_text("PRRT_7", number=27)),
                            ("another repo's", thread_text("PRRT_7", repo="o/other")),
                            ("a node that is no thread", thread_text("PRRT_7", __typename="PullRequestReviewComment")),

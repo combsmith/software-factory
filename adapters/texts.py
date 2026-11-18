@@ -100,12 +100,13 @@ def findings(transport, pull: dict, accounts, lens: str, threads: list) -> list:
             raise Unanswered("a thread asked for is not that review thread of this pull request")
         first = _held(node.get("comments")).get("nodes")
         said = first[0] if isinstance(first, list) and first and isinstance(first[0], dict) else {}
-        # What GitHub does not say is a read that failed; what it says, and is not the Lens's own unedited first
-        # comment, is the thread's own state (`NotOwn`).
+        # What GitHub does not say, or says in no form it gives, is a read that failed; what it says, a comment replied
+        # to or the time of an edit, and is not the Lens's own unedited first comment, is the thread's own state.
         if said.get("replyTo", 0) is not None:
-            raise (NotOwn if "replyTo" in said else Unanswered)("a thread's first comment cannot be read as its opener's")
+            raise (NotOwn if isinstance(said.get("replyTo"), dict) else Unanswered)(
+                "a thread's first comment cannot be read as its opener's")
         if said.get("lastEditedAt", 0) is not None:
-            raise (NotOwn if "lastEditedAt" in said else Unanswered)(
+            raise (NotOwn if isinstance(said.get("lastEditedAt"), str) else Unanswered)(
                 "a thread's first comment was edited, or GitHub does not say it never was")
         by, body = accounts.actor(threads_._account(said.get("author"))), said.get("body")
         if by != {"kind": "lens", "name": lens, "can_write": False}:
