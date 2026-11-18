@@ -25,6 +25,45 @@
     "characters": 40000
   },
   "advisory": [
-    "coderabbit"
-  ]
+    "coderabbit",
+    "astra",
+    "kimi"
+  ],
+  "advisory_ceiling_usd_per_day": 30,
+  "readers": {
+    "astra": {
+      "host": "foundry-project-1-cs-resource.services.ai.azure.com",
+      "deployment": "gpt-6-astra",
+      "model": "gpt-6-astra",
+      "api": "responses",
+      "effort": {
+        "critical": "max",
+        "elsewhere": "xhigh"
+      },
+      "output_tokens": 64000,
+      "prompt_characters": 600000,
+      "seconds": 120,
+      "usd_per_million": {
+        "input": 10,
+        "output": 50
+      }
+    },
+    "kimi": {
+      "host": "foundry-project-1-cs-resource.services.ai.azure.com",
+      "deployment": "kimi-k3.1-pro",
+      "model": "kimi-k3.1-pro",
+      "api": "chat",
+      "effort": {
+        "critical": "max",
+        "elsewhere": "xhigh"
+      },
+      "output_tokens": 40000,
+      "prompt_characters": 300000,
+      "seconds": 900,
+      "usd_per_million": {
+        "input": 3,
+        "output": 15
+      }
+    }
+  }
 }
