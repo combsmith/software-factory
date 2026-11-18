@@ -6,9 +6,11 @@ one object held to `advice-answer/1`; otherwise `incomplete` or `failed`, with o
 
 What the reader says is the author's diff at one remove, so nothing of it is trusted. Its severity is kept as its
 opinion, its category and criterion as hints beside its text, and its title and message under `body` alone. A Finding
-is `uncategorised` with no criterion, on an annotation whose key is its id, and its id is its Lens's name and a sha256
-of its source, the content id, its path, its line, its severity and its place among the Findings that share all five:
-never of its text. A Finding whose path the change does not hold is counted and left out.
+is `uncategorised` with no criterion, on an annotation whose key is its id, and its id is its Lens's name and half a
+sha256 of its source, the content id, its path, its line, its severity and its place among the Findings that share all
+five: never of its text, and short enough to be the key `result/1` adopts from. A reader's file is compared, whole and
+as it is written, with the change's paths, and is never opened, joined or made tidy: a Finding whose path the change
+does not hold, or that is no one word, is counted and left out.
 
 The shapes read here are the two APIs' as their own documents give them; no trial has recorded one yet (the record's
 "What is owed"), so a state this file does not know is `transport` or `unparsed`, never a read.
@@ -28,6 +30,10 @@ UNASKED = ("too_large", "budget", "no_key", "timed_out", "transport", "rate_limi
 # An answer wrapped in one fence, which a model asked for JSON alone still writes: the object inside is the answer.
 FENCED = re.compile(r"```(?:json)?[ \t]*\n(.*)\n[ \t]*```", re.S)
 MODEL = re.compile(r"[a-z0-9][a-z0-9.-]{0,127}")
+# A path advice/1 holds: one word, with no control and nothing that turns the line it is shown on.
+PLACE = re.compile(r"[^\s\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]{1,1024}")
+# A run of digits no count, line or price needs. Python reads a number of any length, and slowly: it is not read.
+ENDLESS = re.compile(r"[0-9]{64}")
 MILLION = 1000000
 
 
@@ -52,8 +58,6 @@ def _result(told: dict, reason, findings: list, texts: list, off: int, usage: di
     result = {"schema": "advice/1", "run": told["run"], "release": told["release"], "lens": told["lens"],
               "status": status, "reason": reason, "findings": findings, "texts": texts, "off_change": off, "usage": usage}
     if validate(result, schemas["advice"], schemas=schemas):
-        if reason is None:      # a Finding this file built that advice/1 refuses: no read, never a part of one
-            return _result(told, "unparsed", [], [], 0, usage, schemas)
         raise ValueError("what the step was told builds no advice/1")
     return result
 
@@ -102,12 +106,21 @@ def _chat(body: dict) -> tuple:
     return None, message["content"]
 
 
+def _once(pairs: list) -> dict:
+    if len({key for key, _ in pairs}) != len(pairs):
+        raise ValueError("a key is given twice")
+    return dict(pairs)
+
+
 def _answered(text: str, schemas: dict):
-    """The object a reader's text is, held to advice-answer/1, or None."""
+    """The object a reader's text is, held to advice-answer/1, or None. A key given twice is no answer: JSON would keep
+    the last, and a second `findings` that is empty would make a read with findings a clean one."""
     text = text.strip()
     fenced = FENCED.fullmatch(text)
+    if ENDLESS.search(text):
+        return None
     try:
-        answer = json.loads(fenced.group(1) if fenced else text)
+        answer = json.loads(fenced.group(1) if fenced else text, object_pairs_hook=_once)
     except (ValueError, RecursionError):
         return None
     return answer if isinstance(answer, dict) and not validate(answer, schemas["advice-answer"], schemas=schemas) else None
@@ -119,12 +132,12 @@ def _findings(told: dict, answer: dict) -> tuple:
     for said in answer["findings"]:
         path = said["file"]
         line = said["line"] if path is not None else None       # a line of no file names no place
-        if path is not None and path not in changed:
+        if path is not None and (path not in changed or not PLACE.fullmatch(path)):
             off += 1
             continue
         key = json.dumps([told["lens"], "advisory", actor, told["content_id"], path, line, said["severity"]])
         shared[key] = shared.get(key, -1) + 1
-        ident = "%s:%s" % (told["lens"], hashlib.sha256(("%s#%d" % (key, shared[key])).encode()).hexdigest())
+        ident = "%s:%s" % (told["lens"], hashlib.sha256(("%s#%d" % (key, shared[key])).encode()).hexdigest()[:32])
         finding = {"schema": "finding/1", "id": ident, "source": {"lens": told["lens"], "kind": "advisory", "actor": actor},
                    "surface": {"type": "annotation", "key": ident}, "category": "uncategorised",
                    "severity": said["severity"], "criterion": None, "content_id": told["content_id"]}

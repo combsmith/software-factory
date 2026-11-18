@@ -234,11 +234,11 @@ class Parser(unittest.TestCase):
         # An id is the Lens's name and a digest of the source, the content, the place and the severity: the same
         # for other words, another for another Lens, deployment, model, content, path, line or severity.
         ident = first["id"]
-        self.assertRegex(ident, "^astra:[0-9a-f]{64}$")
+        self.assertRegex(ident, "^astra:[0-9a-f]{32}$")
         self.assertEqual(read(answered(said(title="Other words", message="Others.", category="security", criterion=None)))
                          ["findings"][0]["id"], ident)
         others = [read(answered(said()), dict(TOLD, **change))["findings"][0]["id"]
-                  for change in ({"lens": "astra-2"}, {"deployment": "astra-reader-2"}, {"content_id": "sha256:5d0d"})]
+                  for change in ({"lens": "astrb"}, {"deployment": "astra-reader-2"}, {"content_id": "sha256:5d0d"})]
         others += [read(answered(said(), model="astra-model-2"), dict(TOLD, model="astra-model-2"))["findings"][0]["id"]]
         others += [read(answered(said(**change)))["findings"][0]["id"]
                    for change in ({"file": "tests/test_decide.py"}, {"line": 89}, {"line": None}, {"severity": "minor"})]
@@ -249,12 +249,17 @@ class Parser(unittest.TestCase):
         self.assertEqual((twice[0]["id"], len({f["id"] for f in twice})), (ident, 2))
         self.assertEqual(read(answered(said(title="Another"), said()))["findings"][0]["id"], ident)
         self.assertEqual(read(answered())["findings"], [])
-        # A path the change holds that advice/1 cannot is no read, never a part of one.
-        odd = read(answered(said(file="a\nb")), dict(TOLD, changed_paths=["a\nb"]))
-        self.assertEqual((odd["status"], odd["reason"]), ("failed", "unparsed"))
+        # A reader's file is compared whole with the change's paths, as written. One the change holds that is not
+        # one word is left out and counted as the others are, and the rest of the read stands.
+        for path in ("a\nb", "a b.py", "kernel/decide.py ", "a\u202eb", "p" * 1025):
+            odd = read(answered(said(file=path), said()), dict(TOLD, changed_paths=[path, "kernel/decide.py"]))
+            self.assertEqual((odd["status"], odd["off_change"], len(odd["findings"])), ("completed", 1, 1), path)
+        for path in ("kernel/decide.py\n", "kernel/decide.py\x00.md", "./kernel/decide.py", "kernel//decide.py", "KERNEL/decide.py"):
+            self.assertEqual(read(answered(said(file=path)))["off_change"], 1, path)
 
     def test_an_answer_is_a_read_only_when_it_completed_whole_from_the_pinned_model_and_parses(self):
         self.assertEqual(outcome(answered(said())), ("completed", None, 1))
+        self.assertEqual(outcome(answered(said(message="n" + "7" * 63))), ("completed", None, 1))
         self.assertEqual(outcome(chatted(said()), KIMI), ("completed", None, 1))
         fenced = "```json\n%s\n```" % json.dumps({"schema": "advice-answer/1", "findings": [said()]})
         self.assertEqual(outcome(chatted(text="\n" + fenced + "\n"), KIMI), ("completed", None, 1))
@@ -284,7 +289,8 @@ class Parser(unittest.TestCase):
             (answered(said(severity="critical")), "unparsed"), (answered(said(), said(line=0)), "unparsed"),
             (answered(text='{"schema": "advice-answer/1", "findings": [], "cost": NaN}'), "unparsed"),
             (answered(text='{"schema": "advice-answer/1", "findings": [], "verdict": "approve"}'), "unparsed"),
-            (answered(text="[" * 100000), "unparsed"), (answered(said(), output=[]), "unparsed"), (answered(said(), output=None), "unparsed"),
+            (answered(text="[" * 100000), "unparsed"), (answered(text=whole[:-1] + ', "findings": []}'), "unparsed"),
+            (answered(said(message="n" + "7" * 64)), "unparsed"), (answered(said(), output=[]), "unparsed"), (answered(said(), output=None), "unparsed"),
             (answered(said(), output=[{"type": "message", "content": [{"type": "output_text", "text": whole}] * 2}]), "unparsed"),
             (answered(said(), output=[{"type": "message", "content": [{"type": "output_text", "text": 7}]}]), "unparsed"),
         ]
