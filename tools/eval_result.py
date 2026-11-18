@@ -28,6 +28,9 @@ SPAN_BEYOND = 15
 MISSES = ("category_differs", "severity_differs", "location_differs")
 WENT = ("finding_not_raised", "finding_elsewhere", "finding_uncited", "finding_cites_another")
 SURPLUS = ("surplus_at_place", "surplus_gating_elsewhere")
+# What a Result did with the Findings a case showed it: left one unruled, ruled one otherwise than expected, ruled another.
+RULINGS = ("ruling_missing", "ruling_wrong", "ruling_unasked")
+ASIDE = "not_applicable"      # the verdict of a criterion whose only fault is a shown Finding that stands
 
 
 def _lines(location: dict):
@@ -178,6 +181,12 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
     want = case["expected"]
     if (want["verdict"] == "finding") != (want["finding"] is not None):
         return {"case": case["id"], "verdict": UNREADABLE, "reasons": ["answer_disagrees_with_verdict"]}
+    # A criterion is set aside for a Finding that stands only by its code, and only where the case shows a Finding it
+    # expects ruled `rejected` (issue 886).
+    shown = case.get("shown", [])
+    if (want["verdict"] == ASIDE) != ("reason" in want) or \
+            (want["verdict"] == ASIDE and not any(s["expected"] == "rejected" for s in shown)):
+        return {"case": case["id"], "verdict": UNREADABLE, "reasons": ["answer_disagrees_with_verdict"]}
     # Every place a case gives must be readable: its `location`, and each of `also_at` read inside a hunk of the case's
     # own diff on the head's side, which lines that cannot be read never are (decision 0143).
     if want["finding"] is not None and (_lines(want["finding"]["location"]) is False
@@ -219,10 +228,26 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
     else:
         # A clean case holds no fault a gate should stop, so a Finding that would hold it fails the case, whatever
         # criterion it cites or none, as one that cites the case's own criterion does at any severity (decision 0144).
+        # So does one raised again where the fault is a shown Finding's, which its open thread already holds.
         if citing or any(_gates(f) for f in result["findings"]):
             reasons.append("finding_raised_wrongly")
-        if covered != ["met"]:
+        if want["verdict"] == ASIDE:
+            if [(c["verdict"], c.get("reason")) for c in result["coverage"] if c["criterion"] == want["criterion"]] != \
+                    [(ASIDE, want["reason"])]:
+                reasons.append("coverage_disagrees")
+        elif covered != ["met"]:
             reasons.append("criterion_not_met")
+    # Each Finding a case shows is ruled as the case expects, and no other is ruled: silence on one is no ruling, and
+    # `apply` would refuse the Result whole for a ruling on a Finding the Run was not shown (issue 886).
+    if shown and result["status"] == "completed":
+        ruled = {d["finding"]: d.get("decision", {}).get("result") for d in result["dispositions"]}
+        asked = {s["id"]: s["expected"] for s in shown}
+        if any(ruled.get(f) is None for f in asked):
+            reasons.append(RULINGS[0])
+        if any(ruled.get(f) not in (None, said) for f, said in asked.items()):
+            reasons.append(RULINGS[1])
+        if any(f not in asked for f in ruled):
+            reasons.append(RULINGS[2])
     said = {"case": case["id"], "verdict": PASS if not reasons else FAIL, "reasons": reasons}
     # A pass whose Finding was at an alternate place alone, never its `location`, is marked, so a report can count how
     # much of its score `also_at` gave (decision 0143).

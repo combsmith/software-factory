@@ -97,6 +97,38 @@
         "body": { "type": "string", "minLength": 1 }
       }
     },
+    "shown": {
+      "description": "The Findings the review is shown, as a live re-review is shown its Lens's open ones (issue 856): each by its id, with what the Lens wrote, which reaches the Task as the text `finding:` and the id under the case's own Role, and the ruling a reviewer should give. Optional: a case without it shows none.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "text",
+          "expected"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^f_[0-9a-f]{4,64}$"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expected": {
+            "enum": [
+              "accepted",
+              "rejected"
+            ]
+          }
+        }
+      }
+    },
     "expected": {
       "type": "object",
       "additionalProperties": false,
@@ -109,8 +141,13 @@
         "verdict": {
           "enum": [
             "finding",
-            "met"
+            "met",
+            "not_applicable"
           ]
+        },
+        "reason": {
+          "description": "The code a criterion is set aside by, given with the verdict `not_applicable` and with no other: the criterion's only fault is a shown Finding the review rules `rejected`.",
+          "const": "finding_stands"
         },
         "criterion": {
           "type": "string",

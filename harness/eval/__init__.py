@@ -639,17 +639,26 @@ def _expected(found: dict, place: pathlib.Path):
         except Stop:
             return None
         said = case.get("expected") if isinstance(case, dict) else None
-        kind = said.get("verdict") if isinstance(said, dict) else None
-        if not isinstance(kind, str) or kind not in KINDS:
+        kind = kind_of(said.get("verdict")) if isinstance(said, dict) else None
+        if kind is None:
             return None
         expected[entry["id"]] = said
     return expected
 
 
+def kind_of(verdict):
+    """The kind a case counts under, by the verdict it expects, or None where that is none a case may give. A criterion
+    set aside for a Finding that stands, `not_applicable`, is a fault the review must keep held: the recall side, so it
+    counts as `finding` (decision 0228). It expects no Finding, so no floor and no blocking rule reads it."""
+    if not isinstance(verdict, str):
+        return None
+    return verdict if verdict in KINDS else "finding" if verdict == eval_result.ASIDE else None
+
+
 def kinds_of(found: dict, place: pathlib.Path):
     """`{id: kind}` of the set's cases, or None where `_expected` can say nothing."""
     expected = _expected(found, place)
-    return None if expected is None else {case: said["verdict"] for case, said in expected.items()}
+    return None if expected is None else {case: kind_of(said["verdict"]) for case, said in expected.items()}
 
 
 def criteria_of(found: dict, place: pathlib.Path):

@@ -114,6 +114,66 @@ def reviewed(env, release, began, call=None, clock=None, heads=None):
 
 
 class Scoring(unittest.TestCase):
+    def test_each_finding_a_case_shows_is_ruled_as_it_expects(self):  # issue 886, decision 0228
+        # A case may show the review Findings its Lens raised before, each with the ruling a reviewer should give. The
+        # case passes only if each is ruled so and no other Finding is ruled, beside its criterion.
+        known = eval_result.schemas()
+        fixed, stands = "f_a1c0de01", "f_a1c0de02"
+        shown = [{"id": fixed, "text": "It indexes before it checks.", "expected": "accepted"},
+                 {"id": stands, "text": "No test tries an empty list.", "expected": "rejected"}]
+        case = dict(load("examples/eval-case.met.json"), shown=shown)
+        self.assertEqual(validate(case, known["eval-case"], schemas=known), [])
+        criterion = case["expected"]["criterion"]
+
+        def answered(*rulings, case=case, covered=None, **over):
+            coverage = [dict(c, verdict="met", reason=None) if c["verdict"] == "finding" else c
+                        for c in example_result()["coverage"]]
+            coverage = [dict(c, **covered) if covered and c["criterion"] == criterion else c for c in coverage]
+            r = dict(example_result(), findings=[], coverage=coverage,
+                     dispositions=[d if isinstance(d, dict) else {"finding": d[0], "decision": {"result": d[1]}} for d in rulings])
+            r.update(over)
+            self.assertEqual(validate(r, known["result"], schemas=known), [])
+            scored = eval_result.score(case, r)
+            return scored["verdict"], scored["reasons"]
+        right = ((fixed, "accepted"), (stands, "rejected"))
+        self.assertEqual(answered(*right), ("pass", []))
+        for rulings, reasons in (((), ["ruling_missing"]), (right[:1], ["ruling_missing"]), (right[1:], ["ruling_missing"]),
+                                 (((fixed, "rejected"), right[1]), ["ruling_wrong"]),
+                                 ((right[0], (stands, "accepted")), ["ruling_wrong"]),
+                                 (right + (("f_0bad", "rejected"),), ["ruling_unasked"]),
+                                 # A proposal is the author's half, and no ruling.
+                                 (({"finding": fixed, "proposal": {"outcome": "fixed"}}, right[1]), ["ruling_missing"]),
+                                 (((stands, "accepted"), ("f_0bad", "accepted")), ["ruling_missing", "ruling_wrong", "ruling_unasked"])):
+            self.assertEqual(answered(*rulings), ("fail", reasons), rulings)
+        # A Result that did not complete rules nothing, and says so once.
+        self.assertEqual(answered(status="incomplete", reason="change_not_reviewed_whole", coverage=[]),
+                         ("fail", ["result_not_completed", "criterion_not_met"]))
+        # A case that shows none is scored as it was, whatever a Result disposes of.
+        self.assertEqual(answered(*right, case=load("examples/eval-case.met.json")), ("pass", []))
+        # A criterion whose only fault is a shown Finding that stands is set aside by its code: `not_applicable`,
+        # `finding_stands`, and nothing raised again for it.
+        aside = dict(case, expected={"verdict": "not_applicable", "criterion": criterion, "finding": None, "reason": "finding_stands"})
+        self.assertEqual(validate(aside, known["eval-case"], schemas=known), [])
+        stood = {"verdict": "not_applicable", "reason": "finding_stands"}
+        self.assertEqual(answered(*right, case=aside, covered=stood), ("pass", []))
+        self.assertEqual(answered(*right, case=aside), ("fail", ["coverage_disagrees"]))
+        self.assertEqual(answered(*right, case=aside, covered={"verdict": "not_applicable", "reason": "no_rule_added"}),
+                         ("fail", ["coverage_disagrees"]))
+        self.assertEqual(answered(right[0], case=aside, covered=stood), ("fail", ["ruling_missing"]))
+        again = dict(example_result()["findings"][0], criterion=criterion)
+        self.assertEqual(answered(*right, case=aside, covered=stood, findings=[again]), ("fail", ["finding_raised_wrongly"]))
+        # The verdict and its reason go together, and only where the case shows a Finding it expects ruled `rejected`.
+        for odd in (dict(aside, expected={k: v for k, v in aside["expected"].items() if k != "reason"}),
+                    dict(case, expected=dict(case["expected"], reason="finding_stands")),
+                    {k: v for k, v in aside.items() if k != "shown"}, dict(aside, shown=shown[:1])):
+            self.assertEqual(validate(odd, known["eval-case"], schemas=known), [])
+            self.assertEqual(answered(*right, case=odd, covered=stood), ("unreadable", ["answer_disagrees_with_verdict"]))
+        # What eval-case/1 refuses of the Findings shown.
+        for name in ("a-finding-shown-with-no-ruling", "a-finding-shown-twice", "no-finding-shown",
+                     "a-reason-that-is-no-code-of-a-standing-finding", "a-finding-shown-under-a-writer"):
+            self.assertNotEqual(validate(load("examples/invalid/eval-case.%s.json" % name), known["eval-case"], schemas=known), [], name)
+        self.assertEqual(validate(load("examples/eval-case.shown.json"), known["eval-case"], schemas=known), [])
+
     def test_a_result_that_raises_the_expected_finding_passes_and_one_that_does_not_fails(self):
         case, result = load("examples/eval-case.json"), example_result()
         self.assertEqual(eval_result.score(case, result), {"case": case["id"], "verdict": "pass", "reasons": []})
@@ -1233,6 +1293,26 @@ class EvalJob(unittest.TestCase):
                 self.step(job.plan)
                 self.step(job.fetch, self.home(cases))
                 self.assertIs(job.split_ok(found(), self.temp / "heldout"), held)
+        # A case whose criterion is set aside for a shown Finding that stands holds a fault the review must keep held:
+        # it counts as one that expects a Finding, so a set that mixes it with the two other answers is read, and is
+        # short of a kind only where it is (decision 0228).
+        aside = dict(right, id="poc-aside", shown=[{"id": "f_9c1e", "text": "It indexes before it checks.", "expected": "rejected"}],
+                     expected={"verdict": "not_applicable", "criterion": one["expected"]["criterion"], "finding": None,
+                               "reason": "finding_stands"})
+        self.assertEqual(validate(aside, known["eval-case"], schemas=known), [])
+        stands = {"poc-aside": (json.dumps(aside, indent=2) + "\n").encode()}
+        for cases, held in ((dict(mixed, **stands), True), (dict(right_only, **stands), True), (stands, False),
+                            (dict({one["id"]: self.cases[one["id"]]}, **stands), False)):
+            with self.subTest(cases=sorted(cases)), mock.patch.object(job, "KIND_LEAST", 1), \
+                    mock.patch.object(job, "BLOCKING_LEAST", 0):
+                self.clean()
+                self.set(cases)
+                self.step(job.plan)
+                self.step(job.fetch, self.home(cases))
+                self.assertIs(job.split_ok(found(), self.temp / "heldout"), held)
+                self.assertEqual(job.kinds_of(found(), self.temp / "heldout")["poc-aside"], "finding")
+        self.assertEqual([job.kind_of(v) for v in ("finding", "met", "not_applicable", "maybe", None, ["met"])],
+                         ["finding", "met", "finding", None, None, None])
         # Short of a kind: the run says so by a code alone, and neither the log nor the report holds a count of a kind.
         with mock.patch.object(job, "KIND_LEAST", 1):
             self.clean()
@@ -1474,7 +1554,7 @@ class EvalJob(unittest.TestCase):
         # A case's own fault counts as not passing, and the bar can hold it.
         own = {"not_this_set", "facts_not_current", "facts_read_short", "diff_unreadable", "diff_not_content", "pusher_unnamed",
                "diff_not_whole", "issue_not_whole", "issue_unreadable", "answer_off_rubric", "answer_disagrees_with_verdict",
-               "location_unreadable", "criterion_unknown"}
+               "location_unreadable", "criterion_unknown", "findings_not_shown"}
         for code in own:
             self.assertEqual(read(10, 3, others=(("unreadable", [code]),)), "pass", code)
             self.assertEqual(read(10, 2, others=(("unreadable", [code]),)), "case_failed", code)
@@ -1494,7 +1574,7 @@ class EvalJob(unittest.TestCase):
         for code in job.ENGINE_FAULTS:
             self.assertEqual(read(10, 9, others=(("unreadable", [code]),)), "engine_fault", code)
         # No code is left out of telling the two apart: each of the report's is a Fault, the reviewer's or a case's own.
-        scorer = set(eval_result.MISSES) | set(eval_result.WENT) | set(eval_result.SURPLUS) | {
+        scorer = set(eval_result.MISSES) | set(eval_result.WENT) | set(eval_result.SURPLUS) | set(eval_result.RULINGS) | {
             "result_not_completed", "coverage_disagrees", "finding_raised_wrongly", "criterion_not_met", "finding_not_in_hunk"}
         self.assertEqual(job.eval_result_codes(), scorer | own | set(job.RUN_FAULTS) | set(job.ENGINE_FAULTS))
         self.assertEqual(own & (set(job.RUN_FAULTS) | set(job.ENGINE_FAULTS)), set())
@@ -2474,6 +2554,41 @@ class EvalJob(unittest.TestCase):
         self.assertIn("head", cli.asked()[0], "the CLI is asked, in a head")
         head = os.path.realpath(cli.asked()[0]["head"])
         self.assertEqual(os.path.commonpath([head, kept["cases"]]), os.path.realpath(tempfile.gettempdir()))
+
+    def test_a_case_that_shows_findings_gives_them_to_the_task_as_a_live_run_is(self):  # issue 886
+        # The Findings a case shows reach the Task as a live Run's reader hands them: listed by id, each with the text
+        # `finding:` and its id under the case's own Role, before the issue's.
+        from harness import engine, eval as job
+        from harness.eval import run as step
+        case, live = self.reviewed()
+        shown = [{"id": "f_9c1e", "text": "It reads the head before the push.", "expected": "accepted"},
+                 {"id": "f_22ab", "text": "No test tries an empty list.", "expected": "rejected"}]
+        by = {"kind": "human", "name": "a-colleague", "can_write": False}
+        held = dict(case, shown=shown, issue={"number": 12, "by": by, "body": "Return early when the list is empty."})
+        cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            reviewed(dict(live.JOB), "factory/v0.1.0", 0, cli, live.Clock(0.0, 1.0, 2.0))(held)
+        asked, = cli.asked()
+        given = json.loads(asked["args"][2].split(engine.TASK, 1)[1])
+        self.assertEqual(given["findings"], ["f_9c1e", "f_22ab"])
+        self.assertEqual([(t["id"], t["trust"], t["source"], t["body"]) for t in given["texts"] if not t["id"].startswith("diff:")],
+                         [("finding:f_9c1e", "role", "pr-review", shown[0]["text"]),
+                          ("finding:f_22ab", "role", "pr-review", shown[1]["text"]),
+                          ("issue:12", "outside", "a-colleague", held["issue"]["body"])])
+        self.assertEqual([s["finding"] for s in engine.shown(given)], ["f_9c1e", "f_22ab"])
+        # A case that shows none lists none.
+        cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            reviewed(dict(live.JOB), "factory/v0.1.0", 0, cli, live.Clock(0.0, 1.0, 2.0))(case)
+        self.assertEqual(json.loads(cli.asked()[0]["args"][2].split(engine.TASK, 1)[1])["findings"], [])
+        # A Finding no Task can show whole says so by a code and asks nothing: never the reviewer's failure.
+        long = dict(case, shown=[shown[0], dict(shown[1], text="x" * (live.HARNESS["texts"]["characters"] + 1))])
+        cli = live.CLI()
+        with self.assertRaises(job.Stop) as stopped:
+            reviewed(dict(live.JOB), "factory/v0.1.0", 0, cli, live.Clock(0.0))(long)
+        self.assertEqual((stopped.exception.code, cli.asked()), ("findings_not_shown", []))
+        self.assertIn("findings_not_shown", job.eval_result_codes())
+        self.assertNotIn("findings_not_shown", job.ENGINE_FAULTS + job.RUN_FAULTS)
 
     def test_a_case_that_holds_its_issue_gives_it_to_the_task_as_a_live_run_is(self):  # decision 0110
         from harness import engine, eval as job, task

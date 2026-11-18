@@ -99,9 +99,14 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, he
         # The issue a change serves, as a live Run reads it (adapters/texts.py), where the case holds one (decision 0110).
         texts = [{"id": "issue:%d" % case["issue"]["number"], "by": case["issue"]["by"], "body": case["issue"]["body"]}] \
             if "issue" in case else []
+        # The Findings a case shows, as a live Run's reader hands a review its Lens's open ones (issue 886): each text
+        # `finding:` and the id, written by the case's own Role as a Lens, never by a writer the case names.
+        shown = case.get("shown", [])
+        lens = {"kind": "lens", "name": case["role"], "can_write": False}
+        texts = [{"id": engine.shared.FINDING_TEXT + s["id"], "by": lens, "body": s["text"]} for s in shown] + texts
         try:
-            the_task = tasks.from_admission(admit, facts.get("item"), run_id(), facts, texts, manifest, [], config,
-                                      case["diff"].encode("utf-8"))
+            the_task = tasks.from_admission(admit, facts.get("item"), run_id(), facts, texts, manifest,
+                                            [s["id"] for s in shown], config, case["diff"].encode("utf-8"))
         except (tasks.Refused, KeyError, UnicodeEncodeError):
             raise Stop("not_this_set") from None
         # A diff over the Kernel's bound is cut in the Task, and a review is never of part of one: `live.answer` would
@@ -111,6 +116,9 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, he
         # So is an issue over the texts' budget: asked without it, a case on PR-1 would read as the reviewer's failure.
         if any(o["kind"] == "issue" for o in the_task["omitted"]):
             raise Stop("issue_not_whole")
+        # And so is a Finding the Task lists and does not show: `live.answer` would ask nothing and write a failed Result.
+        if len(engine.shown(the_task)) != len(the_task["findings"]):
+            raise Stop("findings_not_shown")
         # A case may make more than one call where a private replay switches an approach on (issue 581), each with its own
         # time and its own reads of the version.
         takes = len(passes.asked(the_task, passes.settings(config["harness"]))) * (the_task["limits"]["seconds"] + VERSION_READS)
