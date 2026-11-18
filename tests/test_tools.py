@@ -13926,9 +13926,11 @@ class Rulesets(unittest.TestCase):
         self.assertEqual(check_rulesets.CHECK % "astra", "advisory-astra")
         for name in ("advisory-astra", "astra", "kimi", "advisory-kimi", "coderabbit", "Advisory-Astra", "KIMI", " astra "):
             checks = self.main["required_status_checks"]["required_status_checks"]
-            checks.append({"context": name, "integration_id": 15368})
-            self.assertTrue(caught(self.run_on(), "the main ruleset names %r, the advisory Lens" % name), name)
-            checks.pop()
+            lens = name.strip().lower().replace("advisory-", "")
+            for at in (0, len(checks)):         # wherever it stands among the checks required
+                checks.insert(at, {"context": name, "integration_id": 15368})
+                self.assertTrue(caught(self.run_on(), "the main ruleset names %r, the advisory Lens %s's" % (name, lens)), name)
+                checks.pop(at)
             self.main["code_scanning"]["code_scanning_tools"].append({"tool": name})
             self.assertTrue(caught(self.run_on(), "the main ruleset names %r, the advisory Lens" % name), name)
             self.main["code_scanning"]["code_scanning_tools"].pop()
@@ -13947,13 +13949,26 @@ class Rulesets(unittest.TestCase):
         self.assertEqual(self.run_on(), [])
         # Nor is one made required by another road: a required Lens of that name, or with that check.
         lenses = self.defaults["required_lenses"]
-        for change in ({"lens": "astra"}, {"check": "advisory-astra"}, {"check": "Kimi"}):
+        for change in ({"lens": "astra"}, {"check": "advisory-astra"}, {"check": "Kimi"}, {"check": " advisory-kimi "}, {"lens": "ASTRA"}):
             lenses["deterministic"].append(dict({"lens": "lint", "check": "lint", "app_id": 15368, "workflow": None}, **change))
             self.assertTrue(caught(self.run_on(), "a required Lens is named %r, the advisory Lens" % list(change.values())[0]), change)
             lenses["deterministic"].pop()
-        lenses["model"].append("astra")
-        self.assertTrue(caught(self.run_on(), "a required Lens is named 'astra', the advisory Lens astra's"))
-        lenses["model"].pop()
+        for name in ("astra", "Astra ", " KIMI"):
+            lenses["model"].append(name)
+            self.assertTrue(caught(self.run_on(), "a required Lens is named %r, the advisory Lens %s's" % (name, name.strip().lower())))
+            lenses["model"].pop()
+        # A ruleset in a shape this check does not read is a problem, never one that names nothing.
+        kept = json.loads(json.dumps(self.rulesets))
+        for odd in ([{"type": "required_status_checks"}], None, "rules"):
+            self.rulesets["rulesets"]["another ruleset"] = {"target": "branch", "enforcement": "disabled", "rules": odd}
+            self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"), odd)
+        for odd in ("astra", ["advisory-astra"], [{"name": "advisory-astra"}], [{"context": 7}], {"advisory-astra": {}}):
+            self.rulesets["rulesets"]["another ruleset"] = {"rules": {"required_status_checks": {"required_status_checks": odd}}}
+            self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"), odd)
+            self.rulesets["rulesets"]["another ruleset"] = {"rules": {"code_scanning": {"code_scanning_tools": odd}}}
+            self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"), odd)
+        self.rulesets = kept
+        self.main = self.rulesets["rulesets"]["main"]["rules"]
         self.assertEqual(self.run_on(), [])
         # With no list of the advisory Lenses to read, nothing is shown, and the check says so.
         for unreadable in ({}, {"advisory": "astra"}, {"advisory": [7]}, {"advisory": None}):
