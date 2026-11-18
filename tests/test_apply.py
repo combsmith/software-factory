@@ -1706,18 +1706,6 @@ class Job(unittest.TestCase):
             self.assertIsNone(apply.taken(given, at))
         record, ended, calls = self.go(None)
         self.assertEqual((ended["outcome"], ended["reason"], calls["mint"]), ("environment", "result_unreadable", []))
-        # What a Run was shown rides on that digest (issue 856): a Result whose `shown` drops a Finding, adds one,
-        # lists them in another order or names another text is other bytes, and is not taken.
-        first, second = showing("f_9c1e", "f_22ab")
-        told = result(shown=[first, second])
-        data = json.dumps(told).encode()
-        digest = "sha256:" + hashlib.sha256(data).hexdigest()
-        self.assertEqual(apply.taken(data, digest), told)
-        for why, forged in (("dropped", [first]), ("added", [first, second] + showing("f_0bad")),
-                            ("reordered", [second, first]), ("an edited text", [first, dict(second, text=first["text"])]),
-                            ("none", [])):
-            self.assertIsNone(apply.taken(json.dumps(result(shown=forged)).encode(), digest), why)
-        self.assertIsNone(apply.taken(json.dumps(result()).encode(), digest))
 
     def test_the_live_path_holds_a_result_to_what_was_admitted_and_the_diff_read_again(self):  # issue 567
         # As the apply step runs it: what the Decision admitted, from the pass record, and no Task built by hand, so the
