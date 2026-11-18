@@ -13904,16 +13904,61 @@ class Rulesets(unittest.TestCase):
     def setUp(self):
         self.rulesets = json.loads((ROOT / "config" / "rulesets.json").read_text())
         self.defaults = json.loads((ROOT / "config" / "defaults.json").read_text())
+        self.harness = json.loads((ROOT / "config" / "harness.json").read_text())
         self.main = self.rulesets["rulesets"]["main"]["rules"]
 
     def run_on(self) -> list:
         # Beside the repo's own code owners, which the check reads once `main` counts an approval (decision 0191).
         return check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets), "config/apps.json": (ROOT / "config" / "apps.json").read_text(),
                                         "config/defaults.json": json.dumps(self.defaults),
+                                        "config/harness.json": json.dumps(self.harness),
                                         ".github/CODEOWNERS": (ROOT / ".github" / "CODEOWNERS").read_text()}))
 
     def test_this_repos_rulesets_agree_with_its_lenses(self):
         self.assertEqual(self.run_on(), [])
+
+    def test_no_ruleset_and_no_required_lens_names_an_advisory_lens(self):  # decision 0224
+        # An advisory Lens's check run is always neutral, and a ruleset counts neutral as met: one that named it would
+        # hold nothing. So none does: not `main`, not a tag ruleset, not one that is switched off; not as a required
+        # check, not as a code-scanning tool; not by the Lens's name, not by its check's, in whatever case.
+        self.harness["advisory"] = ["coderabbit", "astra", "kimi"]
+        self.assertEqual(self.run_on(), [])
+        self.assertEqual(check_rulesets.CHECK % "astra", "advisory-astra")
+        for name in ("advisory-astra", "astra", "kimi", "advisory-kimi", "coderabbit", "Advisory-Astra", "KIMI", " astra "):
+            checks = self.main["required_status_checks"]["required_status_checks"]
+            checks.append({"context": name, "integration_id": 15368})
+            self.assertTrue(caught(self.run_on(), "the main ruleset names %r, the advisory Lens" % name), name)
+            checks.pop()
+            self.main["code_scanning"]["code_scanning_tools"].append({"tool": name})
+            self.assertTrue(caught(self.run_on(), "the main ruleset names %r, the advisory Lens" % name), name)
+            self.main["code_scanning"]["code_scanning_tools"].pop()
+            for title in ("factory release tags", "another ruleset"):
+                kept = json.loads(json.dumps(self.rulesets))
+                held = self.rulesets["rulesets"].setdefault(title, {"target": "branch", "enforcement": "disabled", "rules": {}})
+                held["rules"]["required_status_checks"] = {"required_status_checks": [{"context": name}]}
+                self.assertTrue(caught(self.run_on(), "the %s ruleset names %r, the advisory Lens" % (title, name)), (title, name))
+                self.rulesets = kept
+                self.main = self.rulesets["rulesets"]["main"]["rules"]
+        # A check that only holds such a name within it is another check, and is held by the rules there already.
+        for name in ("advisory-astra-2", "astral", "advisory-"):
+            self.main["code_scanning"]["code_scanning_tools"].append({"tool": name})
+            self.assertFalse(caught(self.run_on(), "the advisory Lens"), name)
+            self.main["code_scanning"]["code_scanning_tools"].pop()
+        self.assertEqual(self.run_on(), [])
+        # Nor is one made required by another road: a required Lens of that name, or with that check.
+        lenses = self.defaults["required_lenses"]
+        for change in ({"lens": "astra"}, {"check": "advisory-astra"}, {"check": "Kimi"}):
+            lenses["deterministic"].append(dict({"lens": "lint", "check": "lint", "app_id": 15368, "workflow": None}, **change))
+            self.assertTrue(caught(self.run_on(), "a required Lens is named %r, the advisory Lens" % list(change.values())[0]), change)
+            lenses["deterministic"].pop()
+        lenses["model"].append("astra")
+        self.assertTrue(caught(self.run_on(), "a required Lens is named 'astra', the advisory Lens astra's"))
+        lenses["model"].pop()
+        self.assertEqual(self.run_on(), [])
+        # With no list of the advisory Lenses to read, nothing is shown, and the check says so.
+        for unreadable in ({}, {"advisory": "astra"}, {"advisory": [7]}, {"advisory": None}):
+            self.harness = unreadable
+            self.assertTrue(caught(self.run_on(), "cannot be read for the advisory Lenses"), unreadable)
 
     def test_main_counts_the_machine_users_approval_as_the_switch_left_it(self):  # decision 0191
         # Issue 198's switch was made on 2026-11-11, once a Release on `next` had reviewed a pull request, the Factory's
@@ -13939,7 +13984,7 @@ class Rulesets(unittest.TestCase):
 
         def run(rulesets):
             return check_rulesets.run(tree({"config/rulesets.json": json.dumps(rulesets),
-                                            "config/defaults.json": json.dumps(self.defaults), "config/apps.json": apps,
+                                            "config/defaults.json": json.dumps(self.defaults), "config/harness.json": json.dumps(self.harness), "config/apps.json": apps,
                                             ".github/CODEOWNERS": (ROOT / ".github" / "CODEOWNERS").read_text()}))
         name = check_rulesets.CHANNEL_BRANCHES
         self.assertEqual(run(self.rulesets), [])
@@ -13979,7 +14024,7 @@ class Rulesets(unittest.TestCase):
         apps = (ROOT / "config" / "apps.json").read_text()
 
         def run(rulesets, table=apps):
-            return check_rulesets.run(tree({"config/rulesets.json": json.dumps(rulesets), "config/defaults.json": json.dumps(self.defaults),
+            return check_rulesets.run(tree({"config/rulesets.json": json.dumps(rulesets), "config/defaults.json": json.dumps(self.defaults), "config/harness.json": json.dumps(self.harness),
                                             "config/apps.json": table, ".github/CODEOWNERS": (ROOT / ".github" / "CODEOWNERS").read_text()}))
 
         self.assertEqual(run(self.rulesets), [])
@@ -14036,7 +14081,7 @@ class Rulesets(unittest.TestCase):
                       require_extra_approval_for_unattributed_changes=False)
         owners = (ROOT / ".github" / "CODEOWNERS").read_text() if owners is None else owners
         return check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets), "config/apps.json": (ROOT / "config" / "apps.json").read_text(),
-                                        "config/defaults.json": json.dumps(self.defaults), ".github/CODEOWNERS": owners}))
+                                        "config/defaults.json": json.dumps(self.defaults), "config/harness.json": json.dumps(self.harness), ".github/CODEOWNERS": owners}))
 
     def test_an_approval_counts_only_a_code_owners_of_the_last_push(self):  # issue 366
         # The switch issue 198 makes is let through: the machine user's team owns every path.
@@ -14079,13 +14124,13 @@ class Rulesets(unittest.TestCase):
         # Code owners that cannot be read, under a ruleset that counts an approval, are a problem, never none.
         self.counted()
         self.assertTrue(caught(check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets), "config/apps.json": (ROOT / "config" / "apps.json").read_text(),
-                                                        "config/defaults.json": json.dumps(self.defaults)})),
+                                                        "config/defaults.json": json.dumps(self.defaults), "config/harness.json": json.dumps(self.harness)})),
                                ".github/CODEOWNERS cannot be read"))
         # A ruleset that counts no approval, of anyone, reads no code owners at all.
         self.main["pull_request"].update(required_approving_review_count=0, require_code_owner_review=False,
                                          require_last_push_approval=False)
         self.assertEqual(check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets), "config/apps.json": (ROOT / "config" / "apps.json").read_text(),
-                                                  "config/defaults.json": json.dumps(self.defaults),
+                                                  "config/defaults.json": json.dumps(self.defaults), "config/harness.json": json.dumps(self.harness),
                                                   ".github/CODEOWNERS": "docs/ @someone-else\n"})), [])
 
     def test_files_that_cannot_be_read_are_a_problem(self):

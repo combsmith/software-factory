@@ -35,6 +35,9 @@ PLACE = re.compile(r"[^\s\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]{1,1024}")
 # A run of digits no count, line or price needs. Python reads a number of any length, and slowly: it is not read.
 ENDLESS = re.compile(r"[0-9]{64}")
 MILLION = 1000000
+# The name of the check run that shows an advisory Lens's Result. It is always neutral, and no ruleset may name it
+# (tools/check_rulesets.py), since a ruleset counts a neutral check as met.
+CHECK = "advisory-%s"
 
 
 def _count(value):
