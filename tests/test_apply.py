@@ -690,10 +690,9 @@ class Apply(unittest.TestCase):
                                    "result")
             self.assertEqual(errors == [], ok, (ok, errors))
 
-    def test_each_finding_shown_is_ruled(self):  # issue 856
-        # A review that says nothing of a Finding its Lens raised before has not ruled on it. So a review is shown each
-        # open thread of its own that gates, of a category its Role owns and no security Finding's, and its Result
-        # gives a Disposition on each. `apply.shown` is what the reader lists; `apply` itself holds a Result to its own `shown`.
+    def test_a_review_is_shown_its_lenss_open_findings_that_gate(self):  # issue 856
+        # What the reader lists for a review: each open thread of its Role's own that gates, of a category the Role owns
+        # and no security Finding's, in the facts' order. `apply` itself never reads it: it holds a Result to its `shown`.
         fid = lambda key, lens="pr-review": apply.finding_id(lens, {"type": "thread", "key": key})
         person = {"kind": "human", "name": "don-petry", "can_write": True}
         threads = [support.thread("PRRT_kw7"), support.thread("PRRT_kw8", category="security"),
@@ -710,6 +709,17 @@ class Apply(unittest.TestCase):
         self.assertEqual(apply.shown(facts, dict(ROLE, name="qa-lead"), dict(support.CONFIG)), [])
         self.assertEqual(apply.shown(facts, dict(ROLE, owns=["security"]), support.CONFIG), [])
         self.assertEqual(apply.shown(facts, {k: v for k, v in ROLE.items() if k != "owns"}, support.CONFIG), [])
+
+    def test_each_finding_shown_is_ruled(self):  # issue 856
+        # A review that says nothing of a Finding its Lens raised before has not ruled on it. So a Result gives a
+        # Disposition on each Finding its Run was shown, and on no other. No reader shows a review any yet.
+        fid = lambda key, lens="pr-review": apply.finding_id(lens, {"type": "thread", "key": key})
+        person = {"kind": "human", "name": "don-petry", "can_write": True}
+        threads = [support.thread("PRRT_kw7"), support.thread("PRRT_kw8", category="security"),
+                   support.thread("PRRT_kw9", kind="human", name="don-petry"), support.thread("PRRT_kw10", severity="minor"),
+                   support.thread("PRRT_kw11", resolved=True, resolved_by=person),
+                   support.thread("PRRT_kw13", name="qa-lead"), support.thread("PRRT_kw14", severity="blocking")]
+        facts = the_facts(threads=threads)
 
         def asked(*rulings, shown=("PRRT_kw7", "PRRT_kw14"), **over):
             given = [{"finding": fid(key), "decision": {"result": said}} for key, said in rulings]
