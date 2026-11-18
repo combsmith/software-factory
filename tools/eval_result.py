@@ -30,6 +30,7 @@ WENT = ("finding_not_raised", "finding_elsewhere", "finding_uncited", "finding_c
 SURPLUS = ("surplus_at_place", "surplus_gating_elsewhere")
 # What a Result did with the Findings a case showed it: left one unruled, ruled one otherwise than expected, ruled another.
 RULINGS = ("ruling_missing", "ruling_wrong", "ruling_unasked")
+STANDS = "finding_stands"     # the code such a criterion is set aside by, as `harness/apply.py` holds it
 ASIDE = "not_applicable"      # the verdict of a criterion whose only fault is a shown Finding that stands
 
 
@@ -184,6 +185,8 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
     # A criterion is set aside for a Finding that stands only by its code, and only where the case shows a Finding it
     # expects ruled `rejected` (issue 886).
     shown = case.get("shown", [])
+    if len({s["id"] for s in shown}) != len(shown):
+        return {"case": case["id"], "verdict": UNREADABLE, "reasons": ["schema"]}      # one Finding, shown twice
     if (want["verdict"] == ASIDE) != ("reason" in want) or \
             (want["verdict"] == ASIDE and not any(s["expected"] == "rejected" for s in shown)):
         return {"case": case["id"], "verdict": UNREADABLE, "reasons": ["answer_disagrees_with_verdict"]}
@@ -242,9 +245,14 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
     if shown and result["status"] == "completed":
         ruled = {d["finding"]: d.get("decision", {}).get("result") for d in result["dispositions"]}
         asked = {s["id"]: s["expected"] for s in shown}
+        named = [d["finding"] for d in result["dispositions"]]
         if any(ruled.get(f) is None for f in asked):
             reasons.append(RULINGS[0])
-        if any(ruled.get(f) not in (None, said) for f, said in asked.items()):
+        # A Finding ruled twice, a Disposition with both halves, and a criterion set aside as standing with nothing ruled
+        # `rejected` are each a Result `apply` refuses whole: a hedge is no right ruling.
+        if any(ruled.get(f) not in (None, said) for f, said in asked.items()) or len(named) != len(set(named)) \
+                or any("proposal" in d and "decision" in d for d in result["dispositions"]) \
+                or (any(c.get("reason") == STANDS for c in result["coverage"]) and "rejected" not in ruled.values()):
             reasons.append(RULINGS[1])
         if any(f not in asked for f in ruled):
             reasons.append(RULINGS[2])

@@ -681,7 +681,9 @@ def floor_short(found: dict, place: pathlib.Path) -> bool:
     floored, expected = criteria_of(found, place), _expected(found, place)
     if not floored:
         return False
-    rest = len([s for s in expected.values() if s["verdict"] == "finding"]) - sum(len(c) for c in floored.values())
+    # The rest is of the kind as the report counts it, a case set aside for a standing Finding among them (decision
+    # 0228): the count published is the kind's, so a few of those beside the floors would tell their verdicts too.
+    rest = len([s for s in expected.values() if kind_of(s["verdict"]) == "finding"]) - sum(len(c) for c in floored.values())
     return any(len(cases) < FLOOR_LEAST for cases in floored.values()) or 0 < rest < FLOOR_LEAST
 
 

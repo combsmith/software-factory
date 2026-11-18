@@ -119,8 +119,9 @@ class Scoring(unittest.TestCase):
         # case passes only if each is ruled so and no other Finding is ruled, beside its criterion.
         known = eval_result.schemas()
         fixed, stands = "f_a1c0de01", "f_a1c0de02"
-        shown = [{"id": fixed, "text": "It indexes before it checks.", "expected": "accepted"},
-                 {"id": stands, "text": "No test tries an empty list.", "expected": "rejected"}]
+        raised = {"category": "functional", "severity": "major"}
+        shown = [dict(raised, id=fixed, text="It indexes before it checks.", expected="accepted"),
+                 dict(raised, id=stands, text="No test tries an empty list.", expected="rejected")]
         case = dict(load("examples/eval-case.met.json"), shown=shown)
         self.assertEqual(validate(case, known["eval-case"], schemas=known), [])
         criterion = case["expected"]["criterion"]
@@ -143,8 +144,24 @@ class Scoring(unittest.TestCase):
                                  (right + (("f_0bad", "rejected"),), ["ruling_unasked"]),
                                  # A proposal is the author's half, and no ruling.
                                  (({"finding": fixed, "proposal": {"outcome": "fixed"}}, right[1]), ["ruling_missing"]),
-                                 (((stands, "accepted"), ("f_0bad", "accepted")), ["ruling_missing", "ruling_wrong", "ruling_unasked"])):
+                                 (((stands, "accepted"), ("f_0bad", "accepted")), ["ruling_missing", "ruling_wrong", "ruling_unasked"]),
+                                 # A hedge is no right ruling, and `apply` refuses each whole: a Finding ruled twice,
+                                 # whichever comes last, and a Disposition that gives both halves.
+                                 (((fixed, "rejected"),) + right, ["ruling_wrong"]), (right + ((fixed, "rejected"),), ["ruling_wrong"]),
+                                 (right + right[1:], ["ruling_wrong"]),
+                                 (({"finding": fixed, "proposal": {"outcome": "fixed"}, "decision": {"result": "accepted"}},
+                                   right[1]), ["ruling_wrong"])):
             self.assertEqual(answered(*rulings), ("fail", reasons), rulings)
+        # So is another criterion set aside as standing where the Result rules nothing `rejected`.
+        other = [dict(c, verdict="not_applicable", reason="finding_stands") if c["criterion"] == "PR-4" else
+                 dict(c, verdict="met", reason=None) if c["verdict"] == "finding" else c for c in example_result()["coverage"]]
+        one = dict(case, shown=shown[:1])
+        self.assertEqual(answered(right[0], case=one, coverage=other), ("fail", ["ruling_wrong"]))
+        self.assertEqual(answered(*right, coverage=other), ("pass", []))
+        # One Finding shown twice, with whatever words and rulings, is no case to score.
+        twice = dict(case, shown=[shown[0], dict(shown[1], id=fixed)])
+        self.assertEqual(validate(twice, known["eval-case"], schemas=known), [])
+        self.assertEqual(answered(*right, case=twice), ("unreadable", ["schema"]))
         # A Result that did not complete rules nothing, and says so once.
         self.assertEqual(answered(status="incomplete", reason="change_not_reviewed_whole", coverage=[]),
                          ("fail", ["result_not_completed", "criterion_not_met"]))
@@ -159,7 +176,8 @@ class Scoring(unittest.TestCase):
         self.assertEqual(answered(*right, case=aside), ("fail", ["coverage_disagrees"]))
         self.assertEqual(answered(*right, case=aside, covered={"verdict": "not_applicable", "reason": "no_rule_added"}),
                          ("fail", ["coverage_disagrees"]))
-        self.assertEqual(answered(right[0], case=aside, covered=stood), ("fail", ["ruling_missing"]))
+        self.assertEqual(answered(right[0], case=aside, covered=stood), ("fail", ["ruling_missing", "ruling_wrong"]))
+        self.assertEqual(answered(right[1], case=aside, covered=stood), ("fail", ["ruling_missing"]))
         again = dict(example_result()["findings"][0], criterion=criterion)
         self.assertEqual(answered(*right, case=aside, covered=stood, findings=[again]), ("fail", ["finding_raised_wrongly"]))
         # The verdict and its reason go together, and only where the case shows a Finding it expects ruled `rejected`.
@@ -174,8 +192,18 @@ class Scoring(unittest.TestCase):
                          ("twice", dict(case, shown=shown[:1] * 2)), ("none", dict(case, shown=[])),
                          ("under a writer", dict(case, shown=[dict(shown[0], by=person)])),
                          ("a ruling that is none", dict(case, shown=[dict(shown[0], expected="fixed")])),
+                         ("more than fifty", dict(case, shown=[dict(shown[0], id="f_%04x" % n) for n in range(51)])),
+                         ("an id of no Finding's form", dict(case, shown=[dict(shown[0], id="f_zz")])),
+                         ("a text of nothing", dict(case, shown=[dict(shown[0], text="")])),
+                         # A review is shown no security Finding, and none that does not gate.
+                         ("a security Finding", dict(case, shown=[dict(shown[0], category="security")])),
+                         ("a Finding that does not gate", dict(case, shown=[dict(shown[0], severity="minor")])),
+                         ("no category", dict(case, shown=[{k: v for k, v in shown[0].items() if k != "category"}])),
+                         ("no severity", dict(case, shown=[{k: v for k, v in shown[0].items() if k != "severity"}])),
                          ("another code", dict(aside, expected=dict(aside["expected"], reason="no_rule_added")))):
             self.assertEqual(len(validate(odd, known["eval-case"], schemas=known)), 1, why)
+        fifty = dict(case, shown=[dict(shown[0], id="f_%04x" % n) for n in range(50)])
+        self.assertEqual(validate(fifty, known["eval-case"], schemas=known), [])
 
     def test_a_result_that_raises_the_expected_finding_passes_and_one_that_does_not_fails(self):
         case, result = load("examples/eval-case.json"), example_result()
@@ -1299,7 +1327,8 @@ class EvalJob(unittest.TestCase):
         # A case whose criterion is set aside for a shown Finding that stands holds a fault the review must keep held:
         # it counts as one that expects a Finding, so a set that mixes it with the two other answers is read, and is
         # short of a kind only where it is (decision 0228).
-        aside = dict(right, id="poc-aside", shown=[{"id": "f_9c1e", "text": "It indexes before it checks.", "expected": "rejected"}],
+        aside = dict(right, id="poc-aside", shown=[{"id": "f_9c1e", "category": "functional", "severity": "major", "text": "It indexes before it checks.",
+                            "expected": "rejected"}],
                      expected={"verdict": "not_applicable", "criterion": one["expected"]["criterion"], "finding": None,
                                "reason": "finding_stands"})
         self.assertEqual(validate(aside, known["eval-case"], schemas=known), [])
@@ -2564,8 +2593,9 @@ class EvalJob(unittest.TestCase):
         from harness import engine, eval as job
         from harness.eval import run as step
         case, live = self.reviewed()
-        shown = [{"id": "f_9c1e", "text": "It reads the head before the push.", "expected": "accepted"},
-                 {"id": "f_22ab", "text": "No test tries an empty list.", "expected": "rejected"}]
+        raised = {"category": "functional", "severity": "major"}
+        shown = [dict(raised, id="f_9c1e", text="It reads the head before the push.", expected="accepted"),
+                 dict(raised, id="f_22ab", text="No test tries an empty list.", expected="rejected")]
         by = {"kind": "human", "name": "a-colleague", "can_write": False}
         held = dict(case, shown=shown, issue={"number": 12, "by": by, "body": "Return early when the list is empty."})
         cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
@@ -3791,7 +3821,7 @@ class EvalJob(unittest.TestCase):
         for name, kind, many in groups:
             for _ in range(many):
                 ident = "c-%d" % len(cases)
-                finding = None if kind == "met" else {"category": "functional", "severity": "major",
+                finding = None if kind != "finding" else {"category": "functional", "severity": "major",
                                                       "location": {"path": "kernel/x.py", "start_line": 1, "end_line": 1}}
                 (place / "cases" / ("%s.json" % ident)).write_text(
                     json.dumps({"expected": {"verdict": kind, "criterion": name, "finding": finding}}))
@@ -3863,6 +3893,14 @@ class EvalJob(unittest.TestCase):
         self.assertTrue(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-4", "finding", 9), ("PR-1", "met", 20)])))
         self.assertFalse(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-4", "finding", 10), ("PR-1", "met", 20)])))
         self.assertFalse(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-1", "met", 20)])))
+        # A case set aside for a standing Finding is counted in the kind `finding`, which the report publishes, and on
+        # no floor: a few of them are a rest too small to hide one, as a few unfloored Findings are (decision 0228).
+        aside = "not_applicable"
+        self.assertTrue(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-3", aside, 1), ("PR-1", "met", 20)])))
+        self.assertTrue(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-4", "finding", 1), ("PR-4", aside, 8)])))
+        self.assertFalse(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-4", "finding", 1), ("PR-4", aside, 9)])))
+        found_, place_ = self.floored([("PR-3", "finding", 10), ("PR-3", aside, 10)])
+        self.assertEqual((job.floor_short(found_, place_), len(job.criteria_of(found_, place_)["PR-3"])), (False, 10))
         # Every floor is held to it, not one of them: PR-4 of one beside PR-3 of ten, ten beyond them (Muse's read).
         two = {"PR-3": [1, 2], "PR-4": [1, 2]}
         self.assertTrue(job.floor_short(*self.floored([("PR-3", "finding", 10), ("PR-4", "finding", 1), ("PR-5", "finding", 10),

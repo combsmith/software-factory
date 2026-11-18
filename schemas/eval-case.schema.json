@@ -108,6 +108,8 @@
         "additionalProperties": false,
         "required": [
           "id",
+          "category",
+          "severity",
           "text",
           "expected"
         ],
@@ -115,6 +117,23 @@
           "id": {
             "type": "string",
             "pattern": "^f_[0-9a-f]{4,64}$"
+          },
+          "category": {
+            "description": "As its Lens raised it. Never `security`: a review is shown no security Finding, and may not accept one.",
+            "enum": [
+              "functional",
+              "architecture",
+              "delivery",
+              "reliability",
+              "requirements",
+              "mechanical"
+            ]
+          },
+          "severity": {
+            "enum": [
+              "blocking",
+              "major"
+            ]
           },
           "text": {
             "type": "string",
