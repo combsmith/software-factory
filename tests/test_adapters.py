@@ -5998,6 +5998,34 @@ class Items(unittest.TestCase):
                 for n in range(1, items.PAGES + 1)]
         self.assertEqual(self.read(*many)[1], False)
 
+    def test_open_issues_are_listed_from_served_from_by_the_same_pages_and_none_with_no_date(self):  # S3, decision 0218
+        # Only those updated at or after `issues.served_from`, asked in this query: an issue that has not moved since
+        # cannot be served, so the turn-on sweeps no backlog. The pages are the pull requests', held to their wholeness.
+        self.assertIn("issues(states: OPEN, first: 100, after: $after, filterBy: {since: $since}, "
+                      "orderBy: {field: CREATED_AT, direction: ASC})", items.ISSUES)
+        since = "2026-10-01T00:00:00Z"
+
+        def page(numbers, total=None, more=False, after=None, cursor="c1"):
+            # Asked from a second before the date: whether GitHub's `since` holds that second is not grounded, and the
+            # Kernel's `served` leaves out an issue whose life began before it.
+            found = open_page(numbers, total, more, after, cursor)
+            found["request"]["body"] = {"query": items.ISSUES, "variables": dict(found["request"]["body"]["variables"],
+                                                                                 since="2026-09-30T23:59:59Z")}
+            found["response"]["body"]["data"]["repository"]["issues"] = \
+                found["response"]["body"]["data"]["repository"].pop("pullRequests")
+            return found
+
+        def read(*pages):
+            return items.open_issues(github.Replay(list(pages)), HOME, since)
+        self.assertEqual(read(page([4, 5], total=3, more=True), page([9], total=3, after="c1")), ([4, 5, 9], True))
+        self.assertEqual(read(page([4, 5], total=3, more=True), page([9], total=4, after="c1"))[1], False)
+        self.assertEqual(read(page([4], total=2))[1], False)
+        # With no date no issue is served: none is listed, and nothing is asked. One that is no time lists nothing.
+        self.assertEqual(items.open_issues(github.Replay([]), HOME, None), ([], True))
+        for unreadable in ("2026-10-01", "0001-01-01T00:00:00Z"):     # no time, or none a second before it (Carbon)
+            with self.assertRaises(github.Unanswered):
+                items.open_issues(github.Replay([]), HOME, unreadable)
+
     def test_open_pull_requests_of_another_repo_or_with_errors_are_refused(self):
         other = open_page([1])
         other["response"]["body"]["data"]["repository"]["nameWithOwner"] = "a/fork"
@@ -6059,7 +6087,11 @@ class Issues(unittest.TestCase):
     def read(self, exchanges, clock=None, transport=None):
         router = transport or Router(github.Replay(exchanges), {"don-petry": "admin", "stranger": "read"})
         accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]})
-        return issues.read(router, "o/r", 41, accounts, clock or (lambda: self.NOW))
+        found, title = issues.read(router, "o/r", 41, accounts, clock or (lambda: self.NOW))
+        # The title is handed beside the facts, never in them.
+        self.assertEqual(title, (exchanges or issue_read())[0]["response"]["body"]["title"])
+        self.assertNotIn(title, json.dumps(found))
+        return found
 
     def test_an_issues_timeline_is_whole_only_when_its_last_page_names_no_next(self):  # P-33, decision 0218
         said = issue_event("commented", 0)
@@ -6083,6 +6115,53 @@ class Issues(unittest.TestCase):
         bare = issue_read([said])
         bare[1]["response"]["headers"] = {}
         self.assertTrue(self.read(bare)["complete"]["timeline"])
+
+    def test_a_factory_app_is_named_by_the_id_the_configuration_holds_and_a_person_never_is(self):  # decision 0218
+        # The Controller's label and the investigating App's comment, by Bots the configuration names by their ids under
+        # logins they no longer show; and a User whose login is the Controller's name without `[bot]`, through an App.
+        names = {(41, "Bot"): "combsmith-sf-controller[bot]", (42, "Bot"): "combsmith-sf-business-analyst[bot]"}
+        events = [issue_event("labeled", 1, actor=("old[bot]", 41, "Bot"), label={"name": "factory:triage"}),
+                  issue_event("commented", 2, actor=("older[bot]", 42, "Bot")),
+                  issue_event("labeled", 3, actor=("combsmith-sf-controller", 77, "User"), via={"id": 9},
+                              label={"name": "factory:ready"}),
+                  issue_event("labeled", 4, actor=("dependabot[bot]", 99, "Bot"), label={"name": "x"})]
+        router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
+        accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory=set(names), apps=names)
+        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW)
+        # An App the configuration does not name keeps its login (Carbon).
+        self.assertEqual([e["by"]["name"] for e in found["label_events"]],
+                         ["combsmith-sf-controller[bot]", "combsmith-sf-controller", "dependabot[bot]"])
+        self.assertEqual(found["role_comments"], [{"by": "combsmith-sf-business-analyst[bot]", "at": minute(2)}])
+        # Each App whose account `controller/1` holds, the Controller's and each Role's, by config/apps.json's name; an
+        # account whose App the catalogue does not name is named by its login.
+        held = {"accounts": {"controller": {"id": 41}, "roles": {"business-analyst": {"id": 42}, "dev-lead": None}}}
+        catalogue = {"controller": {"name": "combsmith-sf-controller"}, "business-analyst": {"name": "combsmith-sf-business-analyst"}}
+        self.assertEqual(facts.app_names_of(held, catalogue), names)
+        self.assertEqual(facts.app_names_of(held, {"controller": catalogue["controller"]}), {(41, "Bot"): names[(41, "Bot")]})
+        # One the catalogue names whose account `controller/1` does not hold is named by no id (Carbon).
+        self.assertEqual(facts.app_names_of(held, dict(catalogue, **{"dev-lead": {"name": "combsmith-sf-dev-lead"}})), names)
+
+    def test_an_account_showing_a_configured_apps_name_by_another_id_is_refused(self):  # decision 0218, Astra
+        # A slug reused after a rename: another Bot under the Controller's name, labelling or commenting. It is not that
+        # App, and the read cannot say whose act it was: refused, so the issue defers, never decided on it.
+        names = {(41, "Bot"): "combsmith-sf-controller[bot]"}
+        spoof = ("combsmith-sf-controller[bot]", 99, "Bot")
+        for event in (issue_event("labeled", 1, actor=spoof, label={"name": "factory:triage"}), issue_event("commented", 1, actor=spoof)):
+            router = Router(github.Replay(issue_read([event])), {"don-petry": "admin"})
+            accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory=set(names), apps=names)
+            with self.assertRaises(github.Unanswered, msg=event["event"]):
+                issues.read(router, "o/r", 41, accounts, lambda: self.NOW)
+        # A name the configuration declares, though it holds no account of that App's, no account may show (Carbon).
+        event = issue_event("labeled", 1, actor=("combsmith-sf-dev-lead[bot]", 99, "Bot"), label={"name": "factory:ready"})
+        router = Router(github.Replay(issue_read([event])), {"don-petry": "admin"})
+        reserved = timeline.Accounts(router, "o/r", MACHINE, {}, apps=names, reserved={"combsmith-sf-dev-lead[bot]"})
+        with self.assertRaises(github.Unanswered):
+            issues.read(router, "o/r", 41, reserved, lambda: self.NOW)
+        # The App itself, by its id, is read.
+        events = [issue_event("labeled", 1, actor=("combsmith-sf-controller[bot]", 41, "Bot"), label={"name": "factory:triage"})]
+        router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
+        found, _ = issues.read(router, "o/r", 41, timeline.Accounts(router, "o/r", MACHINE, {}, apps=names), lambda: self.NOW)
+        self.assertEqual(found["label_events"][0]["by"]["name"], names[(41, "Bot")])
 
     def test_an_issues_content_time_is_the_newer_of_its_edit_and_its_rename(self):  # P-34
         def changed(events=(), **change):
