@@ -2483,12 +2483,18 @@ class Repo(unittest.TestCase):
 
     def test_only_the_transport_reaches_the_network(self):
         # Issue 191, ruling 3: only adapters/github.py imports what reaches the network; elsewhere each way of naming
-        # it is refused, and urllib's parsing, which reaches nothing, is not.
+        # it is refused, and urllib's parsing, which reaches nothing, is not. Decision 0224 adds one file and no more,
+        # adapters/azure.py, and the two are named one by one: no other file of adapters/, and none of that name
+        # elsewhere, reaches it.
+        self.assertEqual([str(t) for t in check_repo.TRANSPORTS], ["adapters/github.py", "adapters/azure.py"])
         refused = ("import urllib.request\n", "from urllib import request\n", "import http.client\n",
                    "from http import client\n", "import socket\n", "import ssl\n", "from xmlrpc.client import X\n")
         for text in refused:
             self.assertTrue(caught(check_repo.run(tree({"tools/a.py": text})), "reaches the network"), text)
             self.assertFalse(caught(check_repo.run(tree({"adapters/github.py": text})), "reaches the network"), text)
+            self.assertFalse(caught(check_repo.run(tree({"adapters/azure.py": text})), "reaches the network"), text)
+            for rel in ("harness/azure.py", "tools/azure.py", "adapters/azure2.py", "adapters/x/azure.py", "azure.py"):
+                self.assertTrue(caught(check_repo.run(tree({rel: text})), "reaches the network"), (rel, text))
         self.assertTrue(caught(check_repo.run(tree({"adapters/pull.py": "import urllib.request\n"})), "reaches the network"))
         self.assertFalse(caught(check_repo.run(tree({"tools/a.py": "import urllib.parse\nfrom urllib import parse\n"})),
                                 "reaches the network"))
@@ -2551,7 +2557,17 @@ class Repo(unittest.TestCase):
                 self.assertTrue(caught(check_repo.run(tree({rel: text})), "artifact storage"), (rel, text))
             for rel in ("adapters/github.py", "tests/test_a.py"):
                 self.assertFalse(caught(check_repo.run(tree({rel: text})), "artifact storage"), (rel, text))
+            # The second transport reaches Azure's model API and never the storage, so it may not name it either.
+            self.assertTrue(caught(check_repo.run(tree({"adapters/azure.py": text})), "artifact storage"), text)
         self.assertFalse(caught(check_repo.run(tree({"adapters/a.py": 'U = "api.github.com"\n'})), "artifact storage"))
+        # Decision 0224: nor may it name GitHub's own host, in text or in bytes, so that GitHub is reached by the first
+        # transport alone, whose requests the write checks read. The first's file may be named, and any other host.
+        for text in ('U = "https://api.github.com/repos"\n', 'U = b"api.GitHub.com"\n', 'U = "uploads.github.com"\n'):
+            self.assertTrue(caught(check_repo.run(tree({"adapters/azure.py": text})), "names GitHub's host"), text)
+            for rel in ("adapters/github.py", "adapters/pull.py", "tools/a.py"):
+                self.assertFalse(caught(check_repo.run(tree({rel: text})), "names GitHub's host"), (rel, text))
+        for text in ('"""With `adapters/github.py` it is one of two."""\n', 'U = "f.openai.azure.com"\n'):
+            self.assertFalse(caught(check_repo.run(tree({"adapters/azure.py": text})), "names GitHub's host"), text)
 
     def test_code_loaded_round_the_import_list_is_caught(self):
         root = tree({"a.py": "s = __import__('socket')\nexec('import requests')\n"})
