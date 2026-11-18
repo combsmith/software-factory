@@ -105,14 +105,16 @@ def dated(answer) -> list:
     return [{"date": at["date"], "age": at["age"]}] if at else []
 
 
-def writes_seen(transport, config: dict, numbers: list, kept: dict, before, since: str, clock, owed=()) -> tuple:
+def writes_seen(transport, config: dict, numbers: list, kept: dict, before, since: str, clock, owed=(), issues=()) -> tuple:
     """`(seen/1, the pull requests read short, those read as left for the first time)`: what each Factory identity wrote
     on what this pass served, on what the pass before served or could not read and has left (decision 0061), and on what
     a pass before read as left inside the window, so that a write nobody matched keeps its alert until the window passes
     it (issue 787). What a snapshot could not read is short, and one that
     is short is read again by the next pass, so that nothing leaves unread. So is a pass with no records before it to say
     what has left. Nothing is guessed. One `owed`, a pull request that moved for the first time, is not read: it is owed
-    to the next pass, as one read short is, and leaves this reconciliation whole (#658)."""
+    to the next pass, as one read short is, and leaves this reconciliation whole (#658). Each of `issues`, the served
+    open issues, is read too, with nothing kept of it. One read short leaves what was seen short and is not owed: what
+    is owed is read as a pull request that left, and an open issue is read again by the next pass as it is (issue 837)."""
     controller = config["controller"]
     home, accounts_held = controller["home"]["repo"], controller["accounts"]
     identities, _ = seen_.identities(accounts_held)
@@ -137,6 +139,12 @@ def writes_seen(transport, config: dict, numbers: list, kept: dict, before, sinc
         parts.append(part)
         if part[-1] is not True:
             unread.append(number)
+    for number in issues:
+        try:
+            parts.append(seen_.read(transport, {"repo": home, "type": "issue", "number": number}, None, identities, apps,
+                                    since))
+        except Unanswered:
+            parts.append(([], [], False))
     try:
         parts.append(seen_.pushes(transport, home, accounts_held["approver"], since, clock=lambda: utc(clock)))
     except Unanswered:
@@ -245,7 +253,6 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     left = [e for e in pulls if "unread" in e]
     graced = pass_.moved_once([e["facts"]["item"] for e in left], [e["unread"] for e in left], before)
     owed = {e["facts"]["item"]["number"] for e in left if page(e["facts"]["item"]) in graced}
-    seen, unread, gone = writes_seen(transport, config, numbers, kept, before, since, clock, owed)
     effects = recorded_effects(transport, config, runs, int(run_id), before, since, sleep)
     # The open issues the Kernel could serve, none while `issues.served_from` is null, without the tracking issue, by
     # the number the passes recorded. A list read short is never the whole, and stops the pass as the pull requests'
@@ -273,6 +280,11 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
         except Unanswered as err:
             issues.append({"facts": {"item": {"repo": home, "type": "issue", "number": number}}, "title": None,
                            "unread": reads_.MOVED if isinstance(err, facts_.Moved) else reads_.UNANSWERED})
+    # The served issues' writes are read beside the pull requests' (issue 837): the issues listed, which leave the
+    # tracking issue out by its number. While that number is not read, no issue's writes are: the tracking issue could
+    # be among those listed, and the passes' records read short leave reconciliation short already.
+    seen, unread, gone = writes_seen(transport, config, numbers, kept, before, since, clock, owed,
+                                     listed if apart is not None else ())
     return {"started": started, "pause": pause_.read(transport, home.split("/")[0], [home]),
             "records": runs, "pull_requests": pulls, "issues": issues, pass_.ISSUE_APPS: refused,
             "facts_reads": facts_reads, "usage": {}, "seen": seen, "unread": unread, "gone": gone, "effects": effects}

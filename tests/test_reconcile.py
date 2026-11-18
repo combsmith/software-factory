@@ -179,6 +179,24 @@ class Matching(unittest.TestCase):
         self.assertEqual(reconcile.entries(found), [{"alert": "write_unmatched", "by": "controller", "write": "label",
                                                      "item": URL, "key": None}])
 
+    def test_a_write_on_an_issue_is_matched_as_one_on_a_pull_request_is(self):  # issue 837
+        # A Factory identity's write on an issue is matched to the Effect that recorded it, by its key, as on a pull
+        # request; one no Effect recorded is the alert, named by the issue's own page. No Effect yet records a label
+        # on an issue, so the Controller's is unmatched whatever was recorded.
+        issue = dict(ITEM, type="issue")
+        comment, done = wrote("pr-review", "comment", "IC_c", item=issue), applied(("comment", "IC_c", "applied"))
+        found = check(seen(comment), recorded([done]))
+        self.assertEqual((found["unmatched"], found["short"], reconcile.alerts(found)), ([], False, []))
+        everything = recorded([done], [written(("status_on_item", issue, None, "K", "applied"), ("dequeue", issue, None, None, "applied"))])
+        for write, other in ((comment, recorded()), (wrote("controller", "label", item=issue), everything),
+                             (wrote("controller", "close", item=issue), everything),
+                             (wrote("approver", "comment", "IC_c", item=issue), everything)):
+            found = check(seen(write), other)
+            self.assertEqual((kinds(found), reconcile.alerts(found)), ([(write["by"], write["kind"])], ["write_unmatched"]), write)
+            self.assertEqual(reconcile.entries(found)[0]["item"], URL.replace("/pull/", "/issues/"), write)
+        # What was seen of an issue not whole is short, and says so.
+        self.assertEqual(reconcile.alerts(check(seen(whole=False))), ["reconciliation_unreadable"])
+
     def test_a_resolution_github_names_no_resolver_for_raises_nothing(self):  # ruling 3
         self.assertEqual(check(seen(wrote("unattributed", "resolution", "PRRT_x")))["unmatched"], [])
 

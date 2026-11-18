@@ -1897,6 +1897,65 @@ class Entry(unittest.TestCase):
                                  (intent("combsmith-sf-business-analyst"), {})):
             self.assertEqual(entry_with(issues, **accounts)[:2], (1, "issue_list_unreadable\n"), issues)
 
+    def test_the_served_issues_writes_are_read_for_reconciliation(self):  # issue 837
+        # Each served issue's writes are read by the seen port as an open pull request's are, with nothing kept by a
+        # snapshot, whether its facts were read or not. One whose writes cannot be read whole, or not at all, leaves
+        # reconciliation short, which says so; it is not owed as a pull request is, since what is owed is read as a pull
+        # request that left.
+        real, spied = entry.configuration, []
+
+        def served(root, release):
+            found = real(root, release)
+            found["kernel"]["issues"]["served_from"] = "2026-10-01T00:00:00Z"
+            return found
+
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
+            return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
+
+        def issue_read(transport, repo, number, accounts, clock, *, identities):
+            if number == 6:
+                raise entry.facts_.Moved("moved")
+            return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "An issue"
+        before = json.loads((ROOT / "examples" / "pass.json").read_text())
+        before["now"] = "2026-10-12T11:00:00Z"
+        before["pull_requests"] = [dict(before["pull_requests"][0], facts=dict(before["pull_requests"][0]["facts"], item=dict(
+            before["pull_requests"][0]["facts"]["item"], number=7)))]
+        before["reconciled"] = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}
+
+        def entry_with(short=(), unanswered=()):
+            del spied[:]
+
+            def read(transport, item, kept, identities, apps, since):
+                spied.append((item, kept, since))
+                if item["number"] in unanswered:
+                    raise github.Unanswered("no")
+                return ([], [], item["number"] not in short)
+            with unittest.mock.patch.object(entry, "configuration", served), \
+                    unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                    unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after, **k: ([5, 6], True)), \
+                    unittest.mock.patch.object(entry.issues_, "read", issue_read), \
+                    unittest.mock.patch.object(entry.passes, "records", lambda *a: [before]), \
+                    unittest.mock.patch.object(entry.seen_, "read", read), \
+                    unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)), \
+                    unittest.mock.patch.object(entry.applied, "effects",
+                                               lambda *a, **k: {"applied": [], "read": [], "at": {}, "whole": True}), \
+                    unittest.mock.patch.object(entry.passes, "written",
+                                               lambda *a, **k: {"written": [], "read": [], "at": {}, "whole": True}):
+                code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
+            self.assertEqual(code, 0)
+            return files["pass.json"]
+        item = lambda kind, n: {"repo": self.HOME, "type": kind, "number": n}
+        record = entry_with()
+        self.assertEqual([s[:2] for s in spied], [(item("pull_request", 7), {}), (item("issue", 5), None), (item("issue", 6), None)])
+        self.assertEqual({s[2] for s in spied}, {"2026-10-11T06:00:00Z"})
+        self.assertNotIn("reconciliation_unreadable", record["alerts"])
+        for missed in ({"short": (5,)}, {"unanswered": (5,)}, {"short": (6,)}):
+            record = entry_with(**missed)
+            self.assertIn("reconciliation_unreadable", record["alerts"], missed)
+            self.assertEqual(record["reconciled"]["owed"], [], missed)
+        # A pull request read short is owed still, and an issue beside it changes nothing of that.
+        self.assertEqual(entry_with(short=(7,))["reconciled"]["owed"], [7])
+
     def test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry(self):  # S3, Astra
         # Through the real port: an issue that read whole would be accepted defers while a pull request names it.
         from tests.test_adapters import crossed, issue_read, linked_read
