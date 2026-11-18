@@ -598,8 +598,12 @@ def _bound(node) -> list:
 
 
 def _alone(root: pathlib.Path, read: set, trees: dict, package: str) -> list:
-    """What is asked of a package held as the Kernel is, under its own name, beyond the Kernel's rules: `guards/`
-    (issue 838).
+    """What is asked of the Kernel and of a package held as it is, under its own name, `guards/`, beyond the rules
+    below (issues 838 and 851). The first and the last are asked of both; the two between of `guards/` alone, since
+    the Kernel imports itself by its own rules, and its own modules and `_decision` are what those rules are about.
+    For the Kernel the last narrows what it may write: a module's name is read off only where `import kernel.x as name`
+    or `from kernel[.y] import name` binds it, so one imported relatively, or re-exported by another module, is a value
+    here, and nothing is read off it; and a built-in type's method is read only to be called, never handed as a key.
 
     - It is the package Python imports, and what Python imports of it is what is read here: each folder of it has an
       `__init__.py`; it holds the source this check reads and an `AGENTS.md` alone, so no compiled module stands in a
@@ -618,7 +622,7 @@ def _alone(root: pathlib.Path, read: set, trees: dict, package: str) -> list:
       in another, where Python reads it as a builtin, passes. No builtin's plain attribute reaches a frame, globals or
       builtins, and issue 851 resolves names by scope for the Kernel and the guards alike.
     """
-    problems = []
+    problems, guest = [], package != "kernel"
     if (root / package).is_symlink():
         problems.append("%s is a link; what Python imports as %s is then kept somewhere else, which nothing protects"
                         % (package, package))
@@ -637,7 +641,7 @@ def _alone(root: pathlib.Path, read: set, trees: dict, package: str) -> list:
             problems.append("%s has no __init__.py; Python may then import another %s, which this does not read"
                             % ("/".join([package, folder]), package))
     for name, tree in trees.items():
-        if name in KEYED:
+        if guest and name in KEYED:
             problems.append("%s/%s bears the name of a module the Kernel's rules are written for, and they would be "
                             "read of it; name it otherwise" % (package, name))
         called = {id(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)}
@@ -664,6 +668,8 @@ def _alone(root: pathlib.Path, read: set, trees: dict, package: str) -> list:
             elif type(node).__name__ == "Match":
                 problems.append("%s:%d matches a value against patterns, which can read its attributes; %s/ reads "
                                 "nothing of a value but by a built-in type's method" % (name, node.lineno, package))
+            if not guest:
+                continue
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     if alias.name.split(".")[0] == "kernel":
@@ -703,7 +709,7 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
         except (SyntaxError, ValueError) as err:
             unread.append("%s cannot be read as Python: %s" % (name, err))
     read = {path.relative_to(root / package).as_posix() for path in files}
-    own = _alone(root, read, trees, package) if package != "kernel" else []
+    own = _alone(root, read, trees, package)
     owned = {name: _defined(name, tree) for name, tree in trees.items() if name in CONFINED}
     takers = _takers(trees)
     tops = {name: _names(name, tree, trees) for name, tree in trees.items()}
