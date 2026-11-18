@@ -46,7 +46,7 @@ def live(opener=None, host: str = HOST, key: str = KEY, seconds: int = 30) -> az
 
 
 class Transport(unittest.TestCase):
-    def test_the_azure_transport_reaches_one_host_and_one_api(self):
+    def test_the_azure_transport_reaches_one_host_and_two_apis(self):
         # The four requests of the two APIs, and no other. A caller names an act, never a method or a path: the
         # transport alone writes those.
         self.assertEqual([azure.wire(r) for r in (azure.create(ASKED), azure.chat(ASKED), azure.read(ID), azure.cancel(ID))],
@@ -63,6 +63,14 @@ class Transport(unittest.TestCase):
             with self.assertRaises(azure.Unanswered, msg=(act, ident, body)):
                 azure.request(act, ident, body)
         self.assertEqual(azure.read("a" * 200)["id"], "a" * 200)
+
+        class Any(str):         # text of another class, which says it equals whatever it is compared with
+            __hash__ = str.__hash__
+
+            def __eq__(self, other):
+                return True
+        with self.assertRaises(azure.Unanswered):
+            azure.request(Any("delete"), None, ASKED)
         # One host, of the forms Azure serves a model's API under, written as the configuration names it: no port, no
         # user, no path, no other case, and no host that only ends as one does.
         for host in (HOST, "f.openai.azure.com", "factory-readers.services.ai.azure.com",
@@ -112,6 +120,13 @@ class Transport(unittest.TestCase):
         for key in ("", " ", "a b", "a\nb", "a\rb", "kéy", None, 7, b"key"):
             with self.assertRaises(azure.Unanswered, msg=repr(key)):
                 azure.Live(HOST, key, 30)
+        with mock.patch.dict(os.environ, {"ADVISORY_AZURE_KEY": "e" * 32, "AZURE_OPENAI_API_KEY": "e" * 32}):
+            for key in ("", None):
+                with self.assertRaises(azure.Unanswered, msg=repr(key)):
+                    azure.Live(HOST, key, 30)
+            opener = Capture()
+            live(opener).send(azure.read(ID))
+            self.assertEqual(opener.sent[0][0].get_header("Api-key"), KEY)
         with mock.patch.dict(os.environ, {"https_proxy": "http://proxy.invalid:1", "HTTPS_PROXY": "http://proxy.invalid:1"}):
             handlers = live().opener.handlers
         # It follows no redirect, so the key goes to the host named and to no other, and takes no proxy.
@@ -196,7 +211,10 @@ class Transport(unittest.TestCase):
             live(Large()).send(azure.create(ASKED))
         self.assertIsNone(refused.exception.__context__)
         # What cannot be sent as JSON, or read as it however deep, is refused or text, and never another exception.
-        for body in ({"a": {1}}, {"a": float("nan")}):
+        deep = {}
+        for _ in range(100000):
+            deep = {"a": deep}
+        for body in ({"a": {1}}, {"a": float("nan")}, deep):
             with self.assertRaises(azure.Unanswered):
                 live(Capture()).send(azure.create(body))
         self.assertEqual(len(live(Capture(b"[" * 200000)).send(azure.read(ID))["body"]), 200000)
@@ -208,6 +226,11 @@ class Transport(unittest.TestCase):
         self.assertEqual(live(Capture(b"<html>", Plain)).send(azure.read(ID)),
                          {"status": 502, "headers": {"content-type": "text/html"}, "body": "<html>"})
         self.assertEqual(live(Capture(b"{}", Plain)).send(azure.read(ID))["body"], "{}")
+
+        class Shouted(io.BytesIO):
+            status = 200
+            headers = {"Content-Type": "Application/JSON"}
+        self.assertEqual(live(Capture(b"{}", Shouted)).send(azure.read(ID))["body"], {})
         self.assertEqual(live(Capture(b"{not json")).send(azure.read(ID))["body"], "{not json")
 
 

@@ -113,7 +113,7 @@ ALSO_AT_JOB = ("tests.test_evals.EvalJob.test_a_pass_at_an_alternate_place_alone
 CLEAN_CASE = ("tests.test_evals.Scoring.test_a_gating_finding_fails_a_clean_case",)
 APART = ("tests.test_evals.EvalJob.test_each_head_is_unpacked_apart_from_the_cases",)
 AZURE = "adapters/azure.py"
-AZURE_ONE = ("tests.test_advisory.Transport.test_the_azure_transport_reaches_one_host_and_one_api",)
+AZURE_ONE = ("tests.test_advisory.Transport.test_the_azure_transport_reaches_one_host_and_two_apis",)
 AZURE_KEY = ("tests.test_advisory.Transport.test_the_azure_transport_takes_its_key_from_its_caller_and_sends_it_nowhere_else",)
 AZURE_BOUND = ("tests.test_advisory.Transport.test_the_azure_transport_bounds_every_answer_in_size_and_time",)
 SCRATCH_PARTS = ("tests.test_evals.EvalJob.test_a_set_of_no_case_ends_the_run_before_anything_is_read",)
@@ -4201,7 +4201,7 @@ MUTANTS = ISSUE + [
      '        found = [i for i, (a, _) in enumerate(self._left) if a == want]\n        if found:\n            asked, answer = self._left.pop(found[0])\n', ('tests.test_adapters',)),
     # Decision 0224: the second transport, what an advisory Lens's reader is asked through.
     ('the Azure transport sends whatever it is asked', AZURE,
-     '    if not isinstance(act, str) or not (made or named):\n        raise Unanswered("the transport sends a response\'s create, read and cancel and a chat completion\'s create alone")\n',
+     '    if type(act) is not str or not (made or named):\n        raise Unanswered("the transport sends a response\'s create, read and cancel and a chat completion\'s create alone")\n',
      '', AZURE_ONE),
     ('the Azure transport creates with no body', AZURE,
      ' and isinstance(body, dict) and bool(body)\n',
@@ -4279,8 +4279,8 @@ MUTANTS = ISSUE + [
      '        if size > LARGEST:\n',
      '        if size >= LARGEST:\n', AZURE_BOUND),
     ('an Azure answer cut short escapes as another exception', AZURE,
-     'ValueError, TypeError, http.client.HTTPException) as err:\n            refused = "Azure',
-     'ValueError, TypeError) as err:\n            refused = "Azure', AZURE_BOUND),
+     'TypeError, RecursionError,\n                http.client.HTTPException) as err:',
+     'TypeError, RecursionError) as err:', AZURE_BOUND),
     ("an Azure error's body is not bounded", AZURE,
      '                    return _answer(err.code, err.headers, _bounded(err))\n',
      '                    return _answer(err.code, err.headers, err.read())\n', AZURE_BOUND),
@@ -4293,7 +4293,16 @@ MUTANTS = ISSUE + [
     ('an answer too deep to read as JSON escapes as another exception', AZURE,
      '        except (ValueError, RecursionError):\n', '        except ValueError:\n', AZURE_BOUND),
     ('a body that cannot be sent as JSON escapes as another exception', AZURE,
-     'ValueError, TypeError, http.client.HTTPException) as err:\n            refused = "Azure', 'ValueError, http.client.HTTPException) as err:\n            refused = "Azure', AZURE_BOUND),
+     'ValueError, TypeError, RecursionError,\n', 'ValueError, RecursionError,\n', AZURE_BOUND),
+    ('a body too deep to send as JSON escapes as another exception', AZURE,
+     'ValueError, TypeError, RecursionError,\n', 'ValueError, TypeError,\n', AZURE_BOUND),
+    ('an act may be text of another class, which equals what it likes', AZURE,
+     'type(act) is not str or', 'not isinstance(act, str) or', AZURE_ONE),
+    ('the key is the environment\'s where it holds one', AZURE,
+     'self._host, self._key, self._seconds = host, key, seconds',
+     'self._host, self._key, self._seconds = host, __import__("os").environ.get("ADVISORY_AZURE_KEY", key), seconds', AZURE_KEY),
+    ("an answer's type is read in one case alone", AZURE,
+     '.strip().lower().endswith("json")', '.strip().endswith("json")', AZURE_BOUND),
     ('a file row of unknown status is read', 'adapters/pull.py',
      '        if status not in STATUSES or (moved and',
      '        if (moved and', ('tests.test_adapters',)),
@@ -5023,6 +5032,12 @@ MUTANTS = ISSUE + [
     ('a transport is told by its name wherever it lies', 'tools/check_repo.py',
      '    networked = pathlib.PurePosixPath(*rel.parts) in TRANSPORTS\n',
      '    networked = rel.name in [t.name for t in TRANSPORTS]\n', ('tests.test_tools.Repo.test_only_the_transport_reaches_the_network',)),
+    ("the second transport may name GitHub's host", 'tools/check_repo.py',
+     '        if advisory and isinstance(node, ast.Constant)', '        if False and isinstance(node, ast.Constant)',
+     ('tests.test_tools.Repo.test_only_the_transport_names_githubs_artifact_storage',)),
+    ("the second transport may name GitHub's host in bytes", 'tools/check_repo.py',
+     'isinstance(node.value, (str, bytes)) \\\n                and GITHUB', 'isinstance(node.value, str) \\\n                and GITHUB',
+     ('tests.test_tools.Repo.test_only_the_transport_names_githubs_artifact_storage',)),
     ('a planned file never arrives', 'tools/check_context.py',
      '        return (root / path).exists()\n    return (root / top).exists()\n',
      '        return False\n    return (root / top).exists()\n', ('tests.test_tools.Context',)),

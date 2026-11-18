@@ -1,13 +1,13 @@
 # adapters/
 
-All the Factory's I/O; `github.py` and `azure.py` alone reach the network (0224). `items.py` open pull requests, `pull.py` one, `timeline.py` reviews, labels, actors, `checks.py` checks, queue, `threads.py`, `edits.py`, `applied.py` Lenses' records, `facts.py`, `records.py`,
+All the Factory's I/O; `github.py`, `azure.py` reach the network. `items.py` open pull requests, `pull.py` one, `timeline.py` reviews, labels, actors, `checks.py` checks, queue, `threads.py`, `edits.py`, `applied.py` Lenses' records, `facts.py`, `records.py`,
 `artifacts.py`, `seen.py` writes made, `passes.py`, `acceptance.py`, `heldout.py`, `rules.py`, `texts.py` a Task's texts, `issues.py` an issue's facts; `effects.py` writes, `pause.py`, `tags.py`, `candidate.py`, `deployments.py`, `identity.py`, `queue.py`.
 Not built yet, by their stories: contract.py, binding.py, linked.py, an issue's linked pull requests, settings.py and usage.py. A port decides nothing and hands the Kernel no text.
 
 | Rule | Held by |
 |---|---|
 | Only `github.py` and `azure.py` import what reaches the network; only `github.py` names the storage | `tests/test_tools.py::test_only_the_transport_reaches_the_network`, `tests/test_tools.py::test_only_the_transport_names_githubs_artifact_storage` |
-| `github.py` sends HTTPS to GitHub's API alone, by a path from its root; `azure.py` four acts to one Azure host | `tests/test_adapters.py::test_a_request_stays_on_githubs_api`, `tests/test_advisory.py::test_the_azure_transport_reaches_one_host_and_one_api` |
+| `github.py` sends HTTPS to GitHub's API alone, by a path from its root; `azure.py` four acts to one Azure host | `tests/test_adapters.py::test_a_request_stays_on_githubs_api`, `tests/test_advisory.py::test_the_azure_transport_reaches_one_host_and_two_apis` |
 | `github.py` follows no redirect but an artifact's download and a tarball's (0138), takes no proxy, bounds every answer, and uses its caller's token | `tests/test_adapters.py::test_the_live_transport_takes_its_token_from_its_caller_and_follows_no_redirect` |
 | An artifact's download follows its redirect to GitHub's artifact storage alone, over HTTPS | `tests/test_adapters.py::test_only_an_artifacts_download_follows_its_redirect_and_only_to_githubs_storage` |
 | No token is sent to the storage, and what it answers is bounded | `tests/test_adapters.py::test_the_live_transport_sends_no_token_to_the_storage_and_bounds_what_it_holds` |

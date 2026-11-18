@@ -49,6 +49,9 @@ TRANSPORT = pathlib.PurePosixPath("adapters/github.py")
 # alone, and the artifact storage named by the first alone.
 ADVISORY_TRANSPORT = pathlib.PurePosixPath("adapters/azure.py")
 TRANSPORTS = (TRANSPORT, ADVISORY_TRANSPORT)
+# What the second may not name, in text or in bytes, so that it builds no address at GitHub: a net, as STORAGE is, that
+# a name put together from parts passes, and review is the guard.
+GITHUB = re.compile(r"github\.com", re.IGNORECASE)
 # The one exception, decision 0044's Boundaries (the Maintainer's ruling on issue 287): P-50's stub of the model's API,
 # which serves the pinned CLI canned answers on the canary's runner, and its tests' stand-in on 127.0.0.1 here. It is
 # held by an allowlist, not a list of what is refused: it imports these modules alone, by their own names; of http, os
@@ -222,6 +225,7 @@ def _python(rel: pathlib.PurePath, text: str) -> list:
     seeded = rel.parts[0] in ("sim", "tests")
     transport = pathlib.PurePosixPath(*rel.parts) == TRANSPORT
     networked = pathlib.PurePosixPath(*rel.parts) in TRANSPORTS
+    advisory = pathlib.PurePosixPath(*rel.parts) == ADVISORY_TRANSPORT
     stub = pathlib.PurePosixPath(*rel.parts) == TRIAL_STUB
     if stub:
         problems += _stub(rel, tree)
@@ -230,6 +234,9 @@ def _python(rel: pathlib.PurePath, text: str) -> list:
         if isinstance(node, ast.Constant) and isinstance(node.value, str) and STORAGE.search(node.value) \
                 and not transport and rel.parts[0] != "tests":
             problems.append("%s:%d names GitHub's artifact storage, which only %s reaches" % (rel, line, TRANSPORT))
+        if advisory and isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes)) \
+                and GITHUB.search(node.value if isinstance(node.value, str) else node.value.decode("latin-1")):
+            problems.append("%s:%d names GitHub's host, which only %s reaches" % (rel, line, TRANSPORT))
         mods = []
         if isinstance(node, ast.Import):
             mods = [alias.name for alias in node.names]

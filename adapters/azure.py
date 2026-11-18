@@ -1,5 +1,6 @@
 """The second transport: what an advisory Lens's reader is asked through, and nothing else (decision 0224). With
-`adapters/github.py` it is one of the two files in this repo that reach the network (tools/check_repo.py). A request is
+`adapters/github.py` it is one of the two files in this repo that reach the network, and it may not name GitHub's host
+(tools/check_repo.py). A request is
 one of four acts, built by `create`, `read`, `cancel` or `chat`, and names no method and no path: the transport alone
 writes those, so a caller cannot ask for another, and no request of this file's is one `adapters/github.py` would send.
 An answer is `{status, headers, body}`.
@@ -56,7 +57,7 @@ def request(act: str, ident, body) -> dict:
     `read` or `cancel` with a response's id and no body."""
     made = act in ("create", "chat") and ident is None and isinstance(body, dict) and bool(body)
     named = act in ("read", "cancel") and type(ident) is str and IDENT.fullmatch(ident) is not None and body is None
-    if not isinstance(act, str) or not (made or named):
+    if type(act) is not str or not (made or named):
         raise Unanswered("the transport sends a response's create, read and cancel and a chat completion's create alone")
     return {"act": act, "id": ident, "body": body}
 
@@ -99,7 +100,7 @@ def wire(req) -> tuple:
 def _answer(status: int, headers, raw: bytes) -> dict:
     kept = {k.lower(): v for k, v in headers.items() if k.lower() in KEPT}
     text = raw.decode("utf-8", errors="replace")
-    if kept.get("content-type", "").split(";")[0].strip().endswith("json"):
+    if kept.get("content-type", "").split(";")[0].strip().lower().endswith("json"):
         try:
             return {"status": status, "headers": kept, "body": json.loads(text) if text else None}
         except (ValueError, RecursionError):
@@ -158,7 +159,8 @@ class Live:
                     return _answer(err.code, err.headers, _bounded(err))
         except Unanswered as err:
             refused = str(err)
-        except (urllib.error.URLError, OSError, ValueError, TypeError, http.client.HTTPException) as err:
+        except (urllib.error.URLError, OSError, ValueError, TypeError, RecursionError,
+                http.client.HTTPException) as err:
             refused = "Azure could not be reached, or its answer was cut short: %s" % type(err).__name__
         raise Unanswered(refused)
 

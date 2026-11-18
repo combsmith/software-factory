@@ -2560,6 +2560,14 @@ class Repo(unittest.TestCase):
             # The second transport reaches Azure's model API and never the storage, so it may not name it either.
             self.assertTrue(caught(check_repo.run(tree({"adapters/azure.py": text})), "artifact storage"), text)
         self.assertFalse(caught(check_repo.run(tree({"adapters/a.py": 'U = "api.github.com"\n'})), "artifact storage"))
+        # Decision 0224: nor may it name GitHub's own host, in text or in bytes, so that GitHub is reached by the first
+        # transport alone, whose requests the write checks read. The first's file may be named, and any other host.
+        for text in ('U = "https://api.github.com/repos"\n', 'U = b"api.GitHub.com"\n', 'U = "uploads.github.com"\n'):
+            self.assertTrue(caught(check_repo.run(tree({"adapters/azure.py": text})), "names GitHub's host"), text)
+            for rel in ("adapters/github.py", "adapters/pull.py", "tools/a.py"):
+                self.assertFalse(caught(check_repo.run(tree({rel: text})), "names GitHub's host"), (rel, text))
+        for text in ('"""With `adapters/github.py` it is one of two."""\n', 'U = "f.openai.azure.com"\n'):
+            self.assertFalse(caught(check_repo.run(tree({"adapters/azure.py": text})), "names GitHub's host"), text)
 
     def test_code_loaded_round_the_import_list_is_caught(self):
         root = tree({"a.py": "s = __import__('socket')\nexec('import requests')\n"})
