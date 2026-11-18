@@ -2724,6 +2724,127 @@ class Texts(unittest.TestCase):
             self.read(closing_answer("o/r", 26, [7]), answered)
 
 
+def thread_text(ident: str, body="It reads the head before the push.", opened=None, number: int = 26, repo: str = "o/r",
+                **change) -> dict:
+    """An exchange of the texts port's read of one review thread by its id: its pull request and its first comment. No
+    trial has recorded a thread's first comment with its body yet; the shape is the threads query's (P-43) with it."""
+    login, account, kind = opened or LENS
+    node = {"__typename": "PullRequestReviewThread", "id": ident,
+            "pullRequest": {"number": number, "repository": {"nameWithOwner": repo}},
+            "comments": {"nodes": [{"body": body, "replyTo": None, "lastEditedAt": None,
+                                    "author": {"__typename": kind, "login": login, "databaseId": account}}]}}
+    node.update(change)
+    return {"request": {"via": "graphql", "call": "POST /graphql", "headers": {},
+                        "body": {"query": texts.THREAD, "variables": {"id": ident}}},
+            "response": {"status": 200, "headers": {}, "body": {"data": {"node": node}}}}
+
+
+class FindingTexts(unittest.TestCase):
+    PULL = {"number": 26, "base": {"ref": "main", "repo": {"full_name": "o/r", "default_branch": "main"}}}
+
+    def read(self, threads, *found, lens="pr-review", pull=None):
+        router = Router(github.Replay(list(found)), {"don-petry": "admin"})
+        accounts = timeline.Accounts(router, "o/r", MACHINE, {LENS[1:]: "pr-review", (5, "Bot"): "qa-lead"})
+        self.sent = sent = []
+
+        class Kept:
+            def send(self, req):
+                sent.append(req["path"])
+                return router.send(req)
+        said = texts.findings(Kept(), pull or self.PULL, accounts, lens, threads)
+        self.assertEqual(router.replay._left, [])
+        return said
+
+    def test_a_lenss_own_words_on_each_thread_asked_for_are_read_as_a_text(self):  # issue 856
+        # A later review rules on what its Lens said before only if it is shown it. The first comment of each thread
+        # asked for is read by the thread's id, in the order given, as a text of that Lens's: data a Task carries
+        # under its writer's trust, never a fact and never a code.
+        said = self.read(["PRRT_9", "PRRT_7"], thread_text("PRRT_9", "The file is not in the head."),
+                         thread_text("PRRT_7", "A second\nFinding."))
+        lens = {"kind": "lens", "name": "pr-review", "can_write": False}
+        self.assertEqual(said, [{"id": "thread:PRRT_9", "by": lens, "body": "The file is not in the head."},
+                                {"id": "thread:PRRT_7", "by": lens, "body": "A second\nFinding."}])
+        self.assertTrue(all(task.readable_text(t) for t in said))
+        # No thread asked for is no text, and nothing is asked of GitHub.
+        self.assertEqual(self.read([]), [])
+        # What it asks GitHub, word for word: the thread by its id, its pull request, and of its first comment the text,
+        # what it replies to, whether it was edited and who made it. No trial has recorded this read.
+        self.assertEqual(" ".join(texts.THREAD.split()), (
+            "query TextsThread($id: ID!) { node(id: $id) { __typename ... on PullRequestReviewThread { id "
+            "pullRequest { number repository { nameWithOwner } } comments(first: 1) { nodes { body replyTo { id } "
+            "lastEditedAt author { __typename login ... on User { databaseId } ... on Bot { databaseId } } } } } } }"))
+
+    def test_a_threads_text_that_is_not_its_lenss_own_on_this_pull_request_builds_no_task(self):  # issue 856
+        # What cannot be read whole, or is not what was asked for, raises, so that no Task lists a Finding it does not
+        # show: another pull request's thread or another repo's, a node that is no thread or another one, a first
+        # comment that replies to another or that someone else wrote, another Lens's, and a body that is no text.
+        gone = dict(thread_text("PRRT_7"), response={"status": 200, "headers": {}, "body": {"data": {"node": None}}})
+        refused = dict(thread_text("PRRT_7"), response={"status": 200, "headers": {}, "body": {
+            "data": {"node": thread_text("PRRT_7")["response"]["body"]["data"]["node"]}, "errors": [{"message": "x"}]}})
+        failed = dict(thread_text("PRRT_7"), response=dict(thread_text("PRRT_7")["response"], status=502))
+
+        def answering(body) -> dict:
+            return dict(thread_text("PRRT_7"), response={"status": 200, "headers": {}, "body": body})
+
+        def first(**change) -> dict:
+            """The thread, its first comment changed; a field given as `...` is one GitHub's answer does not hold."""
+            found = thread_text("PRRT_7")
+            comment = found["response"]["body"]["data"]["node"]["comments"]["nodes"][0]
+            comment.update(change)
+            for name in [n for n, value in change.items() if value is ...]:
+                del comment[name]
+            return found
+        for why, found in (("a thread that is gone", gone), ("an answer with errors", refused), ("a read that failed", failed),
+                           ("a body that is no object", answering([])), ("data that is none", answering({"data": "unavailable"})),
+                           ("a node that is no object", answering({"data": {"node": "PRRT_7"}})),
+                           ("a number that is no whole number", thread_text("PRRT_7", number=26.0)),
+                           ("a repository that is no object", thread_text("PRRT_7", pullRequest={"number": 26, "repository": "o/r"})),
+                           ("a comment that is no object", thread_text("PRRT_7", comments={"nodes": [None]})),
+                           ("a reply", first(replyTo={"id": "PRRC_1"})), ("a reply GitHub does not say it is not", first(replyTo=...)),
+                           ("a reply to no comment", first(replyTo="PRRC_1")), ("a reply to nought", first(replyTo=0)),
+                           ("an edited comment", first(lastEditedAt="2026-11-14T08:00:00Z")),
+                           ("an edit GitHub does not say never was", first(lastEditedAt=...)),
+                           ("an edit at no time", first(lastEditedAt=0)), ("an edit that is a flag", first(lastEditedAt=False)),
+                           # An author GitHub gives as none, a deleted account's, is refused as the facts' read of the
+                           # same thread refuses it, before any text is asked for: a read that failed, as it was.
+                           ("an author that is none", first(author=None)), ("no author", first(author=...)),
+                           ("another pull request's", thread_text("PRRT_7", number=27)),
+                           ("another repo's", thread_text("PRRT_7", repo="o/other")),
+                           ("a node that is no thread", thread_text("PRRT_7", __typename="PullRequestReviewComment")),
+                           ("another thread", thread_text("PRRT_7", id="PRRT_8")),
+                           ("no pull request", thread_text("PRRT_7", pullRequest=None)),
+                           ("no comment", thread_text("PRRT_7", comments={"nodes": []})),
+                           ("comments that are no list", thread_text("PRRT_7", comments=None)),
+                           ("a person's", thread_text("PRRT_7", opened=PERSON)),
+                           ("another App's", thread_text("PRRT_7", opened=APP)),
+                           ("another Lens's", thread_text("PRRT_7", opened=("qa-lead", 5, "Bot"))),
+                           ("a body that is none", thread_text("PRRT_7", None)),
+                           ("a body of nothing", thread_text("PRRT_7", "")),
+                           ("a body that is no text", thread_text("PRRT_7", 3))):
+            with self.subTest(why), self.assertRaises(github.Unanswered) as raised:
+                self.read(["PRRT_7"], found)
+            # What GitHub says, and is not the Lens's own unedited first comment, is the thread's own state, told
+            # apart from a read that failed: anyone who can write can make it, and it must not pass for the Factory's.
+            own_state = why in ("a reply", "an edited comment", "a person's", "another App's", "another Lens's")
+            self.assertIs(type(raised.exception), texts.NotOwn if own_state else github.Unanswered, why)
+        self.assertTrue(issubclass(texts.NotOwn, github.Unanswered))
+        # The Lens asked for is the one whose words they must be: its own thread is another's to any other Lens.
+        with self.assertRaises(github.Unanswered):
+            self.read(["PRRT_7"], thread_text("PRRT_7"), lens="qa-lead")
+        # A list that names a thread twice, an id that is none GitHub gives, or more than the port reads: nothing is asked.
+        for threads in (["PRRT_7", "PRRT_7"], ["PRRT 7"], ["a/b"], [""], [7], "PR_7", ("PRRT_7",), None, ["a" * 101],
+                        ["PRRT_%d" % i for i in range(texts.THREADS + 1)]):
+            with self.subTest(threads=threads):
+                with self.assertRaises(github.Unanswered):
+                    self.read(threads)
+                self.assertEqual(self.sent, [])
+        self.assertEqual(len(self.read(["a" * 100], thread_text("a" * 100))), 1)
+        # As many as it reads are read.
+        most = ["PRRT_%d" % i for i in range(texts.THREADS)]
+        self.assertEqual(len(self.read(most, *[thread_text(i) for i in most])), texts.THREADS)
+        self.assertEqual(self.sent, ["/graphql"] * texts.THREADS)
+
+
 class Acceptance(unittest.TestCase):
     PULL = {"number": 26, "base": {"ref": "main", "repo": {"full_name": "o/r", "default_branch": "main"}}}
     OPENER = (12, "Bot")      # a fixture App of the Role that opens pull requests; no Role does in slice 1
@@ -4382,8 +4503,8 @@ def second_page(found: dict, body) -> dict:
 
 # Each grounded rule of the fake that the port does not read here, by why: the Controller's, the workflows' or a
 # person's, which no port reads (`controller`); the Kernel's, held by its own boundary tests, a race no port can read
-# (`kernel`); or the issues port's, not built (`issues_port`). Every grounded fixture is recorded in the shape its port
-# asks (issue 807).
+# (`kernel`); or the issues port's linked read, not built (`issues_port`). Every grounded fixture is recorded in
+# the shape its port asks (issue 807).
 NOT_READ = {
     # The records port reads what GitHub lists and cannot see a Run it does not list: the race is the Kernel's, held by
     # the unidentified window (decision 0036).
@@ -4396,8 +4517,6 @@ NOT_READ = {
     # request's close and reopening; none of it is built yet (P-61, issue 551).
     "a_link_by_hand_is_timed": "issues_port", "a_type_change_is_timed": "issues_port",
     "a_pull_requests_close_and_reopening_are_timed": "issues_port",
-    "an_issues_content_time_is_read_apart": "issues_port", "a_reopening_names_its_actor": "issues_port",
-    "an_issues_close_and_reopening_say_when": "issues_port",
     "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing": "issues_port",
     # The queue's writes, which the effects port does not make until the App that enqueues is granted contents: write.
     "an_app_enters_the_queue": "controller", "an_app_leaves_the_queue": "controller",
@@ -4514,6 +4633,9 @@ class Contract(unittest.TestCase):
         replays, and whether the port's reading holds the rule."""
         before = pull.diff(compared("P-29.base", 2, body("P-29.base", 1)), body("P-29.base", 1), PINNED_BASE)["content_id"]
         after = pull.diff(compared("P-29.base", 13, body("P-29.base", 12)), body("P-29.base", 12), PINNED_BASE)["content_id"]
+        # The content is the hash of the pull request's own diff alone: the same once the base moved and the head's
+        # commits stood against a new base, another once a push changed a file (issue 855).
+        moved = pull.diff(compared("P-29.base", 7, body("P-29.base", 6)), body("P-29.base", 6), PINNED_BASE)["content_id"]
         fork = [e for e in exchanges("P-27") if "/runs?" in e["request"].get("call", "") and e["response"]["status"] == 200]
         rows = [r for e in fork for r in e["response"]["body"].get("workflow_runs", [])
                 if r["head_repository"]["full_name"] != r["repository"]["full_name"]]
@@ -4567,6 +4689,15 @@ class Contract(unittest.TestCase):
         short_events = timeline.events(github.Replay([per_hundred(p43[13]), second_page(per_hundred(p43[13]), {})]),
                                        {"number": 48, "base": {"repo": {"full_name": canary()}}})
         files = pull.changed_paths(github.Replay([as_compare(p43[10], body("P-43", 8))]), body("P-43", 8), PINNED_BASE)
+        # P-34: issue 42 edited, renamed, commented on, labelled, closed and reopened by the Maintainer, then closed; its
+        # timeline and the issue read by REST as the port reads them, its lastEditedAt as P-34's GraphQL read gave it.
+        # Not through read(): no trial has recorded the port's own GraphQL read, and P-34's, asked at another time,
+        # names another updatedAt (decision 0218). That trial is owed, issue 831.
+        p34 = issues.own(replay("P-34.rest", 1), canary(), 42)
+        p34_events, p34_whole = timeline.events(replay("P-34.rest", 0), {"number": 42, "base": {"repo": {"full_name": canary()}}})
+        p34_accounts = timeline.Accounts(Router(github.Replay([]), {"don-petry": "admin"}), canary(), MACHINE, {})
+        p34_edited = body("P-34", 0)["data"]["repository"]["issue"]["lastEditedAt"]
+        renamed = "2026-10-20T21:17:28Z"
         return {
             # A request made before the App's push stood until the pr-review App dismissed it: not the push.
             "a_request_for_changes_survives_a_push": ({"P-41"}, any(
@@ -4591,6 +4722,18 @@ class Contract(unittest.TestCase):
                 r["by"]["kind"] == "machine_user" and r["state"] == "dismissed" and r["dismissed_from"] == "approved"
                 and r["dismissed_by"]["kind"] == "app" for r in reviewed)),
             "a_push_is_new_content": ({"P-29.base"}, before != after),
+            "a_push_can_leave_the_diff_as_it_was": ({"P-29.base"}, before == moved != after),
+            # The title's rename, not the body's earlier edit nor updatedAt.
+            "an_issues_content_time_is_read_apart": ({"P-34", "P-34.rest"},
+                issues.content_changed_at(p34["created_at"], p34_edited, p34_events) == renamed > p34_edited
+                and renamed != p34["updated_at"]),
+            "a_reopening_names_its_actor": ({"P-34.rest"}, [p34_accounts.acted(ev) for ev in p34_events
+                                                            if ev["event"] == "reopened"] == [P41_WRITER]),
+            # The Maintainer's reopening began a life, whose first close is the trial's last.
+            "an_issues_close_and_reopening_say_when": ({"P-34.rest"}, p34_whole and p34["state"] == "closed"
+                and issues.life(p34["created_at"], p34_events, p34_accounts)
+                == {"life_started_at": "2026-10-20T21:21:54Z", "reopened_last_by": "writer",
+                    "reopened_last_at": "2026-10-20T21:21:54Z", "closed_first_at": "2026-10-20T21:31:23Z"}),
             "a_check_names_its_run_and_suite": ({"P-65"}, self.run_and_suite_read()),
             "any_app_posts_a_check_under_any_name": ({"P-42", "P-42.port"}, self.posted_under_a_name_read()),
             "a_push_restarts_the_checks": ({"P-42.push"}, self.pushed_pending_read()),
@@ -5932,6 +6075,14 @@ class Issues(unittest.TestCase):
         self.assertFalse(self.read(first[:2] + [later] + first[2:])["complete"]["timeline"])
         more = {"timelineItems": {"pageInfo": {"hasNextPage": True}, "nodes": []}}
         self.assertFalse(self.read(issue_read([said], edits=more))["complete"]["timeline"])
+        # A last page names its previous and first pages and no next, or carries no link at all: whole, and no page
+        # past it is asked (Carbon).
+        later = rest_answer("/repos/o/r/issues/41/timeline?per_page=100&page=2", [issue_event("commented", 5)],
+                            '<https://x>; rel="prev", <https://x>; rel="first"')
+        self.assertTrue(self.read(first[:2] + [later] + first[2:])["complete"]["timeline"])
+        bare = issue_read([said])
+        bare[1]["response"]["headers"] = {}
+        self.assertTrue(self.read(bare)["complete"]["timeline"])
 
     def test_an_issues_content_time_is_the_newer_of_its_edit_and_its_rename(self):  # P-34
         def changed(events=(), **change):
@@ -5967,6 +6118,27 @@ class Issues(unittest.TestCase):
                          (minute(5), "writer", minute(5), minute(20)))
         self.assertEqual(life("open", (closed, 0, PERSON), (reopened, 5, PERSON), (closed, 10, PERSON),
                               (reopened, 15, STRANGER)), (minute(5), "other", minute(15), minute(10)))
+
+    def test_label_events_are_read_with_who_made_them_in_the_timelines_order(self):
+        events = [issue_event("labeled", 0, CONTROLLER_APP, label={"name": "factory:triage"}),
+                  issue_event("unlabeled", 5, PERSON, label={"name": "factory:triage"}),
+                  issue_event("labeled", 3, STRANGER, label={"name": "bug"}),
+                  issue_event("labeled", 6, PERSON, {"id": 9}, label={"name": "factory:ready"})]
+        f = self.read(issue_read(events))
+        writer, app = {"kind": "human", "name": "don-petry", "can_write": True}, {"can_write": False}
+        self.assertEqual(f["label_events"], [
+            {"label": "factory:triage", "action": "labeled", "at": minute(0),
+             "by": dict(app, kind="app", name="combsmith-sf-controller[bot]")},
+            {"label": "factory:triage", "action": "unlabeled", "at": minute(5), "by": writer},
+            {"label": "bug", "action": "labeled", "at": minute(3), "by": dict(app, kind="human", name="stranger")},
+            # An App's label with a person's token is the App's (decision 0218).
+            {"label": "factory:ready", "action": "labeled", "at": minute(6), "by": dict(app, kind="app", name="don-petry")}])
+        self.assertEqual(f["author"], writer)
+        # An issue an App opened with a person's token is the App's (decision 0218).
+        self.assertEqual(self.read(issue_read(performed_via_github_app={"id": 9}))["author"],
+                         dict(app, kind="app", name="don-petry"))
+        with self.assertRaises(github.Unanswered):
+            self.read(issue_read([issue_event("labeled", 0, label=None)]))
 
     def test_the_writers_last_acts_and_each_apps_latest_comment_are_read(self):
         other_app = ("github-actions[bot]", 41898282, "Bot")  # an App outside the Factory
@@ -6022,6 +6194,11 @@ class Issues(unittest.TestCase):
             with self.assertRaises(github.Unanswered, msg=at):
                 self.read(found)
 
+    def test_an_issue_that_changed_while_it_was_read_is_refused(self):
+        for edits, issue in (("2026-10-11T11:00:01Z", UPDATED), (UPDATED, "2026-10-11T11:00:01Z")):
+            with self.assertRaises(facts.Moved):
+                self.read(issue_read(edits={"updatedAt": edits}, updated_at=issue))
+
     def test_the_issues_own_facts_hold_to_the_schema_and_leave_its_linked_pull_requests_unread(self):
         from kernel import issue
         from tests.support import CONFIG
@@ -6055,6 +6232,16 @@ class Issues(unittest.TestCase):
         self.assertEqual(f["type_events"], [{"from": None, "to": "Bug", "at": minute(-50)},
                                             {"from": "Bug", "to": "Task", "at": minute(-40)},
                                             {"from": "Task", "to": None, "at": minute(-30)}])
+        # The content is the title and the body, each apart, an empty body as none, and nothing else.
+        content = lambda **change: self.read(issue_read(**change))["content_id"]
+        self.assertEqual(f["content_id"], "sha256:" + hashlib.sha256(b'["A title", "A body"]').hexdigest())
+        self.assertNotEqual(content(title="A ", body="B"), content(title="A", body=" B"))
+        self.assertEqual(content(body=None), content(body=""))
+        self.assertEqual(content(updated_at="2026-10-11T11:30:00Z", edits={"updatedAt": "2026-10-11T11:30:00Z"},
+                                 last=minute(-30)), f["content_id"])
+        # An issue with no labels and no one assigned is read so.
+        bare = self.read(issue_read(labels=[], assignees=[]))
+        self.assertEqual((bare["label_names"], bare["assignees"]), ([], []))
         # The Kernel defers on the pull requests not read yet, and reads the rest as an issue's facts.
         deferred = issue.derive(f, [], CONFIG)
         self.assertEqual((deferred["state"], deferred["reason"], deferred["evidence"]), (None, "facts_incomplete", ["linked"]))
