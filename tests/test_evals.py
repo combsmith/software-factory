@@ -169,8 +169,6 @@ class Scoring(unittest.TestCase):
             self.assertEqual(validate(odd, known["eval-case"], schemas=known), [])
             self.assertEqual(answered(*right, case=odd, covered=stood), ("unreadable", ["answer_disagrees_with_verdict"]))
         # What eval-case/1 refuses of the Findings shown.
-        self.assertNotEqual(validate(load("examples/invalid/eval-case.a-finding-shown-with-no-ruling.json"),
-                                     known["eval-case"], schemas=known), [])
         person = {"kind": "human", "name": "don-petry", "can_write": True}
         for why, odd in (("with no ruling", dict(case, shown=[{k: v for k, v in shown[0].items() if k != "expected"}])),
                          ("twice", dict(case, shown=shown[:1] * 2)), ("none", dict(case, shown=[])),
