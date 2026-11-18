@@ -114,6 +114,8 @@ CLEAN_CASE = ("tests.test_evals.Scoring.test_a_gating_finding_fails_a_clean_case
 APART = ("tests.test_evals.EvalJob.test_each_head_is_unpacked_apart_from_the_cases",)
 AZURE = "adapters/azure.py"
 AZURE_ASKS = ("tests.test_advisory.Transport.test_the_azure_transport_asks_four_requests_and_no_other",)
+ADVICE_ANSWERED = ("tests.test_advisory.Schemas.test_a_readers_answer_is_one_object_of_findings_and_nothing_beside_them",)
+ADVICE_RESULT = ("tests.test_advisory.Schemas.test_an_advisory_result_holds_codes_and_findings_that_are_advisory_annotations",)
 SCRATCH_PARTS = ("tests.test_evals.EvalJob.test_a_set_of_no_case_ends_the_run_before_anything_is_read",)
 CANARY_APART = ("tests.test_evals.EvalJob.test_the_canarys_head_is_apart_from_its_case",)
 NO_ANSWER = ("tests.test_evals.EvalJob.test_a_run_is_given_no_part_of_its_cases_answer_and_its_head_no_history",)
@@ -4233,6 +4235,43 @@ MUTANTS = ISSUE + [
      '    if not isinstance(req, dict) or not set(req) >= {"act", "id", "body"}:\n', AZURE_ASKS),
     ('an act may be text of another class, which equals what it likes', AZURE,
      'type(act) is not str or', 'not isinstance(act, str) or', AZURE_ASKS),
+    # Decision 0224: a reader's answer and an advisory Lens's Result, each held to its schema.
+    ("a reader's answer may hold any number of findings", 'schemas/advice-answer.schema.json',
+     '"maxItems": 100',
+     '"maxItems": 1000', ADVICE_ANSWERED),
+    ("a reader's title may run over lines", 'schemas/advice-answer.schema.json',
+     '"pattern": "^[^\\\\n\\\\r]+$"',
+     '"minLength": 1', ADVICE_ANSWERED),
+    ("a reader's line may be 0", 'schemas/advice-answer.schema.json',
+     '"minimum": 1,',
+     '"minimum": 0,', ADVICE_ANSWERED),
+    ("a reader's answer may be of any version", 'schemas/advice-answer.schema.json',
+     '"const": "advice-answer/1"',
+     '"type": "string"', ADVICE_ANSWERED),
+    ("a reader's criterion may be any text", 'schemas/advice-answer.schema.json',
+     '"pattern": "^PR-[0-9]{1,3}$"',
+     '"minLength": 1', ADVICE_ANSWERED),
+    ('an advisory Finding may hold a category', 'schemas/advice.schema.json',
+     '"const": "uncategorised"',
+     '"type": "string"', ADVICE_RESULT),
+    ('an advisory Finding may hold a criterion', 'schemas/advice.schema.json',
+     '"criterion": {\n          "type": "null"\n',
+     '"criterion": {\n          "type": ["string", "null"]\n', ADVICE_RESULT),
+    ('an advisory Finding may lie on any surface', 'schemas/advice.schema.json',
+     '"const": "annotation"',
+     '"type": "string"', ADVICE_RESULT),
+    ('an advisory Finding may be of any kind of source', 'schemas/advice.schema.json',
+     '"const": "advisory"',
+     '"type": "string"', ADVICE_RESULT),
+    ('advice/1 holds a reason the design does not list', 'schemas/advice.schema.json',
+     '"budget"\n',
+     '"budget",\n        "turns_spent"\n', ADVICE_RESULT),
+    ('a reader may be asked a third time', 'schemas/advice.schema.json',
+     '"maximum": 2',
+     '"maximum": 3', ADVICE_RESULT),
+    ("an advisory Finding's id may be any text after its Lens", 'schemas/advice.schema.json',
+     '"id": {\n          "type": "string",\n          "pattern": "^[a-z0-9][a-z0-9-]{0,62}:[0-9a-f]{64}$"\n        },\n        "source"',
+     '"id": {\n          "type": "string",\n          "pattern": "^[a-z0-9][a-z0-9-]{0,62}:.+$"\n        },\n        "source"', ADVICE_RESULT),
     ('a file row of unknown status is read', 'adapters/pull.py',
      '        if status not in STATUSES or (moved and',
      '        if (moved and', ('tests.test_adapters',)),
