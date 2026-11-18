@@ -8,7 +8,7 @@
   "findings": [
     {
       "schema": "finding/1",
-      "id": "astra:5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f",
+      "id": "astra:5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f",
       "source": {
         "lens": "astra",
         "kind": "role",
@@ -16,7 +16,7 @@
       },
       "surface": {
         "type": "annotation",
-        "key": "astra:5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f"
+        "key": "astra:5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f"
       },
       "location": {
         "path": "kernel/decide.py",
@@ -30,7 +30,7 @@
   ],
   "texts": [
     {
-      "id": "astra:5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f",
+      "id": "astra:5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f",
       "category": "functional",
       "criterion": "PR-3",
       "body": "A deferral is returned where the facts are whole\n\n`decide` returns `defer` when `checks` is an empty list, which is a whole read of no check."
