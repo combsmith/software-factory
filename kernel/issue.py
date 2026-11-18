@@ -54,6 +54,8 @@ ISSUE_STATES = ("open", "closed")
 # written as shapes, as terms.py writes a time's: a length is no limit anyone chooses, and so is not configuration.
 CONTENT_FEWEST = "ffff"
 CONTENT_MOST = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+# A commit's name is as long as this, of hexadecimal digits in lower case, as schemas/issue-facts.schema.json has it.
+COMMIT_SHAPE = "ffffffffffffffffffffffffffffffffffffffff"
 # The Intents of an issue's Runs that its State reads, as their run records name them. The issue's decision, which
 # admits them, uses these codes. The readiness Run judges whether the issue is ready for this content, and its `apply`
 # adds factory:ready. The opening Run creates the work's branch and its draft pull request.
@@ -822,8 +824,10 @@ def readable_head(facts: dict) -> bool:
 
 def readable_base(facts: dict) -> bool:
     """The default branch's head as the pass read it, the commit an opening Run reads and lands its one commit on: a
-    name. Never null, and never defaulted: the default branch always has a head, and a guess would be another commit."""
-    return isinstance(facts.get("base_head"), str) and facts["base_head"] != ""
+    commit's whole name, and no branch's or tag's, which would name another commit tomorrow. Never null, and never
+    defaulted: the default branch always has a head, and a guess would be another commit."""
+    base = facts.get("base_head")
+    return isinstance(base, str) and len(base) == len(COMMIT_SHAPE) and all(c in t.HEX_DIGITS for c in base)
 
 
 def readable_intents(intents) -> bool:

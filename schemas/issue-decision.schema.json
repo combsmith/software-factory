@@ -116,7 +116,7 @@
         "base_head": {
           "description": "The opening Run's alone, where the branch does not exist yet: the default branch's head it was admitted for, the commit it reads and lands its one commit on",
           "type": "string",
-          "minLength": 1
+          "pattern": "^[0-9a-f]{40}$"
         },
         "pull_request": {
           "description": "The implementing Run's alone: the number of the linked draft the Factory opened, whose failing checks admitted it",
