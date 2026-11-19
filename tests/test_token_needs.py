@@ -67,7 +67,7 @@ RAW = {
     "adapters.texts.findings": {"pull_requests": R},                   # a review thread and its first comment (issue 856)
     "adapters.timeline.Accounts": {"metadata": R},                     # a login's permission on the repo
     "adapters.timeline._content": {"contents": R},                     # a commit's content, compared with its base
-    "adapters.timeline._pages": {"issues": R, "pull_requests": R},     # the timeline, and the reviews
+    "adapters.timeline._paged": {"issues": R, "pull_requests": R},     # the timeline, and the reviews
     "harness.head.fetch": {"contents": R}, "harness.head.tree": {"contents": R},
 }
 # How many requests each of those builds itself: one more, in a function already classed, is classed again first.
@@ -125,7 +125,7 @@ SITES = {
     "adapters.threads._read": 1,
     "adapters.timeline.Accounts": 1,
     "adapters.timeline._content": 1,
-    "adapters.timeline._pages": 1,
+    "adapters.timeline._paged": 1,
     "harness.head.fetch": 1,
     "harness.head.tree": 1,
 }
@@ -155,7 +155,7 @@ APPROVING = [
     "adapters.threads._read",
     "adapters.timeline.Accounts",
     "adapters.timeline._content",
-    "adapters.timeline._pages",
+    "adapters.timeline._paged",
 ]
 # A request of GitHub's, built where it is sent: whatever function builds one reads or writes GitHub itself.
 REQUESTS = {"request", "download", "tarball"}
