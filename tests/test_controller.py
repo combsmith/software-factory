@@ -253,6 +253,24 @@ class Record(unittest.TestCase):
         entries = passed(reads(pulls=[pr(42)], runs=[run(number=42)]), cfg=told)["record"]["pull_requests"]
         self.assertEqual([(e["decision"].get("action"), "advisory_ask" in e) for e in entries], [("issue_approval", False)])
 
+    def test_an_advisory_token_not_confirmed_revoked_raises_an_alert_of_its_own_and_no_pause(self):  # issue 925
+        # The Run concluded success and its outcome counts nothing: the applied/1 reconciliation reads is what says
+        # it, and the pass that reads it raises one alert, which neither pauses nor counts toward the pause.
+        done = json.loads((ROOT / "examples" / "applied.an-advisory-read-shown.json").read_text())
+        self.assertIn({"lens": "kimi", "code": "token_not_revoked"}, done["advisory"])
+        out = passed(reads(effects=dict(RECORDED, applied=[done])))
+        self.assertEqual(shared.errors(out["record"], "pass"), [])
+        self.assertEqual(shared.errors(out["view"]["health"], "health"), [])
+        self.assertEqual((out["alerts"], out["record"]["alerts"]), (["advisory_token_not_revoked"],) * 2)
+        self.assertEqual(out["view"]["health"]["pause"], {"state": "none", "by": []})
+        self.assertEqual(decisions(out)[0]["outcome"], "admit")
+        # Every Lens shown and revoked raises nothing, and nor does a record of no advisory part.
+        revoked = dict(done, advisory=[dict(a, code="shown") for a in done["advisory"]])
+        self.assertEqual(passed(reads(effects=dict(RECORDED, applied=[revoked])))["alerts"], [])
+        plain = {k: v for k, v in done.items() if k != "advisory"}
+        self.assertEqual(passed(reads(effects=dict(RECORDED, applied=[plain, revoked])))["alerts"], [])
+        self.assertEqual(passed(reads(effects=dict(RECORDED, applied=[plain, done])))["alerts"], ["advisory_token_not_revoked"])
+
     def test_a_queue_act_gets_a_run_id_and_a_dispatch_once_its_workflow_is_named(self):  # issue 381
         # The queue App's acts, an enqueue, a dequeue and a resolution, are each a dispatched Run of the queue workflow,
         # named by run-name/1 with an Intent of its own, so the records port counts each. Until the configuration names

@@ -389,7 +389,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     causes = automatic_causes(runs, now, rules["automatic_pause"]) if automatic is not None else []
     alerts = health_.alerts([e["decision"]["reason"] for e in entries], context, capacity, causes,
                             bool(alarmed), raised, unnamed, reconcile_.alerts(found), due,
-                            whole and never_started(runs, now, rules["automatic_pause"]))
+                            whole and never_started(runs, now, rules["automatic_pause"]),
+                            advisory_.unrevoked(reads.get("effects")))
     decided = [e["facts"]["item"] for e in entries]
     titles = {key(e["facts"]["item"]): e.get("title") if isinstance(e.get("title"), str) else ""
               for e in pulls + issues if e["facts"]["item"] in decided}

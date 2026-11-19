@@ -59,7 +59,7 @@ def thresholds(window: list, usage, rule: dict) -> dict:
 
 
 def alerts(reasons: list, context: dict, capacity, automatic: list, left_out: bool, not_run: bool, unnamed: dict,
-           reconciled=(), credentials: bool = False, never_started: bool = False) -> list:
+           reconciled=(), credentials: bool = False, never_started: bool = False, unrevoked: bool = False) -> list:
     """Each cause once, however many items it defers (L-48). A cause that holds the whole scope is raised from the
     context as well as from the Decisions, so that it is raised with no item to defer. The automatic pause defers as
     `capacity` does, and is the causes `automatic` names, what holds it, unless a capacity fault holds too. Facts left out are one cause,
@@ -67,7 +67,8 @@ def alerts(reasons: list, context: dict, capacity, automatic: list, left_out: bo
     defers, and past `max_unnamed_runs` of them past it every Run does (issue 270). `reconciled` is reconciliation's
     alerts: a write no Effect recorded, and a reconciliation that was short (decision 0061). `credentials` is whether a
     stored credential is near its limit or cannot be read (issue 305). `never_started` is whether Runs that never ran
-    have stood since a Run last succeeded, which outlasts the pause they raise (decision 0116)."""
+    have stood since a Run last succeeded, which outlasts the pause they raise (decision 0116). `unrevoked` is whether a
+    Run read for reconciliation recorded an advisory token not confirmed revoked, which holds no pause (issue 925)."""
     causes = set(reasons) & t.SCOPE_DEFERRALS
     causes |= {"paused"} if context["paused"] is True else set()
     causes |= {"pause_unreadable"} if context["paused"] is None else set()
@@ -83,6 +84,7 @@ def alerts(reasons: list, context: dict, capacity, automatic: list, left_out: bo
     causes |= set(reconciled)
     causes |= {"credential_due"} if credentials else set()
     causes |= {"runs_never_started"} if never_started else set()
+    causes |= {"advisory_token_not_revoked"} if unrevoked else set()
     return sorted(causes)
 
 

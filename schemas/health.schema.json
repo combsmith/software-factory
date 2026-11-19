@@ -226,7 +226,8 @@
           "write_unmatched",
           "reconciliation_unreadable",
           "credential_due",
-          "runs_never_started"
+          "runs_never_started",
+          "advisory_token_not_revoked"
         ]
       }
     },
