@@ -1082,15 +1082,27 @@ TRIAGE_BOT = ("an-old-login[bot]", 41, "Bot")
 ANALYST_BOT = ("another-old-login[bot]", 42, "Bot")
 
 
+def held_roles(**roles) -> dict:
+    """The entry's configuration with the Controller's account TRIAGE_BOT's and the investigating Role's, ANALYST_BOT's,
+    held under `roles` alone, as controller/1 holds a Role's App that is no Lens's; `roles` holds more, or other."""
+    cfg = config()
+    held = dict({"business-analyst": {"id": ANALYST_BOT[1], "type": "Bot", "login": "combsmith-sf-business-analyst[bot]"}}, **roles)
+    cfg["controller"]["accounts"].update(controller=dict(APP_ACCOUNT, id=TRIAGE_BOT[1]),
+                                         roles=dict(cfg["controller"]["accounts"]["roles"], **held))
+    apps = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
+    return dict(cfg, apps=dict(apps, **{"business-analyst": {"name": test_issue.ANALYST["name"][:-len("[bot]")]}}))
+
+
 def issue_through_the_port(events=(), repo="o/r", exchanges=None, users=None) -> dict:
     """An issue's pass entry as the issues port reads it, its linked pull requests read by `adapters/linked.py`: by
     default issue 41 of `issue_read` in tests/test_adapters.py, with `events` on its timeline and no pull request."""
-    from adapters import issues, timeline
-    from tests.test_adapters import IDENTITIES, MACHINE, Router, issue_read
+    from adapters import issues
+    from tests.test_adapters import IDENTITIES, Router, issue_read
     found = issue_read(list(events)) if exchanges is None else exchanges
     router = Router(github.Replay(found), dict({"don-petry": "admin"}, **(users or {})))
-    names = {TRIAGE_BOT[1:]: test_issue.CONTROLLER["name"], ANALYST_BOT[1:]: test_issue.ANALYST["name"]}
-    accounts = timeline.Accounts(router, repo, MACHINE, {}, factory=set(names), apps=names)
+    # The account reader is the entry's own, from the configuration: no set of accounts is built here (issue 901).
+    _, accounts, _ = entry.reader(router, held_roles())
+    accounts.repo = repo
     number = found[0]["response"]["body"]["number"]
     facts, title = issues.read(router, repo, number, accounts, lambda: "2026-10-11T12:00:00Z", identities=IDENTITIES)
     return {"facts": facts, "title": title}
@@ -1124,6 +1136,8 @@ class Issues(unittest.TestCase):
 
     def test_an_app_is_named_by_the_id_the_configuration_holds_so_its_label_and_comment_count(self):  # ruling A
         # The Controller's label and the investigating App's comment count by the App's id: the verdict is wanted next.
+        # The investigating Role's App is held under `roles` alone, and its comment is still that Role's (issue 901).
+        self.assertNotIn(ANALYST_BOT[1:], entry.accounts(held_roles()["controller"])[3])
         from tests.test_adapters import issue_event
         labelled = issue_event("labeled", 1, actor=TRIAGE_BOT, label={"name": "factory:triage"})
         said = issue_event("commented", 2, actor=ANALYST_BOT)
@@ -1132,6 +1146,19 @@ class Issues(unittest.TestCase):
         # With no comment, the investigation is wanted: the label counted on its own.
         alone = issue_passed(issue_through_the_port([labelled]))
         self.assertEqual((alone["state"], alone["admit"]["intent"]), ("triage", "investigate-issue"))
+
+    def test_issues_whose_apps_cannot_be_told_are_not_decided_and_the_pull_requests_are(self):  # issue 901
+        # The entry's word that the issues' Apps cannot be told: no issue is decided, whatever was read, one alert says
+        # so, and the pull request is decided as it is without the word.
+        told = dict(reads(issues=[an_issue(7)]), issue_apps_unreadable=True)
+        out, plain = passed(told), passed(reads(issues=[an_issue(7)]))
+        self.assertEqual(([d["item"]["type"] for d in decisions(out)], out["record"]["left_out"]), (["pull_request"], []))
+        self.assertEqual(out["record"]["pull_requests"], plain["record"]["pull_requests"])
+        self.assertEqual(set(out["alerts"]) - set(plain["alerts"]), {"issue_apps_unreadable"})
+        self.assertEqual(out["record"]["alerts"], sorted(out["alerts"]))
+        self.assertEqual([d["item"]["type"] for d in decisions(plain)], ["pull_request", "issue"])
+        # Anything but exact true is no such word.
+        self.assertEqual(len(decisions(passed(dict(told, issue_apps_unreadable="yes")))), 2)
 
     def test_a_person_whose_login_is_an_apps_name_without_its_suffix_is_not_that_app(self):  # ruling A
         # A User named as config/defaults.json writes the Controller's App is not it, with its token or through an App.
@@ -1777,6 +1804,54 @@ class Entry(unittest.TestCase):
         code, _, files = entry_with(None, configured=real)
         self.assertEqual((code, spied["listed"], spied["read"], files["pass.json"]["issues"]), (0, [(self.HOME, None)], [], []))
         self.assertEqual(len(spied["graphql"]), 1)
+
+    def test_a_queues_or_a_lenss_name_declared_as_an_issues_app_refuses_the_issues_alone_and_the_pull_requests_are_decided(self):
+        # The reader tells the queue App and a Lens's App by their ids, as a queue and a Lens, never as an App by its
+        # name: one named for a label or an Intent could have no act read as that App's. No issue is listed, read or
+        # decided, and the pass says `issue_apps_unreadable`; the pull requests are read and decided as ever (issue 901).
+        real = entry.configuration
+        queue = {"id": 5000009, "type": "Bot", "login": "combsmith-sf-queue[bot]"}
+        renamed = {"lens": "pr-review", "login": "an-old-login[bot]", "id": CONTROLLER["accounts"]["roles"]["pr-review"]["id"]}
+        other = {"lens": "coderabbit", "login": "coderabbitai[bot]", "id": 136622811}
+        intent = lambda app: {"intents": {"investigate-issue": {"role": "business-analyst", "app": app},
+                                          "judge-readiness": None, "open-pull-request": None}}
+        whos = []
+
+        def snapshot(transport, repo, number, identities, who, *a, **k):
+            whos.append(who)
+            return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
+
+        def entry_with(issues, **accounts):
+            def told(root, release):
+                found = real(root, release)
+                found["kernel"]["issues"] = dict(found["kernel"]["issues"], served_from="2026-10-01T00:00:00Z", **issues)
+                found["controller"]["accounts"].update(accounts)
+                return found
+            hub = Hub(self.table(numbers=[7]))
+            with unittest.mock.patch.object(entry, "configuration", told), \
+                    unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                    unittest.mock.patch.object(entry.items, "open_issues", lambda t, repo, since, **k: ([], since is None)):
+                code, printed, files, _ = self.run_entry(hub)
+            record = files.get("pass.json", {})
+            return (code, printed, "issue_apps_unreadable" in record.get("alerts", ()),
+                    [e["decision"]["item"]["number"] for e in record.get("pull_requests", ())], record.get("issues"))
+        ready = lambda name: {"label_apps": {"factory:triage": "combsmith-sf-controller", "factory:ready": name}}
+        # The issues are listed as with no date, so none is; pull request 7 is decided, and nothing is written for an issue.
+        refused = (0, "passed\n", True, [7], [])
+        self.assertEqual(entry_with(ready("combsmith-sf-pr-review")), refused)
+        # The pull requests' reader does not reserve the name that collides, so no snapshot is refused for it; a name
+        # that does not collide stays reserved.
+        self.assertEqual(whos[-1].reserved, {"combsmith-sf-controller[bot]"})
+        self.assertEqual(entry_with(intent("combsmith-sf-pr-review")), refused)
+        self.assertEqual(entry_with(ready("combsmith-sf-queue"), queue=queue), refused)
+        # A Lens is told by the login the configuration holds for it, and by the name its id is configured under.
+        self.assertEqual(entry_with(ready("coderabbitai"), lenses=[other]), refused)
+        self.assertEqual(entry_with(ready("combsmith-sf-pr-review"), lenses=[renamed]), refused)
+        # The queue's name with no queue App held, and any other App's, are no queue's and no Lens's: the issues are
+        # listed from their date, here by a listing that is whole only with no date, which stops the pass.
+        for issues, accounts in ((ready("combsmith-sf-queue"), {}), (ready("combsmith-sf-readiness"), {"queue": queue}),
+                                 (intent("combsmith-sf-business-analyst"), {})):
+            self.assertEqual(entry_with(issues, **accounts)[:2], (1, "issue_list_unreadable\n"), issues)
 
     def test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry(self):  # S3, Astra
         # Through the real port: an issue that read whole would be accepted defers while a pull request names it.

@@ -70,12 +70,14 @@ class Accounts:
     Factory App whose account the configuration holds, `(id, "Bot")`, to the name it is configured under, as REST spells
     a Bot's login, `[bot]` and all: that App is named by its id, as a Lens is, never by the login it shows. `reserved`
     names, as REST spells them, Apps the configuration declares by name though it may hold no account of theirs: no
-    account but one `apps` names by its id may show one (Carbon)."""
+    account but one `apps` names by its id may show one (Carbon). `roles` is each Role App's account, `(id, "Bot")`: a
+    comment of its on an issue is that Role's, and no act of its is counted against the act ceiling, which counts the
+    acts made with no model Run (issue 901)."""
 
     def __init__(self, transport, repo: str, approver: tuple, lenses: dict, factory=(), queue=None, apps=None,
-                 reserved=()):
+                 reserved=(), roles=()):
         self.transport, self.repo, self.approver = transport, repo, tuple(approver)
-        self.lenses, self.factory, self.answers = dict(lenses), set(factory), {}
+        self.lenses, self.factory, self.answers, self.roles = dict(lenses), set(factory), {}, set(roles)
         self.queue = tuple(queue) if queue is not None else None
         self.apps, self.reserved = dict(apps or {}), set(reserved)
 
