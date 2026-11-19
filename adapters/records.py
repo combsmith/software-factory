@@ -461,7 +461,7 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     for record, github_id, attempt, keyed in ran if day is not None else []:
         if record["status"] != "completed" or record["intent"] != REVIEWING or record["started_at"][:len(day)] != day:
             continue
-        if "never_ran" in record and attempt == 1:
+        if "never_ran" in record and type(attempt) is int and attempt == 1:
             # Its one attempt ran no step, so it asked no reader: nothing to read, and nothing spent. A later attempt
             # that never ran says nothing of the ones before it, which may have asked: that Run is read as any other.
             record[ADVISED[0]] = 0
