@@ -301,6 +301,11 @@ class Record(unittest.TestCase):
         self.assertEqual((out["alerts"], alone["alerts"]), (["facts_unreadable"], []))
         self.assertEqual(passed(reads(pulls=[{"facts": None, "title": "x"}]))["left_out"], [None])
         self.assertEqual(passed(reads(pulls=[{"facts": {}}, "x"]))["left_out"], [None, None])
+        # An item whose repo is no repo's name is recorded as no item, and the pass record is still one (issue 913).
+        for repo in ("o/r x", "o/r\u200b", "\u00f6/r", "o/r/s", "o/", "/r"):
+            odd = passed(reads(pulls=[{"facts": {"item": dict(support.ITEM, repo=repo)}, "title": "x"}]))
+            self.assertEqual([e["item"] for e in odd["record"]["left_out"]], [None], repo)
+            self.assertEqual(shared.errors(odd["record"], "pass"), [], repo)
         # A good copy and a bad copy of one item: neither is decided (Argon's read of the merged pass).
         copies = passed(reads(pulls=[pr(42), {"facts": {"item": dict(support.ITEM, number=42)}, "title": "x"}]))
         self.assertEqual((decisions(copies), copies["dispatch"]), ([], []))

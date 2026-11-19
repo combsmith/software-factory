@@ -451,6 +451,70 @@ class Examples(unittest.TestCase):
         for loose in ("^fixed$|b$", "^[a-z]+\\$", "^a|b$", "a$", "^a", "^(a|b)$|^c$", None, 3):
             self.assertFalse(check_examples._anchored(loose), loose)
 
+    def test_a_reference_out_of_the_codes_and_a_pattern_that_admits_a_sentence_are_caught(self):  # issue 913
+        schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
+                   for p in (ROOT / "schemas").glob("*.schema.json")}
+        free = lambda kind, schema: check_examples._free(schema, schemas, schema, kind, "$", set())
+        # A reference out of a kind of codes reaches only a record RECORDS names, whose own rules hold it; any other
+        # kind, a model's answer whole for one, is refused, however it is referred to.
+        for ref in ("apps.schema.json", "trial.schema.json", "trial.schema.json#/$defs/headers"):
+            applied = copy.deepcopy(schemas["applied"])
+            applied["properties"]["extra"] = {"$ref": ref}
+            self.assertTrue(caught(free("applied", applied), "schema applied refers at $.extra to %s, which is neither"
+                                   % ref.split(".")[0]), ref)
+        self.assertEqual(sorted(check_examples.RECORDS), [("applied", "finding"), ("pass", "decision"), ("pass", "facts"),
+                                                          ("pass", "issue-decision"), ("pass", "issue-facts")])
+        for kind, record in check_examples.RECORDS:
+            referrer = copy.deepcopy(schemas[kind])
+            referrer["properties"]["extra"] = {"$ref": "%s.schema.json" % record}
+            self.assertEqual(free(kind, referrer), [], (kind, record))
+        # Only by the kind RECORDS names it for, and whole: another kind's, or a fragment into a record, is refused.
+        disposition = copy.deepcopy(schemas["disposition"])
+        disposition["properties"]["extra"] = {"type": "array", "items": {"$ref": "finding.schema.json"}}
+        self.assertTrue(caught(free("disposition", disposition), "schema disposition refers at $.extra[] to finding"))
+        # Nor through another kind of codes that may: a fragment of it lends none of its records (Astra's read).
+        lender = copy.deepcopy(schemas["applied"])
+        lender.setdefault("$defs", {})["lent"] = {"$ref": "finding.schema.json"}
+        borrower = copy.deepcopy(schemas["disposition"])
+        borrower["properties"]["extra"] = {"$ref": "applied.schema.json#/$defs/lent"}
+        self.assertTrue(caught(check_examples._free(borrower, dict(schemas, applied=lender), borrower, "disposition", "$", set()),
+                               "refers at $.extra to finding"))
+        # SPACES is every character Python's \s matches, none missed and none more.
+        self.assertEqual(set(check_examples.SPACES), {chr(c) for c in range(0x110000) if re.fullmatch(r"\s", chr(c))})
+        for ref in ("facts.schema.json#/$defs/changed_path", "finding.schema.json#/$defs/surface"):
+            applied = copy.deepcopy(schemas["applied"])
+            applied["properties"]["extra"] = {"$ref": ref}
+            self.assertTrue(caught(free("applied", applied), "schema applied refers at $.extra to %s" % ref.split(".")[0]), ref)
+        # Anchored is not a code: a pattern holds one only where no class of it, no `.` and no escape admits whitespace.
+        for held in ("^[a-z_]+$", "^[^\\s]+$", "^[^/\\s]+/[^/\\s]+$", "^\\S+$", "^[\\w-]+$", "^sf [a-z]+ r_[0-9]+$",
+                     "^[]a]+$", "^sha256:[0-9a-f]{64}$", "^a\\.b$", "^\\x41\\u0042+$", "^[^]\\s]+$", "^[\\]a]+$",
+                     "^\\U00000041+$"):
+            self.assertTrue(check_examples._coded(held), held)
+        for loose in (("^[^\\^@]*$", "^[^/]+/[^/]+$", "^.+$", "^[a .]+$", "^[\\s\\S]+$", "^[^\\S]+$", "^\\s$", "^\\W+$",
+                      "^\\D+$", "^[a\\x20]+$", "^[a\\u3000]+$", "^[a\\t]+$", "^(?x)a b$", "^(?s).$", "^[a-z]+$|b", None, "^[a-$",
+                      # A space a group may repeat, an octal one, and every character \\s matches, U+2001 to U+2009 too.
+                      "^[a-z]+( [a-z]+)*$", "^(?:[a-z]+ ){1,50}$", "^([a-z]+\\040)+$", "^[a-z]\\040[a-z]$", "^(\\w| )+$",
+                      "^\\S+( \\S+)*$", "^(?#[).+(?#])$", "^sf +r_[0-9]+$", "^[a-z]+ {1,9}[a-z]+$", "^a ?b$", "^(?z)a$", "^(a$", "^a\tb$", "^a\nb$", "^a\u3000b$")
+                     + tuple("^[a-z%s]+$" % c for c in "\u2001\u2005\u2009\x1c\x85")):
+            self.assertFalse(check_examples._coded(loose), loose)
+        # The repo of a run record, a pass record, the writes and what was written is a repo's name alone.
+        for kind in ("run-record", "pass", "writes", "written"):
+            found = set()
+            def gather(node):
+                if isinstance(node, dict):
+                    if isinstance(node.get("properties"), dict) and isinstance(node["properties"].get("repo"), dict):
+                        found.add(node["properties"]["repo"].get("pattern"))
+                    for value in node.values():
+                        gather(value)
+                elif isinstance(node, list):
+                    for value in node:
+                        gather(value)
+            gather(schemas[kind])
+            self.assertEqual(found, {"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"}, kind)
+        disposition = copy.deepcopy(schemas["disposition"])
+        disposition["properties"]["note"] = {"type": "string", "pattern": "^[^\\^@]*$"}
+        self.assertTrue(caught(free("disposition", disposition), "schema disposition admits text at $.note"))
+
     def test_a_schema_without_its_envelope_is_caught(self):  # decision 0039
         schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
                    for p in (ROOT / "schemas").glob("*.schema.json")}

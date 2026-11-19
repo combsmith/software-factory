@@ -839,8 +839,9 @@ class Carried(unittest.TestCase):
             self.assertNotEqual(validate(dict(record, reconciled=odd), SCHEMAS["pass"], schemas=SCHEMAS), [], odd)
 
     def test_a_record_too_wide_for_the_pass_record_leaves_it_short_and_never_refuses_a_pass(self):
-        # applied/1 and written/1 are wider than what a pass record carries. One record's key or repo that does not fit is
-        # not carried, so it never refuses a pass; it can match nothing GitHub says, and reconciliation says so.
+        # applied/1's key is wider than what a pass record carries, and written/1 refuses a repo a pass record cannot keep
+        # (issue 913). One record's key or repo that does not fit is not carried, so it never refuses a pass; it can match
+        # nothing GitHub says, and reconciliation says so.
         wide = "K" * 101
         for effects in (self.effects(applied(("comment", wide, "applied")), runs=[self.RUN]),
                         self.effects(written_=[written(("dequeue", dict(ITEM, repo="o/r x"), None, None, "applied"))])):
