@@ -11,12 +11,14 @@ and kills it at a hard deadline, so the step never waits on the network after th
 token, and says what it did a line at a time as it goes, which `told` reads back whatever became of the child:
 
     began                   before the token is asked for
-    unminted                no token was minted: nothing was written
+    unminted                no token was minted: `identity` refused before GitHub was asked for one
     <lens> <code> [<key>]   one Lens's check run: a code of `adapters/advice.py`'s, and its key where it was read back
     revoked | unrevoked     whether GitHub confirmed the token revoked
 
 A Lens the child did not report is `out_of_time`. A child that began and did not say `revoked`, killed or not, leaves
-the token's state unknown: every Lens it was asked for is `token_not_revoked`, with the key of any it had shown.
+the token's state unknown: every Lens it was asked for is `token_not_revoked`, with the key of any it had shown. So
+does a mint GitHub was asked for and refused, answered other than as asked, or that failed for a cause not foreseen:
+GitHub may have made a token all the same, and `unrevoked` is said, never `unminted`.
 """
 from __future__ import annotations
 
@@ -45,6 +47,9 @@ COMMAND = [sys.executable, "-m", "harness.advised"]
 CHILD, RESERVE, LEAST = 150, 30, 6 * TIMEOUT + 10
 ONE = 4 * TIMEOUT + 5
 MOST = 4 * 1024 * 1024      # the bytes of what the child is asked and of what it says that are read
+# What `identity` refuses before GitHub is asked to mint: with one of these, and no other, no token was made.
+BEFORE = frozenset({"key_unreadable", "key_cannot_sign", "app_unreadable", "effect_not_grantable", "effect_not_granted",
+                    "installation_unreadable"})
 LINE = re.compile(r"([a-z]{1,31}) ([a-z_]{1,40})(?: ([A-Za-z0-9_=:-]{1,100}))?")
 
 
@@ -98,11 +103,11 @@ def told(out, lenses: list) -> dict:
         if one and one.group(1) in lenses and one.group(1) not in said and one.group(2) in advice.CODES \
                 and (one.group(2) == "shown") == (one.group(3) is not None):
             said[one.group(1)] = (one.group(2), one.group(3))
-    if "unminted" in lines:
+    if "unminted" in lines and "unrevoked" not in lines:
         return {lens: ("token_not_minted", None) for lens in lenses}
     if "began" not in lines:
         return {lens: ("out_of_time", None) for lens in lenses}     # nothing was asked of GitHub
-    if "revoked" not in lines:
+    if "revoked" not in lines or "unrevoked" in lines:
         # The token's state is not known: it was asked for, and GitHub was not heard to revoke it.
         return {lens: ("token_not_revoked", said.get(lens, (None, None))[1]) for lens in lenses}
     return {lens: said.get(lens, ("out_of_time", None)) for lens in lenses}
@@ -143,23 +148,24 @@ def main(argv: list, environ: dict, connect=Live, clock=time.monotonic, say=None
         with open(os.open(os.path.join(argv[0], "asked.json"), os.O_RDONLY | os.O_NOFOLLOW), "rb") as f:
             asking = json.loads(f.read(MOST).decode("utf-8"))
         config = configuration.load(steps.ROOT, asking["release"], APP)
-        item, lenses = asking["item"], [one["lens"] for one in asking["asked"]]
+        names = steps.read_json(steps.ROOT, os.path.join("config", "harness.json"))["advisory"]
+        item, lenses = asking["item"], [one["lens"] for one in asking["asked"] if one["lens"] in names]
         say("began")
         try:
             transport, revoke = identity.from_key(
                 config["app"], config["controller"]["home"]["repo"],
                 identity.permissions(config["app"], config["needs"], ["create_check_run"]), environ.get(KEY), int(time.time()),
                 connect)
-        except Exception:   # NOSONAR a token not minted, for whatever cause, is said: nothing was written
-            say("unminted")
+        except Exception as refused:    # NOSONAR a mint that failed, for whatever cause, is said: nothing was written
+            say("unminted" if isinstance(refused, identity.Refused) and str(refused) in BEFORE else "unrevoked")
             return 0
         try:
-            allowed = effects.Allowed(transport, *effects.advisory_permits(item, asking["head"], lenses, asking["run"]))
             for one in asking["asked"]:
                 if asking["seconds"] - (clock() - began) < ONE:
                     continue        # not said, so `out_of_time`: the token is still revoked
                 try:
-                    back = effects.advisory_write(allowed, item, one["request"], config["app"]["name"] + "[bot]")
+                    back = effects.advisory_write(transport, item, asking["head"], lenses, asking["run"], one["request"],
+                                                  config["app"]["name"] + "[bot]")
                 except Exception:   # NOSONAR a write that raises, foreseen or not, is a code, and the token is revoked
                     back = {"state": "raised"}
                 state, key = back.get("state"), back.get("key")
