@@ -658,6 +658,31 @@ class SeenPort(unittest.TestCase):
                                      schemas=SCHEMAS), [])
 
 
+class Tracking(unittest.TestCase):
+    def test_the_tracking_issues_number_is_what_the_passes_recorded_and_none_while_their_records_are_not_whole(self):  # issue 901
+        # Each landed write of the tracking issue is keyed by its number: those read this pass, and those the last
+        # record carried. A write that did not land, and another type's key, name no tracking issue.
+        done = written(("tracking_issue", None, None, "8", "already_applied"), ("tracking_issue", None, None, "9", "failed"),
+                       ("status_on_item", ITEM, None, "77", "applied"), ("tracking_issue", None, None, "4", "failed"),
+                       ("status_on_item", ITEM, None, "78", "failed"))
+        # But one written open with its assignee dropped is there, under its number, 4: it is left out too, and carried.
+        done["writes"][3]["reason"] = done["writes"][4]["reason"] = "assignee_dropped"
+        read = {"written": [done], "whole": True}
+        self.assertEqual(reconcile.tracking(read, []), [4, 8])
+        kept = reconcile.carried([], dict(read, applied=[], read={}, at={}), seen(), Carried.NOW)["keys"]
+        self.assertEqual(sorted((k["type"], k["key"]) for k in kept),
+                         [("status_on_item", "77"), ("tracking_issue", "4"), ("tracking_issue", "8")])
+        done["writes"][3]["reason"] = None
+        held = dict(Carried.NONE, keys=[{"where": "written", "type": "tracking_issue", "key": "6", "at": Carried.NOW},
+                                        {"where": "applied", "type": "tracking_issue", "key": "5", "at": Carried.NOW}])
+        before = [{"now": Carried.NOW, "pull_requests": [], "reconciled": held}]
+        self.assertEqual(reconcile.tracking(read, before), [6, 8])
+        self.assertEqual((reconcile.tracking(read, None), reconcile.tracking(dict(read, written=[]), [])), ([8], []))
+        # Not read whole, or not read: the number may be one not read, and there is none to give.
+        for unread in (dict(read, whole=False), None):
+            self.assertIsNone(reconcile.tracking(unread, before))
+
+
 class Carried(unittest.TestCase):
     """What a pass carries of what it read, so that the next reads only what is new (decisions 0061, 0112)."""
     NOW = "2026-10-11T13:00:00Z"
