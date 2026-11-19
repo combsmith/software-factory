@@ -1,6 +1,6 @@
 # 0231. No issue rule reads when a Run's jobs began, so the pass asks the jobs of no issue's Run
 
-Status: accepted. The Factory Builder's ruling of 2026-11-18 on "An issue's Runs are asked of the records port's jobs before issues are served" (issue 836), which offers this as its second way to be done: a record that no issue rule needs a Run's start before the first Intent is named for issues.
+Status: accepted. The Factory Builder's ruling of 2026-11-18 on "An issue's Runs are asked of the records port's jobs before issues are served" (issue 836), which offers this as its second way to be done: a record that no issue rule needs a Run's start before the first Intent is named for issues. It decides one row of decision 0196 otherwise: the served open issues do not join the items the entry hands the records port, since no issue rule reads when a Run's jobs began.
 
 ## Decision
 
