@@ -1413,6 +1413,20 @@ class Records(unittest.TestCase):
         self.assertEqual((said(capped), stamped(capped), capped["complete"]),
                          ([{"advisory_asks": 2, "advisory_cost_usd": 1.42}, {"advisory_cost_usd": None}, {}, {}], 2, True))
         self.assertEqual(records.COSTS, 50)
+        # A Run kept and listed after the cap is reached still has what was kept: the cap ends the asking, not the list.
+        behind = {("r_000003Z", "2026-10-21T03:00:00Z"): {"advisory_asks": 1, "advisory_cost_usd": 0.4}}
+        with mock.patch.object(records, "COSTS", 1):
+            got, _ = self.read(rows, *costs[0], day="2026-10-21", advised=behind)
+        self.assertEqual((said(got), stamped(got)),
+                         ([{"advisory_asks": 2, "advisory_cost_usd": 1.42}, {}, {}, {"advisory_asks": 1, "advisory_cost_usd": 0.4}], 1))
+        # A Run the list holds twice by one key takes nothing kept: each of its rows is asked for, and neither is
+        # counted twice from one kept cost.
+        doubled = copy.deepcopy(rows)
+        row = doubled["response"]["body"]["workflow_runs"][0]
+        doubled["response"]["body"].update(total_count=2, workflow_runs=[row, dict(row, id=701)])
+        kept_ = {("r_000000Z", "2026-10-21T00:00:00Z"): {"advisory_asks": 2, "advisory_cost_usd": 1.42}}
+        got, _ = self.read(doubled, *costs[0], *cost(1, None), day="2026-10-21", advised=kept_)
+        self.assertEqual(stamped(got), 2)
         with mock.patch.object(records, "COSTS", 1):
             later, _ = self.read(rows, *costs[1], day="2026-10-21", advised=records.advised([{"runs": capped["runs"]}]))
         self.assertEqual(stamped(later), 1)        # what is kept is not counted against the cap
