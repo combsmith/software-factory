@@ -1580,8 +1580,12 @@ class RunStarts(unittest.TestCase):
             for cfg in settings:
                 for now in (NOW, at(59), "2027-01-01T00:00:00Z"):
                     plain = (derive(f, runs, cfg), decide(f, runs, cfg=cfg, now=now))
-                    for began in ("absent", None, "2026-01-01T00:00:00Z", at(0), at(58), "2026-12-31T00:00:00Z"):
-                        told = [dict(r) if began == "absent" else dict(r, began_at=began) for r in runs]
+                    for began in ("absent", None, "2026-01-01T00:00:00Z", at(0), at(58), "2026-12-31T00:00:00Z", "reversed"):
+                        # "reversed": each Run's jobs began in the reverse order of the Runs' starts, so no rule may
+                        # order, count or tie Runs by when their jobs began (Muse).
+                        told = [dict(r) if began == "absent" else
+                                dict(r, began_at=at(59 - int(r["started_at"][14:16]))) if began == "reversed" else
+                                dict(r, began_at=began) for r in runs]
                         self.assertEqual((derive(f, told, cfg), decide(f, told, cfg=cfg, now=now)), plain, (f, runs, began))
                     # The start itself is read: the cases are ones a Run's start decides, or the test would hold nothing.
                     moved = [dict(r, started_at="2026-12-31T00:00:00Z") for r in runs]
