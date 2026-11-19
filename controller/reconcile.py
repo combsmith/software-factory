@@ -179,12 +179,13 @@ def _keys(effects: dict, before=None, since=None) -> tuple:
 def tracking(written, before):
     """The numbers the passes recorded landing a write of the tracking issue under, as `written/1` keys one, or writing
     it open with its assignee dropped: those this pass read, `written` as `adapters/passes.written` gives them, and
-    those the last record carried. None where the
-    passes' records were not read whole: the number may be one not read, and the caller serves no issue (issue 901)."""
+    those the last record carried. A key of anything but ASCII digits is no number: `'²'.isdigit()` holds, and `int`
+    refuses it. None where the passes' records were not read whole: the number may be one not read, and the caller
+    serves no issue (issue 901)."""
     if not isinstance(written, dict) or written.get("whole") is not True:
         return None
     keys, _ = _keys({"applied": [], "written": written["written"]}, before)
-    return sorted(int(k) for k in keys.get((WRITTEN, "tracking_issue"), ()) if k.isdigit())
+    return sorted(int(k) for k in keys.get((WRITTEN, "tracking_issue"), ()) if k.isascii() and k.isdecimal())
 
 
 def _dispatched(effects: dict) -> set:

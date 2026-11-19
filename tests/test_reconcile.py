@@ -678,6 +678,10 @@ class Tracking(unittest.TestCase):
         before = [{"now": Carried.NOW, "pull_requests": [], "reconciled": held}]
         self.assertEqual(reconcile.tracking(read, before), [6, 8])
         self.assertEqual((reconcile.tracking(read, None), reconcile.tracking(dict(read, written=[]), [])), ([8], []))
+        # A key of anything but ASCII digits names no tracking issue, and is no crash: '²' is a digit `int` refuses, and
+        # '٣' one it reads as 3 (Carbon).
+        odd = written(*[("tracking_issue", None, None, k, "applied") for k in ("8", "I_kw8", "²", "٣")])
+        self.assertEqual(reconcile.tracking({"written": [odd], "whole": True}, []), [8])
         # Not read whole, or not read: the number may be one not read, and there is none to give.
         for unread in (dict(read, whole=False), None):
             self.assertIsNone(reconcile.tracking(unread, before))

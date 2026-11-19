@@ -6083,6 +6083,8 @@ class Items(unittest.TestCase):
         self.assertEqual(read(page([4, 5, 9]), apart=[5]), ([4, 9], True))
         # A number that is no open issue's leaves out none; a list read short is short with or without it.
         self.assertEqual(read(page([4, 5, 9]), apart=[8]), ([4, 5, 9], True))
+        # Every number handed is left out, not the first alone (Astra).
+        self.assertEqual(read(page([8, 41]), apart=[4, 8]), ([41], True))
         self.assertEqual(read(page([4, 5], total=3), apart=[5]), ([4], False))
 
     def test_open_pull_requests_of_another_repo_or_with_errors_are_refused(self):

@@ -1738,13 +1738,16 @@ class Entry(unittest.TestCase):
         listed_by_the_port = entry.items.open_issues
 
         def listing(listed, whole=True):
+            # What GitHub lists is `listed`; the port itself leaves out what it is handed, so a number it could not be
+            # handed fails as it would (Carbon).
             def open_issues(transport, repo, after, *, apart):
                 spied["listed"].append((repo, after, apart))
                 if listed is None:
                     return listed_by_the_port(transport, repo, after, apart=apart)
                 if whole is None:
                     raise github.Unanswered("no")
-                return list(listed), whole
+                with unittest.mock.patch.object(entry.items, "_listed", lambda *a: (list(listed), whole)):
+                    return listed_by_the_port(transport, repo, after, apart=apart)
             return open_issues
 
         def read(transport, repo, number, accounts, clock, *, identities):
@@ -1757,14 +1760,16 @@ class Entry(unittest.TestCase):
             transport.send({"method": "GET", "path": "/repos/%s/issues/%d" % (repo, number)})
             return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "Issue five"
 
-        def entry_with(listed, whole=True, configured=served, recorded=True):
+        def entry_with(listed, whole=True, configured=served, recorded=True, tracked=True, previous=None):
             for found in spied.values():
                 del found[:]
-            # The passes before recorded their tracking issue's write under its number, 8.
+            # The passes before recorded their tracking issue's write under its number, 8, unless none is `tracked`.
             wrote = {"id": "w1", "type": "tracking_issue", "item": None, "run": None, "state": "already_applied", "key": "8",
                      "reason": None}
-            written = {"written": [{"schema": "written/1", "pass": "p_01JA7Q", "release": "factory/v0.3.1", "writes": [wrote]}],
+            written = {"written": [{"schema": "written/1", "pass": "p_01JA7Q", "release": "factory/v0.3.1",
+                                    "writes": [wrote] if tracked else []}],
                        "read": [{"id": 41, "attempt": 1}], "at": {}, "whole": recorded}
+            held = entry.passes.records if previous is None else (lambda *a: previous)
             table = self.table(numbers=[7])
             table[("GET", "/repos/%s/issues/5" % self.HOME)] = {
                 "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}, "body": {}}
@@ -1773,6 +1778,7 @@ class Entry(unittest.TestCase):
                     unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
                     unittest.mock.patch.object(entry.items, "open_issues", listing(listed, whole)), \
                     unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: written), \
+                    unittest.mock.patch.object(entry.passes, "records", held), \
                     unittest.mock.patch.object(entry.issues_, "read", read):
                 code, printed, files, _ = self.run_entry(hub)
             spied["graphql"] = [r for _, r in hub.sent if r["path"] == "/graphql"]
@@ -1813,6 +1819,21 @@ class Entry(unittest.TestCase):
         self.assertEqual((code, spied["read"], files["pass.json"]["issues"]), (0, [], []))
         self.assertEqual(files["pass.json"]["left_out"], [{"item": item(n), "code": "facts_unanswered"} for n in (5, 8)])
         self.assertEqual(len(files["pass.json"]["pull_requests"]), 1)
+        # They were handed to the port as none to leave out, never as unread: it cannot take that (Carbon, Kimi).
+        self.assertEqual(spied["listed"], [(self.HOME, since, ())])
+        # Read whole with no tracking issue written: none is known, and each listed is read and decided (Muse, Kimi).
+        code, _, files = entry_with([5], tracked=False)
+        self.assertEqual((code, spied["listed"], [n for _, n, _ in spied["read"]]), (0, [(self.HOME, since, ())], [5]))
+        self.assertEqual(([e["decision"]["item"] for e in files["pass.json"]["issues"]], files["pass.json"]["left_out"]),
+                         ([item(5)], []))
+        # This pass read no write of it, but the last record carried its number, 8: it is left out by that (Astra, Muse).
+        last = json.loads((ROOT / "examples" / "pass.json").read_text())
+        last.update(now="2026-10-12T11:00:00Z", pull_requests=[], reconciled={
+            "runs": [], "passes": [], "items": [], "dispatched": [], "owed": [],
+            "keys": [{"where": "written", "type": "tracking_issue", "key": "8", "at": "2026-10-12T11:00:00Z"}]})
+        code, _, files = entry_with([8, 5], tracked=False, previous=[last])
+        self.assertEqual((code, spied["listed"], [n for _, n, _ in spied["read"]]), (0, [(self.HOME, since, [8])], [5]))
+        self.assertEqual([e["decision"]["item"] for e in files["pass.json"]["issues"]], [item(5)])
         # No date: nothing is listed, asked or read; the one GraphQL read is the pull requests' list.
         code, _, files = entry_with(None, configured=real)
         self.assertEqual((code, spied["listed"], spied["read"], files["pass.json"]["issues"]), (0, [(self.HOME, None, [8])], [], []))
