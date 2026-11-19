@@ -5493,6 +5493,8 @@ MUTANTS = ISSUE + [
     ("the child writes on an item of another repo than its token's", ADVISED, 'if item["repo"] != config["controller"]["home"]["repo"] or not todo', 'if not todo', SHOWN_HELD),
     ('a child asked for no Lens mints a token', ADVISED, '"repo"] or not todo:', '"repo"]:', SHOWN_HELD),
     ('a child asks for more Lenses than applied/1 holds', ADVISED, ' or len(asking["asked"]) > LENSES:', ':', SHOWN_HELD),
+    ('a child counts the Lenses asked only after it filters them', ADVISED, 'len(asking["asked"]) > LENSES',
+     'len([o for o in asking["asked"] if o["lens"] in names]) > LENSES', SHOWN_HELD),
     ('a child asked for as many Lenses as applied/1 holds asks for none', ADVISED, 'len(asking["asked"]) > LENSES', 'len(asking["asked"]) >= LENSES', SHOWN_HELD),
     ('a check run made whose key cannot be read is said not written', ADVISED, 'if state in ("sent", "applied", "already_applied") else None', 'if state == "sent" else None', ("tests.test_apply.Advised.test_the_child_says_each_thing_it_does_and_always_asks_for_the_revocation",)),
     ("the child's token may write more than a check run", ADVISED, '["create_check_run"]), environ.get(KEY)', '["create_check_run", "submit_review"]), environ.get(KEY)', SHOWN_MINT),
