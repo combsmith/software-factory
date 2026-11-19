@@ -22,12 +22,14 @@ and written to the folder `OUT` for the pass job's next steps (#193's ruling 10 
 The Release is the one tag `factory/vX.Y.Z` on the commit the pass checked out (`harness/steps.release`), read before any key. A snapshot that cannot be read leaves its pull
 request out of the pass, by its item and the code of why, as one alert; one that moved while it was read, and had not in
 the last pass, is deferred with no alert and its writes are owed to the next pass (#658). An issue that cannot be read
-is left out so too, moved or not: the grace is a pull request's (decision 0172). A list of open pull requests or of
-issues not read whole, a Release, a key or
+is left out so too, moved or not: the grace is a pull request's (decision 0172). A list of issues not read whole
+reads no issue, and the pass says so, naming no item; so does each issue the pass's budget of issue requests left unread,
+by its item (decision 0234). A list of open pull requests not read whole, a Release, a key or
 a run id that cannot be read, or a pass `pass_.py` refuses, writes nothing, so that nothing is dispatched; the step
 prints one code and exits 1, and nothing it prints is GitHub's text."""
 from __future__ import annotations
 
+import copy
 import datetime
 import json
 import os
@@ -94,6 +96,18 @@ class Dated:
         answer = self.transport.send(req)
         self.first = answer if self.first is None else self.first
         return answer
+
+
+class Counted:
+    """The transport, counting each request sent through it, whatever it answered or if it failed: the issue reads'
+    budget is spent as they are sent (decision 0234)."""
+
+    def __init__(self, transport):
+        self.transport, self.sent = transport, 0
+
+    def send(self, req):
+        self.sent += 1
+        return self.transport.send(req)
 
 
 def dated(answer) -> list:
@@ -248,8 +262,8 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     seen, unread, gone = writes_seen(transport, config, numbers, kept, before, since, clock, owed)
     effects = recorded_effects(transport, config, runs, int(run_id), before, since, sleep)
     # The open issues the Kernel could serve, none while `issues.served_from` is null, without the tracking issue, by
-    # the number the passes recorded. A list read short is never the whole, and stops the pass as the pull requests'
-    # does: an issue it left out would read as gone from the view.
+    # the number the passes recorded. A list read short is never the whole: no issue is read, and one entry naming no
+    # item says so, which the keyword spans' chain passes over; the pull requests are decided as ever (decision 0234).
     # Issues whose Apps cannot be told are not listed, as with no date: none is read or decided, and the pass says so.
     apart = effects.pop("tracking")
     served = None if refused else config["kernel"]["issues"]["served_from"]
@@ -257,18 +271,26 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
         listed, listed_whole = items.open_issues(transport, home, served, apart=apart or ())
     except Unanswered:
         listed, listed_whole = [], False
-    if not listed_whole:
-        raise Stop("issue_list_unreadable")
+    issues = [] if listed_whole else [{"facts": {"item": None}, "title": None, "unread": reads_.UNLISTED}]
     # Each issue's own facts, read and dated as a pull request's are; its title beside them. While the tracking
     # issue's number is not read, none is: each is left out as unread, so that one is never served as a Work item.
-    issues = []
-    for number in listed:
-        through = Dated(transport)
+    # Once the pass's budget of issue requests is spent no further read starts, and each issue not read is left out
+    # by it; those the last record left out so are read first (decision 0234).
+    counted = Counted(transport)
+    # The account reader's permission reads for the issues are counted too, its answers shared with the pull requests'.
+    asking = copy.copy(who)
+    asking.transport = counted
+    for number in pass_.issue_order(listed if listed_whole else [], before):
+        through = Dated(counted)
         try:
             if apart is None:
                 raise Unanswered("the tracking issue's number was not read")
+            if counted.sent >= controller["max_issue_requests"]:
+                issues.append({"facts": {"item": {"repo": home, "type": "issue", "number": number}}, "title": None,
+                               "unread": reads_.BUDGET})
+                continue
             # No pass record is handed on yet, so no span is read, while an issue a pull request names defers (issue 734).
-            facts, title = issues_.read(through, home, number, who, lambda: utc(clock), identities=identities,
+            facts, title = issues_.read(through, home, number, asking, lambda: utc(clock), identities=identities,
                                         earlier=[])
             issues.append({"facts": facts, "title": title})
             facts_reads += dated(through.first)
