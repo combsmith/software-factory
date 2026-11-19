@@ -128,6 +128,7 @@ K734_SEEN = (K734 + "test_a_keyword_is_seen_from_the_first_pass_record_that_list
 K734_WHOLE = (K734 + "test_a_keyword_is_seen_gone_only_by_a_record_that_read_the_linked_pull_requests_whole",)
 K734_NEWEST = (K734 + "test_the_spans_are_read_from_the_newest_record_that_holds_the_issue_and_no_record_gives_no_time",)
 K734_UNREAD = (K734 + "test_pass_records_that_could_not_be_read_give_no_time_and_are_not_whole",)
+K734_UNLISTED = (K734 + "test_a_pass_that_read_no_issue_is_passed_over_and_with_none_but_such_passes_the_chain_is_broken",)
 F901_ROLE = ("tests.test_adapters.Issues.test_a_role_apps_comment_is_its_roles_and_no_act_of_its_is_counted_on_an_issue_or_a_pull_request",)
 F901_NAMES = ("tests.test_controller.Entry.test_a_queues_or_a_lenss_name_declared_as_an_issues_app_refuses_the_issues_alone_and_the_pull_requests_are_decided",)
 F901_PASS = ("tests.test_controller.Issues.test_issues_whose_apps_cannot_be_told_are_not_decided_and_the_pull_requests_are",)
@@ -14484,6 +14485,15 @@ MUTANTS = ISSUE + [
     ("a span that is no object raises out of the reader",
      '    except (KeyError, TypeError, ValueError):\n',
      '    except (KeyError, TypeError):\n', K734_UNREAD),
+    ("a pass that read no issue breaks the chain",
+     'return any(entry["item"] is None and entry["code"] == UNLISTED for',
+     'return any(False for', K734_UNLISTED),
+    ("any entry left out with no item passes its record over",
+     'entry["item"] is None and entry["code"] == UNLISTED for',
+     'entry["item"] is None for', K734_UNLISTED),
+    ("with every record at hand passed over, the issue is seen first",
+     '        if earlier and not kept:\n            return {}, None\n',
+     '', K734_UNLISTED),
 ]] + [
     ("an issue's facts that do not hold to the schema are handed on", 'adapters/issues.py',
      '    if problems:\n        raise Unanswered("the issue\'s facts',

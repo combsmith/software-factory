@@ -14,7 +14,9 @@ short may have missed a keyword.
 The chain is broken, and the spans are not the whole history, where a record newer than the base, or any where there is
 none, leaves the issue out (its `left_out` names the item, or an item it cannot name) or served no issue because their
 Apps could not be told (its alert `issue_apps_unreadable`); or where records hold the issue but none of them whole. A
-pass whose list of issues could not be read stops and writes no record (decision 0218). No record at hand that holds or
+pass that read no issue at all, its list of issues unread or its budget spent, writes no record, or one whose `left_out`
+holds an entry with no item and the code `issue_list_unreadable` (issue 849): that record is passed over, as if not at
+hand, so one such pass costs a pass's window, and with every record at hand passed over the chain is broken. No record at hand that holds or
 leaves out the issue, and none that raised that alert, is first sight: no pass saw a keyword, and the first that sees one
 opens its span. So a record that holds no issue and leaves none out, with no `served_from` or none open, is first sight
 too; and `served_from` set back to null and on again later loses the history between (decision 0186).
@@ -28,6 +30,8 @@ from __future__ import annotations
 
 from controller.pass_ import ISSUE_APPS
 
+UNLISTED = "issue_list_unreadable"   # an entry of `left_out` with no item: the pass read no issue at all (issue 849)
+
 
 def after(pull: dict, at: str, whole: bool) -> list:
     """A listed pull request's spans once the pass that listed it is counted: `pull` as that pass's record holds it, `at`
@@ -39,6 +43,11 @@ def after(pull: dict, at: str, whole: bool) -> list:
     elif not pull["keyword"] and standing and whole:
         spans[-1]["gone_at"] = at
     return spans
+
+
+def unlisted(record: dict) -> bool:
+    """Whether `record`'s pass read no issue at all, so that it is passed over (issue 849)."""
+    return any(entry["item"] is None and entry["code"] == UNLISTED for entry in record["left_out"])
 
 
 def held(record: dict, item: dict):
@@ -56,6 +65,10 @@ def read(earlier, item: dict) -> tuple:
     if not isinstance(earlier, list):
         return {}, False
     try:
+        kept = [record for record in earlier if not unlisted(record)]
+        if earlier and not kept:
+            return {}, None
+        earlier = kept
         facts = [held(record, item) for record in earlier]
         bases = [at for at, found in enumerate(facts) if found is not None and found["complete"]["linked"] is True]
         base = bases[-1] if bases else -1

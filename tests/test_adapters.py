@@ -6874,6 +6874,18 @@ class KeywordSpans(unittest.TestCase):
         self.assertEqual(self.spans(), ({}, True))
         self.assertEqual(self.spans(seen_by(3, number=42)), ({}, True))
 
+    def test_a_pass_that_read_no_issue_is_passed_over_and_with_none_but_such_passes_the_chain_is_broken(self):  # issue 849
+        # A record whose pass read no issue at all leaves one entry with no item and its own code: it is passed over, so
+        # the record before it is the base and the chain holds; any other itemless entry still breaks it.
+        older, unread = seen_by(3, [(7, True, [])]), {"item": None, "code": "issue_list_unreadable"}
+        self.assertEqual(self.spans(older, seen_by(6, issues=[], left_out=[unread])), ({7: [span(3)]}, True))
+        self.assertEqual(self.spans(older, seen_by(6, issues=[], left_out=[dict(unread, code="not_facts")])),
+                         ({7: [span(3)]}, None))
+        # With every record at hand passed over, no base is left: the chain is broken, never first sight.
+        self.assertEqual(self.spans(seen_by(3, issues=[], left_out=[unread]), seen_by(6, issues=[], left_out=[unread])),
+                         ({}, None))
+        self.assertEqual(keyword_spans.UNLISTED, "issue_list_unreadable")
+
     def test_pass_records_that_could_not_be_read_give_no_time_and_are_not_whole(self):
         self.assertEqual(keyword_spans.read(None, self.ITEM), ({}, False))
         # The newest at hand, where it is no pass record, gives no time either, whatever the one before it holds.
