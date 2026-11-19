@@ -574,9 +574,12 @@ class Parser(unittest.TestCase):
                                  "answering_model": "astra-model", "effort": "xhigh", "asks": 2, "input_tokens": 1000,
                                  "output_tokens": 500, "cost_usd": 0.0125, "seconds": 318.4})
         self.assertEqual(read(chatted(said()), KIMI)["usage"]["cost_usd"], 0.0125)
-        # A read that failed after it was paid for still says what it cost, and names the model that answered.
-        other = read(answered(said(), model="astra-model-mini"))["usage"]
-        self.assertEqual((other["answering_model"], other["model"], other["cost_usd"]), ("astra-model-mini", "astra-model", 0.0125))
+        # A read that failed after it was paid for still says what it cost. One another model answered names that
+        # model, and is not priced at the pinned model's prices, which are not its own: its cost is not known.
+        other = read(answered(said(), model="astra-model-mini"))
+        self.assertEqual((other["reason"], other["usage"]["answering_model"], other["usage"]["model"], other["usage"]["cost_usd"],
+                          other["usage"]["input_tokens"]), ("not_the_model", "astra-model-mini", "astra-model", None, 1000))
+        self.assertIsNone(read(chatted(said(), model="kimi-model-2"), KIMI)["usage"]["cost_usd"])
         self.assertEqual(read(answered(text="No."))["usage"]["cost_usd"], 0.0125)
         self.assertEqual(read(answered(said(), status="incomplete"))["usage"]["cost_usd"], 0.0125)
         # A response still running, cancelled or failed says nothing of what it cost, whatever tokens it shows so far.
@@ -598,24 +601,70 @@ class Parser(unittest.TestCase):
             running = read(chatted(said(), **body), KIMI)
             self.assertEqual((running["usage"]["cost_usd"], running["usage"]["answering_model"], running["reason"]),
                              (None, None, "unparsed"), body)
-        for ended in ("length", "content_filter", "tool_calls"):
+        for ended in ("length", "content_filter", "tool_calls", "function_call"):
             self.assertEqual(read(chatted(said(), ended=ended), KIMI)["usage"]["cost_usd"], 0.0125, ended)
+        # A reason no API names is not an end: the choice has not answered.
+        for ended in ("done", "STOP", "", "stop "):
+            running = read(chatted(said(), ended=ended), KIMI)
+            self.assertEqual((running["usage"]["cost_usd"], running["usage"]["answering_model"], running["reason"]),
+                             (None, None, "unparsed"), ended)
         # Tokens Azure did not count as whole numbers are unknown, and so is the cost: never nought.
         for spent in ({"input_tokens": 1000}, {"input_tokens": "1000", "output_tokens": 500}, {"input_tokens": -1, "output_tokens": 500},
                       {"input_tokens": True, "output_tokens": 500}, {"prompt_tokens": 1000, "completion_tokens": 500}, None, []):
             self.assertIsNone(read(answered(said(), usage=spent))["usage"]["cost_usd"], spent)
         # Nor is a count that contradicts itself: a prompt of no tokens, an answer with words and none, a total above
         # the two, reasoning above the output it is part of. One that agrees with itself is priced.
+        # Neither of its two counts is known then, so the Result says no input either.
         for more in ({"input_tokens": 0, "output_tokens": 0}, {"input_tokens": 0}, {"output_tokens": 0}, {"total_tokens": 1501},
                      {"total_tokens": 900000}, {"output_tokens_details": {"reasoning_tokens": 501}}):
-            self.assertIsNone(read(answered(said(), usage=dict({"input_tokens": 1000, "output_tokens": 500}, **more)))["usage"]["cost_usd"], more)
-        self.assertIsNone(read(chatted(said(), usage={"prompt_tokens": 1000, "completion_tokens": 10,
-                                                      "completion_tokens_details": {"reasoning_tokens": 50000}}), KIMI)["usage"]["cost_usd"])
+            spent = read(answered(said(), usage=dict({"input_tokens": 1000, "output_tokens": 500}, **more)))["usage"]
+            self.assertEqual((spent["input_tokens"], spent["output_tokens"], spent["cost_usd"]), (None, None, None), more)
+        spent = read(chatted(said(), usage={"prompt_tokens": 1000, "completion_tokens": 10,
+                                            "completion_tokens_details": {"reasoning_tokens": 50000}}), KIMI)["usage"]
+        self.assertEqual((spent["input_tokens"], spent["output_tokens"], spent["cost_usd"]), (None, None, None))
         for more in ({"total_tokens": 1500}, {"total_tokens": 1499}, {"total_tokens": "many"}, {"total_tokens": True},
                      {"output_tokens_details": {"reasoning_tokens": 500}}, {"output_tokens_details": 7}):
             self.assertEqual(read(answered(said(), usage=dict({"input_tokens": 1000, "output_tokens": 500}, **more)))["usage"]["cost_usd"], 0.0125, more)
-        # An answer that was refused has no words, and may have no tokens.
-        self.assertEqual(read(chatted(said(), ended="content_filter", usage={"prompt_tokens": 1000, "completion_tokens": 0}), KIMI)["usage"]["cost_usd"], 0.0025)
+        # A total below its two is priced at their sum, the higher figure.
+        self.assertEqual(read(answered(said(), usage={"input_tokens": 1000, "output_tokens": 500, "total_tokens": 1}))["usage"]["cost_usd"], 0.0125)
+        # A cost is never lower than what was billed. A read a content filter ended with no words anywhere, an empty
+        # text being none, may have answered no tokens, and is priced at its prompt alone.
+        none = {"prompt_tokens": 1000, "completion_tokens": 0}
+        for message in ({"content": None}, {"content": ""}, {"content": "", "refusal": ""}, {}):
+            self.assertEqual(read(chatted(said(), ended="content_filter", usage=none, choices=[
+                {"finish_reason": "content_filter", "message": message}]), KIMI)["usage"]["cost_usd"], 0.0025, message)
+        for spent in ({"prompt_tokens": 1000}, {"prompt_tokens": 1000, "completion_tokens": None}):
+            self.assertIsNone(read(chatted(said(), usage=spent, choices=[
+                {"finish_reason": "content_filter", "message": {"content": None}}]), KIMI)["usage"]["cost_usd"], spent)
+        silenced = {"input_tokens": 1000, "output_tokens": 0}
+        for output in ([], [{"type": "message", "content": []}], [{"type": "message", "content": [{"type": "output_text", "text": ""}]}]):
+            self.assertEqual(read(answered(said(), status="incomplete", incomplete_details={"reason": "content_filter"},
+                                           usage=silenced, output=output))["usage"]["cost_usd"], 0.0025, output)
+        # Any other read of no tokens is not known: one that ended otherwise, or holds words, a text or a refusal's.
+        for ended, message in (("length", {"content": ""}), ("tool_calls", {"content": None, "tool_calls": []}),
+                               ("stop", {"content": ""}), ("length", {"content": "{\"findings\""}),
+                               ("content_filter", {"content": "partial"}), ("content_filter", {"content": None, "refusal": "I can't."}),
+                               ("stop", {"content": None, "refusal": "I can't."})):
+            spent = read(chatted(said(), usage=none, choices=[{"finish_reason": ended, "message": message}]), KIMI)["usage"]
+            self.assertEqual((spent["input_tokens"], spent["output_tokens"], spent["cost_usd"]), (None, None, None), (ended, message))
+        text = {"type": "output_text", "text": "x"}
+        for state, details, output in (
+                ("completed", None, [{"type": "message", "content": [text, text]}]),
+                ("completed", None, [{"type": "message", "content": [{"type": "refusal", "refusal": "No."}]}]),
+                ("completed", {"reason": "content_filter"}, []),
+                ("incomplete", {"reason": "max_output_tokens"}, []),
+                ("incomplete", None, []),
+                ("incomplete", {"reason": "content_filter"}, [{"type": "message", "content": [text]}]),
+                ("incomplete", {"reason": "content_filter"}, [{"type": "message", "content": [{"type": "refusal", "refusal": "No."}]}])):
+            spent = read(answered(said(), status=state, incomplete_details=details, usage=silenced, output=output))["usage"]
+            self.assertEqual((spent["input_tokens"], spent["output_tokens"], spent["cost_usd"]), (None, None, None), (state, details, output))
+        # A cost is rounded up to the millionth of a dollar, never down to nought, and the float's own noise is no
+        # millionth: a hundred tokens at seven cents a million are seven millionths, which a float writes a little above.
+        tiny = dict(TOLD, usd_per_million={"input": 0.01, "output": 0.01})
+        self.assertEqual(read(answered(said(), usage={"input_tokens": 1, "output_tokens": 1}), tiny)["usage"]["cost_usd"], 0.000001)
+        self.assertEqual(read(answered(said(), usage={"input_tokens": 1, "output_tokens": 1}))["usage"]["cost_usd"], 0.000023)
+        noisy = dict(TOLD, usd_per_million={"input": 0.07, "output": 0.07})
+        self.assertEqual(read(answered(said(), usage={"input_tokens": 100, "output_tokens": 100}), noisy)["usage"]["cost_usd"], 0.000014)
         self.assertIsNone(read(answered(said(), model="Astra Model"))["usage"]["answering_model"])
         self.assertIsNone(read(answered(said(), model="astra model"))["usage"]["answering_model"])
         # A count above what advice/1 holds is not known, and never an error of the step's.
