@@ -1110,6 +1110,11 @@ class Transitions(unittest.TestCase):
         # From a merge state not worked out, the move is not made: that is the slow way, through unknown.
         unknown = dict(BASES["conflict"], facts=dict(BASES["conflict"]["facts"], mergeable=None))
         self.assertIsNone(moves[at_once[0]].make(unknown))
+        # The queue drops a queued pull request that conflicts at once, as it drops one worked out through unknown (Astra).
+        queued = BASES["approval_lost"]
+        self.assertEqual((queued["facts"]["queue"], queued["facts"]["mergeable"]), (True, True))
+        after = moves[at_once[0]].make(queued)["facts"]
+        self.assertEqual((after["mergeable"], after["queue"]), (False, False))
 
     def test_a_push_that_leaves_the_diff_as_it_was_asks_a_gating_lens_again(self):  # issue 855, decision 0212
         # A head pushed with the diff as it was keeps its content id, and its checks start again. While a Lens's own thread
