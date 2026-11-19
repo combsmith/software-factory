@@ -50,13 +50,17 @@ RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 CODES_ONLY = ("task", "result", "effect", "disposition", "run-name", "coverage", "run-record",
               "pass", "writes", "written", "applied", "outcome", "view-meta", "view-items", "view-item", "health", "role", "feed",
               "eval-set", "eval-report", "eval-aggregate", "eval-ledger", "rings")
-# The records a kind in CODES_ONLY may refer into, each the Factory's own, read from GitHub by a port and held by its own
-# schema and counter-examples: a reference out of CODES_ONLY to any other kind is refused, so that a record whole of
-# text from outside, a model's answer say, is never carried as codes by a reference (issue 913). A kind joins by a
-# reviewed change to this line.
-RECORDS = ("facts", "decision", "issue-facts", "issue-decision", "finding")
-# What a pattern's class, `.` or escape must match none of to hold a code: whitespace, as Python's \s reads it.
-SPACES = " \t\n\r\x0b\x0c\x1c\x1d\x1e\x1f\x85\xa0\u1680\u2000\u200a\u2028\u2029\u202f\u205f\u3000"
+# The references out of CODES_ONLY into a record, each by the kind that makes it and the record whole, as they stand: the
+# pass record keeps facts and decisions as the ports and the Kernel made them, and the applied artifact keeps each
+# posted Finding's finding/1, whose path and criterion are free strings of its own (a limit record 0038 names). Any
+# other reference out of the set, by another kind, to another kind or by a fragment into a record, is refused, so that
+# a record whole of text from outside, a model's answer say, is never carried as codes by a reference (issue 913). A
+# pair joins by a reviewed change to this line.
+RECORDS = (("pass", "facts"), ("pass", "decision"), ("pass", "issue-facts"), ("pass", "issue-decision"),
+           ("applied", "finding"))
+# What a pattern's class, `.` or escape must match none of to hold a code: every character Python's \s matches.
+SPACES = ("\t\n\x0b\x0c\r\x1c\x1d\x1e\x1f \x85\xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009"
+          "\u200a\u2028\u2029\u202f\u205f\u3000")
 TEXT_FIELD = "body"
 UNTRUSTED_FIELD = "untrusted"
 UNTRUSTED_KIND = "view-item"
@@ -127,13 +131,18 @@ def _anchored(pattern) -> bool:
 
 def _coded(pattern) -> bool:
     """Whether `pattern` holds a code: it is anchored, and no class of it, no `.` and no escape matches whitespace, so
-    no sentence passes it (issue 913). A literal space between its parts is a fixed separator, as a Run's name has; an
-    inline flag, which may change what each part reads, is refused."""
-    if not _anchored(pattern) or re.search(r"\(\?[aiLmsux-]", pattern):
+    no words with whitespace between them pass it (issue 913). A literal space outside every group is a fixed
+    separator, as a Run's name has; one inside a group, which may repeat it, is refused, and so are an inline flag, which
+    may change what each part reads, and a comment, which hides what this would read as a class. A class such as `\S` or `\w` still admits a run of letters with no whitespace in
+    it, a limit record 0038 names."""
+    if not _anchored(pattern) or re.search(r"\(\?[#aiLmsux-]", pattern):
         return False
-    parts, i = [], 0
+    parts, i, depth = [], 0, 0
     while i < len(pattern):
         c = pattern[i]
+        if c in SPACES and depth:
+            return False
+        depth += {"(": 1, ")": -1}.get(c, 0)
         if c == "[":
             j = i + 1 + (pattern[i + 1:i + 2] == "^")
             j += pattern[j:j + 1] == "]"        # a ] first in a class is a literal
@@ -142,7 +151,8 @@ def _coded(pattern) -> bool:
             parts.append(pattern[i:j + 1])
             i = j + 1
         elif c == "\\":
-            size = {"x": 4, "u": 6, "U": 10}.get(pattern[i + 1:i + 2], 2)
+            digits = re.match(r"[0-9]{1,3}", pattern[i + 1:])     # an octal escape, \040 a space; or a group's number
+            size = len(digits.group()) + 1 if digits else {"x": 4, "u": 6, "U": 10}.get(pattern[i + 1:i + 2], 2)
             parts.append(pattern[i:i + size])
             i += size
         else:
@@ -219,11 +229,11 @@ def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: 
         if id(target) in active:
             return ["schema %s comes round to itself at %s" % (kind, path)]
         named = FILE.match(ref)
-        if named and named.group(1) in RECORDS:
+        if named and (kind, named.group(1)) in RECORDS and ref == named.group(1) + ".schema.json":
             return []       # a record, held by its own rules and counter-examples; the existing records are not swept
         if named and named.group(1) not in CODES_ONLY:
-            return ["schema %s refers at %s to %s, which is neither a kind of codes nor a record RECORDS names; hold it "
-                    "to codes, or name it there by a reviewed change" % (kind, path, named.group(1))]
+            return ["schema %s refers at %s to %s, which is neither a kind of codes nor a record RECORDS names for it, "
+                    "whole; hold it to codes, or name it there by a reviewed change" % (kind, path, named.group(1))]
         return _free(target, schemas, target_root, named.group(1) if named else kind, path, seen, active + (id(target),))
     if (kind, id(schema)) in seen:
         return []

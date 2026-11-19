@@ -462,18 +462,46 @@ class Examples(unittest.TestCase):
             applied["properties"]["extra"] = {"$ref": ref}
             self.assertTrue(caught(free("applied", applied), "schema applied refers at $.extra to %s, which is neither"
                                    % ref.split(".")[0]), ref)
-        for kind in check_examples.RECORDS:
+        self.assertEqual(sorted(check_examples.RECORDS), [("applied", "finding"), ("pass", "decision"), ("pass", "facts"),
+                                                          ("pass", "issue-decision"), ("pass", "issue-facts")])
+        for kind, record in check_examples.RECORDS:
+            referrer = copy.deepcopy(schemas[kind])
+            referrer["properties"]["extra"] = {"$ref": "%s.schema.json" % record}
+            self.assertEqual(free(kind, referrer), [], (kind, record))
+        # Only by the kind RECORDS names it for, and whole: another kind's, or a fragment into a record, is refused.
+        disposition = copy.deepcopy(schemas["disposition"])
+        disposition["properties"]["extra"] = {"type": "array", "items": {"$ref": "finding.schema.json"}}
+        self.assertTrue(caught(free("disposition", disposition), "schema disposition refers at $.extra[] to finding"))
+        for ref in ("facts.schema.json#/$defs/changed_path", "finding.schema.json#/$defs/surface"):
             applied = copy.deepcopy(schemas["applied"])
-            applied["properties"]["extra"] = {"$ref": "%s.schema.json" % kind}
-            self.assertEqual(free("applied", applied), [], kind)
-        self.assertEqual(sorted(check_examples.RECORDS), ["decision", "facts", "finding", "issue-decision", "issue-facts"])
+            applied["properties"]["extra"] = {"$ref": ref}
+            self.assertTrue(caught(free("applied", applied), "schema applied refers at $.extra to %s" % ref.split(".")[0]), ref)
         # Anchored is not a code: a pattern holds one only where no class of it, no `.` and no escape admits whitespace.
         for held in ("^[a-z_]+$", "^[^\\s]+$", "^[^/\\s]+/[^/\\s]+$", "^\\S+$", "^[\\w-]+$", "^sf [a-z]+ r_[0-9]+$",
-                     "^[]a]+$", "^sha256:[0-9a-f]{64}$", "^a\\.b$", "^\\x41\\u0042+$"):
+                     "^[]a]+$", "^sha256:[0-9a-f]{64}$", "^a\\.b$", "^\\x41\\u0042+$", "^[^]\\s]+$", "^[\\]a]+$",
+                     "^\\U00000041+$"):
             self.assertTrue(check_examples._coded(held), held)
-        for loose in ("^[^\\^@]*$", "^[^/]+/[^/]+$", "^.+$", "^[a .]+$", "^[\\s\\S]+$", "^[^\\S]+$", "^\\s$", "^\\W+$",
-                      "^\\D+$", "^[a\\x20]+$", "^[a\\u3000]+$", "^[a\\t]+$", "^(?x)a b$", "^(?s).$", "^[a-z]+$|b", None, "^[a-$"):
+        for loose in (("^[^\\^@]*$", "^[^/]+/[^/]+$", "^.+$", "^[a .]+$", "^[\\s\\S]+$", "^[^\\S]+$", "^\\s$", "^\\W+$",
+                      "^\\D+$", "^[a\\x20]+$", "^[a\\u3000]+$", "^[a\\t]+$", "^(?x)a b$", "^(?s).$", "^[a-z]+$|b", None, "^[a-$",
+                      # A space a group may repeat, an octal one, and every character \\s matches, U+2001 to U+2009 too.
+                      "^[a-z]+( [a-z]+)*$", "^(?:[a-z]+ ){1,50}$", "^([a-z]+\\040)+$", "^[a-z]\\040[a-z]$", "^(\\w| )+$",
+                      "^\\S+( \\S+)*$", "^(?#[).+(?#])$")
+                     + tuple("^[a-z%s]+$" % c for c in "\u2001\u2005\u2009\x1c\x85")):
             self.assertFalse(check_examples._coded(loose), loose)
+        # The repo of a run record, a pass record, the writes and what was written is a repo's name alone.
+        for kind in ("run-record", "pass", "writes", "written"):
+            found = set()
+            def gather(node):
+                if isinstance(node, dict):
+                    if isinstance(node.get("properties"), dict) and isinstance(node["properties"].get("repo"), dict):
+                        found.add(node["properties"]["repo"].get("pattern"))
+                    for value in node.values():
+                        gather(value)
+                elif isinstance(node, list):
+                    for value in node:
+                        gather(value)
+            gather(schemas[kind])
+            self.assertEqual(found, {"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"}, kind)
         disposition = copy.deepcopy(schemas["disposition"])
         disposition["properties"]["note"] = {"type": "string", "pattern": "^[^\\^@]*$"}
         self.assertTrue(caught(free("disposition", disposition), "schema disposition admits text at $.note"))
