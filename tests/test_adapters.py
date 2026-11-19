@@ -6847,6 +6847,9 @@ class KeywordSpans(unittest.TestCase):
     def test_the_spans_are_read_from_the_newest_record_that_holds_the_issue_and_no_record_gives_no_time(self):
         older, newer = seen_by(3, [(7, True, [])]), seen_by(6, [(7, False, [span(3)])])
         self.assertEqual(self.spans(older, newer), ({7: [span(3, 6)]}, True))
+        # The issue's facts are found in a record whatever issue it holds before them.
+        self.assertEqual(self.spans(older, dict(newer, issues=seen_by(6, number=42)["issues"] + newer["issues"])),
+                         ({7: [span(3, 6)]}, True))
         # A record that holds no issue and leaves none out, as with no `served_from` or none open, or that served issues
         # and not this one, closed then, saw nothing of it: the one before it is read.
         for none in (seen_by(6, issues=[]), seen_by(6, number=42)):
