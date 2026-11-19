@@ -9,9 +9,8 @@ refuses it, never reads as null. Both reads must name one `updatedAt`.
 
 The pull requests that close the issue are read by `adapters/linked.py`, after the rest and before the time is taken:
 `linked` as it lists them, each with its keyword spans from the pass records before this pass, and `complete.linked`
-true only where it reads the list and the spans whole (decision 0186) and, for now, no pull request names the issue; so
-an issue any pull request names defers. The issue is read once more after them, and refused if it moved, and `read_at`
-is taken after that: no earlier than the closing references are read. Not read yet, and said so: `branch_head`, which needs the count of pull requests
+true only where it reads the list and the spans whole (decision 0186). The issue is read once more after them, and
+refused if it moved, and `read_at` is taken after that: no earlier than the closing references are read. Not read yet, and said so: `branch_head`, which needs the count of pull requests
 the Factory opened for the issue, is null. `complete.runs` is true: the pass puts the records port's answer in its place
 (`controller/pass_.py`'s `asked`), and false here would leave every issue unreadable.
 """

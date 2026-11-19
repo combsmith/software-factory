@@ -15,8 +15,7 @@ and written to the folder `OUT` for the pass job's next steps (#193's ruling 10 
    are listed and read last, without the tracking issue, by the number the passes recorded (issue 901). Not read
    yet: an issue's Runs' jobs, which decision 0196 asks of the open pull requests' alone; nor is any issue's write
    reconciled. Each issue's linked pull requests are read with their keyword spans from the pass records before this
-   pass, the two the entry already read, and with those not read each issue defers (decision 0186); one a pull
-   request names defers too, for now.
+   pass, the two the entry already read, and with those not read each issue defers (decision 0186).
 4. It gives the pass what it read and the time after the reads, and writes `pass.json`, `writes.json`, the plan the
    effects step holds to it, and the view's three files under `view/`.
 

@@ -1172,10 +1172,10 @@ class Issues(unittest.TestCase):
                              ("new", "act", "label_not_counted", "factory:triage"), via)
 
     def test_p34s_issue_read_by_the_port_is_deferred_on_its_linked_pull_requests(self):  # P-34, S3
-        # The canary's issue through the port and the pass defers on its linked pull requests, which one names. Its GraphQL
+        # The canary's issue through the port and the pass defers on its linked pull requests, read short. Its GraphQL
         # answer is P-34's lastEditedAt in the port's own query, which no trial has recorded (issue 831).
         from adapters import issues
-        from tests.test_adapters import body, canary, crossed, exchanges as recorded, linked_read
+        from tests.test_adapters import body, canary, exchanges as recorded, linked_read
         repo = canary()
         rest = recorded("P-34.rest")
         own = rest[1]["response"]["body"]
@@ -1188,13 +1188,13 @@ class Issues(unittest.TestCase):
                    "response": {"status": 200, "headers": {},
                                 "body": {"data": {"repository": {"nameWithOwner": repo, "issue": edited}}}}}
         # The port's own word on its linked pull requests reaches the pass (Carbon).
-        named = linked_read(events=[crossed()], updated=own["updated_at"], repo=repo, number=42)
+        named = linked_read(total=1, updated=own["updated_at"], repo=repo, number=42)
         entry = issue_through_the_port(repo=repo, exchanges=[rest[1], rest[0], graphql, named, rest[1]])
         self.assertEqual((entry["facts"]["linked"], entry["facts"]["complete"]["linked"]), ([], False))
         d = issue_passed(entry, repo=repo, now="2026-11-13T09:00:00Z")
         self.assertEqual((d["state"], d["outcome"], d["reason"], d["evidence"]), (None, "defer", "facts_incomplete", ["linked"]))
         self.assertEqual(entry["title"], own["title"])
-        # Named by none, read whole, the Maintainer's closed issue is declined, and nothing is done.
+        # Read whole, the Maintainer's closed issue is declined, and nothing is done.
         none = linked_read(updated=own["updated_at"], repo=repo, number=42)
         entry = issue_through_the_port(repo=repo, exchanges=[rest[1], rest[0], graphql, none, rest[1]])
         whole = issue_passed(entry, repo=repo, now="2026-11-13T09:00:00Z")
@@ -1867,12 +1867,13 @@ class Entry(unittest.TestCase):
             self.assertEqual(entry_with(issues, **accounts)[:2], (1, "issue_list_unreadable\n"), issues)
 
     def test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry(self):  # S3, Astra
-        # Through the real port: an issue that read whole would be accepted defers while a pull request names it.
-        from tests.test_adapters import crossed, issue_read, linked_read, passes_listed
+        # Through the real port: an issue that read whole would be accepted defers while its linked pull requests are read
+        # short.
+        from tests.test_adapters import issue_read, linked_read, passes_listed
         reads_ = issue_read()
         own, events, edits = (r["response"] for r in reads_[:3])
         edits["body"]["data"]["repository"]["nameWithOwner"] = self.HOME
-        named = [linked_read(events=[crossed()], repo=self.HOME)["response"]]
+        named = [linked_read(total=1, repo=self.HOME)["response"]]
         # The Controller's tracking issue, 8, is open and updated since `served_from`, so GitHub lists it: it is left out
         # by the number the pass before recorded writing it under, never read, and the list is still whole (issue 901).
         listed = {"data": {"repository": {"nameWithOwner": self.HOME, "issues": {
@@ -1920,7 +1921,7 @@ class Entry(unittest.TestCase):
         self.assertEqual((d["item"]["number"], d["outcome"], d["reason"], d["evidence"]), (41, "defer", "facts_incomplete", ["linked"]))
         # Nothing is written for the issue: the one write is the tracking issue's, which reports the pass's alerts.
         self.assertEqual([w["type"] for w in files["writes.json"]["writes"]], ["tracking_issue"])
-        # Named by none, it is whole, and accepted.
+        # Read whole, with the pass records before it read and holding nothing of it, it is whole, and accepted.
         named[0] = linked_read(repo=self.HOME)["response"]
         hub.sent.clear()
         with unittest.mock.patch.object(entry, "configuration", served), \

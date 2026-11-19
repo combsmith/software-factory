@@ -19,12 +19,9 @@ reads as a keyword, the reading that holds.
 `keyword_spans` are the pass records' (decision 0186), read by `adapters/keyword_spans.py` from the records before this
 pass, which the caller hands on. A pull request whose keyword a pass saw is listed for good, with `keyword` false once
 an edit takes it out, so that no edit after a merge moves the issue; so the list is a pull request with a keyword now or
-once seen, a link by hand, or a close it made in the present life, and no other. Records that could not be read give no
-time and could hide a pull request once seen, so the list is then not whole.
-
-Still fail closed, until the change that reads a named issue by its spans: `complete.linked` is true only where no pull
-request names the issue: none referenced, linked or its closer, of any base or life, and nothing but an issue, as read,
-cross-referencing it, as the read also asks; the list is handed on all the same, for the pass records.
+once seen, a link by hand, or a close it made in the present life, and no other. `complete.linked` is true where the
+list and the spans were both read whole: records that could not be read give no time and could hide a pull request once
+seen, so the issue defers.
 """
 from __future__ import annotations
 
@@ -45,14 +42,13 @@ QUERY = """query IssueLinked($owner: String!, $name: String!, $number: Int!) {
         totalCount
         nodes { number repository { nameWithOwner } }
       }
-      timelineItems(itemTypes: [CLOSED_EVENT, CONNECTED_EVENT, DISCONNECTED_EVENT, CROSS_REFERENCED_EVENT], first: %d) {
+      timelineItems(itemTypes: [CLOSED_EVENT, CONNECTED_EVENT, DISCONNECTED_EVENT], first: %d) {
         pageInfo { hasNextPage }
         nodes {
           __typename
           ... on ClosedEvent { createdAt closer { __typename ... on PullRequest { number repository { nameWithOwner } } ... on Commit { oid } } }
           ... on ConnectedEvent { createdAt subject { __typename ... on PullRequest { number repository { nameWithOwner } } } }
           ... on DisconnectedEvent { createdAt subject { __typename ... on PullRequest { number repository { nameWithOwner } } } }
-          ... on CrossReferencedEvent { source { __typename } }
         }
       }
     }
@@ -71,8 +67,7 @@ def _number(node, repo: str):
 def joined(transport, repo: str, number: int, updated_at: str, began: str) -> dict:
     """The issue's GraphQL read: `refs`, the numbers referenced; `links`, each link and unlinking by hand, by number;
     `closers`, when each pull request closed the issue, its first close in the life begun at `began` or else its first;
-    `commits`, when each commit did in that life; `crossed`, whether anything but an issue cross-references it; and
-    `whole`. The read must name the issue's `updated_at`."""
+    `commits`, when each commit did in that life; and `whole`. The read must name the issue's `updated_at`."""
     field, (owner, name) = issues._field, repo.split("/")
     answer = transport.send(request("POST", "/graphql", body={
         "query": QUERY, "variables": {"owner": owner, "name": name, "number": number}}))
@@ -91,14 +86,10 @@ def joined(transport, repo: str, number: int, updated_at: str, began: str) -> di
     if type(total) is not int or not isinstance(nodes, list) or not isinstance(more, bool) or not isinstance(events, list):
         raise Unanswered("the references cannot be read")
     refs = [_number(node, repo) for node in nodes]
-    out, closes = {"refs": set(refs), "links": {}, "commits": {}, "crossed": False,
+    out, closes = {"refs": set(refs), "links": {}, "commits": {},
            "whole": total == len(nodes) and not more and None not in refs and len(set(refs)) == len(refs)}, {}
     for node in events:
         kind = field(node, "__typename")
-        if kind == "CrossReferencedEvent":
-            source = field(node, "source")
-            out["crossed"] = out["crossed"] or source is None or field(source, "__typename") != "Issue"
-            continue
         at = timeline._time(field(node, "createdAt"))
         if kind in LINKS:
             subject = field(node, "subject")
@@ -197,8 +188,7 @@ def on_default(read: dict) -> bool:
 
 def listing(transport, repo: str, number: int, updated_at: str, began: str, identities: dict,
             accounts: timeline.Accounts, spans: dict) -> tuple:
-    """`(linked, whole, named)` for issue `number`: each pull request listed, by number; whether every part was read
-    whole; and whether a pull request names the issue, before any is left out, or cross-references it.
+    """`(linked, whole)` for issue `number`: each pull request listed, by number, and whether every part was read whole.
     `began` is when its present life began, `identities` the class's accounts, `accounts` who acted, and `spans` each
     pull request a pass saw with its keyword, with its spans: one of those is listed whatever the references now say."""
     join = joined(transport, repo, number, updated_at, began)
@@ -220,15 +210,13 @@ def listing(transport, repo: str, number: int, updated_at: str, began: str, iden
         if merged and (was is None or was < began or at < was):
             merged[0]["closed_issue_at"] = at
         whole = whole and len(merged) == 1
-    linked = [made for made, _ in found]
-    return linked, whole, bool(join["refs"] or join["links"] or join["closers"] or join["crossed"])
+    return [made for made, _ in found], whole
 
 
 def read(transport, repo: str, number: int, updated_at: str, began: str, identities: dict,
          accounts: timeline.Accounts, earlier) -> tuple:
-    """`(linked, whole)`, as `listing` reads them with the spans the pass records `earlier` give, the pass records before
-    this pass, oldest first, or None: whole only where the spans were read too, and where no pull request names the
-    issue, while a named issue is not yet read by its spans (the docstring above)."""
+    """`(linked, whole)`, as `listing` reads them with the spans the pass records `earlier` give: whole where the list
+    and the spans were both read whole. `earlier` is the pass records before this pass, oldest first, or None."""
     spans, read_whole = keyword_spans.read(earlier, {"repo": repo, "type": "issue", "number": number})
-    linked, whole, named = listing(transport, repo, number, updated_at, began, identities, accounts, spans)
-    return linked, whole and read_whole and not named
+    linked, whole = listing(transport, repo, number, updated_at, began, identities, accounts, spans)
+    return linked, whole and read_whole
