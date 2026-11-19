@@ -1376,13 +1376,17 @@ class Advisory(unittest.TestCase):
         failing = dict(self.OUTPUT, annotations=[self.NOTE, dict(self.NOTE, annotation_level="failure")])
         for key, value in (("conclusion", "success"), ("conclusion", "failure"), ("conclusion", "action_required"),
                            ("conclusion", None), ("status", "in_progress"), ("name", "factory / pr-review"),
-                           ("name", "advisory-muse"), ("name", ["advisory-astra"]), ("head_sha", "1" * 40),
+                           ("name", "advisory-muse"), ("name", ["advisory-astra"]), ("name", "advisory-astra / x"),
+                           ("head_sha", "1" * 40),
                            ("external_id", self.RUN + ":kimi"), ("external_id", "r_01JA7Z:astra"),
                            ("external_id", self.RUN + ":e2"), ("external_id", None), ("output", failing),
                            ("output", dict(self.OUTPUT, text="a reader's words")), ("output", {"annotations": []}),
                            ("output", dict(self.OUTPUT, title="a reader's words")), ("output", None)):
             with self.assertRaisesRegex(github.Unanswered, "may not send", msg=(key, value)):
                 allowed.send(github.request("POST", path, body=self.good(**{key: value})))
+        # A Lens not in the caller's list is refused though its name and its key agree with each other.
+        with self.assertRaisesRegex(github.Unanswered, "may not send"):
+            allowed.send(github.request("POST", path, body=self.good(name="advisory-muse", external_id=self.RUN + ":muse")))
         for req in (github.request("POST", path, body=self.good(actions=[])),
                     github.request("PATCH", path + "/77", body=self.good()),
                     github.request("POST", "/repos/combsmith/other/check-runs", body=self.good()),
@@ -1431,11 +1435,20 @@ class Advisory(unittest.TestCase):
         other = Hub()
         other.conclusion = "success"
         self.assertEqual(effects.role_write(other, self.ITEM, "create_check_run", req, self.LOGIN)["state"], "sent")
+        # The step that shows an advisory read reaches this one write, and a token GitHub refuses is a refused write.
+        self.assertEqual(effects.advisory_write(Hub(), self.ITEM, req, self.LOGIN)["state"], "applied")
+
+        class Refusing:
+            def send(self, req):
+                return {"status": 403, "headers": {}, "body": None}
+        back = effects.advisory_write(Refusing(), self.ITEM, req, self.LOGIN)
+        self.assertEqual((back["state"], back["reason"]), ("refused", "token_refused"))
         # An output of its own is an advisory Lens's alone, and annotates what the request says it does, so that the
         # bound and the count read back are of what is sent: anything else sends nothing.
         many = dict(self.OUTPUT, annotations=[self.NOTE] * 2)
-        for change in ({"name": "factory / pr-review"}, {"name": "advisory-Astra"}, {"output": many}, {"output": None},
-                       {"output": {"title": "t"}}, {"annotations": []}):
+        for change in ({"name": "factory / pr-review"}, {"name": "advisory-Astra"}, {"name": "advisory-astra / x"},
+                       {"output": many}, {"output": None}, {"output": {"title": "t"}}, {"annotations": []},
+                       {"output": dict(self.OUTPUT, annotations=[])}):
             del made[:]
             back = effects.role_write(Hub(), self.ITEM, "create_check_run", dict(req, **change), self.LOGIN)
             self.assertEqual((back["state"], back["reason"], made), ("failed", "output_not_its_own", []), change)

@@ -549,8 +549,9 @@ NEEDS = json.dumps({"run": {"result": "success", "outputs": {}}, "verify": {"res
 
 class Apply(unittest.TestCase):
     def go(self, environ=None, record=RECORD, job=None, mint_refuses=None, revoked=True, result=None, a_job=None,
-           advice=None):
-        calls = {"minted": [], "revoked": 0, "job": [], "granted": [], "order": []}
+           advice=None, clock=None, watch=None):
+        calls = {} if watch is None else watch
+        calls.update({"minted": [], "revoked": 0, "job": [], "granted": [], "order": []})
 
         def from_key(app, repo, wanted, key, now, connect):
             calls["minted"].append((app["name"], wanted))
@@ -594,8 +595,9 @@ class Apply(unittest.TestCase):
                 os.makedirs(os.path.join(d, "advice"), exist_ok=True)
                 pathlib.Path(d, "advice", name).write_bytes(data)
             code, printed = ran(apply_step.step, [NAME, ITEM, PASS, "result", "applied"] + ["advice"] * (advice is not None),
-                                {k: v for k, v in env.items() if v is not None}, d)
+                                {k: v for k, v in env.items() if v is not None}, d, *([clock] if clock else []))
             folder = pathlib.Path(d, "applied")
+            calls["left"] = os.listdir(folder) if folder.is_dir() else []
             calls["applied"] = (folder / "applied.json").read_text() if (folder / "applied.json").is_file() else None
             ended = json.loads((folder / "outcome.json").read_text()) if (folder / "outcome.json").is_file() else None
         return code, printed, ended, calls
@@ -826,7 +828,7 @@ class Apply(unittest.TestCase):
         data = (json.dumps(result, indent=2, sort_keys=True) + "\n").encode()
         files = {"advice.astra.json": data,
                  "advice.astra.sha256": ("sha256:%s\n" % hashlib.sha256(data).hexdigest()).encode()}
-        seen, state = [], {"ends": ("item", "uncovered")}
+        seen, spawned, state = [], [], {"ends": ("item", "uncovered"), "says": b"began\nastra shown CR_1\nrevoked\n"}
 
         def a_job(admit, result, read_, write, mint, role, config, now, held):
             read_()
@@ -834,73 +836,106 @@ class Apply(unittest.TestCase):
             write(transport, "comment", {"on": "item"})
             revoke()
             return apply_step._ended(admit["run"], admit["release"], state["ends"])
+        real = apply_step.advised.run
 
-        def role_write(transport, item_, kind, req, login):
-            seen.append((kind, req, transport))
-            return {"state": "applied", "key": "CR_x"}
-        real = apply_step.advised
-
-        def advised(base, *a):      # what the step's folder holds when the advisory part begins
+        def run(base, folder, work, admit, ended, held, environ, left):
+            # What the step's folder holds, and which tokens are revoked, when the advisory part begins.
             state["before"] = {p.name: json.loads(p.read_text()) for p in pathlib.Path(base, "applied").iterdir()}
-            return state.get("advised", real)(base, *a)
+            state["order"], state["left"] = list(state["calls"]["order"]), left()
 
-        def went(advice=None, write=role_write, **over):
-            del seen[:]
+            def spawn(command, **how):
+                spawned.append((command[-1], how["timeout"]))
+                if isinstance(state["says"], Exception):
+                    raise state["says"]
+                return subprocess.CompletedProcess(command, 0, state["says"])
+            return state.get("run", real)(base, folder, work, admit, ended, held, environ, left, spawn)
+
+        def went(advice=None, **over):
+            del seen[:], spawned[:]
+            state["calls"] = {}
             with unittest.mock.patch.object(reread, "item", lambda *a: (facts, HEAD, [], support.context())), \
-                    unittest.mock.patch.object(effects, "role_write", write), \
-                    unittest.mock.patch.object(apply_step, "advised", advised):
-                code, printed, ended, calls = self.go(a_job=a_job, advice=advice, **over)
-            record = json.loads(calls["applied"])
-            return code, printed, ended, calls, [(kind, req.get("name")) for kind, req, _ in seen], record
-        code, plain, ended, calls, wrote, record = went()
-        self.assertEqual((code, ended["reason"], wrote), (0, "uncovered", [("comment", None)]))
-        # With no folder of advice, each reader configured is said to be missing, and nothing more is minted or sent.
+                    unittest.mock.patch.object(effects, "role_write", lambda t, i, kind, *a: seen.append(kind) or {
+                        "state": "applied", "key": "IC_x"}), \
+                    unittest.mock.patch.object(apply_step.advised, "run", run):
+                code, printed, ended, calls = self.go(a_job=a_job, advice=advice, watch=state["calls"], **over)
+            return code, printed, ended, calls, json.loads(calls["applied"])
+        code, plain, ended, calls, record = went()
+        self.assertEqual((code, ended["reason"], seen), (0, "uncovered", ["comment"]))
+        # With no folder of advice, each reader configured is said to be missing, and no child is started.
         missing = [{"lens": "astra", "code": "advice_missing"}, {"lens": "kimi", "code": "advice_missing"}]
         self.assertEqual(plain, "applied, outcome item; advisory-astra advice_missing; advisory-kimi advice_missing\n")
-        self.assertEqual((len(calls["minted"]), record.pop("advisory")), (2, missing))
+        self.assertEqual((len(calls["minted"]), record.pop("advisory"), spawned), (2, missing, []))
         self.assertEqual(state["before"], {"applied.json": record, "outcome.json": ended})
         # With a Result to show, the same Run leaves the same files, written before the advisory part begins and after
-        # the read token is revoked; then one check run more, through a third token of the check run's need alone, its
-        # conclusion neutral, on the head read again; and `applied.json` gains what was done for each Lens, no more.
-        code, printed, shown, more, wrote, with_ = went(files)
-        self.assertEqual((code, shown, more["job"], state["before"]),
-                         (0, ended, calls["job"], {"applied.json": record, "outcome.json": ended}))
-        self.assertEqual(with_, dict(record, advisory=[{"lens": "astra", "code": "shown"}, missing[1]]))
+        # its tokens are revoked; the step mints nothing more itself; and `applied.json` gains what was done for each
+        # Lens, with the key of the check run shown, and no more. The Role's own write is its own, as before.
+        code, printed, shown, more, with_ = went(files)
+        self.assertEqual((code, shown, more["job"], state["before"], seen),
+                         (0, ended, calls["job"], {"applied.json": record, "outcome.json": ended}, ["comment"]))
+        self.assertEqual(with_, dict(record, advisory=[{"lens": "astra", "code": "shown", "key": "CR_1"}, missing[1]]))
         self.assertEqual(printed, "applied, outcome item; advisory-astra shown; advisory-kimi advice_missing\n")
-        self.assertEqual(wrote, [("comment", None), ("create_check_run", "advisory-astra")])
-        self.assertEqual((more["minted"][:2], [name for name, _ in more["minted"][2:]], more["granted"][1:]),
-                         (calls["minted"], ["combsmith-sf-pr-review"], [(("effect:create_check_run",), "effect")]))
-        self.assertEqual(more["order"], ["minted 1", "minted 2", "revoked 2", "revoked 1", "minted 3", "revoked 3"])
-        _, req, transport = seen[1]
-        self.assertEqual((req["commit"], req["conclusion"], req["external_id"]), (HEAD, "neutral", RUN + ":astra"))
-        self.assertIsInstance(transport, effects.Allowed)
-        # A token for the check runs that GitHub does not confirm revoked is said for each Lens it wrote, on the line
-        # and in the record, and the Run's outcome stays what `apply` made it: an advisory Lens never ends a Run the
-        # environment's (the Factory Builder, 2026-11-19).
-        code, printed, again, calls_, _, kept = went(files, revoked=lambda nth: nth != 3)
-        self.assertEqual((code, again, calls_["revoked"]), (0, ended, 3))
-        self.assertEqual(kept, dict(record, advisory=[{"lens": "astra", "code": "token_not_revoked"}, missing[1]]))
-        self.assertEqual(printed, "applied, outcome item; advisory-astra token_not_revoked; advisory-kimi advice_missing\n")
-        # Whatever the advisory part meets, the step ends as it would have without it and both files stand as written:
-        # a part that raises what no one foresaw, and what it did that is no code of the record's.
+        self.assertEqual((more["minted"], state["order"]), (calls["minted"], ["minted 1", "minted 2", "revoked 2", "revoked 1"]))
+        self.assertEqual(sorted(more["left"]), ["advisory", "applied.json", "outcome.json"])
+        # The child's time is the step's: 240 seconds from when the step began, before anything was read, less what
+        # is spent, less the step's reserve. A step with too little left starts none.
+        (work, timeout), = spawned
+        self.assertEqual((os.path.basename(work), timeout, 239 < state["left"] <= 240), ("advisory", 150, True))
+        ticks = iter([1000] + [1081] * 50)
+        code, printed, again, _, kept = went(files, clock=lambda: next(ticks))
+        self.assertEqual((state["left"], spawned, kept["advisory"][0], again), (159, [], {"lens": "astra", "code": "out_of_time"}, ended))
+        ticks = iter([1000] + [1080] * 50)
+        went(files, clock=lambda: next(ticks))
+        self.assertEqual(spawned[0][1], 130)
+        # A child killed at its deadline, having shown one Lens or having said nothing, and one that says GitHub did
+        # not confirm the token revoked: the step ends 0, both files whole, the outcome what `apply` made it and never
+        # the environment's (the Factory Builder, 2026-11-19), and the record says what is and is not known.
+        for says, want in ((subprocess.TimeoutExpired("c", 150, output=b"began\nastra shown CR_1\n"),
+                            {"lens": "astra", "code": "token_not_revoked", "key": "CR_1"}),
+                           (subprocess.TimeoutExpired("c", 150, output=b"began\n"), {"lens": "astra", "code": "token_not_revoked"}),
+                           (subprocess.TimeoutExpired("c", 150, output=b""), {"lens": "astra", "code": "out_of_time"}),
+                           (b"began\nastra shown CR_1\nunrevoked\n", {"lens": "astra", "code": "token_not_revoked", "key": "CR_1"})):
+            state["says"] = says
+            code, printed, again, _, kept = went(files)
+            self.assertEqual((code, again, kept), (0, ended, dict(record, advisory=[want, missing[1]])), want)
+            self.assertEqual(printed, "applied, outcome item; advisory-astra %s; advisory-kimi advice_missing\n" % want["code"])
+        state["says"] = b"began\nastra shown CR_1\nrevoked\n"
+        # A part that raises what no one foresaw, or says what is no entry of the record's, says so and no more.
         def raising(*a):
             raise RuntimeError("what no one foresaw")
-        for state["advised"] in (raising, lambda *a: [("astra", "a sentence, not a code")]):
-            code, printed, again, calls_, _, kept = went(files)
+        for state["run"] in (raising, lambda *a: [("astra", "a sentence, not a code", None)], lambda *a: [("astra", "shown", None)]):
+            code, printed, again, _, kept = went(files)
             self.assertEqual((code, again, kept, printed), (0, ended, record, "applied, outcome item; advisory not_shown\n"))
-        del state["advised"]
+        del state["run"]
+        # The record is replaced whole: written new beside it and moved onto it, the old one whole until then. One
+        # that cannot be replaced stands as written, nothing is left beside it, and the codes are said all the same.
+        moved = []
+        replace = os.replace
+
+        def moving(new, old):
+            moved.append((os.path.basename(new), os.path.basename(old), json.loads(pathlib.Path(old).read_text()),
+                          json.loads(pathlib.Path(new).read_text())))
+            return replace(new, old)
+        with unittest.mock.patch.object(os, "replace", moving):
+            went(files)
+        self.assertEqual(moved, [("applied.json.new", "applied.json", record, with_)])
+        with unittest.mock.patch.object(os, "replace", raising):
+            code, printed, again, calls_, kept = went(files)
+        self.assertEqual((code, again, kept, sorted(calls_["left"])), (0, ended, record, ["advisory", "applied.json", "outcome.json"]))
+        self.assertEqual(printed, "applied, outcome item; advisory-astra shown; advisory-kimi advice_missing; advisory not_recorded\n")
         # A Run whose read token GitHub did not confirm revoked ends the environment's as it did before, and a Run the
-        # Factory faulted shows nothing and mints nothing for it.
+        # Factory faulted starts no child. One whose item was not read again says so.
         state["ends"] = (None, None)
-        code, printed, again, calls_, wrote, kept = went(files, revoked=lambda nth: nth != 1)
-        self.assertEqual((again["reason"], len(calls_["minted"]), [c["code"] for c in kept["advisory"]]),
-                         ("token_not_revoked", 2, ["run_not_whole", "run_not_whole"]))
-        # A Run whose item was not read again says so; one whose jobs failed says nothing; a seventh argument is none.
+        code, printed, again, calls_, kept = went(files, revoked=lambda nth: nth != 1)
+        self.assertEqual((again["reason"], spawned, [c["code"] for c in kept["advisory"]]),
+                         ("token_not_revoked", [], ["run_not_whole", "run_not_whole"]))
         code, printed, _, calls_ = self.go(advice=files)
         self.assertEqual((code, printed), (0, "applied, outcome none; advisory-astra item_not_read; advisory-kimi item_not_read\n"))
-        code, printed, _, calls_ = self.go({"NEEDS": "not json"}, advice=files)
-        self.assertEqual((code, printed, calls_["minted"], "advisory" in json.loads(calls_["applied"])),
-                         (0, "applied, outcome environment\n", [], False))
+        # A step whose jobs failed, or that no Decision admitted, says nothing of advice and leaves no field; a seventh
+        # argument is none.
+        for over in ({"environ": {"NEEDS": "not json"}}, {"record": None}):
+            code, printed, again, calls_ = self.go(advice=files, **over)
+            self.assertEqual((code, printed, "advisory" in json.loads(calls_["applied"])),
+                             (0, "applied, outcome %s\n" % again["outcome"], False), over)
         with tempfile.TemporaryDirectory() as d:
             code, printed = ran(apply_step.step, [NAME, ITEM, PASS, "result", "applied", "advice", "more"], {"RELEASE": RELEASE}, d)
             self.assertEqual((code, os.listdir(d)), (1, []), printed)
