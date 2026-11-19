@@ -282,6 +282,13 @@ class Record(unittest.TestCase):
         self.assertEqual(hour["alerts"], ["advisory_token_not_revoked"])
         past = passed(reads(), now="2026-10-11T14:00:01Z", previous=[out["record"], on["record"]])
         self.assertEqual((past["alerts"], past["record"]["advisory_unrevoked"]), ([], []))
+        # A stamp at no moment or after the pass, which no pass writes, is stamped again, so its alert stands its hour.
+        for odd in ("2026-02-31T12:00:00Z", "2026-10-11T15:00:00Z"):
+            bad = dict(out["record"], advisory_unrevoked=[{"run": done["run"], "at": odd}])
+            self.assertEqual(shared.errors(bad, "pass"), [])
+            got = passed(reads(), now="2026-10-11T14:30:00Z", previous=[bad])
+            self.assertEqual((got["alerts"], got["record"]["advisory_unrevoked"]),
+                             (["advisory_token_not_revoked"], [{"run": done["run"], "at": "2026-10-11T14:30:00Z"}]))
         # Read again by a later pass, as when the records before could not be read, it keeps its first stamp.
         again = passed(reads(effects=dict(RECORDED, applied=[done])), now="2026-10-11T13:30:00Z", previous=[out["record"]])
         self.assertEqual(again["record"]["advisory_unrevoked"], [{"run": done["run"], "at": NOW}])
