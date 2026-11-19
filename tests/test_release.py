@@ -706,13 +706,26 @@ class Fixture(unittest.TestCase):
         stable["exchanges"][0]["request"]["call"] = "GET %s?environment=factory-stable&per_page=4" % path
         stable["removed"] = ["exchanges[0].response.headers: the link header of the read of stable's Deployments"]
         self.assertEqual(check_release.fixture_problems(stable, "refs.json"), [])
+        # And of that Channel alone: next's said of a page of stable's is not said (cubic's read).
+        stable["removed"] = ["exchanges[0].response.headers: the link header of the read of next's Deployments"]
+        self.assertTrue(any("removed says 0 times that the link header of the read of stable's" in p
+                            for p in check_release.fixture_problems(stable, "refs.json")))
+        # A repo's name in any case is the repo; and a write to the list is no read of it (cubic's reads).
+        upper = copy.deepcopy(loose)
+        upper["exchanges"][0]["request"]["call"] = "GET /repos/Combsmith/Software-Factory/deployments?per_page=4"
+        self.assertTrue(any("keeps the Link header" in p for p in check_release.fixture_problems(upper, "refs.json")))
+        for write in ("POST %s" % path, "gh api --method POST %s" % path.lstrip("/"), "gh api -X PATCH %s?page=2" % path.lstrip("/")):
+            posted = copy.deepcopy(loose)
+            posted["exchanges"][0]["request"]["call"] = write
+            self.assertEqual(check_release.fixture_problems(posted, "refs.json"), [], write)
         # A `removed` or a response of another type is said, never a crash (Carbon's read).
         for odd in ({"removed": 1}, {"removed": {"x": 1}}):
             broken = dict(copy.deepcopy(later), **odd)
             self.assertTrue(check_release.fixture_problems(broken, "refs.json"))
-        odd_answer = copy.deepcopy(later)
-        odd_answer["exchanges"][0]["response"] = ["not", "an", "answer"]
-        self.assertIsInstance(check_release.fixture_problems(odd_answer, "refs.json"), list)
+        for side in ("request", "response"):
+            odd_part = copy.deepcopy(later)
+            odd_part["exchanges"][0][side] = ["not", "a", side]
+            self.assertIsInstance(check_release.fixture_problems(odd_part, "refs.json"), list, side)
         # A read of the whole list needs no word in `removed`; one of a Deployment, or of its statuses, is no read of it.
         whole = copy.deepcopy(loose)
         whole["exchanges"][0]["request"]["call"], whole["exchanges"][0]["response"]["headers"] = "GET %s?environment=x" % path, {}
@@ -789,7 +802,7 @@ class Fixture(unittest.TestCase):
                 found = check_release.fixture_problems(wrong_, path.name)
                 self.assertEqual(len(found), 1, (path.name, why, found))
                 self.assertIn({"the header kept": "keeps the Link header of a read of Deployments",
-                               "removed does not say": "removed says 0 times that the link header of the read of a Channel's",
+                               "removed does not say": "removed says 0 times that the link header of the read of next's",
                                "removed says twice": "removed says 2 times"}[why], found[0])
                 if path == newest:
                     copy_ = pathlib.Path(folder.name) / path.name

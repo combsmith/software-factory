@@ -45,12 +45,16 @@ SCHEMAS = ("release-fixture", "trial")
 # in any order. A fixture keeps no Link header of one, which names the next page and the last; and where the read is
 # of a page, by `per_page` or `page`, `removed` says once it was taken out (issues 863 and 899). Asked of every fixture
 # of a Release's runs, whatever test reads it. A read of one Deployment, or of its statuses, is no read of the list.
-DEPLOYMENTS_LIST = re.compile(r"\b%s/deployments/?(\?[^\s'\"]*)?(?=[\s'\"]|$)" % re.escape(API_REPO.lstrip("/")))
+DEPLOYMENTS_LIST = re.compile(r"\b%s/deployments/?(\?[^\s'\"]*)?(?=[\s'\"]|$)" % re.escape(API_REPO.lstrip("/")), re.I)
+# A call that writes, by its first word or gh api's method, which reads no list (cubic's read).
+WRITES = re.compile(r"^\s*(POST|PUT|PATCH|DELETE)\s|(?:-X|--method)[\s=]+(?!GET\b)[A-Za-z]+", re.I)
+# The Channel a read of Deployments names by its environment, whose name `removed` must give.
+CHANNEL = re.compile(r"[?&]environment=factory-([a-z]+)(?=&|$)")
 # A page asked in the query, or as a field gh api sends as one.
 PAGED = re.compile(r"(?:[?&]|(?:-[fF]|--(?:raw-)?field)\s+)(?:per_)?page=")
 LINK_REMOVED = "the link header of the read of next's Deployments"
 # What `removed` says of it, of whichever Channel's Deployments the read was.
-LINK_SAID = re.compile(r"the link header of the read of [a-z]+'s Deployments")
+LINK_SAID = re.compile(r"the link header of the read of ([a-z]+)'s Deployments")
 PURE = ("release/cut.py", "release/current.py")
 # What the rules may import: the future's annotations, and each other, never the CLI that reads files.
 ALLOWED_IMPORTS = {"__future__"} | {"release." + pathlib.PurePath(rel).stem for rel in PURE}
@@ -239,13 +243,17 @@ def fixture_problems(value, rel: str) -> list:
                   for i, item in enumerate(items if isinstance(items, list) else [])]
         for i, item in enumerate(items if isinstance(items, list) else []):
             problems += ["%s: %s" % (rel, p) for p in _disagrees(item, i)]
-    pages = 0
+    paged = []      # the Channel each page of Deployments read was of, or None where its call names none
     for where, exchanges in groups:
         for i, exchange in enumerate(exchanges if isinstance(exchanges, list) else []):
             request = exchange.get("request") if isinstance(exchange, dict) else None
-            listed = DEPLOYMENTS_LIST.search(str(request.get("call", ""))) if isinstance(request, dict) else None
+            call = str(request.get("call", "")) if isinstance(request, dict) else ""
+            listed = None if WRITES.search(call) else DEPLOYMENTS_LIST.search(call)
             if listed:
-                pages += bool(PAGED.search(listed.group(1) or "") or PAGED.search(str(request.get("call", ""))[listed.end():]))
+                query = listed.group(1) or ""
+                if PAGED.search(query) or PAGED.search(call[listed.end():]):
+                    channel = CHANNEL.search(query)
+                    paged.append(channel.group(1) if channel else None)
                 response = exchange.get("response")
                 answered = response.get("headers") if isinstance(response, dict) else None
                 if any(str(name).lower() == "link" for name in (answered if isinstance(answered, dict) else {})):
@@ -259,10 +267,13 @@ def fixture_problems(value, rel: str) -> list:
                         problems.append("%s: %s[%d].%s.headers holds %s, which a fixture does not keep"
                                         % (rel, where, i, side, name))
     removed = value.get("removed") if isinstance(value.get("removed"), list) else []
-    said = [entry for entry in removed if isinstance(entry, str) and LINK_SAID.search(entry)]
-    if pages and len(said) != 1:
-        problems.append("%s: reads a page of Deployments, and removed says %d times that the link header of the read of "
-                        "a Channel's Deployments was taken out, not once" % (rel, len(said)))
+    for channel in sorted(set(paged), key=str):
+        said = [entry for entry in removed if isinstance(entry, str) and LINK_SAID.search(entry)
+                and channel in (None, LINK_SAID.search(entry).group(1))]
+        if len(said) != 1:
+            problems.append("%s: reads a page of Deployments, and removed says %d times that the link header of the read "
+                            "of %s Deployments was taken out, not once" % (rel, len(said), "%s's" % channel if channel
+                                                                            else "a Channel's"))
     if not any(isinstance(exchanges, list) and exchanges for _, exchanges in groups):
         problems.append("%s: holds no exchange" % rel)
     return problems
