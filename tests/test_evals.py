@@ -2177,7 +2177,9 @@ class EvalJob(unittest.TestCase):
             others = (live.answer(modelUsage={live.MODEL + "-other": {}}), 0)
             invalid = (live.answer(live.judged(status="no such status")), 0)
             cut = (live.answer(live.judged(status="incomplete", reason="change_not_reviewed_whole", findings=[], effects={})), 0)
-            for first, reason in ((others, "engine_model"), (invalid, "result_invalid"), (cut, "change_not_reviewed_whole")):
+            refused = (live.answer(live.judged(status="refused", reason="task_not_a_review", findings=[], effects={})), 0)
+            for first, reason in ((others, "engine_model"), (invalid, "result_invalid"), (cut, "change_not_reviewed_whole"),
+                                  (refused, "task_not_a_review")):
                 for later in (vendor(503), OSError("no such file"), subprocess.TimeoutExpired(["claude"], 1), good):
                     result, review, calls, slept = asked(first, later)
                     self.assertEqual((result["reason"], review.retried, calls, review.seen, job.seen_of(review)),
