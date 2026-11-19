@@ -16297,6 +16297,15 @@ MUTANTS = ISSUE + [
     ("the mutation runner's own load by name fails", 'tools/check_writes.py',
      '        if mod.rel not in NAME_LOADERS:\n', '        if True:\n', ('tests.test_tools.Writes.test_on_main_only_the_callers_listed_reach_a_write_and_each_what_it_lists',)),
     # Decision 0194: the Maintainer's continue or stop, and what he was shown before it.
+    # Issue 899: a page of Deployments keeps no Link header, in every fixture of a Release's runs.
+    ("a page of Deployments may keep its Link header", "tools/check_release.py",
+     '                if any(str(name).lower() == "link" for name in', '                if False and any(str(name).lower() == "link" for name in', ("tests.test_release.Fixture.test_a_cut_s_fixture_is_held_to_each_field_its_readers_passed_over",)),
+    ("the Link header of a page is read in one case alone", "tools/check_release.py",
+     'str(name).lower() == "link"', 'name == "link"', ("tests.test_release.Fixture.test_a_cut_s_fixture_is_held_to_each_field_its_readers_passed_over",)),
+    ("removed need not say the Link header was taken out", "tools/check_release.py",
+     '    if pages and len(said) != 1:\n', '    if pages and len(said) > 1:\n', ("tests.test_release.Fixture.test_a_cut_s_fixture_is_held_to_each_field_its_readers_passed_over",)),
+    ("removed may say twice the Link header was taken out", "tools/check_release.py",
+     '    if pages and len(said) != 1:\n', '    if pages and len(said) < 1:\n', ("tests.test_release.Fixture.test_a_cut_s_fixture_is_held_to_each_field_its_readers_passed_over",)),
     ('a decision point recorded twice passes', 'tools/check_release.py',
      '        if isinstance(name, str) and name in seen:',
      '        if False:', POINT_RULE),

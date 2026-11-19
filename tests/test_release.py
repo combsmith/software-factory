@@ -456,7 +456,7 @@ class Fixture(unittest.TestCase):
         self.assertLessEqual(len(answer["body"]), int(size))
         return answer["body"], int(size)
 
-    LINK_REMOVED = "the link header of the read of next's Deployments"
+    LINK_REMOVED = check_release.LINK_REMOVED
 
     def a_page_of_deployments_keeps_no_link(self, fixture):
         """A read of a page of next's Deployments in `fixture` keeps no `Link` header, and the fixture's `removed` says
@@ -728,12 +728,19 @@ class Fixture(unittest.TestCase):
             page, = [e for item in kept["items"] for e in item["exchanges"] if self.DEPLOYMENTS + "&per_page=" in e["request"]["call"]]
             page["response"]["headers"]["Link"] = '<https://api.github.com/repositories/1/deployments?page=2>; rel="next"'
             unsaid["removed"] = [said.replace(self.LINK_REMOVED, "") for said in unsaid["removed"]]
-            for why, wrong_ in (("the header kept", kept), ("removed does not say", unsaid)):
+            twice = copy.deepcopy(fixture)
+            twice["removed"] += [said for said in twice["removed"] if self.LINK_REMOVED in said]
+            for why, wrong_ in (("the header kept", kept), ("removed does not say", unsaid), ("removed says twice", twice)):
                 with self.subTest(path=path.name, why=why), self.assertRaises(AssertionError):
                     self.a_page_of_deployments_keeps_no_link(wrong_)
-                # The helper every later cut is read by asks it: the check of the fixture passes both copies.
+                # The check asks it of every fixture of a Release's runs, whatever test reads it (issue 899); and the
+                # helper every later cut is read by asks it too.
+                found = check_release.fixture_problems(wrong_, path.name)
+                self.assertEqual(len(found), 1, (path.name, why, found))
+                self.assertIn({"the header kept": "keeps the Link header of a page of Deployments",
+                               "removed does not say": "removed says 0 times that %s was taken out" % check_release.LINK_REMOVED,
+                               "removed says twice": "removed says 2 times"}[why], found[0])
                 if path == newest:
-                    self.assertEqual(check_release.fixture_problems(wrong_, path.name), [])
                     copy_ = pathlib.Path(folder.name) / path.name
                     copy_.write_text(json.dumps(wrong_))
                     with self.subTest(path=path.name, why=why, by="the helper"), self.assertRaises(AssertionError):

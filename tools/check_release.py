@@ -41,6 +41,11 @@ INPUT = re.compile(r"^  RELEASE_(COMMAND|VERSION|TO|CUT_COMMIT): ?(\S*)$")
 PRINTED = '{"writes": '
 EXIT = re.compile(r"^##\[error\]Process completed with exit code [0-9]+\.$")
 SCHEMAS = ("release-fixture", "trial")
+# A read of a page of a Channel's Deployments: its own call, `per_page` and no `page`, says the page is the first, so a
+# fixture keeps no Link header of it, which names the next page and the last, and `removed` says once it was taken out
+# (issues 863 and 899). Asked of every fixture of a Release's runs, whatever test reads it.
+DEPLOYMENTS_PAGE = re.compile(r"^GET %s/deployments\?environment=[^&\s]+&per_page=[0-9]+(?:\s|$)" % re.escape(API_REPO))
+LINK_REMOVED = "the link header of the read of next's Deployments"
 PURE = ("release/cut.py", "release/current.py")
 # What the rules may import: the future's annotations, and each other, never the CLI that reads files.
 ALLOWED_IMPORTS = {"__future__"} | {"release." + pathlib.PurePath(rel).stem for rel in PURE}
@@ -229,14 +234,26 @@ def fixture_problems(value, rel: str) -> list:
                   for i, item in enumerate(items if isinstance(items, list) else [])]
         for i, item in enumerate(items if isinstance(items, list) else []):
             problems += ["%s: %s" % (rel, p) for p in _disagrees(item, i)]
+    pages = 0
     for where, exchanges in groups:
         for i, exchange in enumerate(exchanges if isinstance(exchanges, list) else []):
+            request = exchange.get("request") if isinstance(exchange, dict) else None
+            if isinstance(request, dict) and DEPLOYMENTS_PAGE.match(str(request.get("call", ""))):
+                pages += 1
+                answered = (exchange.get("response") or {}).get("headers")
+                if any(str(name).lower() == "link" for name in (answered if isinstance(answered, dict) else {})):
+                    problems.append("%s: %s[%d].response.headers keeps the Link header of a page of Deployments, which "
+                                    "names the next page and the last; take it out, and say so in removed" % (rel, where, i))
             for side in ("request", "response"):
                 held = (exchange.get(side) or {}).get("headers") if isinstance(exchange, dict) else None
                 for name in (held if isinstance(held, dict) else {}):
                     if str(name).lower() not in check_trials.HEADERS:
                         problems.append("%s: %s[%d].%s.headers holds %s, which a fixture does not keep"
                                         % (rel, where, i, side, name))
+    said = [entry for entry in value.get("removed") or [] if isinstance(entry, str) and LINK_REMOVED in entry]
+    if pages and len(said) != 1:
+        problems.append("%s: reads a page of Deployments, and removed says %d times that %s was taken out, not once"
+                        % (rel, len(said), LINK_REMOVED))
     if not any(isinstance(exchanges, list) and exchanges for _, exchanges in groups):
         problems.append("%s: holds no exchange" % rel)
     return problems

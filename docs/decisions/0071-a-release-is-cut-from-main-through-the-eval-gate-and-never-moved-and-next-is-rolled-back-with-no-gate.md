@@ -40,4 +40,5 @@ registered and the eval set holds cases.
 | Every step names its Release by `release/current.py`'s rules alone, over its checkout's own tags | `tests/test_steps.py::test_the_release_is_its_one_tag` |
 | The reader takes its commit from its own checkout, before any key | `tests/test_steps.py::test_a_run_whose_own_release_cannot_be_named_builds_no_task` |
 | The reader's outcome, from its step alone, reaches the last step, held to `outcome/1` | `tools/check_workflows.py`, `tests/test_steps.py::test_a_run_on_another_release_than_its_pass_builds_no_task` |
+| A fixture of a Release's runs that reads a page of a Channel's Deployments keeps no Link header of it, and its `removed` says once that it was taken out, asked of every fixture under `release/fixtures/`, whatever test reads it (issues 863 and 899) | `tools/check_release.py`, `tests/test_release.py::test_a_cut_s_fixture_is_held_to_each_field_its_readers_passed_over`, mutant: "a page of Deployments may keep its Link header", mutant: "removed need not say the Link header was taken out" |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
