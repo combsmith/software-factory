@@ -21,7 +21,8 @@ def incomplete(facts: dict) -> list:
 
 def opened_for_an_issue(facts: dict) -> bool:
     """Whether the facts name the issue the Factory opened this pull request for: a whole number from 1, never a truth
-    value. A fact that is not there, or is anything else, names none."""
+    value. A fact that is not there, or is anything else, names none, and nothing says the Factory opened it. The
+    one reading for the author Role's fix (decision 0216) and for the issue the pull request stands with (0232)."""
     issue = facts.get("opened_for")
     return type(issue) is int and issue >= 1
 
@@ -1252,7 +1253,7 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     if opened_for_an_issue(facts):
         stands = facts.get("issue_stands")
         if stands not in t.ISSUE_STANDS:
-            return {"state": None, "reason": "issue_unreadable", "evidence": []}
+            return {"state": None, "reason": "issue_stands_unreadable", "evidence": []}
         if stands != t.ISSUE_OPEN:
             return {"state": t.HELD, "reason": "issue_stopped", "evidence": [stands]}
     if not admitted(facts, labels):

@@ -620,11 +620,11 @@ class OnlyAPersonEnds(unittest.TestCase):
                        facts(opened_for=7, issue_stands=["open"]), facts(opened_for=7, issue_stands=0)):
             d = go(unread, REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
-                             (None, "issue_unreadable", "defer", "needs_you"), unread.get("issue_stands", "absent"))
+                             (None, "issue_stands_unreadable", "defer", "needs_you"), unread.get("issue_stands", "absent"))
             self.assertNotIn("admit", go(dict(unread, threads=[thread()]), REVIEWED))
             self.assertNotIn("admit", go(unread))
             d = go(dict(unread, queue=True, reviews=APPROVED), REVIEWED)
-            self.assertEqual((d["reason"], d["outcome"], d.get("action")), ("issue_unreadable", "act", "dequeue"))
+            self.assertEqual((d["reason"], d["outcome"], d.get("action")), ("issue_stands_unreadable", "act", "dequeue"))
         self.assertNotIn("issue_stands", absent)
         # Only a pull request the Factory opened for an issue stands with one: on any other, how an issue stands is not
         # read, whatever the facts say of it, and nothing is held or deferred for it. So facts made before the fact

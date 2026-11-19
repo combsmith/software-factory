@@ -109,9 +109,10 @@
     },
     {
       "reason": "issue_stopped",
-      "question": "held_by_you",
+      "question": "issue_held_or_closed",
       "choices": [
         "end_hold",
+        "reopen",
         "close"
       ]
     },
@@ -259,7 +260,7 @@
       ]
     },
     {
-      "reason": "issue_unreadable",
+      "reason": "issue_stands_unreadable",
       "question": "fact_unreadable",
       "choices": [
         "fix_the_source"

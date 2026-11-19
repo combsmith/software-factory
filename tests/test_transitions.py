@@ -303,7 +303,7 @@ STILL = {
         for i in range(CONFIG["limits"]["max_unnamed_runs"] + 1)]}),
     "last_pusher_unreadable": base([reviewed()], last_pusher=None),
     # How the issue a Factory-opened pull request stands with was not read (decision 0232).
-    "issue_unreadable": base([reviewed()], issue_stands=None),
+    "issue_stands_unreadable": base([reviewed()], issue_stands=None),
     # A count the facts schema refuses, which the Kernel still reads as unreadable.
     "acts_unreadable": base([reviewed()], acts_since_writer=None),
     # A result on this content for a criterion the contract does not name: no State, so nothing to explore from.
