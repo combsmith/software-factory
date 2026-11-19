@@ -1104,7 +1104,7 @@ def issue_through_the_port(events=(), repo="o/r", exchanges=None, users=None) ->
     _, accounts, _ = entry.reader(router, held_roles())
     accounts.repo = repo
     number = found[0]["response"]["body"]["number"]
-    facts, title = issues.read(router, repo, number, accounts, lambda: "2026-10-11T12:00:00Z", identities=IDENTITIES)
+    facts, title = issues.read(router, repo, number, accounts, lambda: "2026-10-11T12:00:00Z", identities=IDENTITIES, earlier=[])
     return {"facts": facts, "title": title}
 
 
@@ -1747,9 +1747,9 @@ class Entry(unittest.TestCase):
                 return list(listed), whole
             return open_issues
 
-        def read(transport, repo, number, accounts, clock, *, identities):
+        def read(transport, repo, number, accounts, clock, *, identities, earlier):
             spied["read"].append((repo, number, accounts))
-            spied["identities"].append(identities)
+            spied["identities"].append((identities, earlier))
             if number == 6:
                 raise entry.facts_.Moved("moved")
             if number == 9:
@@ -1785,8 +1785,8 @@ class Entry(unittest.TestCase):
         self.assertEqual(spied["listed"], [(self.HOME, since, [8])])
         self.assertEqual([n for _, n, _ in spied["read"]], [5, 6, 9])
         self.assertTrue(all(who is spied["who"][0] for _, _, who in spied["read"]))
-        # Each is read with the pull requests' class accounts.
-        self.assertEqual(spied["identities"], [entry.facts_.accounts_of(CONTROLLER)[0]] * 3)
+        # Each is read with the pull requests' class accounts, and the pass records before this pass, here none.
+        self.assertEqual(spied["identities"], [(entry.facts_.accounts_of(CONTROLLER)[0], [])] * 3)
         # The reader names each App the configuration holds by its account's id, as REST spells its Bot's login.
         catalogue = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
         self.assertEqual(spied["who"][0].apps, {(CONTROLLER["accounts"]["controller"]["id"], "Bot"):
@@ -1868,7 +1868,7 @@ class Entry(unittest.TestCase):
 
     def test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry(self):  # S3, Astra
         # Through the real port: an issue that read whole would be accepted defers while a pull request names it.
-        from tests.test_adapters import crossed, issue_read, linked_read
+        from tests.test_adapters import crossed, issue_read, linked_read, passes_listed
         reads_ = issue_read()
         own, events, edits = (r["response"] for r in reads_[:3])
         edits["body"]["data"]["repository"]["nameWithOwner"] = self.HOME
@@ -1928,6 +1928,15 @@ class Entry(unittest.TestCase):
             code, _, files, _ = self.run_entry(hub)
         (decided,) = files["pass.json"]["issues"]
         self.assertEqual((code, decided["decision"]["outcome"], decided["decision"].get("action")), (0, "act", "accept"))
+        # The port is handed the pass records the entry read: with those not read, GitHub counting a pass the list does
+        # not hold, the same issue defers, since no record says which keyword a pass saw (issue 734).
+        hub.table[("GET", passes_listed([])["request"]["call"].split()[1])] = passes_listed([], total=1)["response"]
+        with unittest.mock.patch.object(entry, "configuration", served), \
+                unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: written):
+            code, _, files, _ = self.run_entry(hub)
+        (decided,) = files["pass.json"]["issues"]
+        d = decided["decision"]
+        self.assertEqual((code, d["outcome"], d["reason"], d["evidence"]), (0, "defer", "facts_incomplete", ["linked"]))
 
     def test_what_the_entry_cannot_read_writes_nothing(self):
         for environ, want in (({"RELEASE": None}, "release_untagged"), ({"RELEASE": "v1"}, "release_untagged"),
