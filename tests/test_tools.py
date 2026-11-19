@@ -2224,6 +2224,9 @@ class Purity(unittest.TestCase):
         # A module's name is bound by its import alone, so that what is read off it is the module's.
         stolen = {"kernel/terms.py": "HELD = 'h'\n", "kernel/x.py": "from kernel import terms\n\n\ndef f(terms):\n    return terms.gi_frame\n"}
         self.assertTrue(caught(check_purity.run(planted(stolen)), "x.py:4 binds terms, which names a module of kernel/"))
+        # And so is the name `import kernel.x as name` binds (Carbon's read of #851).
+        aliased = dict(stolen, **{"kernel/x.py": "import kernel.terms as u\n\n\ndef f(u):\n    return u.gi_frame\n"})
+        self.assertTrue(caught(check_purity.run(planted(aliased)), "x.py:4 binds u, which names a module of kernel/"))
         if sys.version_info >= (3, 10):
             matched = "def f(g):\n    match g:\n        case object(gi_frame=frame):\n            return frame\n"
             self.assertTrue(caught(check_purity.run(planted({"kernel/x.py": matched})), "x.py:2 matches a value against patterns"))
