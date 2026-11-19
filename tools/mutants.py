@@ -14112,6 +14112,8 @@ MUTANTS = ISSUE + [
      '    if tracking(issue, controller):\n        raise Tracking(', '    if False:\n        raise Tracking(', F931_PORT),
     ("an issue the Controller's App opened is its tracking issue whatever its body", 'adapters/issues.py',
      ' and effects.causes_of(_field(issue, "body")) is not None\n', '\n', F931_PORT),
+    ("a tracking body that lists no cause is no tracking issue's", 'adapters/issues.py',
+     'effects.causes_of(_field(issue, "body")) is not None', 'bool(effects.causes_of(_field(issue, "body")))', F931_PORT),
     ("a body left out of the App's issue reads as none", 'adapters/issues.py',
      'effects.causes_of(_field(issue, "body"))', 'effects.causes_of(issue.get("body"))', F931_PORT),
     ("an issue with the tracking issue's body is it whoever opened it", 'adapters/issues.py',

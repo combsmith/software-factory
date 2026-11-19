@@ -6418,6 +6418,9 @@ class Issues(unittest.TestCase):
         with self.assertRaises(issues.Tracking):
             read(issue_read(user=app, body=body)[:1])
         self.assertTrue(effects.causes_of(body) == ["write_failed"] and issues.tracking({"user": app, "body": body}, mine))
+        # So is one whose body lists no cause, as the write step writes one once its causes have cleared (Muse).
+        empty = effects.rendered(record, [])
+        self.assertTrue(effects.causes_of(empty) == [] and issues.tracking({"user": app, "body": empty}, mine))
         # The App's issue with any other body is a Work item, a follow-on a Role opens among them, and so is one whose
         # body anyone edited; and that body on a person's issue, another App's, or an account of the App's id that is no
         # Bot. With no App named, none is the tracking issue. Each is read whole, as any issue is.
