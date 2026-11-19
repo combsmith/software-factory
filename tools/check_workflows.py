@@ -2018,7 +2018,8 @@ def head_problems(root: pathlib.Path, live: list) -> list:
         exposed.add(path.name)
         where = path.relative_to(root)
         listed, kept = HEAD_SETTINGS.get(path.name, ((), None))
-        if kept and hashlib.sha256(PIN.sub("@PIN", text).encode()).hexdigest() != kept:
+        # A row with no hash, or another, holds no text: the change is caught.
+        if path.name in HEAD_SETTINGS and hashlib.sha256(PIN.sub("@PIN", text).encode()).hexdigest() != kept:
             problems.append("%s reads a head beside a secret, so it is held word for word, and it has changed: read "
                             "again what of the head its actions take their settings from, list each in HEAD_SETTINGS, "
                             "then record its new hash there" % where)

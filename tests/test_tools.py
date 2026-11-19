@@ -3097,6 +3097,8 @@ class Workflows(unittest.TestCase):
                 "the head, by no ref": steps + head,
                 "the head, by its commit": steps + checkout + "          ref: %s\n" % check_workflows.HEAD,
                 "the base and then the head": steps + base + head,
+                # Astra's read: every checkout, not the last alone; a base under base/ leaves the head's own at the top.
+                "the head and then the base": steps + head + base.replace("        with:\n", "        with:\n          path: base\n"),
                 "a checkout in another case": steps + head.replace("actions/checkout", "Actions/Checkout"),
                 "a checkout by a path of its repo": steps + head.replace("actions/checkout@", "actions/checkout/sub@"),
                 "the secret in another case": steps.replace("secrets.SONAR_TOKEN", "SECRETS.SONAR_TOKEN") + head,
@@ -3131,6 +3133,16 @@ class Workflows(unittest.TestCase):
         moved = scan + "      - uses: some/scan@%s # v8.3.0\n" % ("d" * 40)
         self.assertEqual(problems(scan=moved.replace("d" * 40 + " # v8.3.0", "e" * 40 + " # v8.4.0"), kept=moved)[1], [])
         self.assertTrue(caught(problems(scan=moved + "        with:\n          projectBaseDir: docs\n", kept=moved)[1], changed))
+        # Astra's read: the live scan, so changed, is caught by its row as written; and a row with no hash holds nothing.
+        live_scan = (ROOT / ".github" / "workflows" / "sonarcloud.yml").read_text()
+        root = tree({".github/workflows/sonarcloud.yml": live_scan + "        with:\n          projectBaseDir: docs\n",
+                     "config/hooks.json": (ROOT / "config" / "hooks.json").read_text()})
+        self.assertTrue(caught(check_workflows.head_problems(root, [root / ".github/workflows/sonarcloud.yml"]),
+                               changed))
+        root = tree({".github/workflows/sonarcloud.yml": scan, "config/hooks.json": json.dumps(hooks)})
+        with mock.patch.dict(check_workflows.HEAD_SETTINGS, {"sonarcloud.yml": (("sonar-project.properties",), None)}):
+            self.assertTrue(caught(check_workflows.head_problems(root, [root / ".github/workflows/sonarcloud.yml"]),
+                                   changed))
         # A row for a workflow that is not there, or no longer runs on pull_request beside a secret, is stale.
         stale = "sonarcloud.yml has a row in HEAD_SETTINGS, and is no workflow that runs on a pull request or a merge group beside a secret"
         for scan_ in (None, scan.replace(secret, ""), scan.replace("  pull_request:\n  merge_group:\n", "  push:\n")):
