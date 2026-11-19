@@ -181,6 +181,13 @@ class Scoring(unittest.TestCase):
         self.assertEqual(answered(*right, case=aside), ("fail", ["coverage_disagrees"]))
         self.assertEqual(answered(*right, case=aside, covered={"verdict": "not_applicable", "reason": "no_rule_added"}),
                          ("fail", ["coverage_disagrees"]))
+        # Its code under another verdict is no setting aside, nor is it beside another verdict for the same criterion.
+        self.assertEqual(answered(*right, case=aside, covered={"verdict": "met", "reason": "finding_stands"}),
+                         ("fail", ["coverage_disagrees"]))
+        both = [dict(c, **stood) if c["criterion"] == criterion else dict(c, verdict="met", reason=None) if c["verdict"] == "finding"
+                else c for c in example_result()["coverage"]]
+        both += [dict(next(c for c in both if c["criterion"] == criterion), verdict="met", reason=None)]
+        self.assertEqual(answered(*right, case=aside, coverage=both), ("fail", ["coverage_disagrees"]))
         self.assertEqual(answered(right[0], case=aside, covered=stood), ("fail", ["ruling_missing", "ruling_wrong"]))
         self.assertEqual(answered(right[1], case=aside, covered=stood), ("fail", ["ruling_missing"]))
         again = dict(example_result()["findings"][0], criterion=criterion)
