@@ -282,6 +282,10 @@
       "type": "number",
       "minimum": 0.01,
       "maximum": 10000
+    },
+    "advisory_hand_over": {
+      "description": "Whether a review's Task is handed each advisory Lens's Findings to check, and `apply` admits a Finding adopted from one (decision 0224, \"The switch\"). Absent or false, it is not. The committed file does not switch it on until a private replay passes and issue 925 is done; a private replay sets it in its own copy.",
+      "type": "boolean"
     }
   }
 }

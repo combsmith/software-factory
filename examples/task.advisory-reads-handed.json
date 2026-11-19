@@ -1,0 +1,55 @@
+{
+  "schema": "task/1",
+  "run": "r_01JA7Q",
+  "release": "factory/v0.3.1",
+  "role": "pr-review",
+  "intent": "review-change",
+  "item": {
+    "repo": "combsmith/software-factory",
+    "type": "pull_request",
+    "number": 42
+  },
+  "content_id": "sha256:c770169554d435106b825132a944c332c8cf7f8d1553e2f22a4af96d7b615a40",
+  "findings": [],
+  "texts": [
+    {
+      "id": "diff:c770169554d435106b825132a944c332c8cf7f8d1553e2f22a4af96d7b615a40",
+      "trust": "outside",
+      "source": "combsmith-sf-dev-lead[bot]",
+      "body": "diff --git a/kernel/decide.py b/kernel/decide.py\n--- a/kernel/decide.py\n+++ b/kernel/decide.py\n@@ -88,1 +88,1 @@\n-    return \"hold\"\n88|+    return \"act\"\ndiff --git a/docs/glossary.md b/docs/glossary.md\n--- a/docs/glossary.md\n+++ b/docs/glossary.md\n@@ -1,1 +1,1 @@\n-Kernel\n1|+The Kernel\n"
+    },
+    {
+      "id": "astra:5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f",
+      "trust": "advisory",
+      "source": "astra",
+      "body": "> severity: major\n> category: functional\n> criterion: PR-3\n> place: kernel/decide.py, line 88\n>\n> A deferral is returned where the facts are whole\n>\n> `decide` returns `defer` when `checks` is an empty list, which is a whole read of no check."
+    }
+  ],
+  "limits": {
+    "turns": 10,
+    "repair_turns": 1,
+    "seconds": 600,
+    "cost_ceiling_usd": 1.0,
+    "effort": "medium"
+  },
+  "tier": "standard",
+  "permitted_effects": [
+    "submit_review",
+    "create_check_run",
+    "comment"
+  ],
+  "result_schema": "result/1",
+  "omitted": [],
+  "advisory": [
+    {
+      "lens": "astra",
+      "status": "completed",
+      "reason": null
+    },
+    {
+      "lens": "kimi",
+      "status": "incomplete",
+      "reason": "budget"
+    }
+  ]
+}

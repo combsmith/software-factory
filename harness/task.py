@@ -6,6 +6,11 @@ and the configuration, and, for a pull request, the change itself. A Run started
 workflow can choose what a Run does. Each text is labelled by its trust class from who wrote it, read from the facts'
 actor and the configuration, never from the text. A Task carries texts up to the configuration's characters, and says
 what it left out, and how much (L-56); the change has a budget of its own. Nothing here reads a clock, a file or the network.
+
+A review's Task is handed the advisory reads only where `config/harness.json` switches the hand-over on (decision 0224,
+"The switch"): each Finding of a Result that holds, as a text of trust `advisory` written by its Lens and quoted whole,
+and, in `advisory`, what became of each reader's read. The committed configuration does not switch it on, so a Task is
+built as it always was.
 """
 from __future__ import annotations
 
@@ -14,6 +19,7 @@ import hashlib
 import json
 import re
 
+from adapters import advice
 from harness import shared
 
 ADMIT = "admit"
@@ -34,6 +40,9 @@ HUNK = re.compile(r"@@ -\d{1,9}(?:,(\d{1,9}))? \+(\d{1,9})(?:,(\d{1,9}))? @@")
 ROW = re.compile(r"[^\n]+\n?|\n")
 # What leads a line the head's file holds, after its number there (decision 0137).
 SEPARATOR = "|"
+# The Intent the advisory reads are handed to, and the switch that hands them (decision 0224).
+REVIEWING = "review-change"
+HAND_OVER = "advisory_hand_over"
 
 
 class Refused(ValueError):
@@ -138,6 +147,39 @@ def texts_of(texts: list, config: dict) -> tuple:
     return kept, [omitted[k] for k in sorted(omitted)]
 
 
+def quoted(found: dict, said: dict) -> str:
+    """A reader's Finding as `pr-review` is given it: every line quoted, the reader's severity, category, criterion and
+    place among them, so that nothing of the reader's is told as the Factory's (decision 0224)."""
+    where = found.get("location") or {}
+    first, last = where.get("start_line"), where.get("end_line")
+    place = where.get("path") or "none"
+    if first is not None:
+        place += ", line %d" % first if last in (None, first) else ", lines %d to %d" % (first, last)
+    lines = ["severity: %s" % found["severity"], "category: %s" % said["category"],
+             "criterion: %s" % (said["criterion"] or "none"), "place: %s" % place, ""] + said["body"].split("\n")
+    return "\n".join("> " + line if line else ">" for line in lines)
+
+
+def advisory_of(advised: dict, names: list, admit: dict, run: str, release: str) -> tuple:
+    """`(texts, reads)`: each Finding of each advisory Lens's Result that holds (`advice.held`), as a text the reads
+    would give, written by that Lens and quoted; and, for each Lens the Factory asks a reader for, what became of its
+    read: its Result's status and reason, or `unread` and why none holds. `advised` is `{lens: (bytes, digest)}`, as the
+    step read the Result and the digest written beside it. Only a `completed` Result holds Findings."""
+    texts, reads = [], []
+    held_to = {"run": run, "release": release, "content_id": admit["content_id"]}
+    for lens in names:
+        data, digest = advised.get(lens, (None, None))
+        result, why = advice.held(data, digest, lens, names, held_to, shared.SCHEMAS)
+        if result is None:
+            reads.append({"lens": lens, "status": "unread", "reason": why})
+            continue
+        reads.append({"lens": lens, "status": result["status"], "reason": result["reason"]})
+        said = {text["id"]: text for text in result["texts"]}
+        texts += [{"id": found["id"], "by": {"kind": "lens", "name": lens, "can_write": False},
+                   "body": quoted(found, said[found["id"]])} for found in result["findings"]]
+    return texts, reads
+
+
 def diff_of(diff, facts: dict, admit: dict, config: dict) -> tuple:
     """`(text, omitted)`: the change a pull request's Run judges, as the Task's text `diff:<content hex>`, and what of it
     was left out, or `(None, None)` for an issue, which has none; a pull request with no diff has no Task. The diff is the bytes whose sha256 is the content id
@@ -172,20 +214,20 @@ def diff_of(diff, facts: dict, admit: dict, config: dict) -> tuple:
 
 
 def build(record: dict, run: str, facts: dict, texts: list, role: dict, findings: list, config: dict,
-          diff: bytes = None) -> dict:
+          diff: bytes = None, advised: dict = None) -> dict:
     """The Task of Run `run`, validated, or Refused. Every input is held to its schema first: what cannot be read is
-    no Task, never a crash."""
+    no Task, never a crash. `advised` is each advisory Lens's Result as the step read it (`advisory_of`)."""
     if shared.errors(record, "pass"):
         raise Refused("the pass record is no pass/1")
     entry = decision_of(record, run)
     if entry is None:
         raise Refused("no Decision in pass %s admitted Run %s" % (record.get("pass"), run))
     return from_admission(entry["decision"]["admit"], entry["decision"]["item"], run, facts, texts, role, findings, config,
-                          diff)
+                          diff, advised)
 
 
 def from_admission(admit: dict, item: dict, run: str, facts: dict, texts: list, role: dict, findings: list, config: dict,
-             diff: bytes = None) -> dict:
+             diff: bytes = None, advised: dict = None) -> dict:
     """The Task of Run `run`, admitted for `admit`'s Role, Intent and content on `item`, validated, or Refused. `build`
     reads the admission from the pass record; the eval job gives a held-out case's own, so that a case's Task is built
     by this one function, as a live Run's is (issue 309, ruling 5)."""
@@ -209,6 +251,13 @@ def from_admission(admit: dict, item: dict, run: str, facts: dict, texts: list, 
     if len(intents) != 1:
         raise Refused("%s's manifest declares no Intent %s" % (role["name"], admit["intent"]))
     intent = intents[0]
+    # The advisory reads, handed only to a review and only where the configuration switches the hand-over on; ranked
+    # and budgeted as every other text, as advisory text (decision 0224).
+    handed = config["harness"].get(HAND_OVER) is True and admit["intent"] == REVIEWING and isinstance(advised, dict)
+    if handed:
+        names = [lens for lens in config["harness"]["advisory"] if lens in config["harness"].get("readers", {})]
+        more, reads = advisory_of(advised, names, admit, run, config["release"])
+        texts = list(texts) + more
     kept, omitted = texts_of(texts, config)
     # The change is the first text a pull request's Task carries, apart from the others and their budget.
     change, cut = diff_of(diff, facts, admit, config)
@@ -220,4 +269,6 @@ def from_admission(admit: dict, item: dict, run: str, facts: dict, texts: list, 
             "limits": copy.deepcopy(config["harness"]["limits"][intent["tier"]]), "tier": intent["tier"],
             "permitted_effects": list(intent["permitted_effects"]), "result_schema": "result/1",
             "omitted": omitted}
+    if handed:
+        task["advisory"] = reads
     return shared.checked(task, "task", Refused)

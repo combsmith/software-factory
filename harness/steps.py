@@ -51,6 +51,17 @@ def write(folder: str, name: str, data) -> None:
         f.write(body)
 
 
+def bounded(base, folder, name: str, most: int):
+    """At most `most` bytes of the file `name` in `folder`, or None. The folder is followed to where it really is, a
+    link or not, and must lie inside `base`; the file itself is never a link: one is not opened."""
+    try:
+        opened = os.open(os.path.join(inside(base, folder), name), os.O_RDONLY | os.O_NOFOLLOW)
+        with open(opened, "rb") as f:
+            return f.read(most)
+    except (OSError, Stop, TypeError, ValueError):
+        return None
+
+
 def read_json(base, path: str):
     """A JSON document inside `base`; Stop `file_unreadable` if it cannot be read as one."""
     try:

@@ -412,6 +412,135 @@ class Task(unittest.TestCase):
         self.assertEqual((others(wide), wide["omitted"]), ([], [{"kind": "thread", "texts": 1, "characters": 25000}]))
 
 
+def advised(lens="astra", status="completed", reason=None, run=RUN, digest=None, **over) -> tuple:
+    """An advisory Lens's Result for Run RUN, as the advise step writes it, and the digest written beside it."""
+    result = json.loads((ROOT / "examples" / "advice.json").read_text())
+    result.update(lens=lens, run=run, status=status, reason=reason, **over)
+    for found in result["findings"]:
+        found["id"] = found["surface"]["key"] = found["id"].replace("astra", lens)
+        found["source"]["lens"], found["content_id"] = lens, CONTENT
+    for said in result["texts"]:
+        said["id"] = said["id"].replace("astra", lens)
+    if reason is not None:
+        result.update(findings=[], texts=[], off_change=0)
+    data = json.dumps(result).encode()
+    return data, (digest or "sha256:" + hashlib.sha256(data).hexdigest() + "\n").encode()
+
+
+ON = {"advisory_hand_over": True}
+FOUND = "astra:5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f"
+
+
+class Handed(unittest.TestCase):
+    """The advisory reads handed to a review, where the configuration switches the hand-over on (decision 0224)."""
+
+    def handed(self, given, **over) -> dict:
+        return task.build(over.get("record", record()), RUN, facts(), [], manifest(), [], over.get("config", config(**ON)),
+                          DIFF, given)
+
+    def test_a_review_is_handed_each_finding_of_a_read_that_holds_quoted_and_told_what_became_of_each_read(self):
+        given = {"astra": advised()}
+        t = self.handed(given)
+        self.assertEqual(shared.errors(t, "task"), [])
+        # What became of a read is said in codes: a Lens by a name advice/1 holds, a status of four, a reason of one word.
+        for bad in ({"lens": "astra", "status": "incomplete", "reason": "The day's ceiling was spent."},
+                    {"lens": "astra", "status": "skipped", "reason": None}, {"lens": "Astra", "status": "unread", "reason": None},
+                    {"lens": "astra", "status": "unread", "reason": None, "cost": 1}):
+            self.assertTrue(shared.errors(dict(t, advisory=[bad]), "task"), bad)
+        self.assertEqual((shared.errors(dict(t, advisory=t["advisory"] * 4), "task") == [],
+                          shared.errors(dict(t, advisory=t["advisory"] * 5), "task") == []), (True, False))
+        self.assertEqual(t["advisory"], [{"lens": "astra", "status": "completed", "reason": None},
+                                         {"lens": "kimi", "status": "unread", "reason": "advice_missing"}])
+        mine = [x for x in others(t) if x["id"] == FOUND]
+        self.assertEqual([(x["trust"], x["source"]) for x in mine], [("advisory", "astra")])
+        # Quoted whole, the reader's severity, category, criterion and place among its own words, never the Factory's.
+        body = mine[0]["body"]
+        self.assertTrue(all(line == ">" or line.startswith("> ") for line in body.split("\n")), body)
+        self.assertEqual(body.split("\n")[:5], ["> severity: major", "> category: functional", "> criterion: PR-3",
+                                                "> place: kernel/decide.py, line 88", ">"])
+        self.assertIn("> `decide` returns `defer`", body)
+        self.assertEqual(task.quoted({"severity": "minor", "location": {"path": "a.py", "start_line": 3, "end_line": 9}},
+                                     {"category": "x", "criterion": None, "body": "t\n\nm"}).split("\n"),
+                         ["> severity: minor", "> category: x", "> criterion: none", "> place: a.py, lines 3 to 9", ">",
+                          "> t", ">", "> m"])
+        self.assertEqual(task.quoted({"severity": "info"}, {"category": "x", "criterion": None, "body": "t"}).split("\n")[3],
+                         "> place: none")
+        # A read not completed hands no text, and says why; so does a Result that does not hold, whatever it says.
+        cases = [(advised(status="incomplete", reason="budget"), ("incomplete", "budget")),
+                 (advised(status="failed", reason="no_key"), ("failed", "no_key")),
+                 (advised(digest="sha256:" + "0" * 64 + "\n"), ("unread", "advice_digest_differs")),
+                 (advised(run="r_01JA7R"), ("unread", "advice_not_the_runs")),
+                 (advised(lens="kimi"), ("unread", "advice_not_the_lens")),
+                 ((None, None), ("unread", "advice_missing"))]
+        for data, (status, reason) in cases:
+            t = self.handed({"astra": data})
+            self.assertEqual((t["advisory"][0], [x for x in others(t) if x["trust"] == "advisory"]),
+                             ({"lens": "astra", "status": status, "reason": reason}, []), reason)
+        # Each Lens the Factory asks a reader for, and no other: a Lens with no reader's block is told of by no entry.
+        t = self.handed({"astra": advised(), "kimi": advised(lens="kimi")}, config=config(readers={"kimi": HARNESS["readers"]["kimi"]}, **ON))
+        self.assertEqual(([e["lens"] for e in t["advisory"]], [x["source"] for x in others(t)]), (["kimi"], ["kimi"]))
+        # Ranked and budgeted as advisory text: left out whole, and said, by its Lens, where the room is spent.
+        short = config(texts={"characters": 50}, **ON)
+        t = self.handed(given, config=short)
+        self.assertEqual((others(t), t["omitted"][0]["kind"], t["omitted"][0]["texts"]), ([], "astra", 1))
+
+    def test_nothing_is_handed_unless_the_switch_is_on_and_the_run_is_a_review(self):
+        given = {"astra": advised()}
+        today = built()
+        for harness in ({}, {"advisory_hand_over": False}, {"advisory_hand_over": "true"}, {"advisory_hand_over": 1}):
+            self.assertEqual(self.handed(given, config=config(**harness)), today, harness)
+        self.assertNotIn("advisory_hand_over", HARNESS)          # the committed configuration does not switch it on
+        self.assertEqual(self.handed(None), today)
+        fix = {"role": "pr-review", "intent": "fix-change", "content_id": CONTENT}
+        role = dict(manifest(), intents=manifest()["intents"] + [dict(manifest()["intents"][0], name="fix-change")])
+        t = task.build(record(admit=fix), RUN, facts(), [], role, [], config(**ON), DIFF, given)
+        self.assertNotIn("advisory", t)
+        self.assertEqual(others(t), [])
+
+    def job(self, where: pathlib.Path, harness: dict, folder="advice") -> str:
+        """What the CLI is told, the instructions and then the Task, by a job given the advise step's folder tenth."""
+        cli = CLI()
+        run.job(Job().files(where) + [folder], JOB, config(**harness), call=cli, clock=Clock(), session=SESSION, base=where)
+        args = cli.asked()[0]["args"]
+        return args[args.index("-p") + 1]
+
+    def test_the_run_step_reads_the_advise_steps_results_only_where_the_switch_is_on_and_never_through_a_link(self):
+        handed = (ROOT / "roles" / "pr-review" / "advisory-handed.md").read_text(encoding="utf-8")
+        for harness, told in ((ON, True), ({}, False)):
+            with tempfile.TemporaryDirectory() as d:
+                where = pathlib.Path(d)
+                (where / "advice").mkdir()
+                data, digest = advised()
+                (where / "advice" / "advice.astra.json").write_bytes(data)
+                (where / "advice" / "advice.astra.sha256").write_bytes(digest)
+                said = self.job(where, harness)
+            self.assertEqual((("\n\n" + handed) in said, FOUND in said, '"advisory": [' in said), (told,) * 3, harness)
+        # A Result through a link, or a folder outside the step's own, is no read; the review is still asked.
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as elsewhere:
+            where = pathlib.Path(d)
+            data, digest = advised()
+            pathlib.Path(elsewhere, "advice.astra.json").write_bytes(data)
+            pathlib.Path(elsewhere, "advice.astra.sha256").write_bytes(digest)
+            (where / "advice").mkdir()
+            (where / "advice" / "advice.astra.json").symlink_to(pathlib.Path(elsewhere, "advice.astra.json"))
+            (where / "advice" / "advice.astra.sha256").write_bytes(digest)
+            said = self.job(where, ON)
+            self.assertNotIn(FOUND, said)
+            self.assertIn('"reason": "advice_missing"', said)
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as elsewhere:
+            where = pathlib.Path(d)
+            data, digest = advised()
+            pathlib.Path(elsewhere, "advice.astra.json").write_bytes(data)
+            pathlib.Path(elsewhere, "advice.astra.sha256").write_bytes(digest)
+            said = self.job(where, ON, folder=elsewhere)
+            self.assertNotIn(FOUND, said)
+        # The workflow's form names the advise step's folder; a Role handed the reads with no word of how is not asked.
+        self.assertEqual(run.ADVICE, "advice")
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(run.RubricUnreadable):
+                run.handed(pathlib.Path(d), "pr-review")
+
+
 class Engine(unittest.TestCase):
     def test_the_cli_is_given_exactly_the_named_environment_and_the_one_credential(self):  # issue 287, decision 0004
         cli = CLI()
@@ -1326,7 +1455,8 @@ class Job(unittest.TestCase):
                 with contextlib.redirect_stdout(printed), contextlib.redirect_stderr(errors):
                     self.assertEqual(run.main(paths, JOB), 0)
                     self.assertEqual(run.main(paths, JOB), 1)       # OUT exists now
-                    self.assertEqual(run.main(paths[:3], JOB), 2)
+                    self.assertEqual(run.main(paths[:4], JOB), 2)
+                    self.assertEqual(run.main(paths + ["advice", "more"], JOB), 2)
             finally:
                 run.cli_call = original
                 os.chdir(here)

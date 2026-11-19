@@ -2654,6 +2654,20 @@ class Repo(unittest.TestCase):
             self.assertEqual(not caught(found, "is under what the readers' caps and prices let one Run cost"), held, (worst, sorted(readers)))
         self.assertEqual(check_examples._readers(dict(named, readers={"astra": block})), [])       # with none, no reader is asked
 
+    def test_the_committed_configuration_does_not_hand_the_advisory_reads_over(self):  # decision 0224, "The switch"
+        # Until a private replay passes and issue 925 is done, the committed file does not switch the hand-over on; a
+        # private replay's own copy may, so harness/1 admits it and the check holds the committed file alone.
+        loaded = json.loads((ROOT / "config" / "harness.json").read_text())
+        schema = json.loads((ROOT / "schemas" / "harness.schema.json").read_text())
+        on = dict(loaded, advisory_hand_over=True)
+        self.assertEqual((check_examples._held_off(loaded), validate(on, schema)), ([], []))
+        self.assertEqual(check_examples._held_off(dict(loaded, advisory_hand_over=False)), [])
+        for odd in ("true", 1, None):
+            self.assertTrue(validate(dict(loaded, advisory_hand_over=odd), schema), odd)
+        said = "config/harness.json: harness: the advisory reads are handed to pr-review before their replay passed"
+        self.assertTrue(caught(check_examples.run(clone({"config/harness.json": json.dumps(on)})), said))
+        self.assertFalse(caught(check_examples.run(clone({})), said))
+
     def test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else(self):  # decision 0224
         # A second place a model is named: an advisory Lens's reader, in the pin's own file, by its model and by its
         # deployment, which Azure may name after a model. The pin's file and its copies may name a model at three paths

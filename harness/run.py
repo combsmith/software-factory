@@ -1,7 +1,7 @@
 """The `run` job: one Task, one call of the Engine, one Result (design sections 2.3 and 3.10, issue 194).
 
-    python3 -m harness.run RECORD RUN FACTS DIFF TEXTS ROLE FINDINGS OUT [HEAD]
-    python3 -m harness.run TASK OUT
+    python3 -m harness.run RECORD RUN FACTS DIFF TEXTS ROLE FINDINGS OUT [HEAD [ADVICE]]
+    python3 -m harness.run TASK OUT [ADVICE]
 
 The second form is the workflow's: TASK is the folder `python3 -m harness.read` wrote, holding each of the first
 form's files by its name, the Run id among them in `run`, and the head it unpacked, `head/`, which a review reads as
@@ -14,6 +14,10 @@ JSON files, and OUT a directory that does not exist yet. The job writes OUT/resu
 nothing else of the model: the log carries the digest alone, never a field of the Result, since nothing is handed from
 job to job through the log (section 3.10). The CLI is the one at the path the job's environment names, CLAUDE_CLI, and
 the credential the one under CLAUDE_CODE_OAUTH_TOKEN. A Run whose Task cannot be built writes no Result and fails.
+
+ADVICE is the folder the advise step wrote, `advice` in the workflow's form. Its Results are read, each bounded and never
+through a link, only where `config/harness.json` hands the advisory reads over (decision 0224); a Result that is not
+there, or does not hold, is a read the Task says is missing and never fails the Run.
 """
 from __future__ import annotations
 
@@ -28,11 +32,16 @@ import tempfile
 import time
 import uuid
 
+from adapters import advice
 from harness import engine, passes, shared, steps, task
 from kernel.coverage import readable_rubric
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CLI = "CLAUDE_CLI"
+# What a review is told after its instructions when it is handed the advisory reads, one of its Role's own files and so
+# a model Lens's input as they are; the workflow's folder of the advise step's Results.
+HANDED = "advisory-handed.md"
+ADVICE = "advice"
 
 
 def configuration(root: pathlib.Path = ROOT) -> dict:
@@ -114,7 +123,8 @@ def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotoni
 
     The job reads and writes only inside the directory it runs in, `base`, by default the working directory: each path
     is followed to where it really is, and one outside is refused before anything is opened, naming no path. A ninth
-    path, the workflow's form's, is the head the reader unpacked, which a review reads (decision 0138)."""
+    path, the workflow's form's, is the head the reader unpacked, which a review reads (decision 0138); a tenth, the
+    advise step's folder, whose Results a review is handed where the configuration says so (decision 0224)."""
     inside = os.path.realpath(str(pathlib.Path.cwd() if base is None else base))
     record, run, facts, diff, texts, role, findings, out = paths[:8]
     head = os.path.realpath(os.path.join(inside, paths[8])) if len(paths) > 8 else None
@@ -137,7 +147,12 @@ def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotoni
     config = dict(config, release=admitted["release"])
     with open(diff, "rb") as f:
         change = f.read()
-    the_task = task.build(admitted, run, read(facts), read(texts), read(role), read(findings), config, change)
+    advised = None
+    if len(paths) > 9 and config["harness"].get(task.HAND_OVER) is True:
+        advised = {lens: (steps.bounded(inside, paths[9], "advice.%s.json" % lens, advice.LARGEST + 1),
+                          steps.bounded(inside, paths[9], "advice.%s.sha256" % lens, 128))
+                   for lens in config["harness"]["advisory"]}
+    the_task = task.build(admitted, run, read(facts), read(texts), read(role), read(findings), config, change, advised)
     result = answer(the_task, job_env, config, call, clock, session or str(uuid.uuid4()), head)
     data = (json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
     digest = "sha256:" + hashlib.sha256(data).hexdigest()
@@ -171,6 +186,8 @@ def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.mo
             told = instructions(ROOT, the_task)
             told += checklist(ROOT, the_task["role"], the_task["intent"]) if review["checklist"] is True else ""
             told += engine.READ_FIRST if review["read_head"] is True else ""
+            # Handed the advisory reads, a review is told how to check them; a Task with none is told nothing more.
+            told += "\n\n" + handed(ROOT, the_task["role"]) if "advisory" in the_task else ""
         except RubricUnreadable:
             fault = "rubric_unreadable"
     if fault:
@@ -190,6 +207,15 @@ def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.mo
     if len(results) > 1 and joined["status"] == "completed" and not engine.held(joined, the_task):
         return engine.failed(the_task, "result_invalid", joined["usage"])
     return joined
+
+
+def handed(root: pathlib.Path, role: str) -> str:
+    """How a review handed the advisory reads checks them, `roles/<role>/advisory-handed.md`; RubricUnreadable where it
+    cannot be read, so that a review is never handed a reader's findings with no word of how to take them."""
+    try:
+        return (root / "roles" / role / HANDED).read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        raise RubricUnreadable("rubric_unreadable") from None
 
 
 RUN_ID = re.compile(r"r_[0-9A-Z]{6,26}")
@@ -212,14 +238,14 @@ def from_folder(folder: str, out: str, base=None) -> list:
 
 
 def main(argv: list, job_env: dict) -> int:
-    argv = argv or ["task", "result"]      # the workflow's form: the reader's folder, and the Result's
-    if len(argv) not in (2, 8, 9):
-        print("usage: python3 -m harness.run RECORD RUN FACTS DIFF TEXTS ROLE FINDINGS OUT [HEAD], or TASK OUT",
-              file=sys.stderr)
+    argv = argv or ["task", "result", ADVICE]   # the workflow's form: the reader's folder, the Result's, the advise step's
+    if len(argv) not in (2, 3, 8, 9, 10):
+        print("usage: python3 -m harness.run RECORD RUN FACTS DIFF TEXTS ROLE FINDINGS OUT [HEAD [ADVICE]], or TASK OUT "
+              "[ADVICE]", file=sys.stderr)
         return 2
     try:
-        if len(argv) == 2:
-            argv = from_folder(argv[0], argv[1])
+        if len(argv) in (2, 3):
+            argv = from_folder(argv[0], argv[1]) + argv[2:]
         digest = job(argv, job_env, configuration())
     except (task.Refused, OSError, ValueError) as err:
         print("harness.run: %s" % type(err).__name__, file=sys.stderr)

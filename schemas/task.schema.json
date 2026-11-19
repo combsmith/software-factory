@@ -163,6 +163,41 @@
     "result_schema": {
       "const": "result/1"
     },
+    "advisory": {
+      "description": "What became of each advisory reader's read of a review's change, one entry for each Lens the Factory asks a reader for: its Result's status and reason, or `unread` and why no Result holds (decision 0224). Present only where the configuration hands the advisory reads over; each Finding of a completed read is then one of the texts, of trust `advisory`.",
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "lens",
+          "status",
+          "reason"
+        ],
+        "properties": {
+          "lens": {
+            "type": "string",
+            "pattern": "^[a-z]{1,31}$"
+          },
+          "status": {
+            "enum": [
+              "completed",
+              "incomplete",
+              "failed",
+              "unread"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          }
+        }
+      }
+    },
     "omitted": {
       "description": "What was left out of the Task's texts, and how much, for each kind of text, the part of a text's id before the colon (L-56). For kind `diff`, the change, `texts` counts the files left out. Optional: a Task that left nothing out may say so with an empty list or not at all.",
       "type": "array",
