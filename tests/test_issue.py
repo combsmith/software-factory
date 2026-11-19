@@ -1380,6 +1380,10 @@ class Stands(unittest.TestCase):
         missing = facts()
         del missing["complete"]
         self.assertIsNone(self.stands(missing))
+        # Read short, a person's hands-off is not read either: the part not read could hold its removal and a Hold.
+        short = {"timeline": False, "linked": True, "runs": True}
+        self.assertIsNone(self.stands(facts(label_events=[labelled(HANDS_OFF)], complete=short)))
+        self.assertIsNone(self.stands(facts(label_events=[labelled(HANDS_OFF), dict(labelled(HOLD), by=None)])))
 
 
 class Accepted(unittest.TestCase):
