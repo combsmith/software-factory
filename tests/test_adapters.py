@@ -20,8 +20,8 @@ import urllib.parse
 import zipfile
 from unittest import mock
 
-from adapters import acceptance, applied, artifacts, checks, edits, effects, facts, github, heldout, issues, items, linked, passes, \
-    pull, records, pause, rules, texts, threads, timeline
+from adapters import acceptance, applied, artifacts, checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
+    passes, pull, records, pause, rules, texts, threads, timeline
 from controller import shared
 from harness import task
 from kernel import brakes
@@ -6741,6 +6741,79 @@ class Linked(unittest.TestCase):
         # An issue that changed while its pull requests were read is read again at the next pass.
         with self.assertRaises(facts.Moved):
             self.listed([answer(updated="2026-10-11T11:00:01Z")])
+
+
+def seen_by(at: int, pulls=(), linked_whole=True, repo="o/r", number=41, **more) -> dict:
+    """A pass record as far as the spans' reader reads one: the facts of issue `number`, read at minute `at`, each of its
+    linked pull requests `(number, keyword, spans)` as that pass handed them on."""
+    listed = [{"number": n, "keyword": keyword, "keyword_spans": spans} for n, keyword, spans in pulls]
+    facts = {"item": {"repo": repo, "type": "issue", "number": number}, "linked": listed, "read_at": minute(at),
+             "complete": {"timeline": True, "linked": linked_whole, "runs": True}}
+    return dict({"schema": "pass/1", "now": minute(at - 1), "issues": [{"facts": facts}]}, **more)
+
+
+def span(seen: int, gone=None) -> dict:
+    return {"seen_at": minute(seen), "gone_at": None if gone is None else minute(gone)}
+
+
+class KeywordSpans(unittest.TestCase):
+    """A closing keyword's link is timed by the pass records that saw it (decision 0186, issue 734)."""
+    ITEM = {"repo": "o/r", "type": "issue", "number": 41}
+
+    def spans(self, *records):
+        return keyword_spans.read(list(records), self.ITEM)
+
+    def test_a_keyword_is_seen_from_the_first_pass_record_that_listed_it_until_the_first_that_saw_it_gone(self):
+        # The first record that listed 7 with its keyword opens a span, at the read of the issue's facts in it, which is
+        # after the pass's own `now`; the record before it, which saw no pull request, gives nothing.
+        first = seen_by(3, [(7, True, [])])
+        self.assertEqual(self.spans(seen_by(0), first), ({7: [span(3)]}, True))
+        # The pass after hands the span on, and its record, the keyword still read, opens no second one.
+        self.assertEqual(self.spans(first, seen_by(6, [(7, True, [span(3)])])), ({7: [span(3)]}, True))
+        # The first record after it that saw the keyword gone ends the span at its own read, and the pull request is
+        # kept, by its span, when its keyword is read no more.
+        gone = seen_by(9, [(7, False, [span(3)])])
+        self.assertEqual(self.spans(first, gone), ({7: [span(3, 9)]}, True))
+        self.assertEqual(self.spans(gone, seen_by(12, [(7, False, [span(3, 9)])])), ({7: [span(3, 9)]}, True))
+        # A keyword put back begins a new span at the record that saw it again, which reaches back to nothing.
+        back = seen_by(15, [(7, True, [span(3, 9)])])
+        self.assertEqual(self.spans(gone, back), ({7: [span(3, 9), span(15)]}, True))
+        self.assertEqual(self.spans(back, seen_by(18, [(7, False, [span(3, 9), span(15)])])),
+                         ({7: [span(3, 9), span(15, 18)]}, True))
+        # Each pull request has its own; one a pass listed with no keyword and no span, linked by hand, has none.
+        both = seen_by(3, [(7, True, []), (8, False, []), (9, True, [span(0)])])
+        self.assertEqual(self.spans(both), ({7: [span(3)], 9: [span(0)]}, True))
+        # The record read is left as it was.
+        self.assertEqual(gone, seen_by(9, [(7, False, [span(3)])]))
+        self.assertEqual(back["issues"][0]["facts"]["linked"][0]["keyword_spans"], [span(3, 9)])
+
+    def test_a_keyword_is_seen_gone_only_by_a_record_that_read_the_linked_pull_requests_whole(self):
+        # A list read short may have missed the reference: the span stays open, and a later whole read ends it then.
+        short = seen_by(9, [(7, False, [span(3)])], linked_whole=False)
+        self.assertEqual(self.spans(short), ({7: [span(3)]}, True))
+        self.assertEqual(self.spans(short, seen_by(12, [(7, False, [span(3)])])), ({7: [span(3, 12)]}, True))
+        # A keyword a short read did name was seen: its span opens.
+        self.assertEqual(self.spans(seen_by(9, [(7, True, [])], linked_whole=False)), ({7: [span(9)]}, True))
+
+    def test_the_spans_are_read_from_the_newest_record_that_holds_the_issue_and_no_record_gives_no_time(self):
+        older, newer = seen_by(3, [(7, True, [])]), seen_by(6, [(7, False, [span(3)])])
+        self.assertEqual(self.spans(older, newer), ({7: [span(3, 6)]}, True))
+        # A record that left the issue out saw nothing of it: the one before it is read.
+        self.assertEqual(self.spans(older, dict(newer, issues=[])), ({7: [span(3)]}, True))
+        # Another issue's facts, or the same number's in another repo, are not this issue's.
+        for other in (seen_by(6, [(7, False, [span(3)])], number=42), seen_by(6, [(7, False, [span(3)])], repo="a/fork")):
+            self.assertEqual(self.spans(older, other), ({7: [span(3)]}, True))
+            self.assertEqual(self.spans(other), ({}, True))
+        # No record at all, or none that holds the issue: no pass saw a keyword, and that is read whole.
+        self.assertEqual(self.spans(), ({}, True))
+        self.assertEqual(self.spans(seen_by(3, number=42)), ({}, True))
+
+    def test_pass_records_that_could_not_be_read_give_no_time_and_are_not_whole(self):
+        self.assertEqual(keyword_spans.read(None, self.ITEM), ({}, False))
+        # The newest at hand, where it is no pass record, gives no time either, whatever the one before it holds.
+        good = seen_by(3, [(7, True, [])])
+        for bad in ({"schema": "pass/1"}, dict(good, issues=[{"facts": {"item": self.ITEM}}]), dict(good, issues=None), "p"):
+            self.assertEqual(self.spans(good, bad), ({}, False), bad)
 
 
 class Rules(unittest.TestCase):

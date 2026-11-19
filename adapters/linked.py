@@ -17,7 +17,7 @@ person's token is the App's. `keyword` is whether it is referenced: a link by ha
 reads as a keyword, the reading that holds.
 
 Fail closed while `keyword_spans` are empty: they are the pass records' (decision 0186), read by
-`adapters/keyword_spans.py`, not built. The Kernel reads no span as a keyword that stood at no merge (`keyword_stood`),
+`adapters/keyword_spans.py`, not called here yet. The Kernel reads no span as a keyword that stood at no merge (`keyword_stood`),
 and a pull request whose keyword a pass saw before an edit took it out is listed for nothing here: either could read an
 issue done that a rival's link held, an act on a time no read proves. So `complete.linked` is true only where no pull
 request names the issue: none referenced, linked or its closer, of any base or life, and nothing but an issue, as read,
