@@ -6072,7 +6072,7 @@ class Trials(unittest.TestCase):
             where = "exchanges[0]" if why in ("no download before it", "the download after it, last in the fixture") else "exchanges[1]"
             self.assertTrue(caught(found(change), where + ".request.call " + words), why)
         # A download a workflow's token asked is a download too; a read of the storage asked any other way is refused.
-        self.assertEqual(found(lambda e: e[0]["request"].update(via="workflow")), [])
+        self.assertEqual(found(lambda e: e[0]["request"].update(via="workflow", call=e[0]["request"]["call"].split(" (")[0])), [])
         self.assertTrue(caught(found(lambda e: e[1]["request"].update(via="cli", call="curl -s '%s'" % address)),
                                "exchanges[1].request.call reads the artifact storage other than as a read `via: storage`"))
         # The header is read in any case, as HTTP does; and a storage read later in the fixture is held the same way.
@@ -6095,7 +6095,11 @@ class Trials(unittest.TestCase):
                             ("What it read of repos%2Foutside", "is a workflow's report that may name an address"),
                             ("What it read at C:\\outside", "is a workflow's report that may name an address"),
                             ("What the run read from //elsewhere", "is a workflow's report that may name an address"),
-                            ("What the run read from /orgs/outside/repos", "is a workflow's report that may name an address")):
+                            ("What the run read from /orgs/outside/repos", "is a workflow's report that may name an address"),
+                            ("What the run read from localhost:8080", "is a workflow's report that may name an address"),
+                            ("What it read from ::1", "is a workflow's report that may name an address"),
+                            ("GET /repos/combsmith/%s/actions/runs/1 (then curl it)" % check_trials.CANARY,
+                             "is a workflow's call with words after its path")):
             copy = json.loads(json.dumps(data))
             copy["exchanges"][9]["request"]["call"] = call
             self.assertTrue(caught(check_trials.fixture_problems(copy), "exchanges[9].request.call " + words), call)

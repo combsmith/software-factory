@@ -58,8 +58,9 @@ DOWNLOAD = re.compile(r"^GET /repos/[^/?\s]+/[^/?\s]+/actions/artifacts/[0-9]+/z
 METHOD_PATH = re.compile(r"^[A-Z]+ /")
 LINK = re.compile(r"https?://[^\s'\"<>]+", re.I)
 # A report is words: nothing in it can be read as an address, a path, a repo or a host. It fails closed: a slash, a
-# backslash, an @, a percent sign or a dotted name is refused, whatever it would name.
-ADDRESS = re.compile(r"[/\\@%]|\w\.\w")
+# backslash, an @, a percent sign, a dotted name or a colon before a digit or another colon (a port, an IPv6 address)
+# is refused, whatever it would name.
+ADDRESS = re.compile(r"[/\\@%]|\w\.\w|:[0-9:]")
 # A star of a repo, by the account that asks, names that repo in its path (P-20).
 STARRED = re.compile(r"^[A-Z]+ /user/starred/([^/?,\s]+)/([^/?,\s]+)(?:[?,\s]|$)")
 # Decision 0035: a trial whose question is a read beyond the org's repos the App reaches is named here with what it may
@@ -517,10 +518,13 @@ def _asked(request: dict) -> tuple:
                 owners.add(found.group(3))
     elif via == "workflow" and isinstance(call, str):
         if METHOD_PATH.match(call):
+            if not re.fullmatch(r"[A-Z]+ /\S*", call):
+                return owners, repos, ["is a workflow's call with words after its path; it is written as its method and "
+                                       "path alone, so that nothing after them names what the check does not read"]
             return _asked(dict(request, via="rest"))
         if ADDRESS.search(call):
-            wrong.append("is a workflow's report that may name an address, by a slash, a backslash, an @, a percent sign "
-                         "or a dotted name; a call a workflow's token made is written as its method and path, and is "
+            wrong.append("is a workflow's report that may name an address, by a slash, a backslash, an @, a percent sign, "
+                         "a dotted name or a port; a call a workflow's token made is written as its method and path, and is "
                          "held as a REST call")
     elif via in ("cli", "git") and isinstance(call, str):
         for m in CLI_REPO.finditer(call):
