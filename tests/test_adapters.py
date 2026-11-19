@@ -6314,6 +6314,30 @@ class Issues(unittest.TestCase):
             with self.assertRaises(github.Unanswered):
                 self.read(issue_read([issue_event("commented", 0, who, {"name": "an App"})]))
 
+    def test_a_role_apps_comment_is_its_roles_and_no_act_of_its_is_counted_on_an_issue_or_a_pull_request(self):  # issue 901
+        # controller/1 holds the investigating Role's App under `roles` alone, and the Controller's, whose label is an act.
+        from adapters import facts as facts_
+        role = ("combsmith-sf-business-analyst[bot]", 42, "Bot")
+        held = json.loads((ROOT / "config" / "controller.json").read_text())
+        held["accounts"].update(controller={"id": 41, "type": "Bot", "login": CONTROLLER_APP[0]},
+                                roles=dict(held["accounts"]["roles"], **{"dev-lead": None, "business-analyst": {
+                                    "id": 42, "type": "Bot", "login": role[0]}}))
+        _, approver, lenses, factory = facts_.accounts_of(held)
+        self.assertEqual(facts_.roles_of(held) - factory, {role[1:]})
+        events = [issue_event("commented", 1, role), issue_event("labeled", 2, role, label={"name": "x"}),
+                  issue_event("labeled", 3, CONTROLLER_APP, label={"name": "y"})]
+        router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
+        accounts = timeline.Accounts(router, "o/r", approver, lenses, factory, roles=facts_.roles_of(held))
+        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES)
+        # The Role's comment is read as its own; its label is no act, and the Controller's is the one counted.
+        self.assertEqual((found["role_comments"], found["acts_since_writer"]), ([{"by": role[0], "at": minute(1)}], 1))
+        # A pull request's timeline is counted by the same reader: what `acts_since_writer` counts there is as it was,
+        # each label and queue entry of the agents, the Lenses, the Controller and the queue App, and no Role's.
+        self.assertEqual(timeline.since_writer(events, accounts), {"last_writer_action_at": None, "acts_since_writer": 1})
+        # With no Role's account told, the comment is no Role's.
+        bare = timeline.Accounts(Router(github.Replay(issue_read(events)), {"don-petry": "admin"}), "o/r", approver, lenses, factory)
+        self.assertEqual(issues.comments(events, bare)[0], [])
+
     def test_an_issue_github_did_not_answer_whole_is_refused(self):  # decision 0218
         def edits(drop=None, **change):
             found = issue_read(**change)

@@ -37,7 +37,8 @@ import time
 
 from adapters import applied, facts as facts_, identity, issues as issues_, items, passes, pause as pause_, records, \
     seen as seen_, timeline
-from adapters.facts import accounts_of as accounts, app_names_of, dispatcher_of as dispatcher, opener_of as opener, queue_of
+from adapters.facts import accounts_of as accounts, app_names_of, dispatcher_of as dispatcher, opener_of as opener, queue_of, \
+    roles_of
 from adapters.github import Live, Unanswered
 from controller import configuration as configured, pass_, reads as reads_, reconcile, writes as writes_
 from controller.shared import Refused, key as page
@@ -165,11 +166,33 @@ def run_files(controller: dict) -> list:
     return facts_.run_files_of(controller)
 
 
+def reader(transport, config: dict) -> tuple:
+    """`(identities, who, refused)`: the class's accounts and the account reader every item of a pass is read with, from
+    the configuration alone. Each name the issues' Kernel is told is an App's is reserved: only that App, by the id
+    held, may show it (Carbon). One of them that is the queue App's or a Lens's App's refuses the issues,
+    `issue_apps_unreadable`: the reader tells those two by their ids as a queue and a Lens, never as an App by its name,
+    so no act of theirs could be read as the App's the issues name. The pull requests are read on, by a reader that does
+    not reserve that name, as if the issues had never declared it: no snapshot is refused for it (issue 901)."""
+    controller = config["controller"]
+    identities, approver, lenses, factory = accounts(controller)
+    declared = pass_.issue_config(config["kernel"])["issues"]
+    reserved = [name for name in declared["label_apps"].values() if name] \
+        + [intent["app"] for intent in declared["intents"].values() if isinstance(intent, dict)]
+    names, queue = app_names_of(controller, config["apps"]), queue_of(controller)
+    held = [a for a in controller["accounts"]["lenses"] + [controller["accounts"]["queue"]] if a]
+    taken = {a["login"] for a in held} | {names.get((a["id"], "Bot")) for a in held}
+    refused = bool(taken & set(reserved))
+    reserved = [name for name in reserved if name not in taken]
+    return identities, timeline.Accounts(transport, controller["home"]["repo"], approver, lenses, factory, queue,
+                                         names, reserved, roles_of(controller)), refused
+
+
 def read(transport, config: dict, run_id: str, previous, now: str, clock, started, sleep=time.sleep) -> dict:
     """Everything the pass reads after the wait, as `pass_.run` takes it. Each port that waits waits by `sleep`, the
     entry's (issue 709)."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
+    identities, who, refused = reader(transport, config)
     # The open pull requests are listed first: the records port asks when a Run began only of theirs (decision 0196).
     try:
         numbers, whole = items.open_pull_requests(transport, home)
@@ -179,8 +202,10 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
         raise Stop("pull_requests_unreadable")
     # The open issues the Kernel could serve, none while `issues.served_from` is null; a list read short is never the
     # whole, and stops the pass as the pull requests' does: an issue it left out would read as gone from the view.
+    # Issues whose Apps cannot be told are not listed, as with no date: none is read or decided, and the pass says so.
+    served = None if refused else config["kernel"]["issues"]["served_from"]
     try:
-        listed, listed_whole = items.open_issues(transport, home, config["kernel"]["issues"]["served_from"])
+        listed, listed_whole = items.open_issues(transport, home, served)
     except Unanswered:
         listed, listed_whole = [], False
     if not listed_whole:
@@ -193,13 +218,6 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
                             of=[{"repo": home, "type": "pull_request", "number": number} for number in numbers])
     except Unanswered:
         runs = None
-    identities, approver, lenses, factory = accounts(controller)
-    # Each name the issues' Kernel is told is an App's is reserved: only that App, by the id held, may show it (Carbon).
-    declared = pass_.issue_config(config["kernel"])["issues"]
-    reserved = [name for name in declared["label_apps"].values() if name] \
-        + [intent["app"] for intent in declared["intents"].values() if isinstance(intent, dict)]
-    who = timeline.Accounts(transport, home, approver, lenses, factory, queue_of(controller),
-                            app_names_of(controller, config["apps"]), reserved)
     opens = opener(controller, config["kernel"], config["apps"])
     runs_whole = isinstance(runs, dict) and runs.get("complete") is True
     # What each Lens recorded on each open pull request, in its Runs' applied/1, which the threads are held to.
@@ -239,7 +257,8 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     owed = {e["facts"]["item"]["number"] for e in left if page(e["facts"]["item"]) in graced}
     seen, unread, gone = writes_seen(transport, config, numbers, kept, before, since, clock, owed)
     return {"started": started, "pause": pause_.read(transport, home.split("/")[0], [home]),
-            "records": runs, "pull_requests": pulls, "issues": issues, "facts_reads": facts_reads, "usage": {},
+            "records": runs, "pull_requests": pulls, "issues": issues, pass_.ISSUE_APPS: refused,
+            "facts_reads": facts_reads, "usage": {},
             "seen": seen, "unread": unread, "gone": gone,
             "effects": recorded_effects(transport, config, runs, int(run_id), before, since, sleep)}
 

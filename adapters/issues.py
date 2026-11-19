@@ -145,9 +145,10 @@ def _names(listed, key: str) -> list:
 
 
 def comments(events: list, accounts: timeline.Accounts) -> tuple:
-    """`(role_comments, last_writer_comment_at)`: each Factory App's latest comment, by its name, the one configured for
-    its id where the configuration holds it (`timeline.Accounts.named`), and a person with write access's last comment,
-    or None. A comment an App made with a person's token is no person's."""
+    """`(role_comments, last_writer_comment_at)`: each Factory App's latest comment, a Role's App held only under
+    `roles` among them (issue 901), by its name, the one configured for its id where the configuration holds it
+    (`timeline.Accounts.named`), and a person with write access's last comment, or None. A comment an App made with a
+    person's token is no person's."""
     latest, said = {}, None
     for ev in events:
         if ev.get("event") != "commented":
@@ -155,7 +156,7 @@ def comments(events: list, accounts: timeline.Accounts) -> tuple:
         who = accounts.acted(ev)
         login, ident, kind = accounts.account(ev.get("actor"))
         at = timeline._time(ev.get("created_at"))
-        if (ident, kind) in accounts.factory:
+        if (ident, kind) in accounts.factory or (ident, kind) in accounts.roles:
             login = accounts.named(login, ident, kind)
             latest[login] = max(at, latest.get(login, at))
         elif gate.is_person(who):
