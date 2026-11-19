@@ -1160,6 +1160,13 @@ class Issues(unittest.TestCase):
         # Anything but exact true is no such word.
         self.assertEqual(len(decisions(passed(dict(told, issue_apps_unreadable="yes")))), 2)
 
+    def test_the_pass_carries_the_issues_its_reads_owe_and_read_as_left(self):  # issue 916, decision 0235
+        read = dict(reads(), unread_issues=[9], gone_issues=[41])
+        out = passed(read)
+        self.assertEqual((out["record"]["reconciled"]["owed_issues"], out["record"]["reconciled"]["left_issues"]),
+                         ([9], [{"number": 41, "at": NOW}]))
+        self.assertEqual(set(passed()["record"]["reconciled"]) & {"owed_issues", "left_issues"}, set())
+
     def test_a_person_whose_login_is_an_apps_name_without_its_suffix_is_not_that_app(self):  # ruling A
         # A User named as config/defaults.json writes the Controller's App is not it, with its token or through an App.
         from tests.test_adapters import issue_event
