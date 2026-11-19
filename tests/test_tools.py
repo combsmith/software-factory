@@ -11386,6 +11386,35 @@ class Writes(unittest.TestCase):
         # Nor can what an import of all of such a package binds (issue 640).
         self.assertTrue(caught(problems, "harness/nsstar.py:2 imports * from adapters"), problems)
 
+    def test_a_caller_held_to_a_route_reaches_its_writer_through_that_alone(self):
+        # harness/advised.py reaches adapters.effects:_check through effects.advisory_write alone (decision 0224): the
+        # same writer named by itself, in a function of its own, is refused, though CALLERS still holds; and so is
+        # role_write, in another caller held to that route. One that goes by the route passes; a route no longer named,
+        # and a route of a module that is no caller, or is not here, fail.
+        advised = (ROOT / "harness" / "advised.py").read_text() + \
+            "\n\ndef sneak(transport, item, req):\n    return effects._check(transport, item, req, 'me')\n"
+        go = "from adapters import effects\n\n\ndef go(t, i, h, l, r, q):\n    return effects.%s\n"
+        files = {"harness/advised.py": advised, "harness/routed.py": go % "role_write(t, i, 'create_check_run', q, 'me')",
+                 "harness/viaroute.py": go % "advisory_write(t, i, h, l, r, q, 'me')"}
+        route = {"adapters.effects:advisory_write"}
+        with mock.patch.dict(check_writes.CALLERS, {"harness/routed.py": set(self.REVIEW.split(", ")),
+                                                    "harness/viaroute.py": {"adapters.effects:_check"},
+                                                    "harness/gone.py": {"adapters.effects:_check"}}), \
+                mock.patch.dict(check_writes.ROUTES, {"harness/routed.py": route, "harness/gone.py": route,
+                                                      "harness/steps.py": route,
+                                                      "harness/viaroute.py": route | {"adapters.effects:role_write"}}):
+            problems = check_writes.run(clone(files))
+        held = "which reaches a GitHub write, and ROUTES holds it to adapters.effects:advisory_write"
+        self.assertEqual([p for p in problems if p.startswith("harness/advised.py")],
+                         ["harness/advised.py names adapters.effects:_check, %s; reach the writer through that alone" % held])
+        self.assertTrue(caught(problems, "harness/routed.py names adapters.effects:role_write, " + held), problems)
+        self.assertFalse(caught(problems, "harness/viaroute.py names"), problems)
+        self.assertTrue(caught(problems, "ROUTES holds harness/viaroute.py to adapters.effects:role_write, which it does "
+                                         "not name"), problems)
+        self.assertTrue(caught(problems, "ROUTES names harness/gone.py, which is not a caller here"), problems)
+        self.assertTrue(caught(problems, "ROUTES names harness/steps.py, which is not a caller here"), problems)
+        self.assertEqual(check_writes.ROUTES, {"harness/advised.py": route})
+
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
         queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
             "    return effects.role_write(transport, item, 'review', req, 'me')\n"

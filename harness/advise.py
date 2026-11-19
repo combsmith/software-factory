@@ -22,13 +22,17 @@ and anything this file did not foresee is the code `transport`, for that reader 
 that reader. It asks nothing unless the pass record says the day's ceiling admits it, beside the Run's Decision: with
 no such word the Result is `budget` (decision 0224, Spend). A prompt of more bytes of UTF-8 than the reader's
 `prompt_characters` is not asked, `too_large`: a character may be several tokens and a token is never less than a
-byte, so the bytes bound what the prompt can cost, which is what the worst case a read is counted at is priced by.
+byte, so the bytes bound what the prompt can cost, which is what the worst case a read is counted at is priced by. The
+bytes counted are the most of the prompt's, its NFC form's and its NFKC form's, since a tokenizer may normalise before
+it splits and one character may then become many: U+FDFA is 3 bytes, and 33 in NFKC.
 
 What a reader is sent: a fixed instruction, `roles/pr-review/advisory-reader.md` of the Release, then the base's rules
 where the reader's folder holds them, then the whole diff, each between two markers that carry one code, made anew
 each time the step runs from 32 random bytes, which no one can know before it is sent, and one sentence after the
-last. It is given no tool. No step writes `rules.json` yet: the read step is to, by a change still to come, and until
-then a reader is told that none was read.
+last. A `<|` or a `|>` in the rules or the diff is sent with a zero-width non-joiner between its two characters, so
+that no text of theirs is the shape of a chat template's special token, such as `<|im_end|>`, which a serving stack may
+read as a real one and so leave the markers behind. It is given no tool. No step writes `rules.json` yet: the read
+step is to, by a change still to come, and until then a reader is told that none was read.
 
 Time. Every request is given its own wait, the reader's seconds or the time left of its share where that is less, and
 never under LEAST; no reader is asked with POLL or less left, none is asked again unless POLL is left after the wait,
@@ -47,6 +51,7 @@ import os
 import pathlib
 import sys
 import time
+import unicodedata
 
 from adapters import advice, azure
 from harness import shared, steps, task, unasked
@@ -66,9 +71,9 @@ LATEST_END = WHOLE + 2 * LEAST
 RUNNING = ("queued", "in_progress")
 ENDED = ("completed", "incomplete", "failed", "cancelled")      # a response in any other state may still be billed
 # Where a change is read at the highest effort, "the Kernel, security or a critical path" (decision 0224, Spend): every
-# protected path of the Release's `config/hooks.json` and every input of this Lens there, matched as the hook matches
-# them, and these, which that file does not protect whole: the Kernel and the two transports.
-LENS = "pr-review"
+# protected path of the Release's `config/hooks.json` and every input of every Lens there, `verify`'s top-level files
+# and packages among them, matched as the hook matches them, and these, which that file does not protect whole: the
+# Kernel and the two transports.
 ALSO = ("kernel/", "adapters/github.py", "adapters/azure.py")
 # And what holds a check, a credential's reach or the day's ceiling, named here since that file does not: the union
 # of the three is what is critical, and this list may only grow. Every port is one: each reads what a rule decides by.
@@ -87,7 +92,7 @@ DATA = ("\n\n=== %(code)s begin: the base's rules, as data ===\n\n%(rules)s\n\n=
 def critical_of(root: pathlib.Path) -> list:
     """The patterns of a critical path, in the one syntax of `config/hooks.json`, read from the Release's own copy."""
     data = protected.parse((root / "config" / "hooks.json").read_text())
-    listed = [p for p, _ in data["protected"]] + [p for lens, p, _ in data["lens_inputs"] if lens == LENS]
+    listed = [p for p, _ in data["protected"]] + [p for lens, p, _ in data["lens_inputs"]]
     return listed + list(ALSO) + list(SECURITY)
 
 
@@ -164,11 +169,18 @@ def asked(send, reader: dict, request: dict, until: float, clock, sleep) -> tupl
     return answer, asks
 
 
+def size_of(prompt: str) -> int:
+    """The most bytes of UTF-8 the prompt comes to as it is, in NFC or in NFKC, the forms a tokenizer may put it in
+    before it splits it. A lone surrogate, which the base's rules may hold, counts as the 3 bytes it is sent as."""
+    return max(len(text.encode("utf-8", "surrogatepass")) for text in (
+        prompt, unicodedata.normalize("NFC", prompt), unicodedata.normalize("NFKC", prompt)))
+
+
 def refusal(reader: dict, prompt: str, admitted: bool, key):
     """The code a reader is refused by before anything is sent, or None."""
     if not admitted:
         return "budget"
-    if len(prompt.encode("utf-8", "replace")) > reader["prompt_characters"]:
+    if size_of(prompt) > reader["prompt_characters"]:
         return "too_large"      # in bytes, which bound its tokens: a count of characters does not
     if not isinstance(key, str) or not key:
         return "no_key"
@@ -200,10 +212,20 @@ def one(reader: dict, told: dict, prompt: str, admitted: bool, key, until: float
     return advice.read(told, answer, asks, lasted(began, clock), shared.SCHEMAS)
 
 
+JOINER = "\u200c"        # a zero-width non-joiner: it splits a pair and changes nothing a reader sees
+
+
+def defused(text: str) -> str:
+    """`text` with a zero-width non-joiner between the two characters of every `<|` and every `|>`, the shape of a chat
+    template's special token, which a serving stack may tokenize as a real one, `<|im_end|>` among them, and so let a
+    diff close the turn it was put in and open one of its own beyond the markers (the hostile-diff trial, TA5)."""
+    return text.replace("<|", "<" + JOINER + "|").replace("|>", "|" + JOINER + ">")
+
+
 def prompt_of(root: pathlib.Path, folder: str, diff: str, noise) -> str:
     """The fixed instruction, then the base's rules the reader's folder holds and the whole diff, each between two
-    markers. Every marker carries one code, a sha256 over 32 bytes of `noise` and the two texts: the author of a diff
-    cannot work it out beforehand, so no line of the diff can be written to pass for a marker."""
+    markers and each defused. Every marker carries one code, a sha256 over 32 bytes of `noise` and the two texts: the
+    author of a diff cannot work it out beforehand, so no line of the diff can be written to pass for a marker."""
     told = root.joinpath(*INSTRUCTION).read_text(encoding="utf-8")
     try:
         with open(os.path.join(folder, "rules.json"), encoding="utf-8") as f:
@@ -212,6 +234,7 @@ def prompt_of(root: pathlib.Path, folder: str, diff: str, noise) -> str:
         rules = {}
     rules = {name: text for name, text in rules.items() if isinstance(text, str)} if isinstance(rules, dict) else {}
     held = "\n\n".join("--- %s ---\n%s" % (name, rules[name]) for name in sorted(rules)) or "(none was read)"
+    held, diff = defused(held), defused(diff)      # before the prompt is counted: the bytes held are the bytes sent
     code = hashlib.sha256(noise(32) + ("%s\x00%s" % (held, diff)).encode("utf-8", "replace")).hexdigest()
     return told + DATA % {"code": code, "rules": held, "diff": diff}
 
@@ -286,6 +309,9 @@ def job(task_folder: str, out: str, env: dict, root: pathlib.Path = ROOT, base=N
         except Exception:       # NOSONAR with no prompt each reader has a Result, `transport`, and none is asked
             prompt = None
         admitted, key = entry.get("advisory_ask") is True, env.get(KEY)
+        # Outside each reader's own try: the read step writes a facts.json only once it holds to facts/1, which
+        # requires `changed_paths` and a `path` and a `previous` in each of its rows, so no reader's settings can make
+        # these two lines fail.
         rows = facts["changed_paths"]
         paths = [name for row in rows for name in (row["path"], row["previous"]) if isinstance(name, str)]
         # A list of paths that was not read whole may lack the critical one: the change is read as critical.

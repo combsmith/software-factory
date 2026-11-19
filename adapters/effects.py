@@ -623,18 +623,28 @@ def role_permits(item: dict, head: str, name: str) -> tuple:
     return permits, patterns
 
 
+def _advisory_keys(lenses, run) -> dict:
+    """The name of each advisory Lens's check run, for `lenses`, a list of Lens names, and the key the Run `run` gives
+    it: the one table the advisory allowlist and the advisory write hold a request to. Names that are no list of Lens
+    names, of which a string would hold each letter, and a Run that is no Run's id give none."""
+    named = isinstance(lenses, (list, tuple)) and all(isinstance(n, str) and advice.LENS.fullmatch(n) for n in lenses)
+    if not (named and isinstance(run, str) and advice.RUN.fullmatch(run)):
+        return {}
+    return {advice.CHECK % lens: "%s:%s" % (run, lens) for lens in lenses}
+
+
 def advisory_permits(item: dict, head: str, lenses, run: str) -> tuple:
     """`(permits, patterns)`: what the Role App's token may send to show the advisory Lenses' Results on one item
     (decision 0224), for `Allowed`. For each Lens of `lenses`, a list of names, one check run: named for it, keyed by
     the Run and the Lens, on the head, `head`, completed and concluding `neutral` and nothing else, its output one
     `adapters/advice.py` builds and nothing beside it (`showable`); and the reads that recover it and read it back.
     Names that are no list of Lens names, a Run that is no Run's id, a head that is no commit and a repo that is no
-    owner and name, which could turn a path into another, permit nothing."""
+    owner and name, or names a part of dots alone such as `../x`, which could turn a path into another, permit
+    nothing."""
     repo = item["repo"]
-    named = isinstance(lenses, (list, tuple)) and all(isinstance(n, str) and advice.LENS.fullmatch(n) for n in lenses) \
-        and isinstance(repo, str) and identity.REPO.fullmatch(repo)
-    known = named and isinstance(run, str) and advice.RUN.fullmatch(run) and isinstance(head, str) and SHA.fullmatch(head)
-    keys = {advice.CHECK % lens: "%s:%s" % (run, lens) for lens in lenses} if known else {}
+    held = isinstance(repo, str) and identity.REPO.fullmatch(repo) is not None \
+        and not any(set(part) == {"."} for part in repo.split("/"))
+    keys = _advisory_keys(lenses, run) if held and isinstance(head, str) and SHA.fullmatch(head) else {}
 
     def nothing(body) -> bool:
         return body is None
@@ -711,10 +721,11 @@ def advisory_write(transport, item: dict, head: str, lenses, run: str, req: dict
     Run `run`, its head `head` and the Lenses `lenses`, which it builds itself, whatever transport it is handed. The
     request is held first, before anything is sent, so that the recovery of a check run already made claims none that
     is not this Run's: its name one of the Lenses', its key the Run's and that Lens's, its conclusion `neutral`, its
-    commit the head, and an output of its own. Any other sends nothing, and an output the port did not build no write."""
-    keys = {advice.CHECK % lens: "%s:%s" % (run, lens) for lens in lenses} \
-        if isinstance(lenses, (list, tuple)) and all(isinstance(lens, str) for lens in lenses) else {}
-    if not (isinstance(req, dict) and "output" in req and isinstance(req.get("name"), str) and req["name"] in keys
+    commit the head, an output the port builds (`advice.showable`) and a list of annotations. Any other sends nothing,
+    not a read."""
+    keys = _advisory_keys(lenses, run)
+    if not (isinstance(req, dict) and advice.showable(req.get("output")) and isinstance(req.get("annotations"), list)
+            and isinstance(req.get("name"), str) and req["name"] in keys
             and keys[req["name"]] == req.get("external_id") and req.get("conclusion") == "neutral"
             and req.get("commit") == head):
         return _back("failed", None, reason="not_an_advisory_check_run")
