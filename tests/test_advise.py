@@ -1,19 +1,311 @@
-"""The step before the advise step, `harness/unasked.py`: the Run says that no advisory reader was asked (decision 0224).
+"""The advise step, `harness/advise.py`, and the step before it, `harness/unasked.py`: each advisory Lens's reader is
+asked and its Result written (decision 0224).
 
-Nothing here reaches the network."""
+Nothing here reaches the network: the transport is a stand-in that keeps what it was sent and answers from a list."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pathlib
+import shutil
 import tempfile
 import unittest
 
-from harness import shared, steps, unasked
+from adapters import azure
+from harness import advise, shared, steps, unasked
 from tools import jsonschema_lite
 
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 RUN = "r_01JA7Q"
 NAME = "sf combsmith/software-factory#12 review-change pr-review sha256:abcd " + RUN
+FOUND = {"severity": "major", "category": "functional", "criterion": "PR-3", "file": "kernel/derive.py", "line": 88,
+         "title": "A deferral is returned", "message": "`decide` defers on a whole read."}
+
+
+def config() -> dict:
+    return json.loads((ROOT / "config" / "harness.json").read_text())
+
+
+def said(*findings) -> str:
+    return json.dumps({"schema": "advice-answer/1", "findings": list(findings)})
+
+
+def response(state: str = "completed", text: str = None, status: int = 200, headers: dict = None, model: str = None) -> dict:
+    model = config()["readers"]["astra"]["model"] if model is None else model
+    body = {"id": "resp_1", "status": state, "model": model, "usage": {"input_tokens": 1000, "output_tokens": 500},
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": said(FOUND) if text is None else text}]}]}
+    return {"status": status, "headers": headers or {}, "body": body}
+
+
+def completion(text: str = None) -> dict:
+    body = {"model": config()["readers"]["kimi"]["model"], "usage": {"prompt_tokens": 1000, "completion_tokens": 500},
+            "choices": [{"finish_reason": "stop", "message": {"content": said() if text is None else text}}]}
+    return {"status": 200, "headers": {}, "body": body}
+
+
+LIMITED = {"status": 429, "headers": {"retry-after": "20"}, "body": {"error": {"code": "rate_limit_exceeded"}}}
+
+
+class Azure:
+    """A stand-in for `azure.Live`: it keeps how it was made and what it was sent, and answers in turn, or as a
+    function of the request."""
+
+    def __init__(self, answers):
+        self.answers, self.made, self.sent = answers if callable(answers) else list(answers), [], []
+
+    def __call__(self, host, key, seconds):
+        self.made.append((host, key, seconds))
+        return self
+
+    def send(self, request: dict) -> dict:
+        self.sent.append(request)
+        answer = self.answers(request) if callable(self.answers) else self.answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+
+class Clock:
+    def __init__(self):
+        self.now, self.slept = 0.0, []
+
+    def __call__(self) -> float:
+        return self.now
+
+    def sleep(self, seconds) -> None:
+        self.slept.append(seconds)
+        self.now += seconds
+
+
+def folder(base: pathlib.Path, ask=True, intent: str = "review-change", change=None, diff: bytes = b"diff --git a/x b/x\n",
+           rules=None, run: str = RUN) -> None:
+    """The reader's folder for one review of the example's pull request."""
+    record = json.loads((ROOT / "examples" / "pass.json").read_text())
+    entry = record["pull_requests"][0]
+    entry["decision"]["admit"]["intent"] = intent
+    if ask is not None:
+        entry["advisory_ask"] = ask
+    facts = dict(json.loads((ROOT / "examples" / "facts.json").read_text()), **(change or {}))
+    task = base / "task"
+    task.mkdir()
+    (task / "record.json").write_text(json.dumps(record))
+    (task / "facts.json").write_text(json.dumps(facts))
+    (task / "run").write_text(run + "\n")
+    (task / "diff").write_bytes(diff)
+    if rules is not None:
+        (task / "rules.json").write_text(rules if isinstance(rules, str) else json.dumps(rules))
+
+
+def release_of(base: pathlib.Path, readers) -> pathlib.Path:
+    """A Release's files as the step reads them, with its configuration changed by `readers`."""
+    root = base / "release"
+    (root / "config").mkdir(parents=True)
+    (root / "roles" / "pr-review").mkdir(parents=True)
+    shutil.copy(ROOT / "roles" / "pr-review" / "advisory-reader.md", root / "roles" / "pr-review")
+    changed = config()
+    readers(changed)
+    (root / "config" / "harness.json").write_text(json.dumps(changed))
+    return root
+
+
+def cost_in(base: pathlib.Path) -> dict:
+    cost = json.loads((base / "advice" / "advice-cost.json").read_text())
+    assert jsonschema_lite.validate(cost, shared.SCHEMAS["advice-cost"], schemas=shared.SCHEMAS) == []
+    return cost
+
+
+def advised(answers, env=None, first: bool = False, readers=None, **made) -> tuple:
+    """`({lens: Result}, the stand-in, the clock)` of one run of the step, each Result held to advice/1 and its digest.
+    With `first`, `harness.unasked` runs before it, as in the workflow."""
+    with tempfile.TemporaryDirectory() as where:
+        base = pathlib.Path(where)
+        folder(base, **made)
+        clock = Clock()
+        stand_in = Azure(answers)
+        if first:
+            unasked.job([NAME, "advice"], {}, base=base, release=lambda: "factory/v0.3.1")
+            stand_in.before = cost_in(base)
+        root = ROOT if readers is None else release_of(base, readers)
+        written = advise.job("task", "advice", {"ADVISORY_AZURE_KEY": "k" * 32} if env is None else env, root=root, base=base,
+                             transport=stand_in, clock=clock, sleep=clock.sleep)
+        results = {}
+        for lens, digest in written:
+            data = (base / "advice" / ("advice.%s.json" % lens)).read_bytes()
+            assert digest == "sha256:" + hashlib.sha256(data).hexdigest()
+            assert (base / "advice" / ("advice.%s.sha256" % lens)).read_text() == digest + "\n"
+            results[lens] = json.loads(data)
+            assert jsonschema_lite.validate(results[lens], shared.SCHEMAS["advice"], schemas=shared.SCHEMAS) == []
+        there = sorted(p.name for p in (base / "advice").iterdir())
+        stand_in.cost = cost_in(base) if "advice-cost.json" in there else None
+        assert there == sorted(["advice.%s.%s" % (lens, kind) for lens in results for kind in ("json", "sha256")]
+                               + ["advice-cost.json"] * (stand_in.cost is not None))
+        return results, stand_in, clock
+
+
+def codes(results: dict) -> dict:
+    return {lens: (r["status"], r["reason"], len(r["findings"]), r["usage"]["asks"]) for lens, r in results.items()}
+
+
+DOWN = {"status": 500, "headers": {"retry-after": "20"}, "body": {"error": {"code": "server_error"}}}
+BOTH = {"astra": ("completed", None, 1, 1), "kimi": ("completed", None, 0, 1)}
+
+
+class Advise(unittest.TestCase):
+    def test_each_reader_configured_is_asked_once_with_no_tool_and_its_result_written(self):
+        results, azure_, _ = advised([response("queued", ""), response("in_progress", ""), response(), completion()],
+                                     rules={"AGENTS.md": "The rules.", "x": 7})
+        self.assertEqual(codes(results), BOTH)
+        readers = config()["readers"]
+        # Each is reached at its own host with the step's one key, and a wait no longer than its own seconds.
+        self.assertEqual(azure_.made, [(readers["astra"]["host"], "k" * 32, readers["astra"]["seconds"]),
+                                       (readers["kimi"]["host"], "k" * 32, readers["kimi"]["seconds"])])
+        create, first, second, chat = azure_.sent       # and a response that ended is not cancelled
+        self.assertEqual((create["act"], first, second, chat["act"]),
+                         ("create", azure.read("resp_1"), azure.read("resp_1"), "chat"))
+        # One prompt, the cap, the effort, in the background; no tool, no file, nothing else.
+        self.assertEqual(sorted(create["body"]), ["background", "input", "max_output_tokens", "model", "reasoning", "store"])
+        self.assertEqual((create["body"]["model"], create["body"]["max_output_tokens"], create["body"]["reasoning"]),
+                         (readers["astra"]["deployment"], readers["astra"]["output_tokens"], {"effort": "max"}))
+        self.assertEqual(sorted(chat["body"]), ["max_completion_tokens", "messages", "model", "reasoning_effort"])
+        self.assertEqual(chat["body"]["messages"][0]["content"], create["body"]["input"])
+        self.assertEqual((chat["body"]["reasoning_effort"], results["kimi"]["usage"]["effort"]), ("max", "max"))
+        self.assertEqual(results["astra"]["findings"][0]["location"], {"path": "kernel/derive.py", "start_line": 88})
+        self.assertEqual(results["astra"]["usage"]["effort"], "max")       # the example's change touches the Kernel
+        each = [results[lens]["usage"]["cost_usd"] for lens in ("astra", "kimi")]
+        self.assertTrue(all(cost > 0 for cost in each))
+        elsewhere, azure_, _ = advised([response(), completion()],
+                                       change={"changed_paths": [{"path": "docs/glossary.md", "previous": None}]})
+        self.assertEqual((elsewhere["astra"]["usage"]["effort"], azure_.sent[1]["body"]["reasoning_effort"]), ("xhigh", "xhigh"))
+        moved, _, _ = advised([response(), completion()],
+                              change={"changed_paths": [{"path": "docs/derive.md", "previous": "kernel/derive.py"}]})
+        self.assertEqual(moved["astra"]["usage"]["effort"], "max")
+
+    def test_the_rules_and_the_diff_follow_the_instruction_as_data(self):
+        _, azure_, _ = advised([response(), completion()], rules={"AGENTS.md": "The rules.", "x": 7})
+        prompt = azure_.sent[0]["body"]["input"]
+        self.assertTrue(prompt.startswith((ROOT / "roles" / "pr-review" / "advisory-reader.md").read_text()))
+        self.assertLess(prompt.index("--- AGENTS.md ---\nThe rules."), prompt.index("diff --git a/x b/x"))
+        self.assertNotIn("--- x ---", prompt)       # what is no text is not sent
+        # Rules that cannot be read as one object of texts, however they fail, are none; the reader is still asked.
+        for rules in ("[" * 100000, "{", "[1]"):
+            results, azure_, _ = advised([response(), completion()], rules=rules)
+            self.assertEqual(codes(results), BOTH, rules[:3])
+            self.assertIn("\n\n(none was read)\n\n", azure_.sent[0]["body"]["input"])
+
+    def test_a_reader_is_not_asked_without_the_days_yes_a_key_or_a_prompt_that_fits(self):
+        for ask in (False, None, "yes", 1):
+            results, azure_, _ = advised([], ask=ask)
+            self.assertEqual(codes(results), {"astra": ("incomplete", "budget", 0, 0), "kimi": ("incomplete", "budget", 0, 0)}, ask)
+            self.assertEqual((azure_.made, azure_.sent), ([], []))
+        for env in ({}, {"ADVISORY_AZURE_KEY": ""}, {"AZURE_OPENAI_API_KEY": "k" * 32}):
+            results, azure_, _ = advised([], env=env)
+            self.assertEqual(codes(results), {"astra": ("failed", "no_key", 0, 0), "kimi": ("failed", "no_key", 0, 0)}, env)
+            self.assertEqual(azure_.made, [])
+        # A prompt of exactly the characters a reader takes is asked, and one character more is not.
+        limit = config()["readers"]["astra"]["prompt_characters"]
+        _, azure_, _ = advised([response(), completion()], diff=b"")
+        fits = b"+" * (limit - len(azure_.sent[0]["body"]["input"]))
+        results, azure_, _ = advised([response(), completion()], diff=fits)
+        self.assertEqual((codes(results), len(azure_.sent[0]["body"]["input"])), (BOTH, limit))
+        results, azure_, _ = advised([], diff=fits + b"+")
+        self.assertEqual(codes(results), {"astra": ("incomplete", "too_large", 0, 0), "kimi": ("incomplete", "too_large", 0, 0)})
+        self.assertEqual(azure_.sent, [])
+        # No reader reads a dependency's change, none reads for another Intent, and none for a Run the record does not
+        # hold: nothing is written or asked.
+        for made in ({"change": {"class": "dependency"}}, {"intent": "fix-findings"}, {"run": "r_01JA7X"}):
+            results, azure_, _ = advised([], **made)
+            self.assertEqual((results, azure_.made), ({}, []), made)
+
+    def test_a_rate_limit_is_waited_for_once_and_a_response_still_running_is_cancelled(self):
+        # The wait a rate limit names, once; a second rate limit is the Result, and nothing is asked in a loop.
+        results, azure_, clock = advised([LIMITED, response(), LIMITED, LIMITED])
+        self.assertEqual(codes(results), {"astra": ("completed", None, 1, 2), "kimi": ("incomplete", "rate_limited", 0, 2)})
+        self.assertEqual((clock.slept, len(azure_.sent)), ([20, 20], 4))
+        self.assertEqual([results[lens]["usage"]["seconds"] for lens in ("astra", "kimi")], [20.0, 20.0])
+        # A wait it does not name as a short whole number, or that does not fit, is not waited for.
+        for header in ("91", "soon", "-1", "1.5", "0020", ""):
+            results, azure_, clock = advised([dict(LIMITED, headers={"retry-after": header})] * 2)
+            self.assertEqual(codes(results)["astra"], ("incomplete", "rate_limited", 0, 1), header)
+            self.assertEqual(clock.slept, [])
+        # Only a 429 earns the second ask: an answer of any other status that names a wait is the answer.
+        results, azure_, clock = advised([dict(response(), headers={"retry-after": "20"}), DOWN])
+        self.assertEqual(codes(results), {"astra": ("completed", None, 1, 1), "kimi": ("failed", "transport", 0, 1)})
+        self.assertEqual((clock.slept, len(azure_.sent)), ([], 2))
+        # And only where the wait is less than the reader's time.
+        self.assertEqual([advise.waited(LIMITED, left) for left in (20.1, 20, 5)], [20, None, None])
+        self.assertEqual(advise.waited(dict(LIMITED, headers={"retry-after": "90"}), 100), 90)
+        # A response not ended when the reader's share of the step is spent is cancelled, and is `timed_out`.
+        polls = advise.WHOLE // 2 // advise.POLL - 1      # the first of two readers has half the step
+        results, azure_, clock = advised([response("queued", "")] + [response("in_progress", "")] * polls
+                                         + [response("cancelled", ""), completion()])
+        self.assertEqual(codes(results), {"astra": ("incomplete", "timed_out", 0, 1), "kimi": ("completed", None, 0, 1)})
+        self.assertEqual(azure_.sent[-2], azure.cancel("resp_1"))
+        self.assertLessEqual(clock.now, advise.WHOLE)
+        self.assertEqual((results["astra"]["usage"]["seconds"], results["astra"]["usage"]["cost_usd"]), (530.0, None))
+        # A reader waits the time left of the step where that is less than its own seconds.
+        self.assertEqual(azure_.made[1][2], advise.WHOLE - 530)
+        # What Azure does not answer, or this step did not foresee of it, is a code, and the next reader is still asked.
+        results, azure_, _ = advised([azure.Unanswered("down"), completion()])
+        self.assertEqual(codes(results), {"astra": ("failed", "transport", 0, 1), "kimi": ("completed", None, 0, 1)})
+        results, _, _ = advised([response(), azure.Unanswered("down")])
+        self.assertEqual(codes(results), {"astra": ("completed", None, 1, 1), "kimi": ("failed", "transport", 0, 1)})
+        # An ask is counted once, however many reads of its response followed it before one was not answered.
+        results, azure_, _ = advised([response("queued", ""), response("in_progress", ""), azure.Unanswered("down"),
+                                      completion()])
+        self.assertEqual((codes(results)["astra"], len(azure_.sent)), (("failed", "transport", 0, 1), 4))
+        results, _, _ = advised([response(model="another-model"), completion("not json")])
+        self.assertEqual(codes(results), {"astra": ("failed", "not_the_model", 0, 1), "kimi": ("failed", "unparsed", 0, 1)})
+
+    def test_a_run_that_asks_no_longer_says_that_no_reader_was_asked(self):
+        nothing = {"schema": "advice-cost/1", "run": RUN, "release": "factory/v0.3.1", "asks": 0, "cost_usd": 0}
+        # A Run about to ask a reader takes away what its first step said, and the pass counts its worst case.
+        results, azure_, _ = advised([response(), completion()], first=True)
+        self.assertEqual((codes(results), azure_.before, azure_.cost), (BOTH, nothing, None))
+        # A Run that asks nobody, refused before anything is sent or no review at all, leaves it as it was written.
+        for made in ({"ask": False}, {"env": {}}, {"intent": "fix-findings"}, {"change": {"class": "dependency"}}):
+            _, azure_, _ = advised([], first=True, **made)
+            self.assertEqual((azure_.before, azure_.cost, azure_.sent), (nothing, nothing, []), made)
+
+    def test_a_fault_in_one_reader_is_that_readers_alone(self):
+        # A fault no one foresaw in one reader is that reader's Result, and the other is still asked.
+        results, azure_, _ = advised([RuntimeError("boom"), completion()])
+        self.assertEqual(codes(results), {"astra": ("failed", "transport", 0, 1), "kimi": ("completed", None, 0, 1)})
+        # A reader for whom not even that can be said has no Result; the other has.
+
+        def unpinned(changed: dict) -> None:
+            del changed["readers"]["astra"]["model"]
+        results, azure_, _ = advised([completion()], readers=unpinned)
+        self.assertEqual(codes(results), {"kimi": ("completed", None, 0, 1)})
+
+    def test_the_step_never_fails_its_job(self):
+        with tempfile.TemporaryDirectory() as where:
+            self.assertEqual(advise.main([where + "/no-task", where + "/out"], {}), 0)
+        self.assertEqual(advise.main(["../outside", "advice"], {}), 0)
+        # Nor on a fault that is no refusal of a step's: a folder with no Run in it, read where the step runs. And for
+        # a Run whose Release it cannot name it makes nothing: no empty folder is left.
+        here = os.getcwd()
+        self.addCleanup(os.chdir, here)
+        for spoil in (lambda task: (task / "run").unlink(), lambda task: (task / "record.json").write_text("{}"),
+                      lambda task: (task / "record.json").write_text("[]")):
+            with tempfile.TemporaryDirectory() as where:
+                folder(pathlib.Path(where))
+                spoil(pathlib.Path(where) / "task")
+                os.chdir(where)
+                self.assertEqual(advise.main(["task", "advice"], {}), 0)
+                self.assertEqual(os.listdir(where), ["task"])
+                # Nor does it take for its folder a file, or a link to one elsewhere.
+                os.chdir(here)
+        with tempfile.TemporaryDirectory() as where:
+            base = pathlib.Path(where)
+            folder(base)
+            (base / "there").mkdir()
+            for make in (lambda: (base / "advice").write_text(""), lambda: os.symlink(base / "there", base / "advice")):
+                make()
+                with self.assertRaisesRegex(steps.Stop, "^out_exists$"):
+                    advise.job("task", "advice", {}, base=base)
+                self.assertEqual(os.listdir(base / "there"), [])
+                (base / "advice").unlink()
 
 
 class Unasked(unittest.TestCase):
