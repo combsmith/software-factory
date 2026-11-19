@@ -225,6 +225,16 @@ def _bounded(stream, length) -> bytes:
         parts.append(part)
 
 
+def _context() -> ssl.SSLContext:
+    """A client's TLS context that verifies the host's certificate and name, at TLS 1.2 or later, and writes no session
+    key anywhere. `ssl.create_default_context` would open the file `SSLKEYLOGFILE` names and write each session's keys
+    to it, so that whoever reads that file reads what was sent, the key among it: it is not called."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)      # CERT_REQUIRED and check_hostname, as a client's default
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.load_default_certs(ssl.Purpose.SERVER_AUTH)
+    return context
+
+
 class Live:
     """HTTPS to the one host named, with the key and the seconds its caller gives it."""
 
@@ -241,7 +251,7 @@ class Live:
         # No proxy from the environment, and no redirect: the request and its key go to the host named, or nowhere. The
         # context is made here, so that a default context replaced elsewhere cannot send the key to a host unverified.
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect,
-                                                  urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+                                                  urllib.request.HTTPSHandler(context=_context()))
 
     def __repr__(self) -> str:
         return "<azure.Live>"
