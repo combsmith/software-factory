@@ -3,9 +3,11 @@
 and nothing from GitHub, and it asks the Kernel nothing: an advisory Lens changes no Decision.
 
 The day is the UTC date of the pass's `now`. Every record of a review Run counts, two records of one Run among them,
-unless it started on another day; a record whose start cannot be read is counted, since it cannot be shown to be
-another day's. A Run is its record's day, `started_at`, which the records keep each attempt by: one run again on a
-later day is counted there.
+unless it finished and started on another day; a record whose start cannot be read is counted, since it cannot be shown
+to be another day's. A finished Run is its record's day, `started_at`, which the records keep each attempt by: one run
+again on a later day is counted there. A Run still in flight counts on today's sum whatever day it started, so that
+what is spent across midnight is carried and no day's reads begin from nought while yesterday's are still running
+(the Factory Builder, 2026-11-19).
 
 - A finished Run whose advice was read and that asked no reader, and gives no cost, counts nothing.
 - A finished Run that asked, and gives a cost above nought within what a record may hold, counts that cost.
@@ -47,7 +49,8 @@ def counted(record, worst: float) -> float:
         return worst                    # its advice not read
     if asks == 0:
         return 0.0 if cost is None or (_number(cost, 0, 0)) else worst
-    return float(cost) if _number(cost, 0, DEAREST) and cost > 0 else worst
+    # A cost is written to a millionth of a dollar: one that rounds to nought is none, and no read costs nothing.
+    return float(cost) if _number(cost, 0, DEAREST) and round(cost, 6) > 0 else worst
 
 
 def spent(records: list, now: str, worst: float) -> float:
@@ -56,7 +59,9 @@ def spent(records: list, now: str, worst: float) -> float:
     for record in records:
         started = record.get("started_at") if isinstance(record, dict) else None
         placed = isinstance(started, str) and TIME.fullmatch(started) is not None
-        if isinstance(record, dict) and (record.get("intent") != REVIEWING or (placed and started[:DAY] != day)):
+        flying = isinstance(record, dict) and record.get("status") != "completed"
+        if isinstance(record, dict) and (record.get("intent") != REVIEWING
+                                         or (placed and started[:DAY] != day and not flying)):
             continue
         total += counted(record, worst)
     return total

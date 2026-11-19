@@ -550,6 +550,11 @@ class Parser(unittest.TestCase):
         other = read(answered(said(), model="astra-model-mini"))["usage"]
         self.assertEqual((other["answering_model"], other["model"], other["cost_usd"]), ("astra-model-mini", "astra-model", 0.0125))
         self.assertEqual(read(answered(text="No."))["usage"]["cost_usd"], 0.0125)
+        self.assertEqual(read(answered(said(), status="incomplete"))["usage"]["cost_usd"], 0.0125)
+        # A response still running, cancelled or failed says nothing of what it cost, whatever tokens it shows so far.
+        for state in ("queued", "in_progress", "cancelled", "failed", None):
+            running = read(answered(said(), status=state))["usage"]
+            self.assertEqual((running["input_tokens"], running["output_tokens"], running["cost_usd"]), (None, None, None), state)
         # Tokens Azure did not count as whole numbers are unknown, and so is the cost: never nought.
         for spent in ({"input_tokens": 1000}, {"input_tokens": "1000", "output_tokens": 500}, {"input_tokens": -1, "output_tokens": 500},
                       {"input_tokens": True, "output_tokens": 500}, {"prompt_tokens": 1000, "completion_tokens": 500}, None, []):
