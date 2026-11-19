@@ -41,10 +41,12 @@ INPUT = re.compile(r"^  RELEASE_(COMMAND|VERSION|TO|CUT_COMMIT): ?(\S*)$")
 PRINTED = '{"writes": '
 EXIT = re.compile(r"^##\[error\]Process completed with exit code [0-9]+\.$")
 SCHEMAS = ("release-fixture", "trial")
-# A read of a page of a Channel's Deployments: its own call, `per_page` and no `page`, says the page is the first, so a
-# fixture keeps no Link header of it, which names the next page and the last, and `removed` says once it was taken out
-# (issues 863 and 899). Asked of every fixture of a Release's runs, whatever test reads it.
-DEPLOYMENTS_PAGE = re.compile(r"^GET %s/deployments\?environment=[^&\s]+&per_page=[0-9]+(?:\s|$)" % re.escape(API_REPO))
+# A read of the list of the repo's Deployments, however its call is written: a path, a URL or gh api's form, its query
+# in any order. A fixture keeps no Link header of one, which names the next page and the last; and where the read is
+# of a page, by `per_page` or `page`, `removed` says once it was taken out (issues 863 and 899). Asked of every fixture
+# of a Release's runs, whatever test reads it. A read of one Deployment, or of its statuses, is no read of the list.
+DEPLOYMENTS_LIST = re.compile(r"\b%s/deployments/?(\?\S*)?(?=\s|$)" % re.escape(API_REPO.lstrip("/")))
+PAGED = re.compile(r"[?&](per_)?page=")
 LINK_REMOVED = "the link header of the read of next's Deployments"
 PURE = ("release/cut.py", "release/current.py")
 # What the rules may import: the future's annotations, and each other, never the CLI that reads files.
@@ -238,11 +240,12 @@ def fixture_problems(value, rel: str) -> list:
     for where, exchanges in groups:
         for i, exchange in enumerate(exchanges if isinstance(exchanges, list) else []):
             request = exchange.get("request") if isinstance(exchange, dict) else None
-            if isinstance(request, dict) and DEPLOYMENTS_PAGE.match(str(request.get("call", ""))):
-                pages += 1
+            listed = DEPLOYMENTS_LIST.search(str(request.get("call", ""))) if isinstance(request, dict) else None
+            if listed:
+                pages += bool(PAGED.search(listed.group(1) or ""))
                 answered = (exchange.get("response") or {}).get("headers")
                 if any(str(name).lower() == "link" for name in (answered if isinstance(answered, dict) else {})):
-                    problems.append("%s: %s[%d].response.headers keeps the Link header of a page of Deployments, which "
+                    problems.append("%s: %s[%d].response.headers keeps the Link header of a read of Deployments, which "
                                     "names the next page and the last; take it out, and say so in removed" % (rel, where, i))
             for side in ("request", "response"):
                 held = (exchange.get(side) or {}).get("headers") if isinstance(exchange, dict) else None

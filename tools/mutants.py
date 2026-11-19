@@ -16294,8 +16294,7 @@ MUTANTS = ISSUE + [
      'for n in ast.walk(fn) if isinstance(n, (ast.Import, ast.ImportFrom))', 'for n in own if isinstance(n, (ast.Import, ast.ImportFrom))', ('tests.test_tools.Writes.test_a_writer_is_reached_by_any_name_it_goes_by',)),
     ("the mutation runner's own load by name fails", 'tools/check_writes.py',
      '        if mod.rel not in NAME_LOADERS:\n', '        if True:\n', ('tests.test_tools.Writes.test_on_main_only_the_callers_listed_reach_a_write_and_each_what_it_lists',)),
-    # Decision 0194: the Maintainer's continue or stop, and what he was shown before it.
-    # Issue 899: a page of Deployments keeps no Link header, in every fixture of a Release's runs.
+    # Issue 899: no read of the list of Deployments keeps a Link header, in any fixture of a Release's runs.
     ("a page of Deployments may keep its Link header", "tools/check_release.py",
      '                if any(str(name).lower() == "link" for name in', '                if False and any(str(name).lower() == "link" for name in', ("tests.test_release.Fixture.test_a_cut_s_fixture_is_held_to_each_field_its_readers_passed_over",)),
     ("the Link header of a page is read in one case alone", "tools/check_release.py",
@@ -16304,6 +16303,17 @@ MUTANTS = ISSUE + [
      '    if pages and len(said) != 1:\n', '    if pages and len(said) > 1:\n', ("tests.test_release.Fixture.test_a_cut_s_fixture_is_held_to_each_field_its_readers_passed_over",)),
     ("removed may say twice the Link header was taken out", "tools/check_release.py",
      '    if pages and len(said) != 1:\n', '    if pages and len(said) < 1:\n', ("tests.test_release.Fixture.test_a_cut_s_fixture_is_held_to_each_field_its_readers_passed_over",)),
+    ("a read of Deployments is read only from the start of its call", "tools/check_release.py",
+     'DEPLOYMENTS_LIST = re.compile(r"\\b%s', 'DEPLOYMENTS_LIST = re.compile(r"^GET /%s', ("tests.test_release.Fixture.test_no_read_of_the_deployments_list_keeps_a_link_header_however_it_is_written",)),
+    ("a read of Deployments with a slash before its query is none", "tools/check_release.py",
+     '/deployments/?(\\?\\S*)?(?=\\s|$)"', '/deployments(\\?\\S*)?(?=\\s|$)"', ("tests.test_release.Fixture.test_no_read_of_the_deployments_list_keeps_a_link_header_however_it_is_written",)),
+    ("a read of one Deployment is a read of the list", "tools/check_release.py",
+     '/deployments/?(\\?\\S*)?(?=\\s|$)"', '/deployments/?(\\?\\S*)?"', ("tests.test_release.Fixture.test_no_read_of_the_deployments_list_keeps_a_link_header_however_it_is_written",)),
+    ("a read of Deployments by a later page is no page", "tools/check_release.py",
+     'PAGED = re.compile(r"[?&](per_)?page=")', 'PAGED = re.compile(r"[?&]per_page=")', ("tests.test_release.Fixture.test_no_read_of_the_deployments_list_keeps_a_link_header_however_it_is_written",)),
+    ("every read of Deployments is a page", "tools/check_release.py",
+     '                pages += bool(PAGED.search(listed.group(1) or ""))\n', '                pages += 1\n', ("tests.test_release.Fixture.test_no_read_of_the_deployments_list_keeps_a_link_header_however_it_is_written",)),
+    # Decision 0194: the Maintainer's continue or stop, and what he was shown before it.
     ('a decision point recorded twice passes', 'tools/check_release.py',
      '        if isinstance(name, str) and name in seen:',
      '        if False:', POINT_RULE),

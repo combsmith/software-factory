@@ -671,6 +671,41 @@ class Fixture(unittest.TestCase):
             with self.subTest(wrong=wrong), self.assertRaises(AssertionError):
                 self.a_later_cut_moved_next_on(wrong, eval_run, earlier)
 
+    def test_no_read_of_the_deployments_list_keeps_a_link_header_however_it_is_written(self):  # issue 899
+        # The check reads a read of the list of Deployments however its call is written, and a Link header kept on one
+        # is refused in any fixture of a Release's runs; where the read is of a page, `removed` says once it went.
+        link = '<https://api.github.com/repositories/1/deployments?page=2>; rel="next"'
+        paged = json.loads(self.FIRST_ROLLBACK.read_text())
+        page, = [e for item in paged["items"] for e in item["exchanges"] if self.DEPLOYMENTS + "&per_page=" in e["request"]["call"]]
+        path = "/repos/%s/deployments" % REPO
+        for call in ("GET %s?per_page=4&environment=factory-next" % path, "GET %s?environment=factory-next&per_page=4&page=2" % path,
+                     "GET %s?environment=factory-stable&per_page=100" % path, "GET https://api.github.com%s?per_page=4" % path,
+                     "gh api --include %s?per_page=4" % path.lstrip("/"), "GET %s/?per_page=4" % path, "GET\t%s?per_page=4" % path,
+                     "GET %s?environment=factory-next" % path, "GET %s" % path):
+            kept = copy.deepcopy(paged)
+            kept_page, = [e for item in kept["items"] for e in item["exchanges"] if e["request"]["call"] == page["request"]["call"]]
+            kept_page["request"]["call"], kept_page["response"]["headers"]["link"] = call, link
+            self.assertTrue(any("keeps the Link header of a read of Deployments" in p
+                                for p in check_release.fixture_problems(kept, "rollback.json")), call)
+        # A fixture of another schema is held the same way, and a page's `removed` must say it once.
+        loose = {"exchanges": [{"request": {"call": "GET %s?per_page=4" % path, "headers": {}},
+                                "response": {"status": 200, "headers": {"link": link}, "body": []}}], "removed": []}
+        found = check_release.fixture_problems(loose, "refs.json")
+        self.assertTrue(any("keeps the Link header" in p for p in found) and any("removed says 0 times" in p for p in found), found)
+        later = copy.deepcopy(loose)
+        later["exchanges"][0]["request"]["call"], later["exchanges"][0]["response"]["headers"] = "GET %s?page=2" % path, {}
+        self.assertEqual([p for p in check_release.fixture_problems(later, "refs.json") if "removed says 0 times" in p],
+                         ["refs.json: reads a page of Deployments, and removed says 0 times that %s was taken out, not once"
+                          % check_release.LINK_REMOVED])
+        # A read of the whole list needs no word in `removed`; one of a Deployment, or of its statuses, is no read of it.
+        whole = copy.deepcopy(loose)
+        whole["exchanges"][0]["request"]["call"], whole["exchanges"][0]["response"]["headers"] = "GET %s?environment=x" % path, {}
+        self.assertEqual(check_release.fixture_problems(whole, "refs.json"), [])
+        for one in ("GET %s/123" % path, "GET %s/123/statuses?per_page=4" % path):
+            single = copy.deepcopy(loose)
+            single["exchanges"][0]["request"]["call"] = one
+            self.assertEqual(check_release.fixture_problems(single, "refs.json"), [], one)
+
     def test_a_cut_s_fixture_is_held_to_each_field_its_readers_passed_over(self):  # issue 863
         # Five fields of a cut's fixture that no test read, each changed alone in a copy of the newest cut's: the cut's
         # own run still in progress, so its `updated_at` is no end; a second attempt of it, so its `created_at` is not
@@ -737,7 +772,7 @@ class Fixture(unittest.TestCase):
                 # helper every later cut is read by asks it too.
                 found = check_release.fixture_problems(wrong_, path.name)
                 self.assertEqual(len(found), 1, (path.name, why, found))
-                self.assertIn({"the header kept": "keeps the Link header of a page of Deployments",
+                self.assertIn({"the header kept": "keeps the Link header of a read of Deployments",
                                "removed does not say": "removed says 0 times that %s was taken out" % check_release.LINK_REMOVED,
                                "removed says twice": "removed says 2 times"}[why], found[0])
                 if path == newest:
