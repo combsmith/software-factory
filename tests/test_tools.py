@@ -2202,10 +2202,17 @@ class Purity(unittest.TestCase):
                                "x.py:5 has a default that can change"))
         for kept in ("frozenset((x for x in ()))", "frozenset([y := 1])", "frozenset(iterable=[next(_box())])",
                      "frozenset([x for x in ()])", "frozenset({x for x in ()})", "frozenset({x: 1 for x in ()})",
-                     "frozenset([frozenset([next(_box())])])"):
-            self.assertTrue(caught(run({"kernel/x.py": box + "_KEPT = %s\n" % kept}), "x.py:5 holds a value that can change"), kept)
+                     "frozenset([frozenset([next(_box())])])", "frozenset([B for B in (B,)])"):
+            self.assertTrue(caught(run({"kernel/x.py": box + "B = 'b'\n_KEPT = %s\n" % kept}), "x.py:6 holds a value that can change"), kept)
         self.assertEqual(run({"kernel/terms.py": "A = 'a'\n", "kernel/x.py": "from kernel import terms\n\nB = 'b'\n"
                               "HELD = frozenset({B, terms.A, ('c', 'd')})\nNONE = frozenset()\nNESTED = frozenset([frozenset()])\n"}), [])
+        # A name in its argument is one bound at the module's top: a local value, a generator say, is kept by no default.
+        local = ("def values():\n    yield 0\n\n\ndef build():\n    cursor = values()\n\n"
+                 "    def kept(saved=frozenset({cursor})):\n        return saved\n    return kept\n")
+        self.assertTrue(caught(run({"kernel/x.py": local}), "x.py:8 has a default that can change"))
+        # Read once a node, so that a deep constant is read in time (Astra's read).
+        deep = "KEPT = " + "frozenset([" * 60 + "frozenset()" + "])" * 60 + "\n"
+        self.assertEqual(run({"kernel/x.py": deep}), [])
         # And frozenset is the builtin: a name the Kernel binds to it, by a function, an import or a parameter, is refused.
         for text in ("def frozenset():\n    return []\n\n\nKEPT = frozenset()\n", "from kernel.terms import A as frozenset\n",
                      "def f(frozenset):\n    return frozenset\n"):
@@ -2248,6 +2255,8 @@ class Purity(unittest.TestCase):
                            ("    yield from facts\n", "drives what it is handed")):
             self.assertTrue(caught(run({"kernel/x.py": "def f(facts):\n" + body}), "x.py:2 %s" % does), does)
         for body, does in (("    async with facts as f:\n        return f\n", "enters what it is handed"),
+                           ("    async for item in facts:\n        return item\n", "drives what it is handed"),
+                           ("    return [item async for item in facts]\n", "drives what it is handed"),
                            ("    return await facts\n", "awaits what it is handed")):
             self.assertTrue(caught(run({"kernel/x.py": "async def f(facts):\n" + body}), "x.py:2 %s" % does), does)
 

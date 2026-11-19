@@ -32,7 +32,7 @@ FORBIDDEN_NAMES = {"open", "print", "input", "exec", "eval", "__import__", "comp
 # statements, which a fact never needs.
 HANDLING = {ast.With: "enters what it is handed", ast.AsyncWith: "enters what it is handed",
             ast.Await: "awaits what it is handed", ast.YieldFrom: "drives what it is handed",
-            ast.Assert: "raises"}
+            ast.Assert: "raises", ast.AsyncFor: "drives what it is handed"}
 # What a module may hold at its top level: a value that cannot change after import.
 CONSTANT_CALLS = {"frozenset"}
 # The calendar, which nobody chooses, and so the only numbers but 0 and 1 the Kernel may write: each a constant of
@@ -91,18 +91,30 @@ def _special(node) -> list:
     return [w for w in words if len(w) > 4 and w.startswith("__") and w.endswith("__")]
 
 
-def _constant(node) -> bool:
+def _constant(node, held: frozenset = frozenset()) -> bool:
     """Whether `node` is a value that cannot change after import: a constant, a tuple of them, or a call of
-    CONSTANT_CALLS none of whose arguments calls anything, so that no list a generator yields is kept in it (issue
-    909)."""
+    CONSTANT_CALLS whose arguments call nothing but another such call and name nothing but `held`, the names bound at
+    the module's top, and attributes of them: so that no list a generator yields, and no local value, is kept in it
+    (issue 909). Each node is read once."""
     if isinstance(node, ast.Constant):
         return True
     if isinstance(node, ast.Tuple):
-        return all(_constant(e) for e in node.elts)
+        return all(_constant(e, held) for e in node.elts)
     return (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in CONSTANT_CALLS
-            and not any(isinstance(n, (ast.GeneratorExp, ast.ListComp, ast.SetComp, ast.DictComp, ast.NamedExpr))
-                        or (isinstance(n, ast.Call) and not _constant(n))
-                        for argument in node.args + [k.value for k in node.keywords] for n in ast.walk(argument)))
+            and all(_inert(argument, held) for argument in node.args + [k.value for k in node.keywords]))
+
+
+def _inert(node, held: frozenset) -> bool:
+    """Whether `node`, in a constant's argument, evaluates to a value that cannot change: it calls nothing but a
+    constant's own call, binds nothing, iterates nothing, and names only `held`, read once each."""
+    if isinstance(node, ast.Call):
+        return _constant(node, held)
+    if isinstance(node, (ast.GeneratorExp, ast.ListComp, ast.SetComp, ast.DictComp, ast.NamedExpr)):
+        return False
+    if isinstance(node, ast.Name):
+        return node.id in held
+    return all(_inert(child, held) for child in ast.iter_child_nodes(node)
+               if not isinstance(child, ast.expr_context))
 
 
 def _pinned(name: str, node) -> bool:
@@ -743,6 +755,10 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
         problems += _calls(name, tree, trees, takers, tops)
         calendar, wrong = _calendar(name, tree)
         problems += wrong
+        held = frozenset(word for node in tree.body for word in _bound(node) + [
+            target.id for target in getattr(node, "targets", [getattr(node, "target", None)]) if isinstance(target, ast.Name)]
+            + ([alias.asname or alias.name.split(".")[0] for alias in node.names]
+               if isinstance(node, (ast.Import, ast.ImportFrom)) else []))
         for node in ast.walk(tree):
             line = getattr(node, "lineno", 0)
             mods = []
@@ -765,6 +781,9 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
                 if word in CONSTANT_CALLS:
                     problems.append("%s:%d binds %s, the builtin a constant is made by; a module's top would then keep "
                                     "what that name returns" % (name, line, word))
+            if isinstance(node, ast.comprehension) and node.is_async:
+                problems.append("%s:%d drives what it is handed, which calls a method of a value; the Kernel calls none"
+                                % (name, getattr(node.iter, "lineno", line)))
             for kind, does in HANDLING.items():
                 if isinstance(node, kind):
                     problems.append("%s:%d %s, which calls a method of a value; the Kernel calls none"
@@ -779,7 +798,7 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
                 problems.append("%s:%d keeps state between calls" % (name, line))
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
                 defaults = node.args.defaults + [d for d in node.args.kw_defaults if d is not None]
-                if not all(_constant(d) for d in defaults):
+                if not all(_constant(d, held) for d in defaults):
                     problems.append("%s:%d has a default that can change, which is state kept between calls"
                                     % (name, line))
             if isinstance(node, ast.ClassDef):
@@ -804,6 +823,6 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
             elif value is None:
                 problems.append("%s:%d runs when the module is imported; a module holds constants and functions"
                                 % (name, node.lineno))
-            elif not _constant(value):
+            elif not _constant(value, held):
                 problems.append("%s:%d holds a value that can change; State is never stored" % (name, node.lineno))
     return unread + own + ([_said(problem, package) for problem in problems] if package != "kernel" else problems)
