@@ -109,10 +109,10 @@ def advised(answers: list, env=None, **made) -> tuple:
             assert jsonschema_lite.validate(results[lens], shared.SCHEMAS["advice"], schemas=shared.SCHEMAS) == []
         cost = base / "advice" / "advice-cost.json"
         assert sorted(p.name for p in (base / "advice").iterdir()) == sorted(
-            ["advice.%s.%s" % (lens, kind) for lens in results for kind in ("json", "sha256")] + ["advice-cost.json"] * bool(results))
-        if results:
-            stand_in.cost = json.loads(cost.read_text())
-            assert sorted(stand_in.cost) == ["asks", "cost_usd", "release", "run", "schema"] and stand_in.cost["run"] == RUN
+            ["advice.%s.%s" % (lens, kind) for lens in results for kind in ("json", "sha256")] + ["advice-cost.json"])
+        stand_in.cost = json.loads(cost.read_text())
+        assert jsonschema_lite.validate(stand_in.cost, shared.SCHEMAS["advice-cost"], schemas=shared.SCHEMAS) == []
+        assert stand_in.cost["run"] == RUN
         return results, stand_in, clock
 
 
@@ -176,6 +176,8 @@ class Advise(unittest.TestCase):
         for made in ({"change": {"class": "dependency"}}, {"intent": "fix-findings"}):
             results, azure_, _ = advised([], **made)
             self.assertEqual((results, azure_.made), ({}, []), made)
+            # And the Run says that it asked no one: a pass that found no cost would count its worst case.
+            self.assertEqual((azure_.cost["asks"], azure_.cost["cost_usd"]), (0, 0), made)
 
     def test_a_rate_limit_is_waited_for_once_and_a_response_still_running_is_cancelled(self):
         # The wait a rate limit names, once; a second rate limit is the Result, and nothing is asked in a loop.
