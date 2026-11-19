@@ -6337,6 +6337,15 @@ class Issues(unittest.TestCase):
         # With no Role's account told, the comment is no Role's.
         bare = timeline.Accounts(Router(github.Replay(issue_read(events)), {"don-petry": "admin"}), "o/r", approver, lenses, factory)
         self.assertEqual(issues.comments(events, bare)[0], [])
+        # A Role's App that is also a Lens's, as controller/1 holds pr-review's, is counted as a Lens's: its label is an
+        # act, on an issue and on a pull request.
+        both = ("combsmith-sf-pr-review[bot]", held["accounts"]["roles"]["pr-review"]["id"], "Bot")
+        self.assertIn(both[1:], facts_.roles_of(held) & set(lenses) & factory)
+        events.append(issue_event("labeled", 4, both, label={"name": "z"}))
+        router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
+        accounts = timeline.Accounts(router, "o/r", approver, lenses, factory, roles=facts_.roles_of(held))
+        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES)
+        self.assertEqual((found["acts_since_writer"], timeline.since_writer(events, accounts)["acts_since_writer"]), (2, 2))
 
     def test_an_issue_github_did_not_answer_whole_is_refused(self):  # decision 0218
         def edits(drop=None, **change):
