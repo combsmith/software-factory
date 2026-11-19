@@ -119,14 +119,14 @@
             "pattern": "^f_[0-9a-f]{4,64}$"
           },
           "category": {
-            "description": "As its Lens raised it. Never `security`: a review is shown no security Finding, and may not accept one.",
+            "description": "As its Lens raised it, of a category its Role owns, as a live review is shown. Never `security`: a review is shown no security Finding, and may not accept one.",
             "enum": [
               "functional",
               "architecture",
               "delivery",
               "reliability",
               "requirements",
-              "mechanical"
+              "uncategorised"
             ]
           },
           "severity": {
