@@ -674,9 +674,18 @@ class Shown(unittest.TestCase):
         stopped = advised(status="incomplete", reason="budget")
         for change in ({"reason": "budget"}, {"status": "incomplete"}, {"status": "failed"}):
             self.assertEqual(held(dict(good, **change)), (None, "advice_disagrees"), change)
-        for change in ({"status": "failed"}, {"reason": "unparsed"}, {"off_change": 1},
-                       {"findings": good["findings"], "texts": good["texts"]}):
+        for change in ({"status": "failed"}, {"reason": "unparsed"}, {"off_change": 1}, {"findings": good["findings"]},
+                       {"texts": good["texts"]}, {"findings": good["findings"], "texts": good["texts"]}):
             self.assertEqual(held(dict(stopped, **change)), (None, "advice_disagrees"), change)
+        # More Findings or texts than a Result may hold are no Result, and none is handed to the validator; nor is a
+        # path that holds half a surrogate pair, which no file's name is.
+        seen = []
+        with mock.patch.object(advice, "validate", lambda *a, **k: seen.append(a) or []):
+            self.assertEqual(held(dict(good, findings=[finding] * 101))[1], "advice_invalid")
+            self.assertEqual(held(dict(good, texts=[text_] * 101))[1], "advice_invalid")
+            self.assertEqual(seen, [])
+        self.assertEqual(held(dict(good, findings=[dict(finding, location={"path": "a\ud800b", "start_line": 1})]))[1],
+                         "advice_invalid")
         # A Finding's id opens with its Lens's name, as the parser builds it.
         alien = "kimi:%032x" % 0
         self.assertEqual(held(dict(good, findings=[dict(finding, id=alien, surface={"type": "annotation", "key": alien})],
@@ -710,9 +719,14 @@ class Shown(unittest.TestCase):
         self.assertEqual((one.get("title"), one["message"]), (None, "one line"))
         self.assertEqual((two["title"], two["message"]), ("t" * advice.HEADLINE, "m" * advice.MESSAGE))
         # No control, nothing that turns the line, no separator and no half a pair is shown; a message keeps its lines.
-        long["texts"][0]["body"] = "a\x1b[31m\tb\u202e\x85\r\n\nc\x00\u2066d\u2028\ud800\x7f\te\nf"
+        # What parts two words is shown as a space, so that they do not join.
+        long["texts"][0]["body"] = ("a\x1b[31m\tb\u202e\x85c\u200b\ufeff\xad\u061c\u180e\u2060\u206f\ufff9\U000e0041\r\n\n"
+                                    "c\x00\u2066d\u2028e\ud800\x7f\tf\ng")
+        long["texts"][1]["body"] = " \u200b\n\x00 "
         dirty = advice.shown(long)[0]
-        self.assertEqual((dirty["annotations"][0]["title"], dirty["annotations"][0]["message"]), ("a[31mb", "cd\te\nf"))
+        self.assertEqual((dirty["annotations"][0]["title"], dirty["annotations"][0]["message"]), ("a[31m b c", "cd e\tf\ng"))
+        # A text that is nothing once it is cleaned is shown as having none.
+        self.assertEqual((dirty["annotations"][1].get("title"), dirty["annotations"][1]["message"]), (None, "(no text)"))
         self.assertTrue(advice.showable(dirty))
 
     def test_what_may_be_sent_as_shown_is_what_is_built_and_nothing_beside_it(self):
@@ -723,15 +737,22 @@ class Shown(unittest.TestCase):
         for case in (advised(*[("minor", n + 1) for n in range(70)]), advised(status="failed", reason="unparsed"), advised()):
             self.assertTrue(advice.showable(advice.shown(case)[0]))
         bare = {k: v for k, v in note.items() if k != "title"}
-        self.assertTrue(advice.showable(dict(good, annotations=[bare] * 50)))
+        fifty = dict(good, annotations=[bare] * 50, summary=advice.SUMMARY % (50, 50, 0, 0, 50))
+        self.assertTrue(advice.showable(fifty))
+        # The summary's count of the annotated is of the annotations sent.
+        self.assertFalse(advice.showable(dict(fifty, summary=good["summary"])))
+        self.assertFalse(advice.showable(dict(good, title=good["title"].replace("1 major", "\u0661 major"))))
         for change in ({"text": "x"}, {"images": []}, {"title": "completed: all good"}, {"title": "done (no_such): " + good["title"][24:]},
                        {"title": good["title"] + "\nmore"}, {"title": None}, {"summary": "A reader's words."}, {"summary": 7},
-                       {"annotations": [bare] * 51}, {"annotations": None}, {"annotations": ["failure"]}):
+                       {"annotations": [bare] * 51, "summary": advice.SUMMARY % (51, 51, 0, 0, 50)}, {"annotations": None},
+                       {"annotations": ["failure"]}):
             self.assertFalse(advice.showable(dict(good, **change)), change)
         self.assertFalse(advice.showable({k: v for k, v in good.items() if k != "summary"}))
         for change in ({"raw_details": "x"}, {"start_column": 1}, {"path": 7}, {"path": "a b"}, {"start_line": 0, "end_line": 0},
-                       {"start_line": True, "end_line": True}, {"start_line": "3"}, {"end_line": 4},
-                       {"annotation_level": "failure"}, {"annotation_level": None}, {"title": "two\nlines"}, {"title": ""},
+                       {"start_line": True, "end_line": True}, {"start_line": "3"}, {"end_line": 4}, {"end_line": 3.0},
+                       {"start_line": 10 ** 9, "end_line": 10 ** 9}, {"path": "a\ud800"}, {"message": " \n\t"},
+                       {"annotation_level": "failure"}, {"annotation_level": None}, {"annotation_level": ["warning"]},
+                       {"annotation_level": {}}, {"title": "two\nlines"}, {"title": ""},
                        {"title": "t" * 256}, {"title": 7}, {"message": ""}, {"message": "m" * 8001}, {"message": None},
                        {"message": "a\u202eb"}, {"title": "a\x1bb"}):
             self.assertFalse(advice.showable(dict(good, annotations=[dict(note, **change)])), change)

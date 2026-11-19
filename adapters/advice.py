@@ -58,11 +58,14 @@ LENS = re.compile(r"[a-z]{1,31}")
 RUN = re.compile(r"r_[0-9A-Z]{6,26}")
 # What no annotation's words hold: a control but a message's newline and tab, what turns the line they are shown on,
 # a line or paragraph separator, and half a surrogate pair.
-UNSHOWN = "\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069\u2028\u2029\ud800-\udfff"
-CODED = re.compile(r"(completed|incomplete \((%s)\)|failed \((%s)\)): \d{1,3} blocking, \d{1,3} major, \d{1,3} minor, "
-                   r"\d{1,3} info; \d{1,3} off the change" % ("|".join(INCOMPLETE), "|".join(FAILED)))
+UNSHOWN = ("\x00-\x08\x0b-\x1f\x7f-\x9f\xad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ud800-\udfff"
+           "\ufeff\ufff9-\ufffb\U000e0000-\U000e007f")
+PARTED = "[\x0b\x0c\x85\u2028\u2029]"       # what parts two words as a line's end does: shown as a space, so they do not join
+SURROGATE = re.compile("[\ud800-\udfff]")
+CODED = re.compile(r"(completed|incomplete \((%s)\)|failed \((%s)\)): [0-9]{1,3} blocking, [0-9]{1,3} major, [0-9]{1,3} "
+                   r"minor, [0-9]{1,3} info; [0-9]{1,3} off the change" % ("|".join(INCOMPLETE), "|".join(FAILED)))
 SUMMARY = "An advisory read: it gates nothing. %d finding(s): %d annotated, %d with no line, %d left out past %d annotations."
-SUMMED = re.compile(re.escape(SUMMARY).replace("%d", r"\d{1,3}"))
+SUMMED = re.compile(re.escape(SUMMARY).replace("%d", "([0-9]{1,3})"))
 
 
 def _count(value):
@@ -234,8 +237,13 @@ def held(data, digest, lens: str, advisory, admit: dict, schemas: dict) -> tuple
         result = json.loads(data.decode("utf-8"), object_pairs_hook=_once, parse_int=_whole, parse_constant=_whole)
     except (ValueError, RecursionError):
         return None, "advice_invalid"       # a key given twice, a number no count has, or no number, among them
+    if not isinstance(result, dict) or any(isinstance(result.get(part), list) and len(result[part]) > MOST
+                                           for part in ("findings", "texts")):
+        return None, "advice_invalid"       # before the validator, which would write an error for each of a million
     if validate(result, schemas["advice"], schemas=schemas):
         return None, "advice_invalid"
+    if any(SURROGATE.search(found.get("location", {}).get("path", "")) for found in result["findings"]):
+        return None, "advice_invalid"       # half a surrogate pair is no part of a path, and the schema cannot say so
     # What the schema cannot say and the parser holds: a status and its reason agree, and only a read holds Findings.
     reason = result["reason"]
     if result["status"] != ("completed" if reason is None else "incomplete" if reason in INCOMPLETE else "failed") \
@@ -271,7 +279,8 @@ def shown(result: dict) -> tuple:
     kept, notes = placed[:ANNOTATIONS], []
     for f in kept:
         first, _, rest = bodies[f["id"]].partition("\n")
-        first, rest = re.sub("[%s\t]" % UNSHOWN, "", first).strip(), re.sub("[%s]" % UNSHOWN, "", rest).strip()
+        first, rest = re.sub(PARTED + "|\t", " ", first), re.sub(PARTED, " ", rest)
+        first, rest = re.sub("[%s]" % UNSHOWN, "", first).strip(), re.sub("[%s]" % UNSHOWN, "", rest).strip()
         line = f["location"]["start_line"]
         note = {"path": f["location"]["path"], "start_line": line, "end_line": line,
                 "annotation_level": LEVEL[f["severity"]], "message": (rest or first or "(no text)")[:MESSAGE]}
@@ -284,7 +293,7 @@ def shown(result: dict) -> tuple:
 
 
 def _lined(value) -> bool:
-    return type(value) is int and value >= 1
+    return type(value) is int and 1 <= value <= 999999999
 
 
 def showable(output) -> bool:
@@ -297,14 +306,18 @@ def showable(output) -> bool:
     if not isinstance(output["title"], str) or not CODED.fullmatch(output["title"]) or not isinstance(notes, list) \
             or not isinstance(output["summary"], str) or not SUMMED.fullmatch(output["summary"]) or len(notes) > ANNOTATIONS:
         return False
+    if int(SUMMED.fullmatch(output["summary"]).group(2)) != len(notes):
+        return False            # the summary's count of the annotated is of the annotations sent
     for note in notes:
         if not isinstance(note, dict) or set(note) - {"title"} != {"path", "start_line", "end_line", "annotation_level",
                                                                   "message"}:
             return False
         words = [note["message"]] + ([note["title"]] if "title" in note else [])
-        if not isinstance(note["path"], str) or not PLACE.fullmatch(note["path"]) or not _lined(note["start_line"]) \
-                or note["end_line"] != note["start_line"] or note["annotation_level"] not in set(LEVEL.values()) \
-                or not all(isinstance(said, str) and said and not re.search("[%s]" % UNSHOWN, said) for said in words) \
+        level = note["annotation_level"]
+        if not isinstance(note["path"], str) or not PLACE.fullmatch(note["path"]) or SURROGATE.search(note["path"]) \
+                or not _lined(note["start_line"]) or not _lined(note["end_line"]) or note["end_line"] != note["start_line"] \
+                or not isinstance(level, str) or level not in set(LEVEL.values()) \
+                or not all(isinstance(said, str) and said.strip() and not re.search("[%s]" % UNSHOWN, said) for said in words) \
                 or len(note["message"]) > MESSAGE or len(note.get("title", "")) > HEADLINE or "\n" in note.get("title", ""):
             return False
     return True

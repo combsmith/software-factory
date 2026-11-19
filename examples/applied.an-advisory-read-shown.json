@@ -8,7 +8,8 @@
   "advisory": [
     {
       "lens": "astra",
-      "code": "shown"
+      "code": "shown",
+      "key": "CR_kwDOA7"
     },
     {
       "lens": "kimi",
