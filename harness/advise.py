@@ -5,15 +5,16 @@
 
 TASK is the folder `python3 -m harness.read` wrote; OUT the folder `python3 -m harness.unasked` made, or one this step
 makes. For a review of a change that is no dependency's, the step asks each reader `config/harness.json` configures, in
-the order `advisory` names them, once, and once more only after the wait a rate limit names. It reads the diff and the
+the order `advisory` names them, once. It reads the diff and the
 Run's own files and nothing from GitHub, and it holds one secret, the Azure key, under `ADVISORY_AZURE_KEY`. It writes
-`advice.<lens>.json`, an `advice/1`, and its digest beside it, for every reader configured: `completed`, `incomplete`
-or `failed`.
+`advice.<lens>.json`, an `advice/1`, and its digest beside it, for every reader that can be asked: `completed`,
+`incomplete` or `failed`. A reader whose name or settings build no `advice/1` is not asked, and has none.
 
 `advice-cost.json`, the Run's `advice-cost/1`, is all the Controller reads of the Run, and `harness.unasked` wrote it
-with no asks. A Run that is about to ask a reader can no longer say so: before its first request this step takes the
-file away, and a pass that finds no cost counts the Run's worst case (decision 0224, Spend). A Run that asks nobody
-leaves the file as it was written.
+with no asks. A Run that is about to ask a reader can no longer say so. For now this step only takes that word back:
+before its first request it removes the file, so a Run that asks leaves no cost file and a pass, finding none, counts
+the Run's worst case (decision 0224, Spend). The change that follows this one has the step write the Run's own cost in
+its place. A Run that asks nobody leaves the file as it was written.
 
 The step never fails its job. A reader that cannot be asked, or does not answer, has a Result that says why by a code,
 and anything this file did not foresee is the code `transport`, for that reader alone; the review then runs without
@@ -43,7 +44,6 @@ INSTRUCTION = ("roles", "pr-review", "advisory-reader.md")
 # cancel a response and write the files.
 WHOLE = 1080
 POLL = 10               # seconds between two reads of a response still running
-LONGEST_WAIT = 90       # the longest wait a rate limit may name and be waited for; a longer one is not
 RUNNING = ("queued", "in_progress")
 # Where a change is read at the highest effort: the Kernel, the guards, the Harness, the hooks, the workflows, the
 # Release's rules, and the files that hold a credential's or an App's reach (the desk's rule, the Maintainer's ruling 8).
@@ -69,14 +69,6 @@ def body_of(reader: dict, effort: str, prompt: str) -> dict:
                        "max_completion_tokens": reader["output_tokens"], "reasoning_effort": effort})
 
 
-def waited(answer: dict, left: float):
-    """The seconds a rate limit says to wait, where a 429 names a whole number that is short enough and fits the
-    reader's time; else None."""
-    said = answer.get("headers", {}).get("retry-after", "") if answer.get("status") == 429 else ""
-    seconds = int(said) if isinstance(said, str) and said.isascii() and said.isdigit() and len(said) < 4 else None
-    return seconds if seconds is not None and seconds <= LONGEST_WAIT and seconds < left else None
-
-
 def lasted(began: float, clock) -> float:
     return round(clock() - began, 1)
 
@@ -87,16 +79,9 @@ def asks_of(sent: list) -> int:
 
 
 def asked(send, reader: dict, request: dict, until: float, clock, sleep) -> tuple:
-    """`(answer, asks)` for one reader: the request sent once, and once more after the wait a rate limit names; a
+    """`(answer, asks)` for one reader: the request sent once; a
     response of the Responses API read until it has ended, and cancelled where it has not by `until`."""
-    asks, answer = 0, None
-    while True:
-        asks += 1
-        answer = send(request)
-        wait = waited(answer, until - clock()) if asks < 2 else None
-        if wait is None:
-            break
-        sleep(wait)
+    asks, answer = 1, send(request)
     body = answer.get("body")
     if reader["api"] != "responses" or answer.get("status") != 200 or not isinstance(body, dict):
         return answer, asks
@@ -161,12 +146,16 @@ def prompt_of(root: pathlib.Path, folder: str, diff: str) -> str:
     return told + DATA % (held, diff)
 
 
+HELD = (unasked.COST,)      # what OUT may hold when the step takes it: what the first step wrote
+
+
 def folder_of(base, out: str) -> str:
-    """OUT: the folder `harness.unasked` made, or one made new; Stop `out_exists` for a link or a file."""
+    """OUT: the folder `harness.unasked` made, or one made new; Stop `out_exists` for a link, a file, or a folder that
+    holds anything but what that step left, a Result planted there or the task's own files among them."""
     real, path = steps.inside(base, out), os.path.join(os.path.realpath(str(base)), out)
     if not os.path.lexists(path):
         return steps.new_folder(base, out)
-    if os.path.islink(path) or not os.path.isdir(path):
+    if os.path.islink(path) or not os.path.isdir(path) or set(os.listdir(real)) - set(HELD):
         raise steps.Stop("out_exists")
     return real
 
@@ -211,6 +200,7 @@ def job(task_folder: str, out: str, env: dict, root: pathlib.Path = ROOT, base=N
                         "deployment": reader["deployment"], "model": reader["model"],
                         "effort": effort_of(reader, paths), "characters": config["texts"]["characters"],
                         "usd_per_million": reader["usd_per_million"]}
+                advice.unasked(told, "transport", 0, 0, shared.SCHEMAS)     # no advice/1 can be built: it is not asked
                 share = clock() + (until - clock()) / (len(names) - n)      # what is left, shared by those still to ask
                 result = one(reader, told, prompt, admitted, key, share, sent, transport, clock, sleep)
             except Exception:       # NOSONAR whatever one reader's read raises is that reader's Result, and no other's
