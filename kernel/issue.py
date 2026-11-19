@@ -609,6 +609,26 @@ def held_by(labels: dict, drafts: list) -> list:
     return [name for name in (t.LABEL_HOLD, t.LABEL_HANDS_OFF) if name in labels or any(name in d for d in on_drafts)]
 
 
+def stands(facts, config: dict):
+    """How the issue stands for the pull request the Factory opened for it (decision 0232): `closed` while GitHub says
+    it is closed, whoever closed it, `held` while a control label stands on the issue itself, `open` else, and None where
+    that cannot be read. Only the issue's state and its own label events are read, never the rows of `derive`: a
+    pull request is stopped by the issue's hold whether or not the issue is served, linked or accepted. A close the
+    Factory's merge made ends the pull request first, so a closed issue beside an open pull request was closed some
+    other way, and the pull request waits for a person. A Hold binds whoever placed it, and hands-off whoever placed it
+    stops the pull request too, which a person then ends: the stop is the side that fails safe. Label events read short,
+    or one that cannot be read whole, give None."""
+    if not isinstance(facts, dict) or facts.get("state") not in ISSUE_STATES:
+        return None
+    if facts["state"] == "closed":
+        return "closed"
+    flags = facts.get("complete")
+    if not (isinstance(flags, dict) and flags.get("timeline") is True and readable_events(facts.get("label_events"), config)):
+        return None
+    labels = standing_labels(facts)
+    return t.HELD if t.LABEL_HOLD in labels or t.LABEL_HANDS_OFF in labels else t.ISSUE_OPEN
+
+
 def derive(facts: dict, runs: list, config: dict) -> dict:
     """Return {'state', 'reason', 'evidence'} for one issue. `state` is None when a fact cannot be read.
 

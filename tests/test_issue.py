@@ -1316,6 +1316,62 @@ class Held(unittest.TestCase):
         self.assertEqual(state(facts(linked=[pr(), strangers(number=12)])), "in_review")
 
 
+class Stands(unittest.TestCase):
+    """How the issue stands for the pull request the Factory opened for it, from its state and its own labels alone
+    (decision 0232)."""
+
+    def stands(self, f, cfg=None):
+        given = copy.deepcopy((f, cfg or config()))
+        got = issue.stands(*given)
+        self.assertEqual(given, copy.deepcopy((f, cfg or config())), "the Kernel changed an argument")
+        self.assertIn(got, ("open", "held", "closed", None))
+        return got
+
+    def test_an_issue_stands_open_held_or_closed_from_its_state_and_its_own_labels(self):
+        self.assertEqual(self.stands(facts()), "open")
+        # A Hold binds whoever placed it, and only a person releases it; hands-off stops the pull request whoever
+        # placed it, since the stop fails safe and a person ends it. factory:admit stops nothing.
+        for by in (WRITER, CONTROLLER, OTHER_APP, OUTSIDER, MACHINE):
+            self.assertEqual(self.stands(facts(label_events=[labelled(HOLD, by)])), "held", by)
+            self.assertEqual(self.stands(facts(label_events=[labelled(HANDS_OFF, by)])), "held", by)
+        self.assertEqual(self.stands(facts(label_events=[labelled(HOLD), unlabelled(HOLD)])), "open")
+        self.assertEqual(self.stands(facts(label_events=[labelled(HANDS_OFF), unlabelled(HANDS_OFF, COLLEAGUE)])), "open")
+        for by in (CONTROLLER, OUTSIDER, MACHINE):
+            self.assertEqual(self.stands(facts(label_events=[labelled(HOLD), unlabelled(HOLD, by)])), "held", by)
+        self.assertEqual(self.stands(facts(label_events=[labelled(ADMIT)])), "open")
+        self.assertEqual(self.stands(facts(label_events=[labelled(TRIAGE, CONTROLLER), labelled(READY, READINESS)])), "open")
+        # Closed is GitHub's state alone, whoever closed it, and is read before the labels, which may not be read.
+        for over in ({}, {"label_events": [labelled(HOLD)]}, {"label_events": None},
+                     {"complete": {"timeline": False, "linked": True, "runs": True}}, {"reopened_last_by": "other"}):
+            self.assertEqual(self.stands(facts(**dict({"state": "closed"}, **over))), "closed", over)
+
+    def test_no_row_of_the_issues_own_reading_is_read(self):
+        # Not served, an outsider's, linked twice, with linked pull requests or Runs read short: a Hold still holds.
+        hold = [labelled(HOLD, CONTROLLER)]
+        for f, cfg in ((facts(label_events=hold), config(served_from=None)),
+                       (facts(label_events=hold, label_names=["epic"]), None),
+                       (outsiders(label_events=hold), None),
+                       (facts(label_events=hold, linked=[pr(), pr(number=12)]), None),
+                       (facts(label_events=hold, linked="not a list"), None),
+                       (facts(label_events=hold, author=None), None),
+                       (facts(label_events=hold, complete={"timeline": True, "linked": False, "runs": False}), None)):
+            self.assertEqual(self.stands(f, cfg), "held")
+        # A Hold on a linked draft is the issue's own reading, not the issue's label: it does not stop this one.
+        self.assertEqual(self.stands(facts(linked=[agents(draft=True, events=[labelled(HOLD)])])), "open")
+
+    def test_what_cannot_be_read_gives_none(self):
+        for f in (facts(state="Closed"), facts(state=None), facts(state=True), {"label_events": []}, None, [], "open",
+                  facts(complete={"timeline": False, "linked": True, "runs": True}),
+                  facts(complete={"timeline": 1, "linked": True, "runs": True}), facts(complete=None),
+                  facts(label_events=None), facts(label_events=[dict(labelled(HOLD), by=None)]),
+                  facts(label_events=[dict(labelled(HOLD), at="noon")]),
+                  facts(label_events=[dict(labelled(HOLD), action="added")])):
+            self.assertIsNone(self.stands(f), f)
+        missing = facts()
+        del missing["complete"]
+        self.assertIsNone(self.stands(missing))
+
+
 class Accepted(unittest.TestCase):
     """Row 5. Accepted: served, and a person with write access opened it or factory:admit counts."""
 
