@@ -1369,6 +1369,9 @@ class Records(unittest.TestCase):
         never["response"]["body"]["workflow_runs"][0]["run_attempt"] = 2
         again, _ = self.read(never, stored(canary(), 700, None)[0], *costs[0], day="2026-10-21")
         self.assertEqual((said(again), "never_ran" in again["runs"][0]), ([{"advisory_asks": 2, "advisory_cost_usd": 1.42}], True))
+        never["response"]["body"]["workflow_runs"][0]["run_attempt"] = True     # no integer: not known to be the first
+        got, _ = self.read(never, stored(canary(), 700, None)[0], *costs[0], day="2026-10-21")
+        self.assertEqual(said(got), said(again))
         # With no day, as from a caller that sums nothing, and on another day, nothing is read.
         for day in (None, "2026-10-22", "2026-10-20"):
             none, _ = self.read(rows, *costs[0], *costs[3], day=day)       # there to be read, and not asked for
@@ -1431,6 +1434,11 @@ class Records(unittest.TestCase):
         with mock.patch.object(records, "COSTS", 1):
             later, _ = self.read(rows, *costs[1], day="2026-10-21", advised=records.advised([{"runs": capped["runs"]}]))
         self.assertEqual(stamped(later), 1)        # what is kept is not counted against the cap
+        # A cost kept is its attempt's alone: the Run's next attempt is asked for its own.
+        one["response"]["body"]["workflow_runs"][0]["run_started_at"] = "2026-10-21T01:00:00Z"
+        got, _ = self.read(one, *cost(0, outcome_zip(dict(good, cost_usd=4), member=artifacts.ADVICE_COST_MEMBER)),
+                           day="2026-10-21", advised=kept_)
+        self.assertEqual((said(got), stamped(got)), ([{"advisory_asks": 2, "advisory_cost_usd": 4}], 1))
 
     def test_an_outcome_is_read_once_and_kept_by_its_run_and_attempt(self):
         # #285's ruling: an outcome is written once by its attempt's final step, so one a pass record read is kept by

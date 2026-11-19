@@ -451,12 +451,8 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
         record.update(found)
         whole = whole and answered
     # What each finished review Run of the day says its advisory reads cost (decision 0224): one small file, read once.
-    # `day` is the UTC date of the pass's `now`, and None reads none. A cost read from its file is kept by `advised`
-    # and not read again; the lack of one, or a file that is no cost, is kept once two passes in a row found it so; one
-    # GitHub does not answer for is left off and asked for again. Nothing here makes the list less than whole or ends
-    # the pass: what is not known the pass counts at its worst case. At most
-    # COSTS are asked for in one read, so a pass with nothing kept, a first one or one after a gap, has a bound; the
-    # rest are left off, counted at the worst case as any unread cost is, and asked for by the passes after.
+    # `day` is the UTC date of the pass's `now`, and None reads none. Nothing here makes the list less than whole or
+    # ends the pass: what is not known the pass counts at its worst case. At most COSTS are asked for in one read.
     costs = 0
     for record, github_id, attempt, keyed in ran if day is not None else []:
         if record["status"] != "completed" or record["intent"] != REVIEWING or record["started_at"][:len(day)] != day:
@@ -477,16 +473,13 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
                 transport, repo, github_id, record["run"],
                 lambda answer: reads.append(dict(read_at(answer), read="advice_cost")))
         except Unanswered:
-            # GitHub is not answering for artifacts: no more are asked for in this read, so that a pass is never kept
-            # waiting out a timeout for each of fifty. The Runs after it still take what was kept of them, and one
-            # that never ran still counts nothing; the rest are counted at the worst case. A Run GitHub goes on not
-            # answering for is asked first by each pass, so the ones behind it with nothing kept wait for it.
+            # GitHub is not answering for artifacts: no more are asked for in this read, so that no pass waits out a
+            # timeout for each of fifty. The Runs after it still take what was kept of them.
             costs = COSTS
             continue
         if cost is not None:
             record[ADVISED[0]], record[ADVISED[1]] = cost["asks"], cost["cost_usd"]
         else:
-            # It left none, or one that cannot be read as a cost: either way counted at the worst case, and, once two
-            # passes in a row say so, not asked for again, so that fifty that never read do not hold the cap all day.
+            # None, or no cost: counted at the worst case, and not asked for again once two passes in a row say so.
             record[ADVISED[1]] = None
     return {"runs": records, "unidentified": unnamed, "complete": whole, "reads": reads, "github_ids": ids}
