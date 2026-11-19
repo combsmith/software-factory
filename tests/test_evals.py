@@ -2667,7 +2667,10 @@ class EvalJob(unittest.TestCase):
                      "`\"rejected\"` when it still has it, or you cannot tell",
                      "Give a decision only, never a proposal, and none on a Finding the Task does not list",
                      "Do not raise again a Finding you rule `rejected`",
-                     "is `not_applicable` with the reason `finding_stands`: never `met`",
+                     "is `not_applicable` with the reason `finding_stands`: never `met`, and never `finding`, which is for a Finding this Result raises",
+                     "One you rule `accepted` is judged as any other criterion is, on the head as it stands",
+                     "A Result that leaves a listed Finding with no decision, or rules on any other, is refused whole",
+                     "Raise a new Finding only for a fault the listed ones do not name", "the text `finding:<id>`, labelled `role`",
                      "When `findings` is empty, give no `dispositions`"):
             self.assertIn(said, prompt)
 
