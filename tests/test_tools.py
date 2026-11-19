@@ -2502,12 +2502,18 @@ class Repo(unittest.TestCase):
 
     def test_only_the_transport_reaches_the_network(self):
         # Issue 191, ruling 3: only adapters/github.py imports what reaches the network; elsewhere each way of naming
-        # it is refused, and urllib's parsing, which reaches nothing, is not.
+        # it is refused, and urllib's parsing, which reaches nothing, is not. Decision 0224 adds one file and no more,
+        # adapters/azure.py, and the two are named one by one: no other file of adapters/, and none of that name
+        # elsewhere, reaches it.
+        self.assertEqual([str(t) for t in check_repo.TRANSPORTS], ["adapters/github.py", "adapters/azure.py"])
         refused = ("import urllib.request\n", "from urllib import request\n", "import http.client\n",
                    "from http import client\n", "import socket\n", "import ssl\n", "from xmlrpc.client import X\n")
         for text in refused:
             self.assertTrue(caught(check_repo.run(tree({"tools/a.py": text})), "reaches the network"), text)
             self.assertFalse(caught(check_repo.run(tree({"adapters/github.py": text})), "reaches the network"), text)
+            self.assertFalse(caught(check_repo.run(tree({"adapters/azure.py": text})), "reaches the network"), text)
+            for rel in ("harness/azure.py", "tools/azure.py", "adapters/azure2.py", "adapters/x/azure.py", "azure.py"):
+                self.assertTrue(caught(check_repo.run(tree({rel: text})), "reaches the network"), (rel, text))
         self.assertTrue(caught(check_repo.run(tree({"adapters/pull.py": "import urllib.request\n"})), "reaches the network"))
         self.assertFalse(caught(check_repo.run(tree({"tools/a.py": "import urllib.parse\nfrom urllib import parse\n"})),
                                 "reaches the network"))
@@ -2570,7 +2576,17 @@ class Repo(unittest.TestCase):
                 self.assertTrue(caught(check_repo.run(tree({rel: text})), "artifact storage"), (rel, text))
             for rel in ("adapters/github.py", "tests/test_a.py"):
                 self.assertFalse(caught(check_repo.run(tree({rel: text})), "artifact storage"), (rel, text))
+            # The second transport reaches Azure's model API and never the storage, so it may not name it either.
+            self.assertTrue(caught(check_repo.run(tree({"adapters/azure.py": text})), "artifact storage"), text)
         self.assertFalse(caught(check_repo.run(tree({"adapters/a.py": 'U = "api.github.com"\n'})), "artifact storage"))
+        # Decision 0224: nor may it name GitHub's own host, in text or in bytes, so that GitHub is reached by the first
+        # transport alone, whose requests the write checks read. The first's file may be named, and any other host.
+        for text in ('U = "https://api.github.com/repos"\n', 'U = b"api.GitHub.com"\n', 'U = "uploads.github.com"\n'):
+            self.assertTrue(caught(check_repo.run(tree({"adapters/azure.py": text})), "names GitHub's host"), text)
+            for rel in ("adapters/github.py", "adapters/pull.py", "tools/a.py"):
+                self.assertFalse(caught(check_repo.run(tree({rel: text})), "names GitHub's host"), (rel, text))
+        for text in ('"""With `adapters/github.py` it is one of two."""\n', 'U = "f.openai.azure.com"\n'):
+            self.assertFalse(caught(check_repo.run(tree({"adapters/azure.py": text})), "names GitHub's host"), text)
 
     def test_code_loaded_round_the_import_list_is_caught(self):
         root = tree({"a.py": "s = __import__('socket')\nexec('import requests')\n"})
@@ -2592,6 +2608,116 @@ class Repo(unittest.TestCase):
         self.assertTrue(caught(check_repo.run(tree({"roles/pr-review/prompt.md": name})), "names a model"))
         self.assertTrue(caught(check_repo.run(tree({"config/x.json": '"gpt-' + '4o-mini"'})), "names a model"))
         self.assertFalse(caught(check_repo.run(tree({"docs/notes.md": name})), "names a model"))
+
+    def test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default(self):  # decision 0224
+        # A schema here has no rule on a key, so the check holds what harness/1 cannot: a reader's block is under the
+        # name of an advisory Lens of the same file, a name advice/1 can hold.
+        loaded = json.loads((ROOT / "config" / "harness.json").read_text())
+        schema = json.loads((ROOT / "schemas" / "harness.schema.json").read_text())
+        self.assertEqual(check_examples._readers(loaded), [])
+        # The pin's file as it is with no reader and no ceiling, whatever it holds of them now.
+        harness = dict({k: v for k, v in loaded.items() if k not in ("readers", "advisory_ceiling_usd_per_day")}, advisory=["coderabbit"])
+        self.assertEqual((validate(harness, schema), check_examples._readers(harness)), ([], []))
+        block = json.loads((ROOT / "examples" / "invalid" / "harness.a-reader-that-is-no-advisory-lens.json").read_text())["readers"]["astra"]
+        named = dict(harness, advisory=["coderabbit", "astra", "kimi"])
+        self.assertEqual(check_examples._readers(dict(named, readers={"astra": block, "kimi": block})), [])
+        self.assertEqual(check_examples._readers(dict(named, readers={})), [])
+        self.assertTrue(caught(check_examples._readers(dict(harness, readers={"astra": block})), "the reader astra is no advisory Lens"))
+        self.assertTrue(caught(check_examples._readers(dict(named, readers={"astra": block, "muse": block})), "the reader muse is no advisory"))
+        for name in ("astra-2", "Astra", "a" * 32, "4o", ""):
+            odd = dict(harness, advisory=["coderabbit", name], readers={name: block})
+            self.assertTrue(caught(check_examples._readers(odd), "has a name advice/1 cannot hold"), name)
+        self.assertEqual(check_examples._readers(dict(harness, advisory=["a" * 31], readers={"a" * 31: block})), [])
+
+        def run_on(config: dict) -> list:
+            return check_examples.run(clone({"config/harness.json": json.dumps(config)}))
+        self.assertTrue(caught(run_on(dict(harness, readers={"astra": block})), "config/harness.json: harness: the reader astra is no advisory Lens"))
+        self.assertFalse(caught(run_on(dict(named, readers={"astra": block})), "config/harness.json"))
+        # The counter-example is refused for its reader's name, which its schema alone would let pass.
+        self.assertFalse(caught(check_examples.run(clone({})), "harness.a-reader-that-is-no-advisory-lens.json"))
+        # The day's ceiling is a figure in dollars beside the advisory Lenses, never among a reader's own settings, and
+        # it has no default: the pin's file holds none until a person writes one, and nought is no figure.
+        self.assertNotIn("advisory_ceiling_usd_per_day", schema["required"])
+        self.assertEqual(validate(dict(named, advisory_ceiling_usd_per_day=30), schema), [])
+        for figure in (0, -1, 0.001, "30", None, True, 10001, float("inf")):
+            self.assertTrue(validate(dict(named, advisory_ceiling_usd_per_day=figure), schema), figure)
+        self.assertTrue(validate(dict(named, readers={"astra": dict(block, advisory_ceiling_usd_per_day=30)}), schema))
+        self.assertTrue(validate(dict(named, readers={"astra": dict(block, ceiling_usd_per_day=30)}), schema))
+
+    def test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else(self):  # decision 0224
+        # A second place a model is named: an advisory Lens's reader, in the pin's own file, by its model and by its
+        # deployment, which Azure may name after a model. The pin's file and its copies may name a model at three paths
+        # and no other, and a copy names only what the pin's file pins.
+        name, model, deployment = "claude-" + "opus-5-5", "gpt-" + "6-astra-2026", "gpt-" + "6-astra"
+        misplaced = ": names a model outside the Engine's pin and a reader's model and deployment"
+        full = ": names a model by its full id"
+
+        def config(**more) -> str:
+            reader = {"host": "f.openai.azure.com", "deployment": deployment, "model": model, "api": "responses"}
+            return json.dumps(dict({"engine": {"model": name}, "readers": {"astra": reader, "kimi": dict(reader, api="chat")}}, **more))
+
+        def problems(copy: str, pin: str = None) -> list:
+            found = check_repo.run(tree({"config/harness.json": config() if pin is None else pin,
+                                         "examples/invalid/harness.a-copy.json": copy, "tools/a.py": "X = 1\n"}))
+            return [p for p in found if p.endswith(misplaced) or p.endswith(full)]
+        self.assertEqual(problems(config()), [])
+        # Outside the pin's file and its copies a reader's model is a model named, as the Engine's is.
+        for where in ("tools/a.py", "harness/advise.py", "examples/advice.json", "config/defaults.json", "examples/harness.json"):
+            for text in (model, deployment):
+                found = check_repo.run(tree({"config/harness.json": config(), where: 'X = "%s"\n' % text}))
+                self.assertIn(where + full, found, (where, text))
+        # A copy names no reader's model the pin's file does not pin, and with no reader pinned it names none.
+        self.assertEqual(problems(config(), json.dumps({"engine": {"model": name}})), ["examples/invalid/harness.a-copy.json" + full])
+        self.assertEqual(problems(config().replace(model, "gpt-" + "6-other")), ["examples/invalid/harness.a-copy.json" + full])
+        self.assertEqual(problems(config(), "{not json"), ["examples/invalid/harness.a-copy.json" + full])
+        # At any other path a pinned name is refused, in the pin's file and in a copy: beside the block, in a list, as
+        # a key, under another field of a reader, under another top field, and the Engine's pin under a reader.
+        for more in ({"texts": {"model": model}}, {"advisory": [deployment]}, {"model": model}, {"deployment": deployment},
+                     {"x": name}, {"engine": {"model": name, "also": model}}, {"engine": {"model": name, "model2": name}},
+                     {"x": {"engine": {"model": name}}}, {"x": {"readers": {"astra": {"model": model}}}},
+                     {"readers": {"astra": {"model": model, "deployment": deployment, "host": deployment}}},
+                     {"readers": {"astra": {"model": [model]}}}, {"readers": {"astra": {"model": {"model": model}}}},
+                     {"readers": {model: {"model": model}}}, {"readers": {"model": model}}, {"readers": [{"model": model}]},
+                     {"reader": {"astra": {"model": model}}}, {"readers": {"astra": {"model": model, "api": name}}},
+                     {"engine": {"model": name, "readers": {"astra": {"model": model}}}}):
+            self.assertEqual(problems(config(**more)), ["examples/invalid/harness.a-copy.json" + misplaced], more)
+            self.assertTrue(any(p.startswith("config/harness.json: names a model") for p in problems(config(), config(**more))), more)
+        # A name is read at its path as the file is read, not as it is written: one written with an escape, which the
+        # text does not show, is refused where it is no pin, and the Engine's pin is no reader's.
+        escaped = config().replace('"model": "%s"' % model, '"model": "gpt-\\u0036-other"')
+        self.assertNotEqual(escaped, config())
+        self.assertEqual(problems(escaped), ["examples/invalid/harness.a-copy.json" + misplaced])
+        self.assertEqual(problems(config(readers={"astra": {"model": name, "deployment": deployment}})),
+                         ["examples/invalid/harness.a-copy.json" + misplaced])
+        self.assertEqual(problems(config(engine={"model": model})), ["examples/invalid/harness.a-copy.json" + misplaced])
+        self.assertEqual(problems("[" * 100000), [])
+        # A copy that cannot be read as JSON has no paths, so it copies no reader's pin; the Engine's it may, as before.
+        self.assertEqual(problems('{"engine": {"model": "%s"}' % name), [])
+        self.assertEqual(problems('{"readers": {"astra": {"model": "%s"}}' % model), ["examples/invalid/harness.a-copy.json" + misplaced])
+        # harness/1 holds a reader's block, and a pin's file with none is whole.
+        schema = json.loads((ROOT / "schemas" / "harness.schema.json").read_text())
+        whole = json.loads((ROOT / "config" / "harness.json").read_text())
+        whole = {key: value for key, value in whole.items() if key != "readers"}
+        self.assertEqual(validate(whole, schema), [])
+        reader = {"host": "factory-readers.openai.azure.com", "deployment": "astra-reader", "model": "astra-model", "api": "responses",
+                  "effort": {"critical": "max", "elsewhere": "xhigh"}, "output_tokens": 32000, "prompt_characters": 600000,
+                  "seconds": 900, "usd_per_million": {"input": 2.5, "output": 20}}
+        self.assertEqual(validate(dict(whole, readers={"astra": reader, "kimi": dict(reader, api="chat")}), schema), [])
+        self.assertEqual(validate(dict(whole, readers={}), schema), [])
+        for change in ({"host": "example.com"}, {"host": "factory.openai.azure.com:8443"}, {"host": "a.b.openai.azure.com"},
+                       {"deployment": "a deployment"}, {"model": "A Model"}, {"api": "assistants"}, {"effort": "max"},
+                       {"effort": {"critical": "max"}}, {"effort": {"critical": "most", "elsewhere": "xhigh"}}, {"output_tokens": 0},
+                       {"prompt_characters": 0}, {"seconds": 0}, {"seconds": 1201}, {"usd_per_million": {"input": 2.5}},
+                       {"usd_per_million": {"input": -1, "output": 20}}, {"key": "k" * 32}, {"tools": ["shell"]},
+                       {"usd_per_million": {"input": 2.5, "output": -1}}, {"usd_per_million": {"input": 0, "output": 20}},
+                       {"usd_per_million": {"input": 2.5, "output": 0}}, {"usd_per_million": {"input": 2.5, "output": 10001}},
+                       {"usd_per_million": {"input": 10001, "output": 20}}, {"output_tokens": 1000001},
+                       {"prompt_characters": 10000001}):
+            self.assertTrue(validate(dict(whole, readers={"astra": dict(reader, **change)}), schema), change)
+        for field in reader:
+            self.assertTrue(validate(dict(whole, readers={"astra": {k: v for k, v in reader.items() if k != field}}),
+                                                     schema), field)
+        self.assertTrue(validate(dict(whole, readers=[reader]), schema))
 
     def test_a_model_is_named_by_the_engines_pin_and_its_counter_examples_alone(self):
         name, other = "claude-" + "opus-5-5", "claude-" + "sonnet-5-5"
@@ -13914,16 +14040,76 @@ class Rulesets(unittest.TestCase):
     def setUp(self):
         self.rulesets = json.loads((ROOT / "config" / "rulesets.json").read_text())
         self.defaults = json.loads((ROOT / "config" / "defaults.json").read_text())
+        self.harness = json.loads((ROOT / "config" / "harness.json").read_text())
         self.main = self.rulesets["rulesets"]["main"]["rules"]
 
     def run_on(self) -> list:
         # Beside the repo's own code owners, which the check reads once `main` counts an approval (decision 0191).
         return check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets), "config/apps.json": (ROOT / "config" / "apps.json").read_text(),
                                         "config/defaults.json": json.dumps(self.defaults),
+                                        "config/harness.json": json.dumps(self.harness),
                                         ".github/CODEOWNERS": (ROOT / ".github" / "CODEOWNERS").read_text()}))
 
     def test_this_repos_rulesets_agree_with_its_lenses(self):
         self.assertEqual(self.run_on(), [])
+
+    def test_no_ruleset_and_no_required_lens_names_an_advisory_lens(self):  # decision 0224
+        # An advisory Lens's check run is always neutral, and a ruleset counts neutral as met: one that named it would
+        # hold nothing. So none does: not `main`, not a tag ruleset, not one that is switched off; not as a required
+        # check, not as a code-scanning tool; not by the Lens's name, not by its check's, in whatever case.
+        self.harness["advisory"] = ["coderabbit", "astra", "kimi"]
+        self.assertEqual(self.run_on(), [])
+        self.assertEqual(check_rulesets.CHECK % "astra", "advisory-astra")
+        for name in ("advisory-astra", "astra", "kimi", "advisory-kimi", "coderabbit", "Advisory-Astra", "KIMI", " astra "):
+            checks = self.main["required_status_checks"]["required_status_checks"]
+            lens = name.strip().lower().replace("advisory-", "")
+            for at in (0, len(checks)):         # wherever it stands among the checks required
+                checks.insert(at, {"context": name, "integration_id": 15368})
+                self.assertTrue(caught(self.run_on(), "the main ruleset names %r, the advisory Lens %s's" % (name, lens)), name)
+                checks.pop(at)
+            self.main["code_scanning"]["code_scanning_tools"].append({"tool": name})
+            self.assertTrue(caught(self.run_on(), "the main ruleset names %r, the advisory Lens" % name), name)
+            self.main["code_scanning"]["code_scanning_tools"].pop()
+            for title in ("factory release tags", "another ruleset"):
+                kept = json.loads(json.dumps(self.rulesets))
+                held = self.rulesets["rulesets"].setdefault(title, {"target": "branch", "enforcement": "disabled", "rules": {}})
+                held["rules"]["required_status_checks"] = {"required_status_checks": [{"context": name}]}
+                self.assertTrue(caught(self.run_on(), "the %s ruleset names %r, the advisory Lens" % (title, name)), (title, name))
+                self.rulesets = kept
+                self.main = self.rulesets["rulesets"]["main"]["rules"]
+        # A check that only holds such a name within it is another check, and is held by the rules there already.
+        for name in ("advisory-astra-2", "astral", "advisory-"):
+            self.main["code_scanning"]["code_scanning_tools"].append({"tool": name})
+            self.assertFalse(caught(self.run_on(), "the advisory Lens"), name)
+            self.main["code_scanning"]["code_scanning_tools"].pop()
+        self.assertEqual(self.run_on(), [])
+        # Nor is one made required by another road: a required Lens of that name, or with that check.
+        lenses = self.defaults["required_lenses"]
+        for change in ({"lens": "astra"}, {"check": "advisory-astra"}, {"check": "Kimi"}, {"check": " advisory-kimi "}, {"lens": "ASTRA"}):
+            lenses["deterministic"].append(dict({"lens": "lint", "check": "lint", "app_id": 15368, "workflow": None}, **change))
+            self.assertTrue(caught(self.run_on(), "a required Lens is named %r, the advisory Lens" % list(change.values())[0]), change)
+            lenses["deterministic"].pop()
+        for name in ("astra", "Astra ", " KIMI"):
+            lenses["model"].append(name)
+            self.assertTrue(caught(self.run_on(), "a required Lens is named %r, the advisory Lens %s's" % (name, name.strip().lower())))
+            lenses["model"].pop()
+        # A ruleset in a shape this check does not read is a problem, never one that names nothing.
+        kept = json.loads(json.dumps(self.rulesets))
+        for odd in ([{"type": "required_status_checks"}], None, "rules"):
+            self.rulesets["rulesets"]["another ruleset"] = {"target": "branch", "enforcement": "disabled", "rules": odd}
+            self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"), odd)
+        for odd in ("astra", ["advisory-astra"], [{"name": "advisory-astra"}], [{"context": 7}], {"advisory-astra": {}}):
+            self.rulesets["rulesets"]["another ruleset"] = {"rules": {"required_status_checks": {"required_status_checks": odd}}}
+            self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"), odd)
+            self.rulesets["rulesets"]["another ruleset"] = {"rules": {"code_scanning": {"code_scanning_tools": odd}}}
+            self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"), odd)
+        self.rulesets = kept
+        self.main = self.rulesets["rulesets"]["main"]["rules"]
+        self.assertEqual(self.run_on(), [])
+        # With no list of the advisory Lenses to read, nothing is shown, and the check says so.
+        for unreadable in ({}, {"advisory": "astra"}, {"advisory": [7]}, {"advisory": None}):
+            self.harness = unreadable
+            self.assertTrue(caught(self.run_on(), "cannot be read for the advisory Lenses"), unreadable)
 
     def test_main_counts_the_machine_users_approval_as_the_switch_left_it(self):  # decision 0191
         # Issue 198's switch was made on 2026-11-11, once a Release on `next` had reviewed a pull request, the Factory's
@@ -13949,7 +14135,7 @@ class Rulesets(unittest.TestCase):
 
         def run(rulesets):
             return check_rulesets.run(tree({"config/rulesets.json": json.dumps(rulesets),
-                                            "config/defaults.json": json.dumps(self.defaults), "config/apps.json": apps,
+                                            "config/defaults.json": json.dumps(self.defaults), "config/harness.json": json.dumps(self.harness), "config/apps.json": apps,
                                             ".github/CODEOWNERS": (ROOT / ".github" / "CODEOWNERS").read_text()}))
         name = check_rulesets.CHANNEL_BRANCHES
         self.assertEqual(run(self.rulesets), [])
@@ -13989,7 +14175,7 @@ class Rulesets(unittest.TestCase):
         apps = (ROOT / "config" / "apps.json").read_text()
 
         def run(rulesets, table=apps):
-            return check_rulesets.run(tree({"config/rulesets.json": json.dumps(rulesets), "config/defaults.json": json.dumps(self.defaults),
+            return check_rulesets.run(tree({"config/rulesets.json": json.dumps(rulesets), "config/defaults.json": json.dumps(self.defaults), "config/harness.json": json.dumps(self.harness),
                                             "config/apps.json": table, ".github/CODEOWNERS": (ROOT / ".github" / "CODEOWNERS").read_text()}))
 
         self.assertEqual(run(self.rulesets), [])
@@ -14046,7 +14232,7 @@ class Rulesets(unittest.TestCase):
                       require_extra_approval_for_unattributed_changes=False)
         owners = (ROOT / ".github" / "CODEOWNERS").read_text() if owners is None else owners
         return check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets), "config/apps.json": (ROOT / "config" / "apps.json").read_text(),
-                                        "config/defaults.json": json.dumps(self.defaults), ".github/CODEOWNERS": owners}))
+                                        "config/defaults.json": json.dumps(self.defaults), "config/harness.json": json.dumps(self.harness), ".github/CODEOWNERS": owners}))
 
     def test_an_approval_counts_only_a_code_owners_of_the_last_push(self):  # issue 366
         # The switch issue 198 makes is let through: the machine user's team owns every path.
@@ -14089,13 +14275,13 @@ class Rulesets(unittest.TestCase):
         # Code owners that cannot be read, under a ruleset that counts an approval, are a problem, never none.
         self.counted()
         self.assertTrue(caught(check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets), "config/apps.json": (ROOT / "config" / "apps.json").read_text(),
-                                                        "config/defaults.json": json.dumps(self.defaults)})),
+                                                        "config/defaults.json": json.dumps(self.defaults), "config/harness.json": json.dumps(self.harness)})),
                                ".github/CODEOWNERS cannot be read"))
         # A ruleset that counts no approval, of anyone, reads no code owners at all.
         self.main["pull_request"].update(required_approving_review_count=0, require_code_owner_review=False,
                                          require_last_push_approval=False)
         self.assertEqual(check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets), "config/apps.json": (ROOT / "config" / "apps.json").read_text(),
-                                                  "config/defaults.json": json.dumps(self.defaults),
+                                                  "config/defaults.json": json.dumps(self.defaults), "config/harness.json": json.dumps(self.harness),
                                                   ".github/CODEOWNERS": "docs/ @someone-else\n"})), [])
 
     def test_files_that_cannot_be_read_are_a_problem(self):

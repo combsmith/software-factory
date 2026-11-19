@@ -30,11 +30,12 @@ COVERAGE_AGAINST = ("config/rubric-pr-review.json", "examples/finding.json", "ex
 # reference, and carries nothing; a data file a person edits carries `schema`, its path being its identity and the commit
 # its Release. A document's class names its identity.
 ENVELOPE = {"task": ("document", "run"), "result": ("document", "run"), "applied": ("document", "run"),
-            "outcome": ("document", "run"), "verdict": ("document", "run"), "pass": ("document", "pass"), "writes": ("document", "pass"),
+            "outcome": ("document", "run"), "verdict": ("document", "run"), "advice": ("document", "run"), "pass": ("document", "pass"), "writes": ("document", "pass"),
             "written": ("document", "pass"), "view-meta": ("document", "pass"),
             "view-items": ("document", "pass"), "health": ("document", "pass"),
             "eval-report": ("document", "commit"), "eval-aggregate": ("document", "commit"), "eval-ledger": ("document", "commit"),
             "facts": "record", "issue-facts": "record", "seen": "record", "decision": "record", "issue-decision": "record", "finding": "record",
+            "advice-answer": "record",
             "effect": "part", "disposition": "part", "coverage": "part", "run-name": "part", "run-record": "part",
             "view-item": "part",
             "config": "data", "hooks": "data", "lifecycle": "data", "authority": "data", "apps": "data", "rubric": "data", "checklist": "data",
@@ -49,7 +50,7 @@ RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # is held by that kind's own rules, so the existing records are not swept.
 CODES_ONLY = ("task", "result", "effect", "disposition", "run-name", "coverage", "run-record",
               "pass", "writes", "written", "applied", "outcome", "view-meta", "view-items", "view-item", "health", "role", "feed",
-              "eval-set", "eval-report", "eval-aggregate", "eval-ledger", "rings")
+              "eval-set", "eval-report", "eval-aggregate", "eval-ledger", "rings", "advice")
 TEXT_FIELD = "body"
 UNTRUSTED_FIELD = "untrusted"
 UNTRUSTED_KIND = "view-item"
@@ -237,6 +238,18 @@ def _table(feed, decision_schema) -> list:
     return out
 
 
+def _readers(harness) -> list:
+    """What harness/1 cannot say of its readers, since a schema here has no rule on a key: each is an advisory Lens of
+    the same file, by a name advice/1 can hold (decision 0224)."""
+    out = []
+    for name in sorted(harness.get("readers", {})):
+        if name not in harness["advisory"]:
+            out.append("harness: the reader %s is no advisory Lens; name it under advisory, or take its block out" % name)
+        elif not re.fullmatch(r"[a-z]{1,31}", name):
+            out.append("harness: the reader %s has a name advice/1 cannot hold: letters alone, 31 at most" % name)
+    return out
+
+
 def _unprotected(value) -> list:
     """What is wrong with `value`, a Consumer entry valid to its schema: nothing, or its setup or test script that none
     of its protected paths names, by the Kernel's own matcher, so that an author could weaken the tests it is judged by
@@ -382,6 +395,8 @@ def run(root: pathlib.Path = ROOT) -> list:
             errors = check_authority.opening_problems(value, root)
         if kind == "consumer" and not errors:
             errors = _unprotected(value)
+        if kind == "harness" and not errors:
+            errors = _readers(value)
         if not errors:
             problems.append("invalid/%s: was accepted, and must be rejected" % path.name)
         elif len(errors) > 1:
@@ -398,6 +413,8 @@ def run(root: pathlib.Path = ROOT) -> list:
         errors = validate(value, schemas[kind], schemas=schemas)
         if kind == "feed" and not errors and "decision" in schemas:
             errors = _table(value, schemas["decision"])
+        if kind == "harness" and not errors:
+            errors = _readers(value)
         if kind == "eval-set" and not errors and value.get("gate") is True:
             # Held first as the job reads it, so that a gate set the schema lets leave out what it gives of its own is
             # a problem named, never a crash further on (the Claude read of the follow-on to #642).
