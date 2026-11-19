@@ -429,6 +429,10 @@ class World:
             # GitHub: a_contract_approval_stays_on_its_commit
             "acceptance": self.acceptance(),
             "opened_for": self.opened_for,
+            # How its issue stands, as the Controller's join fills it: open for the agent's pull request in every world,
+            # since no person holds or closes the issue here, and null where it was opened for no issue;
+            # tests/test_transitions.py explores a hold and a close (decision 0232).
+            "issue_stands": "open" if self.opened_for is not None else None,
             "complete": {"acceptance": True, "reviews": True, "threads": True, "checks": True, "diff": True,
                          "changed_paths": True, "runs": True, "timeline": True},
             "read_at": self.now(),

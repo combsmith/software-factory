@@ -145,6 +145,10 @@ CODE_CHARS = "abcdefghijklmnopqrstuvwxyz_"
 
 # Labels: the human's input vocabulary.
 LABEL_HOLD = "factory:hold"
+# How the issue a pull request was opened for stands, as a person left it: open, held by a person, or closed by one
+# (decision 0232). Any other word, or none, is not read.
+ISSUE_OPEN = "open"
+ISSUE_STANDS = ("open", "held", "closed")
 LABEL_HANDS_OFF = "factory:hands-off"
 LABEL_ADMIT = "factory:admit"
 # The labels the Kernel reads on a pull request, and what the timeline records was done to one.
