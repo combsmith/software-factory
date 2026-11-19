@@ -214,3 +214,19 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
     if problems:
         raise Unanswered("the issue's facts do not hold to issue-facts/1: %s" % problems[0])
     return found, title
+
+
+def stood(transport, repo: str, number: int, accounts: timeline.Accounts) -> dict:
+    """What `kernel/issue.py`'s `stands` reads of issue `number`, for the pull request the Factory opened for it
+    (decision 0232): its state, its own label events, told by account as `read` tells them, and whether its timeline was
+    read whole. Its linked pull requests, its edits and its content are not read. The issue is read once more after its
+    timeline, and refused if it moved, so a Hold placed while it was read is seen at the next pass."""
+    issue = own(transport, repo, number)
+    events, whole = timeline.events(transport, {"number": number, "base": {"repo": {"full_name": repo}}})
+    state = _field(issue, "state")
+    if state not in STATES:
+        raise Unanswered("the issue's state cannot be read")
+    labels = timeline.label_events(events, accounts)
+    if _field(own(transport, repo, number), "updated_at") != _field(issue, "updated_at"):
+        raise facts.Moved("the issue changed while it was read; it is read again at the next pass")
+    return {"state": state, "label_events": labels, "complete": {"timeline": whole}}

@@ -41,7 +41,7 @@ from adapters import applied, facts as facts_, identity, issues as issues_, item
 from adapters.facts import accounts_of as accounts, app_names_of, dispatcher_of as dispatcher, opener_of as opener, queue_of, \
     roles_of
 from adapters.github import Live, Unanswered
-from controller import configuration as configured, pass_, reads as reads_, reconcile, writes as writes_
+from controller import configuration as configured, issue_holds, pass_, reads as reads_, reconcile, writes as writes_
 from controller.shared import Refused, key as page
 from harness import steps
 from kernel.terms import BOT_SUFFIX
@@ -273,6 +273,18 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
         except Unanswered as err:
             issues.append({"facts": {"item": {"repo": home, "type": "issue", "number": number}}, "title": None,
                            "unread": reads_.MOVED if isinstance(err, facts_.Moved) else reads_.UNANSWERED})
+    # How the issue each pull request the Factory opened stands with: one read of each, open or closed, served or not;
+    # one that cannot be read leaves the fact unread, and the pull request defers (decision 0232). While the issues'
+    # Apps cannot be told, or the tracking issue's number was not read, none is read: each is unread, as the issues are.
+    stood = {}
+    for number in issue_holds.wanted(pulls):
+        try:
+            if refused or apart is None:
+                raise Unanswered("the issues cannot be read")
+            stood[number] = issues_.stood(transport, home, number, who)
+        except Unanswered:
+            stood[number] = None
+    pulls = issue_holds.join(pulls, stood, pass_.issue_config(config["kernel"]))
     return {"started": started, "pause": pause_.read(transport, home.split("/")[0], [home]),
             "records": runs, "pull_requests": pulls, "issues": issues, pass_.ISSUE_APPS: refused,
             "facts_reads": facts_reads, "usage": {}, "seen": seen, "unread": unread, "gone": gone, "effects": effects}

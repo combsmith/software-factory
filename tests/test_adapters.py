@@ -6177,6 +6177,30 @@ class Issues(unittest.TestCase):
         self.assertNotIn(title, json.dumps(found))
         return found
 
+    def test_how_an_issue_stands_is_read_from_its_state_and_its_own_label_events_alone(self):  # decision 0232
+        # The issue, its timeline, and the issue once more: no edit, no content and no linked pull request is asked.
+        def stood(events=(), more=False, again=None, **change):
+            read = issue_read(list(events), more=more, **change)
+            later = [rest_answer("/repos/o/r/issues/41/timeline?per_page=100&page=2", {})] if more else []
+            exchanges = read[:2] + later + [again or read[-1]]
+            router = Router(github.Replay(exchanges), {"don-petry": "admin"})
+            accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]})
+            return issues.stood(router, "o/r", 41, accounts)
+        held = stood([issue_event("labeled", 1, label={"name": "factory:hold"}), issue_event("commented", 2)])
+        self.assertEqual(held, {"state": "open", "complete": {"timeline": True}, "label_events": [
+            {"label": "factory:hold", "action": "labeled", "at": minute(1),
+             "by": {"kind": "human", "name": "don-petry", "can_write": True}}]})
+        self.assertEqual(stood(state="closed"), {"state": "closed", "label_events": [], "complete": {"timeline": True}})
+        # A timeline whose next page cannot be read is not whole, so `stands` reads the labels as unread.
+        self.assertFalse(stood(more=True)["complete"]["timeline"])
+        # A state GitHub does not give is refused; so is an issue that moved while it was read.
+        with self.assertRaises(github.Unanswered):
+            stood(state="Closed")
+        moved = issue_read()[-1]
+        moved = dict(moved, response=dict(moved["response"], body=dict(moved["response"]["body"], updated_at="2026-10-11T12:59:00Z")))
+        with self.assertRaises(facts.Moved):
+            stood(again=moved)
+
     def test_an_issues_timeline_is_whole_only_when_its_last_page_names_no_next(self):  # P-33, decision 0218
         said = issue_event("commented", 0)
         whole = self.read(issue_read([said]))
