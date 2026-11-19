@@ -187,8 +187,11 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         got = parts.get(name)
         whole &= isinstance(got, tuple) and len(got) == 2 and isinstance(got[0], list) and got[1] is True
         parts[name] = got[0] if isinstance(got, tuple) and len(got) == 2 and isinstance(got[0], list) else []
-    if kept in (LEFT, GONE) and item["type"] == "pull_request":
-        whole &= any(_object(e).get("event") in ("closed", "merged")
+    # One that left is read with its close: an issue's close, or a pull request's close or merge, in the window, or any
+    # for one a pass before read as gone (issues 787 and 916).
+    if kept in (LEFT, GONE):
+        ends = ("closed", "merged") if item["type"] == "pull_request" else ("closed",)
+        whole &= any(_object(e).get("event") in ends
                      and (kept == GONE or _at(_object(e).get("created_at"), since)) for e in parts["events"])
 
     def add(by, kind, key, at, commit=NO_COMMIT):

@@ -685,6 +685,25 @@ class SeenPort(unittest.TestCase):
         none = {**answers, ("GET", ISSUE + "/timeline?per_page=100"): []}
         self.assertIs(seen_.read(GitHub(none), ITEM, seen_.GONE, IDENTITIES, APPS, SINCE)[2], False)
 
+    def test_an_issue_that_left_is_read_with_its_close(self):  # issue 916, decision 0235
+        # An issue the pass before served that has left is read as a pull request that left is: whole only with its
+        # close, in the window, or any for one a pass before read as gone. A merge is no issue's close. The Controller's
+        # close and label on it are writes.
+        issue = dict(ITEM, type="issue")
+        def read(events, kept):
+            github = GitHub({("GET", ISSUE + "/timeline?per_page=100"): events})
+            return seen_.read(github, issue, kept, IDENTITIES, APPS, SINCE)
+        closed = [{"event": "labeled", "actor": CONTROLLER, "created_at": AT},
+                  {"event": "closed", "actor": CONTROLLER, "created_at": AT}]
+        writes, _, whole = read(closed, seen_.LEFT)
+        self.assertEqual(([(w["by"], w["kind"]) for w in writes], whole), ([("controller", "label"), ("controller", "close")], True))
+        old = [{"event": "closed", "actor": PERSON, "created_at": EARLY}]
+        self.assertEqual((read(old, seen_.LEFT)[2], read(old, seen_.GONE)[2]), (False, True))
+        for none in ([], [{"event": "merged", "actor": PERSON, "created_at": AT}]):
+            self.assertEqual((read(none, seen_.LEFT)[2], read(none, seen_.GONE)[2]), (False, False), none)
+        # An open issue, served, needs no close.
+        self.assertIs(read([], None)[2], True)
+
     def test_an_item_that_left_the_open_list_has_its_timeline_read_here(self):  # issue 329
         # A pull request merged or closed between the passes is no longer open, so no snapshot reads it: its timeline
         # is read here, and with it a close by a Factory identity and a merge for an Override.
@@ -967,6 +986,24 @@ class Carried(unittest.TestCase):
 
     def effects(self, *a, written_=(), runs=(), passes=(), whole=True, at=None):
         return dict(recorded(a, written_, whole), read={"runs": list(runs), "passes": list(passes)}, at=at or {})
+
+    def test_the_issues_owed_and_left_are_carried_as_the_pull_requests_are(self):  # issue 916, decision 0235
+        # The issues a pass owes are carried as such, and read again; those it read as left are stamped with now, and a
+        # stamp a record before made is kept while the window holds it, so the next pass reads them as gone.
+        held = reconcile.carried([], self.effects(), seen(), self.NOW, unread_issues=[9, 9], gone_issues=[41])
+        self.assertEqual((held["owed_issues"], held["left_issues"]), ([9], [{"number": 41, "at": self.NOW}]))
+        before = [{"now": self.NOW, "pull_requests": [], "reconciled": held}]
+        self.assertEqual((reconcile.owed_issues(before), reconcile.left_issues(before), reconcile.left_issues(before, SINCE)),
+                         ([9], [41], [41]))
+        # The next pass keeps the stamp inside the window and pays the debt it read; past the window the stamp is dropped.
+        again = reconcile.carried(before, self.effects(), seen(), self.NEXT)
+        self.assertEqual((again["left_issues"], "owed_issues" in again), ([{"number": 41, "at": self.NOW}], False))
+        late = reconcile.carried(before, self.effects(), dict(seen(), since="2026-10-11T14:00:00Z"), self.NEXT)
+        self.assertNotIn("left_issues", late)
+        self.assertEqual(reconcile.left_issues(before, "2026-10-11T14:00:00Z"), [])
+        # A record with neither carries neither, as one written before them.
+        self.assertEqual(set(reconcile.carried([], self.effects(), seen(), self.NOW)) & {"owed_issues", "left_issues"}, set())
+        self.assertEqual((reconcile.owed_issues([]), reconcile.left_issues([])), ([], []))
 
     def test_what_a_pass_read_matches_a_write_in_the_passes_after_it_for_the_window(self):
         read = self.effects(applied(("approve", "K", "applied"), ("comment", "L", "already_applied"), ("comment", "M", "failed")),
