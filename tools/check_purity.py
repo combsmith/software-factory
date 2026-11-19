@@ -91,6 +91,31 @@ def _special(node) -> list:
     return [w for w in words if len(w) > 4 and w.startswith("__") and w.endswith("__")]
 
 
+def _top_names(tree) -> set:
+    """The names a module binds at its top: a function's, an assignment's, an import's."""
+    return {word for node in tree.body for word in _bound(node) + [
+        target.id for target in getattr(node, "targets", [getattr(node, "target", None)]) if isinstance(target, ast.Name)]
+        + ([alias.asname or alias.name.split(".")[0] for alias in node.names]
+           if isinstance(node, (ast.Import, ast.ImportFrom)) else [])}
+
+
+def _answered(name: str, node, word: str, read: set, bound: dict) -> bool:
+    """Whether `from <module> import word` in the file `name` is answered by what is read here: `word` is a module of
+    the package read, or a name its module's file binds at its top (issue 909). A relative import is read from the
+    file's own folder; one that climbs past the package is another rule's."""
+    folder = name.split("/")[:-1]
+    if node.level:
+        if node.level - 1 > len(folder):
+            return True
+        parts = folder[:len(folder) - (node.level - 1)] + (node.module.split(".") if node.module else [])
+    else:
+        parts = node.module.split(".")[1:]
+    module = ["/".join(parts + ["__init__.py"]).lstrip("/"), "/".join(parts) + ".py"]
+    inner = "/".join(parts + [word])
+    return (word == "*" or inner + ".py" in read or inner + "/__init__.py" in read
+            or any(word in bound.get(m, ()) for m in module))
+
+
 def _constant(node, held: frozenset = frozenset()) -> bool:
     """Whether `node` is a value that cannot change after import: a constant, a tuple of them, or a call of
     CONSTANT_CALLS whose arguments call nothing but another such call and name nothing but `held`, the names bound at
@@ -750,6 +775,7 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
     takers = _takers(trees)
     tops = {name: _names(name, tree, trees) for name, tree in trees.items()}
     problems += _packages(trees, tops)
+    bound = {name: _top_names(tree) for name, tree in trees.items()}
     for name, tree in trees.items():
         problems += _confined(name, tree, owned)
         problems += _calls(name, tree, trees, takers, tops)
@@ -773,6 +799,11 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
                 if mod.split(".")[0] == "kernel" and inner and inner + ".py" not in read and inner + "/__init__.py" not in read:
                     problems.append("%s:%d imports %s, which no file read here is: Python would import what this does "
                                     "not read" % (name, line, mod))
+            if isinstance(node, ast.ImportFrom) and (node.level or (node.module or "").split(".")[0] == "kernel"):
+                for alias in node.names:
+                    if not _answered(name, node, alias.name, read, bound):
+                        problems.append("%s:%d imports %s from %s, which no file read here is and its module binds no "
+                                        "such name" % (name, line, alias.name, "." * node.level + (node.module or "")))
             if package == "kernel" and isinstance(node, ast.ImportFrom) and node.level > name.count("/") + 1:
                 problems.append("%s:%d imports %s, from above kernel/, which no rule here reads"
                                 % (name, line, "." * node.level + (node.module or "")))

@@ -17595,6 +17595,12 @@ MUTANTS = ISSUE + [
      '    own = _alone(root, read, trees, package)\n',
      '    own = []\n', ('tests.test_tools.Purity.test_the_guards_are_held_as_the_kernel_is_and_import_themselves_alone',)),
     # Issue 909: six older ways past the Kernel's rules.
+    ("a from-import's names are not read", "tools/check_purity.py",
+     '                    if not _answered(name, node, alias.name, read, bound):\n', '                    if False:\n', ("tests.test_tools.Purity.test_six_older_ways_past_the_kernels_rules_are_caught",)),
+    ("a name a module binds answers no from-import", "tools/check_purity.py",
+     '\n            or any(word in bound.get(m, ()) for m in module))', ')', ("tests.test_tools.Purity.test_six_older_ways_past_the_kernels_rules_are_caught",)),
+    ("a relative from-import is not read", "tools/check_purity.py",
+     '            if isinstance(node, ast.ImportFrom) and (node.level or (node.module or "").split(".")[0] == "kernel"):\n', '            if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "kernel":\n', ("tests.test_tools.Purity.test_six_older_ways_past_the_kernels_rules_are_caught",)),
     ("a frozenset may keep what a call in it gives", "tools/check_purity.py",
      '    if isinstance(node, ast.Call):\n        return _constant(node, held)\n', '    if isinstance(node, ast.Call):\n        return True\n', ("tests.test_tools.Purity.test_six_older_ways_past_the_kernels_rules_are_caught",)),
     ("a frozenset of a frozenset is refused", "tools/check_purity.py",

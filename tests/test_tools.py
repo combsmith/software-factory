@@ -2239,6 +2239,13 @@ class Purity(unittest.TestCase):
         self.assertEqual(run({"kernel/terms.py": "A = 'a'\n", "kernel/sub/y.py": "B = 'b'\n", "kernel/x.py":
                               "import kernel.terms as t\nimport kernel.sub.y as y\nfrom kernel.sub import y as z\n"
                               "from kernel import terms\n\n\ndef f():\n    return t.A, y.B, z.B, terms.A\n"}), [])
+        # And each name a from-import takes, absolute or relative, is a module read here or a name its module binds.
+        for line in ("from kernel import gone\n", "from .gone import now\n", "from kernel.sub import missing\n",
+                     "from . import gone\n", "from kernel.terms import B\n"):
+            self.assertTrue(caught(run({"kernel/terms.py": "A = 'a'\n", "kernel/sub/__init__.py": "", "kernel/x.py": line}),
+                                   "no file read here is and its module binds no such name"), line)
+        self.assertEqual(run({"kernel/terms.py": "A = 'a'\n", "kernel/sub/y.py": "", "kernel/x.py":
+                              "from kernel.terms import A\nfrom . import terms\nfrom .sub import y\nfrom .terms import A as C\n"}), [])
         # 4. The package itself, imported under a name, is no module of it: nothing is read off it.
         self.assertTrue(caught(run({"kernel/q.py": "", "kernel/x.py": "import kernel as k\n\n\ndef f():\n    return k.q\n"}),
                                "x.py:5 reads q off a value"))
