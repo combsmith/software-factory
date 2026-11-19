@@ -43,6 +43,24 @@ class Transport(unittest.TestCase):
             azure.request(Any("delete"), None, ASKED)
         with self.assertRaises(azure.Unanswered):
             azure.read(Text(ID))
+
+        class Lying(dict):      # a kind of dict that says it is not empty, and one that says it is
+            def __bool__(self):
+                return True
+
+        class Hostile:          # an act whose own comparison raises
+            def __eq__(self, other):
+                raise RuntimeError("compared")
+        for act, body in (("create", Lying()), ("chat", Lying()), (Hostile(), ASKED), (Hostile(), None)):
+            with self.assertRaises(azure.Unanswered, msg=(act, body)):
+                azure.request(act, ID if body is None else None, body)
+        # Each named request is held as `request` holds one, and a request built by hand with a part too few is refused.
+        for made, given in ((azure.create, {}), (azure.chat, {}), (azure.create, Lying()), (azure.read, "../x"),
+                            (azure.cancel, "../x"), (azure.cancel, Text(ID))):
+            with self.assertRaises(azure.Unanswered, msg=(made.__name__, given)):
+                made(given)
+        with self.assertRaises(azure.Unanswered):
+            azure.wire({"act": "read", "id": ID})
         # A request built by hand is held to the same rules before it is written as a method and a path.
         for req in ({"act": "read", "id": "../files", "body": None}, {"act": "upload", "id": None, "body": ASKED},
                     {"act": "create", "id": None, "body": ASKED, "path": "/openai/v1/files"},

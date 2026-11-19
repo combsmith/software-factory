@@ -231,7 +231,9 @@ def _python(rel: pathlib.PurePath, text: str) -> list:
         problems += _stub(rel, tree)
     for node in ast.walk(tree):
         line = getattr(node, "lineno", 0)
-        if isinstance(node, ast.Constant) and isinstance(node.value, str) and STORAGE.search(node.value) \
+        # In text or in bytes, since the second transport reaches the network too (decision 0224).
+        if isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes)) \
+                and STORAGE.search(node.value if isinstance(node.value, str) else node.value.decode("latin-1")) \
                 and not transport and rel.parts[0] != "tests":
             problems.append("%s:%d names GitHub's artifact storage, which only %s reaches" % (rel, line, TRANSPORT))
         if advisory and isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes)) \
