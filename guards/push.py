@@ -104,9 +104,9 @@ def _plain(value) -> bool:
         if type(value) is dict:
             if not all(type(key) is str for key in value):
                 return False
-            left.extend(value.values())
+            left += list(value.values())
         elif type(value) is list:
-            left.extend(value)
+            left += value
         elif value is not None and type(value) not in (str, int, bool):
             return False
     return True
@@ -391,7 +391,7 @@ def seen(state, method, path, body, answer):
         return dict(state, before=listing)
     if step == BLOB_READ:
         # The blob asked for, in base64: what the port reads under a push of no changes is what `applied` patches.
-        if (not isinstance(got, dict) or got.get("sha") != path[path.rindex("/") + 1:] or got.get("encoding") != BASE64
+        if (not isinstance(got, dict) or got.get("sha") != path.split("/")[-1] or got.get("encoding") != BASE64
                 or type(got.get("content")) is not str):
             return None
         return state
