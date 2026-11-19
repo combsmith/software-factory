@@ -276,9 +276,10 @@ ACTIONS_WRITE = {PASS_JOB, WAKE_JOB, LANE_JOB}
 # is the second exempt install, its version the Engine's pin in config/harness.json, and its checksum CLI_CHECKSUM, the
 # one the vendor's release manifest gives for linux-x64; a pull request that moves the pin moves the checksum.
 # Between the reader's step and the model's, `run` asks the advisory readers (decision 0224): the advise step alone holds
-# the Azure key, and no other secret, under a limit of its own that the job's was raised to hold; what the readers
-# cost, and each reader's Result with its digest, go up as artifacts of their own before the model's step, and a file
-# that is not there fails nothing.
+# the Azure key, and no other secret, under a limit of its own that the job's was raised to hold. Before the CLI's
+# install, the step `unasked` writes the Run's advisory cost with no asks, given the run-name alone, so `run` fetches
+# its tags to name its Release. After the Result's upload the cost goes up under `if: always()`, and each reader's
+# Result with its digest where every step before passed; `apply` downloads each reader's by the id `run` hands on.
 PASS_WORKFLOW = "pass.yml"
 # The pass, held word for word: the record uploaded before anything is dispatched, the Controller's key on its two steps
 # alone, the pass's own token on the writes' step alone, and the record of each write uploaded whatever failed.
@@ -354,15 +355,23 @@ jobs:
       engine: ${{ steps.engine.outcome }}
       artifact: ${{ steps.result.outputs.artifact-id }}
       reader: ${{ steps.reader.outputs.artifact-id }}
+      advice_astra: ${{ steps.astra.outputs.artifact-id }}
+      advice_kimi: ${{ steps.kimi.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ job.workflow_sha }}
+          fetch-tags: true
           persist-credentials: false
       - name: Hand on the commit it checked out, which every later job checks out
         id: commit
         timeout-minutes: 1
         run: python3 -m harness.steps
+      - name: Say that no advisory reader has been asked, before anything can stop the Run
+        env:
+          NAME: ${{ inputs.name }}
+        timeout-minutes: 1
+        run: python3 -m harness.unasked
       - name: Install the CLI at the Engine's pin
         env:
           CLI_VERSION: "%(version)s"
@@ -391,24 +400,6 @@ jobs:
           ADVISORY_AZURE_KEY: ${{ secrets.ADVISORY_AZURE_KEY }}
         timeout-minutes: 20
         run: python3 -m harness.advise
-      - name: Upload what the readers cost, which the Controller's pass reads
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: advice-cost
-          path: advice/advice-cost.json
-          if-no-files-found: ignore
-      - name: Upload what astra said, with its digest, for apply
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: advice-astra
-          path: advice/advice.astra.*
-          if-no-files-found: ignore
-      - name: Upload what kimi said, with its digest, for apply
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: advice-kimi
-          path: advice/advice.kimi.*
-          if-no-files-found: ignore
       - name: Run the Engine
         id: engine
         env:
@@ -423,6 +414,27 @@ jobs:
           name: result
           path: result/
           if-no-files-found: error
+      - name: Upload what the readers cost, which the Controller's pass reads
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: advice-cost
+          path: advice/advice-cost.json
+          if-no-files-found: ignore
+      - name: Upload what astra said, with its digest, for apply
+        id: astra
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: advice-astra
+          path: advice/advice.astra.*
+          if-no-files-found: ignore
+      - name: Upload what kimi said, with its digest, for apply
+        id: kimi
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: advice-kimi
+          path: advice/advice.kimi.*
+          if-no-files-found: ignore
       - name: Upload the reader's outcome, which it leaves when the Run's Release is not its pass's
         id: reader
         if: failure() && steps.read.outcome == 'failure'
@@ -485,6 +497,16 @@ jobs:
         with:
           artifact-ids: ${{ needs.run.outputs.reader }}
           path: reader-outcome
+      - if: always() && needs.run.outputs.advice_astra != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.run.outputs.advice_astra }}
+          path: advice
+      - if: always() && needs.run.outputs.advice_kimi != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.run.outputs.advice_kimi }}
+          path: advice
       - name: Apply the Result
         if: always()
         env:

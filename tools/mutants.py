@@ -178,12 +178,20 @@ ADVICE_UPLOADS = ("tests.test_tools.Workflows.test_the_readers_cost_and_each_rea
 ADVISE_ASKS = ("      - name: Ask the advisory readers, which never fails the Run\n        env:\n"
                "          ADVISORY_AZURE_KEY: ${{ secrets.ADVISORY_AZURE_KEY }}\n        timeout-minutes: 20\n"
                "        run: python3 -m harness.advise\n")
-ADVICE_COST_UP = ("      - name: Upload what the readers cost, which the Controller's pass reads\n"
+ADVICE_COST_UP = ("      - name: Upload what the readers cost, which the Controller's pass reads\n        if: always()\n"
                   "        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        with:\n"
                   "          name: advice-cost\n          path: advice/advice-cost.json\n          if-no-files-found: ignore\n")
-ADVICE_KIMI_UP = ("      - name: Upload what kimi said, with its digest, for apply\n"
+ADVICE_KIMI_UP = ("      - name: Upload what kimi said, with its digest, for apply\n        id: kimi\n"
                   "        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        with:\n"
                   "          name: advice-kimi\n          path: advice/advice.kimi.*\n          if-no-files-found: ignore\n")
+RESULT_UP = ("      - name: Upload the Result\n        id: result\n"
+             "        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        with:\n"
+             "          name: result\n          path: result/\n          if-no-files-found: error\n")
+ADVICE_KIMI_DOWN = ("      - if: always() && needs.run.outputs.advice_kimi != ''\n"
+                    "        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2\n        with:\n"
+                    "          artifact-ids: ${{ needs.run.outputs.advice_kimi }}\n          path: advice\n")
+UNASKED_STEP = ("tests.test_tools.Workflows.test_the_run_says_that_no_reader_was_asked_before_anything_can_stop_it",)
+ADVICE_DOWNLOADS = ("tests.test_tools.Workflows.test_apply_is_handed_each_readers_result_where_the_run_job_left_one",)
 ENGINE_RUNS = ("      - name: Run the Engine\n        id: engine\n        env:\n          CLAUDE_CLI: /usr/local/bin/claude\n"
                "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n        timeout-minutes: 20\n"
                "        run: python3 -m harness.run\n")
@@ -15519,11 +15527,10 @@ MUTANTS = ISSUE + [
      '          ADVISORY_AZURE_KEY: ${{ secrets.ADVISORY_AZURE_KEY }}\n          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n',
      ADVISE_STEP),
     ("the advisory readers are asked after the model", '.github/workflows/run-jobs.yml',
-     ADVISE_ASKS + ADVICE_COST_UP + ADVICE_KIMI_UP.replace("kimi", "astra") + ADVICE_KIMI_UP + ENGINE_RUNS,
-     ENGINE_RUNS + ADVISE_ASKS + ADVICE_COST_UP + ADVICE_KIMI_UP.replace("kimi", "astra") + ADVICE_KIMI_UP, ADVISE_STEP),
+     ADVISE_ASKS + ENGINE_RUNS, ENGINE_RUNS + ADVISE_ASKS, ADVISE_STEP),
     ("the advise step is cut before its readers' time is spent", '.github/workflows/run-jobs.yml',
      '        timeout-minutes: 20\n        run: python3 -m harness.advise\n',
-     '        timeout-minutes: 18\n        run: python3 -m harness.advise\n', ADVISE_STEP),
+     '        timeout-minutes: 19\n        run: python3 -m harness.advise\n', ADVISE_STEP),
     ("the advise step may be skipped or fail softly", '.github/workflows/run-jobs.yml',
      '        run: python3 -m harness.advise\n',
      '        run: python3 -m harness.advise\n        continue-on-error: true\n', ADVISE_STEP),
@@ -15537,10 +15544,42 @@ MUTANTS = ISSUE + [
     ("one reader's Result goes up in another's artifact", '.github/workflows/run-jobs.yml',
      '          name: advice-kimi\n          path: advice/advice.kimi.*\n',
      '          name: advice-kimi\n          path: advice/advice.*\n', ADVICE_UPLOADS),
-    ("a reader's Result goes up only where the model's step passed", '.github/workflows/run-jobs.yml',
-     ADVICE_KIMI_UP + ENGINE_RUNS, ENGINE_RUNS + ADVICE_KIMI_UP, ADVICE_UPLOADS),
+    ("a reader's Result goes up before the model is asked", '.github/workflows/run-jobs.yml',
+     ENGINE_RUNS + RESULT_UP + ADVICE_COST_UP + ADVICE_KIMI_UP.replace("kimi", "astra") + ADVICE_KIMI_UP,
+     ADVICE_KIMI_UP + ENGINE_RUNS + RESULT_UP + ADVICE_COST_UP + ADVICE_KIMI_UP.replace("kimi", "astra"), ADVICE_UPLOADS),
+    ("what the readers cost goes up before the model is asked", '.github/workflows/run-jobs.yml',
+     ENGINE_RUNS + RESULT_UP + ADVICE_COST_UP, ADVICE_COST_UP + ENGINE_RUNS + RESULT_UP, ADVICE_UPLOADS),
     ("a reader the configuration holds has no artifact", '.github/workflows/run-jobs.yml',
-     ADVICE_KIMI_UP + ENGINE_RUNS, ENGINE_RUNS, ADVICE_UPLOADS),
+     ADVICE_KIMI_UP, "", ADVICE_UPLOADS),
+    ("a Run that stopped early uploads no advisory cost", '.github/workflows/run-jobs.yml',
+     ADVICE_COST_UP, ADVICE_COST_UP.replace("        if: always()\n", ""), ADVICE_UPLOADS),
+    ("a reader's Result goes up whatever failed before it", '.github/workflows/run-jobs.yml',
+     ADVICE_KIMI_UP, ADVICE_KIMI_UP.replace("        id: kimi\n", "        id: kimi\n        if: always()\n"), ADVICE_UPLOADS),
+    ("a reader's artifact is handed on to no job", '.github/workflows/run-jobs.yml',
+     '      advice_kimi: ${{ steps.kimi.outputs.artifact-id }}\n', '', ADVICE_UPLOADS),
+    ("the Run never says that no reader was asked", '.github/workflows/run-jobs.yml',
+     '        timeout-minutes: 1\n        run: python3 -m harness.unasked\n',
+     '        timeout-minutes: 1\n        run: python3 -m harness.steps\n', UNASKED_STEP),
+    ("the step that says no reader was asked is handed a key", '.github/workflows/run-jobs.yml',
+     '          NAME: ${{ inputs.name }}\n        timeout-minutes: 1\n        run: python3 -m harness.unasked\n',
+     '          NAME: ${{ inputs.name }}\n          READER_APP_KEY: ${{ secrets.READER_APP_KEY }}\n        timeout-minutes: 1\n        run: python3 -m harness.unasked\n',
+     UNASKED_STEP),
+    ("the run job's checkout has no tag to name its Release by", '.github/workflows/run-jobs.yml',
+     '          ref: ${{ job.workflow_sha }}\n          fetch-tags: true\n', '          ref: ${{ job.workflow_sha }}\n', UNASKED_STEP),
+    ("the run job's limit leaves its other steps a minute", '.github/workflows/run-jobs.yml',
+     '    timeout-minutes: 50\n    environment: factory-run\n', '    timeout-minutes: 49\n    environment: factory-run\n', UNASKED_STEP),
+    ("the Run's jobs are held with no step that says no reader was asked", 'tools/check_workflows.py',
+     '        timeout-minutes: 1\n        run: python3 -m harness.unasked\n',
+     '        timeout-minutes: 1\n        run: python3 -m harness.steps\n', UNASKED_STEP),
+    ("apply is not handed a reader's Result", '.github/workflows/run-jobs.yml', ADVICE_KIMI_DOWN, "", ADVICE_DOWNLOADS),
+    ("apply downloads a reader's Result though the run job left none", '.github/workflows/run-jobs.yml',
+     "      - if: always() && needs.run.outputs.advice_kimi != ''\n", "      - if: always()\n        id: kimi\n", ADVICE_DOWNLOADS),
+    ("a reader's Result is downloaded where apply does not read it", '.github/workflows/run-jobs.yml',
+     '          artifact-ids: ${{ needs.run.outputs.advice_kimi }}\n          path: advice\n',
+     '          artifact-ids: ${{ needs.run.outputs.advice_kimi }}\n          path: result\n', ADVICE_DOWNLOADS),
+    ("apply downloads one reader's Result twice and the other's never", '.github/workflows/run-jobs.yml',
+     '          artifact-ids: ${{ needs.run.outputs.advice_kimi }}\n', '          artifact-ids: ${{ needs.run.outputs.advice_astra }}\n',
+     ADVICE_DOWNLOADS),
     ('apply runs on no commit', 'tools/check_workflows.py',
      "    if: always() && needs.run.outputs.commit != ''\n",
      '    if: always()\n', ('tests.test_tools.Workflows.test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome',)),

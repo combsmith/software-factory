@@ -4749,7 +4749,8 @@ class Workflows(unittest.TestCase):
     def test_the_advise_step_alone_holds_the_azure_key_between_the_reader_and_the_model(self):  # decision 0224
         # The readers are asked after the reader's token is revoked and before the model's step, by a step that holds
         # the Azure key and nothing else; no other step of the file names the key; and the step's limit is past the
-        # module's own budget, since a step cut at its limit fails its job (trial P-42), which this one never may.
+        # latest the module's last request can end, by a minute for its last answers and its files, since a step cut at
+        # its limit fails its job (trial P-42), which this one never may.
         from harness import advise
         good = (self.LIVE / "run-jobs.yml").read_text()
         self.assertEqual(check_workflows.run_jobs_problems(good), [])
@@ -4759,14 +4760,14 @@ class Workflows(unittest.TestCase):
         ran = [step["run"]["value"] if "run" in step else None for step in steps]
         read, asks, model = (ran.index("python3 -m harness.%s" % name) for name in ("read", "advise", "run"))
         self.assertEqual((asks, ran.count("python3 -m harness.advise")), (read + 1, 1))
-        self.assertLess(asks, model)
+        self.assertEqual(model, asks + 1)       # nothing between them: no upload's fault keeps the model from being asked
         step = steps[asks]
         self.assertEqual(set(step), {"name", "env", "timeout-minutes", "run"})       # no if:, and nothing that softens it
         given = {e["key"]: e["value"] for e in entries if e["step"] == step["run"]["step"] and e["path"][-1] == "env"}
         self.assertEqual(given, {advise.KEY: "${{ secrets.%s }}" % advise.KEY})
         self.assertEqual([e["step"] for e in entries if advise.KEY in e["key"] + e["value"]], [step["run"]["step"]])
         self.assertEqual(check_workflows._uncommented(good).count(advise.KEY), 2)
-        self.assertGreater(int(step["timeout-minutes"]["value"]) * 60, advise.WHOLE)
+        self.assertGreaterEqual(int(step["timeout-minutes"]["value"]) * 60 - advise.LATEST_END, 60)
         # Each way the key could reach another step, or another secret this one, is not the Run's jobs.
         key = "          ADVISORY_AZURE_KEY: ${{ secrets.ADVISORY_AZURE_KEY }}\n"
         model_s = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
@@ -4786,28 +4787,97 @@ class Workflows(unittest.TestCase):
 
     def test_the_readers_cost_and_each_readers_result_go_up_as_artifacts_of_their_own(self):  # decision 0224
         # The Controller's port reads the cost by the artifact's name and its one file's, so the workflow's are the
-        # port's own; each reader the configuration holds has an artifact of its own, its Result and its digest; they go
-        # up before the model's step, and a file that is not there, as in a Run that is no review, fails nothing.
+        # port's own; each reader the configuration holds has an artifact of its own, its Result and its digest. All
+        # stand after the model's step and the Result's upload. The cost's alone runs whatever failed before it, so
+        # that a Run that stopped early still says what it asked; a reader's goes up only where every step passed, and
+        # its id is handed on for `apply`. A file that is not there fails nothing.
         from adapters import artifacts
         good = (self.LIVE / "run-jobs.yml").read_text()
         entries, _ = check_workflows.read(good)
         steps = check_workflows._steps(entries, "run")
         ran = [step["run"]["value"] if "run" in step else None for step in steps]
-        asks, model = ran.index("python3 -m harness.advise"), ran.index("python3 -m harness.run")
-        between = steps[asks + 1:model]
-        self.assertEqual([set(step) for step in between], [{"name", "uses", "with"}] * len(between))
-        self.assertEqual({(step["uses"]["value"], step["uses"]["comment"]) for step in between}, {check_workflows.UPLOAD})
-        ups = [check_workflows._with(entries, step["uses"]) for step in between]
+        model = ran.index("python3 -m harness.run")
+        self.assertEqual(ran[model + 1:], [None] * 5)
+        after = steps[model + 1:]
+        self.assertEqual({(step["uses"]["value"], step["uses"]["comment"]) for step in after}, {check_workflows.UPLOAD})
+        ups = [check_workflows._with(entries, step["uses"]) for step in after]
         harness = json.loads((ROOT / "config" / "harness.json").read_text())
         lenses = [lens for lens in harness["advisory"] if lens in harness["readers"]]
         self.assertEqual(lenses, ["astra", "kimi"])
         wanted = [{"name": artifacts.ADVICE_COST, "path": "advice/" + artifacts.ADVICE_COST_MEMBER, "if-no-files-found": "ignore"}]
         wanted += [{"name": "advice-%s" % lens, "path": "advice/advice.%s.*" % lens, "if-no-files-found": "ignore"}
                    for lens in lenses]
-        self.assertEqual(ups, wanted)
-        # No other step of the Run's jobs uploads under one of these names.
+        self.assertEqual([up["name"] for up in ups], ["result", artifacts.ADVICE_COST, "advice-astra", "advice-kimi", "reader-outcome"])
+        self.assertEqual(ups[1:4], wanted)
+        cost, said = after[1], after[2:4]
+        self.assertEqual((set(cost), cost["if"]["value"]), ({"name", "if", "uses", "with"}, "always()"))
+        self.assertEqual([(set(step), step["id"]["value"]) for step in said], [({"name", "id", "uses", "with"}, lens) for lens in lenses])
+        # No other upload of `run` runs whatever failed, and none stands before the model's step.
+        self.assertEqual([step["if"]["value"] for step in steps if "if" in step],
+                         ["always()", "failure() && steps.read.outcome == 'failure'"])
+        self.assertFalse([step for step in steps[:model] if "uses" in step and not check_workflows._checkout(step["uses"])])
+        outputs = {e["key"]: e["value"] for e in entries if e["path"] == ["jobs", "run", "outputs"]}
+        self.assertEqual({key: value for key, value in outputs.items() if key.startswith("advice")},
+                         {"advice_%s" % lens: "${{ steps.%s.outputs.artifact-id }}" % lens for lens in lenses})
         named = [e["value"] for e in entries if e["key"] == "name" and e["path"][-1:] == ["with"]]
         self.assertEqual([name for name in named if name.startswith("advice")], [up["name"] for up in wanted])
+
+    def test_the_run_says_that_no_reader_was_asked_before_anything_can_stop_it(self):  # decision 0224, the Builder's ruling
+        # A Run that stops before its advise step has left a cost of no asks: the step that writes it is the first
+        # after the two that hand on the commit, before the CLI's install and the reader, given the run-name and no
+        # secret, and the checkout fetches the tags it names its Release from. The job's limit holds every step's.
+        from harness import unasked
+        good = (self.LIVE / "run-jobs.yml").read_text()
+        self.assertEqual(check_workflows.run_jobs_problems(good), [])
+        for why, text in {"no step": good.replace("        run: python3 -m harness.unasked\n", "        run: python3 -m harness.steps\n"),
+                          "a key": good.replace("          NAME: ${{ inputs.name }}\n        timeout-minutes: 1\n",
+                                                "          NAME: ${{ inputs.name }}\n          K: ${{ secrets.READER_APP_KEY }}\n"
+                                                "        timeout-minutes: 1\n"),
+                          "a cost a failure skips": good.replace("        if: always()\n        uses", "        uses", 1)}.items():
+            self.assertNotEqual(text, good, why)
+            self.assertTrue(caught(check_workflows.run_jobs_problems(text), "it is not the Run's jobs"), why)
+        entries, _ = check_workflows.read(good)
+        steps = check_workflows._steps(entries, "run")
+        ran = [step["run"]["value"] if "run" in step else None for step in steps]
+        self.assertEqual(ran[:3], [None, "python3 -m harness.steps", "python3 -m harness.unasked"])
+        self.assertEqual(ran.count("python3 -m harness.unasked"), 1)
+        self.assertEqual(check_workflows._with(entries, steps[0]["uses"]),
+                         {"ref": "${{ job.workflow_sha }}", "fetch-tags": "true", "persist-credentials": "false"})
+        step = steps[2]
+        self.assertEqual(set(step), {"name", "env", "timeout-minutes", "run"})
+        given = {e["key"]: e["value"] for e in entries if e["step"] == step["run"]["step"] and e["path"][-1] == "env"}
+        self.assertEqual(given, {"NAME": "${{ inputs.name }}"})
+        self.assertFalse([e for early in steps[:3] for e in entries
+                          if e["step"] == next(iter(early.values()))["step"] and "secrets" in e["value"]])
+        # What it writes is what the cost's upload takes.
+        cost = next(check_workflows._with(entries, s["uses"]) for s in steps if "uses" in s
+                    and check_workflows._with(entries, s["uses"]).get("name") == "advice-cost")
+        self.assertEqual(cost["path"], "%s/%s" % (unasked.OUT, unasked.COST))
+        limits = [int(s["timeout-minutes"]["value"]) for s in steps if "run" in s]
+        job = int(next(e["value"] for e in entries if e["path"] == ["jobs", "run"] and e["key"] == "timeout-minutes"))
+        self.assertEqual((limits, job), ([1, 1, 3, 3, 20, 20], sum(limits) + check_workflows.MARGIN))
+        self.assertFalse([found for found in check_workflows.lint(good) if found[0] == "timeout"])
+
+    def test_apply_is_handed_each_readers_result_where_the_run_job_left_one(self):  # decision 0224
+        # `apply` downloads each reader's artifact by the id `run` handed on, into the folder its step reads, before
+        # that step; with no id, in a Run that is no review or whose reader left no file, the download is skipped and
+        # nothing fails. It is the form the Result's own download has, by the same pinned action.
+        from harness import unasked
+        good = (self.LIVE / "run-jobs.yml").read_text()
+        entries, _ = check_workflows.read(good)
+        steps = check_workflows._steps(entries, "apply")
+        ran = [step["run"]["value"] if "run" in step else None for step in steps]
+        downs = [step for step in steps[:ran.index("python3 -m harness.apply_step")] if "uses" in step
+                 and not check_workflows._checkout(step["uses"])]
+        self.assertEqual(len({(step["uses"]["value"], step["uses"]["comment"]) for step in downs}), 1)
+        self.assertTrue(downs[0]["uses"]["value"].startswith("actions/download-artifact@"))
+        self.assertEqual([set(step) for step in downs], [{"if", "uses", "with"}] * 4)
+        harness = json.loads((ROOT / "config" / "harness.json").read_text())
+        handed = ["artifact", "reader"] + ["advice_%s" % lens for lens in harness["advisory"] if lens in harness["readers"]]
+        self.assertEqual([step["if"]["value"] for step in downs], ["always() && needs.run.outputs.%s != ''" % name for name in handed])
+        self.assertEqual([check_workflows._with(entries, step["uses"]) for step in downs],
+                         [{"artifact-ids": "${{ needs.run.outputs.%s }}" % name, "path": path}
+                          for name, path in zip(handed, ["result", "reader-outcome", unasked.OUT, unasked.OUT])])
 
     def test_a_dash_in_a_blocks_text_is_no_step(self):  # #416's review
         # A line of a | block that starts with "- " is text, not a step of bare text; one where the steps stand is.
