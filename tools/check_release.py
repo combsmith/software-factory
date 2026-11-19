@@ -251,7 +251,7 @@ def fixture_problems(value, rel: str) -> list:
             listed = None if WRITES.search(call) else DEPLOYMENTS_LIST.search(call)
             if listed:
                 query = listed.group(1) or ""
-                if PAGED.search(query) or PAGED.search(call[listed.end():]):
+                if PAGED.search(call):          # in the query, or as gh api's field before or after it
                     channel = CHANNEL.search(query)
                     paged.append(channel.group(1) if channel else None)
                 response = exchange.get("response")

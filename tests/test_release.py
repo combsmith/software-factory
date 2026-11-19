@@ -699,8 +699,10 @@ class Fixture(unittest.TestCase):
                           "a Channel's Deployments was taken out, not once"])
         # A page asked as a field gh api sends in the query is a page too (Astra's read).
         field = copy.deepcopy(later)
-        field["exchanges"][0]["request"]["call"] = "gh api --include --method GET %s -F page=2" % path.lstrip("/")
-        self.assertTrue(any("removed says 0 times" in p for p in check_release.fixture_problems(field, "refs.json")))
+        for call in ("gh api --include --method GET %s -F page=2" % path.lstrip("/"),
+                     "gh api --include -F per_page=4 --method GET %s" % path.lstrip("/")):
+            field["exchanges"][0]["request"]["call"] = call
+            self.assertTrue(any("removed says 0 times" in p for p in check_release.fixture_problems(field, "refs.json")), call)
         # Of whichever Channel's Deployments the page was, `removed` says it of that Channel.
         stable = copy.deepcopy(later)
         stable["exchanges"][0]["request"]["call"] = "GET %s?environment=factory-stable&per_page=4" % path

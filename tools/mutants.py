@@ -16324,9 +16324,11 @@ MUTANTS = ISSUE + [
     ("a read of Deployments by a later page is no page", "tools/check_release.py",
      'PAGED = re.compile(r"(?:[?&]|(?:-[fF]|--(?:raw-)?field)\\s+)(?:per_)?page=")', 'PAGED = re.compile(r"(?:[?&]|(?:-[fF]|--(?:raw-)?field)\\s+)per_page=")', ("tests.test_release.Fixture.test_no_read_of_the_deployments_list_keeps_a_link_header_however_it_is_written",)),
     ("every read of Deployments is a page", "tools/check_release.py",
-     '                if PAGED.search(query) or PAGED.search(call[listed.end():]):\n', '                if True:\n', ("tests.test_release.Fixture.test_no_read_of_the_deployments_list_keeps_a_link_header_however_it_is_written",)),
+     '                if PAGED.search(call):', '                if True:', ("tests.test_release.Fixture.test_no_read_of_the_deployments_list_keeps_a_link_header_however_it_is_written",)),
     ("a page asked as gh api's field is no page", "tools/check_release.py",
-     'if PAGED.search(query) or PAGED.search(call[listed.end():]):', 'if PAGED.search(query):', ("tests.test_release.Fixture.test_no_read_of_the_deployments_list_keeps_a_link_header_however_it_is_written",)),
+     '                if PAGED.search(call):', '                if PAGED.search(query):', ("tests.test_release.Fixture.test_no_read_of_the_deployments_list_keeps_a_link_header_however_it_is_written",)),
+    ("a field before the endpoint asks no page", "tools/check_release.py",
+     '                if PAGED.search(call):', '                if PAGED.search(call[listed.end():]) or PAGED.search(query):', ("tests.test_release.Fixture.test_no_read_of_the_deployments_list_keeps_a_link_header_however_it_is_written",)),
     # Decision 0194: the Maintainer's continue or stop, and what he was shown before it.
     ('a decision point recorded twice passes', 'tools/check_release.py',
      '        if isinstance(name, str) and name in seen:',
