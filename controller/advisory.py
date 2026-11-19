@@ -1,6 +1,6 @@
 """Whether the day's ceiling admits one more advisory read: the yes or no a pass hands a review Run beside its Decision
 (decision 0224, Spend). It is a function of the run records, `now` and the configuration. It reads no clock, no file
-and nothing from GitHub, and it asks the Kernel nothing: an advisory Lens changes no Decision.
+but the schemas and nothing from GitHub, and it asks the Kernel nothing: an advisory Lens changes no Decision.
 
 The day is the UTC date of the pass's `now`. Every record of a review Run counts, two records of one Run among them,
 unless it finished and started on another day; a record whose start cannot be read is counted, since it cannot be shown
@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import re
 
+from controller.shared import errors
+
 REVIEWING = "review-change"
 CEILING, WORST = "advisory_ceiling_usd_per_day", "advisory_worst_case_usd"
 COST, ASKS = "advisory_cost_usd", "advisory_asks"
@@ -38,7 +40,6 @@ TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 DAY = len("2026-01-01")
 # What apply records for a Lens whose check runs' token GitHub did not confirm revoked (issue 925).
 NOT_REVOKED = "token_not_revoked"
-RUN = re.compile(r"r_[0-9A-Z]{6,26}")     # a Run's id as run-record/1 and pass/1 hold it
 
 
 def _number(value, least, most) -> bool:
@@ -91,7 +92,7 @@ def unrevoked(effects) -> list:
     so no outcome counts it and no pause starts on it: the alert the pass raises for it is the one place it reaches a
     person. What cannot be read gives none here, since reconciliation raises its own alert for that."""
     applied = effects.get("applied") if isinstance(effects, dict) else None
-    return sorted({record["run"] for record in applied if isinstance(record, dict) and isinstance(record.get("run"), str)
-                   and RUN.fullmatch(record["run"]) is not None and isinstance(record.get("advisory"), list)
+    return sorted({record["run"] for record in applied if isinstance(record, dict) and not errors(record, "applied")
+                   and isinstance(record.get("advisory"), list)
                    and any(isinstance(said, dict) and said.get("code") == NOT_REVOKED for said in record["advisory"])}
                   if isinstance(applied, list) else set())

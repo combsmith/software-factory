@@ -305,6 +305,8 @@ class Record(unittest.TestCase):
                          [{"run": "r_OTHER1", "at": "2026-10-11T13:10:00Z"}])
         # A record whose Run is no Run's id gives none: what cannot be read is reconciliation's to raise.
         self.assertEqual(passed(reads(effects=dict(RECORDED, applied=[dict(done, run="")])))["record"]["advisory_unrevoked"], [])
+        bare = {"run": done["run"], "advisory": done["advisory"]}
+        self.assertEqual(passed(reads(effects=dict(RECORDED, applied=[bare])))["alerts"], ["reconciliation_unreadable"])
         # Read again by a later pass, as when the records before could not be read, it keeps its first stamp.
         again = passed(reads(effects=dict(RECORDED, applied=[done])), now="2026-10-11T13:30:00Z", previous=[out["record"]])
         self.assertEqual(again["record"]["advisory_unrevoked"], [{"run": done["run"], "at": NOW}])
