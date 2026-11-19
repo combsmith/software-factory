@@ -101,8 +101,7 @@ def _plain(value) -> bool:
     things, a list of them, text, a whole number, true, false or null, held no deeper than `patch.DEEPEST` has characters.
     No body or answer of a push comes near that depth, and a value that holds itself goes past it, so it is refused.
     Text of another kind may say it equals anything, so a body or an answer that holds one is held to nothing; this
-    stops there. A number with a
-    fraction is none: no git data GitHub answers with holds one."""
+    stops there. A number with a fraction is none: no git data GitHub answers with holds one."""
     left = [(value, "")]
     while left:
         value, depth = left.pop()
