@@ -211,6 +211,7 @@
         "acts_since_writer": 2,
         "acceptance": null,
         "opened_for": 36,
+        "issue_stands": "open",
         "complete": {
           "acceptance": true,
           "reviews": true,
