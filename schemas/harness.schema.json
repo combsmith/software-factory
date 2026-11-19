@@ -260,12 +260,12 @@
             "properties": {
               "input": {
                 "type": "number",
-                "minimum": 0,
+                "minimum": 1e-06,
                 "maximum": 10000
               },
               "output": {
                 "type": "number",
-                "minimum": 0,
+                "minimum": 1e-06,
                 "maximum": 10000
               }
             }

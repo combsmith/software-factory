@@ -2614,6 +2614,8 @@ class Repo(unittest.TestCase):
             return check_examples.run(clone({"config/harness.json": json.dumps(config)}))
         self.assertTrue(caught(run_on(dict(harness, readers={"astra": block})), "config/harness.json: harness: the reader astra is no advisory Lens"))
         self.assertFalse(caught(run_on(dict(named, readers={"astra": block})), "config/harness.json"))
+        # The counter-example is refused for its reader's name, which its schema alone would let pass.
+        self.assertFalse(caught(check_examples.run(clone({})), "harness.a-reader-that-is-no-advisory-lens.json"))
         # The day's ceiling is a figure in dollars beside the advisory Lenses, never among a reader's own settings, and
         # it has no default: the pin's file holds none until a person writes one, and nought is no figure.
         self.assertNotIn("advisory_ceiling_usd_per_day", schema["required"])
@@ -2653,6 +2655,7 @@ class Repo(unittest.TestCase):
         # a key, under another field of a reader, under another top field, and the Engine's pin under a reader.
         for more in ({"texts": {"model": model}}, {"advisory": [deployment]}, {"model": model}, {"deployment": deployment},
                      {"x": name}, {"engine": {"model": name, "also": model}}, {"engine": {"model": name, "model2": name}},
+                     {"x": {"engine": {"model": name}}}, {"x": {"readers": {"astra": {"model": model}}}},
                      {"readers": {"astra": {"model": model, "deployment": deployment, "host": deployment}}},
                      {"readers": {"astra": {"model": [model]}}}, {"readers": {"astra": {"model": {"model": model}}}},
                      {"readers": {model: {"model": model}}}, {"readers": {"model": model}}, {"readers": [{"model": model}]},
@@ -2660,9 +2663,15 @@ class Repo(unittest.TestCase):
                      {"engine": {"model": name, "readers": {"astra": {"model": model}}}}):
             self.assertEqual(problems(config(**more)), ["examples/invalid/harness.a-copy.json" + misplaced], more)
             self.assertTrue(any(p.startswith("config/harness.json: names a model") for p in problems(config(), config(**more))), more)
-        # The Engine's pin may not stand where a reader's does, nor a reader's where the Engine's does: each path's own
-        # form is the schema's, and this check holds that neither names a model anywhere else.
-        self.assertEqual(problems(config(readers={"astra": {"model": name, "deployment": name}})), [])
+        # A name is read at its path as the file is read, not as it is written: one written with an escape, which the
+        # text does not show, is refused where it is no pin, and the Engine's pin is no reader's.
+        escaped = config().replace('"model": "%s"' % model, '"model": "gpt-\\u0036-other"')
+        self.assertNotEqual(escaped, config())
+        self.assertEqual(problems(escaped), ["examples/invalid/harness.a-copy.json" + misplaced])
+        self.assertEqual(problems(config(readers={"astra": {"model": name, "deployment": deployment}})),
+                         ["examples/invalid/harness.a-copy.json" + misplaced])
+        self.assertEqual(problems(config(engine={"model": model})), ["examples/invalid/harness.a-copy.json" + misplaced])
+        self.assertEqual(problems("[" * 100000), [])
         # A copy that cannot be read as JSON has no paths, so it copies no reader's pin; the Engine's it may, as before.
         self.assertEqual(problems('{"engine": {"model": "%s"}' % name), [])
         self.assertEqual(problems('{"readers": {"astra": {"model": "%s"}}' % model), ["examples/invalid/harness.a-copy.json" + misplaced])
@@ -2680,7 +2689,11 @@ class Repo(unittest.TestCase):
                        {"deployment": "a deployment"}, {"model": "A Model"}, {"api": "assistants"}, {"effort": "max"},
                        {"effort": {"critical": "max"}}, {"effort": {"critical": "most", "elsewhere": "xhigh"}}, {"output_tokens": 0},
                        {"prompt_characters": 0}, {"seconds": 0}, {"seconds": 1201}, {"usd_per_million": {"input": 2.5}},
-                       {"usd_per_million": {"input": -1, "output": 20}}, {"key": "k" * 32}, {"tools": ["shell"]}):
+                       {"usd_per_million": {"input": -1, "output": 20}}, {"key": "k" * 32}, {"tools": ["shell"]},
+                       {"usd_per_million": {"input": 2.5, "output": -1}}, {"usd_per_million": {"input": 0, "output": 20}},
+                       {"usd_per_million": {"input": 2.5, "output": 0}}, {"usd_per_million": {"input": 2.5, "output": 10001}},
+                       {"usd_per_million": {"input": 10001, "output": 20}}, {"output_tokens": 1000001},
+                       {"prompt_characters": 10000001}):
             self.assertTrue(validate(dict(whole, readers={"astra": dict(reader, **change)}), schema), change)
         for field in reader:
             self.assertTrue(validate(dict(whole, readers={"astra": {k: v for k, v in reader.items() if k != field}}),
@@ -14023,9 +14036,11 @@ class Rulesets(unittest.TestCase):
         self.assertEqual(check_rulesets.CHECK % "astra", "advisory-astra")
         for name in ("advisory-astra", "astra", "kimi", "advisory-kimi", "coderabbit", "Advisory-Astra", "KIMI", " astra "):
             checks = self.main["required_status_checks"]["required_status_checks"]
-            checks.append({"context": name, "integration_id": 15368})
-            self.assertTrue(caught(self.run_on(), "the main ruleset names %r, the advisory Lens" % name), name)
-            checks.pop()
+            lens = name.strip().lower().replace("advisory-", "")
+            for at in (0, len(checks)):         # wherever it stands among the checks required
+                checks.insert(at, {"context": name, "integration_id": 15368})
+                self.assertTrue(caught(self.run_on(), "the main ruleset names %r, the advisory Lens %s's" % (name, lens)), name)
+                checks.pop(at)
             self.main["code_scanning"]["code_scanning_tools"].append({"tool": name})
             self.assertTrue(caught(self.run_on(), "the main ruleset names %r, the advisory Lens" % name), name)
             self.main["code_scanning"]["code_scanning_tools"].pop()
@@ -14044,13 +14059,26 @@ class Rulesets(unittest.TestCase):
         self.assertEqual(self.run_on(), [])
         # Nor is one made required by another road: a required Lens of that name, or with that check.
         lenses = self.defaults["required_lenses"]
-        for change in ({"lens": "astra"}, {"check": "advisory-astra"}, {"check": "Kimi"}):
+        for change in ({"lens": "astra"}, {"check": "advisory-astra"}, {"check": "Kimi"}, {"check": " advisory-kimi "}, {"lens": "ASTRA"}):
             lenses["deterministic"].append(dict({"lens": "lint", "check": "lint", "app_id": 15368, "workflow": None}, **change))
             self.assertTrue(caught(self.run_on(), "a required Lens is named %r, the advisory Lens" % list(change.values())[0]), change)
             lenses["deterministic"].pop()
-        lenses["model"].append("astra")
-        self.assertTrue(caught(self.run_on(), "a required Lens is named 'astra', the advisory Lens astra's"))
-        lenses["model"].pop()
+        for name in ("astra", "Astra ", " KIMI"):
+            lenses["model"].append(name)
+            self.assertTrue(caught(self.run_on(), "a required Lens is named %r, the advisory Lens %s's" % (name, name.strip().lower())))
+            lenses["model"].pop()
+        # A ruleset in a shape this check does not read is a problem, never one that names nothing.
+        kept = json.loads(json.dumps(self.rulesets))
+        for odd in ([{"type": "required_status_checks"}], None, "rules"):
+            self.rulesets["rulesets"]["another ruleset"] = {"target": "branch", "enforcement": "disabled", "rules": odd}
+            self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"), odd)
+        for odd in ("astra", ["advisory-astra"], [{"name": "advisory-astra"}], [{"context": 7}], {"advisory-astra": {}}):
+            self.rulesets["rulesets"]["another ruleset"] = {"rules": {"required_status_checks": {"required_status_checks": odd}}}
+            self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"), odd)
+            self.rulesets["rulesets"]["another ruleset"] = {"rules": {"code_scanning": {"code_scanning_tools": odd}}}
+            self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"), odd)
+        self.rulesets = kept
+        self.main = self.rulesets["rulesets"]["main"]["rules"]
         self.assertEqual(self.run_on(), [])
         # With no list of the advisory Lenses to read, nothing is shown, and the check says so.
         for unreadable in ({}, {"advisory": "astra"}, {"advisory": [7]}, {"advisory": None}):
