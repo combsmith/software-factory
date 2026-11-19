@@ -65,5 +65,6 @@
         "output": 15
       }
     }
-  }
+  },
+  "advisory_worst_case_usd": 1.91
 }
