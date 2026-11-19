@@ -113,13 +113,13 @@ def _plain(value) -> bool:
             left += [(held, depth + "0") for held in value.values()]
         elif type(value) is list:
             left += [(held, depth + "0") for held in value]
-        elif value is not None and type(value) not in (str, int, bool):
+        elif value is not None and type(value) is not str and type(value) is not int and type(value) is not bool:
             return False
     return True
 
 
 def _sha(said) -> bool:
-    return isinstance(said, str) and len(said) == len(SHA) and all(c in HEX for c in said)
+    return type(said) is str and len(said) == len(SHA) and all(c in HEX for c in said)
 
 
 def _count(said: str) -> bool:
@@ -128,14 +128,14 @@ def _count(said: str) -> bool:
 
 
 def _work(branch) -> bool:
-    if not isinstance(branch, str) or not branch.startswith(WORK):
+    if type(branch) is not str or not branch.startswith(WORK):
         return False
     issue, _, opened = branch[len(WORK):].partition("-")
     return _count(issue) and _count(opened)
 
 
 def _repo(said) -> bool:
-    if not isinstance(said, str) or not all(c in REPO_CHARS or c == "/" for c in said):
+    if type(said) is not str or not all(c in REPO_CHARS or c == "/" for c in said):
         return False
     owner, slash, name = said.partition("/")
     return bool(slash) and "/" not in name and all(part and part not in (".", "..") for part in (owner, name))
@@ -173,14 +173,14 @@ def _told(push) -> bool:
     if not isinstance(push, dict) or set(push) != set(PUSH):
         return False
     if not (_repo(push["repo"]) and _work(push["branch"]) and _sha(push["parent"])
-            and (push["head"] is None or push["head"] == push["parent"])
-            and isinstance(push["message"], str) and bool(push["message"])):
+            and (push["head"] is None or (_sha(push["head"]) and push["head"] == push["parent"]))
+            and type(push["message"]) is str and bool(push["message"])):
         return False
     changes, blobs = push["changes"], push["blobs"]
     if changes is None or blobs is None:
         return changes is None and blobs is None
     return (_changes(changes) and isinstance(blobs, dict) and set(blobs) == set(changes["written"])
-            and all(isinstance(text, str) for text in blobs.values()))
+            and all(type(text) is str for text in blobs.values()))
 
 
 def began(push):
@@ -220,7 +220,7 @@ def _state(state) -> bool:
     """Whether `state` is in the shape `began` and `seen` give: its keys, a push told whole, each name a name or none
     yet, each flag True or False, a listing that holds a pair with a name to each path, a blob's name for written
     paths alone, and no tree made by a push of no changes or before the admitted one was listed."""
-    if not isinstance(state, dict) or set(state) != set(STATE) or not _told(state["push"]):
+    if type(state) is not dict or set(state) != set(STATE) or not _told(state["push"]):
         return False
     if not all(state[key] is None or _sha(state[key]) for key in NAMES):
         return False
@@ -365,7 +365,7 @@ def seen(state, method, path, body, answer):
     answer is none this takes of it. An answer is `{"status": the status GitHub gave, as text, "body": what it
     said}`."""
     step = _step(state, method, path, body)
-    if step is None or not isinstance(answer, dict) or set(answer) != {"status", "body"} or not _plain(answer):
+    if step is None or not _plain(answer) or type(answer) is not dict or set(answer) != {"status", "body"}:
         return None
     status, got, push = answer["status"], answer["body"], state["push"]
     if step == REF_READ and not state["moved"]:

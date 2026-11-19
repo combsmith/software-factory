@@ -961,6 +961,26 @@ class Posing(str):
         return hash(self.posing)
 
 
+class Raising(str):
+    """Text of another kind that hashes as its text and raises when it is compared."""
+    def __eq__(self, other):
+        raise ValueError("compared")
+
+    __hash__ = str.__hash__
+
+
+class Unequal(type):
+    """A kind whose kinds raise when they are compared."""
+    def __eq__(cls, other):
+        raise ValueError("compared")
+
+    __hash__ = type.__hash__
+
+
+class Uncomparable(metaclass=Unequal):
+    """A value of a kind that raises when it is compared."""
+
+
 def odd(value):
     """`value` with each text in it, but a mapping's keys, made text of another kind."""
     if type(value) is str:
@@ -988,6 +1008,9 @@ class Push(unittest.TestCase):
             "push": PUSH, "tree": None, "before": None, "branch_read": False, "made": {}, "new": None, "checked": False,
             "commit": None, "commit_back": False, "moved": False, "landed": False})
         less = {k: v for k, v in PUSH.items() if k != "message"}
+
+        class Text(str):
+            """Text of another kind, with the right characters: what `+` and `==` on it do is its own to say."""
         for said, told in (
                 ("no push", None), ("a list", [PUSH]), ("a key more", dict(PUSH, tree=ROOT_TREE)), ("a key fewer", less),
                 ("a repo of one part", dict(PUSH, repo="software-factory")), ("no repo", dict(PUSH, repo=None)),
@@ -1021,7 +1044,11 @@ class Push(unittest.TestCase):
                 ("a written file with no blob", dict(PUSH, blobs={"docs/a.md": "QQo="})),
                 ("a blob of no written file", dict(PUSH, blobs=dict(BLOBS, x="QQo="))),
                 ("a blob that is bytes", dict(PUSH, blobs=dict(BLOBS, **{"docs/a.md": b"QQo="}))),
-                ("blobs that are a list", dict(PUSH, blobs=list(BLOBS)))):
+                ("blobs that are a list", dict(PUSH, blobs=list(BLOBS))),
+                ("a repo of another kind", dict(PUSH, repo=Text(REPO))), ("a branch of another kind", dict(PUSH, branch=Text(BRANCH))),
+                ("a parent of another kind", dict(PUSH, parent=Text(PARENT))), ("a head of another kind", dict(MOVE, head=Text(PARENT))),
+                ("a message of another kind", dict(PUSH, message=Text(PUSH["message"]))),
+                ("a blob of another kind", dict(PUSH, blobs=dict(BLOBS, **{"docs/a.md": Text("QQo=")})))):
             self.assertIsNone(push.began(told), said)
 
     def test_a_pushs_changes_are_what_applied_gives_path_by_path(self):
@@ -1080,6 +1107,7 @@ class Push(unittest.TestCase):
                 self.assertIsNone(push.seen(state, method, GIT + rest, odd(body), said), rest)
                 posed = {(Posing("x", key) if key == min(body) else key): held for key, held in body.items()}
                 self.assertFalse(push.permits(state, method, GIT + rest, posed), rest)
+                self.assertFalse(push.permits(state, method, GIT + rest, dict(body, more=Uncomparable())), rest)
             # Another owner's and another repo's, of a name as long as this one's and of another length; this repo's
             # other data; and a path that only holds this repo's.
             for root in ("/repos/combsmiht/software-factory/git/", "/repos/combsmith/software-fictory/git/",
@@ -1096,12 +1124,15 @@ class Push(unittest.TestCase):
         # A state that is none of `began`'s lets nothing leave: none, one of a key fewer or more, or of a push told wrongly.
         state, (method, rest, body, said) = before("new tree")
         less = {k: v for k, v in state.items() if k != "landed"}
+
+        class Mapping(dict):
+            """A mapping of another kind, holding what a state holds."""
         class Path(str):
             def startswith(self, *whatever):
                 return True
         self.assertFalse(push.permits(state, method, Path("x" * len(GIT) + rest), body))
         self.assertTrue(push.permits(state, method, GIT + rest, body))
-        for bad in (None, [state], dict(state, more=1), less, dict(state, push=dict(PUSH, branch="main")),
+        for bad in (None, [state], dict(state, more=1), less, Mapping(state), dict(state, push=dict(PUSH, branch="main")),
                     dict(state, push=None), dict(state, tree="main"), dict(state, tree=5), dict(state, new=ROOT_TREE[1:]),
                     dict(state, new=5), dict(state, commit="main"), dict(state, commit=5),
                     dict(state, moved=None), dict(state, moved=1), dict(state, branch_read=1), dict(state, checked=0),
@@ -1529,6 +1560,7 @@ class Push(unittest.TestCase):
                     self.assertIsNone(then(state, method, rest, body, wrong), (name, why))
                 # An answer that holds text of another kind, or what JSON does not, is none GitHub gave.
                 self.assertIsNone(then(state, method, rest, body, odd(said)), name)
+                self.assertIsNone(then(state, method, rest, body, {Raising("status"): said["status"], "body": said["body"]}), name)
                 if said["body"] is not None:
                     self.assertIsNone(then(state, method, rest, body, dict(said, body=odd(said["body"]))), name)
                 if type(said["body"]) is dict:
