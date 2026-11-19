@@ -219,14 +219,19 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
 def stood(transport, repo: str, number: int, accounts: timeline.Accounts) -> dict:
     """What `kernel/issue.py`'s `stands` reads of issue `number`, for the pull request the Factory opened for it
     (decision 0232): its state, its own label events, told by account as `read` tells them, and whether its timeline was
-    read whole. Its linked pull requests, its edits and its content are not read. The issue is read once more after its
-    timeline, and refused if it moved, so a Hold placed while it was read is seen at the next pass."""
+    read whole. Its linked pull requests, its edits and its content are not read. A closed issue is closed from its state
+    alone, and its timeline is not read. An open one is read once more after its timeline, and refused if it moved: its
+    time, its state or its labels, since a time is to the second and a close in that second keeps it."""
     issue = own(transport, repo, number)
-    events, whole = timeline.events(transport, {"number": number, "base": {"repo": {"full_name": repo}}})
     state = _field(issue, "state")
     if state not in STATES:
         raise Unanswered("the issue's state cannot be read")
+    if state == "closed":
+        return {"state": state, "label_events": [], "complete": {"timeline": False}}
+    events, whole = timeline.events(transport, {"number": number, "base": {"repo": {"full_name": repo}}})
     labels = timeline.label_events(events, accounts)
-    if _field(own(transport, repo, number), "updated_at") != _field(issue, "updated_at"):
+    again = own(transport, repo, number)
+    if [_field(again, k) for k in ("updated_at", "state")] != [_field(issue, k) for k in ("updated_at", "state")] \
+            or _names(_field(again, "labels"), "name") != _names(_field(issue, "labels"), "name"):
         raise facts.Moved("the issue changed while it was read; it is read again at the next pass")
     return {"state": state, "label_events": labels, "complete": {"timeline": whole}}
