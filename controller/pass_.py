@@ -334,7 +334,11 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
         for e in r["pull_requests"]:
             if e.get("advisory_ask") is True:
                 pending.setdefault(e["run"], r["now"])
-    unlisted = {run: at for run, at in pending.items() if run not in listed_runs and seconds(now, at) <= UNLISTED_SECONDS}
+    # A yes with no Run, or told at no moment or after `now`, cannot be counted or let lapse: it is carried no further,
+    # and this pass, in doubt, tells no review yes, as with the records before unread.
+    doubt = any(type(run) is not str or seconds(now, at) is None or seconds(now, at) < 0 for run, at in pending.items())
+    unlisted = {run: at for run, at in pending.items() if type(run) is str and run not in listed_runs
+                and seconds(now, at) is not None and 0 <= seconds(now, at) <= UNLISTED_SECONDS}
     told = [{"intent": advisory_.REVIEWING, "started_at": at} for at in unlisted.values()] + [
         {"intent": advisory_.REVIEWING, "started_at": u["created_at"], "status": u["status"]}
         for u in context["unidentified_runs"] or []]
@@ -355,7 +359,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
             if d["outcome"] == t.ADMIT and d["admit"]["intent"] == advisory_.REVIEWING:
                 # Beside the Decision, never in it: whether the day's ceiling admits this Run's advisory reads
                 # (decision 0224). Each review this pass admits counts the ones admitted before it at the worst case.
-                out[-1]["advisory_ask"] = previous is not None \
+                out[-1]["advisory_ask"] = previous is not None and not doubt \
                     and advisory_.admits(runs + asking, whole, now, config.get("harness") or {})
                 asking.append({"intent": advisory_.REVIEWING, "started_at": now})
         return out

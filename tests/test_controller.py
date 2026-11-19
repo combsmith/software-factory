@@ -286,6 +286,15 @@ class Record(unittest.TestCase):
         self.assertEqual(asks(previous=(dict(quiet, advisory_unlisted=[]), dict(later, advisory_unlisted=aged))), [True])
         hour = [dict(e, told_at="2026-10-11T12:00:00Z") for e in later["advisory_unlisted"]]
         self.assertEqual(asks(previous=(dict(quiet, advisory_unlisted=[]), dict(later, advisory_unlisted=hour))), [False])
+        # A yes told at no moment, after the pass, or with no Run is carried no further, and that pass tells no yes.
+        for odd in ([dict(e, told_at="2026-02-31T12:00:00Z") for e in later["advisory_unlisted"]],
+                    [dict(e, told_at="2026-10-11T13:00:01Z") for e in later["advisory_unlisted"]]):
+            record = passed(reads(pulls=[pr(4)]), cfg=told, previous=[dict(later, advisory_unlisted=odd)])["record"]
+            self.assertEqual(([e.get("advisory_ask") for e in record["pull_requests"]], record["advisory_unlisted"]), ([False], []))
+        runless = dict(first, pull_requests=[dict(e, run=None) for e in first["pull_requests"]], advisory_unlisted=[])
+        self.assertEqual(shared.errors(runless, "pass"), [])
+        record = passed(reads(pulls=[pr(4)]), cfg=told, previous=[runless])["record"]
+        self.assertEqual(([e.get("advisory_ask") for e in record["pull_requests"]], record["advisory_unlisted"]), ([False], []))
         # Across midnight it counts as any Run in flight does.
         night = passed(reads(pulls=[pr(1), pr(2)]), cfg=told, now="2026-10-10T23:59:30Z")["record"]
         dawn = passed(reads(pulls=[pr(4)]), cfg=told, now="2026-10-11T00:00:10Z", previous=[night])["record"]
