@@ -6132,6 +6132,11 @@ def linked_read(refs=(), events=(), total=None, more=False, updated=UPDATED, rep
             "response": {"status": 200, "headers": {}, "body": {"data": {"repository": {"nameWithOwner": repo, "issue": issue}}}}}
 
 
+def crossed(source: str = "PullRequest") -> dict:
+    """A cross-reference on the issue's timeline, from a pull request or an issue (P-33)."""
+    return {"__typename": "CrossReferencedEvent", "source": {"__typename": source}}
+
+
 IDENTITIES = {"agent": {CONTROLLER_APP[1:]}, "maintainer": {(MAINTAINER, "User")}, "dependency": set()}
 
 
@@ -6705,22 +6710,29 @@ class Linked(unittest.TestCase):
         self.assertEqual(self.read(short, [seen_by(3, [(7, True, [])])]), ([(7, True, [span(3)])], False))
         # One the references name to another base is left out, as before, and the list is whole.
         self.assertEqual(self.read([linked_read(ref(8)), pull_read(8, base="next")]), ([], True))
-        # The read asks the closes and the links by hand alone: no cross-reference decides anything.
-        self.assertIn("itemTypes: [CLOSED_EVENT, CONNECTED_EVENT, DISCONNECTED_EVENT]", linked.QUERY)
-        self.assertNotIn("CrossReferencedEvent", linked.QUERY)
+        # Records that break the chain leave it whole only where nothing names the issue now: an issue's cross-reference
+        # does not; a pull request's, or one of no source, one the references name, one linked by hand, or a closer of
+        # any life, of any base, does.
+        broken = [seen_by(3, issues=[])]
+        self.assertEqual(self.read([linked_read((), [crossed("Issue")])], broken), ([], True))
+        for named in ([linked_read((), [crossed()])], [linked_read((), [crossed(None)])], [linked_read(ref(8)), pull_read(8, base="next")],
+                      [linked_read((), [link("ConnectedEvent", 1, 8)]), pull_read(8, base="next")], [linked_read((), [closed_by(-70, 13)])]):
+            self.assertEqual(self.read(named, broken), ([], False), named)
+        self.assertIn("DISCONNECTED_EVENT, CROSS_REFERENCED_EVENT]", linked.QUERY)
+
+    def rival(self, earlier, refs=(5, 6)):
+        """The issue's facts: the Controller's App's 5 merged at 10:19 and closed it; the Maintainer's 6 named it too."""
+        merge = [issue_event("closed", 19, CONTROLLER_APP)]
+        router = Router(github.Replay(issue_read([issue_event("closed", 20, CONTROLLER_APP)], state="closed", closing=[
+            linked_read(ref(*refs), [closed_by(20, 5)]),
+            pull_read(5, user=CONTROLLER_APP, merged=19, closed=19, files=2), pull_timeline(5, merge),
+            pull_read(6), pull_timeline(6)])), {"don-petry": "admin"})
+        return issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=earlier)[0]
 
     def test_a_merge_beside_a_rival_keyword_link_is_read_by_the_spans_the_pass_records_give(self):  # decision 0186
-        # The Controller's App's 5 merged at 10:19 and closed the issue; the Maintainer's 6 named it too.
         from kernel import issue
         from tests.support import CONFIG
-        merge = [issue_event("closed", 19, CONTROLLER_APP)]
-
-        def facts_of(earlier, refs=(5, 6)):
-            router = Router(github.Replay(issue_read([issue_event("closed", 20, CONTROLLER_APP)], state="closed", closing=[
-                linked_read(ref(*refs), [closed_by(20, 5)]),
-                pull_read(5, user=CONTROLLER_APP, merged=19, closed=19, files=2), pull_timeline(5, merge),
-                pull_read(6), pull_timeline(6)])), {"don-petry": "admin"})
-            return issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=earlier)[0]
+        facts_of = self.rival
         reason = lambda f: issue.derive(f, [], CONFIG)["reason"]
         # A pass saw both keywords before the merge: two links stood at it, and the issue is held.
         both = [seen_by(3, [(5, True, []), (6, True, [])])]
@@ -6747,6 +6759,28 @@ class Linked(unittest.TestCase):
             linked_read((), [closed_by(8, oid="d" * 40)])])), {"don-petry": "admin"})
         f, _ = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=[])
         self.assertEqual((f["life_started_at"], f["complete"]["linked"]), (minute(5), False))
+
+    def test_a_merge_beside_a_rival_defers_where_the_pass_records_at_hand_break_the_chain_of_spans(self):  # 0186
+        from kernel import issue
+        from tests.support import CONFIG
+        derived = lambda earlier: issue.derive(self.rival(earlier), [], CONFIG)
+        both = lambda at, whole=True, **more: seen_by(at, [(5, True, []), (6, True, [])], whole, **more)
+        # (i) A pass whose records were not read wrote the issue not whole, its spans none: the base is the record before
+        # it, which saw both keywords before the merge, and the issue is held, never read done from a span begun at 10:25.
+        self.assertEqual(derived([both(3), both(25, False)])["reason"], "merged_while_held")
+        left = {"item": KeywordSpans.ITEM, "code": "facts_unanswered"}
+        for broken in ([both(22, False), both(25, False)],     # (i) no record at hand holds the issue whole
+                       [seen_by(22, issues=[], left_out=[left]), seen_by(25, issues=[], left_out=[left])],   # (ii) left out
+                       [seen_by(22, issues=[]), seen_by(25, issues=[], alerts=["issue_apps_unreadable"])],   # (iii) none served
+                       [both(3), seen_by(25, issues=[], left_out=[left])]):     # a record newer than the base left it out
+            d = derived(broken)
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), (None, "facts_incomplete", ["linked"]), broken)
+        # Once nothing names the issue, the list is whole again while the chain is broken.
+        router = Router(github.Replay(issue_read(closing=[linked_read((), [crossed("Issue")])])), {"don-petry": "admin"})
+        f = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES,
+                        earlier=[seen_by(22, issues=[]), seen_by(25, issues=[])])[0]
+        self.assertEqual((f["linked"], f["complete"]["linked"]), ([], True))
+        self.assertNotEqual(issue.derive(f, [], CONFIG)["reason"], "facts_incomplete")
 
     def test_the_linked_pull_requests_read_short_are_not_whole_and_one_not_answered_refuses_the_issue(self):
         short = [[linked_read((), total=1)], [linked_read(more=True)], [linked_read(ref(3, repo="a/fork"))],
@@ -6791,7 +6825,7 @@ def seen_by(at: int, pulls=(), linked_whole=True, repo="o/r", number=41, **more)
     listed = [{"number": n, "keyword": keyword, "keyword_spans": spans} for n, keyword, spans in pulls]
     facts = {"item": {"repo": repo, "type": "issue", "number": number}, "linked": listed, "read_at": minute(at),
              "complete": {"timeline": True, "linked": linked_whole, "runs": True}}
-    return dict({"schema": "pass/1", "now": minute(at - 1), "issues": [{"facts": facts}]}, **more)
+    return dict({"schema": "pass/1", "now": minute(at - 1), "issues": [{"facts": facts}], "left_out": [], "alerts": []}, **more)
 
 
 def span(seen: int, gone=None) -> dict:
@@ -6830,18 +6864,28 @@ class KeywordSpans(unittest.TestCase):
         self.assertEqual(back["issues"][0]["facts"]["linked"][0]["keyword_spans"], [span(3, 9)])
 
     def test_a_keyword_is_seen_gone_only_by_a_record_that_read_the_linked_pull_requests_whole(self):
-        # A list read short may have missed the reference: the span stays open, and a later whole read ends it then.
-        short = seen_by(9, [(7, False, [span(3)])], linked_whole=False)
-        self.assertEqual(self.spans(short), ({7: [span(3)]}, True))
+        # A record read short, newer than the base, may have missed the reference: its own spans aside, it opens one for
+        # a keyword it read and ends none; a later whole read ends it then.
+        short = seen_by(9, [(7, False, []), (8, True, [])], linked_whole=False)
+        self.assertEqual(self.spans(seen_by(3, [(7, True, []), (8, False, [])]), short), ({7: [span(3)], 8: [span(9)]}, True))
         self.assertEqual(self.spans(short, seen_by(12, [(7, False, [span(3)])])), ({7: [span(3, 12)]}, True))
-        # A keyword a short read did name was seen: its span opens.
-        self.assertEqual(self.spans(seen_by(9, [(7, True, [])], linked_whole=False)), ({7: [span(9)]}, True))
+        # Records that hold the issue, none of them whole, break the chain (`None`).
+        self.assertEqual(self.spans(seen_by(6, [(7, True, [])], linked_whole=False), short), ({7: [span(6)], 8: [span(9)]}, None))
 
     def test_the_spans_are_read_from_the_newest_record_that_holds_the_issue_and_no_record_gives_no_time(self):
         older, newer = seen_by(3, [(7, True, [])]), seen_by(6, [(7, False, [span(3)])])
         self.assertEqual(self.spans(older, newer), ({7: [span(3, 6)]}, True))
-        # A record that left the issue out saw nothing of it: the one before it is read.
-        self.assertEqual(self.spans(older, dict(newer, issues=[])), ({7: [span(3)]}, True))
+        # A record that served issues and not this one, closed then, saw nothing of it: the one before it is read.
+        self.assertEqual(self.spans(older, seen_by(6, number=42)), ({7: [span(3)]}, True))
+        # One newer than the base that left the issue out, or an item it cannot name, or served no issue, breaks the chain.
+        for left in ([{"item": self.ITEM, "code": "facts_unanswered"}], [{"item": None, "code": "not_facts"}], []):
+            self.assertEqual(self.spans(older, seen_by(6, number=42, issues=[], left_out=left)), ({7: [span(3)]}, None))
+            self.assertEqual(self.spans(seen_by(6, number=42, issues=[], left_out=left)), ({}, None))
+        self.assertEqual(self.spans(seen_by(6, number=42, left_out=[{"item": None, "code": "not_facts"}])), ({}, None))
+        # Another issue left out shows issues were served; a pull request left out does not.
+        for kind, chained in (("issue", True), ("pull_request", None)):
+            left = [{"item": dict(self.ITEM, type=kind, number=42), "code": "facts_unanswered"}]
+            self.assertEqual(self.spans(older, seen_by(6, issues=[], left_out=left)), ({7: [span(3)]}, chained))
         # Another issue's facts, or the same number's in another repo, are not this issue's.
         for other in (seen_by(6, [(7, False, [span(3)])], number=42), seen_by(6, [(7, False, [span(3)])], repo="a/fork")):
             self.assertEqual(self.spans(older, other), ({7: [span(3)]}, True))
