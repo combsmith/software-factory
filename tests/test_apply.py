@@ -9,17 +9,20 @@ import base64
 import copy
 import hashlib
 import json
+import os
 import pathlib
 import subprocess
 import tempfile
 import unittest
 import unittest.mock
 
-from adapters import effects, github, identity
+from adapters import advice, effects, github, identity
 from adapters.facts import Moved
+from harness import advised as advised_
 from harness import apply, bundle, engine, shared
 from harness import task as task_
 from tests import support
+from tests.test_advisory import advised as an_advice, filed
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 APPS = json.loads((ROOT / "config" / "apps.json").read_text())
@@ -1731,6 +1734,126 @@ class Job(unittest.TestCase):
         record, ended, calls = self.go(quiet)
         self.assertEqual((record["effects"], ended["outcome"], calls["mint"]), ([], None, []))
 
+
+
+def advised(*found, **over) -> dict:
+    """An advisory Lens's Result of Run RUN on the admitted content, as tests/test_advisory.py builds one."""
+    return an_advice(*found, content="sha256:aaaa", **over)
+
+
+class Advised(unittest.TestCase):
+    """Decision 0224, "What is shown": `apply` shows each advisory Lens's Result as a check run that is always neutral,
+    in a child it kills at a deadline."""
+    ENDED = {"outcome": None, "reason": None}
+    BOTH = {"astra": advised(("major", 86)), "kimi": advised(lens="kimi")}
+
+    def folder(self, files: dict, placed=None):
+        """A step's directory whose `advice` folder holds `files`, `{lens: Result, bytes or (bytes, digest)}`, which
+        `placed(d)` then moves or links."""
+        top = tempfile.TemporaryDirectory()
+        self.addCleanup(top.cleanup)
+        d = pathlib.Path(top.name, "base")
+        (d / "advice").mkdir(parents=True)
+        for lens, given in files.items():
+            data, digest = given if isinstance(given, tuple) else filed(given)
+            (d / "advice" / ("advice.%s.json" % lens)).write_bytes(data)
+            if digest is not None:
+                (d / "advice" / ("advice.%s.sha256" % lens)).write_bytes(digest)
+        if placed:
+            placed(d)
+        return d
+
+    def ask(self, files, admit=None, ended=None, facts=None, read=True, folder="advice", placed=None):
+        held = {"item": (facts or the_facts(), HEAD, runs(), support.context(), None)} if read else {}
+        return advised_.asked(str(self.folder(files, placed)), folder, the_task() if admit is None else admit,
+                              ended or self.ENDED, held)
+
+    def test_what_a_child_did_not_say_its_parent_records(self):
+        both = ["astra", "kimi"]
+        each = lambda code, key=None: {"astra": (code, key), "kimi": (code, None)}
+        for out, want in (
+                (b"began\nastra shown CR_1\nkimi not_written\nrevoked\n", {"astra": ("shown", "CR_1"), "kimi": ("not_written", None)}),
+                # A Lens not reached is out of time; and so is every Lens of a child that never began.
+                (b"began\nastra shown CR_1\nrevoked\n", {"astra": ("shown", "CR_1"), "kimi": ("out_of_time", None)}),
+                (b"", each("out_of_time")), (None, each("out_of_time")), (b"bega", each("out_of_time")),
+                (b"began\nunminted\n", each("token_not_minted")),
+                # A token said not revoked is not revoked, whatever else is said, before it or after.
+                (b"began\nunrevoked\n", each("token_not_revoked")), (b"began\nunminted\nunrevoked\n", each("token_not_revoked")),
+                (b"began\nastra shown CR_1\nunrevoked\nrevoked\n", each("token_not_revoked", "CR_1")),
+                # A child that began and was not heard to revoke, killed at any point: the token's state is not known.
+                (b"began\n", each("token_not_revoked")), (b"began\nastra shown CR_1\n", each("token_not_revoked", "CR_1")),
+                (b"began\nastra shown CR_1\nkimi not_written\nunrevoked\n", each("token_not_revoked", "CR_1")),
+                (b"began\nastra shown CR_1\nkimi shown CR_2\nrevoke", {"astra": ("token_not_revoked", "CR_1"),
+                                                                       "kimi": ("token_not_revoked", "CR_2")}),
+                # A line cut short by the kill, a Lens not asked, a code that is none, a shown with no key and a key
+                # with no shown say nothing; a Lens said twice is said once.
+                (b"began\nastra shown CR_1\nkimi show", each("token_not_revoked", "CR_1")),
+                (b"began\nastra shown CR_1\nkimi shown CR_", each("token_not_revoked", "CR_1")),
+                (b"began\nastra shown CR_1\nrevoked", each("token_not_revoked", "CR_1")),
+                (b"began\nmuse shown CR_3\nastra a_sentence\nkimi shown\nastra not_written CR_1\nrevoked\n", each("out_of_time")),
+                (b"began\nastra shown CR_1\nastra not_written\nrevoked\n", {"astra": ("shown", "CR_1"), "kimi": ("out_of_time", None)}),
+                (b"began\n\xff\nrevoked\n", each("out_of_time"))):
+            self.assertEqual(advised_.told(out, both), want, out)
+
+    def test_an_advisory_result_is_asked_for_only_for_a_review_of_the_item_as_admitted(self):
+        each = lambda code: ({"astra": code, "kimi": code}, [])
+        said, reqs = self.ask(self.BOTH)
+        self.assertEqual((said, [lens for lens, _ in reqs]), ({"astra": None, "kimi": None}, ["astra", "kimi"]))
+        # No other Intent's Run, and no Run no Decision admitted, has anything said of it.
+        self.assertEqual(advised_.asked(".", "advice", None, self.ENDED, {}), ({}, []))
+        self.assertEqual(self.ask(self.BOTH, admit=the_task(intent="fix-findings")), ({}, []))
+        # A change under the Run, by its outcome whatever was read or by the facts read again; a Run the Factory
+        # faulted; an item not read again. One `apply` refused for the Role's own fault is still a review of the commit.
+        for over, want in (({"ended": {"outcome": "superseded", "reason": "paused"}}, "superseded"),
+                           ({"ended": {"outcome": "superseded", "reason": "head_moved"}, "read": False}, "superseded"),
+                           ({"facts": the_facts(state="closed")}, "superseded"),
+                           ({"facts": the_facts(content_id="sha256:bbbb")}, "superseded"),
+                           ({"ended": {"outcome": "environment", "reason": "effect_failed"}}, "run_not_whole"),
+                           ({"ended": {"outcome": "environment", "reason": "result_unreadable"}, "read": False}, "run_not_whole"),
+                           ({"ended": {"outcome": "capacity", "reason": "engine_limit"}}, "run_not_whole"),
+                           ({"read": False}, "item_not_read")):
+            self.assertEqual(self.ask(self.BOTH, **over), each(want), over)
+        self.assertEqual(len(self.ask(self.BOTH, ended={"outcome": "item", "reason": "uncovered"})[1]), 2)
+        # A Result that does not hold is its code, and the other Lens's is asked for as it would be without it.
+        good = self.BOTH["astra"]
+        data, digest = filed(good)
+        for given, want in (((data, b"sha256:" + b"0" * 64 + b"\n"), "advice_digest_differs"), ((data, None), "advice_missing"),
+                            (b"not json", "advice_invalid"), (dict(good, status="failed"), "advice_disagrees"),
+                            (dict(good, run="r_01JA7Z"), "advice_not_the_runs")):
+            said, reqs = self.ask(dict(self.BOTH, astra=given))
+            self.assertEqual((said, [lens for lens, _ in reqs]), ({"astra": want, "kimi": None}, ["kimi"]), want)
+        # A Result is looked for under the names the configuration asks a reader for, and under no other.
+        self.assertEqual(self.ask({"muse": advised(lens="muse"), "coderabbit": advised(lens="coderabbit")}), each("advice_missing"))
+        # The folder is followed to where it really is and must lie inside the step's own; the file is never a link.
+        # One that is not there, one outside that holds a Result that would hold, a folder linked to it, and a file
+        # that is a link, to a Result inside the step's own even, hold none; a folder linked to one inside holds it.
+        def outside(d):
+            os.rename(d / "advice", d.parent / "out")
+
+        def linked_out(d):
+            outside(d)
+            os.symlink(d.parent / "out", d / "advice")
+
+        def linked_in(d):
+            os.rename(d / "advice", d / "kept")
+            os.symlink(d / "kept", d / "advice")
+
+        def file_linked(d):
+            os.rename(d / "advice" / "advice.astra.json", d / "kept.json")
+            os.symlink(d / "kept.json", d / "advice" / "advice.astra.json")
+        for folder, placed, want in (("nothing", None, "advice_missing"), (None, None, "advice_missing"),
+                                     ("../out", outside, "advice_missing"), ("advice", linked_out, "advice_missing"),
+                                     ("advice", file_linked, "advice_missing"), ("advice", linked_in, None)):
+            self.assertEqual(self.ask({"astra": good}, folder=folder, placed=placed)[0]["astra"], want, (folder, placed))
+        # No more of a Result's file is read than the most one may be and a byte, nor of its digest than a digest is.
+        read = []
+        real = advice.held
+        long = (filed(good)[0], b"s" * 500)
+        with unittest.mock.patch.object(advice, "LARGEST", 9), \
+                unittest.mock.patch.object(advice, "held", lambda data, digest, *a: read.append(
+                    (len(data or b""), len(digest or b""))) or real(data, digest, *a)):
+            self.ask({"astra": long})
+        self.assertEqual(read, [(10, 128), (0, 0)])
 
 if __name__ == "__main__":
     unittest.main()

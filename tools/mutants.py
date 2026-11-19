@@ -130,6 +130,9 @@ ADVICE = "adapters/advice.py"
 ADVICE_FOUND = ("tests.test_advisory.Parser.test_a_readers_findings_become_advisory_findings_whose_ids_are_not_of_their_text",)
 ADVICE_READ = ("tests.test_advisory.Parser.test_an_answer_is_a_read_only_when_it_completed_whole_from_the_pinned_model_and_parses",)
 ADVICE_COST = ("tests.test_advisory.Parser.test_a_result_says_what_the_read_cost_and_a_read_never_asked_says_why",)
+ADVISED = "harness/advised.py"
+SHOWN_TOLD = ("tests.test_apply.Advised.test_what_a_child_did_not_say_its_parent_records",)
+SHOWN_ASKED = ("tests.test_apply.Advised.test_an_advisory_result_is_asked_for_only_for_a_review_of_the_item_as_admitted",)
 AZURE_ONE = ("tests.test_advisory.Transport.test_the_azure_transport_reaches_one_host_and_two_apis",)
 AZURE_KEY = ("tests.test_advisory.Transport.test_the_azure_transport_takes_its_key_from_its_caller_and_sends_it_nowhere_else",)
 AZURE_BOUND = ("tests.test_advisory.Transport.test_the_azure_transport_bounds_every_answer_in_size_and_time",)
@@ -4766,6 +4769,55 @@ MUTANTS = ISSUE + [
     ('an advisory check run is matched under a code that says none was read back', 'controller/reconcile.py',
      '            if a["code"] in ADVISED and "key" in a:\n',
      '            if "key" in a:\n', ('tests.test_reconcile.Matching.test_an_advisory_lenss_check_run_is_matched_to_the_key_its_run_recorded',)),
+    # Decision 0224, "What is shown": the advisory part of apply, and the child it kills at a deadline.
+    ('a token said not revoked and then revoked is read as revoked', ADVISED,
+     '    if "revoked" not in lines or "unrevoked" in lines:\n',
+     '    if "revoked" not in lines:\n', SHOWN_TOLD),
+    ('a token said never minted and not revoked is read as never minted', ADVISED,
+     '    if "unminted" in lines and "unrevoked" not in lines:\n',
+     '    if "unminted" in lines:\n', SHOWN_TOLD),
+    ('a child that never began is read as one that did', ADVISED,
+     '    if "began" not in lines:\n',
+     '    if False:\n', SHOWN_TOLD),
+    ('a child not heard to revoke is read as one that did', ADVISED,
+     '    if "revoked" not in lines or "unrevoked" in lines:\n',
+     '    if False:\n', SHOWN_TOLD),
+    ("a child's word that is no code is recorded", ADVISED,
+     ' and one.group(2) in advice.CODES \\\n',
+     ' \\\n', SHOWN_TOLD),
+    ('a check run said shown with no key is recorded', ADVISED,
+     ' \\\n                and (one.group(2) == "shown") == (one.group(3) is not None):',
+     ':', SHOWN_TOLD),
+    ('a line the kill cut short is read as whole', ADVISED,
+     '.split("\\n")[:-1] if isinstance(out, bytes)',
+     '.split("\\n") if isinstance(out, bytes)', SHOWN_TOLD),
+    ("an advisory Result is shown for any Intent's Run", ADVISED,
+     '    if admit is None or admit["intent"] != REVIEWING:\n',
+     '    if admit is None:\n', SHOWN_ASKED),
+    ('an advisory Result is shown on a change under the Run', ADVISED,
+     'every = "superseded" if ended["outcome"] == "superseded" else',
+     'every = "superseded" if False else', SHOWN_ASKED),
+    ('an advisory Result is shown on a Run the Factory faulted', ADVISED,
+     '"run_not_whole" if ended["outcome"] not in (None, "item")',
+     '"run_not_whole" if False', SHOWN_ASKED),
+    ('an advisory Result is shown on content that is not the admitted', ADVISED,
+     ' or facts["content_id"] != admit["content_id"] else None',
+     ' else None', SHOWN_ASKED),
+    ('an advisory Result is shown that its hold refused', ADVISED,
+     '        if result is not None:\n            output, ids = advice.shown(result)\n',
+     '        result = result or json.loads(data or b"null")\n        if result is not None:\n            output, ids = advice.shown(result)\n', SHOWN_ASKED),
+    ('an advisory Result is read through a link', ADVISED,
+     'os.open(os.path.join(steps.inside(base, folder), name), os.O_RDONLY | os.O_NOFOLLOW)',
+     'os.open(os.path.join(steps.inside(base, folder), name), os.O_RDONLY)', SHOWN_ASKED),
+    ("an advisory Result is read from a folder outside the step's own", ADVISED,
+     'os.open(os.path.join(steps.inside(base, folder), name)',
+     'os.open(os.path.join(str(base), folder, name)', SHOWN_ASKED),
+    ("an advisory Result's file is read whole, however large", ADVISED,
+     '"advice.%s.json" % lens, advice.LARGEST + 1)',
+     '"advice.%s.json" % lens, -1)', SHOWN_ASKED),
+    ("an advisory Result's digest is read whole, however large", ADVISED,
+     '"advice.%s.sha256" % lens, 128)',
+     '"advice.%s.sha256" % lens, -1)', SHOWN_ASKED),
     # Decision 0224: the day's ceiling on advisory reads, as a pass answers it.
     ('a Run still running counts what it says it cost', 'controller/advisory.py',
      ' or record.get("status") != "completed":',
