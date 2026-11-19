@@ -933,6 +933,45 @@ def before(step: str, told: dict = PUSH):
     return state, None
 
 
+class Odd(str):
+    """Text of another kind, that says it equals anything: what a port that went wrong might hand over."""
+    def __eq__(self, other):
+        return True
+
+    def __ne__(self, other):
+        return False
+
+    __hash__ = str.__hash__
+
+
+class Posing(str):
+    """Text of another kind that passes for the key it is told: it hashes as that key and equals anything."""
+    def __new__(cls, text: str, posing: str):
+        made = str.__new__(cls, text)
+        made.posing = posing
+        return made
+
+    def __eq__(self, other):
+        return True
+
+    def __ne__(self, other):
+        return False
+
+    def __hash__(self):
+        return hash(self.posing)
+
+
+def odd(value):
+    """`value` with each text in it, but a mapping's keys, made text of another kind."""
+    if type(value) is str:
+        return Odd(value)
+    if type(value) is dict:
+        return {key: odd(held) for key, held in value.items()}
+    if type(value) is list:
+        return [odd(held) for held in value]
+    return value
+
+
 def may(state, method: str, rest: str, body=None) -> bool:
     return push.permits(state, method, GIT + rest, body)
 
@@ -947,7 +986,7 @@ class Push(unittest.TestCase):
             self.assertEqual(push.began(told)["push"], told)
         self.assertEqual(push.began(PUSH), {
             "push": PUSH, "tree": None, "before": None, "branch_read": False, "made": {}, "new": None, "checked": False,
-            "commit": None, "moved": False, "ref_back": False, "commit_back": False, "landed": False})
+            "commit": None, "commit_back": False, "moved": False, "landed": False})
         less = {k: v for k, v in PUSH.items() if k != "message"}
         for said, told in (
                 ("no push", None), ("a list", [PUSH]), ("a key more", dict(PUSH, tree=ROOT_TREE)), ("a key fewer", less),
@@ -1035,6 +1074,12 @@ class Push(unittest.TestCase):
         self.assertEqual(sorted({request[0] for _, request in requests}), ["GET", "PATCH", "POST"])
         for state, (method, rest, body, said) in requests:
             self.assertTrue(push.permits(state, method, GIT + rest, body), rest)
+            # A body that holds text of another kind is held to nothing: it says it equals what is asked.
+            if body is not None:
+                self.assertFalse(push.permits(state, method, GIT + rest, odd(body)), rest)
+                self.assertIsNone(push.seen(state, method, GIT + rest, odd(body), said), rest)
+                posed = {(Posing("x", key) if key == min(body) else key): held for key, held in body.items()}
+                self.assertFalse(push.permits(state, method, GIT + rest, posed), rest)
             # Another owner's and another repo's, of a name as long as this one's and of another length; this repo's
             # other data; and a path that only holds this repo's.
             for root in ("/repos/combsmiht/software-factory/git/", "/repos/combsmith/software-fictory/git/",
@@ -1060,7 +1105,7 @@ class Push(unittest.TestCase):
                     dict(state, push=None), dict(state, tree="main"), dict(state, tree=5), dict(state, new=ROOT_TREE[1:]),
                     dict(state, new=5), dict(state, commit="main"), dict(state, commit=5),
                     dict(state, moved=None), dict(state, moved=1), dict(state, branch_read=1), dict(state, checked=0),
-                    dict(state, ref_back=None), dict(state, commit_back="yes"), dict(state, landed=0),
+                    dict(state, commit_back="yes"), dict(state, landed=0),
                     dict(state, before={"a": [FILE, BLOB_A]}), dict(state, before={"a": (FILE, BLOB_A, 1)}),
                     dict(state, before={"a": (FILE, BLOB_A[1:])}), dict(state, before={"a": (FILE, NEW_A.upper())}),
                     dict(push.began(PUSH), new=MADE_TREE), dict(before(None, READING)[0], new=MADE_TREE),
@@ -1072,11 +1117,11 @@ class Push(unittest.TestCase):
                 self.assertFalse(push.permits(bad, request[0], GIT + request[1], request[2]), bad)
             self.assertIsNone(push.seen(bad, method, GIT + rest, body, said))
         # A state of the right shape whose parts do not agree raises nothing either: it is refused, or takes its course.
-        for odd in (dict(state, moved=True), dict(state, commit_back=True), dict(state, made={}),
+        for askew in (dict(state, moved=True), dict(state, commit_back=True), dict(state, made={}),
                     dict(before("tree back")[0], made={})):
             for name, method_o, rest_o, body_o, said_o in honest(PUSH):
-                push.permits(odd, method_o, GIT + rest_o, body_o)
-                push.seen(odd, method_o, GIT + rest_o, body_o, said_o)
+                push.permits(askew, method_o, GIT + rest_o, body_o)
+                push.seen(askew, method_o, GIT + rest_o, body_o, said_o)
         self.assertIsNone(then(dict(before("tree back")[0], made={}), *before("tree back")[1]))
 
     def test_a_push_reads_the_admitted_commit_and_its_own_branch(self):
@@ -1095,8 +1140,14 @@ class Push(unittest.TestCase):
             self.assertEqual(state["before"], BEFORE)
             for name in (BLOB_A, BLOB_RUN, BLOB_T, BLOB_LINK):
                 self.assertTrue(may(state, "GET", "blobs/" + name), name)
-                self.assertIs(then(state, "GET", "blobs/" + name, None, answer(200, {"sha": name})), state)
-                self.assertIsNone(then(state, "GET", "blobs/" + name, None, answer(404)))
+                said = {"sha": name, "size": 2, "content": "QQo=", "encoding": "base64"}
+                self.assertIs(then(state, "GET", "blobs/" + name, None, answer(200, said)), state)
+                # The blob asked for, in base64, or the push stops.
+                for wrong in (answer(404), answer(200), answer(200, [said]), answer(200, dict(said, sha=NEW_A)),
+                              answer(200, {k: v for k, v in said.items() if k != "sha"}), answer(200, dict(said, encoding="utf-8")),
+                              answer(200, {k: v for k, v in said.items() if k != "encoding"}), answer(200, dict(said, content=None)),
+                              answer(200, dict(said, content=b"QQo=")), answer(200, dict(said, content=Odd("QQo=")))):
+                    self.assertIsNone(then(state, "GET", "blobs/" + name, None, wrong), (name, wrong))
             for rest in ("commits/" + PARENT, "trees/" + ROOT_TREE + "?recursive=1", "ref/heads/" + BRANCH,
                          "blobs/" + BLOB_A):
                 self.assertTrue(may(state, "GET", rest), rest)
@@ -1433,13 +1484,12 @@ class Push(unittest.TestCase):
                 for name in (PARENT, None):
                     self.assertFalse(may(before(step, told)[0], write[0], write[1], dict(write[2], sha=name)), step)
 
-    def test_a_push_lands_when_the_branch_and_the_commit_are_read_again(self):
+    def test_a_push_lands_when_the_branch_is_read_again_at_the_commit(self):
         for told in (PUSH, MOVE):
             state, (method, rest, body, said) = before("ref back", told)
-            self.assertEqual((state["commit_back"], state["moved"], state["ref_back"], state["landed"]),
-                             (True, True, False, False))
+            self.assertEqual((state["commit_back"], state["moved"], state["landed"]), (True, True, False))
             landed = then(state, method, rest, body, said)
-            self.assertEqual((landed["ref_back"], landed["landed"]), (True, True))
+            self.assertTrue(landed["landed"])
             self.assertEqual(before(None, told)[0], landed)
             for wrong in (answer(404), answer(200, ref(PARENT)), answer(200, ref(MADE, "main")), answer(200), answer(201, ref(MADE))):
                 self.assertIsNone(then(state, method, rest, body, wrong), wrong)
@@ -1469,6 +1519,16 @@ class Push(unittest.TestCase):
                         ("a fault", dict(said, status="500")), ("nothing changed", dict(said, status="304")),
                         ("no content", dict(said, status="204")), ("a status past any number", dict(said, status=10 ** 5000))):
                     self.assertIsNone(then(state, method, rest, body, wrong), (name, why))
+                # An answer that holds text of another kind, or what JSON does not, is none GitHub gave.
+                self.assertIsNone(then(state, method, rest, body, odd(said)), name)
+                if said["body"] is not None:
+                    self.assertIsNone(then(state, method, rest, body, dict(said, body=odd(said["body"]))), name)
+                if type(said["body"]) is dict:
+                    self.assertIsNone(then(state, method, rest, body, dict(said, body=dict(said["body"], more=1.5))), name)
+                    for key, held in said["body"].items():
+                        if type(held) is list:
+                            self.assertIsNone(then(state, method, rest, body, dict(said, body=dict(said["body"], **{key: odd(held)}))),
+                                              (name, key))
                 # A request that may not leave has no answer this takes: its body changed, it is none of this push.
                 self.assertIsNone(then(state, method, rest, {"x": 1}, said), name)
                 self.assertIsNone(then(state, "DELETE", rest, body, said), name)

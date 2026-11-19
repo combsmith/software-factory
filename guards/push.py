@@ -33,7 +33,8 @@ What this rests on, and its stated limits:
 - The state is the caller's and never the port's: it is `began`'s answer or `seen`'s and nothing else, and the port
   is handed copies of what `push` holds, never `push`. A state of another shape lets nothing leave; one forged in
   the right shape is not told from a true one.
-- An answer is what the transport read from GitHub. A blob's name is taken from its answer alone.
+- An answer is what the transport read from GitHub, held as a request's body is to what JSON reads, each thing of
+  its exact kind. A blob's name is taken from its answer alone.
 - A request is allowed again for as long as its answer has not reached `seen`: the caller stops at an answer lost.
 - A branch rewound, or removed and made again at a commit `parent` stands on, between its read and its move takes
   the move, since it is a move forward and REST has no compare-and-swap.
@@ -80,18 +81,35 @@ PUSH = ("repo", "branch", "parent", "head", "message", "changes", "blobs")
 CHANGES = ("written", "removed", "read")
 # What a state holds: the push; the admitted commit's tree and its listing, once read; whether the branch was read as
 # the Decision admitted it; the blob made for each written path; the tree made, and whether it was read back as the
-# admitted one with the changes in it; the commit made; whether the branch was written; whether the branch and the
-# commit were read again as made; and whether the push landed.
-STATE = ("push", "tree", "before", "branch_read", "made", "new", "checked", "commit", "moved", "ref_back",
-         "commit_back", "landed")
+# admitted one with the changes in it; the commit made, and whether it was read back as made; whether the branch was
+# written; and whether the push landed, the branch read again at the commit made.
+STATE = ("push", "tree", "before", "branch_read", "made", "new", "checked", "commit", "commit_back", "moved", "landed")
 NAMES = ("tree", "new", "commit")
-FLAGS = ("branch_read", "checked", "moved", "ref_back", "commit_back", "landed")
+FLAGS = ("branch_read", "checked", "commit_back", "moved", "landed")
 # What a listing holds of a path: its mode and its name.
 HELD = ("mode", "sha")
 # The requests of a push, each named for what `seen` then asks of its answer.
 REF_READ, COMMIT_READ, TREE_READ, BLOB_READ = "ref_read", "commit_read", "tree_read", "blob_read"
 BLOB_MADE, TREE_MADE, TREE_BACK, COMMIT_MADE = "blob_made", "tree_made", "tree_back", "commit_made"
 REF_MADE, REF_MOVED, COMMIT_BACK = "ref_made", "ref_moved", "commit_back"
+
+
+def _plain(value) -> bool:
+    """Whether `value` holds what JSON reads and nothing else, each thing of its exact kind: a mapping of text to such
+    things, a list of them, text, a number, true, false or null. Text of another kind may say it equals anything, so a
+    body or an answer that holds one is held to nothing; this stops there."""
+    left = [value]
+    while left:
+        value = left.pop()
+        if type(value) is dict:
+            if not all(type(key) is str for key in value):
+                return False
+            left.extend(value.values())
+        elif type(value) is list:
+            left.extend(value)
+        elif value is not None and type(value) not in (str, int, bool):
+            return False
+    return True
 
 
 def _sha(said) -> bool:
@@ -164,7 +182,7 @@ def began(push):
     if not _told(push):
         return None
     return {"push": push, "tree": None, "before": None, "branch_read": False, "made": {}, "new": None,
-            "checked": False, "commit": None, "moved": False, "ref_back": False, "commit_back": False, "landed": False}
+            "checked": False, "commit": None, "commit_back": False, "moved": False, "landed": False}
 
 
 def _tree(body, state: dict) -> bool:
@@ -216,8 +234,8 @@ def _state(state) -> bool:
 def _step(state, method, path, body):
     """Which request of the push this is, as the state stands, or None where it may not leave. A state that is none
     of `began`'s, or of a push told wrongly, lets nothing leave; nor does a path outside this repo's git data,
-    whatever the method."""
-    if not _state(state) or type(path) is not str:
+    whatever the method, or a body that holds what JSON does not."""
+    if not _state(state) or type(path) is not str or not _plain(body):
         return None
     push = state["push"]
     root = "/repos/" + push["repo"] + "/git/"
@@ -341,7 +359,7 @@ def seen(state, method, path, body, answer):
     answer is none this takes of it. An answer is `{"status": the status GitHub gave, as text, "body": what it
     said}`."""
     step = _step(state, method, path, body)
-    if step is None or not isinstance(answer, dict) or set(answer) != {"status", "body"}:
+    if step is None or not isinstance(answer, dict) or set(answer) != {"status", "body"} or not _plain(answer):
         return None
     status, got, push = answer["status"], answer["body"], state["push"]
     if step == REF_READ and not state["moved"]:
@@ -354,7 +372,7 @@ def seen(state, method, path, body, answer):
     if step == REF_READ:
         if status != OK or _ref(got, push["branch"]) != state["commit"]:
             return None
-        return dict(state, ref_back=True, landed=True)
+        return dict(state, landed=True)
     if step in (BLOB_MADE, TREE_MADE, COMMIT_MADE, REF_MADE):
         if status != CREATED:
             return None
@@ -372,6 +390,10 @@ def seen(state, method, path, body, answer):
             return None
         return dict(state, before=listing)
     if step == BLOB_READ:
+        # The blob asked for, in base64: what the port reads under a push of no changes is what `applied` patches.
+        if (not isinstance(got, dict) or got.get("sha") != path[path.rindex("/") + 1:] or got.get("encoding") != BASE64
+                or type(got.get("content")) is not str):
+            return None
         return state
     if step == BLOB_MADE:
         name = got.get("sha") if isinstance(got, dict) else None
