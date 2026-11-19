@@ -12,7 +12,9 @@ import json
 import os
 import pathlib
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 import unittest.mock
 
@@ -1768,6 +1770,13 @@ class Advised(unittest.TestCase):
         return advised_.asked(str(self.folder(files, placed)), folder, the_task() if admit is None else admit,
                               ended or self.ENDED, held)
 
+    def wordy(self, lens: str) -> tuple:
+        """A Result of `lens` with as many of a reader's words as one may hold, each of four bytes: its file and digest."""
+        big = advised(*[("major", 100 + n) for n in range(50)], lens=lens)
+        for text in big["texts"]:
+            text["body"] = "\U0001f600" * 8300
+        return filed(json.dumps(big, ensure_ascii=False).encode())
+
     def test_what_a_child_did_not_say_its_parent_records(self):
         both = ["astra", "kimi"]
         each = lambda code, key=None: {"astra": (code, key), "kimi": (code, None)}
@@ -1795,6 +1804,74 @@ class Advised(unittest.TestCase):
                 (b"began\nastra shown CR_1\nastra not_written\nrevoked\n", {"astra": ("shown", "CR_1"), "kimi": ("out_of_time", None)}),
                 (b"began\n\xff\nrevoked\n", each("out_of_time"))):
             self.assertEqual(advised_.told(out, both), want, out)
+
+    def test_the_child_is_given_the_key_alone_and_is_killed_at_its_deadline(self):
+        d, calls = self.folder(self.BOTH), []
+        held = {"item": (the_facts(), HEAD, runs(), support.context(), None)}
+
+        def go(left, spawn, files=d, work="work"):
+            env = {advised_.KEY: "the key", "PATH": "/usr/bin", "RUN_DIGEST": "x", "GITHUB_TOKEN": "t", "NEEDS": "{}"}
+            return advised_.run(str(files), "advice", work, the_task(), self.ENDED, held, env, lambda: left, spawn)
+
+        def spawn(command, **how):
+            calls.append((command, how))
+            return subprocess.CompletedProcess(command, 0, b"began\nastra shown CR_1\nkimi shown CR_2\nrevoked\n")
+        self.assertEqual(go(240, spawn), [("astra", "shown", "CR_1"), ("kimi", "shown", "CR_2")])
+        (command, how), = calls
+        work = os.path.realpath(d / "work")
+        # It is given the SHA-256 of what it is asked, which it holds the file to.
+        digest = hashlib.sha256(pathlib.Path(work, "asked.json").read_bytes()).hexdigest()
+        self.assertEqual((command, how["env"], how["timeout"], how["stdin"], how["cwd"]),
+                         ([sys.executable, "-m", "harness.advised", work, digest], {advised_.KEY: "the key", "PATH": "/usr/bin"},
+                          150, subprocess.DEVNULL, str(ROOT)))
+        # What it is asked lies in a new folder of the step's own, the step's alone to read, and holds no key.
+        asked = json.loads(pathlib.Path(work, "asked.json").read_text())
+        self.assertEqual((asked["seconds"], [a["lens"] for a in asked["asked"]], asked["head"], asked["run"]),
+                         (150, ["astra", "kimi"], HEAD, RUN))
+        self.assertEqual((os.stat(work).st_mode & 0o777, "the key" in json.dumps(asked)), (0o700, False))
+        # It is written as UTF-8, a reader's words as they are and not escaped to three times their bytes, so that every
+        # Lens's check run fits what the child reads.
+        wordy = self.folder({"astra": self.wordy("astra"), "kimi": self.wordy("kimi")})
+        go(240, spawn, files=wordy, work="w7")
+        raw = pathlib.Path(os.path.realpath(wordy / "w7"), "asked.json").read_bytes()
+        self.assertTrue("\U0001f600".encode() in raw and advised_.MOST // 2 < len(raw) < advised_.ASKED // 4, len(raw))
+        del calls[-1]
+        # The deadline leaves the step its reserve, and a child that could not mint, write one check run and revoke in
+        # what is left is not started.
+        go(170, spawn, work="w2")
+        self.assertEqual(calls[-1][1]["timeout"], 140)
+        del calls[:]
+        self.assertEqual((go(159, spawn, work="w3"), calls, os.path.exists(d / "w3")),
+                         ([("astra", "out_of_time", None), ("kimi", "out_of_time", None)], [], False))
+        # With no Result to show no child is started; and a Lens with none keeps its code beside one that has.
+        self.assertEqual((go(240, spawn, files=self.folder({})), calls),
+                         ([("astra", "advice_missing", None), ("kimi", "advice_missing", None)], []))
+        self.assertEqual(go(240, lambda c, **h: subprocess.CompletedProcess(c, 0, b"began\nkimi shown CR_2\nrevoked\n"),
+                            files=self.folder({"kimi": advised(lens="kimi")})),
+                         [("astra", "advice_missing", None), ("kimi", "shown", "CR_2")])
+        # A child killed at its deadline is read as far as it said; one that cannot be started says nothing.
+        def killed(command, **how):
+            raise subprocess.TimeoutExpired(command, how["timeout"], output=b"began\nastra shown CR_1\nkim")
+
+        def absent(command, **how):
+            raise OSError("no such file")
+        self.assertEqual(go(240, killed, work="w4"), [("astra", "token_not_revoked", "CR_1"), ("kimi", "token_not_revoked", None)])
+        self.assertEqual(go(240, absent, work="w5"), [("astra", "out_of_time", None), ("kimi", "out_of_time", None)])
+        # Every entry is one applied/1 holds.
+        said = go(240, killed, work="w6")
+        self.assertEqual(shared.errors(dict({"schema": "applied/1", "run": RUN, "release": RELEASE, "effects": [], "findings": []}, advisory=advice.recorded(said)), "applied"), [])
+
+    @support.wall_clock
+    def test_a_child_that_hangs_is_killed_in_fact_and_what_it_had_said_is_kept(self):
+        held = {"item": (the_facts(), HEAD, runs(), support.context(), None)}
+        hangs = "import time; print('began', flush=True); print('astra shown CR_1', flush=True); time.sleep(60)"
+        began = time.monotonic()
+        with unittest.mock.patch.object(advised_, "COMMAND", [sys.executable, "-c", hangs]), \
+                unittest.mock.patch.object(advised_, "CHILD", 1), unittest.mock.patch.object(advised_, "LEAST", 1):
+            said = advised_.run(str(self.folder(self.BOTH)), "advice", "work", the_task(), self.ENDED, held,
+                                {advised_.KEY: "the key", "PATH": "/usr/bin"}, lambda: 240)
+        self.assertEqual(said, [("astra", "token_not_revoked", "CR_1"), ("kimi", "token_not_revoked", None)])
+        self.assertLess(time.monotonic() - began, 20)
 
     def test_an_advisory_result_is_asked_for_only_for_a_review_of_the_item_as_admitted(self):
         each = lambda code: ({"astra": code, "kimi": code}, [])

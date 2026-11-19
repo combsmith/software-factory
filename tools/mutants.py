@@ -140,6 +140,7 @@ ADVICE_READ = ("tests.test_advisory.Parser.test_an_answer_is_a_read_only_when_it
 ADVICE_COST = ("tests.test_advisory.Parser.test_a_result_says_what_the_read_cost_and_a_read_never_asked_says_why",)
 ADVISED = "harness/advised.py"
 SHOWN_TOLD = ("tests.test_apply.Advised.test_what_a_child_did_not_say_its_parent_records",)
+SHOWN_KILLED = ("tests.test_apply.Advised.test_the_child_is_given_the_key_alone_and_is_killed_at_its_deadline",)
 SHOWN_ASKED = ("tests.test_apply.Advised.test_an_advisory_result_is_asked_for_only_for_a_review_of_the_item_as_admitted",)
 # Decision 0224: the Run's first step and its advise step, and the test each mutant of theirs is killed by.
 UNASKED = "harness/unasked.py"
@@ -4926,6 +4927,10 @@ MUTANTS = ISSUE + [
      '    if "unrevoked" in lines:\n', '    if False:\n', SHOWN_TOLD),
     ('a token said not revoked by a child not heard to begin is read as never asked for', ADVISED,
      '    if "unrevoked" in lines:\n', '    if "unrevoked" in lines and "began" in lines:\n', SHOWN_TOLD),
+    ('the step gives the child no hash of what it asks', ADVISED,
+     'COMMAND + [made, hashlib.sha256(data).hexdigest()]', 'COMMAND + [made, ""]', SHOWN_KILLED),
+    ("what the child is asked is escaped to three times a reader's bytes", ADVISED,
+     'ensure_ascii=False, allow_nan=False).encode("utf-8", "replace")\n', 'allow_nan=False).encode("utf-8", "replace")\n', SHOWN_KILLED),
     ('a child that never began is read as one that did', ADVISED,
      '    if "began" not in lines:\n',
      '    if False:\n', SHOWN_TOLD),
@@ -4941,6 +4946,21 @@ MUTANTS = ISSUE + [
     ('a line the kill cut short is read as whole', ADVISED,
      '.split("\\n")[:-1] if isinstance(out, bytes)',
      '.split("\\n") if isinstance(out, bytes)', SHOWN_TOLD),
+    ("the child is given the step's whole environment", ADVISED,
+     'env={KEY: environ.get(KEY) or "", "PATH": environ.get("PATH", "")}',
+     'env=dict(environ)', SHOWN_KILLED),
+    ('the child is never killed', ADVISED,
+     'stderr=subprocess.DEVNULL, timeout=seconds,',
+     'stderr=subprocess.DEVNULL, timeout=None,', SHOWN_KILLED),
+    ("the child's deadline leaves the step no time to end", ADVISED,
+     'seconds = min(CHILD, int(left()) - RESERVE)',
+     'seconds = min(CHILD, int(left()))', SHOWN_KILLED),
+    ('a child is started with no time to mint, write and revoke', ADVISED,
+     '    if reqs and seconds < LEAST:\n',
+     '    if False and seconds < LEAST:\n', SHOWN_KILLED),
+    ('what a killed child had said is lost', ADVISED,
+     '            out = killed.stdout\n',
+     '            out = None\n', SHOWN_KILLED),
     ("an advisory Result is shown for any Intent's Run", ADVISED,
      '    if admit is None or admit["intent"] != REVIEWING:\n',
      '    if admit is None:\n', SHOWN_ASKED),
