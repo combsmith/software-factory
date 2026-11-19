@@ -1792,7 +1792,7 @@ class Advised(unittest.TestCase):
                               ended or self.ENDED, held)
 
     def child(self, files, hub=None, mint_fails=None, revoked=True, seconds=150, clock=lambda: 0, write=None, connect=None,
-              planted=(), digest=None, item=ITEM, names=None):
+              planted=(), digest=None, item=ITEM, names=None, size=0, say=True):
         """`(lines, hub, calls)` of the child asked for what `asked` builds of `files`, and for `planted`, on `item`,
         given the SHA-256 of what it is asked or `digest`. With `connect` the token is minted by `identity.from_key`
         itself, through it; with `names` the configuration asks a reader for those Lenses."""
@@ -1801,7 +1801,7 @@ class Advised(unittest.TestCase):
         d = self.folder({})
         data = json.dumps({
             "item": item, "head": HEAD, "run": RUN, "release": RELEASE, "seconds": seconds,
-            "asked": [{"lens": lens, "request": req} for lens, req in reqs + list(planted)]}).encode()
+            "asked": [{"lens": lens, "request": req} for lens, req in reqs + list(planted)]}, ensure_ascii=False).encode().ljust(size)
         (d / "asked.json").write_bytes(data)
         real = advised_.steps.read_json
 
@@ -1811,6 +1811,7 @@ class Advised(unittest.TestCase):
 
         def from_key(app, repo, wanted, key, now, connect):
             calls["mint"].append((app["name"], repo, wanted, key))
+            calls["now"] = now
             if mint_fails:
                 raise mint_fails
 
@@ -1825,7 +1826,7 @@ class Advised(unittest.TestCase):
                 unittest.mock.patch.object(effects, "advisory_write", write or effects.advisory_write), \
                 unittest.mock.patch.object(advised_.steps, "read_json", read_json):
             code = advised_.main([str(d), hashlib.sha256(data).hexdigest() if digest is None else digest],
-                                 {advised_.KEY: "k", "OTHER": "x"}, connect or advised_.Live, clock, lines.append)
+                                 {advised_.KEY: "k", "OTHER": "x"}, connect or advised_.Live, clock, lines.append if say else None)
         self.assertEqual(code, 0)
         return lines, hub, calls
 
@@ -1882,8 +1883,11 @@ class Advised(unittest.TestCase):
                          (["began", "astra shown CR_1", "kimi shown CR_2", "revoked"], ["advisory-astra", "advisory-kimi"]))
         lines, hub, _ = self.child({"astra": self.BOTH["astra"]}, planted=[("kimi", astra)])
         self.assertEqual((lines, [b["name"] for b in self.posted(hub)]), (["began", "astra shown CR_1", "revoked"], ["advisory-astra"]))
+        note = lambda m: json.loads(json.dumps(astra).replace(MARK + " message", m))
+        hub = self.child({}, planted=[("astra", note("caf\xe9")), ("astra", note("second"))])[1]
+        self.assertEqual(self.posted(hub)[0]["output"]["annotations"][0]["message"], "caf\xe9 0")
         # One reader's words, however many bytes they come to, crowd no Lens's check run out of what the child reads.
-        lines, hub, _ = self.child({"astra": self.wordy("astra"), "kimi": self.wordy("kimi")})
+        lines, hub, _ = self.child({"astra": self.wordy("astra"), "kimi": self.wordy("kimi")}, size=advised_.ASKED)
         self.assertEqual(lines, ["began", "astra shown CR_1", "kimi shown CR_2", "revoked"])
 
     def test_the_child_mints_one_token_of_the_check_runs_need_on_the_home_repo_and_a_mint_in_doubt_is_not_revoked(self):
@@ -1957,6 +1961,10 @@ class Advised(unittest.TestCase):
         # What it is asked that it cannot read is nothing said, and it ends as any child does.
         self.assertEqual(advised_.main(["/nothing/here"], {}, say=lines.append), 0)
         self.assertEqual(lines, ["began", "revoked"])
+        wrote = []
+        with unittest.mock.patch.object(sys, "stdout", unittest.mock.Mock(write=wrote.append, flush=lambda: wrote.append("|"))):
+            calls = self.child(self.BOTH, mint_fails=OSError(), say=False)[2]
+        self.assertEqual(("".join(wrote), abs(calls["now"] - time.time()) < 60), ("began\n|unrevoked\n|", True))
 
     def test_the_child_asks_github_nothing_for_what_the_step_did_not_write_or_its_token_does_not_hold(self):
         # What it is asked whose bytes are not those the step hashed, or with no hash at all, an item of another repo
@@ -1966,7 +1974,7 @@ class Advised(unittest.TestCase):
         many = ["astra", "kimi"] + ["lens" + c for c in "abcdefg"]
         each = [(lens, dict(astra, name="advisory-" + lens, external_id="%s:%s" % (RUN, lens))) for lens in many[2:]]
         for how in ({"digest": "0" * 64}, {"digest": hashlib.sha256(b"another file").hexdigest()}, {"digest": ""},
-                    {"item": dict(ITEM, repo="combsmith/other")}, {"files": {}},
+                    {"item": dict(ITEM, repo="combsmith/other")}, {"files": {}}, {"size": advised_.ASKED + 1},
                     {"files": {}, "planted": [("muse", dict(astra, name="advisory-muse", external_id=RUN + ":muse"))]},
                     {"names": many, "planted": each}):
             lines, hub, calls = self.child(**dict({"files": self.BOTH}, **how))
