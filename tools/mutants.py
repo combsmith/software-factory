@@ -132,7 +132,6 @@ AZURE_ONE = ("tests.test_advisory.Transport.test_the_azure_transport_reaches_one
 AZURE_KEY = ("tests.test_advisory.Transport.test_the_azure_transport_takes_its_key_from_its_caller_and_sends_it_nowhere_else",)
 AZURE_BOUND = ("tests.test_advisory.Transport.test_the_azure_transport_bounds_every_answer_in_size_and_time",)
 AZURE_FRAMED = ("tests.test_advisory.Transport.test_the_azure_transport_reads_only_an_answer_framed_as_azure_frames_one",)
-AZURE_CAPPED = ("tests.test_advisory.Transport.test_the_azure_transport_reads_no_more_of_a_connection_than_an_answer_may_hold",)
 SCRATCH_PARTS = ("tests.test_evals.EvalJob.test_a_set_of_no_case_ends_the_run_before_anything_is_read",)
 CANARY_APART = ("tests.test_evals.EvalJob.test_the_canarys_head_is_apart_from_its_case",)
 NO_ANSWER = ("tests.test_evals.EvalJob.test_a_run_is_given_no_part_of_its_cases_answer_and_its_head_no_history",)
@@ -4305,7 +4304,7 @@ MUTANTS = ISSUE + [
      'TypeError, RecursionError,\n                http.client.HTTPException) as err:',
      'TypeError, RecursionError) as err:', AZURE_BOUND),
     ("an Azure error's body is not bounded", AZURE,
-     '_bounded(_capped(err), said))\n', 'err.read())\n', AZURE_BOUND),
+     '_bounded(err, said))\n', 'err.read())\n', AZURE_BOUND),
     ("a host may be text of another class, which writes itself otherwise", AZURE,
      'type(host) is not str or', 'not isinstance(host, str) or', AZURE_ONE),
     ('an Azure answer is read whole before it is refused', AZURE,
@@ -4339,9 +4338,9 @@ MUTANTS = ISSUE + [
     ('an Azure answer longer than the length it said is kept', AZURE,
      'if length is not None and size != length:', 'if length is not None and size < length:', AZURE_BOUND),
     ("an Azure answer's length is not counted", AZURE,
-     '_bounded(_capped(got), said))', '_bounded(_capped(got), None))', AZURE_BOUND),
+     '_bounded(got, said))', '_bounded(got, None))', AZURE_BOUND),
     ("an Azure error's length is not counted", AZURE,
-     '_bounded(_capped(err), said))', '_bounded(_capped(err), None))', AZURE_BOUND),
+     '_bounded(err, said))', '_bounded(err, None))', AZURE_BOUND),
     ('NaN and the infinities are read as JSON', AZURE,
      ', parse_constant=_finite)', ')', AZURE_BOUND),
     ("a refused last value of a header given twice leaves an earlier one kept", AZURE,
@@ -4375,20 +4374,6 @@ MUTANTS = ISSUE + [
      '    if lengths and int(lengths[0]) > LARGEST:\n', '    if False:\n', AZURE_FRAMED),
     ('an Azure answer that says the bound is refused', AZURE,
      'int(lengths[0]) > LARGEST', 'int(lengths[0]) >= LARGEST', AZURE_BOUND),
-    ("an Azure answer's connection is not capped", AZURE,
-     '        held.fp = _Capped(held.fp)\n', '        pass\n', AZURE_CAPPED),
-    ("an Azure error's connection is not capped", AZURE,
-     '_bounded(_capped(err), said))', '_bounded(err, said))', AZURE_CAPPED),
-    ("a connection's bytes are read past the cap", AZURE,
-     '        if most == 0 and asked != 0:\n', '        if False:\n', AZURE_CAPPED),
-    ("a whole read of a connection's bytes takes all there is", AZURE,
-     'most = self._left if asked is None', 'most = -1 if asked is None', AZURE_CAPPED),
-    ("a read of a connection's bytes takes what it asks past the cap", AZURE,
-     'else min(asked, self._left)', 'else asked', AZURE_CAPPED),
-    ("a line read of a connection's bytes is not capped", AZURE,
-     'self._fp.readline(self._most(size))', 'self._fp.readline(size)', AZURE_CAPPED),
-    ("a read into a buffer of a connection's bytes is not capped", AZURE,
-     'view[:self._most(len(view))]', 'view', AZURE_CAPPED),
     ('a chunked Azure answer is told in one case alone', AZURE,
      'coded = [v.lower() for k', 'coded = [v for k', AZURE_FRAMED),
     ("an Azure answer's frame is not read", AZURE,

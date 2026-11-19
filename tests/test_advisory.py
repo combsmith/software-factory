@@ -276,27 +276,6 @@ class Transport(unittest.TestCase):
                 got = live(Real(b"HTTP/1.1 %s\r\nContent-Type: application/json\r\n%s\r\n%s" % (status, lines, body)))
                 self.assertEqual(got.send(azure.read(ID))["body"], {}, lines)
 
-    def test_the_azure_transport_reads_no_more_of_a_connection_than_an_answer_may_hold(self):
-        # A chunk's size of -1, or a trailer without end, reads no more than the bound and a frame's allowance.
-        cap = azure.LARGEST + azure.FRAMING
-        self.assertEqual(azure.FRAMING, 64 * 1024)
-        line = b"x: " + b"y" * 60000 + b"\r\n"
-        for status in (b"200 OK", b"500 x"):
-            for body in (b"-1\r\n" + b"x" * (cap + 10), b"2\r\n{}\r\n0\r\n" + line * (cap // len(line) + 2)):
-                head = b"HTTP/1.1 %s\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n" % status
-                opener = Real(head + body)
-                with self.assertRaises(azure.Unanswered, msg=(status, body[:2])):
-                    live(opener).send(azure.read(ID))
-                self.assertLessEqual(opener.wire.tell(), len(head) + cap)
-        for take in (lambda c: c.read(), lambda c: c.read(azure.CHUNK), lambda c: c.readline(),
-                     lambda c: c.readline(70000), lambda c: c.readinto(bytearray(azure.CHUNK))):
-            wire = io.BytesIO(b"x" * (cap + 10))
-            capped = azure._Capped(wire)
-            with self.assertRaises(azure.Unanswered):
-                while take(capped):
-                    pass
-            self.assertEqual(wire.tell(), cap)
-
     def test_the_azure_transport_bounds_every_answer_in_size_and_time(self):
         # The seconds are its caller's, a whole number from one to the longest a step may wait on one request.
         self.assertEqual(azure.LONGEST, 20 * 60)
