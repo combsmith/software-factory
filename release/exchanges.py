@@ -121,7 +121,9 @@ class Recording:
             sent = {"as": AS, "via": "rest", "call": "%s %s" % (req["method"], req["path"]), "headers": headers,
                     "body": _body(req.get("body"), gone, here + ".request.body")}
             if answer is None:
-                self.exchanges.append({"request": sent, "response": {"raised": raised}})
+                exchange = {"request": sent, "response": {"raised": raised}}
+                json.dumps(exchange, allow_nan=False)     # as below: a number that is not finite drops this exchange
+                self.exchanges.append(exchange)
                 self.dropped += gone
                 return
             body = answer.get("body")

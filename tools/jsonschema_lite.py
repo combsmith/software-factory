@@ -59,21 +59,27 @@ def _resolve(ref: str, root: dict, schemas: dict = None) -> tuple:
         raise SchemaError("unresolved reference: %s" % ref)
 
 
+INFINITIES = (float("inf"), float("-inf"))
+
+
 def _infinite(value) -> bool:
     """Whether `value` is a float that is NaN or an infinity: no number, though json.loads reads both (issue 922)."""
-    return isinstance(value, float) and (value != value or value in (float("inf"), float("-inf")))
+    return isinstance(value, float) and (value != value or value in INFINITIES)
 
 
-def _not_finite(value, path: str):
-    """Each path under `value` that holds a float that is NaN or an infinity, where no schema describes it."""
-    if _infinite(value):
-        yield path
-    elif isinstance(value, list):
-        for i, item in enumerate(value):
-            yield from _not_finite(item, "%s[%d]" % (path, i))
-    elif isinstance(value, dict):
-        for name, item in value.items():
-            yield from _not_finite(item, "%s.%s" % (path, name))
+def _not_finite(value, path: str) -> list:
+    """Each path under `value` that holds a float that is NaN or an infinity, where no schema describes it, in order;
+    read with a list of what is left, not by recursion, so that no depth of nesting stops it."""
+    found, left = [], [(value, path)]
+    while left:
+        value, path = left.pop()
+        if _infinite(value):
+            found.append(path)
+        elif isinstance(value, list):
+            left += [(item, "%s[%d]" % (path, i)) for i, item in reversed(list(enumerate(value)))]
+        elif isinstance(value, dict):
+            left += [(item, "%s.%s" % (path, name)) for name, item in reversed(list(value.items()))]
+    return found
 
 
 def validate(value, schema: dict, root: dict = None, path: str = "$", schemas: dict = None, chain: tuple = ()) -> list:

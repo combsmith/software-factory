@@ -189,6 +189,11 @@ class Kept(unittest.TestCase):
         folder = pathlib.Path(tempfile.mkdtemp())
         self.assertTrue(nan.write(str(folder)))
         self.assertEqual(json.loads((folder / exchanges.NAME).read_text())["unkept"], 1)
+        # And a request the transport raised on is held the same way (cubic's read).
+        raised = exchanges.Recording(Answering(ValueError("refused")))
+        with self.assertRaises(ValueError):
+            raised.send(github.request("POST", "/repos/%s/git/refs" % REPO, body={"sha": float("nan")}))
+        self.assertEqual((raised.kept()["exchanges"], raised.kept()["unkept"]), ([], 1))
         # And what is kept is written with no number that is not finite, or not at all.
         kept = exchanges.Recording(Answering())
         kept.kept = lambda: {"cost": float("inf")}

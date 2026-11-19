@@ -282,6 +282,11 @@ class Validator(unittest.TestCase):
                                      ({"a": 1, "x": [nan]}, {"type": "object", "properties": {"a": {"type": "number"}}}, "$.x[0]")):
             self.assertEqual(validate(value, schema), ["%s: no finite number" % where], value)
         self.assertEqual(validate({"x": [1, 2.5]}, {"type": "object"}), [])
+        # However deep, by a list of what is left and no recursion (cubic's read).
+        deep = [nan]
+        for _ in range(5000):
+            deep = [deep]
+        self.assertEqual(validate(deep, {"type": "array"}), ["$%s: no finite number" % ("[0]" * 5001)])
         # The other side: a finite number, a float or an int however large, is read as it was.
         for value in (0, 0.0, -0.0, 1.5, 1e308, -1e308, 10 ** 400):
             self.assertEqual(validate(value, {"type": "number"}), [], value)
