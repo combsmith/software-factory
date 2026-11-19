@@ -1572,7 +1572,8 @@ class Entry(unittest.TestCase):
             return files["pass.json"]
 
         before = json.loads((ROOT / "examples" / "pass.json").read_text())
-        before.update(now="2026-10-12T11:58:00Z", left_out=[])
+        # No issue served before, so none is owed while issues are not served (issue 916).
+        before.update(now="2026-10-12T11:58:00Z", left_out=[], issues=[])
         item = {"repo": self.HOME, "type": "pull_request", "number": 8}
         once = entry_with(entry.facts_.Moved("moved"), [before])
         self.assertEqual(once["left_out"], [{"item": item, "code": "pull_moved"}])
@@ -1928,6 +1929,7 @@ class Entry(unittest.TestCase):
         before["pull_requests"] = [dict(before["pull_requests"][0], facts=dict(before["pull_requests"][0]["facts"], item=dict(
             before["pull_requests"][0]["facts"]["item"], number=7)))]
         before["reconciled"] = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}
+        before["issues"] = []   # none served before: no issue has left (issue 916)
 
         def entry_with(short=(), unanswered=(), wrote=(), recorded=True):
             del spied[:], order[:]
@@ -1996,6 +1998,148 @@ class Entry(unittest.TestCase):
         record = entry_with(recorded=False)
         self.assertEqual([s[0] for s in spied], [item("pull_request", 7)])
         self.assertIn("reconciliation_unreadable", record["alerts"])
+
+    def test_an_issue_that_left_is_read_with_its_close_and_one_read_short_is_owed(self):  # issue 916, decision 0235
+        # Issue 41 was served by the pass before and is no longer listed: it has left, closed between the passes, and
+        # its writes are read as a pull request's that left are, with its close. A Factory label on it, or its close,
+        # that no Effect recorded is the alert. Read whole, it is kept as left, stamped, and read as gone while the
+        # window holds it; read short, it is owed to the next pass. Where the issues were not listed, every issue served
+        # or owed before is owed again, and reconciliation is short.
+        real, spied = entry.configuration, []
+
+        def served(root, release):
+            found = real(root, release)
+            found["kernel"]["issues"]["served_from"] = "2026-10-01T00:00:00Z"
+            return found
+
+        def off(root, release):
+            found = real(root, release)
+            found["kernel"]["issues"]["served_from"] = None
+            return found
+
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
+            return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
+
+        def issue_read(transport, repo, number, accounts, clock, *, identities):
+            return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "An issue"
+        example = json.loads((ROOT / "examples" / "pass.json").read_text())
+        example["pull_requests"] = [dict(example["pull_requests"][0], facts=dict(example["pull_requests"][0]["facts"],
+                                                                                 item=dict(example["pull_requests"][0]["facts"]["item"], number=7)))]
+        held = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}
+
+        def entry_with(before, short=(), wrote=(), recorded=True, serving="2026-10-01T00:00:00Z", listing=(5,), tracked=()):
+            del spied[:]
+            tracking = [{"schema": "written/1", "pass": "p_01JA7Q", "release": "factory/v0.3.1",
+                         "writes": [{"id": "w%d" % n, "type": "tracking_issue", "item": None, "run": None,
+                                     "state": "already_applied", "key": str(n), "reason": None} for n in tracked]}]
+            dated = lambda root, release: dict(served(root, release)) if serving else off(root, release)
+
+            def read(transport, item, kept, identities, apps, since):
+                spied.append((item["type"], item["number"], kept))
+                writes = [{"by": by, "kind": kind, "item": dict(item), "key": None, "at": "2026-10-12T11:30:00Z"}
+                          for by in set(identities.values()) & set(wrote) for kind in ("label", "close")] \
+                    if item["type"] == "issue" and kept is not None else []
+                return (writes, [], item["number"] not in short)
+            with unittest.mock.patch.object(entry, "configuration", dated), \
+                    unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                    unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after, **k: ([n for n in listing if n not in k.get("apart", ())] if after else [], True)), \
+                    unittest.mock.patch.object(entry.issues_, "read", issue_read), \
+                    unittest.mock.patch.object(entry.passes, "records", lambda *a: [before]), \
+                    unittest.mock.patch.object(entry.seen_, "read", read), \
+                    unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)), \
+                    unittest.mock.patch.object(entry.applied, "effects",
+                                               lambda *a, **k: {"applied": [], "read": [], "at": {}, "whole": True}), \
+                    unittest.mock.patch.object(entry.passes, "written",
+                                               lambda *a, **k: {"written": tracking if tracked else [], "read": [], "at": {},
+                                                                "whole": recorded}):
+                code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
+            self.assertEqual(code, 0)
+            return files["pass.json"]
+        issue = lambda n: dict(example["issues"][0], facts=dict(example["issues"][0]["facts"],
+                                                                item=dict(example["issues"][0]["facts"]["item"], number=n)))
+        before = dict(example, now="2026-10-12T11:00:00Z", issues=[issue(5), issue(41)], left_out=[], reconciled=dict(held))
+        record = entry_with(before)
+        self.assertEqual([s for s in spied if s[0] == "issue"], [("issue", 5, None), ("issue", 41, entry.seen_.LEFT)])
+        self.assertEqual((record["reconciled"]["left_issues"], "owed_issues" in record["reconciled"]),
+                         ([{"number": 41, "at": record["now"]}], False))
+        self.assertNotIn("reconciliation_unreadable", record["alerts"])
+        # The Controller's label on it, and its close, which no Effect recorded, are the alert.
+        record = entry_with(before, wrote=("controller",))
+        self.assertIn("write_unmatched", record["alerts"])
+        self.assertEqual(sorted({e["write"] for e in record["reconciliation"]}), ["close", "label"])
+        # One a pass before left out unread is served by it, and is read as left too.
+        unread = dict(before, issues=[issue(5)], left_out=[{"item": issue(41)["facts"]["item"], "code": "facts_unanswered"}])
+        entry_with(unread)
+        self.assertIn(("issue", 41, entry.seen_.LEFT), spied)
+        # Read short, it is owed as well as kept as left, as a pull request is, and reconciliation is short; the next pass
+        # reads it again, as gone while the window holds its stamp, or as left where only owed.
+        record = entry_with(before, short=(41,))
+        self.assertEqual((record["reconciled"]["owed_issues"], record["reconciled"]["left_issues"]),
+                         ([41], [{"number": 41, "at": record["now"]}]))
+        self.assertIn("reconciliation_unreadable", record["alerts"])
+        owing = dict(before, issues=[issue(5)], reconciled=dict(held, owed_issues=[41]))
+        entry_with(owing)
+        self.assertIn(("issue", 41, entry.seen_.LEFT), spied)
+        # Kept as left inside the window, it is read as gone; past the window it is read no more.
+        kept = dict(before, issues=[issue(5)], reconciled=dict(held, left_issues=[{"number": 41, "at": "2026-10-12T10:00:00Z"}]))
+        record = entry_with(kept)
+        self.assertIn(("issue", 41, entry.seen_.GONE), spied)
+        self.assertEqual(record["reconciled"]["left_issues"], [{"number": 41, "at": "2026-10-12T10:00:00Z"}])
+        old = dict(kept, reconciled=dict(held, left_issues=[{"number": 41, "at": "2026-10-01T10:00:00Z"}]))
+        record = entry_with(old)
+        self.assertEqual([s for s in spied if s[1] == 41], [])
+        self.assertNotIn("left_issues", record["reconciled"])
+        # The issues not listed, for want of the tracking issue's number: every issue served, owed or kept as left before
+        # is owed again, none is read, and reconciliation is short.
+        both = dict(before, reconciled=dict(held, owed_issues=[9], left_issues=[{"number": 12, "at": "2026-10-12T10:00:00Z"}]))
+        record = entry_with(both, recorded=False)
+        self.assertEqual([s for s in spied if s[0] == "issue"], [])
+        self.assertEqual(record["reconciled"]["owed_issues"], [5, 9, 12, 41])
+        self.assertIn("reconciliation_unreadable", record["alerts"])
+        # So with issues served no more, its records read whole: the issues served before are owed, and it is short.
+        record = entry_with(before, serving=None)
+        self.assertEqual((record["reconciled"]["owed_issues"], [s for s in spied if s[0] == "issue"]), ([5, 41], []))
+        self.assertIn("reconciliation_unreadable", record["alerts"])
+        # And with nothing served before or owed there is nothing to owe, and nothing short.
+        record = entry_with(dict(before, issues=[]), serving=None)
+        self.assertNotIn("owed_issues", record["reconciled"])
+        self.assertNotIn("reconciliation_unreadable", record["alerts"])
+        # The tracking issue, left out unread by a pass that could not tell it, is never read as one that left (Claude).
+        record = entry_with(dict(before, left_out=[{"item": issue(9)["facts"]["item"], "code": "facts_unanswered"}]),
+                            tracked=(9,), listing=(5, 9))
+        self.assertEqual([s for s in spied if s[1] == 9], [])
+        self.assertNotIn("owed_issues", record["reconciled"])
+        # Owed and stamped inside the window, it is read once, as gone: read short it stays owed, read whole the debt is
+        # paid and the stamp kept; a write on it then is still the alert (Claude, Astra).
+        both = dict(before, issues=[issue(5)], reconciled=dict(held, owed_issues=[41],
+                                                               left_issues=[{"number": 41, "at": "2026-10-12T10:00:00Z"}]))
+        record = entry_with(both, short=(41,))
+        self.assertEqual([s for s in spied if s[1] == 41], [("issue", 41, entry.seen_.GONE)])
+        self.assertEqual(record["reconciled"]["owed_issues"], [41])
+        record = entry_with(both, wrote=("controller",))
+        self.assertEqual((record["reconciled"]["left_issues"], "owed_issues" in record["reconciled"]),
+                         ([{"number": 41, "at": "2026-10-12T10:00:00Z"}], False))
+        self.assertIn("write_unmatched", record["alerts"])
+        # Owed with its stamp past the window, it is read as left again and stamped anew, never dropped unread (Kimi).
+        stale = dict(both, reconciled=dict(held, owed_issues=[41], left_issues=[{"number": 41, "at": "2026-10-01T10:00:00Z"}]))
+        record = entry_with(stale)
+        self.assertEqual([s for s in spied if s[1] == 41], [("issue", 41, entry.seen_.LEFT)])
+        self.assertEqual(record["reconciled"]["left_issues"], [{"number": 41, "at": record["now"]}])
+        # Served again after its stamp, reopened, and closed once more, it is read as left with its new close and stamped
+        # anew (security); listed again, it is read once, as served (Claude).
+        reopened = dict(before, reconciled=dict(held, left_issues=[{"number": 41, "at": "2026-10-12T10:00:00Z"}]))
+        record = entry_with(reopened)
+        self.assertEqual([s for s in spied if s[1] == 41], [("issue", 41, entry.seen_.LEFT)])
+        self.assertEqual(record["reconciled"]["left_issues"], [{"number": 41, "at": record["now"]}])
+        entry_with(reopened, listing=(5, 41))
+        self.assertEqual([s for s in spied if s[1] == 41], [("issue", 41, None)])
+        # Not listed, a stamp past the window is owed no more (Claude).
+        record = entry_with(dict(before, issues=[], reconciled=dict(held, left_issues=[{"number": 41, "at": "2026-10-01T10:00:00Z"}])),
+                            serving=None)
+        self.assertNotIn("owed_issues", record["reconciled"])
+        # An open issue served now and read short is not owed: the next pass reads it as served, or as left.
+        record = entry_with(before, short=(5,))
+        self.assertEqual(("owed_issues" in record["reconciled"], "reconciliation_unreadable" in record["alerts"]), (False, True))
 
     def test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry(self):  # S3, Astra
         # Through the real port: an issue that read whole would be accepted defers while a pull request names it.
