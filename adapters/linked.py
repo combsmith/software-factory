@@ -21,7 +21,7 @@ pass, which the caller hands on. A pull request whose keyword a pass saw is list
 an edit takes it out, so that no edit after a merge moves the issue; so the list is a pull request with a keyword now or
 once seen, a link by hand, or a close it made in the present life, and no other. `complete.linked` is true where the
 list and the spans were both read whole: records that could not be read give no time and could hide a pull request once
-seen, so the issue defers.
+seen, so the issue defers, and so does one whose records at hand break the chain of spans (`adapters/keyword_spans.py`).
 
 Fail closed all the same while the Controller hands no pass record on (issue 734): the Kernel would read no span as a
 keyword that stood at a merge (`keyword_stood`), and could read an issue done that a rival's link held. So
@@ -210,8 +210,9 @@ def listing(transport, repo: str, number: int, updated_at: str, began: str, iden
     for candidate in sorted(join["refs"] | set(join["links"]) | present | set(spans)):
         got = pull.read(transport, repo, candidate)
         if not on_default(got):
-            # A closer of this life to another base is no link, and could be one: not whole.
-            whole = whole and candidate not in present
+            # A closer of this life, or one a pass saw with its keyword, to another base now is no link, and could
+            # have been one: not whole.
+            whole = whole and candidate not in present and candidate not in spans
             continue
         made, read_whole = entry(transport, got, identities, accounts, join, spans)
         found.append((made, got.get("merge_commit_sha")))
@@ -230,8 +231,8 @@ def listing(transport, repo: str, number: int, updated_at: str, began: str, iden
 def read(transport, repo: str, number: int, updated_at: str, began: str, identities: dict,
          accounts: timeline.Accounts, earlier) -> tuple:
     """`(linked, whole)`, as `listing` reads them with the spans the pass records `earlier` give: whole where the list
-    and the spans were both read whole and no pull request names the issue (the docstring above). `earlier` is the pass
-    records before this pass, oldest first, or None. Lifting the gate lifts this one condition."""
+    and the spans were both read whole, their chain unbroken, and no pull request names the issue (the docstring above).
+    `earlier` is the pass records before this pass, oldest first, or None. Lifting the gate lifts this one condition."""
     spans, read_whole = keyword_spans.read(earlier, {"repo": repo, "type": "issue", "number": number})
     linked, whole, named = listing(transport, repo, number, updated_at, began, identities, accounts, spans)
-    return linked, whole and read_whole and not named
+    return linked, whole and read_whole is True and not named

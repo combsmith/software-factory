@@ -6700,8 +6700,9 @@ class Linked(unittest.TestCase):
         two = [seen_by(3, [(7, True, [span(0, 2)]), (9, True, [])])]
         found, _ = self.read([linked_read(ref(9)), pull_read(7), pull_timeline(7), pull_read(9), pull_timeline(9)], two)
         self.assertEqual(found, [(7, False, [span(0, 2), span(3)]), (9, True, [span(3)])])
-        # Once seen, it is read as any listed: to another base now it is left out, and its timeline read short is not whole.
-        self.assertEqual(self.read([linked_read(), pull_read(7, base="next")], before), ([], True))
+        # Once seen, it is read as any listed: to another base now it is left out and the list is not whole, as its
+        # author may retarget it after a merge; and its timeline read short is not whole.
+        self.assertEqual(self.read([linked_read(), pull_read(7, base="next")], before), ([], False))
         short = [linked_read(), pull_read(7), pull_timeline(7, more=True), rest_answer("/repos/o/r/issues/7/timeline?per_page=100&page=2", {})]
         self.assertEqual(self.read(short, before), ([(7, False, [span(3)])], False))
         # Pass records that could not be read give no time and could hide one once seen: the list is not whole.
@@ -6725,6 +6726,8 @@ class Linked(unittest.TestCase):
         self.assertIn("... on CrossReferencedEvent { source { __typename } }", linked.QUERY)
         self.assertEqual(self.read([linked_read((), [{"__typename": "CrossReferencedEvent", "source": None}])]), ([], False))
         self.assertEqual(self.read([linked_read(ref(7)), pull_read(7), pull_timeline(7)]), ([(7, True, [])], False))
+        # Pass records that break the chain of spans leave the list not whole, whatever names the issue.
+        self.assertEqual(self.read([linked_read()], [seen_by(3, issues=[], alerts=["issue_apps_unreadable"])]), ([], False))
 
     def test_a_merge_beside_a_rival_keyword_link_is_never_read_with_no_spans(self):  # decision 0186
         # The Controller's App's 5 merged and closed the issue; the Maintainer's 6 named it too. Read whole with no spans,
@@ -6794,7 +6797,7 @@ def seen_by(at: int, pulls=(), linked_whole=True, repo="o/r", number=41, **more)
     listed = [{"number": n, "keyword": keyword, "keyword_spans": spans} for n, keyword, spans in pulls]
     facts = {"item": {"repo": repo, "type": "issue", "number": number}, "linked": listed, "read_at": minute(at),
              "complete": {"timeline": True, "linked": linked_whole, "runs": True}}
-    return dict({"schema": "pass/1", "now": minute(at - 1), "issues": [{"facts": facts}]}, **more)
+    return dict({"schema": "pass/1", "now": minute(at - 1), "issues": [{"facts": facts}], "left_out": [], "alerts": []}, **more)
 
 
 def span(seen: int, gone=None) -> dict:
@@ -6833,18 +6836,30 @@ class KeywordSpans(unittest.TestCase):
         self.assertEqual(back["issues"][0]["facts"]["linked"][0]["keyword_spans"], [span(3, 9)])
 
     def test_a_keyword_is_seen_gone_only_by_a_record_that_read_the_linked_pull_requests_whole(self):
-        # A list read short may have missed the reference: the span stays open, and a later whole read ends it then.
-        short = seen_by(9, [(7, False, [span(3)])], linked_whole=False)
-        self.assertEqual(self.spans(short), ({7: [span(3)]}, True))
+        # A record read short, newer than the base, may have missed the reference: its own spans aside, it opens one for
+        # a keyword it read and ends none; a later whole read ends it then.
+        short = seen_by(9, [(7, False, []), (8, True, [])], linked_whole=False)
+        self.assertEqual(self.spans(seen_by(3, [(7, True, []), (8, False, [])]), short), ({7: [span(3)], 8: [span(9)]}, True))
         self.assertEqual(self.spans(short, seen_by(12, [(7, False, [span(3)])])), ({7: [span(3, 12)]}, True))
-        # A keyword a short read did name was seen: its span opens.
-        self.assertEqual(self.spans(seen_by(9, [(7, True, [])], linked_whole=False)), ({7: [span(9)]}, True))
+        # Records that hold the issue, none of them whole, break the chain (`None`).
+        self.assertEqual(self.spans(seen_by(6, [(7, True, [])], linked_whole=False), short), ({7: [span(6)], 8: [span(9)]}, None))
 
     def test_the_spans_are_read_from_the_newest_record_that_holds_the_issue_and_no_record_gives_no_time(self):
         older, newer = seen_by(3, [(7, True, [])]), seen_by(6, [(7, False, [span(3)])])
         self.assertEqual(self.spans(older, newer), ({7: [span(3, 6)]}, True))
-        # A record that left the issue out saw nothing of it: the one before it is read.
-        self.assertEqual(self.spans(older, dict(newer, issues=[])), ({7: [span(3)]}, True))
+        # A record that holds no issue and leaves none out, as with no `served_from` or none open, or that served issues
+        # and not this one, closed then, saw nothing of it: the one before it is read.
+        for none in (seen_by(6, issues=[]), seen_by(6, number=42)):
+            self.assertEqual(self.spans(older, none), ({7: [span(3)]}, True))
+        # One newer than the base that left the issue out, or an item it cannot name, or whose issues' Apps could not be
+        # told, breaks the chain; another item left out does not.
+        apps = {"alerts": ["issue_apps_unreadable"]}
+        for left, more, chained in (([{"item": self.ITEM, "code": "facts_unanswered"}], {}, None),
+                                    ([{"item": None, "code": "not_facts"}], {}, None), ([], apps, None),
+                                    ([{"item": dict(self.ITEM, number=42), "code": "facts_unanswered"}], {}, True)):
+            self.assertEqual(self.spans(older, seen_by(6, issues=[], left_out=left, **more)), ({7: [span(3)]}, chained))
+            self.assertEqual(self.spans(seen_by(6, issues=[], left_out=left, **more)), ({}, chained))
+        self.assertEqual(keyword_spans.ISSUE_APPS, "issue_apps_unreadable")
         # Another issue's facts, or the same number's in another repo, are not this issue's.
         for other in (seen_by(6, [(7, False, [span(3)])], number=42), seen_by(6, [(7, False, [span(3)])], repo="a/fork")):
             self.assertEqual(self.spans(older, other), ({7: [span(3)]}, True))
