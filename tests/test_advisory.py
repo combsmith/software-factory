@@ -135,7 +135,9 @@ class Transport(unittest.TestCase):
 
     def test_the_azure_transport_takes_its_key_from_its_caller_and_sends_it_nowhere_else(self):
         # The key is one word of printable ASCII, given by the caller; nothing is read from the environment.
-        for key in ("", " ", "a b", "a\nb", "a\rb", "kéy", None, 7, b"key"):
+        class Text(str):        # text of another class, which could write itself as another key
+            pass
+        for key in ("", " ", "a b", "a\nb", "a\rb", "kéy", None, 7, b"key", Text(KEY)):
             with self.assertRaises(azure.Unanswered, msg=repr(key)):
                 azure.Live(HOST, key, 30)
         with mock.patch.dict(os.environ, {"ADVISORY_AZURE_KEY": "e" * 32, "AZURE_OPENAI_API_KEY": "e" * 32}):
@@ -186,7 +188,8 @@ class Transport(unittest.TestCase):
         opener = Capture()
         self.assertEqual(live(opener, seconds=azure.LONGEST).send(azure.read(ID))["status"], 200)
         self.assertEqual((opener.sent[0][0].get_method(), opener.sent[0][0].data, opener.sent[0][1]), ("GET", None, azure.LONGEST))
-        # An answer at the bound is kept; one byte over is refused, never cut short.
+        # An answer at the bound, four mebibytes, is kept; one byte over is refused, never cut short.
+        self.assertEqual((azure.LARGEST, azure.HEADER), (4 * 1024 * 1024, 100))
         at = b'"' + b"a" * (azure.LARGEST - 2) + b'"'
         self.assertEqual(len(live(Capture(at)).send(azure.read(ID))["body"]), azure.LARGEST - 2)
         with self.assertRaises(azure.Unanswered):
@@ -212,6 +215,20 @@ class Transport(unittest.TestCase):
         for opener in (Short(), Error(), Slow()):
             with self.assertRaises(azure.Unanswered, msg=type(opener).__name__):
                 live(opener).send(azure.create(ASKED))
+        # An answer that ends before the length it said, a body's or an error's, is cut short too, though no read
+        # raised; one that said none, or gave all of it, is whole.
+        class Left(Answer):
+            length = 47
+
+        class Cut:
+            def open(self, request, timeout=None):
+                raise azure.urllib.error.HTTPError(request.full_url, 500, "x", {}, Left(b"abc"))
+        for opener in (Capture(b'{"a"', Left), Cut()):
+            with self.assertRaisesRegex(azure.Unanswered, "shorter than the length it said"):
+                live(opener).send(azure.read(ID))
+        for length in (0, None):
+            Left.length = length
+            self.assertEqual(live(Capture(b"{}", Left)).send(azure.read(ID))["body"], {})
         # An error Azure answers is an answer, with its status, bounded as any other: a rate limit says how long to wait.
         class Limited:
             def open(self, request, timeout=None):
@@ -250,6 +267,17 @@ class Transport(unittest.TestCase):
             headers = {"Content-Type": "Application/JSON"}
         self.assertEqual(live(Capture(b"{}", Shouted)).send(azure.read(ID))["body"], {})
         self.assertEqual(live(Capture(b"{not json")).send(azure.read(ID))["body"], "{not json")
+        # Bytes that are not UTF-8 are text with each one marked, and never read as JSON: nothing is changed unseen.
+        self.assertEqual(live(Capture(b'{"a": "\xff"}')).send(azure.read(ID))["body"], '{"a": "\ufffd"}')
+        # A header a caller reads is kept only when it is short, printable ASCII: a caller acts on no more than that.
+        class Odd(io.BytesIO):
+            status = 429
+            headers = {"Content-Type": "application/json"}
+        for value in ("1" * 101, "1\r\n2", "\u00b2", "1\x00"):
+            Odd.headers = {"Content-Type": "application/json", "Retry-After": value}
+            self.assertEqual(live(Capture(b"{}", Odd)).send(azure.read(ID))["headers"], {"content-type": "application/json"}, value)
+        Odd.headers = {"Retry-After": "1" * 100}
+        self.assertEqual(live(Capture(b"{}", Odd)).send(azure.read(ID))["headers"], {"retry-after": "1" * 100})
 
 
 def loaded(rel: str):
@@ -558,18 +586,42 @@ class Parser(unittest.TestCase):
                              (None, None, None, None), state)
         # Nor does one that says it completed and holds an error beside that, in either API.
         for failed in (read(answered(said(), error={"code": "server_error"})), read(chatted(said(), error={"code": "x"}), KIMI)):
-            self.assertEqual((failed["usage"]["cost_usd"], failed["usage"]["answering_model"]), (None, None))
+            self.assertEqual((failed["usage"]["cost_usd"], failed["usage"]["answering_model"], failed["reason"]),
+                             (None, None, "transport"))
+        # An error Azure names is its code in either API, and never another model's fault.
+        for error, reason in (("content_filter", "refused"), ("rate_limit_exceeded", "rate_limited")):
+            for failed in (read(answered(said(), error={"code": error})), read(chatted(said(), error={"code": error}), KIMI)):
+                self.assertEqual((failed["status"], failed["reason"]), ("incomplete", reason))
+        # A chat completion that holds no one choice ended for a reason it names has not answered: it is not priced.
+        for body in ({"choices": []}, {"choices": None}, {"choices": [{"finish_reason": None, "message": {"content": ""}}]},
+                     {"choices": [{"message": {"content": "x"}}] * 2}):
+            running = read(chatted(said(), **body), KIMI)
+            self.assertEqual((running["usage"]["cost_usd"], running["usage"]["answering_model"], running["reason"]),
+                             (None, None, "unparsed"), body)
+        for ended in ("length", "content_filter", "tool_calls"):
+            self.assertEqual(read(chatted(said(), ended=ended), KIMI)["usage"]["cost_usd"], 0.0125, ended)
         # Tokens Azure did not count as whole numbers are unknown, and so is the cost: never nought.
         for spent in ({"input_tokens": 1000}, {"input_tokens": "1000", "output_tokens": 500}, {"input_tokens": -1, "output_tokens": 500},
                       {"input_tokens": True, "output_tokens": 500}, {"prompt_tokens": 1000, "completion_tokens": 500}, None, []):
             self.assertIsNone(read(answered(said(), usage=spent))["usage"]["cost_usd"], spent)
-        self.assertEqual(read(answered(said(), usage={"input_tokens": 0, "output_tokens": 0}))["usage"]["cost_usd"], 0)
+        # Nor is a count that contradicts itself: a prompt of no tokens, an answer with words and none, a total above
+        # the two, reasoning above the output it is part of. One that agrees with itself is priced.
+        for more in ({"input_tokens": 0, "output_tokens": 0}, {"input_tokens": 0}, {"output_tokens": 0}, {"total_tokens": 1501},
+                     {"total_tokens": 900000}, {"output_tokens_details": {"reasoning_tokens": 501}}):
+            self.assertIsNone(read(answered(said(), usage=dict({"input_tokens": 1000, "output_tokens": 500}, **more)))["usage"]["cost_usd"], more)
+        self.assertIsNone(read(chatted(said(), usage={"prompt_tokens": 1000, "completion_tokens": 10,
+                                                      "completion_tokens_details": {"reasoning_tokens": 50000}}), KIMI)["usage"]["cost_usd"])
+        for more in ({"total_tokens": 1500}, {"total_tokens": 1499}, {"total_tokens": "many"}, {"total_tokens": True},
+                     {"output_tokens_details": {"reasoning_tokens": 500}}, {"output_tokens_details": 7}):
+            self.assertEqual(read(answered(said(), usage=dict({"input_tokens": 1000, "output_tokens": 500}, **more)))["usage"]["cost_usd"], 0.0125, more)
+        # An answer that was refused has no words, and may have no tokens.
+        self.assertEqual(read(chatted(said(), ended="content_filter", usage={"prompt_tokens": 1000, "completion_tokens": 0}), KIMI)["usage"]["cost_usd"], 0.0025)
         self.assertIsNone(read(answered(said(), model="Astra Model"))["usage"]["answering_model"])
         self.assertIsNone(read(answered(said(), model="astra model"))["usage"]["answering_model"])
         # A count above what advice/1 holds is not known, and never an error of the step's.
         for spent in ({"input_tokens": 10 ** 9 + 1, "output_tokens": 1}, {"input_tokens": 1, "output_tokens": 10 ** 400}):
             self.assertIsNone(read(answered(said(), usage=spent))["usage"]["cost_usd"], spent)
-        self.assertEqual(read(answered(said(), usage={"input_tokens": 10 ** 9, "output_tokens": 0}))["usage"]["cost_usd"], 2500)
+        self.assertEqual(read(answered(said(), usage={"input_tokens": 10 ** 9, "output_tokens": 1}))["usage"]["cost_usd"], 2500.00002)
         limited = read({"status": 429, "headers": {}, "body": {}})["usage"]
         self.assertEqual((limited["answering_model"], limited["input_tokens"], limited["cost_usd"]), (None, None, None))
         # No answer in hand: one of the reasons a step has for it, and no other.
