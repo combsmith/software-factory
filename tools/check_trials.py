@@ -49,6 +49,13 @@ FIXTURE = re.compile(r"^(P-[1-9][0-9]*)(\.[a-z0-9-]+)?\.json$")
 # resource path under these keys; and an App's read names, and is answered with, only repos its installation reaches.
 REST_READ = re.compile(r"^[A-Z]+ /(?:repos/([^/?\s]+)/([^/?\s]+)|orgs/([^/?\s]+)(?:[/?]|$)|app/|apps/|installation/)")
 ANY_REPO = re.compile(r"\brepos/([^/?\s]+)/([^/?\s]+)")
+# A read of the artifact storage follows the redirect of an artifact's download, the exchange just before it, and asks the
+# address that redirect gave, with no query (issue 920): its signature is a credential, and kept it would be the asked.
+DOWNLOAD = re.compile(r"^GET /repos/[^/?\s]+/[^/?\s]+/actions/artifacts/[0-9]+/zip(?:\s|$)")
+# A workflow's call is a REST call its token made, by its method and path, or a report of what a run wrote of itself,
+# which names no address (issue 920).
+METHOD_PATH = re.compile(r"^[A-Z]+ /")
+ADDRESS = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://|\brepos/|\bapi\.github\.com\b", re.I)
 # A star of a repo, by the account that asks, names that repo in its path (P-20).
 STARRED = re.compile(r"^[A-Z]+ /user/starred/([^/?,\s]+)/([^/?,\s]+)(?:[?,\s]|$)")
 # Decision 0035: a trial whose question is a read beyond the org's repos the App reaches is named here with what it may
@@ -504,6 +511,12 @@ def _asked(request: dict) -> tuple:
                 repos.add(owner + "/" + name)
             if found and found.group(3):
                 owners.add(found.group(3))
+    elif via == "workflow" and isinstance(call, str):
+        if METHOD_PATH.match(call):
+            return _asked(dict(request, via="rest"))
+        if ADDRESS.search(call):
+            wrong.append("is a workflow's report that names an address; a call a workflow's token made is written as its "
+                         "method and path, and is held as a REST call")
     elif via in ("cli", "git") and isinstance(call, str):
         for m in CLI_REPO.finditer(call):
             owner, name = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
@@ -673,12 +686,45 @@ def _of_the_factory(data: dict) -> list:
 def fixture_problems(data: dict, root: pathlib.Path = ROOT) -> list:
     """Every problem with one fixture beyond its schema, as the check finds them: who asked, the repos it reads and is
     answered with, credentials and headers. A counter-example under examples/invalid is held to this."""
-    out = ["%s %s" % (where, what) for where, what in _askers(data) + _of_the_factory(data)]
+    out = ["%s %s" % (where, what) for where, what in _askers(data) + _of_the_factory(data) + _stored(data)]
     if not out and data.get("repo") in ("%s/%s" % (ORG, CANARY), FACTORY):
         out += ["%s %s" % (where, what) for where, what in _repos(data, _installed(root))]
     out += ["%s %s" % (where, what) for where, what in _credentials(data, "") + _headers(data)]
     # A message names what the data holds, a repo or a kind among them, so none carries a credential (issue 247).
     return [hidden(message) for message in out]
+
+
+def _stored(data: dict) -> list:
+    """(path, what is wrong) for each read of the artifact storage that is not a GET of exactly the address the artifact
+    download just before it was redirected to, with no query (issue 920). Nothing else in a fixture names the storage's
+    host, so this is what holds where such a read went."""
+    out, exchanges = [], data.get("exchanges") if isinstance(data.get("exchanges"), list) else []
+    for i, exchange in enumerate(exchanges):
+        request = exchange.get("request") if isinstance(exchange, dict) else None
+        if not isinstance(request, dict) or request.get("via") != "storage":
+            continue
+        where = "exchanges[%d].request.call" % i
+        call = request.get("call") if isinstance(request.get("call"), str) else ""
+        method, _, rest = call.partition(" ")
+        address = rest.split(" ", 1)[0]
+        if method != "GET":
+            out.append((where, "is no GET; a read of the artifact storage is a GET of the address a download was "
+                               "redirected to"))
+        if "?" in address or "#" in address:
+            out.append((where, "keeps a query; the storage's address is kept without it, since its signature is a "
+                               "credential"))
+        before = exchanges[i - 1] if i > 0 and isinstance(exchanges[i - 1], dict) else {}
+        asked = before.get("request") if isinstance(before.get("request"), dict) else {}
+        answer = before.get("response") if isinstance(before.get("response"), dict) else {}
+        headers = answer.get("headers") if isinstance(answer.get("headers"), dict) else {}
+        location = next((value for key, value in headers.items() if str(key).lower() == "location"), None)
+        if not (asked.get("via") == "rest" and DOWNLOAD.match(str(asked.get("call", ""))) and answer.get("status") == 302
+                and isinstance(location, str)):
+            out.append((where, "follows no artifact download's redirect; a read of the artifact storage is asked right "
+                               "after one"))
+        elif address != location:
+            out.append((where, "is not of the address the download just before it was redirected to"))
+    return out
 
 
 def _of_org(request) -> bool:

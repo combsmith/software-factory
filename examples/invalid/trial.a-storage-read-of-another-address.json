@@ -1,0 +1,55 @@
+{
+  "schema": "trial/1",
+  "trial": "P-68",
+  "question": "When a workflow run has uploaded an artifact of one file, and another of two, what does GitHub answer to the list of the run's artifacts by a name (`GET /repos/{repo}/actions/runs/{id}/artifacts?name=",
+  "pass": "Yes",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-11-18T23:59:37Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "workflow",
+          "name": "p68-artifacts, run 44425338714, its job p68 / download, with its own GITHUB_TOKEN and permissions actions: read alone"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/artifacts/1/zip (curl, following no redirect): the artifact's download",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 302,
+        "headers": {
+          "content-length": "0",
+          "location": "https://results.example/a/1.zip"
+        },
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "anonymous",
+          "name": "no credential but the signature in the address's query, which is not kept"
+        },
+        "via": "storage",
+        "call": "GET https://elsewhere.example/a/1.zip (curl, following no redirect): another address than the one exchange 0 was redirected to",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/zip"
+        },
+        "body": null
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization"
+  ],
+  "verdict": "pass"
+}

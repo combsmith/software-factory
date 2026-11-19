@@ -6023,6 +6023,51 @@ class Trials(unittest.TestCase):
         problems = check_trials.run(clone({"trials/P-39.reach.json": json.dumps(reach)}))
         self.assertTrue(caught(problems, "trials/P-39.reach.json: $.exchanges[0].request.as: expected object"))
 
+    def test_a_read_of_the_storage_asks_the_address_a_download_was_redirected_to_alone(self):  # issue 920
+        # Nothing else in a fixture names the storage's host, so this holds where such a read went: a GET, right after
+        # an artifact's download answered 302, of exactly the address that redirect gave, with no query.
+        data = json.loads((ROOT / "trials" / "P-68.json").read_text())
+        self.assertEqual(check_trials._stored(data), [])
+        address = data["exchanges"][1]["request"]["call"].split(" ")[1]
+
+        def found(change):
+            copy = json.loads(json.dumps(data))
+            change(copy["exchanges"])
+            return check_trials.fixture_problems(copy)
+
+        def call(exchanges, text):
+            exchanges[1]["request"]["call"] = text
+        for why, change, words in (
+                ("another host", lambda e: call(e, "GET https://elsewhere.example/a.zip (curl)"), "is not of the address"),
+                ("a longer path", lambda e: call(e, "GET %s/x (curl)" % address), "is not of the address"),
+                ("a query kept", lambda e: call(e, "GET %s?a=1 (curl)" % address), "keeps a query"),
+                ("a fragment", lambda e: call(e, "GET %s#a (curl)" % address), "keeps a query"),
+                ("another method", lambda e: call(e, "PUT %s (curl)" % address), "is no GET"),
+                ("no download before it", lambda e: e.pop(0), "follows no artifact download's redirect"),
+                ("a download answered 200", lambda e: e[0]["response"].update(status=200), "follows no artifact download's redirect"),
+                ("another call before it", lambda e: e[0]["request"].update(
+                    call="GET /repos/combsmith/%s/actions/runs/1/logs" % check_trials.CANARY), "follows no artifact download's redirect"),
+                ("a redirect with no address", lambda e: e[0]["response"]["headers"].pop("location"), "follows no artifact download's redirect"),
+                ("a download asked another way", lambda e: e[0]["request"].update(via="cli"), "follows no artifact download's redirect")):
+            where = "exchanges[0]" if why == "no download before it" else "exchanges[1]"
+            self.assertTrue(caught(found(change), where + ".request.call " + words), why)
+        # The header is read in any case, as HTTP does; and a storage read later in the fixture is held the same way.
+        def capital(e):
+            e[0]["response"]["headers"]["Location"] = e[0]["response"]["headers"].pop("location")
+        self.assertEqual(found(capital), [])
+        self.assertTrue(caught(found(lambda e: e.append(json.loads(json.dumps(e[1])))), "exchanges[7].request.call follows no"))
+
+    def test_a_workflows_call_is_a_rest_call_or_a_report_that_names_no_address(self):  # issue 920
+        data = json.loads((ROOT / "trials" / "P-9.json").read_text())
+        self.assertEqual(check_trials.fixture_problems(data), [])
+        for call, words in (("POST /repos/outside/x/actions/workflows/p9-chain.yml/dispatches", "names the owner outside"),
+                            ("GET /repos/combsmith/../outside/x", "climbs out of its repo"),
+                            ("What the run read from https://elsewhere.example/x", "is a workflow's report that names an address"),
+                            ("What the run read of repos/outside/x", "is a workflow's report that names an address")):
+            copy = json.loads(json.dumps(data))
+            copy["exchanges"][9]["request"]["call"] = call
+            self.assertTrue(caught(check_trials.fixture_problems(copy), "exchanges[9].request.call " + words), call)
+
     def test_an_asker_named_by_an_address_is_caught(self):
         # Decision 0033: a fixture names who asked in words, never by an address that ties it to an account.
         vendor = json.loads((ROOT / "examples" / "trial.a-vendors-cli.json").read_text())
@@ -6518,6 +6563,10 @@ class Trials(unittest.TestCase):
             "a-write-in-another-field-of-a-graphql-body": "carries a GraphQL write that is not one of WRITES",
             "a-write-the-check-does-not-hold": "a write one of WRITES on one node by `id`",
             "a-second-write-behind-the-first": "a write one of WRITES on one node by `id`",
+            # A read of the artifact storage asks the address the download before it was redirected to, and a call a
+            # workflow's token made is held as a REST call (issue 920).
+            "a-storage-read-of-another-address": "is not of the address the download just before it was redirected to",
+            "a-workflows-call-of-another-repo": "names the owner outside",
         }
         for name, words in refused.items():
             data = json.loads((ROOT / "examples" / "invalid" / ("trial.%s.json" % name)).read_text())
