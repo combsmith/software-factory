@@ -149,15 +149,16 @@ def texts_of(texts: list, config: dict) -> tuple:
 
 def quoted(found: dict, said: dict) -> str:
     """A reader's Finding as `pr-review` is given it: every line quoted, the reader's severity, category, criterion and
-    place among them, so that nothing of the reader's is told as the Factory's (decision 0224)."""
+    place first, then its words, each line of them led by a bar, so that nothing of the reader's is told as the
+    Factory's and no line of its words reads as one of the four it claims (decision 0224). advice/1 places a Finding on
+    one line at most."""
     where = found.get("location") or {}
-    first, last = where.get("start_line"), where.get("end_line")
     place = where.get("path") or "none"
-    if first is not None:
-        place += ", line %d" % first if last in (None, first) else ", lines %d to %d" % (first, last)
-    lines = ["severity: %s" % found["severity"], "category: %s" % said["category"],
-             "criterion: %s" % (said["criterion"] or "none"), "place: %s" % place, ""] + said["body"].split("\n")
-    return "\n".join("> " + line if line else ">" for line in lines)
+    if where.get("start_line") is not None:
+        place += ", line %d" % where["start_line"]
+    claims = ["severity: %s" % found["severity"], "category: %s" % said["category"],
+              "criterion: %s" % (said["criterion"] or "none"), "place: %s" % place]
+    return "\n".join(["> " + claim for claim in claims] + [">"] + ["> |" + (" " + line if line else "") for line in said["body"].split("\n")])
 
 
 def advisory_of(advised: dict, names: list, admit: dict, run: str, release: str) -> tuple:
@@ -175,8 +176,10 @@ def advisory_of(advised: dict, names: list, admit: dict, run: str, release: str)
             continue
         reads.append({"lens": lens, "status": result["status"], "reason": result["reason"]})
         said = {text["id"]: text for text in result["texts"]}
+        # The reader's gravest first, so that what the budget leaves out is its least.
+        ranked = sorted(result["findings"], key=lambda found: advice.SEVERITIES.index(found["severity"]))
         texts += [{"id": found["id"], "by": {"kind": "lens", "name": lens, "can_write": False},
-                   "body": quoted(found, said[found["id"]])} for found in result["findings"]]
+                   "body": quoted(found, said[found["id"]])} for found in ranked]
     return texts, reads
 
 
@@ -251,14 +254,17 @@ def from_admission(admit: dict, item: dict, run: str, facts: dict, texts: list, 
     if len(intents) != 1:
         raise Refused("%s's manifest declares no Intent %s" % (role["name"], admit["intent"]))
     intent = intents[0]
-    # The advisory reads, handed only to a review and only where the configuration switches the hand-over on; ranked
-    # and budgeted as every other text, as advisory text (decision 0224).
+    kept, omitted = texts_of(texts, config)
+    # The advisory reads, handed only to a review and only where the configuration switches the hand-over on, and only
+    # in the room every text read for the item left: a reader's claims never crowd out what a person wrote (decision
+    # 0224). What of them is left out is said under its Lens.
     handed = config["harness"].get(HAND_OVER) is True and admit["intent"] == REVIEWING and isinstance(advised, dict)
     if handed:
         names = [lens for lens in config["harness"]["advisory"] if lens in config["harness"].get("readers", {})]
         more, reads = advisory_of(advised, names, admit, run, config["release"])
-        texts = list(texts) + more
-    kept, omitted = texts_of(texts, config)
+        left = config["harness"]["texts"]["characters"] - sum(carried(text["body"]) for text in kept)
+        also, unsaid = texts_of(more, dict(config, harness=dict(config["harness"], texts={"characters": left})))
+        kept, omitted = kept + also, omitted + unsaid
     # The change is the first text a pull request's Task carries, apart from the others and their budget.
     change, cut = diff_of(diff, facts, admit, config)
     kept = ([change] if change is not None else []) + kept

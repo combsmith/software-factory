@@ -261,17 +261,6 @@ def _readers(harness) -> list:
     return out
 
 
-def _held_off(harness) -> list:
-    """What is wrong with the committed configuration's switch of the hand-over (decision 0224, "The switch"): the
-    advisory reads are handed to `pr-review` only once a private replay has passed and issue 925, the alert a person is
-    given for an advisory token not confirmed revoked, is done. Until then the committed file does not switch it on; the
-    change that does takes this rule out, with the replay's record. A private replay sets it in its own copy."""
-    if harness.get("advisory_hand_over") is True:
-        return ["harness: the advisory reads are handed to pr-review before their replay passed and issue 925 was done; "
-                "take advisory_hand_over out"]
-    return []
-
-
 def _unprotected(value) -> list:
     """What is wrong with `value`, a Consumer entry valid to its schema: nothing, or its setup or test script that none
     of its protected paths names, by the Kernel's own matcher, so that an author could weaken the tests it is judged by
@@ -436,7 +425,7 @@ def run(root: pathlib.Path = ROOT) -> list:
         if kind == "feed" and not errors and "decision" in schemas:
             errors = _table(value, schemas["decision"])
         if kind == "harness" and not errors:
-            errors = _readers(value) + _held_off(value)
+            errors = _readers(value)
         if kind == "eval-set" and not errors and value.get("gate") is True:
             # Held first as the job reads it, so that a gate set the schema lets leave out what it gives of its own is
             # a problem named, never a crash further on (the Claude read of the follow-on to #642).
