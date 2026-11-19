@@ -10,10 +10,12 @@ cancel it, and Chat Completions, to create one. It takes its key from its caller
 sends it under Azure's own header to that host and no other: it follows no redirect and uses no proxy. Each wait on
 the connection has its caller's limit in seconds, which bounds neither the finding of the host's address nor an answer
 that comes slowly: the whole is bounded by the limit of the step that calls. Every answer is bounded in size and
-refused past the bound or short of the length it said, never cut short. An answer is read only when it is framed as
-Azure frames each of its own, chunked or with one length of digits alone. One that is not UTF-8 is text and never read
-as JSON, and one that holds a whole number of more digits than any count is text too. Of an answer's headers it keeps
-the two a caller reads, each only when it is short, printable ASCII. It verifies the host's certificate by a context of
+refused past the bound or of other than the length it said, counted as read, never cut short; no read of the
+connection under it takes more than the bound and a frame's allowance. An answer is read only when it is framed as
+Azure frames each of its own, chunked alone or with one length of at most ten digits, no larger than the bound. One that
+is not UTF-8 is text and never read as JSON, and so is one that holds a whole number of more digits than any count, NaN
+or an infinity. Of an answer's headers it keeps the two a caller reads, each by its last value and only when that is
+short, printable ASCII. It verifies the host's certificate by a context of
 its own, so a default changed elsewhere in the process cannot turn that off. No refusal names the host, the address or
 the key, and none is chained to an error of urllib's, which holds the address asked. Nothing is installed: the
 standard library does the rest.
@@ -41,7 +43,8 @@ LONGEST = 1200                  # seconds a caller may give one wait: the advise
 REDIRECTS = {301, 302, 303, 307, 308}
 KEPT = ("content-type", "retry-after")      # the headers of an answer a caller reads; no other is kept
 HEADER = 100                    # characters a kept header may hold: one longer, or not printable ASCII, is not kept
-LENGTH = re.compile(r"[0-9]+")  # the one length an answer may say: digits alone, with no sign, space or other numeral
+LENGTH = re.compile(r"[0-9]{1,10}")     # the one length an answer may say: digits alone, no sign, space or other numeral
+FRAMING = 64 * 1024             # bytes past the bound a connection may give an answer for its chunks' frame
 DIGITS = 64                     # a whole number of this many digits no count needs: Python 3.9 reads one of any length
 
 
@@ -104,16 +107,63 @@ def wire(req) -> tuple:
     return "POST", "%s/%s/cancel" % (RESPONSES, req["id"]), {}
 
 
-def _framed(headers) -> None:
-    """An answer framed as Azure frames each of its own, chunked or with one length of digits alone, or a refusal before
-    its body is read. Two lengths, or one that is not digits alone, can be read otherwise by another reader, and an
-    answer of neither frame ends only where its connection does, so that one cut short cannot be told from one whole."""
+def _framed(headers):
+    """The length an answer said, or None where it is chunked alone, or a refusal before its body is read. Two frames,
+    two lengths, or one not of digits alone, can be read otherwise by another reader; http.client may drop a length of
+    thousands of digits and read to the end; and an answer of neither frame ends only where its connection does."""
     lengths = [v for k, v in headers.items() if k.lower() == "content-length"]
     if len(lengths) > 1 or (lengths and not LENGTH.fullmatch(lengths[0])):
         raise Unanswered("an answer that says more than one length, or one not of digits alone; it is refused, not read")
     coded = [v.lower() for k, v in headers.items() if k.lower() == "transfer-encoding"]
-    if not lengths and coded != ["chunked"]:
-        raise Unanswered("an answer neither chunked nor of a length it said; it is refused, not read")
+    if (lengths and coded) or (not lengths and coded != ["chunked"]):
+        raise Unanswered("an answer of both frames, or not chunked alone nor of a length; it is refused, not read")
+    if lengths and int(lengths[0]) > LARGEST:
+        raise Unanswered("an answer that says a length over %d bytes; it is refused, not read" % LARGEST)
+    return int(lengths[0]) if lengths else None
+
+
+class _Capped:
+    """The connection under an answer, of which no read takes more than the bound and a frame's allowance."""
+
+    __slots__ = ("_fp", "_left")
+
+    def __init__(self, fp):
+        self._fp, self._left = fp, LARGEST + FRAMING
+
+    def _most(self, asked) -> int:
+        most = self._left if asked is None or asked < 0 else min(asked, self._left)
+        if most == 0 and asked != 0:
+            raise Unanswered("an answer over %d bytes with its frame; it is refused, not cut short" % (LARGEST + FRAMING))
+        return most
+
+    def _took(self, got):
+        self._left -= len(got)
+        return got
+
+    def read(self, size=-1):
+        return self._took(self._fp.read(self._most(size)))
+
+    def readline(self, size=-1):
+        return self._took(self._fp.readline(self._most(size)))
+
+    def readinto(self, b):
+        view = memoryview(b).cast("B")
+        got = self._fp.readinto(view[:self._most(len(view))]) or 0
+        self._left -= got
+        return got
+
+    def flush(self):
+        self._fp.flush()
+
+    def close(self):
+        self._fp.close()
+
+
+def _capped(got):
+    held = got if isinstance(got, http.client.HTTPResponse) else getattr(got, "fp", None)
+    if isinstance(held, http.client.HTTPResponse) and held.fp is not None:
+        held.fp = _Capped(held.fp)
+    return got
 
 
 def _whole(digits: str) -> int:
@@ -122,31 +172,36 @@ def _whole(digits: str) -> int:
     return int(digits)
 
 
+def _finite(constant: str):
+    raise ValueError("NaN and the infinities are no numbers of JSON's")
+
+
 def _answer(status: int, headers, raw: bytes) -> dict:
-    # Of a kept header given twice, the last is kept. A type too long to keep is not kept, and the body is then text,
-    # which is safe: a body is read as JSON only when its type says so.
-    kept = {k.lower(): v for k, v in headers.items()
-            if k.lower() in KEPT and len(v) <= HEADER and v.isascii() and v.isprintable()}
+    # Of a kept header given twice, the last is kept, or none where the last is refused. A type too long to keep is not
+    # kept, and the body is then text, which is safe: a body is read as JSON only when its type says so.
+    given = {k.lower(): v for k, v in headers.items() if k.lower() in KEPT}
+    kept = {k: v for k, v in given.items() if len(v) <= HEADER and v.isascii() and v.isprintable()}
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
         return {"status": status, "headers": kept, "body": raw.decode("utf-8", errors="replace")}
     if kept.get("content-type", "").split(";")[0].strip().lower().endswith("json"):
         try:
-            return {"status": status, "headers": kept, "body": json.loads(text, parse_int=_whole) if text else None}
+            return {"status": status, "headers": kept, "body": json.loads(text, parse_int=_whole, parse_constant=_finite) if text else None}
         except (ValueError, RecursionError):
             pass
     return {"status": status, "headers": kept, "body": text}
 
 
-def _bounded(stream) -> bytes:
+def _bounded(stream, length) -> bytes:
     parts, size = [], 0
     while True:
         part = stream.read(CHUNK)
         if not part:
-            # What is left of the length an answer said, where it said one: an answer that ended before it is cut short.
-            if type(getattr(stream, "length", None)) is int and stream.length > 0:
-                raise Unanswered("an answer shorter than the length it said; it is refused, not kept cut short")
+            # The bytes read, counted here and never taken from the stream, which an error may not forward, against the
+            # length the answer said, where it said one.
+            if length is not None and size != length:
+                raise Unanswered("an answer of other than the length it said; it is refused, not kept")
             return b"".join(parts)
         size += len(part)
         if size > LARGEST:
@@ -186,14 +241,14 @@ class Live:
             sent = urllib.request.Request("https://%s%s" % (self._host, path), data=data, headers=headers, method=verb)
             try:
                 with self.opener.open(sent, timeout=self._seconds) as got:
-                    _framed(got.headers)
-                    return _answer(got.status, got.headers, _bounded(got))
+                    said = _framed(got.headers)
+                    return _answer(got.status, got.headers, _bounded(_capped(got), said))
             except urllib.error.HTTPError as err:
                 with err:
                     if err.code in REDIRECTS:
                         raise Unanswered("Azure answered %d, a redirect; the transport follows none" % err.code)
-                    _framed(err.headers)
-                    return _answer(err.code, err.headers, _bounded(err))
+                    said = _framed(err.headers)
+                    return _answer(err.code, err.headers, _bounded(_capped(err), said))
         except Unanswered as err:
             refused = str(err)
         except (urllib.error.URLError, OSError, ValueError, TypeError, RecursionError,
