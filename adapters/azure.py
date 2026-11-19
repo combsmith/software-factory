@@ -10,16 +10,20 @@ cancel it, and Chat Completions, to create one. It takes its key from its caller
 sends it under Azure's own header to that host and no other: it follows no redirect and uses no proxy. Each wait on
 the connection has its caller's limit in seconds, which bounds neither the finding of the host's address nor an answer
 that comes slowly: the whole is bounded by the limit of the step that calls. Every answer is bounded in size and
-refused past the bound or short of the length it said, never cut short, and one that is not UTF-8 is text and never
-read as JSON. Of an answer's headers it keeps the two a caller reads, each only when it is short, printable ASCII. No
-refusal names the host, the address or the key, and none is chained to an error of urllib's, which holds the address
-asked. Nothing is installed: the standard library does the rest.
+refused past the bound or short of the length it said, never cut short. An answer is read only when it is framed as
+Azure frames each of its own, chunked or with one length of digits alone. One that is not UTF-8 is text and never read
+as JSON, and one that holds a whole number of more digits than any count is text too. Of an answer's headers it keeps
+the two a caller reads, each only when it is short, printable ASCII. It verifies the host's certificate by a context of
+its own, so a default changed elsewhere in the process cannot turn that off. No refusal names the host, the address or
+the key, and none is chained to an error of urllib's, which holds the address asked. Nothing is installed: the
+standard library does the rest.
 """
 from __future__ import annotations
 
 import http.client
 import json
 import re
+import ssl
 import urllib.error
 import urllib.request
 
@@ -37,6 +41,8 @@ LONGEST = 1200                  # seconds a caller may give one wait: the advise
 REDIRECTS = {301, 302, 303, 307, 308}
 KEPT = ("content-type", "retry-after")      # the headers of an answer a caller reads; no other is kept
 HEADER = 100                    # characters a kept header may hold: one longer, or not printable ASCII, is not kept
+LENGTH = re.compile(r"[0-9]+")  # the one length an answer may say: digits alone, with no sign, space or other numeral
+DIGITS = 64                     # a whole number of this many digits no count needs: Python 3.9 reads one of any length
 
 
 class Unanswered(Exception):
@@ -95,7 +101,27 @@ def wire(req) -> tuple:
     return "POST", "%s/%s/cancel" % (RESPONSES, req["id"]), {}
 
 
+def _framed(headers) -> None:
+    """An answer framed as Azure frames each of its own, chunked or with one length of digits alone, or a refusal before
+    its body is read. Two lengths, or one that is not digits alone, can be read otherwise by another reader, and an
+    answer of neither frame ends only where its connection does, so that one cut short cannot be told from one whole."""
+    lengths = [v for k, v in headers.items() if k.lower() == "content-length"]
+    if len(lengths) > 1 or (lengths and not LENGTH.fullmatch(lengths[0])):
+        raise Unanswered("an answer that says more than one length, or one not of digits alone; it is refused, not read")
+    coded = [v.lower() for k, v in headers.items() if k.lower() == "transfer-encoding"]
+    if not lengths and coded != ["chunked"]:
+        raise Unanswered("an answer neither chunked nor of a length it said; it is refused, not read")
+
+
+def _whole(digits: str) -> int:
+    if len(digits) >= DIGITS:
+        raise ValueError("a whole number of more digits than a count has")
+    return int(digits)
+
+
 def _answer(status: int, headers, raw: bytes) -> dict:
+    # Of a kept header given twice, the last is kept. A type too long to keep is not kept, and the body is then text,
+    # which is safe: a body is read as JSON only when its type says so.
     kept = {k.lower(): v for k, v in headers.items()
             if k.lower() in KEPT and len(v) <= HEADER and v.isascii() and v.isprintable()}
     try:
@@ -104,7 +130,7 @@ def _answer(status: int, headers, raw: bytes) -> dict:
         return {"status": status, "headers": kept, "body": raw.decode("utf-8", errors="replace")}
     if kept.get("content-type", "").split(";")[0].strip().lower().endswith("json"):
         try:
-            return {"status": status, "headers": kept, "body": json.loads(text) if text else None}
+            return {"status": status, "headers": kept, "body": json.loads(text, parse_int=_whole) if text else None}
         except (ValueError, RecursionError):
             pass
     return {"status": status, "headers": kept, "body": text}
@@ -138,9 +164,10 @@ class Live:
         if type(seconds) is not int or not 1 <= seconds <= LONGEST:
             raise Unanswered("a wait's limit is a whole number of seconds, from 1 to %d" % LONGEST)
         self._host, self._key, self._seconds = host, key, seconds
-        # No proxy from the environment, and no redirect: the request and its key go to the host named, or nowhere.
+        # No proxy from the environment, and no redirect: the request and its key go to the host named, or nowhere. The
+        # context is made here, so that a default context replaced elsewhere cannot send the key to a host unverified.
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect,
-                                                  urllib.request.HTTPSHandler)
+                                                  urllib.request.HTTPSHandler(context=ssl.create_default_context()))
 
     def __repr__(self) -> str:
         return "<azure.Live>"
@@ -156,11 +183,13 @@ class Live:
             sent = urllib.request.Request("https://%s%s" % (self._host, path), data=data, headers=headers, method=verb)
             try:
                 with self.opener.open(sent, timeout=self._seconds) as got:
+                    _framed(got.headers)
                     return _answer(got.status, got.headers, _bounded(got))
             except urllib.error.HTTPError as err:
                 with err:
                     if err.code in REDIRECTS:
                         raise Unanswered("Azure answered %d, a redirect; the transport follows none" % err.code)
+                    _framed(err.headers)
                     return _answer(err.code, err.headers, _bounded(err))
         except Unanswered as err:
             refused = str(err)

@@ -241,6 +241,7 @@
             "maximum": 1000000
           },
           "prompt_characters": {
+            "description": "The most the reader's prompt may hold, counted in its UTF-8 bytes, not its characters; the worst case prices the prompt at a token a byte (decision 0224).",
             "type": "integer",
             "minimum": 1,
             "maximum": 10000000
