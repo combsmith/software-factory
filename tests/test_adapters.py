@@ -1311,9 +1311,8 @@ class Records(unittest.TestCase):
             self.assertEqual((got["runs"][0]["outcome"], got["complete"]), (None, False), conclusion)
 
     def test_a_finished_review_runs_advisory_cost_is_read_once_for_the_day_and_never_guessed(self):  # decision 0224
-        # One small file for each finished review Run that started on the pass's day, read once: a cost read whole, or
-        # the lack of one, is kept by its Run and attempt; one that cannot be read now is left off the record and asked
-        # for again. Nothing of it makes the list less than whole.
+        # One file for each finished review Run of the pass's day, read once and kept by Run and attempt; one unread now
+        # is asked for again, and the list stays whole.
         rows = listing("P-17", 3, rows={"status": "completed", "conclusion": "success"})
         template = rows["response"]["body"]["workflow_runs"][0]
         names = [NAME.replace("r_01JA6Z", "r_%06dZ" % n) for n in range(4)]
@@ -1340,9 +1339,8 @@ class Records(unittest.TestCase):
         self.assertEqual((stamped(first), first["complete"]), (4, True))
         for run in first["runs"]:
             self.assertEqual(shared_errors(run), [], run)
-        # The pass after: a cost read from its file is kept. The one that left none, and the one whose file is no
-        # cost, are asked for once more: GitHub may list an artifact a little after its Run ends, so the lack of a cost
-        # is kept only when two passes in a row found none, and then it is asked for no more.
+        # The pass after: a cost read is kept; no file, or one that is no cost, is asked for once more, since GitHub may
+        # list an artifact late, and is kept as none after two passes.
         kept = records.advised([{"runs": first["runs"]}])
         self.assertEqual(sorted(key[0] for key in kept), ["r_000000Z", "r_000003Z"])
         second, _ = self.read(rows, *costs[1], *costs[2], day="2026-10-21", advised=kept)
@@ -1388,8 +1386,7 @@ class Records(unittest.TestCase):
         one["response"]["body"].update(total_count=1, workflow_runs=one["response"]["body"]["workflow_runs"][:1])
         got, _ = self.read(one, *unanswered, day="2026-10-21")
         self.assertEqual((said(got), got["complete"]), ([{}], True))
-        # And it is the last asked for in that read: the costs after it wait for a pass GitHub answers, so that no pass
-        # waits out a timeout for each of fifty.
+        # And the last asked for in that read, so that no pass waits out fifty timeouts.
         stopped, _ = self.read(rows, *unanswered, *costs[1], *costs[3], day="2026-10-21")
         self.assertEqual((said(stopped), stamped(stopped), stopped["complete"]), ([{}, {}, {}, {}], 1, True))
         # What was kept of the Runs after it is still theirs: the asking ends, the list does not.
@@ -1401,8 +1398,7 @@ class Records(unittest.TestCase):
         twice = {"runs": first["runs"][:1] * 2}
         self.assertEqual((records.advised([twice]), records.advised([{"runs": None}]), records.advised([]), records.advised(None)),
                          ({}, {}, {}, {}))
-        # The last two records are read, as a beginning is kept: the earlier's word stands for a Run the later does not
-        # list, the later's for one it does, and a third record back says nothing.
+        # The last two records are read: the later's word wins, the earlier's stands alone, a third says nothing.
         bare = [{k: v for k, v in r.items() if k not in records.ADVISED} for r in first["runs"]]
         both = records.advised([{"runs": first["runs"]}, {"runs": first["runs"][:1]}])
         self.assertEqual(sorted(key[0] for key in both), ["r_000000Z", "r_000003Z"])
@@ -1425,8 +1421,7 @@ class Records(unittest.TestCase):
             got, _ = self.read(rows, *costs[0], day="2026-10-21", advised=behind)
         self.assertEqual((said(got), stamped(got)),
                          ([{"advisory_asks": 2, "advisory_cost_usd": 1.42}, {}, {}, {"advisory_asks": 1, "advisory_cost_usd": 0.4}], 1))
-        # A Run the list holds twice by one key takes nothing kept: each of its rows is asked for, and neither is
-        # counted twice from one kept cost.
+        # A Run listed twice by one key takes nothing kept: each row is asked for, none counted twice.
         doubled = copy.deepcopy(rows)
         row = doubled["response"]["body"]["workflow_runs"][0]
         doubled["response"]["body"].update(total_count=2, workflow_runs=[row, dict(row, id=701)])
