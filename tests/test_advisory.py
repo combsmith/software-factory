@@ -38,7 +38,10 @@ class Framed(io.BytesIO):
 class Answer(Framed):
     status = 200
     headers = {"Content-Type": "application/json; charset=utf-8", "Retry-After": "7", "Set-Cookie": "c=1"}
-    asked = []
+
+    def __init__(self, body: bytes = b""):
+        super().__init__(body)
+        self.asked = []         # what each read of this answer asked, its own and no other's
 
     def read(self, size=-1):
         self.asked.append(size)
@@ -49,11 +52,12 @@ class Capture:
     """An opener that keeps what it was handed and answers one body."""
 
     def __init__(self, body: bytes = b'{"status": "queued"}', answer=Answer):
-        self.sent, self._body, self._answer = [], body, answer
+        self.sent, self.answers, self._body, self._answer = [], [], body, answer
 
-    def open(self, request, timeout=None):
-        self.sent.append((request, timeout))
-        return self._answer(self._body)
+    def open(self, fullurl, data=None, timeout=None):
+        self.sent.append((fullurl, timeout))
+        self.answers.append(self._answer(self._body))
+        return self.answers[-1]
 
 
 class Real:
@@ -66,18 +70,25 @@ class Real:
     def makefile(self, mode):
         return self.wire
 
-    def open(self, request, timeout=None):
+    def open(self, fullurl, data=None, timeout=None):
         got = azure.http.client.HTTPResponse(self)
         got.begin()
         if got.status >= 400:
-            raise azure.urllib.error.HTTPError(request.full_url, got.status, "x", got.headers, got)
+            raise azure.urllib.error.HTTPError(fullurl.full_url, got.status, "x", got.headers, got)
         return got
+
+
+class Refuses:
+    """The opener of every transport a test makes and hands no stand-in: it raises, so that no test reaches the network,
+    even by mistake."""
+
+    def open(self, fullurl, data=None, timeout=None):
+        raise AssertionError("a test reached for the network")
 
 
 def live(opener=None, host: str = HOST, key: str = KEY, seconds: int = 30) -> azure.Live:
     transport = azure.Live(host, key, seconds)
-    if opener is not None:
-        transport.opener = opener
+    transport.opener = Refuses() if opener is None else opener
     return transport
 
 
@@ -186,7 +197,8 @@ class Transport(unittest.TestCase):
         # The key is one word of printable ASCII, given by the caller; nothing is read from the environment.
         class Text(str):        # text of another class, which could write itself as another key
             pass
-        for key in ("", " ", "a b", "a\nb", "a\rb", "kéy", None, 7, b"key", Text(KEY)):
+        for key in ("", " ", "a b", "a\nb", "a\rb", "a\tb", "a\x00b", "a\x7fb", "\x1b", "kéy", "k\u00b2", None, 7, b"key",
+                    Text(KEY)):
             with self.assertRaises(azure.Unanswered, msg=repr(key)):
                 azure.Live(HOST, key, 30)
         with mock.patch.dict(os.environ, {"ADVISORY_AZURE_KEY": "e" * 32, "AZURE_OPENAI_API_KEY": "e" * 32}):
@@ -197,7 +209,7 @@ class Transport(unittest.TestCase):
             live(opener).send(azure.read(ID))
             self.assertEqual(opener.sent[0][0].get_header("Api-key"), KEY)
         with mock.patch.dict(os.environ, {"https_proxy": "http://proxy.invalid:1", "HTTPS_PROXY": "http://proxy.invalid:1"}):
-            handlers = live().opener.handlers
+            handlers = azure.Live(HOST, KEY, 30).opener.handlers
         # It follows no redirect, so the key goes to the host named and to no other, and takes no proxy.
         self.assertTrue(any(isinstance(h, azure._NoRedirect) for h in handlers))
         self.assertFalse(any(type(h) is azure.urllib.request.HTTPRedirectHandler for h in handlers))
@@ -207,29 +219,74 @@ class Transport(unittest.TestCase):
             azure._NoRedirect().redirect_request(sent, None, 302, "Found", {}, "https://example.com/")
         for code in (301, 302, 303, 307, 308):
             class Moved:
-                def open(self, request, timeout=None, code=code):
-                    raise azure.urllib.error.HTTPError(request.full_url, code, "x", {"Location": "https://example.com/"},
+                def open(self, fullurl, data=None, timeout=None, code=code):
+                    raise azure.urllib.error.HTTPError(fullurl.full_url, code, "x", {"Location": "https://example.com/"},
                                                        io.BytesIO(b""))
             with self.assertRaises(azure.Unanswered, msg=code) as refused:
                 live(Moved()).send(azure.create(ASKED))
             self.assertIn("redirect", str(refused.exception))
             self.assertIsNone(refused.exception.__context__)
+        # urllib reads a redirect's Location before it asks where to go, so that one malformed raises another error and
+        # one absent no refusal: each redirect is refused before any header of it is read, and its answer closed. An
+        # opener of urllib's own, with no handler that reaches the network, answers each.
+        class Redirected(azure.urllib.request.BaseHandler):
+            def __init__(self, code, location):
+                self.code, self.location, self.fp = code, location, io.BytesIO(b"")
+
+            def https_open(self, req):
+                moved = b"" if self.location is None else b"Location: %s\r\n" % self.location
+                # Held here, since urllib's answer closes what it wraps once nothing holds it.
+                self.got = azure.urllib.response.addinfourl(
+                    self.fp, azure.http.client.parse_headers(io.BytesIO(moved + b"Content-Length: 0\r\n\r\n")),
+                    req.full_url, self.code)
+                self.got.msg = "x"
+                return self.got
+
+        def redirected(code, location):
+            answers = Redirected(code, location)
+            opener = azure.urllib.request.OpenerDirector()
+            for handler in (azure._NoRedirect(), azure.urllib.request.HTTPErrorProcessor(),
+                            azure.urllib.request.HTTPDefaultErrorHandler(), answers):
+                opener.add_handler(handler)
+            return opener, answers
+        for code in (301, 302, 303, 307, 308):
+            for location in (b"http://[::1", b"https://[", None, b"https://example.com/"):
+                opener, answers = redirected(code, location)
+                with self.assertRaisesRegex(azure.Unanswered, "redirect", msg=(code, location)):
+                    opener.open(sent, timeout=30)
+                self.assertTrue(answers.fp.closed, (code, location))
+                opener, answers = redirected(code, location)
+                with self.assertRaisesRegex(azure.Unanswered, "redirect", msg=(code, location)) as refused:
+                    live(opener).send(azure.create(ASKED))
+                self.assertTrue(answers.fp.closed, (code, location))
+                self.assertTrue(refused.exception.__suppress_context__ and refused.exception.__cause__ is None)
         # No refusal names the key, the host or the address, and none is chained to an error that does.
         secret = "s3cr3t-" + "k" * 20
 
         class Down:
-            def open(self, request, timeout=None):
-                raise azure.urllib.error.URLError("no route to %s with %s" % (request.full_url, secret))
+            def open(self, fullurl, data=None, timeout=None):
+                raise azure.urllib.error.URLError("no route to %s with %s" % (fullurl.full_url, secret))
         with self.assertRaises(azure.Unanswered) as refused:
             live(Down(), key=secret).send(azure.create(ASKED))
         for text in (str(refused.exception), repr(refused.exception.__cause__), repr(refused.exception.__context__)):
             self.assertNotIn(secret, text)
             self.assertNotIn(HOST, text)
         self.assertNotIn(secret, repr(live(key=secret)))
+        # Every refusal is raised from nothing, so that neither the key nor the host rides along as its context or its
+        # cause: of a read of the answer that fails, and of a request that cannot be encoded.
+        class Torn(Answer):
+            def read(self, size=-1):
+                raise ConnectionResetError("reset by %s with %s" % (HOST, secret))
+        for opener, req in ((Capture(answer=Torn), azure.read(ID)), (Capture(), azure.create({"a": {1}})),
+                            (Capture(), azure.create({"a": float("inf")}))):
+            with self.assertRaises(azure.Unanswered, msg=req) as refused:
+                live(opener, key=secret).send(req)
+            self.assertTrue(refused.exception.__context__ is None or refused.exception.__suppress_context__, req)
+            self.assertIsNone(refused.exception.__cause__, req)
         # It verifies the host's certificate by a context of its own, so a default context replaced elsewhere in the
         # process, as one that verifies nothing, does not turn that off.
         with mock.patch.object(azure.ssl, "_create_default_https_context", azure.ssl._create_unverified_context):
-            handlers = live().opener.handlers
+            handlers = azure.Live(HOST, KEY, 30).opener.handlers
         made = [getattr(h, "_context", None) for h in handlers if isinstance(h, azure.urllib.request.HTTPSHandler)]
         self.assertEqual([(getattr(c, "verify_mode", None), getattr(c, "check_hostname", None)) for c in made],
                          [(azure.ssl.CERT_REQUIRED, True)])
@@ -241,12 +298,13 @@ class Transport(unittest.TestCase):
         def headers(lines: bytes):
             return azure.http.client.parse_headers(io.BytesIO(b"Content-Type: application/json\r\n" + lines + b"\r\n"))
 
-        class Got(Answer):     # an answer with the headers as they were sent, and no frame of the fake's own
-            asked = []
+        made = []
 
+        class Got(Answer):     # an answer with the headers as they were sent, and no frame of the fake's own
             def __init__(self, body: bytes = b""):
                 super().__init__(body)
                 self.headers = type(self).headers
+                made.append(self)
         refused = (b"", b"Content-Length: 2\r\nContent-Length: 2\r\n", b"Content-Length: 2\r\ncontent-length: 3\r\n",
                    b"Content-Length: +2\r\n", b"Content-Length: 2x\r\n", b"Content-Length: 1_0\r\n",
                    b"Content-Length: \xb2\r\n", b"Content-Length: -1\r\n", b"Transfer-Encoding: gzip\r\n",
@@ -260,19 +318,20 @@ class Transport(unittest.TestCase):
                 live(Capture(b"{}", Got)).send(azure.read(ID))
 
             class Error:
-                def open(self, request, timeout=None, lines=lines):
-                    raise azure.urllib.error.HTTPError(request.full_url, 500, "x", headers(lines), Got(b"{}"))
+                def open(self, fullurl, data=None, timeout=None, lines=lines):
+                    raise azure.urllib.error.HTTPError(fullurl.full_url, 500, "x", headers(lines), Got(b"{}"))
             with self.assertRaisesRegex(azure.Unanswered, "refused, not read", msg=lines):
                 live(Error()).send(azure.read(ID))
-        self.assertEqual(Got.asked, [])
+        self.assertEqual(len(made), 2 * len(refused))
+        self.assertEqual([got.asked for got in made], [[]] * len(made))
         for lines in (b"Content-Length: 2\r\n", b"content-length: 2\r\n", b"Transfer-Encoding: chunked\r\n",
                       b"Transfer-Encoding: Chunked\r\n", b"Content-Length: 0000000002\r\n"):
             Got.headers = headers(lines)
             self.assertEqual(live(Capture(b"{}", Got)).send(azure.read(ID))["body"], {}, lines)
 
             class Fault:
-                def open(self, request, timeout=None, lines=lines):
-                    raise azure.urllib.error.HTTPError(request.full_url, 500, "x", headers(lines), Got(b"{}"))
+                def open(self, fullurl, data=None, timeout=None, lines=lines):
+                    raise azure.urllib.error.HTTPError(fullurl.full_url, 500, "x", headers(lines), Got(b"{}"))
             self.assertEqual(live(Fault()).send(azure.read(ID))["status"], 500, lines)
         # So too through http.client's own reader.
         for status in (b"200 OK", b"500 x"):
@@ -320,10 +379,13 @@ class Transport(unittest.TestCase):
         self.assertEqual(len(live(Capture(at)).send(azure.read(ID))["body"]), azure.LARGEST - 2)
         class Chunked(Answer):
             headers = dict(Answer.headers, **{"Transfer-Encoding": "chunked"})
-        for answer in (Answer, Chunked):
+        # One that says a length over the bound is not read; one chunked is read a chunk at a time, never the whole of
+        # what is sent, read to be refused.
+        for answer, asked in ((Answer, set()), (Chunked, {azure.CHUNK})):
+            opener = Capture(at + b" ", answer)
             with self.assertRaises(azure.Unanswered):
-                live(Capture(at + b" ", answer)).send(azure.read(ID))
-        self.assertEqual(set(Answer.asked), {azure.CHUNK})      # never the whole of what is sent, read to be refused
+                live(opener).send(azure.read(ID))
+            self.assertEqual(set(opener.answers[0].asked), asked, answer.__name__)
         # Azure out of reach, or an answer cut short while it is read, a body's or an error's, is refused and never
         # another exception.
         class Short:
@@ -335,8 +397,8 @@ class Transport(unittest.TestCase):
                 raise azure.http.client.IncompleteRead(b"")
 
         class Error:
-            def open(self, request, timeout=None):
-                raise azure.urllib.error.HTTPError(request.full_url, 500, "x", {"Content-Length": "10"}, Broken())
+            def open(self, fullurl, data=None, timeout=None):
+                raise azure.urllib.error.HTTPError(fullurl.full_url, 500, "x", {"Content-Length": "10"}, Broken())
 
         class Slow:
             def open(self, *a, **k):
@@ -355,8 +417,8 @@ class Transport(unittest.TestCase):
             def __init__(self, length, body):
                 self.length, self.body = length, body
 
-            def open(self, request, timeout=None):
-                raise azure.urllib.error.HTTPError(request.full_url, 500, "x", {"Content-Length": self.length},
+            def open(self, fullurl, data=None, timeout=None):
+                raise azure.urllib.error.HTTPError(fullurl.full_url, 500, "x", {"Content-Length": self.length},
                                                    io.BytesIO(self.body))
         for length, body in (("47", b'{"a"'), ("2", b"{} ")):
             for opener in (Capture(body, said({"Content-Length": length})), Cut(length, body)):
@@ -366,8 +428,8 @@ class Transport(unittest.TestCase):
             self.assertEqual(live(Capture(b"{}", said(frame))).send(azure.read(ID))["body"], {})
         # An error Azure answers is an answer, with its status, bounded as any other: a rate limit says how long to wait.
         class Limited:
-            def open(self, request, timeout=None):
-                raise azure.urllib.error.HTTPError(request.full_url, 429, "x", {"Content-Type": "application/json",
+            def open(self, fullurl, data=None, timeout=None):
+                raise azure.urllib.error.HTTPError(fullurl.full_url, 429, "x", {"Content-Type": "application/json",
                                                                                "Retry-After": "20", "Content-Length": "42"},
                                                    io.BytesIO(b'{"error": {"code": "rate_limit_exceeded"}}'))
         self.assertEqual(live(Limited()).send(azure.create(ASKED)),
@@ -375,8 +437,8 @@ class Transport(unittest.TestCase):
                           "body": {"error": {"code": "rate_limit_exceeded"}}})
 
         class Large:
-            def open(self, request, timeout=None):
-                raise azure.urllib.error.HTTPError(request.full_url, 500, "x", {"Transfer-Encoding": "chunked"},
+            def open(self, fullurl, data=None, timeout=None):
+                raise azure.urllib.error.HTTPError(fullurl.full_url, 500, "x", {"Transfer-Encoding": "chunked"},
                                                    io.BytesIO(b"x" * (azure.LARGEST + 1)))
         with self.assertRaises(azure.Unanswered) as refused:
             live(Large()).send(azure.create(ASKED))
@@ -409,17 +471,28 @@ class Transport(unittest.TestCase):
             headers = {"Content-Type": "Application/JSON"}
         self.assertEqual(live(Capture(b"{}", Shouted)).send(azure.read(ID))["body"], {})
         self.assertEqual(live(Capture(b"{not json")).send(azure.read(ID))["body"], "{not json")
-        for text in (b'{"a": NaN}', b"[Infinity]", b"-Infinity"):
+        for text in (b'{"a": NaN}', b"[Infinity]", b"-Infinity", b'{"a": 1e999}', b"[-1e999]"):
             self.assertEqual(live(Capture(text)).send(azure.read(ID))["body"], text.decode())
+        # A number too large for a float would read as an infinity, so it is text as an infinity is; one finite is read.
+        self.assertEqual(live(Capture(b'{"a": 1.5e3, "b": -2.5}')).send(azure.read(ID))["body"], {"a": 1500.0, "b": -2.5})
         # Bytes that are not UTF-8 are text with each one marked, and never read as JSON: nothing is changed unseen.
         self.assertEqual(live(Capture(b'{"a": "\xff"}')).send(azure.read(ID))["body"], '{"a": "\ufffd"}')
         # A header a caller reads is kept only when it is short, printable ASCII: a caller acts on no more than that.
         class Odd(Framed):
             status = 429
             headers = {"Content-Type": "application/json"}
-        for value in ("1" * 101, "1\r\n2", "\u00b2", "1\x00"):
+        for value in ("1" * 101, "1\r\n2", "\u00b2", "1\x00", "1\x7f", "\u00e9"):
             Odd.headers = {"Content-Type": "application/json", "Retry-After": value}
             self.assertEqual(live(Capture(b"{}", Odd)).send(azure.read(ID))["headers"], {"content-type": "application/json"}, value)
+        # A byte that is not ASCII, which http.client reads as Latin-1, is a printable letter, kept by neither; DEL is ASCII
+        # and not printable. A header whose name holds a control character is none of the two.
+        for raw in (b"\xe9", b"1\x7f"):
+            Odd.headers = azure.http.client.parse_headers(io.BytesIO(
+                b"Content-Type: application/json\r\nRetry-After: %s\r\nContent-Length: 2\r\n\r\n" % raw))
+            self.assertEqual(live(Capture(b"{}", Odd)).send(azure.read(ID))["headers"], {"content-type": "application/json"}, raw)
+        for name in ("Retry-After\x01", "Retry-\x00After", "Retry-After\x7f"):
+            Odd.headers = {"Content-Type": "application/json", name: "7"}
+            self.assertEqual(live(Capture(b"{}", Odd)).send(azure.read(ID))["headers"], {"content-type": "application/json"}, name)
         Odd.headers = {"Retry-After": "1" * 100}
         self.assertEqual(live(Capture(b"{}", Odd)).send(azure.read(ID))["headers"], {"retry-after": "1" * 100})
         # Of a header given twice the last value is kept, or none where the last is refused, never one before it.
