@@ -1297,6 +1297,12 @@ class Passes(unittest.TestCase):
         # One answer naming a criterion twice is one answer: it never stands for another that left it out.
         twice = said([], [{"criterion": "PR-3", "verdict": "met"}, {"criterion": "PR-3", "verdict": "not_applicable", "reason": "no_rule_added"}])
         self.assertEqual(passes.union([twice, said([], [{"criterion": "PR-1", "verdict": "met"}])])["coverage"], [])
+        # A Finding shown stands where any answer rules it so, whichever comes first; one ruled alike is as it was ruled.
+        ruled = lambda word: [{"finding": "f_9c1e", "decision": {"result": word}}]
+        fixed, stands = dict(said([]), dispositions=ruled("accepted")), dict(said([]), dispositions=ruled("rejected"))
+        for answers in ([fixed, stands], [stands, fixed], [fixed, fixed, stands]):
+            self.assertEqual(passes.union(answers)["dispositions"], ruled("rejected"))
+        self.assertEqual(passes.union([fixed, dict(fixed)])["dispositions"], ruled("accepted"))
         # Agreement is counted by answer: two answers raising a blocker outvote one raising three minors at the same place.
         minors = [raised("n%d" % i, "kernel/decide.py", line, line, "PR-3", "minor", "functional") for i, line in ((1, 90), (2, 91), (3, 90))]
         voted = passes.union([said([other]), said([dict(other)]), said(minors)])
