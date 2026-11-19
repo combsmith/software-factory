@@ -853,7 +853,6 @@ class Patch(unittest.TestCase):
                 self.assertEqual(patch.applied(data, {"f": FILE}, {"f": old})[0]["written"], {"f": (FILE, new)})
 
 
-
 REPO = "combsmith/software-factory"
 GIT = "/repos/%s/git/" % REPO
 BRANCH = "factory-work/issue-838-1"
@@ -1032,6 +1031,7 @@ class Push(unittest.TestCase):
     def test_nothing_leaves_outside_this_repos_git_data(self):
         requests = [before(step, told) for told in (PUSH, MOVE) for step in
                     ("commit", "tree", "branch", "blob a", "new tree", "tree back", "new commit", "ref", "commit back")]
+        requests.append((before(None)[0], ("GET", "blobs/" + BLOB_A, None, answer(200, {"sha": BLOB_A}))))
         self.assertEqual(sorted({request[0] for _, request in requests}), ["GET", "PATCH", "POST"])
         for state, (method, rest, body, said) in requests:
             self.assertTrue(push.permits(state, method, GIT + rest, body), rest)
