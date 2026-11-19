@@ -329,9 +329,11 @@ COSTS = 50           # the most Runs whose advisory cost one read of the records
 def advised(previous: list) -> dict:
     """What the pass records before this one read of each review Run's advisory cost, by its Run id and when its
     attempt started (decision 0224): the two fields as the row holds them, from the last two records at most, and the
-    earlier's word only for a Run the later does not list, as `begun` keeps a beginning. A row that holds a cost, or a
-    null one, was read whole, a file or the lack of one, and a Run's cost is written once, so it is not read again. A
-    key a record lists twice is kept from neither listing, and nothing is kept from what lists no runs."""
+    earlier's word only for a Run the later does not list, as `begun` keeps a beginning. A row that holds a count of
+    asks was read from its file, and a Run's cost is written once, so it is not read again. A row that holds a null
+    cost and no count read no file where one could be: it is kept as none only once two records in a row say so, as
+    `known` keeps an outcome that is not there, since GitHub may list an artifact a little after its Run ends. A key a
+    record lists twice is kept from neither listing, and nothing is kept from what lists no runs."""
     def read(record) -> tuple:
         rows = record.get("runs") if isinstance(record, dict) else None
         said, keys = {}, []
@@ -343,11 +345,14 @@ def advised(previous: list) -> dict:
             if ADVISED[1] in row:
                 said[key] = {name: row[name] for name in ADVISED if name in row}
         return {key: held for key, held in said.items() if keys.count(key) == 1}, keys
-    kept = {}
+    kept, absent = {}, {}
     for record in (list(previous[-2:]) if isinstance(previous, list) else []):
         found, listed = read(record)
         kept = {key: kept[key] for key in kept if key not in listed}
-        kept.update(found)
+        none = {key: held for key, held in found.items() if ADVISED[0] not in held}
+        kept.update({key: held for key, held in found.items() if key not in none})
+        kept.update({key: held for key, held in none.items() if key in absent})     # the second record in a row
+        absent = none
     return kept
 
 
@@ -454,6 +459,9 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     costs = 0
     for record, github_id, _, keyed in ran if day is not None else []:
         if record["status"] != "completed" or record["intent"] != REVIEWING or record["started_at"][:len(day)] != day:
+            continue
+        if "never_ran" in record:
+            record[ADVISED[0]] = 0          # it ran no step, so it asked no reader: nothing to read, and nothing spent
             continue
         if keyed and (record["run"], record["started_at"]) in advised:
             record.update(advised[(record["run"], record["started_at"])])
