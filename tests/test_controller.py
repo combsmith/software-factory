@@ -1283,6 +1283,25 @@ class Entry(unittest.TestCase):
             self.modes = {n: pathlib.Path(d, "out", n).stat().st_mode & 0o777 for n in files}
         return code, printed.getvalue(), files, slept
 
+    def test_the_entry_writes_no_number_that_is_not_finite(self):  # issue 922
+        # json.dumps writes NaN as the token NaN, which is no JSON: a value that slipped past its schema fails at the
+        # write, and never leaves a file another reader cannot parse.
+        views = {name: {} for name in entry.VIEW}
+        with tempfile.TemporaryDirectory() as d, unittest.mock.patch.object(entry.writes_, "plan", lambda out: {}):
+            os.mkdir(os.path.join(d, "a"))
+            os.mkdir(os.path.join(d, "b"))
+            with self.assertRaises(ValueError):
+                entry.write({"record": {"cost": float("nan")}, "view": views}, os.path.join(d, "a"))
+            self.assertEqual(os.listdir(os.path.join(d, "a")), [])       # no file is made, an empty one least of all
+            # Nor when the number is in a document written after others: every text is made before any file (Astra).
+            os.mkdir(os.path.join(d, "c"))
+            with self.assertRaises(ValueError):
+                entry.write({"record": {"cost": 1.5}, "view": dict(views, **{entry.VIEW[-1]: {"cost": float("inf")}})},
+                            os.path.join(d, "c"))
+            self.assertEqual(os.listdir(os.path.join(d, "c")), [])
+            entry.write({"record": {"cost": 1.5}, "view": views}, os.path.join(d, "b"))
+            self.assertEqual(json.loads(pathlib.Path(d, "b", "pass.json").read_text()), {"cost": 1.5})
+
     def test_the_entry_reads_through_the_ports_and_hands_the_pass_nothing_else(self):  # #193 ruling 10, #196 PR 2
         hub = Hub(self.table(numbers=[7]))
         code, printed, files, slept = self.run_entry(hub)

@@ -294,11 +294,13 @@ def write(out: dict, directory: str) -> None:
     written through a link that was already there."""
     files = {"pass.json": out["record"], "writes.json": writes_.plan(out)}
     files.update({os.path.join("view", "%s.json" % name): out["view"][name] for name in VIEW})
+    # Each is made text before any file is made, so a number that is not finite leaves no file at all (issue 922).
+    texts = {name: json.dumps(document, indent=2, sort_keys=True, allow_nan=False) + "\n" for name, document in files.items()}
     os.mkdir(os.path.join(directory, "view"))
-    for name, document in files.items():
+    for name, text in texts.items():
         made = os.open(os.path.join(directory, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         with open(made, "w", encoding="utf-8") as f:
-            f.write(json.dumps(document, indent=2, sort_keys=True) + "\n")
+            f.write(text)
 
 
 def main(argv=None, environ=None, base=None, clock=time.time, sleep=time.sleep, connect=Live) -> int:

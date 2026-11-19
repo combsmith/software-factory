@@ -265,6 +265,32 @@ class Validator(unittest.TestCase):
         for schema in ({"type": "array"}, {"type": "array", "uniqueItems": False}):
             self.assertEqual(validate(["AC-1", "AC-1"], schema), [])
 
+    def test_a_number_that_is_not_finite_is_an_error_whatever_the_bounds(self):  # issue 922
+        # json.loads reads NaN and Infinity from a file. NaN is below no minimum and above no maximum, and an infinity
+        # passes where no bound stands, so each is refused by itself, under a number's type, an integer's, or none.
+        nan, inf = float("nan"), float("inf")
+        for schema in ({"type": "number"}, {"type": "number", "minimum": 0}, {"type": "number", "maximum": 30},
+                       {"type": "number", "minimum": 0, "maximum": 30}, {"type": ["number", "null"]}, {}):
+            for value in (nan, inf, -inf, json.loads("NaN"), json.loads("-Infinity")):
+                self.assertTrue(caught(validate(value, schema), "is no finite number"), (schema, value))
+        self.assertEqual(validate({"cost": nan}, {"type": "object", "properties": {"cost": {"type": "number"}}}),
+                         ["$.cost: nan is no finite number"])
+        self.assertEqual(validate(nan, {"type": "integer"}), ["$: expected integer"])
+        # Nor where no schema describes the value: items with no `items`, a property no schema names, at any depth.
+        for value, schema, where in ((json.loads("[1, NaN]"), {"type": "array"}, "$[1]"),
+                                     ({"x": inf}, {}, "$.x"), ({"a": {"b": [-inf]}}, {"type": "object"}, "$.a.b[0]"),
+                                     ({"a": 1, "x": [nan]}, {"type": "object", "properties": {"a": {"type": "number"}}}, "$.x[0]")):
+            self.assertEqual(validate(value, schema), ["%s: no finite number" % where], value)
+        self.assertEqual(validate({"x": [1, 2.5]}, {"type": "object"}), [])
+        # However deep, by a list of what is left and no recursion (cubic's read).
+        deep = [nan]
+        for _ in range(5000):
+            deep = [deep]
+        self.assertEqual(validate(deep, {"type": "array"}), ["$%s: no finite number" % ("[0]" * 5001)])
+        # The other side: a finite number, a float or an int however large, is read as it was.
+        for value in (0, 0.0, -0.0, 1.5, 1e308, -1e308, 10 ** 400):
+            self.assertEqual(validate(value, {"type": "number"}), [], value)
+
     def test_a_text_longer_than_the_most_is_an_error(self):  # issue 880
         # Counted in characters, as `minLength` is, never in bytes.
         most = {"type": "string", "maxLength": 3}
