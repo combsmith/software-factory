@@ -1922,12 +1922,13 @@ class Entry(unittest.TestCase):
             self.assertEqual(entry_with(issues, **accounts)[:2], (1, "issue_list_unreadable\n"), issues)
 
     def test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry(self):  # S3, Astra
-        # Through the real port: an issue that read whole would be accepted defers while a pull request names it.
-        from tests.test_adapters import crossed, issue_read, linked_read
+        # Through the real port: an issue that read whole would be accepted defers while its linked pull requests are read
+        # short.
+        from tests.test_adapters import issue_read, linked_read
         reads_ = issue_read()
         own, events, edits = (r["response"] for r in reads_[:3])
         edits["body"]["data"]["repository"]["nameWithOwner"] = self.HOME
-        named = [linked_read(events=[crossed()], repo=self.HOME)["response"]]
+        named = [linked_read(total=1, repo=self.HOME)["response"]]
         # The Controller's tracking issue, 8, is open and updated since `served_from`, so GitHub lists it: it is left out
         # by the number the pass before recorded writing it under, never read, and the list is still whole (issue 901).
         listed = {"data": {"repository": {"nameWithOwner": self.HOME, "issues": {
