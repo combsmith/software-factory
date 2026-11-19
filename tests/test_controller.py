@@ -1873,9 +1873,10 @@ class Entry(unittest.TestCase):
                     return listed_by_the_port(transport, repo, after, apart=apart)
             return open_issues
 
-        def read(transport, repo, number, accounts, clock, *, identities, earlier):
+        def read(transport, repo, number, accounts, clock, *, identities, earlier, kernel):
             spied["read"].append((repo, number, accounts))
             spied["identities"].append((identities, earlier))
+            spied.setdefault("kernel", []).append(kernel)
             if number == 6:
                 raise entry.facts_.Moved("moved")
             if number == 9:
@@ -1916,6 +1917,9 @@ class Entry(unittest.TestCase):
         self.assertTrue(all(who is spied["who"][0] for _, _, who in spied["read"]))
         # Each is read with the pull requests' class accounts, and the pass records before this pass, here none.
         self.assertEqual(spied["identities"], [(entry.facts_.accounts_of(CONTROLLER)[0], [])] * 3)
+        # And the Kernel's configuration, which says whether a draft's checks are read (decision 0217, issue 878).
+        self.assertEqual([k["author_role"] for k in spied["kernel"]], [None] * 3)
+        self.assertTrue(all("required_lenses" in k for k in spied["kernel"]))
         # The reader names each App the configuration holds by its account's id, as REST spells its Bot's login.
         catalogue = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
         self.assertEqual(spied["who"][0].apps, {(CONTROLLER["accounts"]["controller"]["id"], "Bot"):
