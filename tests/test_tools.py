@@ -494,7 +494,7 @@ class Examples(unittest.TestCase):
                       "^\\D+$", "^[a\\x20]+$", "^[a\\u3000]+$", "^[a\\t]+$", "^(?x)a b$", "^(?s).$", "^[a-z]+$|b", None, "^[a-$",
                       # A space a group may repeat, an octal one, and every character \\s matches, U+2001 to U+2009 too.
                       "^[a-z]+( [a-z]+)*$", "^(?:[a-z]+ ){1,50}$", "^([a-z]+\\040)+$", "^[a-z]\\040[a-z]$", "^(\\w| )+$",
-                      "^\\S+( \\S+)*$", "^(?#[).+(?#])$", "^sf +r_[0-9]+$", "^[a-z]+ {1,9}[a-z]+$", "^a ?b$", "^(?z)a$", "^(a$")
+                      "^\\S+( \\S+)*$", "^(?#[).+(?#])$", "^sf +r_[0-9]+$", "^[a-z]+ {1,9}[a-z]+$", "^a ?b$", "^(?z)a$", "^(a$", "^a\tb$", "^a\nb$", "^a\u3000b$")
                      + tuple("^[a-z%s]+$" % c for c in "\u2001\u2005\u2009\x1c\x85")):
             self.assertFalse(check_examples._coded(loose), loose)
         # The repo of a run record, a pass record, the writes and what was written is a repo's name alone.

@@ -131,8 +131,8 @@ def _anchored(pattern) -> bool:
 
 def _coded(pattern) -> bool:
     """Whether `pattern` holds a code: it is anchored, and no class of it, no `.` and no escape matches whitespace, so
-    no words with whitespace between them pass it (issue 913). A literal space outside every group, with no
-    quantifier, is a fixed separator, as a Run's name has; one a quantifier or a group may repeat is refused, and so are an inline flag, which
+    no words with whitespace between them pass it (issue 913). A literal space, U+0020 alone, outside every group
+    and with no quantifier, is a fixed separator, as a Run's name has; one a quantifier or a group may repeat is refused, and so are an inline flag, which
     may change what each part reads, and a comment, which hides what this would read as a class. A class such as `\S` or `\w` still admits a run of letters with no whitespace in
     it, a limit record 0038 names."""
     if not _anchored(pattern) or re.search(r"\(\?[#aiLmsux-]", pattern):
@@ -144,7 +144,7 @@ def _coded(pattern) -> bool:
     parts, i, depth = [], 0, 0
     while i < len(pattern):
         c = pattern[i]
-        if c in SPACES and (depth or pattern[i + 1:i + 2] in ("*", "+", "?", "{")):
+        if c in SPACES and (c != " " or depth or pattern[i + 1:i + 2] in ("*", "+", "?", "{")):
             return False
         depth += {"(": 1, ")": -1}.get(c, 0)
         if c == "[":
