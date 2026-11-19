@@ -7,18 +7,19 @@ file's is one `adapters/github.py` would send. An answer is `{status, headers, b
 `Live` sends HTTPS to the one host its caller names, which is the configuration's, held to the forms Azure serves a
 model's API under, on its own port. It sends the paths of two APIs alone: Responses, to create a response, read it and
 cancel it, and Chat Completions, to create one. It takes its key from its caller and never from the environment, and
-sends it under Azure's own header to that host and no other: it follows no redirect and uses no proxy. Each wait on
+sends it under Azure's own header to that host and no other: it follows no redirect, refused before its Location is
+read, and uses no proxy. Each wait on
 the connection has its caller's limit in seconds, which bounds neither the finding of the host's address nor an answer
 that comes slowly: the whole is bounded by the limit of the step that calls. Every answer is bounded in size and
 refused past the bound or of other than the length it said, counted as read, never cut short; no read of the
 connection under it takes more than the bound and a frame's allowance. An answer is read only when it is framed as
 Azure frames each of its own, chunked alone or with one length of at most ten digits, no larger than the bound. One that
-is not UTF-8 is text and never read as JSON, and so is one that holds a whole number of more digits than any count, NaN
-or an infinity. Of an answer's headers it keeps the two a caller reads, each by its last value and only when that is
-short, printable ASCII. It verifies the host's certificate by a context of
+is not UTF-8 is text and never read as JSON, and so is one that holds a whole number of more digits than any count, NaN,
+an infinity or a number too large for a float. Of an answer's headers it keeps the two a caller reads, each by its last
+value and only when that is short, printable ASCII. It verifies the host's certificate by a context of
 its own, so a default changed elsewhere in the process cannot turn that off. No refusal names the host, the address or
-the key, and none is chained to an error of urllib's, which holds the address asked. Nothing is installed: the
-standard library does the rest.
+the key, and each is raised from nothing, chained to no error of urllib's, which holds the address asked. Nothing is
+installed: the standard library does the rest.
 """
 from __future__ import annotations
 
@@ -53,10 +54,17 @@ class Unanswered(Exception):
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
+    # urllib parses the Location of a redirect before it asks `redirect_request`, so that one malformed raises another
+    # error and leaves the answer open: each redirect is refused here, its answer closed and no header of it read.
+    def http_error_302(self, req, fp, code, msg, headers):
         if fp is not None:
             fp.close()
         raise Unanswered("Azure answered %d, a redirect; the transport follows none" % code)
+
+    http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return self.http_error_302(req, fp, code, msg, headers)
 
 
 def request(act: str, ident, body) -> dict:
@@ -176,6 +184,13 @@ def _finite(constant: str):
     raise ValueError("NaN and the infinities are no numbers of JSON's")
 
 
+def _real(digits: str) -> float:
+    value = float(digits)
+    if abs(value) == float("inf"):
+        raise ValueError("a number too large for a float reads as an infinity, which is no number of JSON's")
+    return value
+
+
 def _answer(status: int, headers, raw: bytes) -> dict:
     # Of a kept header given twice, the last is kept, or none where the last is refused. A type too long to keep is not
     # kept, and the body is then text, which is safe: a body is read as JSON only when its type says so.
@@ -187,7 +202,8 @@ def _answer(status: int, headers, raw: bytes) -> dict:
         return {"status": status, "headers": kept, "body": raw.decode("utf-8", errors="replace")}
     if kept.get("content-type", "").split(";")[0].strip().lower().endswith("json"):
         try:
-            return {"status": status, "headers": kept, "body": json.loads(text, parse_int=_whole, parse_constant=_finite) if text else None}
+            body = json.loads(text, parse_int=_whole, parse_float=_real, parse_constant=_finite) if text else None
+            return {"status": status, "headers": kept, "body": body}
         except (ValueError, RecursionError):
             pass
     return {"status": status, "headers": kept, "body": text}
@@ -233,7 +249,6 @@ class Live:
     def send(self, req: dict) -> dict:
         verb, path, body = wire(req)
         headers = {"api-key": self._key, "Accept": "application/json", "User-Agent": "software-factory"}
-        # A refusal is raised only once every handler has ended, so that it is chained to no error of urllib's.
         try:
             data = None
             if body is not None:
@@ -254,4 +269,6 @@ class Live:
         except (urllib.error.URLError, OSError, ValueError, TypeError, RecursionError,
                 http.client.HTTPException) as err:
             refused = "Azure could not be reached, or its answer was cut short: %s" % type(err).__name__
-        raise Unanswered(refused)
+        # Raised once every handler has ended, and from nothing, so that no error that holds the key or the address
+        # rides along as its context or its cause.
+        raise Unanswered(refused) from None
