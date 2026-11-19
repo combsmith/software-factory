@@ -31,8 +31,8 @@ where the reader's folder holds them, then the whole diff, each between two mark
 each time the step runs from 32 random bytes, which no one can know before it is sent, and one sentence after the
 last. A `<|` or a `|>` in the rules or the diff is sent with a zero-width non-joiner between its two characters, so
 that no text of theirs is the shape of a chat template's special token, such as `<|im_end|>`, which a serving stack may
-read as a real one and so leave the markers behind. It is given no tool. No step writes `rules.json` yet: the read
-step is to, by a change still to come, and until then a reader is told that none was read.
+read as a real one and so leave the markers behind. It is given no tool. The read step writes `rules.json`, the
+base's rules it could read whole (`adapters/rules.py`); a reader given none is told that none was read.
 
 Time. Every request is given its own wait, the reader's seconds or the time left of its share where that is less, and
 never under LEAST; no reader is asked with POLL or less left, none is asked again unless POLL is left after the wait,

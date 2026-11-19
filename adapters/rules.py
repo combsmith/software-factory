@@ -55,11 +55,16 @@ def _file_at(transport, repo: str, path: str, sha: str):
     return text if len(data) == size else None
 
 
+def _formed(repo, sha) -> bool:
+    """Whether `repo` is an owner and a name, whose text turns no path into another, and `sha` a commit's whole id."""
+    return isinstance(repo, str) and REPO.fullmatch(repo) is not None and repo.split("/")[1] not in (".", "..") \
+        and isinstance(sha, str) and SHA.fullmatch(sha) is not None
+
+
 def listed_at(transport, repo: str, sha: str) -> tuple:
     """`(patterns, None)`: what a push may not touch, as commit `sha` of `repo` holds it, every protected path and each
     model Lens's input, each once; or `(None, "push_list_unreadable")`."""
-    if not isinstance(repo, str) or not REPO.fullmatch(repo) or repo.split("/")[1] in (".", "..") \
-            or not isinstance(sha, str) or not SHA.fullmatch(sha):
+    if not _formed(repo, sha):
         return None, UNREADABLE
     text = _file_at(transport, repo, PATH, sha)
     try:
@@ -82,8 +87,7 @@ def listed_at(transport, repo: str, sha: str) -> tuple:
 def texts_at(transport, repo: str, sha: str) -> dict:
     """`{path: text}`: each of RULES as commit `sha` of `repo` holds it, read whole as one file of UTF-8 of at most
     LONGEST bytes; one that is not is left out, and a repo or commit in another form gives none."""
-    if not isinstance(repo, str) or not REPO.fullmatch(repo) or repo.split("/")[1] in (".", "..") \
-            or not isinstance(sha, str) or not SHA.fullmatch(sha):
+    if not _formed(repo, sha):
         return {}
     read = {path: _file_at(transport, repo, path, sha) for path in RULES}
     return {path: text for path, text in read.items() if text is not None and len(text.encode("utf-8")) <= LONGEST}
