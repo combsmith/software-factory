@@ -226,9 +226,8 @@ def _bounded(stream, length) -> bytes:
 
 
 def _context() -> ssl.SSLContext:
-    """A client's TLS context that verifies the host's certificate and name, at TLS 1.2 or later, and writes no session
-    key anywhere. `ssl.create_default_context` would open the file `SSLKEYLOGFILE` names and write each session's keys
-    to it, so that whoever reads that file reads what was sent, the key among it: it is not called."""
+    """Certificate and name verified, TLS 1.2 or later, and no session key logged, as the default context would to
+    `SSLKEYLOGFILE`."""
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)      # CERT_REQUIRED and check_hostname, as a client's default
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_default_certs(ssl.Purpose.SERVER_AUTH)
