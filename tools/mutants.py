@@ -1401,11 +1401,10 @@ ISSUE = [
      ' and r["content_id"] == facts["content_id"] for r in kept):', " for r in kept):", ISSUE_TESTS),
     # What apply re-asks (I-21, I-38).
     ("apply writes whatever Run the Kernel admits now", ISSUE_PY,
-     'again.get("admit") is not None and again.get("admit") == admitted.get("admit")',
-     'again.get("admit") is not None', ISSUE_TESTS),
+     '    return _but_base(now) == _but_base(was)\n', '    return True\n', ISSUE_TESTS),
     ("apply writes when nothing is admitted", ISSUE_PY,
-     'again.get("admit") is not None and again.get("admit") == admitted.get("admit")',
-     'again.get("admit") == admitted.get("admit")', ISSUE_TESTS),
+     '    if not isinstance(was, dict) or not isinstance(now, dict):\n        return False\n',
+     '    if not isinstance(was, dict) or not isinstance(now, dict):\n        return now == was\n', ISSUE_TESTS),
     # An issue's wait past its State's limit (design §4.1, decision 0034).
     ("an issue never goes stale", ISSUE_PY,
      '    if (d["attention"] in t.MAY_GO_STALE and d["reason"] not in t.SCOPE_DEFERRALS\n', "    if (False\n",
