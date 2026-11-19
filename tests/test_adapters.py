@@ -1090,9 +1090,9 @@ STORE = "https://productionresultssa7.blob.core.windows.net/actions-results/0a1b
 
 
 def stored(repo: str, github_id: int, zipped, ident: int = 9, store: str = STORE, **listed) -> list:
-    """A run's artifacts listed, its outcome's download redirected, and the storage's answer, in the shapes GitHub's
-    REST reference gives: no trial has recorded an artifact read yet (the pending test below says when one does).
-    `zipped` None lists none."""
+    """A run's artifacts listed, its outcome's download redirected, and the storage's answer, in the shapes trial P-68
+    recorded them (`trials/P-68.json`, held to it by the test below that reads the trial): of the list, the fields the
+    port reads; of the redirect, its `location`; of the storage, its type and the zip. `zipped` None lists none."""
     artifact = {"id": ident, "name": artifacts.NAME, "expired": False}
     if zipped is not None:
         artifact.update(size_in_bytes=len(zipped), digest="sha256:" + hashlib.sha256(zipped).hexdigest())
@@ -1769,11 +1769,10 @@ class Records(unittest.TestCase):
                        for r in listed["workflow_runs"]]
                 self.assertEqual((got["runs"], got["unidentified"], got["complete"]), ([], ids, True), (name, at))
 
-    @pending
     def test_an_artifact_download_a_trial_recorded_is_read_as_the_port_reads_it(self):
-        # The Maintainer's ruling on #192: the download's one redirect goes to GitHub's artifact storage. No trial has
-        # recorded one yet, so the host the transport allows is GitHub's documented one, not yet seen; the first trial
-        # whose Run uploads an outcome records it, and this test then reads it.
+        # The Maintainer's ruling on #192: the download's one redirect goes to GitHub's artifact storage. Trial P-68
+        # recorded one (issue 917): the address its redirect gave, kept without the query that signs it, is on the
+        # host the transport allows, under the path it allows.
         found = [(name.stem, at) for name in sorted((ROOT / "trials").glob("P-*.json"))
                  for at, e in enumerate(json.loads(name.read_text()).get("exchanges", []))
                  if (e.get("request") or {}).get("via") == "storage"]
@@ -1781,6 +1780,50 @@ class Records(unittest.TestCase):
         for name, at in found:
             moved = exchanges(name)[at - 1]["response"]["headers"]["location"]
             self.assertEqual(github.storage(moved), moved)
+        self.assertIn(("P-68", 4), found)
+
+    def test_the_port_reads_the_artifact_a_trial_recorded_and_the_helper_is_in_its_shapes(self):  # issue 917
+        # trials/P-68.json: a canary run uploaded an artifact of one file under a Run's outcome's name, and one of two.
+        # Its list, its download's redirect and the storage's answer are read by the port whole, with no change.
+        found, run = exchanges("P-68"), 44425338714
+        listed, missing, two, moved, served, deleted, gone = found
+        self.assertEqual(artifacts.outcome(github.Replay([listed, moved, served]), canary(), run, "r_P68TRIAL"), ("item", True))
+        # What the list says of the zip is what the storage served: its length, and its sha256 as `sha256:` and 64 hex.
+        artifact, = listed["response"]["body"]["artifacts"]
+        zipped = base64.b64decode(served["response"]["body"]["base64"])
+        self.assertEqual((artifact["size_in_bytes"], artifact["digest"]), (len(zipped), "sha256:" + hashlib.sha256(zipped).hexdigest()))
+        self.assertTrue(artifacts.DIGEST.fullmatch(artifact["digest"]))
+        self.assertEqual((artifact["name"], artifact["expired"]), (artifacts.NAME, False))
+        # The zip of a one-file artifact holds that file under its own name and nothing else, deflated.
+        with zipfile.ZipFile(io.BytesIO(zipped)) as archive:
+            self.assertEqual([(i.filename, i.compress_type) for i in archive.infolist()], [(artifacts.MEMBER, zipfile.ZIP_DEFLATED)])
+        # Another Run's name is not this outcome's; a digest that is not the bytes' is not read whole.
+        self.assertEqual(artifacts.outcome(github.Replay([listed, moved, served]), canary(), run, "r_other"), (None, False))
+        wrong = copy.deepcopy(listed)
+        wrong["response"]["body"]["artifacts"][0]["digest"] = "sha256:" + "0" * 64
+        self.assertEqual(artifacts.outcome(github.Replay([wrong, moved, served]), canary(), run, "r_P68TRIAL"), (None, False))
+        # A name the run uploaded nothing under, and the outcome's once its artifact was deleted, list none: no artifact
+        # marked expired, and a count of 0. The port reads each whole, with no outcome, and asks no download.
+        for none in (missing, deleted):
+            self.assertEqual(none["response"]["body"], {"total_count": 0, "artifacts": []})
+        self.assertEqual(artifacts.outcome(github.Replay([deleted]), canary(), run, "r_P68TRIAL"), (None, True))
+        self.assertEqual((gone["response"]["status"], [a["name"] for a in two["response"]["body"]["artifacts"]]), (404, ["two"]))
+        # The helper every other test of the port rests on gives nothing the trial did not record: each field of its
+        # list is one of the recorded list's, with a value of the same type; its redirect is a 302 naming a `location`
+        # on the storage; and the storage answers 200 with a zip, by its type.
+        helped = stored(canary(), run, zipped, ident=artifact["id"])
+        self.assertEqual([e["response"]["status"] for e in helped], [e["response"]["status"] for e in (listed, moved, served)])
+        self.assertEqual(helped[0]["request"]["call"], listed["request"]["call"].split(" (")[0])
+        mine, = helped[0]["response"]["body"]["artifacts"]
+        self.assertEqual(mine, {key: artifact[key] for key in mine})
+        self.assertEqual(sorted(helped[0]["response"]["body"]), sorted(listed["response"]["body"]))
+        self.assertEqual(helped[1]["request"]["call"], moved["request"]["call"].split(" (")[0])
+        for redirect in (helped[1], moved):
+            self.assertEqual(github.storage(redirect["response"]["headers"]["location"].split("?")[0]),
+                             redirect["response"]["headers"]["location"].split("?")[0])
+        self.assertEqual((helped[2]["request"]["via"], helped[2]["response"]["headers"]["content-type"]),
+                         (served["request"]["via"], served["response"]["headers"]["content-type"]))
+        self.assertEqual(github.raw(helped[2]["response"]["body"]), zipped)
 
 
 class Artifacts(unittest.TestCase):
@@ -4525,6 +4568,7 @@ WHY = {"controller", "kernel", "issues_port"}
 # Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
 # as no answer, never as one (FR-56); a refusal recorded later fails here until it is placed.
 REFUSALS = {
+    ("P-68", 6): None,                 # the download of an artifact deleted, 404: the port downloads only what a list names
     ("P-12", 16): None,                # an output past GitHub's limit, 422: no port writes the status until it is built
     ("P-41", 26): None,                # the controller's label on 64 at issues: write and pull_requests: read, 403
     ("P-41", 27): None,                # its removal, 403 too: no port writes a label until the label act is built
