@@ -1807,7 +1807,7 @@ class Advised(unittest.TestCase):
 
         def read_json(root, rel):
             asks = real(root, rel)
-            return dict(asks, advisory=names, readers={n: {} for n in names}) if names and rel.endswith("harness.json") else asks
+            return dict(asks, advisory=names, readers={n: {} for n in names}) if names is not None and rel.endswith("harness.json") else asks
 
         def from_key(app, repo, wanted, key, now, connect):
             calls["mint"].append((app["name"], repo, wanted, key))
@@ -1942,6 +1942,9 @@ class Advised(unittest.TestCase):
                            ({"state": "refused", "reason": "token_refused"}, "not_written"),
                            ({"state": "sent"}, "not_read_back"), ({"state": "applied", "key": None}, "not_read_back"),
                            ({"state": "applied", "key": "a key?"}, "not_read_back"),
+                           ({"state": "applied", "key": ""}, "not_read_back"),
+                           ({"state": "applied", "key": "CR_1\nrevoked"}, "not_read_back"),
+                           ({"state": "applied", "key": "CR_1\n"}, "not_read_back"),
                            ({"state": "already_applied", "key": None}, "not_read_back"),
                            (KeyError("id"), "write_raised"), (RuntimeError("unforeseen"), "write_raised")):
             def write(*a, back=back):
@@ -1969,7 +1972,8 @@ class Advised(unittest.TestCase):
 
     def test_the_child_asks_github_nothing_for_what_the_step_did_not_write_or_its_token_does_not_hold(self):
         # What it is asked whose bytes are not those the step hashed, or with no hash at all, an item of another repo
-        # than the home repo its token is minted for, no Lens to show, and more Lenses than applied/1 holds: nothing is
+        # than the home repo its token is minted for, no Lens to show, and more Lenses than applied/1 holds, counted
+        # before any is filtered: nothing is
         # minted, nothing sent and nothing said, and its parent records each Lens `out_of_time`.
         (_, astra), _ = self.ask(self.BOTH)[1]
         many = ["astra", "kimi"] + ["lens" + c for c in "abcdefg"]
@@ -1977,7 +1981,7 @@ class Advised(unittest.TestCase):
         for how in ({"digest": "0" * 64}, {"digest": hashlib.sha256(b"another file").hexdigest()}, {"digest": ""},
                     {"item": dict(ITEM, repo="combsmith/other")}, {"files": {}}, {"size": advised_.ASKED + 1},
                     {"files": {}, "planted": [("muse", dict(astra, name="advisory-muse", external_id=RUN + ":muse"))]},
-                    {"names": many, "planted": each}):
+                    {"names": many, "planted": each}, {"names": many[:2], "planted": each}):
             lines, hub, calls = self.child(**dict({"files": self.BOTH}, **how))
             self.assertEqual((lines, hub.sent, calls["mint"]), ([], [], []), how)
         self.assertEqual(advised_.told(b"", ["astra", "kimi"]), {"astra": ("out_of_time", None), "kimi": ("out_of_time", None)})
