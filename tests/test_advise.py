@@ -1,5 +1,5 @@
 """The advise step, `harness/advise.py`, and the step before it, `harness/unasked.py`: each advisory Lens's reader is
-asked and its Result written (decision 0224).
+asked, its Result written, and the Run's cost true wherever it stops (decision 0224).
 
 Nothing here reaches the network: the transport is a stand-in that keeps what it was sent and answers from a list."""
 from __future__ import annotations
@@ -49,10 +49,11 @@ LIMITED = {"status": 429, "headers": {"retry-after": "20"}, "body": {"error": {"
 
 class Azure:
     """A stand-in for `azure.Live`: it keeps how it was made and what it was sent, and answers in turn, or as a
-    function of the request."""
+    function of the request. `during` is called at each send."""
 
-    def __init__(self, answers):
+    def __init__(self, answers, during=None):
         self.answers, self.made, self.sent = answers if callable(answers) else list(answers), [], []
+        self.during = during
 
     def __call__(self, host, key, seconds):
         self.made.append((host, key, seconds))
@@ -60,6 +61,8 @@ class Azure:
 
     def send(self, request: dict) -> dict:
         self.sent.append(request)
+        if self.during:
+            self.during()
         answer = self.answers(request) if callable(self.answers) else self.answers.pop(0)
         if isinstance(answer, Exception):
             raise answer
@@ -79,7 +82,7 @@ class Clock:
 
 
 def folder(base: pathlib.Path, ask=True, intent: str = "review-change", change=None, diff: bytes = b"diff --git a/x b/x\n",
-           rules=None, run: str = RUN) -> None:
+           rules=None, run: str = RUN, drop: tuple = ()) -> None:
     """The reader's folder for one review of the example's pull request."""
     record = json.loads((ROOT / "examples" / "pass.json").read_text())
     entry = record["pull_requests"][0]
@@ -95,6 +98,8 @@ def folder(base: pathlib.Path, ask=True, intent: str = "review-change", change=N
     (task / "diff").write_bytes(diff)
     if rules is not None:
         (task / "rules.json").write_text(rules if isinstance(rules, str) else json.dumps(rules))
+    for name in drop:
+        (task / name).unlink()
 
 
 def release_of(base: pathlib.Path, readers) -> pathlib.Path:
@@ -115,14 +120,15 @@ def cost_in(base: pathlib.Path) -> dict:
     return cost
 
 
-def advised(answers, env=None, first: bool = False, readers=None, **made) -> tuple:
+def advised(answers, env=None, first: bool = False, readers=None, mid: bool = False, **made) -> tuple:
     """`({lens: Result}, the stand-in, the clock)` of one run of the step, each Result held to advice/1 and its digest.
-    With `first`, `harness.unasked` runs before it, as in the workflow."""
+    With `first`, `harness.unasked` runs before it, as in the workflow; with `mid`, the cost file is read at each send."""
     with tempfile.TemporaryDirectory() as where:
         base = pathlib.Path(where)
         folder(base, **made)
         clock = Clock()
-        stand_in = Azure(answers)
+        stand_in = Azure(answers, (lambda: stand_in.seen.append(cost_in(base))) if mid else None)
+        stand_in.seen = []
         if first:
             unasked.job([NAME, "advice"], {}, base=base, release=lambda: "factory/v0.3.1")
             stand_in.before = cost_in(base)
@@ -136,10 +142,10 @@ def advised(answers, env=None, first: bool = False, readers=None, **made) -> tup
             assert (base / "advice" / ("advice.%s.sha256" % lens)).read_text() == digest + "\n"
             results[lens] = json.loads(data)
             assert jsonschema_lite.validate(results[lens], shared.SCHEMAS["advice"], schemas=shared.SCHEMAS) == []
-        there = sorted(p.name for p in (base / "advice").iterdir())
-        stand_in.cost = cost_in(base) if "advice-cost.json" in there else None
-        assert there == sorted(["advice.%s.%s" % (lens, kind) for lens in results for kind in ("json", "sha256")]
-                               + ["advice-cost.json"] * (stand_in.cost is not None))
+        assert sorted(p.name for p in (base / "advice").iterdir()) == sorted(
+            ["advice.%s.%s" % (lens, kind) for lens in results for kind in ("json", "sha256")] + ["advice-cost.json"])
+        stand_in.cost = cost_in(base)
+        assert stand_in.cost["run"] == made.get("run", RUN)
         return results, stand_in, clock
 
 
@@ -147,6 +153,12 @@ def codes(results: dict) -> dict:
     return {lens: (r["status"], r["reason"], len(r["findings"]), r["usage"]["asks"]) for lens, r in results.items()}
 
 
+def spent(cost) -> tuple:
+    cost = getattr(cost, "cost", cost)      # the stand-in's, or the document
+    return cost["asks"], cost["cost_usd"]
+
+
+KEYED = {"ADVISORY_AZURE_KEY": "k" * 32}
 DOWN = {"status": 500, "headers": {"retry-after": "20"}, "body": {"error": {"code": "server_error"}}}
 BOTH = {"astra": ("completed", None, 1, 1), "kimi": ("completed", None, 0, 1)}
 
@@ -252,20 +264,89 @@ class Advise(unittest.TestCase):
         self.assertEqual(codes(results), {"astra": ("completed", None, 1, 1), "kimi": ("failed", "transport", 0, 1)})
         # An ask is counted once, however many reads of its response followed it before one was not answered.
         results, azure_, _ = advised([response("queued", ""), response("in_progress", ""), azure.Unanswered("down"),
-                                      completion()])
-        self.assertEqual((codes(results)["astra"], len(azure_.sent)), (("failed", "transport", 0, 1), 4))
+                                      response("cancelled", ""), completion()])
+        self.assertEqual((codes(results)["astra"], len(azure_.sent)), (("failed", "transport", 0, 1), 5))
         results, _, _ = advised([response(model="another-model"), completion("not json")])
         self.assertEqual(codes(results), {"astra": ("failed", "not_the_model", 0, 1), "kimi": ("failed", "unparsed", 0, 1)})
 
+    def test_a_response_whose_read_fails_is_cancelled_and_the_cancel_changes_nothing(self):
+        # A read answered other than 200, or not answered, leaves the response running: it is cancelled, whatever the
+        # cancel answers, the Result is the read's, and the one ask is counted once however many reads followed it.
+        gone = azure.Unanswered("down")
+        for failed, cancelled, want in ((DOWN, response("cancelled", ""), ("failed", "transport", 0, 1)),
+                                        (LIMITED, DOWN, ("incomplete", "rate_limited", 0, 1)),
+                                        (LIMITED, gone, ("incomplete", "rate_limited", 0, 1)),
+                                        (LIMITED, RuntimeError("no"), ("incomplete", "rate_limited", 0, 1)),
+                                        (gone, gone, ("failed", "transport", 0, 1))):
+            results, azure_, clock = advised([response("queued", ""), response("in_progress", ""), failed, cancelled,
+                                              completion()])
+            self.assertEqual(codes(results), {"astra": want, "kimi": ("completed", None, 0, 1)})
+            self.assertEqual([sent["act"] for sent in azure_.sent], ["create", "read", "read", "cancel", "chat"])
+            self.assertEqual((azure_.sent[3], clock.slept), (azure.cancel("resp_1"), [10, 10]))
+            self.assertEqual(spent(azure_), (2, None))
+        # So is one in a state this step does not know to have ended; one that ended is not.
+        results, azure_, _ = advised([response("paused", ""), DOWN, completion()])
+        self.assertEqual((codes(results)["astra"], azure_.sent[1]), (("failed", "transport", 0, 1), azure.cancel("resp_1")))
+        for state in ("failed", "cancelled", "incomplete"):
+            _, azure_, _ = advised([response(state, ""), completion()])
+            self.assertEqual([sent["act"] for sent in azure_.sent], ["create", "chat"], state)
+
     def test_a_run_that_asks_no_longer_says_that_no_reader_was_asked(self):
         nothing = {"schema": "advice-cost/1", "run": RUN, "release": "factory/v0.3.1", "asks": 0, "cost_usd": 0}
-        # A Run about to ask a reader takes away what its first step said, and the pass counts its worst case.
-        results, azure_, _ = advised([response(), completion()], first=True)
-        self.assertEqual((codes(results), azure_.before, azure_.cost), (BOTH, nothing, None))
+        # Before its first request the step says how many readers it is about to ask, at a cost not known, which the
+        # pass counts at the worst case.
+        results, azure_, _ = advised([response(), completion()], first=True, mid=True)
+        self.assertEqual((codes(results), azure_.before), (BOTH, nothing))
+        self.assertEqual(azure_.seen, [dict(nothing, asks=2, cost_usd=None)] * 2)
+        # A reader refused before anything is sent is not among them.
+
+        def short(changed: dict) -> None:
+            changed["readers"]["kimi"]["prompt_characters"] = 10
+        _, azure_, _ = advised([response()], mid=True, readers=short)
+        self.assertEqual([seen["asks"] for seen in azure_.seen], [1])
         # A Run that asks nobody, refused before anything is sent or no review at all, leaves it as it was written.
         for made in ({"ask": False}, {"env": {}}, {"intent": "fix-findings"}, {"change": {"class": "dependency"}}):
             _, azure_, _ = advised([], first=True, **made)
             self.assertEqual((azure_.before, azure_.cost, azure_.sent), (nothing, nothing, []), made)
+
+    def test_the_runs_cost_is_true_wherever_the_step_stops(self):
+        # After its last reader the step says what was asked and what it cost, summed from each answer's tokens and the
+        # prices; nothing asked costs nothing.
+        results, azure_, _ = advised([response(), completion()])
+        self.assertEqual(azure_.cost, {"schema": "advice-cost/1", "run": RUN, "release": results["astra"]["release"], "asks": 2,
+                                       "cost_usd": round(sum(results[lens]["usage"]["cost_usd"] for lens in results), 6)})
+        self.assertGreater(azure_.cost["cost_usd"], 0)
+        for made in ({"ask": False}, {"drop": ("diff",)}, {"run": "r_01JA7X"}):
+            self.assertEqual(spent(advised([], **made)[1]), (0, 0), made)
+        # A reader that was asked and gives no count makes the Run's cost unknown, never the others' sum or nought:
+        # each ask is counted, and so is the ask of a reader whose read raised what no one foresaw.
+        self.assertEqual(spent(advised([LIMITED, response(), LIMITED, LIMITED])[1]), (4, None))
+        self.assertEqual(spent(advised([RuntimeError("boom"), completion()])[1]), (2, None))
+        with tempfile.TemporaryDirectory() as where:
+            base = pathlib.Path(where)
+            # A Run whose id is none is not named: nothing is made for it.
+            folder(base, run="a run")
+            with self.assertRaisesRegex(steps.Stop, "^run_unnamed$"):
+                advise.job("task", "advice", {}, base=base)
+            self.assertEqual(os.listdir(base), ["task"])
+            # A Run that is named and whose facts cannot be read asked nobody, and says so.
+            (base / "task" / "run").write_text(RUN + "\n")
+            (base / "task" / "facts.json").unlink()
+            with self.assertRaises(steps.Stop):
+                advise.job("task", "advice", {}, base=base)
+            self.assertEqual((os.listdir(base / "advice"), spent(cost_in(base))), (["advice-cost.json"], (0, 0)))
+            # The file is replaced whole: nothing is left beside it, a link in its place is not followed, and what a
+            # stopped step left beside it is no obstacle.
+            (base / "task" / "facts.json").write_text((ROOT / "examples" / "facts.json").read_text())
+            (base / "advice" / "advice-cost.json").unlink()
+            (base / "elsewhere").write_text("kept")
+            os.symlink(base / "elsewhere", base / "advice" / "advice-cost.json")
+            os.symlink(base / "elsewhere", base / "advice" / "advice-cost.json.new")
+            stand_in, clock = Azure([response(), completion()]), Clock()
+            advise.job("task", "advice", KEYED, base=base, transport=stand_in, clock=clock, sleep=clock.sleep)
+            self.assertEqual(((base / "elsewhere").read_text(), (base / "advice" / "advice-cost.json").is_symlink()),
+                             ("kept", False))
+            self.assertEqual((cost_in(base)["asks"], len(os.listdir(base / "advice"))), (2, 5))
 
     def test_a_fault_in_one_reader_is_that_readers_alone(self):
         # A fault no one foresaw in one reader is that reader's Result, and the other is still asked.
@@ -277,6 +358,19 @@ class Advise(unittest.TestCase):
             del changed["readers"]["astra"]["model"]
         results, azure_, _ = advised([completion()], readers=unpinned)
         self.assertEqual(codes(results), {"kimi": ("completed", None, 0, 1)})
+        # With no diff to send, each reader has a Result and none is asked.
+        results, azure_, _ = advised([], drop=("diff",))
+        self.assertEqual(codes(results), {"astra": ("failed", "transport", 0, 0), "kimi": ("failed", "transport", 0, 0)})
+        self.assertEqual(azure_.sent, [])
+        # A Result that cannot be written is not claimed, and the reader after it is still asked.
+        with tempfile.TemporaryDirectory() as where:
+            base = pathlib.Path(where)
+            folder(base)
+            (base / "advice").mkdir()
+            (base / "advice" / "advice.astra.json").write_text("{}")
+            stand_in, clock = Azure([response(), completion()]), Clock()
+            written = advise.job("task", "advice", KEYED, base=base, transport=stand_in, clock=clock, sleep=clock.sleep)
+            self.assertEqual(([lens for lens, _ in written], len(stand_in.sent)), (["kimi"], 2))
 
     def test_the_step_never_fails_its_job(self):
         with tempfile.TemporaryDirectory() as where:

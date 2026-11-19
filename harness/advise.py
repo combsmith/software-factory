@@ -10,10 +10,12 @@ Run's own files and nothing from GitHub, and it holds one secret, the Azure key,
 `advice.<lens>.json`, an `advice/1`, and its digest beside it, for every reader configured: `completed`, `incomplete`
 or `failed`.
 
-`advice-cost.json`, the Run's `advice-cost/1`, is all the Controller reads of the Run, and `harness.unasked` wrote it
-with no asks. A Run that is about to ask a reader can no longer say so: before its first request this step takes the
-file away, and a pass that finds no cost counts the Run's worst case (decision 0224, Spend). A Run that asks nobody
-leaves the file as it was written.
+`advice-cost.json`, an `advice-cost/1`, is all the Controller reads of the Run, and it is true whenever the step is
+stopped (the Factory Builder, 2026-11-19). `harness.unasked` wrote it with no asks. Before its first request this step
+replaces it with the number of readers it is about to ask and a cost of null, which a pass counts at the worst case;
+after the last reader, and whatever fault ended the step, it replaces it with the asks sent and their cost summed, null
+where a reader that was asked has no count. A Run that asks nobody leaves no asks and no cost. Nothing is made for a
+Run the step cannot name.
 
 The step never fails its job. A reader that cannot be asked, or does not answer, has a Result that says why by a code,
 and anything this file did not foresee is the code `transport`, for that reader alone; the review then runs without
@@ -45,6 +47,7 @@ WHOLE = 1080
 POLL = 10               # seconds between two reads of a response still running
 LONGEST_WAIT = 90       # the longest wait a rate limit may name and be waited for; a longer one is not
 RUNNING = ("queued", "in_progress")
+ENDED = ("completed", "incomplete", "failed", "cancelled")      # a response in any other state may still be billed
 # Where a change is read at the highest effort: the Kernel, the guards, the Harness, the hooks, the workflows, the
 # Release's rules, and the files that hold a credential's or an App's reach (the desk's rule, the Maintainer's ruling 8).
 CRITICAL = ("kernel/", "guards/", "harness/", "tools/hooks/", ".github/workflows/", "release/", "config/apps.json",
@@ -88,7 +91,7 @@ def asks_of(sent: list) -> int:
 
 def asked(send, reader: dict, request: dict, until: float, clock, sleep) -> tuple:
     """`(answer, asks)` for one reader: the request sent once, and once more after the wait a rate limit names; a
-    response of the Responses API read until it has ended, and cancelled where it has not by `until`."""
+    response of the Responses API read until it has ended, and cancelled wherever this leaves it not known to have."""
     asks, answer = 0, None
     while True:
         asks += 1
@@ -100,16 +103,23 @@ def asked(send, reader: dict, request: dict, until: float, clock, sleep) -> tupl
     body = answer.get("body")
     if reader["api"] != "responses" or answer.get("status") != 200 or not isinstance(body, dict):
         return answer, asks
-    ident = body.get("id")
-    while body.get("status") in RUNNING:
-        if clock() + POLL >= until:
-            send(azure.cancel(ident))       # not left to run on and be billed; what it answers changes nothing
-            break
-        sleep(POLL)
-        answer = send(azure.read(ident))
-        body = answer.get("body")
-        if answer.get("status") != 200 or not isinstance(body, dict):
-            break
+    ident, state = body.get("id"), body.get("status")
+    try:
+        while state in RUNNING and clock() + POLL < until:
+            sleep(POLL)
+            state = None        # not known again until this read is answered whole
+            answer = send(azure.read(ident))
+            body = answer.get("body")
+            if answer.get("status") != 200 or not isinstance(body, dict):
+                break
+            state = body.get("status")
+    finally:
+        # Out of time, a read that failed or one not answered: the response is not left to run on and be billed.
+        if state not in ENDED:
+            try:
+                send(azure.cancel(ident))
+            except Exception:       # NOSONAR best effort: what a cancel answers, or that it does not, changes nothing
+                pass
     return answer, asks
 
 
@@ -161,6 +171,15 @@ def prompt_of(root: pathlib.Path, folder: str, diff: str) -> str:
     return told + DATA % (held, diff)
 
 
+def cost_of(run: str, release: str, spent: list) -> dict:
+    """The Run's `advice-cost/1` from each reader's usage: the asks summed, and their cost, null where a reader that
+    was asked gave none; no asks and no cost where no reader was asked."""
+    asked_ = [usage for usage in spent if usage["asks"] > 0]
+    known = all(usage["cost_usd"] is not None for usage in asked_)
+    return {"schema": "advice-cost/1", "run": run, "release": release, "asks": sum(usage["asks"] for usage in spent),
+            "cost_usd": round(sum(usage["cost_usd"] for usage in asked_), 6) if known else None}
+
+
 def folder_of(base, out: str) -> str:
     """OUT: the folder `harness.unasked` made, or one made new; Stop `out_exists` for a link or a file."""
     real, path = steps.inside(base, out), os.path.join(os.path.realpath(str(base)), out)
@@ -169,6 +188,19 @@ def folder_of(base, out: str) -> str:
     if os.path.islink(path) or not os.path.isdir(path):
         raise steps.Stop("out_exists")
     return real
+
+
+def replace(folder: str, name: str, document: dict) -> None:
+    """`name` in the step's folder, whole or as it was: written new beside it and moved over it, which follows no link
+    at either name. `steps.write` makes a file new and never writes over one, so the one file this step rewrites is
+    replaced here."""
+    beside = name + ".new"
+    try:
+        os.unlink(os.path.join(folder, beside))     # what a step stopped half-way left
+    except FileNotFoundError:
+        pass
+    steps.write(folder, beside, document)
+    os.replace(os.path.join(folder, beside), os.path.join(folder, name))
 
 
 def job(task_folder: str, out: str, env: dict, root: pathlib.Path = ROOT, base=None, transport=azure.Live,
@@ -181,27 +213,33 @@ def job(task_folder: str, out: str, env: dict, root: pathlib.Path = ROOT, base=N
         run = f.read().strip()
     record = steps.read_json(base, os.path.join(task_folder, "record.json"))
     release = record["release"]
-    made, written = folder_of(base, out), []
+    if shared.errors(cost_of(run, release, []), "advice-cost"):
+        raise steps.Stop("run_unnamed")         # before anything is made: no folder is left for a Run with no name
+    # `ledger` holds, for each reader begun, what was sent to it and its usage once it has a Result. One with none
+    # counts its asks at a cost not known, so the file is true wherever the step stops.
+    made, ledger, written = folder_of(base, out), [], []
 
     def ask() -> None:
         facts = steps.read_json(base, os.path.join(task_folder, "facts.json"))
         entry = task.decision_of(record, run)
         if entry is None or entry["decision"]["admit"]["intent"] != REVIEWING or facts.get("class") == "dependency":
-            return      # no reader is asked, and what the first step said of the Run stands
+            return      # no reader is asked, and the cost file says so
         config = json.loads((root / "config" / "harness.json").read_text())
         readers = config.get("readers", {})
         names = [name for name in config["advisory"] if name in readers]
-        with open(os.path.join(folder, "diff"), "rb") as f:
-            prompt = prompt_of(root, folder, f.read().decode("utf-8", errors="replace"))
+        try:
+            with open(os.path.join(folder, "diff"), "rb") as f:
+                prompt = prompt_of(root, folder, f.read().decode("utf-8", errors="replace"))
+        except Exception:       # NOSONAR with no prompt each reader has a Result, `transport`, and none is asked
+            prompt = None
         admitted, key = entry.get("advisory_ask") is True, env.get(KEY)
-        if any(due(readers[lens], prompt, admitted, key) for lens in names):
-            # Before the first request: the Run no longer says that it asked nobody.
-            try:
-                os.unlink(os.path.join(made, unasked.COST))
-            except FileNotFoundError:
-                pass
+        about = sum(due(readers[lens], prompt, admitted, key) for lens in names)
+        if about:
+            # Before the first request: a step stopped from here on has said how many readers it set out to ask.
+            replace(made, unasked.COST, dict(cost_of(run, release, []), asks=about, cost_usd=None))
         for n, lens in enumerate(names):
             sent, told, began = [], None, clock()
+            ledger.append([sent, None])
             try:
                 reader = readers[lens]
                 rows = facts["changed_paths"]
@@ -216,14 +254,25 @@ def job(task_folder: str, out: str, env: dict, root: pathlib.Path = ROOT, base=N
             except Exception:       # NOSONAR whatever one reader's read raises is that reader's Result, and no other's
                 try:
                     result = advice.unasked(told, "transport", asks_of(sent), lasted(began, clock), shared.SCHEMAS)
-                except Exception:   # NOSONAR nothing can be said for this Lens
+                except Exception:   # NOSONAR nothing can be said for this Lens; the ledger still counts its asks
                     continue
+            ledger[-1][1] = result["usage"]
             data = (json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
             digest = "sha256:" + hashlib.sha256(data).hexdigest()
-            steps.write(made, "advice.%s.json" % lens, data)
-            steps.write(made, "advice.%s.sha256" % lens, (digest + "\n").encode())
+            try:
+                steps.write(made, "advice.%s.json" % lens, data)
+                steps.write(made, "advice.%s.sha256" % lens, (digest + "\n").encode())
+            except Exception:       # NOSONAR a Result that cannot be written is not claimed; the next reader is asked
+                continue
             written.append((lens, digest))
-    ask()
+    try:
+        ask()
+    finally:
+        # What the Controller's pass reads of this Run, and all it reads: how many requests were sent and what they
+        # cost, summed here from the tokens each answer counted and the configured prices, and never from a reader's
+        # text. A cost is null where a reader that was asked gave no count, so that it is never taken for nought.
+        replace(made, unasked.COST, cost_of(run, release, [
+            usage or {"asks": asks_of(sent), "cost_usd": None} for sent, usage in ledger]))
     return written
 
 
