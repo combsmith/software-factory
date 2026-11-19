@@ -2056,16 +2056,21 @@ class Advised(unittest.TestCase):
             raise OSError("no such file")
         self.assertEqual(go(240, killed, work="w4"), [("astra", "token_not_revoked", "CR_1"), ("kimi", "token_not_revoked", None)])
         self.assertEqual(go(240, absent, work="w5"), [("astra", "out_of_time", None), ("kimi", "out_of_time", None)])
-        # A child that hangs is killed, in fact, and what it had said is kept.
+        # Every entry is one applied/1 holds.
+        said = go(240, killed, work="w6")
+        self.assertEqual(shared.errors(dict({"schema": "applied/1", "run": RUN, "release": RELEASE, "effects": [], "findings": []}, advisory=advice.recorded(said)), "applied"), [])
+
+    @support.wall_clock
+    def test_a_child_that_hangs_is_killed_in_fact_and_what_it_had_said_is_kept(self):
+        held = {"item": (the_facts(), HEAD, runs(), support.context(), None)}
         hangs = "import time; print('began', flush=True); print('astra shown CR_1', flush=True); time.sleep(60)"
         began = time.monotonic()
         with unittest.mock.patch.object(advised_, "COMMAND", [sys.executable, "-c", hangs]), \
                 unittest.mock.patch.object(advised_, "CHILD", 1), unittest.mock.patch.object(advised_, "LEAST", 1):
-            said = go(240, subprocess.run, work="w6")
+            said = advised_.run(str(self.folder(self.BOTH)), "advice", "work", the_task(), self.ENDED, held,
+                                {advised_.KEY: "the key", "PATH": "/usr/bin"}, lambda: 240)
         self.assertEqual(said, [("astra", "token_not_revoked", "CR_1"), ("kimi", "token_not_revoked", None)])
         self.assertLess(time.monotonic() - began, 20)
-        # Every entry is one applied/1 holds.
-        self.assertEqual(shared.errors(dict({"schema": "applied/1", "run": RUN, "release": RELEASE, "effects": [], "findings": []}, advisory=advice.recorded(said)), "applied"), [])
 
     def test_an_advisory_result_is_asked_for_only_for_a_review_of_the_item_as_admitted(self):
         each = lambda code: ({"astra": code, "kimi": code}, [])
