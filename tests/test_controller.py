@@ -1962,7 +1962,8 @@ class Entry(unittest.TestCase):
 
     def test_no_served_issues_runs_are_asked_when_they_began(self):  # issue 836, decision 0231
         # With issues served, the entry still hands the records port the open pull requests alone: no issue rule reads
-        # when a Run began, so an issue's Runs spend none of the port's bound.
+        # when a Run began, so an issue's Runs spend none of the port's bound. The passes' records are read whole and
+        # name no tracking issue, so every issue listed is read (issue 901).
         real, handed, listed = entry.configuration, [], entry.records.runs
 
         def served(root, release):
@@ -1973,7 +1974,7 @@ class Entry(unittest.TestCase):
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
-        def issue_read(transport, repo, number, accounts, clock):
+        def issue_read(transport, repo, number, accounts, clock, *, identities):
             return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "An issue"
 
         def runs(*args, **kw):
@@ -1981,8 +1982,9 @@ class Entry(unittest.TestCase):
             return listed(*args, **kw)
         with unittest.mock.patch.object(entry, "configuration", served), \
                 unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
-                unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after: ([5, 6], True)), \
+                unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after, **k: ([5, 6], True)), \
                 unittest.mock.patch.object(entry.issues_, "read", issue_read), \
+                unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: {"written": [], "read": [], "at": {}, "whole": True}), \
                 unittest.mock.patch.object(entry.records, "runs", runs):
             code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
         self.assertEqual((code, handed), (0, [[{"repo": self.HOME, "type": "pull_request", "number": 7}]]))
