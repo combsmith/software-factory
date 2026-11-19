@@ -1566,7 +1566,8 @@ class RunStarts(unittest.TestCase):
         # no job asked. So the records port is asked the jobs of no issue's Run (decision 0196), and an issue's State and
         # Decision are the same with no `began_at`, a null one, one before the Run's start and one long after it. So
         # are the brakes' counts of an issue's Runs since a writer acted.
-        settings = (config(), config(intents=INTENTS))
+        # With each Intent named, and with none, as the committed configuration has them until the Maintainer turns them on.
+        settings = (config(), config(intents={name: None for name in INTENTS}))
         kept = [[], JUDGED, [investigated()], [investigated(), run(minute=6, name="r2")], [opening()], JUDGED + [opening()],
                 [failed(INVESTIGATE, 3, "i1")], [investigated(status="in_progress")],
                 # At the attempts brake and one short of it: the brakes count the Runs started since a writer acted.
