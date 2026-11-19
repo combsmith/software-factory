@@ -12,8 +12,9 @@ and written to the folder `OUT` for the pass job's next steps (#193's ruling 10 
    and 0196); the facts of each open pull request; the open issues updated since `issues.served_from`, none while it is
    null, and each one's own facts by `adapters/issues.py`, with the accounts and the dating the pull requests' have;
    and, for reconciliation, what each Factory identity wrote and what the Factory recorded (decision 0112). Not read
-   yet: an issue's Runs' jobs, which decision 0196 asks of the open pull requests' alone, and its linked pull requests,
-   `adapters/linked.py`'s, so the Kernel defers each issue on them; nor is any issue's write reconciled.
+   yet: an issue's Runs' jobs, which decision 0196 asks of the open pull requests' alone; nor is any issue's write
+   reconciled. Its linked pull requests are read, whole only where no pull request names it while their keyword
+   spans are not read (issue 734), so an issue a pull request names defers.
 4. It gives the pass what it read and the time after the reads, and writes `pass.json`, `writes.json`, the plan the
    effects step holds to it, and the view's three files under `view/`.
 
@@ -224,7 +225,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     for number in listed:
         through = Dated(transport)
         try:
-            facts, title = issues_.read(through, home, number, who, lambda: utc(clock))
+            facts, title = issues_.read(through, home, number, who, lambda: utc(clock), identities=identities)
             issues.append({"facts": facts, "title": title})
             facts_reads += dated(through.first)
         except Unanswered as err:
