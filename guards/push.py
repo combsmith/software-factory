@@ -35,7 +35,8 @@ What this rests on, and its stated limits:
   the right shape is not told from a true one.
 - An answer is what the transport read from GitHub, held as a request's body is to what JSON reads, each thing of
   its exact kind. A body built to share one part many times over is walked once for each time: JSON reads no such
-  value, and the caller hands over only bodies it built whole and answers it read. A blob's name is taken from its answer alone.
+  value, and the caller hands over only bodies it built whole and answers it read. A blob's name is taken from its
+  answer alone.
 - A request is allowed again for as long as its answer has not reached `seen`: the caller stops at an answer lost.
 - A branch rewound, or removed and made again at a commit `parent` stands on, between its read and its move takes
   the move, since it is a move forward and REST has no compare-and-swap.
