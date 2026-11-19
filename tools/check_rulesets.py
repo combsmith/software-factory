@@ -121,15 +121,22 @@ def _advisory(rulesets: dict, root: pathlib.Path) -> list:
     problems = []
     for title, ruleset in sorted(rulesets.items()):
         rules = ruleset.get("rules") if isinstance(ruleset, dict) else None
-        rules = rules if isinstance(rules, dict) else {}
-        checks = (rules.get("required_status_checks") or {}).get("required_status_checks") or []
-        tools = (rules.get("code_scanning") or {}).get("code_scanning_tools") or []
-        named = [item.get("context") for item in checks if isinstance(item, dict)]
-        named += [item.get("tool") for item in tools if isinstance(item, dict)]
+        status, scanning = (rules.get(kind) or {} for kind in ("required_status_checks", "code_scanning")) \
+            if isinstance(rules, dict) else (None, None)
+        checks = status.get("required_status_checks") or [] if isinstance(status, dict) else None
+        tools = scanning.get("code_scanning_tools") or [] if isinstance(scanning, dict) else None
+        if not isinstance(checks, list) or not isinstance(tools, list) \
+                or not all(isinstance(item, dict) and isinstance(item.get(name), str)
+                           for items, name in ((checks, "context"), (tools, "tool")) for item in items):
+            # A shape this check does not read is never read as naming nothing.
+            problems.append("config/rulesets.json: the %s ruleset cannot be read for the checks it names, so it cannot "
+                            "be shown to name no advisory Lens; make it match its schema" % title)
+            continue
+        named = [item["context"] for item in checks] + [item["tool"] for item in tools]
         for check in named:
             if isinstance(check, str) and check.strip().casefold() in barred:
-                problems.append("config/rulesets.json: the %s ruleset names %r, the advisory Lens %s's; its check is "
-                                "always neutral, which a ruleset counts as met, so it would hold nothing: take it out"
+                problems.append("config/rulesets.json: the %s ruleset names %r, the advisory Lens %s's; an advisory "
+                                "Lens gates nothing, and a check of its own is one a ruleset counts as met: take it out"
                                 % (title, check, barred[check.strip().casefold()]))
     for name in [form for lens in lenses for form in (lens.get("lens"), lens.get("check"))] + models:
         if isinstance(name, str) and name.strip().casefold() in barred:

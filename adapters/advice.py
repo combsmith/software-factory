@@ -32,8 +32,9 @@ FENCED = re.compile(r"```(?:json)?[ \t]*\n(.*)\n[ \t]*```", re.S)
 MODEL = re.compile(r"[a-z0-9][a-z0-9.-]{0,127}")
 # A path advice/1 holds: one word, with no control and nothing that turns the line it is shown on.
 PLACE = re.compile(r"[^\s\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]{1,1024}")
-# A run of digits no count, line or price needs. Python reads a number of any length, and slowly: it is not read.
-ENDLESS = re.compile(r"[0-9]{64}")
+DIGITS = 64             # a whole number of this many digits no count or line needs: Python reads one of any length
+COUNTED = 1000000000    # the most tokens advice/1 holds a count of; one Azure gives above it is not known
+MOST = 100              # the findings one answer may hold, as its schema says: more are not handed to the validator
 MILLION = 1000000
 # The name of the check run that shows an advisory Lens's Result. It is always neutral, and no ruleset may name it
 # (tools/check_rulesets.py), since a ruleset counts a neutral check as met.
@@ -41,7 +42,7 @@ CHECK = "advisory-%s"
 
 
 def _count(value):
-    return value if type(value) is int and value >= 0 else None
+    return value if type(value) is int and 0 <= value <= COUNTED else None
 
 
 def _usage(told: dict, model, tokens: tuple, asks: int, seconds) -> dict:
@@ -73,21 +74,30 @@ def unasked(told: dict, reason: str, asks: int, seconds, schemas: dict) -> dict:
     return _result(told, reason, [], [], 0, _usage(told, None, (None, None), asks, seconds), schemas)
 
 
+def _fault(body) -> str:
+    """The code of what Azure's own error says, where it says one this file knows: else None."""
+    error = body.get("error") if isinstance(body, dict) else None
+    code = error.get("code") if isinstance(error, dict) else None
+    return {"content_filter": "refused", "context_length_exceeded": "too_large",
+            "rate_limit_exceeded": "rate_limited"}.get(code if isinstance(code, str) else None)
+
+
 def _responses(body: dict) -> tuple:
     """`(reason, text)` of a response of the Responses API."""
-    state = body.get("status")
+    state, details = body.get("status"), body.get("incomplete_details")
     if state in ("queued", "in_progress"):
         return "timed_out", None
-    if state == "incomplete":
-        details = body.get("incomplete_details")
+    if state == "incomplete" or details is not None:
         filtered = isinstance(details, dict) and details.get("reason") == "content_filter"
         return ("refused" if filtered else "cut_short"), None
-    if state != "completed":
-        return "transport", None
+    if state != "completed" or body.get("error") is not None:
+        return _fault(body) or "transport", None
     output = body.get("output")
-    parts = [part for item in (output if isinstance(output, list) else [])
-             if isinstance(item, dict) and item.get("type") == "message" and isinstance(item.get("content"), list)
-             for part in item["content"]]
+    messages = [item for item in (output if isinstance(output, list) else [])
+                if isinstance(item, dict) and item.get("type") == "message" and isinstance(item.get("content"), list)]
+    if any(item.get("status") == "incomplete" for item in messages):
+        return "cut_short", None
+    parts = [part for item in messages for part in item["content"]]
     if any(isinstance(part, dict) and part.get("type") == "refusal" for part in parts):
         return "refused", None
     said = [part.get("text") for part in parts if isinstance(part, dict) and part.get("type") == "output_text"]
@@ -109,6 +119,12 @@ def _chat(body: dict) -> tuple:
     return None, message["content"]
 
 
+def _whole(digits: str) -> int:
+    if len(digits) >= DIGITS:
+        raise ValueError("a whole number of more digits than a count or a line has")
+    return int(digits)
+
+
 def _once(pairs: list) -> dict:
     if len({key for key, _ in pairs}) != len(pairs):
         raise ValueError("a key is given twice")
@@ -120,12 +136,12 @@ def _answered(text: str, schemas: dict):
     the last, and a second `findings` that is empty would make a read with findings a clean one."""
     text = text.strip()
     fenced = FENCED.fullmatch(text)
-    if ENDLESS.search(text):
-        return None
     try:
-        answer = json.loads(fenced.group(1) if fenced else text, object_pairs_hook=_once)
+        answer = json.loads(fenced.group(1) if fenced else text, object_pairs_hook=_once, parse_int=_whole)
     except (ValueError, RecursionError):
         return None
+    if not isinstance(answer, dict) or (isinstance(answer.get("findings"), list) and len(answer["findings"]) > MOST):
+        return None             # before the validator, which would write an error for each of a million
     return answer if isinstance(answer, dict) and not validate(answer, schemas["advice-answer"], schemas=schemas) else None
 
 
@@ -163,7 +179,7 @@ def read(told: dict, answer: dict, asks: int, seconds, schemas: dict) -> dict:
     model = body.get("model") if known else None
     spent = _usage(told, model, (_count(usage.get(names[0])), _count(usage.get(names[1]))), asks, seconds)
     if not known:
-        reason = "rate_limited" if status == 429 else "no_key" if status in (401, 403) else "transport"
+        reason = "rate_limited" if status == 429 else "no_key" if status in (401, 403) else _fault(body) or "transport"
         return _result(told, reason, [], [], 0, spent, schemas)
     reason, text = _responses(body) if told["api"] == "responses" else _chat(body)
     if reason is None and model != told["model"]:
