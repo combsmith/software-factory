@@ -12,6 +12,7 @@ import another module than the one it reads, it refuses that (issue 593).
 from __future__ import annotations
 
 import ast
+import os
 import pathlib
 import re
 
@@ -27,7 +28,8 @@ FORBIDDEN_NAMES = {"open", "print", "input", "exec", "eval", "__import__", "comp
                    "license", "copyright", "credits", "help", "exit", "quit"}
 # The statements that call a method of a value they are handed: `__enter__` and `__exit__`, `__await__`, the iterator
 # `yield from` drives, and `assert`, which raises (issue 909). A `for` over a value is not among them: what the Kernel
-# loops over is a fact, a list or a dictionary.
+# loops over is a fact, a list or a dictionary, and so is what it hands `next()` or `len()`: the line is drawn at the
+# statements, which a fact never needs.
 HANDLING = {ast.With: "enters what it is handed", ast.AsyncWith: "enters what it is handed",
             ast.Await: "awaits what it is handed", ast.YieldFrom: "drives what it is handed",
             ast.Assert: "raises"}
@@ -98,8 +100,8 @@ def _constant(node) -> bool:
     if isinstance(node, ast.Tuple):
         return all(_constant(e) for e in node.elts)
     return (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in CONSTANT_CALLS
-            and not any(isinstance(n, (ast.Call, ast.Lambda, ast.GeneratorExp, ast.ListComp, ast.SetComp, ast.DictComp,
-                                       ast.NamedExpr, ast.Await, ast.Yield, ast.YieldFrom))
+            and not any(isinstance(n, (ast.GeneratorExp, ast.ListComp, ast.SetComp, ast.DictComp, ast.NamedExpr))
+                        or (isinstance(n, ast.Call) and not _constant(n))
                         for argument in node.args + [k.value for k in node.keywords] for n in ast.walk(argument)))
 
 
@@ -642,9 +644,12 @@ def _alone(root: pathlib.Path, read: set, trees: dict, package: str) -> list:
     if (root / package).is_symlink():
         problems.append("%s is a link; what Python imports as %s is then kept somewhere else, which nothing protects"
                         % (package, package))
-    for git in sorted((root / package).rglob(".git")):
+    # Every entry named .git in any case, a link that points nowhere among them, as the walk's own lexists sees it.
+    gits = [os.path.join(folder, entry) for folder, folders, files in os.walk(root / package)
+            for entry in folders + files if entry.lower() == ".git"]
+    for git in sorted(gits):
         problems.append("%s holds a .git, and the walk skips its folder whole, so Python could import what is not read "
-                        "here" % git.relative_to(root).as_posix())
+                        "here" % pathlib.Path(git).relative_to(root).as_posix())
     held = [path.relative_to(root / package).as_posix() for path in walk.files(root, package)]
     for name in held:
         if name not in read and name.split("/")[-1] != "AGENTS.md":
@@ -755,6 +760,11 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
             if package == "kernel" and isinstance(node, ast.ImportFrom) and node.level > name.count("/") + 1:
                 problems.append("%s:%d imports %s, from above kernel/, which no rule here reads"
                                 % (name, line, "." * node.level + (node.module or "")))
+            for word in _bound(node) + ([alias.asname or alias.name.split(".")[0] for alias in node.names]
+                                         if isinstance(node, (ast.Import, ast.ImportFrom)) else []):
+                if word in CONSTANT_CALLS:
+                    problems.append("%s:%d binds %s, the builtin a constant is made by; a module's top would then keep "
+                                    "what that name returns" % (name, line, word))
             for kind, does in HANDLING.items():
                 if isinstance(node, kind):
                     problems.append("%s:%d %s, which calls a method of a value; the Kernel calls none"

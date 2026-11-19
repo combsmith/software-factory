@@ -2200,10 +2200,16 @@ class Purity(unittest.TestCase):
         self.assertTrue(caught(run({"kernel/x.py": box + "_KEPT = frozenset([next(_box())])\n"}), "x.py:5 holds a value that can change"))
         self.assertTrue(caught(run({"kernel/x.py": box + "def f(x, _k=frozenset([next(_box())])):\n    return x\n"}),
                                "x.py:5 has a default that can change"))
-        for kept in ("frozenset((x for x in ()))", "frozenset([y := 1])", "frozenset(iterable=[next(_box())])"):
+        for kept in ("frozenset((x for x in ()))", "frozenset([y := 1])", "frozenset(iterable=[next(_box())])",
+                     "frozenset([x for x in ()])", "frozenset({x for x in ()})", "frozenset({x: 1 for x in ()})",
+                     "frozenset([frozenset([next(_box())])])"):
             self.assertTrue(caught(run({"kernel/x.py": box + "_KEPT = %s\n" % kept}), "x.py:5 holds a value that can change"), kept)
         self.assertEqual(run({"kernel/terms.py": "A = 'a'\n", "kernel/x.py": "from kernel import terms\n\nB = 'b'\n"
-                              "HELD = frozenset({B, terms.A, ('c', 'd')})\nNONE = frozenset()\n"}), [])
+                              "HELD = frozenset({B, terms.A, ('c', 'd')})\nNONE = frozenset()\nNESTED = frozenset([frozenset()])\n"}), [])
+        # And frozenset is the builtin: a name the Kernel binds to it, by a function, an import or a parameter, is refused.
+        for text in ("def frozenset():\n    return []\n\n\nKEPT = frozenset()\n", "from kernel.terms import A as frozenset\n",
+                     "def f(frozenset):\n    return frozenset\n"):
+            self.assertTrue(caught(run({"kernel/terms.py": "A = 'a'\n", "kernel/x.py": text}), "binds frozenset"), text)
         # 2. A builtin site adds, each of which reads a file, asks the help system or ends the process, as a value.
         for word in ("license", "copyright", "credits", "help", "exit", "quit"):
             self.assertTrue(caught(run({"kernel/x.py": "def f():\n    return str(%s)\n" % word}), "x.py:2 uses %s" % word), word)
@@ -2214,6 +2220,13 @@ class Purity(unittest.TestCase):
         (hidden / "kernel" / "sub" / "__init__.py").write_text("import os\n\ndef now():\n    return os.times()\n")
         found = check_purity.run(hidden)
         self.assertTrue(caught(found, "kernel/sub/.git holds a .git") and caught(found, "x.py:1 imports kernel.sub, which no file read"))
+        # At any depth, in any case, and a link that points nowhere too.
+        deeper = planted({"kernel/x.py": ""})
+        (deeper / "kernel" / "a" / "b").mkdir(parents=True)
+        (deeper / "kernel" / "a" / "b" / ".GIT").mkdir()
+        os.symlink(deeper / "nowhere", deeper / "kernel" / "a" / ".git")
+        found = check_purity.run(deeper)
+        self.assertTrue(caught(found, "kernel/a/b/.GIT holds a .git") and caught(found, "kernel/a/.git holds a .git"), found)
         for line in ("import kernel.gone as g\n", "from kernel.gone import x\n", "from kernel.terms.deeper import x\n"):
             self.assertTrue(caught(run({"kernel/terms.py": "", "kernel/x.py": line}), "which no file read here is"), line)
         self.assertEqual(run({"kernel/terms.py": "A = 'a'\n", "kernel/sub/y.py": "B = 'b'\n", "kernel/x.py":
@@ -2226,6 +2239,9 @@ class Purity(unittest.TestCase):
         self.assertTrue(caught(run({"kernel/x.py": "from .. import tools\n"}), "x.py:1 imports .., from above kernel/"))
         self.assertTrue(caught(run({"kernel/sub/y.py": "from ... import tools\n"}), "y.py:1 imports ..., from above kernel/"))
         self.assertFalse(caught(run({"kernel/terms.py": "", "kernel/sub/y.py": "from .. import terms\n"}), "from above kernel/"))
+        # The guards refuse every relative import by their own rule, once: this one is the Kernel's.
+        self.assertFalse(caught(check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": "from .. import tools\n"})),
+                                "from above"))
         # 6. A statement that calls a method of a value it is handed.
         for body, does in (("    with facts as f:\n        return f\n", "enters what it is handed"),
                            ("    assert facts, facts\n    return facts\n", "raises"),
