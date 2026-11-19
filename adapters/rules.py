@@ -10,7 +10,11 @@ The list is `tools/hooks/protected.py`'s reading of that text, the same function
 that commit, the Kernel's `model_lens_inputs`, each once. A path that is only a deterministic Lens's input is not on it:
 it is pushed, and converges only once every model Lens has reviewed its head (decision 0020). A list that cannot be
 read, of any kind, or a commit that names no model Lens, whose review would hold such a path, is
-`push_list_unreadable`, the Factory's fault, never an empty list."""
+`push_list_unreadable`, the Factory's fault, never an empty list.
+
+`texts_at` reads, the same way and at the same kind of commit, the base's rules an advisory reader is sent (decision
+0224, "What it is asked"): the base's `AGENTS.md`, `kernel/AGENTS.md` and `config/rubric-pr-review.json`. A rule that
+cannot be read whole is left out, never guessed at, and none read is no fault of the Run's: the reader is told so."""
 from __future__ import annotations
 
 import base64
@@ -25,6 +29,9 @@ DEFAULTS = "config/defaults.json"
 REPO = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9_.-]{1,100}")
 SHA = re.compile(r"[0-9a-f]{40}")
 UNREADABLE = "push_list_unreadable"
+# The base's rules an advisory reader is sent, and the most bytes of one that are read (decision 0224).
+RULES = ("AGENTS.md", "kernel/AGENTS.md", "config/rubric-pr-review.json")
+LONGEST = 200000
 
 
 def _file_at(transport, repo: str, path: str, sha: str):
@@ -70,3 +77,13 @@ def listed_at(transport, repo: str, sha: str) -> tuple:
     if not isinstance(models, list) or not models or not all(isinstance(m, str) and m for m in models):
         return None, UNREADABLE
     return protected.push_of(held, models), None
+
+
+def texts_at(transport, repo: str, sha: str) -> dict:
+    """`{path: text}`: each of RULES as commit `sha` of `repo` holds it, read whole as one file of UTF-8 of at most
+    LONGEST bytes; one that is not is left out, and a repo or commit in another form gives none."""
+    if not isinstance(repo, str) or not REPO.fullmatch(repo) or repo.split("/")[1] in (".", "..") \
+            or not isinstance(sha, str) or not SHA.fullmatch(sha):
+        return {}
+    read = {path: _file_at(transport, repo, path, sha) for path in RULES}
+    return {path: text for path, text in read.items() if text is not None and len(text.encode("utf-8")) <= LONGEST}

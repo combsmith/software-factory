@@ -6293,6 +6293,29 @@ class Rules(unittest.TestCase):
         patterns, _ = self.read(self.answer(), self.defaults(json.dumps(said).encode()))
         self.assertIn("kernel/", patterns)
 
+    def test_the_bases_rules_a_reader_is_sent_are_each_read_whole_or_left_out(self):  # decision 0224
+        rubric = self.ROOT / "config" / "rubric-pr-review.json"
+        whole = [self.answer(b"# The rules\n", "AGENTS.md"), self.answer(b"# The Kernel\n", "kernel/AGENTS.md"),
+                 self.answer(rubric.read_bytes(), "config/rubric-pr-review.json")]
+        self.assertEqual(rules.RULES, ("AGENTS.md", "kernel/AGENTS.md", "config/rubric-pr-review.json"))
+        self.assertEqual(rules.texts_at(github.Replay(list(whole)), "o/r", self.SHA),
+                         {"AGENTS.md": "# The rules\n", "kernel/AGENTS.md": "# The Kernel\n",
+                          "config/rubric-pr-review.json": rubric.read_text()})
+        # One not there, not whole, no UTF-8 or longer than the bound is left out; the others are kept.
+        gone = copy.deepcopy(whole[1])
+        gone["response"].update(status=404, body={"message": "Not Found"})
+        for second in (gone, self.answer(b"# The Kernel\n", "kernel/AGENTS.md", size=3),
+                       self.answer(b"\xff\xfe", "kernel/AGENTS.md"),
+                       self.answer(b"x" * (rules.LONGEST + 1), "kernel/AGENTS.md")):
+            got = rules.texts_at(github.Replay([whole[0], second, whole[2]]), "o/r", self.SHA)
+            self.assertEqual(sorted(got), ["AGENTS.md", "config/rubric-pr-review.json"])
+        at_bound = self.answer(b"x" * rules.LONGEST, "kernel/AGENTS.md")
+        self.assertIn("kernel/AGENTS.md", rules.texts_at(github.Replay([whole[0], at_bound, whole[2]]), "o/r", self.SHA))
+        # None answered is none read, never a fault; a repo or commit in another form asks nothing.
+        self.assertEqual(rules.texts_at(github.Replay([]), "o/r", self.SHA), {})
+        for repo, sha in (("o/..", self.SHA), ("o", self.SHA), ("o/r", "b" * 39), ("o/r", None), (None, self.SHA)):
+            self.assertEqual(rules.texts_at(github.Replay(list(whole)), repo, sha), {}, (repo, sha))
+
     def test_a_commit_that_names_no_model_lens_is_unreadable(self):
         unreadable = (None, "push_list_unreadable")
         said = json.loads((self.ROOT / "config" / "defaults.json").read_text())

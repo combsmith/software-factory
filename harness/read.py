@@ -27,6 +27,9 @@ gate. Each is the Task's text `finding:` and the Finding's id, and the ids are t
 rules on each (issue 856). One whose words are not the Lens's own, an edited comment among them, is listed and given
 no text: `run` then asks nothing and ends as the item's own, `findings_not_shown`, and the thread gates on. A read
 GitHub did not answer stops the step, `finding_texts_unreadable`.
+For a review, the base's rules an advisory reader is sent are read at the commit the change is compared against and
+written to `rules.json`, `{path: text}`, each one read whole and none that is not (`adapters/rules.py`, decision 0224); for
+any other Intent it is empty, and a rule that cannot be read stops nothing.
 Not read yet, by the stories that hold them: any other thread's text; the Finding records a Decision names
 (`harness/apply.py` writes them, and `adapters/applied.py` reads them for the threads alone); an issue's Run, whose
 reads are the issue Lifecycle's."""
@@ -40,7 +43,7 @@ import shutil
 import sys
 import time
 
-from adapters import applied, facts as facts_, identity, passes, pull, records, tags, texts, timeline
+from adapters import applied, facts as facts_, identity, passes, pull, records, rules as rules_, tags, texts, timeline
 from adapters.github import Live, Unanswered
 from controller import configuration
 from harness import apply, approve, head as head_, shared, steps, task
@@ -51,7 +54,8 @@ from release import current, cut
 APP = "reader"
 KEY = "READER_APP_KEY"
 ITEM = re.compile(r"([A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100})#([1-9][0-9]{0,8})")
-FILES = ("record.json", "run", "facts.json", "diff", "texts.json", "role.json", "findings.json")
+FILES = ("record.json", "run", "facts.json", "diff", "texts.json", "role.json", "findings.json", "rules.json")
+REVIEWING = "review-change"     # the Intent whose Run an advisory reader reads for (decision 0224)
 
 
 @contextlib.contextmanager
@@ -165,10 +169,13 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
     if str(first["head"]["sha"]) != head:
         raise Stop("head_moved")
     with reading("change"):
-        change = pull.change(transport, first, pull.base(transport, first)["head"])
+        based = pull.base(transport, first)["head"]
+        change = pull.change(transport, first, based)
     if "sha256:" + hashlib.sha256(change).hexdigest() != admit["content_id"]:
         raise Stop("content_moved")
     role = steps.read_json(steps.ROOT, os.path.join("roles", "%s.json" % admit["role"]))
+    # The base's rules an advisory reader is sent, at the commit the change was compared against, for a review alone.
+    rules = rules_.texts_at(transport, home, based) if admit["intent"] == REVIEWING else {}
     # The head's tree at the commit the diff was read at, for the review to read (decision 0138), and the commit's tree as
     # git holds it, which the archive is held to: one export-ignore or export-subst shaped is not the commit (0142).
     try:
@@ -200,7 +207,7 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
                 raise Unanswered("a thread's text was not answered as one text")
             raised.append(dict(said[0], id=shared.FINDING_TEXT + fid))
     return {"record.json": record, "run": (parts["run"] + "\n").encode(), "facts.json": facts, "diff": change,
-            "texts.json": raised + issues, "role.json": role, "findings.json": [fid for fid, _ in shown],
+            "texts.json": raised + issues, "role.json": role, "findings.json": [fid for fid, _ in shown], "rules.json": rules,
             "head": (head, tarred, tree)}
 
 

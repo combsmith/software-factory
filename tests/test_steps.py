@@ -196,7 +196,7 @@ class Reader(unittest.TestCase):
     """The reader's step, its ports stood in for: what it reads, what it holds them to, and its token."""
 
     def go(self, record=RECORD, head=HEAD, first=HEAD, change=DIFF, revoked=True, argv=None, environ=None, complete=True,
-           refs=TAGS, commit=CHECKED_OUT, tarred=None, tree=None, raising=None, threads=(), said=None):
+           refs=TAGS, commit=CHECKED_OUT, tarred=None, tree=None, raising=None, threads=(), said=None, rules=None):
         """`commit` is what `steps.commit()` gives, or a function that stands in for it; `tarred` what the head's
         tarball read gives for a commit, or raises; `tree` what the read of the commit's tree gives, or raises: by default
         the tree of the one file `support.tarball` holds. `raising`, where given, is `(module, name, error)`: that read
@@ -250,6 +250,10 @@ class Reader(unittest.TestCase):
         def read_opened(transport, repo, runs, role):
             calls["opened_role"].append(role)
             return made
+
+        def rules_at(transport, repo, sha):
+            calls.setdefault("rules", []).append((transport, repo, sha))
+            return {"AGENTS.md": "# The rules"} if rules is None else rules
         with tempfile.TemporaryDirectory() as d, \
                 unittest.mock.patch.object(identity, "from_key", from_key), \
                 unittest.mock.patch.object(passes, "find", lambda *a: copy.deepcopy(record)), \
@@ -267,6 +271,7 @@ class Reader(unittest.TestCase):
                 unittest.mock.patch.object(read.pull, "change", lambda *a: change), \
                 unittest.mock.patch.object(read.texts, "issues", read_issues), \
                 unittest.mock.patch.object(read.texts, "findings", read_findings), \
+                unittest.mock.patch.object(read.rules_, "texts_at", rules_at), \
                 unittest.mock.patch.object(read.head_, "fetch", fetched), \
                 unittest.mock.patch.object(read.head_, "tree", tree_read), \
                 contextlib.ExitStack() as more:
@@ -298,6 +303,15 @@ class Reader(unittest.TestCase):
         # The issues the change serves are read of the pull request read, by what the snapshot was told of its opener.
         self.assertEqual(calls["issues"], (True, (12, "Bot"), True))
         self.assertEqual(json.loads(kept["role.json"])["name"], "pr-review")
+        # The base's rules an advisory reader is sent, read at the commit the change was compared against (decision 0224).
+        self.assertEqual((calls["rules"], json.loads(kept["rules.json"])),
+                         ([("the reader's transport", HOME, "b" * 40)], {"AGENTS.md": "# The rules"}))
+        # For another Intent none is read, and the file says so; a rule that could not be read is left out, and stops nothing.
+        with unittest.mock.patch.object(read, "REVIEWING", "another-intent"):
+            code, _, _, kept, calls = self.go()
+        self.assertEqual((code, json.loads(kept["rules.json"]), "rules" in calls), (0, {}, False))
+        code, _, _, kept, _ = self.go(rules={})
+        self.assertEqual((code, json.loads(kept["rules.json"])), (0, {}))
         # The threads are held to what the item's Lenses recorded, read from the run records (issue 338).
         self.assertEqual(calls["recorded"], [({}, True, [])])
         # What the opening Runs recorded is read for the configured Role and handed to the snapshot (issue 342).
