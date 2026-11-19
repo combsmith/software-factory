@@ -6078,7 +6078,8 @@ class Trials(unittest.TestCase):
                                "exchanges[1].request.call follows no artifact download's redirect"))
         self.assertTrue(caught(found(lambda e: e[0]["request"].update(call=e[0]["request"]["call"].replace("/artifacts/14482759842/", "/artifacts/0/"))),
                                "exchanges[1].request.call follows no artifact download's redirect"))
-        self.assertTrue(caught(found(lambda e: e[1]["response"].update(status=302)), "exchanges[1].request.call is answered with a redirect"))
+        for status in (302, "302", "success", True):
+            self.assertTrue(caught(found(lambda e: e[1]["response"].update(status=status)), "exchanges[1].request.call is answered with a redirect"), status)
         self.assertTrue(caught(found(lambda e: e[1]["request"].update(via="cli", call="curl -s '%s'" % address)),
                                "exchanges[1].request.call reads the artifact storage other than as a read `via: storage`"))
         # The header is read in any case, as HTTP does; and a storage read later in the fixture is held the same way.

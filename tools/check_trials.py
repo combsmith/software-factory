@@ -741,8 +741,9 @@ def _stored(data: dict) -> list:
         locations = [value for key, value in headers.items() if str(key).lower() == "location"]
         location = locations[0] if len(locations) == 1 else None
         stored = exchange.get("response") if isinstance(exchange.get("response"), dict) else {}
-        if isinstance(stored.get("status"), int) and 300 <= stored["status"] < 400:
-            out.append((where, "is answered with a redirect, which the port's replay does not follow a second time"))
+        if type(stored.get("status")) is not int or 300 <= stored["status"] < 400:
+            out.append((where, "is answered with a redirect, or with no HTTP status, which the port's replay does not "
+                               "follow; a read of the storage is answered with a status that is a number"))
         # By REST alone: the port's replay follows a download recorded so, and no other (cubic's read).
         if not (asked.get("via") == "rest" and DOWNLOAD.match(str(asked.get("call", "")))
                 and answer.get("status") == 302
