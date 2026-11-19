@@ -183,11 +183,11 @@ def reader(transport, config: dict) -> tuple:
     held = [a for a in controller["accounts"]["lenses"] + [controller["accounts"]["queue"]] if a]
     # Each is told too by the name config/apps.json gives its code, the queue's and each Lens's, though the login held
     # for it is another: the App the issues name could be it renamed.
-    configured = lambda code: config["apps"][code]["name"] + BOT_SUFFIX \
+    app_name = lambda code: config["apps"][code]["name"] + BOT_SUFFIX \
         if isinstance(config["apps"].get(code), dict) and config["apps"][code].get("name") else None
     taken = {a["login"] for a in held} | {names.get((a["id"], "Bot")) for a in held} \
-        | {configured(a["lens"]) for a in controller["accounts"]["lenses"]} \
-        | {configured("queue") if controller["accounts"]["queue"] else None}
+        | {app_name(a["lens"]) for a in controller["accounts"]["lenses"]} \
+        | {app_name("queue") if controller["accounts"]["queue"] else None}
     refused = bool(taken & set(reserved))
     reserved = [name for name in reserved if name not in taken]
     return identities, timeline.Accounts(transport, controller["home"]["repo"], approver, lenses, factory, queue,
