@@ -7,8 +7,8 @@ TASK is the folder `python3 -m harness.read` wrote; OUT the folder `python3 -m h
 makes. For a review of a change that is no dependency's, the step asks each reader `config/harness.json` configures, in
 the order `advisory` names them, once, and once more only after the wait a rate limit names. It reads the diff and the
 Run's own files and nothing from GitHub, and it holds one secret, the Azure key, under `ADVISORY_AZURE_KEY`. It writes
-`advice.<lens>.json`, an `advice/1`, and its digest beside it, for every reader configured: `completed`, `incomplete`
-or `failed`.
+`advice.<lens>.json`, an `advice/1`, and its digest beside it, for every reader that can be asked: `completed`,
+`incomplete` or `failed`. A reader whose name or settings build no `advice/1` is not asked, and has none.
 
 `advice-cost.json`, an `advice-cost/1`, is all the Controller reads of the Run, and it is true whenever the step is
 stopped (the Factory Builder, 2026-11-19). `harness.unasked` wrote it with no asks. Before its first request this step
@@ -180,12 +180,16 @@ def cost_of(run: str, release: str, spent: list) -> dict:
             "cost_usd": round(sum(usage["cost_usd"] for usage in asked_), 6) if known else None}
 
 
+HELD = (unasked.COST, unasked.COST + ".new")     # what OUT may hold when the step takes it: the cost, whole or half-written
+
+
 def folder_of(base, out: str) -> str:
-    """OUT: the folder `harness.unasked` made, or one made new; Stop `out_exists` for a link or a file."""
+    """OUT: the folder `harness.unasked` made, or one made new; Stop `out_exists` for a link, a file, or a folder that
+    holds anything but what that step left, a Result planted there or the task's own files among them."""
     real, path = steps.inside(base, out), os.path.join(os.path.realpath(str(base)), out)
     if not os.path.lexists(path):
         return steps.new_folder(base, out)
-    if os.path.islink(path) or not os.path.isdir(path):
+    if os.path.islink(path) or not os.path.isdir(path) or set(os.listdir(real)) - set(HELD):
         raise steps.Stop("out_exists")
     return real
 
@@ -249,6 +253,7 @@ def job(task_folder: str, out: str, env: dict, root: pathlib.Path = ROOT, base=N
                         "deployment": reader["deployment"], "model": reader["model"],
                         "effort": effort_of(reader, paths), "characters": config["texts"]["characters"],
                         "usd_per_million": reader["usd_per_million"]}
+                advice.unasked(told, "transport", 0, 0, shared.SCHEMAS)     # no advice/1 can be built: it is not asked
                 share = clock() + (until - clock()) / (len(names) - n)      # what is left, shared by those still to ask
                 result = one(reader, told, prompt, admitted, key, share, sent, transport, clock, sleep)
             except Exception:       # NOSONAR whatever one reader's read raises is that reader's Result, and no other's
