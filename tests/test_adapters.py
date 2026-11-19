@@ -1881,9 +1881,23 @@ class Artifacts(unittest.TestCase):
                        outcome_zip(good, member="advice.astra.json"), outcome_zip(good, member=artifacts.MEMBER),
                        outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER, more=("advice.astra.json",))):
             self.assertEqual(read(record), (None, False), str(record)[:60])
-        for listed in ({"size_in_bytes": artifacts.ZIPPED + 1}, {"digest": "sha256:" + "0" * 64}, {"name": artifacts.NAME},
-                       {"name": "advice-astra"}):
+        for listed in ({"digest": "sha256:" + "0" * 64}, {"name": artifacts.NAME}, {"name": "advice-astra"}):
             self.assertEqual(read(good, **listed), (None, False), listed)
+        # The bounds are an outcome's own, and held: a file that is a cost and is over them is none, and a zip listed
+        # over them is not downloaded at all, which the replay would refuse as a request it does not hold.
+        padded = json.dumps(good) + " " * artifacts.HELD
+        self.assertEqual(read(json.dumps(good) + " " * 100), ({"asks": 2, "cost_usd": 1.42}, True))
+        self.assertEqual(read(padded), (None, False))
+        over = kept(outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER), size_in_bytes=artifacts.ZIPPED + 1)[:1]
+        self.assertEqual(artifacts.advice_cost(github.Replay(over), "o/r", 7, self.RUN), (None, False))
+        # What the list answered is handed to the caller, which stamps the read; a list not answered is raised, as an
+        # outcome's is, for the caller to catch.
+        answered = []
+        artifacts.advice_cost(github.Replay(kept(outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER))), "o/r", 7, self.RUN,
+                              answered.append)
+        self.assertEqual([a["status"] for a in answered], [200])
+        with self.assertRaises(github.Unanswered):
+            artifacts.advice_cost(github.Replay([]), "o/r", 7, self.RUN)
 
     def test_an_outcome_that_cannot_be_read_whole_is_not_whole(self):
         good = outcome_of(self.RUN, "item")
