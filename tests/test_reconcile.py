@@ -302,6 +302,7 @@ class Hand(unittest.TestCase):
         later = dict(passed([], now=NOW), reconciled=held)
         found = check(seen(HAND), before=[later])
         self.assertEqual((found["unmatched"], found["unjudged"], found["short"], reconcile.alerts(found)), ([], [], False, []))
+        self.assertEqual(kinds(check(seen(dict(HAND, key="PRRT_u")), before=[later])), [("hand", "resolution")])  # its own
         again = reconcile.carried([later], effects, seen(HAND), "2026-10-11T13:20:00Z")
         self.assertEqual(again["hands"], [{"key": "PRRT_t", "at": "2026-10-11T13:20:00Z"}])
         # A pass that did not see it, its pull request unread, carries it on as it was, until the window passes it.

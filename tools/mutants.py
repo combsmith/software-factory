@@ -1909,6 +1909,8 @@ MUTANTS = ISSUE + [
     ("a carried hand's resolution outlasts the window", 'controller/reconcile.py',
      'carried_ = {e["key"] for e in held or () if _within(e["at"], seen["since"])}',
      'carried_ = {e["key"] for e in held or ()}', ('tests.test_reconcile.Hand.test_a_hands_resolution_once_matched_is_carried_while_it_is_seen',)),
+    ("a carried thread lets another through", 'controller/reconcile.py',
+     'if w["key"] in carried_ or', 'if carried_ or', ('tests.test_reconcile.Hand.test_a_hands_resolution_once_matched_is_carried_while_it_is_seen',)),
     ("a hand's resolution no record can judge is silent", 'controller/reconcile.py',
      '    short = short or bool(unjudged)\n',
      '', ('tests.test_reconcile.Hand.test_a_hands_resolution_no_record_can_judge_is_short_once_carried_and_named',)),
