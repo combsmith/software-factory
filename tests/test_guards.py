@@ -1167,6 +1167,9 @@ class Push(unittest.TestCase):
     def test_the_admitted_tree_is_read_whole_or_not_at_all(self):
         state, (method, rest, body, said) = before("commit")
         self.assertEqual(then(state, method, rest, body, said)["tree"], ROOT_TREE)
+        # The answer is the status and the body, and nothing more or less.
+        for wrong in (dict(said, headers={}), said["body"], {"body": said["body"]}, None):
+            self.assertIsNone(then(state, method, rest, body, wrong), wrong)
         for body_said in (None, [], {"sha": MADE, "tree": {"sha": ROOT_TREE}}, {"tree": {"sha": ROOT_TREE}},
                           {"sha": PARENT}, {"sha": PARENT, "tree": ROOT_TREE}, {"sha": PARENT, "tree": {"sha": "main"}},
                           {"sha": PARENT, "tree": {"sha": None}}, {"sha": PARENT, "tree": {}}):
@@ -1355,6 +1358,11 @@ class Push(unittest.TestCase):
         self.assertTrue(may(state, method, rest))
         self.assertFalse(state["checked"])
         self.assertTrue(then(state, method, rest, body, said)["checked"])
+        # The tree made, read whole, and no other: not the admitted one again, nor one in part or with more asked.
+        for other in ("trees/" + ROOT_TREE + "?recursive=1", "trees/" + PARENT + "?recursive=1", "trees/" + MADE_TREE,
+                      "trees/" + MADE_TREE + "?recursive=1&x=1", "trees/" + NEW_A + "?recursive=1"):
+            if other != "trees/" + ROOT_TREE + "?recursive=1":
+                self.assertFalse(may(state, "GET", other), other)
         without = lambda path: {p: held for p, held in AFTER.items() if p != path}
         for why, held in (
                 ("the admitted tree", BEFORE), ("a file the push removed still there", dict(AFTER, **{"tests/t.py": BEFORE["tests/t.py"]})),
