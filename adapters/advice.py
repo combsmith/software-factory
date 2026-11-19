@@ -39,32 +39,40 @@ MILLION = 1000000
 # The name of the check run that shows an advisory Lens's Result. It is always neutral, and no ruleset may name it
 # (tools/check_rulesets.py), since a ruleset counts a neutral check as met.
 CHECK = "advisory-%s"
+# The reasons a chat completion's one choice may say it ended for: any other has not ended.
+ENDINGS = ("stop", "length", "content_filter", "tool_calls", "function_call")
 
 
 def _count(value):
     return value if type(value) is int and 0 <= value <= COUNTED else None
 
 
-def _counts(usage: dict, names: tuple, said: bool) -> tuple:
+def _counts(usage: dict, names: tuple, silent: bool) -> tuple:
     """`(asked, answered)`, the tokens of a read that ended, each a whole count or None. A count that contradicts
-    itself is not known, so that the cost is not: a prompt of no tokens, an answer with words and no tokens, a total
-    above the two, or reasoning above the output it is part of."""
+    itself is not known, neither of its two, so that the cost is not and is never lower than what was billed: a prompt
+    of no tokens, an answer of no tokens from any read but one a content filter ended with no words, a total above the
+    two, or reasoning above the output it is part of. A total below the two is priced at their sum, the higher figure,
+    which errs toward the ceiling."""
     asked, answered = _count(usage.get(names[0])), _count(usage.get(names[1]))
     total, details = usage.get("total_tokens"), usage.get(names[1] + "_details")
     thought = details.get("reasoning_tokens") if isinstance(details, dict) else None
     if asked is not None and answered is not None and (
-            asked == 0 or (said and answered == 0) or (type(total) is int and total > asked + answered)
+            asked == 0 or (answered == 0 and not silent) or (type(total) is int and total > asked + answered)
             or (type(thought) is int and thought > answered)):
-        return asked, None
+        return None, None
     return asked, answered
 
 
 def _usage(told: dict, model, tokens: tuple, asks: int, seconds) -> dict:
     asked, answered = tokens
     cost = None
-    if asked is not None and answered is not None:
+    # Only the pinned model's answer is priced: another's is not the model's, and its prices are not the pinned one's.
+    # A cost is counted in millionths of a dollar and rounded up to a whole one, never down to nought, once the float's
+    # own noise below it is gone.
+    if asked is not None and answered is not None and model == told["model"]:
         price = told["usd_per_million"]
-        cost = round((asked * price["input"] + answered * price["output"]) / MILLION, 6)
+        millionths = round(asked * price["input"] + answered * price["output"], 6)
+        cost = -(-millionths // 1) / MILLION
     return {"api": told["api"], "deployment": told["deployment"], "model": told["model"],
             "answering_model": model if type(model) is str and MODEL.fullmatch(model) else None,
             "effort": told["effort"], "asks": asks, "input_tokens": asked, "output_tokens": answered,
@@ -136,10 +144,27 @@ def _chat(body: dict) -> tuple:
 
 
 def _finished(body: dict) -> bool:
-    """Whether a chat completion holds its one choice, ended for a reason it names: one that does not has not answered."""
+    """Whether a chat completion holds its one choice, ended for a reason the API names: one that does not has not
+    answered."""
     choices = body.get("choices")
     return isinstance(choices, list) and len(choices) == 1 and isinstance(choices[0], dict) \
-        and type(choices[0].get("finish_reason")) is str
+        and type(choices[0].get("finish_reason")) is str and choices[0]["finish_reason"] in ENDINGS
+
+
+def _silent(body: dict, api: str) -> bool:
+    """Whether a read that ended was ended by a content filter and holds no words anywhere: the one read that may have
+    answered no tokens. An empty text is no words."""
+    if api == "responses":
+        details, output = body.get("incomplete_details"), body.get("output")
+        filtered = body.get("status") == "incomplete" and isinstance(details, dict) \
+            and details.get("reason") == "content_filter"
+        parts = [part for item in (output if isinstance(output, list) else [])
+                 if isinstance(item, dict) and isinstance(item.get("content"), list) for part in item["content"]]
+        return filtered and not any(isinstance(part, dict) and (part.get("text") or part.get("refusal")) for part in parts)
+    choice = body["choices"][0]
+    message = choice.get("message")
+    return choice.get("finish_reason") == "content_filter" \
+        and not (isinstance(message, dict) and (message.get("content") or message.get("refusal")))
 
 
 def _whole(digits: str) -> int:
@@ -206,7 +231,7 @@ def read(told: dict, answer: dict, asks: int, seconds, schemas: dict) -> dict:
     names = ("input_tokens", "output_tokens") if told["api"] == "responses" else ("prompt_tokens", "completion_tokens")
     model = body.get("model") if ended else None      # one that has not answered names no model that did
     reason, text = (None, None) if not known else _responses(body) if told["api"] == "responses" else _chat(body)
-    spent = _usage(told, model, _counts(usage, names, text is not None), asks, seconds)
+    spent = _usage(told, model, _counts(usage, names, ended and _silent(body, told["api"])), asks, seconds)
     if not known:
         reason = "rate_limited" if status == 429 else "no_key" if status in (401, 403) else _fault(body) or "transport"
         return _result(told, reason, [], [], 0, spent, schemas)
