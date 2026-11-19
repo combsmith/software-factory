@@ -1,9 +1,10 @@
 """The `apply` job's step: one Result written, or refused, through the Role App's own token (#196's ruling 7; decision
 0054). `harness/apply.py` decides; this step reads and writes for it.
 
-    python3 -m harness.apply_step NAME ITEM PASS RESULT OUT
+    python3 -m harness.apply_step NAME ITEM PASS RESULT OUT [ADVICE]
 
-NAME, ITEM and PASS are the Run's three inputs, RESULT the folder its Result was downloaded into, OUT a new folder. The
+NAME, ITEM and PASS are the Run's three inputs, RESULT the folder its Result was downloaded into, OUT a new folder, and
+ADVICE the folder the advisory Lenses' Results were downloaded into, if any was. The
 job runs whether `run` and `verify` succeeded or not, so that a Run always leaves its outcome; `NEEDS` is their
 results as the workflow gives them, and unless both succeeded nothing is read with a key, nothing is minted and nothing
 is written, and the Run ends `environment`, `run_failed` or `verify_failed`. Otherwise, with the pr-review App's key,
@@ -11,7 +12,11 @@ is written, and the Run ends `environment`, `run_failed` or `verify_failed`. Oth
 to the Decision of the Run the run-name names and to the digest `run` reported, `RUN_DIGEST`, and hands `apply` the
 item read again through that token (`harness/reread.py`), with its diff read again at the head the facts were read at,
 and a mint of the write token its Effects need. Both tokens are
-revoked before the step ends. OUT holds `applied.json` and `outcome.json`, which the job's last step uploads."""
+revoked before the step ends. OUT holds `applied.json` and `outcome.json`, which the job's last step uploads.
+
+Last, and beside all of that, a review's Run shows each advisory Lens's Result as a check run that is always `neutral`
+(`advised`, decision 0224). It changes nothing of the above and never fails the step: what it did for each Lens is a
+code on the step's one line."""
 from __future__ import annotations
 
 import json
@@ -19,7 +24,7 @@ import os
 import sys
 import time
 
-from adapters import effects, identity, passes, pull
+from adapters import advice, effects, identity, passes, pull
 from adapters.facts import Moved
 from adapters.github import Live, Unanswered
 from controller import configuration
@@ -28,6 +33,7 @@ from harness.steps import Stop
 
 APP = "pr-review"
 KEY = "PR_REVIEW_APP_KEY"
+REVIEWING = "review-change"     # the Intent whose Run the advisory Lenses read for (decision 0224)
 
 
 def _ended(run: str, release: str, why: tuple) -> tuple:
@@ -88,9 +94,64 @@ def engine_started(needs):
     return None
 
 
-def written(argv: list, environ: dict, base, clock, connect) -> tuple:
-    """`(applied/1, outcome/1)` of the Run."""
-    name, item, pass_id, found, _ = argv
+def advised(base, folder, admit, done: tuple, held: dict, mint, config: dict) -> list:
+    """`(lens, code)` for each advisory Lens the Factory asks: `shown` where its Result is now a check run on the
+    admitted commit, else why it is not (decision 0224, "What is shown"). Nothing is shown but for a review's Run whose
+    item `apply` read again and found as admitted: open, on the admitted content, and no change under the Run. Each
+    Result is read from `folder` with the digest beside it and held to its schema and its Run (`adapters/advice.py`'s
+    `held`); one that fails is not shown at all. The check run is the Role App's, named for the Lens, concluding
+    `neutral` whatever the Result says, through a token of the check run's need alone and an allowlist that lets no
+    other conclusion out."""
+    if admit is None or admit["intent"] != REVIEWING:
+        return []
+    asks = steps.read_json(steps.ROOT, os.path.join("config", "harness.json"))
+    names = [lens for lens in asks["advisory"] if lens in asks.get("readers", {})]
+    facts, head = held["item"][:2] if "item" in held else (None, None)
+    if facts is None:
+        return [(lens, "item_not_read") for lens in names]
+    if done[1]["outcome"] == "superseded" or facts["state"] != "open" or facts["content_id"] != admit["content_id"]:
+        return [(lens, "superseded") for lens in names]
+    said, asked = {}, []
+    for lens in names:
+        data = digest = None
+        try:
+            with open(steps.inside(base, os.path.join(folder, "advice.%s.json" % lens)), "rb") as f:
+                data = f.read(advice.LARGEST + 1)
+            with open(steps.inside(base, os.path.join(folder, "advice.%s.sha256" % lens)), "rb") as f:
+                digest = f.read(128)
+        except (OSError, Stop, TypeError):
+            pass
+        result, said[lens] = advice.held(data, digest, lens, names, admit, shared.SCHEMAS)
+        if result is not None:
+            output, ids = advice.shown(result)
+            asked.append((lens, {"commit": head, "name": advice.CHECK % lens, "conclusion": "neutral",
+                                 "external_id": "%s:%s" % (admit["run"], lens), "output": output,
+                                 "annotations": [{"finding": ident} for ident in ids]}))
+    if asked:
+        try:
+            transport, revoke = mint(identity.permissions(config["app"], config["needs"], ["create_check_run"]))
+        except identity.Refused as err:
+            return [(lens, str(err) if any(lens == a for a, _ in asked) else said[lens]) for lens in names]
+        try:
+            allowed = effects.Allowed(transport, *effects.advisory_permits(admit["item"], head,
+                                                                           [advice.CHECK % lens for lens in names]))
+            for lens, req in asked:
+                try:
+                    back = effects.role_write(allowed, admit["item"], "create_check_run", req,
+                                              config["app"]["name"] + "[bot]")
+                except (Unanswered, OSError, ValueError, KeyError, TypeError):
+                    back = {"reason": "write_raised"}
+                said[lens] = "shown" if back.get("state") in ("applied", "already_applied") \
+                    else back.get("reason") or "not_read_back"
+        finally:
+            if revoke() is not True:
+                said.update({lens: "token_not_revoked" for lens, _ in asked})
+    return [(lens, said[lens]) for lens in names]
+
+
+def written(argv: list, environ: dict, base, clock, connect, said=None) -> tuple:
+    """`(applied/1, outcome/1)` of the Run. `said`, a list, is given what `advised` did, a code for each Lens."""
+    name, item, pass_id, found = argv[:4]
     release = steps.release()
     config = configuration.load(steps.ROOT, release, APP)
     home = config["controller"]["home"]["repo"]
@@ -178,6 +239,11 @@ def written(argv: list, environ: dict, base, clock, connect) -> tuple:
                 done = _ended(parts["run"], release, ("environment", shared.unread(err)))
     finally:
         revoked = revoke()
+    if said is not None:
+        try:
+            said.extend(advised(base, argv[5] if len(argv) > 5 else None, admit, done, held, mint, config))
+        except Exception:   # NOSONAR an advisory read never fails `apply`, nor changes its outcome (decision 0224)
+            said.append(("all", "not_shown"))
     # A read token GitHub did not confirm revoked may still read: the Run is the Factory's to look at.
     if revoked is not True:
         return done[0], dict(done[1], outcome="environment", reason="token_not_revoked")
@@ -185,11 +251,11 @@ def written(argv: list, environ: dict, base, clock, connect) -> tuple:
 
 
 def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
-    argv = steps.given(argv, environ, steps.INPUTS, ("result", "applied"))
-    if len(argv) != 5:
-        raise Stop("usage: python3 -m harness.apply_step NAME ITEM PASS RESULT OUT")
-    folder = steps.new_folder(base, argv[4])
-    done, ended = written(argv, environ, base, clock, connect)
+    argv = steps.given(argv, environ, steps.INPUTS, ("result", "applied", "advice"))
+    if len(argv) not in (5, 6):
+        raise Stop("usage: python3 -m harness.apply_step NAME ITEM PASS RESULT OUT [ADVICE]")
+    folder, said = steps.new_folder(base, argv[4]), []
+    done, ended = written(argv, environ, base, clock, connect, said)
     started = engine_started(environ.get("NEEDS"))
     if started is not None:
         ended = dict(ended, engine_started=started)
@@ -197,7 +263,8 @@ def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
         raise Stop("records_unreadable")
     steps.write(folder, "applied.json", done)
     steps.write(folder, "outcome.json", ended)
-    return "applied, outcome %s" % (ended["outcome"] or "none")
+    shown = "".join("; %s %s" % (advice.CHECK % lens, code) for lens, code in said)
+    return "applied, outcome %s%s" % (ended["outcome"] or "none", shown)
 
 
 if __name__ == "__main__":

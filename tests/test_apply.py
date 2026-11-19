@@ -15,9 +15,9 @@ import tempfile
 import unittest
 import unittest.mock
 
-from adapters import effects, github, identity
+from adapters import advice, effects, github, identity
 from adapters.facts import Moved
-from harness import apply, bundle, engine, shared
+from harness import apply, apply_step, bundle, engine, shared
 from harness import task as task_
 from tests import support
 
@@ -1730,6 +1730,278 @@ class Job(unittest.TestCase):
                                                          else c for c in result()["coverage"]])
         record, ended, calls = self.go(quiet)
         self.assertEqual((record["effects"], ended["outcome"], calls["mint"]), ([], None, []))
+
+
+MARK = "WORDS-OF-A-READER"
+SEVERE = ("blocking", "major", "minor", "info")
+TITLE = r"(completed|incomplete|failed)( \([a-z_]+\))?: \d+ blocking, \d+ major, \d+ minor, \d+ info; \d+ off the change"
+
+
+def advised(*found, lens="astra", **over) -> dict:
+    """An advisory Lens's Result of Run RUN on the admitted content: one Finding for each `(severity, line)` of `found`,
+    a line of None for a Finding on a file alone and of False for one with no place, each with a text that holds MARK."""
+    out = json.loads((ROOT / "examples" / "advice.json").read_text())
+    first, out["findings"], out["texts"] = out["findings"][0], [], []
+    for n, (severity, line) in enumerate(found):
+        ident = "%s:%032x" % (lens, n)
+        one = dict(first, id=ident, severity=severity, content_id="sha256:aaaa", surface={"type": "annotation", "key": ident},
+                   source=dict(first["source"], lens=lens),
+                   location={"path": "kernel/decide.py"} if line is None else {"path": "kernel/decide.py", "start_line": line})
+        if line is False:
+            del one["location"]
+        out["findings"].append(one)
+        out["texts"].append({"id": ident, "category": "functional", "criterion": None,
+                             "body": "%s title %d\n\n%s message %d" % (MARK, n, MARK, n)})
+    out.update(lens=lens, run=RUN, release=RELEASE)
+    out.update(over)
+    return out
+
+
+def filed(result) -> tuple:
+    """The bytes of a Result and of the digest beside it, as the advise step writes them."""
+    data = result if isinstance(result, bytes) else (json.dumps(result, indent=2, sort_keys=True) + "\n").encode()
+    return data, ("sha256:%s\n" % hashlib.sha256(data).hexdigest()).encode()
+
+
+class Checks:
+    """A fake GitHub that holds check runs: it lists none, makes each one asked, and reads each back as it was made."""
+
+    def __init__(self):
+        self.sent, self.made = [], []
+
+    def send(self, req: dict) -> dict:
+        self.sent.append(req)
+        if req["method"] == "POST":
+            body = req["body"]
+            self.made.append(dict({k: body[k] for k in ("name", "head_sha", "external_id", "status", "conclusion")},
+                                  id=len(self.made) + 1, node_id="CR_%d" % len(self.made),
+                                  app={"slug": "combsmith-sf-pr-review"},
+                                  output={"annotations_count": len(body["output"]["annotations"])}))
+            return ok(self.made[-1], 201)
+        if "/commits/" in req["path"]:
+            return ok({"total_count": 0, "check_runs": []})
+        return ok(self.made[int(req["path"].rsplit("/", 1)[1]) - 1])
+
+
+class Advised(unittest.TestCase):
+    """Decision 0224, "What is shown": `apply` shows each advisory Lens's Result as a check run that is always neutral."""
+    CONFIG = {"app": APPS["apps"]["pr-review"], "needs": APPS["needs"]}
+    DONE = ({}, {"outcome": None, "reason": None})
+
+    def show(self, files: dict, admit=None, done=None, facts=None, read=True, mint_refuses=None, revoked=True, folder="advice"):
+        """`(codes, hub, calls)` of `apply_step.advised` on a folder holding `files`, `{lens: Result, bytes or (bytes,
+        digest)}`."""
+        hub, calls = Checks(), {"mint": [], "revoke": 0}
+
+        def mint(wanted):
+            calls["mint"].append(wanted)
+            if mint_refuses:
+                raise identity.Refused(mint_refuses)
+
+            def revoke():
+                calls["revoke"] += 1
+                return revoked
+            return hub, revoke
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "advice").mkdir()
+            for lens, given in files.items():
+                data, digest = given if isinstance(given, tuple) else filed(given)
+                pathlib.Path(d, "advice", "advice.%s.json" % lens).write_bytes(data)
+                if digest is not None:
+                    pathlib.Path(d, "advice", "advice.%s.sha256" % lens).write_bytes(digest)
+            held = {"item": (facts or the_facts(), HEAD, runs(), support.context(), None)} if read else {}
+            codes = apply_step.advised(d, folder, the_task() if admit is None else admit, done or self.DONE, held, mint,
+                                       self.CONFIG)
+        return codes, hub, calls
+
+    def posted(self, hub) -> list:
+        return [req["body"] for req in hub.sent if req["method"] == "POST"]
+
+    def test_an_advisory_check_run_is_neutral_whatever_its_result_says(self):
+        cases = [advised(*[(severity, 86) for severity in SEVERE]), advised(*[("blocking", 86)] * 7), advised(),
+                 advised(status="incomplete", reason="rate_limited"), advised(status="failed", reason="unparsed"),
+                 advised(("blocking", 86), status="failed", reason="transport")]
+        cases += [advised((severity, 86)) for severity in SEVERE]
+        for case in cases:
+            codes, hub, calls = self.show({"astra": case, "kimi": dict(case, lens="kimi", findings=[], texts=[])})
+            self.assertEqual(codes, [("astra", "shown"), ("kimi", "shown")], case["status"])
+            first, second = self.posted(hub)
+            self.assertEqual([(b["name"], b["conclusion"], b["status"], b["head_sha"], b["external_id"])
+                              for b in (first, second)],
+                             [("advisory-astra", "neutral", "completed", HEAD, RUN + ":astra"),
+                              ("advisory-kimi", "neutral", "completed", HEAD, RUN + ":kimi")])
+            # No annotation is a failure, whatever its Finding's severity: the graver two warn, the lighter two note.
+            levels = {(f["severity"], a["annotation_level"]) for f, a in zip(case["findings"], first["output"]["annotations"])}
+            self.assertLessEqual(levels, {("blocking", "warning"), ("major", "warning"), ("minor", "notice"),
+                                          ("info", "notice")})
+            self.assertEqual(len(first["output"]["annotations"]), len(case["findings"]))
+            # One token, of the check run's need alone, revoked when the check runs are written.
+            self.assertEqual((calls["mint"], calls["revoke"]), ([{"checks": "write"}], 1))
+        # The token's allowlist lets a neutral check run of an advisory Lens's name out, on the admitted commit, and
+        # nothing else: no other conclusion, no annotation that is a failure, whatever asked for it.
+        note = {"path": "a", "start_line": 1, "end_line": 1, "annotation_level": "warning", "message": "m"}
+        good = {"name": "advisory-astra", "head_sha": HEAD, "external_id": RUN + ":astra", "status": "completed",
+                "conclusion": "neutral", "output": {"title": "t", "summary": "s", "annotations": [note]}}
+        hub = GitHub()
+        allowed = effects.Allowed(hub, *effects.advisory_permits(ITEM, HEAD, ["advisory-astra", "advisory-kimi"]))
+        path = "/repos/%s/check-runs" % ITEM["repo"]
+        fine = [github.request("POST", path, body=good), github.request("GET", path + "/77"),
+                github.request("GET", "/repos/%s/commits/%s/check-runs?check_name=advisory-kimi&filter=all&per_page=100"
+                               % (ITEM["repo"], HEAD))]
+        for req in fine:
+            with self.assertRaisesRegex(github.Unanswered, "nothing left"):     # it reached the fake
+                allowed.send(req)
+        failing = dict(good["output"], annotations=[note, dict(note, annotation_level="failure")])
+        for key, value in (("conclusion", "success"), ("conclusion", "failure"), ("conclusion", "action_required"),
+                           ("conclusion", None), ("status", "in_progress"), ("name", "factory / pr-review"),
+                           ("name", "gates"), ("head_sha", "1" * 40), ("head_sha", "main"), ("external_id", RUN + ":e2"),
+                           ("external_id", "anything"), ("output", failing), ("output", {"title": "t"}), ("output", None)):
+            with self.assertRaisesRegex(github.Unanswered, "may not send", msg=(key, value)):
+                allowed.send(github.request("POST", path, body=dict(good, **{key: value})))
+        for req in (github.request("POST", path, body=dict(good, actions=[])),
+                    github.request("PATCH", path + "/77", body=good),
+                    github.request("POST", "/repos/combsmith/other/check-runs", body=good),
+                    github.request("POST", "/repos/%s/issues/42/comments" % ITEM["repo"], body={"body": "x"}),
+                    github.request("POST", "/repos/%s/pulls/42/reviews" % ITEM["repo"], body={
+                        "commit_id": HEAD, "event": "COMMENT", "body": "", "comments": []}),
+                    github.request("GET", "/repos/%s/commits/%s/check-runs?check_name=advisory-kimi&filter=all&per_page=100"
+                                   % (ITEM["repo"], "1" * 40))):
+            with self.assertRaisesRegex(github.Unanswered, "may not send"):
+                allowed.send(req)
+        self.assertEqual(len(hub.sent), len(fine))
+        # The step's writes go through that allowlist, and the one the Role's own check run goes through refuses them.
+        seen = []
+        with unittest.mock.patch.object(effects, "role_write", lambda t, *a: seen.append(t) or {"state": "applied"}):
+            self.show({"astra": advised()})
+        self.assertIsInstance(seen[0], effects.Allowed)
+        with self.assertRaisesRegex(github.Unanswered, "may not send"):
+            seen[0].send(github.request("POST", path, body=dict(good, conclusion="success")))
+        role = effects.Allowed(GitHub(), *effects.role_permits(ITEM, HEAD, "factory / pr-review"))
+        with self.assertRaisesRegex(github.Unanswered, "may not send"):
+            role.send(github.request("POST", path, body=good))
+
+    def test_an_advisory_check_runs_title_is_codes_alone_and_a_readers_words_are_an_annotations(self):
+        for case in (advised(("major", 86), ("major", 90), ("minor", 91)),
+                     advised(("blocking", 86), status="incomplete", reason="cut_short", off_change=3)):
+            codes, hub, _ = self.show({"astra": case})
+            body, = self.posted(hub)
+            output = body["output"]
+            self.assertRegex(output["title"], "^%s$" % TITLE)
+            # The reader's words are in each annotation's title and message, and nowhere else in what is sent.
+            notes = output.pop("annotations")
+            self.assertNotIn(MARK, json.dumps([req for req in hub.sent if req["method"] != "POST"]) + json.dumps(body))
+            self.assertEqual([(n["title"], n["message"]) for n in notes],
+                             [("%s title %d" % (MARK, i), "%s message %d" % (MARK, i)) for i in range(len(notes))])
+            self.assertEqual(set(output), {"title", "summary"})
+        self.assertEqual(advice.shown(advised(("major", 86), ("major", 90), ("minor", 91), off_change=1))[0]["title"],
+                         "completed: 0 blocking, 2 major, 1 minor, 0 info; 1 off the change")
+        self.assertEqual(advice.shown(advised(status="incomplete", reason="budget", off_change=0))[0]["title"],
+                         "incomplete (budget): 0 blocking, 0 major, 0 minor, 0 info; 0 off the change")
+        # A text of one line is the message, with no title; a title and a message are each cut at their bound.
+        long = advised(("info", 1), ("info", 2))
+        long["texts"][0]["body"] = "one line"
+        long["texts"][1]["body"] = "t" * 300 + "\n\n" + "m" * 9000
+        (one, two), _ = advice.shown(long)[0]["annotations"], None
+        self.assertEqual((one.get("title"), one["message"]), (None, "one line"))
+        self.assertEqual((two["title"], two["message"]), ("t" * advice.HEADLINE, "m" * advice.MESSAGE))
+
+    def test_at_most_fifty_advisory_findings_are_annotated_and_one_with_no_line_is_counted(self):
+        found = [("minor", 100 + n) for n in range(55)] + [("major", None), ("blocking", False)] + \
+            [("blocking", 300 + n) for n in range(5)]
+        case = advised(*found)
+        codes, hub, _ = self.show({"astra": case})
+        self.assertEqual(codes[0], ("astra", "shown"))
+        output = self.posted(hub)[0]["output"]
+        notes = output["annotations"]
+        self.assertEqual(len(notes), 50)
+        self.assertEqual(effects.ANNOTATIONS, advice.ANNOTATIONS)
+        # The graver are annotated first, each on its own line of its file; one with no line is nowhere among them.
+        self.assertEqual([(n["path"], n["start_line"], n["end_line"]) for n in notes],
+                         [("kernel/decide.py", line, line) for line in list(range(300, 305)) + list(range(100, 145))])
+        self.assertEqual(output["title"], "completed: 6 blocking, 1 major, 55 minor, 0 info; 1 off the change")
+        self.assertIn("62 finding(s): 50 annotated, 2 with no line, 10 left out past 50 annotations", output["summary"])
+        whole = advice.shown(advised(("minor", 7), ("major", None)))[0]
+        self.assertIn("2 finding(s): 1 annotated, 1 with no line, 0 left out", whole["summary"])
+        self.assertEqual([n["start_line"] for n in whole["annotations"]], [7])
+
+    def test_an_advisory_result_not_the_runs_not_its_lenss_or_not_by_its_digest_is_not_shown(self):
+        good = advised(("major", 86))
+        data, digest = filed(good)
+        finding, text = good["findings"][0], good["texts"][0]
+        other = "astra:%032x" % 9
+        for given, want in (
+                ((data, b"sha256:" + b"0" * 64 + b"\n"), "advice_digest_differs"),
+                ((data, digest.strip()), "advice_digest_differs"),
+                ((data + b" ", digest), "advice_digest_differs"),
+                ((data, None), "advice_missing"),
+                (b"not json", "advice_invalid"), (b"\xff", "advice_invalid"),
+                (dict(good, extra=1), "advice_invalid"), (dict(good, reason="a sentence of a reader's"), "advice_invalid"),
+                (dict(good, findings=[dict(finding, category="security")]), "advice_invalid"),
+                (dict(good, run="r_01JA7Z"), "advice_not_the_runs"),
+                (dict(good, release="factory/v0.3.2"), "advice_not_the_runs"),
+                (dict(good, lens="kimi"), "advice_not_the_lens"),
+                (dict(good, findings=[dict(finding, content_id="sha256:bbbb")]), "advice_not_the_content"),
+                (dict(good, findings=[dict(finding, surface={"type": "annotation", "key": other})]),
+                 "advice_finding_not_its_own"),
+                (dict(good, findings=[dict(finding, source=dict(finding["source"], lens="kimi"))]),
+                 "advice_finding_not_its_own"),
+                (dict(good, texts=[]), "advice_text_not_its_findings"),
+                (dict(good, texts=[dict(text, id=other)]), "advice_text_not_its_findings"),
+                (dict(good, findings=[finding, finding], texts=[text, text]), "advice_text_not_its_findings")):
+            # Nothing of it is shown, and the other Lens's Result is shown as it would be without it.
+            codes, hub, calls = self.show({"astra": given, "kimi": advised(lens="kimi")})
+            self.assertEqual(codes, [("astra", want), ("kimi", "shown")], want)
+            self.assertEqual([b["name"] for b in self.posted(hub)], ["advisory-kimi"], want)
+            # With no Result to show, nothing is minted and nothing sent.
+            codes, hub, calls = self.show({"astra": given})
+            self.assertEqual((codes, hub.sent, calls["mint"]), ([("astra", want), ("kimi", "advice_missing")], [], []), want)
+        # A Result is its Lens's by the name of its file and the configuration: one under a name the configuration does
+        # not name advisory is not looked for, and one the hold is asked of is refused.
+        codes, hub, calls = self.show({"muse": advised(lens="muse"), "coderabbit": advised(lens="coderabbit")})
+        self.assertEqual((codes, calls["mint"]), ([("astra", "advice_missing"), ("kimi", "advice_missing")], []))
+        admit = the_task()
+        self.assertEqual(advice.held(data, digest, "astra", ["astra"], admit, shared.SCHEMAS), (good, None))
+        self.assertEqual(advice.held(data, digest, "astra", ["kimi"], admit, shared.SCHEMAS)[1], "advice_not_the_lens")
+        self.assertEqual(advice.held(b" " * (advice.LARGEST + 1), digest, "astra", ["astra"], admit, shared.SCHEMAS)[1],
+                         "advice_missing")
+        # A folder that is not there, or outside the step's own, holds no Result.
+        for folder in ("nothing", "../advice", None):
+            codes, hub, calls = self.show({"astra": good}, folder=folder)
+            self.assertEqual((codes[0], hub.sent), (("astra", "advice_missing"), []), folder)
+
+    def test_an_advisory_result_is_shown_only_for_a_review_of_the_item_as_admitted(self):
+        files = {"astra": advised(("major", 86)), "kimi": advised(lens="kimi")}
+        self.assertEqual(self.show(files)[0], [("astra", "shown"), ("kimi", "shown")])
+        # No other Intent's Run, and no Run no Decision admitted, shows one or says anything of one.
+        for admit in (the_task(intent="fix-findings"), None):
+            codes, hub, calls = self.show(files, admit=admit) if admit else (apply_step.advised(
+                ".", "advice", None, self.DONE, {}, None, self.CONFIG), Checks(), {"mint": []})
+            self.assertEqual((codes, hub.sent, calls["mint"]), ([], [], []))
+        # An item `apply` did not read again, a change under the Run, or facts that are not the admitted content's.
+        for over, want in (({"read": False}, "item_not_read"),
+                           ({"done": ({}, {"outcome": "superseded", "reason": "paused"})}, "superseded"),
+                           ({"facts": the_facts(state="closed")}, "superseded"),
+                           ({"facts": the_facts(content_id="sha256:bbbb")}, "superseded")):
+            codes, hub, calls = self.show(files, **over)
+            self.assertEqual((codes, hub.sent, calls["mint"]), ([("astra", want), ("kimi", want)], [], []), want)
+        # A Result `apply` refused for the Role's own fault is still a review of the admitted commit.
+        codes, _, _ = self.show(files, done=({}, {"outcome": "item", "reason": "uncovered"}))
+        self.assertEqual(codes, [("astra", "shown"), ("kimi", "shown")])
+        # A token not minted, a write GitHub does not take or that raises, or a token not revoked: each is a code.
+        codes, hub, calls = self.show(files, mint_refuses="effect_not_granted")
+        self.assertEqual((codes, hub.sent), ([("astra", "effect_not_granted"), ("kimi", "effect_not_granted")], []))
+        codes, hub, calls = self.show(dict(files, kimi=b"{}"), mint_refuses="token_unreadable")
+        self.assertEqual(codes, [("astra", "token_unreadable"), ("kimi", "advice_invalid")])
+        self.assertEqual(self.show(files, revoked=False)[0], [("astra", "token_not_revoked"), ("kimi", "token_not_revoked")])
+        for back, want in (({"state": "failed", "reason": "write_refused"}, "write_refused"), ({"state": "sent"},
+                           "not_read_back"), (KeyError("id"), "write_raised"), (github.Unanswered("x"), "write_raised")):
+            def write(*a, back=back):
+                if isinstance(back, Exception):
+                    raise back
+                return back
+            with unittest.mock.patch.object(effects, "role_write", write):
+                codes, _, calls = self.show(files)
+            self.assertEqual((codes, calls["revoke"]), ([("astra", want), ("kimi", want)], 1), want)
 
 
 if __name__ == "__main__":

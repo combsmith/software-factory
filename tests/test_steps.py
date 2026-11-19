@@ -152,14 +152,15 @@ class WorkflowForm(unittest.TestCase):
         self.assertEqual(steps.given(["a", "b"], env, steps.INPUTS, ("task",)), ["a", "b"])
         self.assertEqual(steps.given([], {}, ("NAME",), ("applied", "outcome")), [None, "applied", "outcome"])
         seen = []
-        for module, folders in ((read, ["task"]), (verify, ["result", "verdict"]), (apply_step, ["result", "applied"]),
+        for module, folders in ((read, ["task"]), (verify, ["result", "verdict"]),
+                                (apply_step, ["result", "applied", "advice"]),
                                 (outcome, ["applied", "outcome", "reader-outcome"]), (approve_step, ["applied"])):
             with tempfile.TemporaryDirectory() as d:
                 with unittest.mock.patch.object(steps, "given", lambda a, e, i, f: seen.append((module, list(f))) or
                                                 (_ for _ in ()).throw(steps.Stop("seen"))):
                     ran(module.step, [], env, d)
         self.assertEqual(seen, [(m, f) for m, f in ((read, ["task"]), (verify, ["result", "verdict"]),
-                                                    (apply_step, ["result", "applied"]),
+                                                    (apply_step, ["result", "applied", "advice"]),
                                                     (outcome, ["applied", "outcome", "reader-outcome"]),
                                                     (approve_step, ["applied"]))])
 
@@ -547,7 +548,8 @@ NEEDS = json.dumps({"run": {"result": "success", "outputs": {}}, "verify": {"res
 
 
 class Apply(unittest.TestCase):
-    def go(self, environ=None, record=RECORD, job=None, mint_refuses=None, revoked=True, result=None, a_job=None):
+    def go(self, environ=None, record=RECORD, job=None, mint_refuses=None, revoked=True, result=None, a_job=None,
+           advice=None):
         calls = {"minted": [], "revoked": 0, "job": [], "granted": []}
 
         def from_key(app, repo, wanted, key, now, connect):
@@ -584,9 +586,13 @@ class Apply(unittest.TestCase):
             if result is not None:
                 os.mkdir(os.path.join(d, "result"))
                 pathlib.Path(d, "result", "result.json").write_bytes(result)
-            code, printed = ran(apply_step.step, [NAME, ITEM, PASS, "result", "applied"],
+            for name, data in (advice or {}).items():
+                os.makedirs(os.path.join(d, "advice"), exist_ok=True)
+                pathlib.Path(d, "advice", name).write_bytes(data)
+            code, printed = ran(apply_step.step, [NAME, ITEM, PASS, "result", "applied"] + ["advice"] * (advice is not None),
                                 {k: v for k, v in env.items() if v is not None}, d)
             folder = pathlib.Path(d, "applied")
+            calls["applied"] = (folder / "applied.json").read_text() if (folder / "applied.json").is_file() else None
             ended = json.loads((folder / "outcome.json").read_text()) if (folder / "outcome.json").is_file() else None
         return code, printed, ended, calls
 
@@ -807,6 +813,71 @@ class Apply(unittest.TestCase):
                 return apply_step._ended(admit["run"], admit["release"], (None, None))
             self.go(job=None, a_job=reads_only)
         self.assertEqual(seen["change"], [])
+
+    def test_an_advisory_read_shown_or_not_changes_nothing_apply_does_and_never_fails_it(self):  # decision 0224
+        facts = dict(support.facts(), content_id=CONTENT)
+        result = json.loads((ROOT / "examples" / "advice.json").read_text())
+        result["findings"][0]["content_id"] = CONTENT
+        result.update(run=RUN, release=RELEASE)
+        data = (json.dumps(result, indent=2, sort_keys=True) + "\n").encode()
+        files = {"advice.astra.json": data,
+                 "advice.astra.sha256": ("sha256:%s\n" % hashlib.sha256(data).hexdigest()).encode()}
+        seen = []
+
+        def a_job(admit, result, read_, write, mint, role, config, now, held):
+            read_()
+            transport, revoke = mint({"pull_requests": "write"})
+            write(transport, "comment", {"on": "item"})
+            revoke()
+            return apply_step._ended(admit["run"], admit["release"], ("item", "uncovered"))
+
+        def role_write(transport, item_, kind, req, login):
+            seen.append((kind, req, transport))
+            return {"state": "applied", "key": "CR_x"}
+
+        def went(advice=None, write=role_write, **over):
+            del seen[:]
+            with unittest.mock.patch.object(reread, "item", lambda *a: (facts, HEAD, [], support.context())), \
+                    unittest.mock.patch.object(effects, "role_write", write):
+                code, printed, ended, calls = self.go(a_job=a_job, advice=advice, **over)
+            return code, printed, ended, calls, [(kind, req.get("name")) for kind, req, _ in seen]
+        code, plain, ended, calls, wrote = went()
+        self.assertEqual((code, ended["reason"], wrote), (0, "uncovered", [("comment", None)]))
+        # With no folder of advice, each reader configured is said to be missing, and nothing more is minted or sent.
+        self.assertEqual(plain, "applied, outcome item; advisory-astra advice_missing; advisory-kimi advice_missing\n")
+        self.assertEqual(len(calls["minted"]), 2)
+        # With a Result to show, the same Run leaves the same files and its Role's own writes, then one check run more,
+        # through a third token of the check run's need alone, its conclusion neutral, on the head read again.
+        code, printed, shown, more, wrote = went(files)
+        self.assertEqual((code, shown, more["applied"], more["job"]), (0, ended, calls["applied"], calls["job"]))
+        self.assertEqual(printed, "applied, outcome item; advisory-astra shown; advisory-kimi advice_missing\n")
+        self.assertEqual(wrote, [("comment", None), ("create_check_run", "advisory-astra")])
+        self.assertEqual((more["minted"][:2], [name for name, _ in more["minted"][2:]], more["granted"][1:]),
+                         (calls["minted"], ["combsmith-sf-pr-review"], [(("effect:create_check_run",), "effect")]))
+        _, req, transport = seen[1]
+        self.assertEqual((req["commit"], req["conclusion"], req["external_id"]), (HEAD, "neutral", RUN + ":astra"))
+        self.assertIsInstance(transport, effects.Allowed)
+        self.assertRegex(req["output"]["title"], r"^completed: 0 blocking, 1 major, 0 minor, 0 info; 1 off the change$")
+        # Whatever the advisory part meets, the step ends as it would have without it: a Result that is not this Run's,
+        # a write that raises what no one foresaw, a token not minted or not revoked.
+        other = (json.dumps(dict(result, run="r_01JA7Z")) + "\n").encode()
+        wrong = {"advice.astra.json": other, "advice.astra.sha256": ("sha256:%s\n" % hashlib.sha256(other).hexdigest()).encode()}
+
+        def raising(transport, item_, kind, req, login):
+            if kind == "create_check_run":
+                raise RuntimeError("what no one foresaw")
+            return role_write(transport, item_, kind, req, login)
+        for over, want in (({"advice": wrong}, "advisory-astra advice_not_the_runs; advisory-kimi advice_missing"),
+                           ({"advice": files, "write": raising}, "advisory-all not_shown"),
+                           ({"advice": {"advice.astra.json": data}}, "advisory-astra advice_missing; advisory-kimi advice_missing")):
+            code, printed, again, calls_, _ = went(**over)
+            self.assertEqual((code, again, calls_["applied"]), (0, ended, calls["applied"]), want)
+            self.assertEqual(printed, "applied, outcome item; %s\n" % want)
+        # A Run whose item was not read again, as one whose jobs failed, shows nothing and says so or says nothing.
+        code, printed, _, calls_ = self.go(advice=files)
+        self.assertEqual((code, printed), (0, "applied, outcome none; advisory-astra item_not_read; advisory-kimi item_not_read\n"))
+        code, printed, _, calls_ = self.go({"NEEDS": "not json"}, advice=files)
+        self.assertEqual((code, printed, calls_["minted"]), (0, "applied, outcome environment\n", []))
 
     def test_the_last_step_leaves_the_outcome(self):
         kept = {"schema": "outcome/1", "run": RUN, "release": RELEASE, "outcome": "item", "reason": "uncovered"}

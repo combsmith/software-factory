@@ -39,6 +39,15 @@ MILLION = 1000000
 # The name of the check run that shows an advisory Lens's Result. It is always neutral, and no ruleset may name it
 # (tools/check_rulesets.py), since a ruleset counts a neutral check as met.
 CHECK = "advisory-%s"
+# What `apply` shows of a Result (decision 0224, "What is shown"). An annotation's level is never `failure`, whatever
+# its Finding's severity: a reader is wrong too often for a red mark, so the two graver severities are a `warning` and
+# the two lighter a `notice`.
+SEVERITIES = ("blocking", "major", "minor", "info")
+LEVEL = {"blocking": "warning", "major": "warning", "minor": "notice", "info": "notice"}
+ANNOTATIONS = 50        # GitHub takes at most fifty annotations in one request, and one request is all that is sent
+HEADLINE = 255          # the characters of an annotation's title, GitHub's own bound
+MESSAGE = 8000          # the characters of an annotation's message: under GitHub's 64 KiB whatever the characters are
+LARGEST = 4 * 1024 * 1024       # the bytes of a Result's file `apply` reads: one over it is not read as one
 
 
 def _count(value):
@@ -189,3 +198,61 @@ def read(told: dict, answer: dict, asks: int, seconds, schemas: dict) -> dict:
         return _result(told, reason or "unparsed", [], [], 0, spent, schemas)
     findings, texts, off = _findings(told, found)
     return _result(told, None, findings, texts, off, spent, schemas)
+
+
+def held(data, digest, lens: str, advisory, admit: dict, schemas: dict) -> tuple:
+    """`(result, None)` for the bytes of an advisory Lens's Result that `apply` may show, or `(None, code)`. The bytes
+    are taken by the digest written beside them, as the advise step wrote it, and held to `advice/1` and to the Run
+    before anything of them is shown: the Run's own `run` and `release`, the Lens the file is named for, which the
+    configuration names advisory, each Finding on the admitted content, its id its surface's key and its source the
+    Lens, and one text for each Finding, by its id and in its order."""
+    if not isinstance(data, bytes) or not isinstance(digest, bytes) or len(data) > LARGEST:
+        return None, "advice_missing"
+    if digest != ("sha256:%s\n" % hashlib.sha256(data).hexdigest()).encode():
+        return None, "advice_digest_differs"
+    try:
+        result = json.loads(data.decode("utf-8"))
+    except (ValueError, RecursionError):
+        return None, "advice_invalid"
+    if validate(result, schemas["advice"], schemas=schemas):
+        return None, "advice_invalid"
+    if (result["run"], result["release"]) != (admit["run"], admit["release"]):
+        return None, "advice_not_the_runs"
+    if lens not in advisory or result["lens"] != lens:
+        return None, "advice_not_the_lens"
+    if any(found["content_id"] != admit["content_id"] for found in result["findings"]):
+        return None, "advice_not_the_content"
+    if any(found["id"] != found["surface"]["key"] or found["source"]["lens"] != lens for found in result["findings"]):
+        return None, "advice_finding_not_its_own"
+    ids = [found["id"] for found in result["findings"]]
+    if len(set(ids)) != len(ids) or [text["id"] for text in result["texts"]] != ids:
+        return None, "advice_text_not_its_findings"
+    return result, None
+
+
+def shown(result: dict) -> tuple:
+    """`(output, ids)`: a check run's output for a Result `held` let through, and the ids of the Findings annotated.
+    The title is codes and counts alone: the status, its reason if it has one, the Findings by severity and those off
+    the change. The summary is counts too. A reader's words are an annotation's title and message and nothing else: the
+    first line of its text and the rest. A Finding with no line is counted and not annotated, and so is each past the
+    fiftieth, the graver first."""
+    findings = result["findings"]
+    status = result["status"] if result["reason"] is None else "%s (%s)" % (result["status"], result["reason"])
+    counts = ", ".join("%d %s" % (sum(f["severity"] == s for f in findings), s) for s in SEVERITIES)
+    bodies = {text["id"]: text["body"] for text in result["texts"]}
+    placed = sorted((f for f in findings if "start_line" in f.get("location", {})),
+                    key=lambda f: SEVERITIES.index(f["severity"]))
+    kept, notes = placed[:ANNOTATIONS], []
+    for f in kept:
+        first, _, rest = bodies[f["id"]].partition("\n")
+        first, rest, line = first.strip(), rest.strip(), f["location"]["start_line"]
+        note = {"path": f["location"]["path"], "start_line": line, "end_line": line,
+                "annotation_level": LEVEL[f["severity"]], "message": (rest or first or "(no text)")[:MESSAGE]}
+        if first and rest:
+            note["title"] = first[:HEADLINE]
+        notes.append(note)
+    summary = ("An advisory read: it gates nothing. %d finding(s): %d annotated, %d with no line, %d left out past %d "
+               "annotations." % (len(findings), len(kept), len(findings) - len(placed), len(placed) - len(kept),
+                                 ANNOTATIONS))
+    return ({"title": "%s: %s; %d off the change" % (status, counts, result["off_change"]), "summary": summary,
+             "annotations": notes}, [f["id"] for f in kept])
