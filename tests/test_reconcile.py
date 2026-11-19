@@ -89,6 +89,26 @@ class Matching(unittest.TestCase):
             # A write whose key cannot be read is matched to nothing, whatever was recorded on its item.
             self.assertEqual(kinds(check(seen(dict(write, key=None)), recorded([done]))), [(write["by"], write["kind"])])
 
+    def test_an_advisory_lenss_check_run_is_matched_to_the_key_its_run_recorded(self):  # decision 0224
+        write = wrote("pr-review", "check_run", "CR_advisory_astra")
+        done = lambda *entries: recorded([dict(applied(), advisory=list(entries))])
+        for code in ("shown", "token_not_revoked"):
+            found = check(seen(write), done({"lens": "astra", "code": code, "key": write["key"]}, {"lens": "kimi", "code": "shown",
+                                                                                                    "key": "CR_k"}))
+            self.assertEqual((found["unmatched"], found["short"], reconcile.alerts(found)), ([], False, []), code)
+        # Not recorded, recorded with no key or another, or under a code that says no check run was read back: unmatched.
+        for other in (recorded([applied()]), done({"lens": "astra", "code": "shown"}),
+                      done({"lens": "astra", "code": "token_not_revoked"}),
+                      done({"lens": "astra", "code": "shown", "key": "CR_other"}),
+                      done({"lens": "astra", "code": "not_read_back", "key": write["key"]})):
+            found = check(seen(write), other)
+            self.assertEqual((kinds(found), reconcile.alerts(found)), ([("pr-review", "check_run")], ["write_unmatched"]), other)
+        # The key is the Role App's alone, and a pass after carries it as it carries an Effect's.
+        shown = done({"lens": "astra", "code": "shown", "key": write["key"]})
+        self.assertEqual(kinds(check(seen(wrote("controller", "check_run", write["key"])), shown)), [("controller", "check_run")])
+        kept = reconcile.carried([], dict(shown, read={"runs": [], "passes": []}), seen(), "2026-10-11T12:00:00Z")
+        self.assertIn(("applied", "create_check_run", write["key"]), [(k["where"], k["type"], k["key"]) for k in kept["keys"]])
+
     def test_a_resolution_is_the_queue_apps_matched_to_the_act_the_pass_recorded(self):  # issue 389
         # No Role resolves a thread: the queue App does, as the Kernel's act, which the pass records as a write. Its
         # resolution is matched to that write by the thread's id; one the pass did not record, recorded on another

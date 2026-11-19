@@ -114,9 +114,9 @@
       }
     },
     "advisory": {
-      "description": "What apply did with each advisory Lens's Result, a code for each Lens the Factory asks (decision 0224): shown as a check run, or why not. Written after the Run's own Effects are recorded, so a record without it is whole. `token_not_revoked` says GitHub did not confirm the token of the check runs revoked; it changes no outcome",
+      "description": "What apply did with each advisory Lens's Result, one entry for each Lens the Factory asks (decision 0224): a code, shown as a check run or why not, and the key of a check run read back, the form an Effect's check run is keyed by, which reconciliation matches the Role App's write to. Written after the Run's own Effects are recorded, so a record without it is whole. `token_not_revoked` says GitHub did not confirm the token of the check runs revoked; it changes no outcome",
       "type": "array",
-      "maxItems": 31,
+      "maxItems": 8,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -151,6 +151,10 @@
               "write_raised",
               "token_not_revoked"
             ]
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_=:-]{1,100}$"
           }
         }
       }

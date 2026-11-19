@@ -42,6 +42,7 @@ DISPATCHES = ("dispatch_run", "dispatch_approval", "dispatch_queue")
 # A Decision that says the item had what a merge needs: an approval of its content standing, read by the Kernel.
 MERGEABLE = ("converged", "queued")
 LANDED = ("applied", "already_applied")
+ADVISED = ("shown", "token_not_revoked")        # an advisory entry's codes under which its check run was read back
 STAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 LATE = 60 * 60          # how much later than its record's own making a pass's or a Run's write can be: the job's limits
 
@@ -162,6 +163,11 @@ def _keys(effects: dict, before=None, since=None) -> tuple:
         for e in done["effects"]:
             if e["state"] in LANDED and e["key"] is not None:
                 keys.setdefault((APPLIED, e["type"]), set()).add(e["key"])
+        # An advisory Lens's check run is the Role App's write too, recorded beside the Effects with the key it was
+        # read back by, under a code that says one was (decision 0224).
+        for a in done.get("advisory", ()):
+            if a["code"] in ADVISED and "key" in a:
+                keys.setdefault((APPLIED, "create_check_run"), set()).add(a["key"])
     for done in effects["written"]:
         for w in done["writes"]:
             if w["state"] not in LANDED:

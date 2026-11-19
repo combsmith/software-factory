@@ -703,6 +703,15 @@ def role_write(transport, item: dict, kind: str, req: dict, login: str) -> dict:
     return _back("failed", None, reason="not_built")
 
 
+def advisory_write(transport, item: dict, req: dict, login: str) -> dict:
+    """What the write of one advisory Lens's check run did, read back, as `role_write` gives a Role's: the one write
+    the step that shows an advisory read may reach (decision 0224)."""
+    try:
+        return _check(transport, item, req, login)
+    except _TokenRefused:
+        return _back("refused", None, reason="token_refused")
+
+
 def _place(comment: dict) -> dict:
     out = {"path": comment["path"], "line": comment["end_line"], "side": "RIGHT", "body": comment["body"]}
     if comment["start_line"] < comment["end_line"]:
