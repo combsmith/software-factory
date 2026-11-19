@@ -4,8 +4,9 @@
 One GraphQL read gives the references, `closedByPullRequestsReferences(includeClosedPrs: true)` as trial P-67 read them,
 and the issue's closes, links by hand and unlinkings, each naming its pull request as its subject, as trials/P-61.json
 recorded them, which ask no repository. One referenced, linked by hand, or named the closer of a close in the
-present life is listed only while its base is the default branch, as REST names both: another base carries no closing
-reference (trials/P-33.json), and a closer of this life to another base is not whole. A closer is listed whatever its
+present life is listed only while its base is the default branch, as REST names both: a keyword on another base carries
+no closing reference (trials/P-33.json), a closer of this life to another base is not whole, and so is one linked by
+hand now, which keeps its link and its closing reference when its base moves (trials/P-69.json, decision 0236). A closer is listed whatever its
 references now say (trials/P-46.json): a pull request by repository and number, as a merge commit's close (P-33) and the
 queue's squash (P-67) named one, or a commit that is one listed pull request's merge commit; a pull request's first
 close in the present life is its own. Any other commit closer of this life, one with no id, a closer of another kind, or

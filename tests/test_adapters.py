@@ -6672,8 +6672,7 @@ class Linked(unittest.TestCase):
         # 9 linked by hand now, on another base, keeps its link there (trials/P-69.json): it is not listed, and the list
         # is not whole, since it could have been linked before any pass saw it (decision 0236). The last of its links
         # and unlinkings is read, never the first.
-        for hand in ([link("ConnectedEvent", 1, 9)], [link("ConnectedEvent", 1, 9), link("DisconnectedEvent", 2, 9),
-                                                       link("ConnectedEvent", 3, 9)]):
+        for hand in ([link("ConnectedEvent", 1, 9)], [link("DisconnectedEvent", 1, 9), link("ConnectedEvent", 2, 9)]):
             found, whole = listing(*hand)
             self.assertEqual(([p["number"] for p in found], whole), ([7, 10], False), hand)
         self.assertEqual(listing(link("DisconnectedEvent", 2, 9))[1], True)
