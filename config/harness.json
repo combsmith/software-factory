@@ -33,14 +33,14 @@
   "readers": {
     "astra": {
       "host": "foundry-project-1-cs-resource.services.ai.azure.com",
-      "deployment": "gpt-6-astra",
-      "model": "gpt-6-astra",
+      "deployment": "gpt-6.2-astra",
+      "model": "gpt-6.2-astra",
       "api": "responses",
       "effort": {
         "critical": "max",
         "elsewhere": "xhigh"
       },
-      "output_tokens": 64000,
+      "output_tokens": 96000,
       "prompt_characters": 190000,
       "seconds": 120,
       "usd_per_million": {
@@ -66,5 +66,5 @@
       }
     }
   },
-  "advisory_worst_case_usd": 6.27
+  "advisory_worst_case_usd": 7.87
 }
