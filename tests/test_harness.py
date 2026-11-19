@@ -1340,6 +1340,10 @@ class Passes(unittest.TestCase):
         for answers in ([fixed, stands], [stands, fixed], [fixed, fixed, stands]):
             self.assertEqual(passes.union(answers)["dispositions"], ruled("rejected"))
         self.assertEqual(passes.union([fixed, dict(fixed)])["dispositions"], ruled("accepted"))
+        # So does one that a later answer leaves unruled, or rules only by a proposal: silence is no ruling.
+        proposed = dict(said([]), dispositions=[{"finding": "f_9c1e", "proposal": {"result": "fixed"}}])
+        for answers in ([fixed, said([])], [fixed, proposed], [fixed, dict(fixed), said([])]):
+            self.assertEqual(passes.union(answers)["dispositions"], ruled("rejected"))
         # Agreement is counted by answer: two answers raising a blocker outvote one raising three minors at the same place.
         minors = [raised("n%d" % i, "kernel/decide.py", line, line, "PR-3", "minor", "functional") for i, line in ((1, 90), (2, 91), (3, 90))]
         voted = passes.union([said([other]), said([dict(other)]), said(minors)])
