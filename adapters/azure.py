@@ -1,19 +1,19 @@
 """The second transport: what an advisory Lens's reader is asked through, and nothing else (decision 0224). With
 `adapters/github.py` it is one of the two files in this repo that reach the network, and it may not name GitHub's host
-(tools/check_repo.py). A request is
-one of four acts, built by `create`, `read`, `cancel` or `chat`, and names no method and no path: the transport alone
-writes those, so a caller cannot ask for another, and no request of this file's is one `adapters/github.py` would send.
-An answer is `{status, headers, body}`.
+(tools/check_repo.py). A request is one of four acts, built by `create`, `read`, `cancel` or `chat`, and names no
+method and no path: the transport alone writes those, so a caller cannot ask for another, and no request of this
+file's is one `adapters/github.py` would send. An answer is `{status, headers, body}`.
 
 `Live` sends HTTPS to the one host its caller names, which is the configuration's, held to the forms Azure serves a
 model's API under, on its own port. It sends the paths of two APIs alone: Responses, to create a response, read it and
 cancel it, and Chat Completions, to create one. It takes its key from its caller and never from the environment, and
 sends it under Azure's own header to that host and no other: it follows no redirect and uses no proxy. Each wait on
-the connection has its caller's limit in seconds, which bounds no answer that comes slowly: the whole is bounded by the
-limit of the step that calls. Every answer is bounded in size and refused past the bound, never cut short, and of an
-answer's headers it keeps the two a caller reads. No refusal names the host, the address or the key, and none is chained
-to an error of urllib's, which holds the address asked. Nothing is installed: the standard library does the rest.
-
+the connection has its caller's limit in seconds, which bounds neither the finding of the host's address nor an answer
+that comes slowly: the whole is bounded by the limit of the step that calls. Every answer is bounded in size and
+refused past the bound or short of the length it said, never cut short, and one that is not UTF-8 is text and never
+read as JSON. Of an answer's headers it keeps the two a caller reads, each only when it is short, printable ASCII. No
+refusal names the host, the address or the key, and none is chained to an error of urllib's, which holds the address
+asked. Nothing is installed: the standard library does the rest.
 """
 from __future__ import annotations
 
@@ -36,6 +36,7 @@ CHUNK = 1024 * 1024             # bytes read at a time, so the bound costs no mo
 LONGEST = 1200                  # seconds a caller may give one wait: the advise step's own limit (decision 0224)
 REDIRECTS = {301, 302, 303, 307, 308}
 KEPT = ("content-type", "retry-after")      # the headers of an answer a caller reads; no other is kept
+HEADER = 100                    # characters a kept header may hold: one longer, or not printable ASCII, is not kept
 
 
 class Unanswered(Exception):
@@ -95,8 +96,12 @@ def wire(req) -> tuple:
 
 
 def _answer(status: int, headers, raw: bytes) -> dict:
-    kept = {k.lower(): v for k, v in headers.items() if k.lower() in KEPT}
-    text = raw.decode("utf-8", errors="replace")
+    kept = {k.lower(): v for k, v in headers.items()
+            if k.lower() in KEPT and len(v) <= HEADER and v.isascii() and v.isprintable()}
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return {"status": status, "headers": kept, "body": raw.decode("utf-8", errors="replace")}
     if kept.get("content-type", "").split(";")[0].strip().lower().endswith("json"):
         try:
             return {"status": status, "headers": kept, "body": json.loads(text) if text else None}
@@ -110,6 +115,9 @@ def _bounded(stream) -> bytes:
     while True:
         part = stream.read(CHUNK)
         if not part:
+            # What is left of the length an answer said, where it said one: an answer that ended before it is cut short.
+            if type(getattr(stream, "length", None)) is int and stream.length > 0:
+                raise Unanswered("an answer shorter than the length it said; it is refused, not kept cut short")
             return b"".join(parts)
         size += len(part)
         if size > LARGEST:
@@ -160,4 +168,3 @@ class Live:
                 http.client.HTTPException) as err:
             refused = "Azure could not be reached, or its answer was cut short: %s" % type(err).__name__
         raise Unanswered(refused)
-
