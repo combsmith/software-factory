@@ -557,9 +557,11 @@ class Apply(unittest.TestCase):
             if mint_refuses:
                 raise identity.Refused(mint_refuses)
 
+            nth = len(calls["minted"])
+
             def revoke():
                 calls["revoked"] += 1
-                return revoked
+                return revoked(nth) if callable(revoked) else revoked
             return "the read transport", revoke
 
         def recorded(admit, result, read_, write, mint, role, config, now, held=None):
@@ -873,6 +875,11 @@ class Apply(unittest.TestCase):
             code, printed, again, calls_, _ = went(**over)
             self.assertEqual((code, again, calls_["applied"]), (0, ended, calls["applied"]), want)
             self.assertEqual(printed, "applied, outcome item; %s\n" % want)
+        # A token for the check runs that GitHub does not confirm revoked is said for each Lens it wrote, and the Run's
+        # outcome stays what `apply` made it: an advisory Lens never ends a Run the environment's (the Builder's ruling).
+        code, printed, again, calls_, _ = went(files, revoked=lambda nth: nth != 3)
+        self.assertEqual((code, again, calls_["applied"], calls_["revoked"]), (0, ended, calls["applied"], 3))
+        self.assertEqual(printed, "applied, outcome item; advisory-astra token_not_revoked; advisory-kimi advice_missing\n")
         # A Run whose item was not read again, as one whose jobs failed, shows nothing and says so or says nothing.
         code, printed, _, calls_ = self.go(advice=files)
         self.assertEqual((code, printed), (0, "applied, outcome none; advisory-astra item_not_read; advisory-kimi item_not_read\n"))

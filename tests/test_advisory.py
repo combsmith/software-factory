@@ -4,6 +4,7 @@ Nothing here reaches the network: the live transport is held by what it refuses 
 stand-in opener was handed."""
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -581,6 +582,124 @@ class Parser(unittest.TestCase):
                 advice.unasked(dict(TOLD, **change), "budget", 0, 0, SCHEMAS)
         with self.assertRaises(ValueError):
             advice.read(TOLD, answered(said()), 3, 1, SCHEMAS)
+
+
+MARK = "WORDS-OF-A-READER"
+SEVERE = ("blocking", "major", "minor", "info")
+TITLE = r"(completed|incomplete|failed)( \([a-z_]+\))?: \d+ blocking, \d+ major, \d+ minor, \d+ info; \d+ off the change"
+
+
+def advised(*found, lens="astra", content=TOLD["content_id"], **over) -> dict:
+    """An advisory Lens's Result of TOLD's Run on `content`: one Finding for each `(severity, line)` of `found`, a line
+    of None for a Finding on a file alone and of False for one with no place, each with a text that holds MARK."""
+    out = loaded("examples/advice.json")
+    first, out["findings"], out["texts"] = out["findings"][0], [], []
+    for n, (severity, line) in enumerate(found):
+        ident = "%s:%032x" % (lens, n)
+        one = dict(first, id=ident, severity=severity, content_id=content, surface={"type": "annotation", "key": ident},
+                   source=dict(first["source"], lens=lens),
+                   location={"path": "kernel/decide.py"} if line is None else {"path": "kernel/decide.py", "start_line": line})
+        if line is False:
+            del one["location"]
+        out["findings"].append(one)
+        out["texts"].append({"id": ident, "category": "functional", "criterion": None,
+                             "body": "%s title %d\n\n%s message %d" % (MARK, n, MARK, n)})
+    out.update(lens=lens, run=TOLD["run"], release=TOLD["release"])
+    out.update(over)
+    return out
+
+
+def filed(result) -> tuple:
+    """The bytes of a Result and of the digest beside it, as the advise step writes them."""
+    data = result if isinstance(result, bytes) else (json.dumps(result, indent=2, sort_keys=True) + "\n").encode()
+    return data, ("sha256:%s\n" % hashlib.sha256(data).hexdigest()).encode()
+
+
+def held(given, lens="astra", advisory=("astra", "kimi")) -> tuple:
+    data, digest = given if isinstance(given, tuple) else filed(given)
+    return advice.held(data, digest, lens, advisory, TOLD, SCHEMAS)
+
+
+class Shown(unittest.TestCase):
+    """Decision 0224, "What is shown": what `apply` may show of an advisory Lens's Result, and what it shows."""
+
+    def test_an_advisory_result_is_held_to_its_digest_its_schema_its_run_and_its_lens_before_it_is_shown(self):
+        good = advised(("major", 86))
+        data, digest = filed(good)
+        self.assertEqual(held(good), (good, None))
+        self.assertEqual(held(advised(lens="kimi", status="incomplete", reason="budget"), "kimi")[1], None)
+        finding, text = good["findings"][0], good["texts"][0]
+        other = "astra:%032x" % 9
+        for given, want in (
+                ((data, b"sha256:" + b"0" * 64 + b"\n"), "advice_digest_differs"),
+                ((data, digest.strip()), "advice_digest_differs"),
+                ((data + b" ", digest), "advice_digest_differs"),
+                ((data, None), "advice_missing"), ((None, digest), "advice_missing"),
+                ((data.decode(), digest), "advice_missing"),
+                ((b" " * (advice.LARGEST + 1), digest), "advice_missing"),
+                (b"not json", "advice_invalid"), (b"\xff", "advice_invalid"), (b"[]", "advice_invalid"),
+                (dict(good, extra=1), "advice_invalid"), (dict(good, reason="a sentence of a reader's"), "advice_invalid"),
+                (dict(good, findings=[dict(finding, category="security")]), "advice_invalid"),
+                (dict(good, run="r_01JA7Z"), "advice_not_the_runs"),
+                (dict(good, release="factory/v0.3.2"), "advice_not_the_runs"),
+                (dict(good, lens="kimi"), "advice_not_the_lens"),
+                (dict(good, findings=[dict(finding, content_id="sha256:bbbb")]), "advice_not_the_content"),
+                (dict(good, findings=[dict(finding, surface={"type": "annotation", "key": other})]),
+                 "advice_finding_not_its_own"),
+                (dict(good, findings=[dict(finding, source=dict(finding["source"], lens="kimi"))]),
+                 "advice_finding_not_its_own"),
+                (dict(good, texts=[]), "advice_text_not_its_findings"),
+                (dict(good, texts=[dict(text, id=other)]), "advice_text_not_its_findings"),
+                (dict(good, findings=[finding, finding], texts=[text, text]), "advice_text_not_its_findings")):
+            self.assertEqual(held(given), (None, want), want)
+        # A Lens the configuration does not name advisory has no Result to show, whatever its file says.
+        self.assertEqual(held(good, advisory=("kimi",)), (None, "advice_not_the_lens"))
+        self.assertEqual(held(advised(lens="muse"), "muse"), (None, "advice_not_the_lens"))
+
+    def test_what_is_shown_is_codes_and_counts_and_a_readers_words_are_an_annotations_alone(self):
+        for case in (advised(("major", 86), ("major", 90), ("minor", 91)), advised(*[("blocking", 86)] * 7),
+                     advised(("blocking", 86), status="incomplete", reason="cut_short", off_change=3),
+                     advised(status="failed", reason="unparsed"), advised(*[(severity, 86) for severity in SEVERE])):
+            output, ids = advice.shown(case)
+            self.assertEqual((set(output), ids), ({"title", "summary", "annotations"}, [f["id"] for f in case["findings"]]))
+            self.assertRegex(output["title"], "^%s$" % TITLE)
+            # The reader's words are each annotation's title and message, and nowhere else in what is shown.
+            notes = output.pop("annotations")
+            self.assertNotIn(MARK, json.dumps(output))
+            self.assertEqual([(n["title"], n["message"]) for n in notes],
+                             [("%s title %d" % (MARK, i), "%s message %d" % (MARK, i)) for i in range(len(notes))])
+            # No annotation is a failure, whatever its Finding's severity: the graver two warn, the lighter two note.
+            self.assertEqual([n["annotation_level"] for n in notes],
+                             [{"blocking": "warning", "major": "warning", "minor": "notice", "info": "notice"}[
+                                 f["severity"]] for f in case["findings"]])
+        self.assertEqual(advice.shown(advised(("major", 86), ("major", 90), ("minor", 91)))[0]["title"],
+                         "completed: 0 blocking, 2 major, 1 minor, 0 info; 1 off the change")
+        self.assertEqual(advice.shown(advised(status="incomplete", reason="budget", off_change=0))[0]["title"],
+                         "incomplete (budget): 0 blocking, 0 major, 0 minor, 0 info; 0 off the change")
+        # A text of one line is the message, with no title; a title and a message are each cut at their bound.
+        long = advised(("info", 1), ("info", 2))
+        long["texts"][0]["body"] = "one line"
+        long["texts"][1]["body"] = "t" * 300 + "\n\n" + "m" * 9000
+        one, two = advice.shown(long)[0]["annotations"]
+        self.assertEqual((one.get("title"), one["message"]), (None, "one line"))
+        self.assertEqual((two["title"], two["message"]), ("t" * advice.HEADLINE, "m" * advice.MESSAGE))
+
+    def test_at_most_fifty_advisory_findings_are_annotated_and_one_with_no_line_is_counted(self):
+        found = [("minor", 100 + n) for n in range(55)] + [("major", None), ("blocking", False)] + \
+            [("blocking", 300 + n) for n in range(5)]
+        case = advised(*found)
+        output, ids = advice.shown(case)
+        notes = output["annotations"]
+        self.assertEqual((len(notes), len(ids), advice.ANNOTATIONS), (50, 50, 50))
+        # The graver are annotated first, each on its own line of its file; one with no line is nowhere among them.
+        self.assertEqual([(n["path"], n["start_line"], n["end_line"]) for n in notes],
+                         [("kernel/decide.py", line, line) for line in list(range(300, 305)) + list(range(100, 145))])
+        self.assertEqual(ids, [f["id"] for f in case["findings"][57:] + case["findings"][:45]])
+        self.assertEqual(output["title"], "completed: 6 blocking, 1 major, 55 minor, 0 info; 1 off the change")
+        self.assertIn("62 finding(s): 50 annotated, 2 with no line, 10 left out past 50 annotations", output["summary"])
+        whole = advice.shown(advised(("minor", 7), ("major", None)))[0]
+        self.assertIn("2 finding(s): 1 annotated, 1 with no line, 0 left out", whole["summary"])
+        self.assertEqual([n["start_line"] for n in whole["annotations"]], [7])
 
 
 if __name__ == "__main__":
