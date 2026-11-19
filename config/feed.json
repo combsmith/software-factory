@@ -338,6 +338,13 @@
       ]
     },
     {
+      "reason": "spans_broken",
+      "question": "spans_broken",
+      "choices": [
+        "close"
+      ]
+    },
+    {
       "reason": "intents_unreadable",
       "question": "fact_unreadable",
       "choices": [

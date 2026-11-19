@@ -225,7 +225,7 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
     writer = timeline.since_writer(events, accounts)
     apps, said = comments(events, accounts)
     # Read whatever the timeline's bound did: a record not whole still opens a span for each keyword it read (0186).
-    closing, closing_whole, linked_cut = linked.read(transport, repo, number, edited["updated_at"],
+    closing, closing_whole, linked_cut, broken = linked.read(transport, repo, number, edited["updated_at"],
                                                      lived["life_started_at"], identities, accounts, earlier, kernel)
     # A merge may have closed it since: read once more, as `adapters/pull.unchanged` does.
     if _field(own(transport, repo, number), "updated_at") != _field(issue, "updated_at"):
@@ -251,6 +251,7 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
         "branch_head": None,
         "complete": {"timeline": whole and edited["whole"], "linked": closing_whole, "runs": True},
         "timeline_bounded": cut or linked_cut,
+        "spans_broken": broken,
         "read_at": now,
     })
     problems = validate(found, SCHEMA)
