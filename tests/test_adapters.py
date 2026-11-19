@@ -1391,6 +1391,11 @@ class Records(unittest.TestCase):
         # waits out a timeout for each of fifty.
         stopped, _ = self.read(rows, *unanswered, *costs[1], *costs[3], day="2026-10-21")
         self.assertEqual((said(stopped), stamped(stopped), stopped["complete"]), ([{}, {}, {}, {}], 1, True))
+        # What was kept of the Runs after it is still theirs: the asking ends, the list does not.
+        after = {("r_000001Z", "2026-10-21T01:00:00Z"): {"advisory_cost_usd": None},
+                 ("r_000003Z", "2026-10-21T03:00:00Z"): {"advisory_asks": 1, "advisory_cost_usd": 0.4}}
+        stopped, _ = self.read(rows, *unanswered, day="2026-10-21", advised=after)
+        self.assertEqual(said(stopped), [{}, {"advisory_cost_usd": None}, {}, {"advisory_asks": 1, "advisory_cost_usd": 0.4}])
         # A key the record lists twice, or a record that lists no runs, keeps nothing.
         twice = {"runs": first["runs"][:1] * 2}
         self.assertEqual((records.advised([twice]), records.advised([{"runs": None}]), records.advised([]), records.advised(None)),
