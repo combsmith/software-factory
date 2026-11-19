@@ -265,6 +265,18 @@ class Validator(unittest.TestCase):
         for schema in ({"type": "array"}, {"type": "array", "uniqueItems": False}):
             self.assertEqual(validate(["AC-1", "AC-1"], schema), [])
 
+    def test_a_text_longer_than_the_most_is_an_error(self):  # issue 880
+        # Counted in characters, as `minLength` is, never in bytes.
+        most = {"type": "string", "maxLength": 3}
+        for value in ("", "a", "abc", "caf", "éèê"):
+            self.assertEqual(validate(value, most), [], value)
+        self.assertEqual(validate("abcd", most), ["$: longer than 3"])
+        # A most of none is a bound, not an absent keyword; without the keyword a text may be as long as it is.
+        self.assertEqual(validate("", {"type": "string", "maxLength": 0}), [])
+        self.assertEqual(validate("a", {"type": "string", "maxLength": 0}), ["$: longer than 0"])
+        self.assertEqual(validate("a" * 1000, {"type": "string"}), [])
+        self.assertEqual(validate([1, 2, 3, 4], {"maxLength": 3}), [])     # and it bounds a text alone
+
     def test_more_items_than_the_most_is_an_error(self):  # decision 0143
         most = {"type": "array", "maxItems": 3}
         for value in ([], [1], [1, 2, 3]):
@@ -679,6 +691,13 @@ class Examples(unittest.TestCase):
                            ("its branch", dict(bundle=bundle, patch={"body": text, "branch": "main"})),
                            ("a patch that is none", dict(bundle=bundle, patch=None))):
             self.assertIs(refused(**item), True, name)
+        # The Engine's answer is outside text, so the patch's text is bounded here, in characters, and nowhere else:
+        # 200,000, well over the change a Task carries, which stays the Kernel's to hold with its own code, and what
+        # keeps a guard's reading of a patch within memory. One character more is no push.
+        body = push["properties"]["patch"]["properties"]["body"]
+        self.assertEqual(body, {"type": "string", "minLength": 1, "maxLength": 200000})
+        self.assertIs(refused(bundle=bundle, patch={"body": text + "x" * (200000 - len(text))}), False)
+        self.assertIs(refused(bundle=bundle, patch={"body": text + "x" * (200001 - len(text))}), True)
 
     def test_only_success_can_pass_a_check(self):  # I-27, L-07
         # The configuration may say what a conclusion means, but never that one with no verdict has passed.
@@ -6599,8 +6618,8 @@ class Trials(unittest.TestCase):
         by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
         for code in ("a_closing_reference_is_read_from_any_pull_request", "who_changed_the_draft_flag_is_read"):
             self.assertEqual(by_code[code], ("trials/P-33.json", "trials/P-33.port.json"), code)
-        for code in ("an_issues_content_time_is_read_apart", "a_reopening_names_its_actor"):
-            self.assertEqual(by_code[code], "trials/P-34.json", code)
+        self.assertEqual(by_code["an_issues_content_time_is_read_apart"], ("trials/P-34.json", "trials/P-34.rest.json"))
+        self.assertEqual(by_code["a_reopening_names_its_actor"], "trials/P-34.rest.json")
         p33 = json.loads((ROOT / "trials" / "P-33.json").read_text())
         self.assertEqual(p33["verdict"], "pass")
         prs = p33["exchanges"][0]["response"]["body"]["data"]["repository"]
@@ -10059,7 +10078,14 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": "is-error"
 
     def test_the_stand_in_timeout_runs_what_gnu_timeout_runs(self):
         stand_in = self.stand_in() / "bin" / "timeout"
+        # The comparison is with GNU's timeout, which CI's runner has. Another machine may hold another at that path:
+        # macOS ships one that answers the duration `-1` with 1, not 125, and is no word on what GNU's runs. It is
+        # told by its own `--version`; where it is not GNU's the stand-in is held alone, and on Linux GNU's must be there,
+        # so the comparison is never passed over where it is made.
         real = shutil.which("timeout", path="/usr/bin:/bin")
+        gnu = bool(real) and b"GNU coreutils" in subprocess.run([real, "--version"], capture_output=True, timeout=30).stdout
+        self.assertTrue(gnu or not sys.platform.startswith("linux"), "no GNU timeout to hold the stand-in to: %s" % real)
+        real = real if gnu else None
         for given, runs in [(["180"], True), (["60"], True), (["1.5"], True), (["90s"], True), (["3m"], True),
                             ([".5"], True), (["18O"], False), ([""], False), (["5x"], False), (["-1"], False),
                             (["s"], False), (["."], False)]:
