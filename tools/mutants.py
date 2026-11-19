@@ -1489,7 +1489,7 @@ MUTANTS = ISSUE + [
     ("the storage a trial recorded, an account numbered in two digits, is refused", 'adapters/github.py',
      'STORAGE = re.compile(r"productionresultssa(?:[0-9]|[1-9][0-9]{1,2})\\.blob\\.core\\.windows\\.net")',
      'STORAGE = re.compile(r"productionresultssa[0-9]\\.blob\\.core\\.windows\\.net")', ('tests.test_adapters.Records.test_an_artifact_download_a_trial_recorded_is_read_as_the_port_reads_it',)),
-    ("the recorded artifact's digest is not held to its bytes", 'adapters/artifacts.py',
+    ("a digest in the form a trial recorded is refused", 'adapters/artifacts.py',
      'DIGEST = re.compile(r"sha256:[0-9a-f]{64}")',
      'DIGEST = re.compile(r"sha512:[0-9a-f]{64}")', ('tests.test_adapters.Records.test_the_port_reads_the_artifact_a_trial_recorded_and_the_helper_is_in_its_shapes',)),
     # Issue 342: a pull request the Factory opens is bound to its issue by the Run that opened it, as well as its branch.

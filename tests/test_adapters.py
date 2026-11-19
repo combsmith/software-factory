@@ -1092,7 +1092,8 @@ STORE = "https://productionresultssa7.blob.core.windows.net/actions-results/0a1b
 def stored(repo: str, github_id: int, zipped, ident: int = 9, store: str = STORE, **listed) -> list:
     """A run's artifacts listed, its outcome's download redirected, and the storage's answer, in the shapes trial P-68
     recorded them (`trials/P-68.json`, held to it by the test below that reads the trial): of the list, the fields the
-    port reads; of the redirect, its `location`; of the storage, its type and the zip. `zipped` None lists none."""
+    port reads; of the redirect, its `location`, whose query here stands for the signature the trial did not keep; of the storage, its
+    type and the zip. `zipped` None lists none."""
     artifact = {"id": ident, "name": artifacts.NAME, "expired": False}
     if zipped is not None:
         artifact.update(size_in_bytes=len(zipped), digest="sha256:" + hashlib.sha256(zipped).hexdigest())
@@ -1778,15 +1779,21 @@ class Records(unittest.TestCase):
                  if (e.get("request") or {}).get("via") == "storage"]
         self.assertTrue(found)
         for name, at in found:
+            # The storage is asked right after the redirect, for exactly the address it gave, with no query kept, which
+            # would sign it, no header and no body: a fixture's storage exchange is of GitHub's artifact storage alone.
+            self.assertGreater(at, 0, name)
             moved = exchanges(name)[at - 1]["response"]["headers"]["location"]
             self.assertEqual(github.storage(moved), moved)
-        self.assertIn(("P-68", 4), found)
+            asked = exchanges(name)[at]["request"]
+            self.assertEqual((asked["call"].split(" (")[0], asked["headers"], asked["body"], "?" in moved),
+                             ("GET " + moved, {}, None, False), (name, at))
+        self.assertIn(("P-68", 1), found)
 
     def test_the_port_reads_the_artifact_a_trial_recorded_and_the_helper_is_in_its_shapes(self):  # issue 917
         # trials/P-68.json: a canary run uploaded an artifact of one file under a Run's outcome's name, and one of two.
         # Its list, its download's redirect and the storage's answer are read by the port whole, with no change.
         found, run = exchanges("P-68"), 44425338714
-        listed, missing, two, moved, served, deleted, gone = found
+        moved, served, listed, missing, two, deleted, gone = found      # in the order they were asked
         self.assertEqual(artifacts.outcome(github.Replay([listed, moved, served]), canary(), run, "r_P68TRIAL"), ("item", True))
         # What the list says of the zip is what the storage served: its length, and its sha256 as `sha256:` and 64 hex.
         artifact, = listed["response"]["body"]["artifacts"]
@@ -1816,7 +1823,9 @@ class Records(unittest.TestCase):
         self.assertEqual(helped[0]["request"]["call"], listed["request"]["call"].split(" (")[0])
         mine, = helped[0]["response"]["body"]["artifacts"]
         self.assertEqual(mine, {key: artifact[key] for key in mine})
-        self.assertEqual(sorted(helped[0]["response"]["body"]), sorted(listed["response"]["body"]))
+        self.assertEqual((sorted(helped[0]["response"]["body"]), helped[0]["response"]["body"]["total_count"]),
+                         (sorted(listed["response"]["body"]), listed["response"]["body"]["total_count"]))
+        self.assertEqual(stored(canary(), run, None)[0]["response"]["body"], deleted["response"]["body"])
         self.assertEqual(helped[1]["request"]["call"], moved["request"]["call"].split(" (")[0])
         for redirect in (helped[1], moved):
             self.assertEqual(github.storage(redirect["response"]["headers"]["location"].split("?")[0]),

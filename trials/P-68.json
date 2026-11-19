@@ -9,6 +9,57 @@
     {
       "request": {
         "as": {
+          "kind": "workflow",
+          "name": "p68-artifacts, run 44425338714, its job p68 / download, with its own GITHUB_TOKEN and permissions actions: read alone"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/artifacts/14482759842/zip (curl, following no redirect): the one-file artifact's download, asked inside the run that uploaded it, since nothing that follows a redirect shows it; the job's time when both answers were kept 2026-11-18T23:59:58Z; of the answer's headers the job kept those a fixture may keep, and of `location` its address without its query, which signs it",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 302,
+        "headers": {
+          "date": "Wed, 18 Nov 2026 23:59:58 GMT",
+          "content-type": "text/html;charset=utf-8",
+          "content-length": "0",
+          "location": "https://productionresultssa13.blob.core.windows.net/actions-results/bd6a0fc7-654c-8b04-a22c-f59e76cad947/workflow-job-run-491087ab-d63e-5d37-b32c-21110f863b42/artifacts/25a63e52a98f6fdaa6187da559a0a3a55d845d0322ca183ad6ad5e006c4ed646.zip",
+          "server": "github.com"
+        },
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "anonymous",
+          "name": "no credential but the signature in the address's query, which is not kept"
+        },
+        "via": "storage",
+        "call": "GET https://productionresultssa13.blob.core.windows.net/actions-results/bd6a0fc7-654c-8b04-a22c-f59e76cad947/workflow-job-run-491087ab-d63e-5d37-b32c-21110f863b42/artifacts/25a63e52a98f6fdaa6187da559a0a3a55d845d0322ca183ad6ad5e006c4ed646.zip (curl, following no redirect): the address exchange 0 was answered with, asked by the same job with its query and no Authorization header; the zip as served, kept whole as base64",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-length": "237",
+          "content-type": "application/zip",
+          "last-modified": "Wed, 18 Nov 2026 23:59:48 GMT",
+          "etag": "\"0x8DF45D00707054A\"",
+          "server": "Windows-Azure-Blob/1.0 Microsoft-HTTPAPI/2.0",
+          "date": "Wed, 18 Nov 2026 23:59:57 GMT"
+        },
+        "body": {
+          "base64": "UEsDBBQACAAIAHe/cl0AAAAAAAAAAAAAAAAMAAAAb3V0Y29tZS5qc29uq1YqTs5IzU1UslJQyi8tSc7PTdU3VNJRUCoqzQOJFcUHmFmEBHk6+oAFU3NSE4tTQRJpickl+UWV+mUGeoZ6hsYgWah+kGxmSWouRENicT7EoNTi0pyS+My8ssSczBSlWi4AUEsHCHZUqw1jAAAAegAAAFBLAQItAxQACAAIAHe/cl12VKsNYwAAAHoAAAAMAAAAAAAAAAAAIACkgQAAAABvdXRjb21lLmpzb25QSwUGAAAAAAEAAQA6AAAAnQAAAAAA"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
           "kind": "person",
           "name": "don-petry"
         },
@@ -156,62 +207,11 @@
     {
       "request": {
         "as": {
-          "kind": "workflow",
-          "name": "p68-artifacts, run 44425338714, its job p68 / download, with its own GITHUB_TOKEN and permissions actions: read alone"
-        },
-        "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/actions/artifacts/14482759842/zip (curl, following no redirect): the one-file artifact's download, asked inside the run that uploaded it, since nothing that follows a redirect shows it; the job's time when both answers were kept 2026-11-18T23:59:58Z; of the answer's headers the job kept those a fixture may keep, and of `location` its address without its query, which signs it",
-        "headers": {
-          "accept": "application/vnd.github+json"
-        },
-        "body": null
-      },
-      "response": {
-        "status": 302,
-        "headers": {
-          "date": "Wed, 18 Nov 2026 23:59:58 GMT",
-          "content-type": "text/html;charset=utf-8",
-          "content-length": "0",
-          "location": "https://productionresultssa13.blob.core.windows.net/actions-results/bd6a0fc7-654c-8b04-a22c-f59e76cad947/workflow-job-run-491087ab-d63e-5d37-b32c-21110f863b42/artifacts/25a63e52a98f6fdaa6187da559a0a3a55d845d0322ca183ad6ad5e006c4ed646.zip",
-          "server": "github.com"
-        },
-        "body": null
-      }
-    },
-    {
-      "request": {
-        "as": {
-          "kind": "anonymous",
-          "name": "no credential but the signature in the address's query, which is not kept"
-        },
-        "via": "storage",
-        "call": "GET https://productionresultssa13.blob.core.windows.net/actions-results/bd6a0fc7-654c-8b04-a22c-f59e76cad947/workflow-job-run-491087ab-d63e-5d37-b32c-21110f863b42/artifacts/25a63e52a98f6fdaa6187da559a0a3a55d845d0322ca183ad6ad5e006c4ed646.zip (curl, following no redirect): the address exchange 3 was answered with, asked by the same job with its query and no Authorization header; the zip as served, kept whole as base64",
-        "headers": {},
-        "body": null
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "content-length": "237",
-          "content-type": "application/zip",
-          "last-modified": "Wed, 18 Nov 2026 23:59:48 GMT",
-          "etag": "\"0x8DF45D00707054A\"",
-          "server": "Windows-Azure-Blob/1.0 Microsoft-HTTPAPI/2.0",
-          "date": "Wed, 18 Nov 2026 23:59:57 GMT"
-        },
-        "body": {
-          "base64": "UEsDBBQACAAIAHe/cl0AAAAAAAAAAAAAAAAMAAAAb3V0Y29tZS5qc29uq1YqTs5IzU1UslJQyi8tSc7PTdU3VNJRUCoqzQOJFcUHmFmEBHk6+oAFU3NSE4tTQRJpickl+UWV+mUGeoZ6hsYgWah+kGxmSWouRENicT7EoNTi0pyS+My8ssSczBSlWi4AUEsHCHZUqw1jAAAAegAAAFBLAQItAxQACAAIAHe/cl12VKsNYwAAAHoAAAAMAAAAAAAAAAAAIACkgQAAAABvdXRjb21lLmpzb25QSwUGAAAAAAEAAQA6AAAAnQAAAAAA"
-        }
-      }
-    },
-    {
-      "request": {
-        "as": {
           "kind": "person",
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/44425338714/artifacts?name=outcome&per_page=100 (gh api): the same list as exchange 0, asked after the Maintainer's login deleted artifact 14482759842 (DELETE /repos/combsmith/software-factory-canary/actions/artifacts/14482759842, answered 204); client time 2026-11-19T00:00:32Z",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/44425338714/artifacts?name=outcome&per_page=100 (gh api): the same list as exchange 2, asked after the Maintainer's login deleted artifact 14482759842 (DELETE /repos/combsmith/software-factory-canary/actions/artifacts/14482759842, answered 204); client time 2026-11-19T00:00:32Z",
         "headers": {},
         "body": null
       },
@@ -276,15 +276,16 @@
   ],
   "removed": [
     "exchanges[0].request.headers.authorization",
-    "exchanges[1].request.headers.authorization",
     "exchanges[2].request.headers.authorization",
     "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
     "exchanges[5].request.headers.authorization",
     "exchanges[6].request.headers.authorization",
-    "exchanges[3].response.headers.location: its query, which signs the address; the job cut it off before anything was kept",
-    "exchanges[4].request.call: the query of the address asked, the same signature",
-    "exchanges[3].response.headers and exchanges[4].response.headers: every header but those the job kept by name, and of exchange 3's body nothing, which was empty",
-    "exchanges[0].response.headers, exchanges[1], [2], [5] and [6] the same: every header a fixture may not keep"
+    "exchanges[0].response.headers.location: its query, which signs the address; the job cut it off before anything was kept",
+    "exchanges[1].request.call: the query of the address asked, the same signature",
+    "exchanges[0].response.headers and exchanges[1].response.headers: every header but those the job kept by name, and of exchange 0's body nothing, which was empty",
+    "exchanges[2].response.headers, exchanges[3], [4], [5] and [6] the same: every header a fixture may not keep",
+    "between exchanges 4 and 5: the Maintainer's DELETE of the one-file artifact, answered 204, which was made and is not kept as an exchange; exchange 5's call says so"
   ],
   "verdict": "pass"
 }
