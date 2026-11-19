@@ -8,6 +8,7 @@ import io
 import json
 import os
 import pathlib
+import tempfile
 import unittest
 from unittest import mock
 
@@ -288,6 +289,16 @@ class Transport(unittest.TestCase):
         made = [getattr(h, "_context", None) for h in handlers if isinstance(h, azure.urllib.request.HTTPSHandler)]
         self.assertEqual([(getattr(c, "verify_mode", None), getattr(c, "check_hostname", None)) for c in made],
                          [(azure.ssl.CERT_REQUIRED, True)])
+        self.assertGreaterEqual(made[0].minimum_version, azure.ssl.TLSVersion.TLSv1_2)
+        # It writes no session key where SSLKEYLOGFILE says: the file is not even opened, since the default context,
+        # which opens it where the ssl module can log keys, is never made (this desk's LibreSSL cannot; CI's can).
+        with tempfile.TemporaryDirectory() as folder:
+            logged = os.path.join(folder, "keys.log")
+            with mock.patch.dict(os.environ, {"SSLKEYLOGFILE": logged}), \
+                    mock.patch.object(azure.ssl, "create_default_context", side_effect=AssertionError("made")):
+                handlers = azure.Live(HOST, KEY, 30).opener.handlers
+            made = [h._context for h in handlers if isinstance(h, azure.urllib.request.HTTPSHandler)]
+            self.assertEqual(([getattr(c, "keylog_filename", None) for c in made], os.path.exists(logged)), ([None], False))
 
     def test_the_azure_transport_reads_only_an_answer_framed_as_azure_frames_one(self):
         # Azure frames each of its answers, chunked or with one length of digits alone. Any other answer, a body's or
