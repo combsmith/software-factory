@@ -34,7 +34,8 @@ What this rests on, and its stated limits:
   is handed copies of what `push` holds, never `push`. A state of another shape lets nothing leave; one forged in
   the right shape is not told from a true one.
 - An answer is what the transport read from GitHub, held as a request's body is to what JSON reads, each thing of
-  its exact kind. A blob's name is taken from its answer alone.
+  its exact kind. A body built to share one part many times over is walked once for each time: JSON reads no such
+  value, and the caller hands over only bodies it built whole and answers it read. A blob's name is taken from its answer alone.
 - A request is allowed again for as long as its answer has not reached `seen`: the caller stops at an answer lost.
 - A branch rewound, or removed and made again at a commit `parent` stands on, between its read and its move takes
   the move, since it is a move forward and REST has no compare-and-swap.
@@ -96,17 +97,20 @@ REF_MADE, REF_MOVED, COMMIT_BACK = "ref_made", "ref_moved", "commit_back"
 
 def _plain(value) -> bool:
     """Whether `value` holds what JSON reads and nothing else, each thing of its exact kind: a mapping of text to such
-    things, a list of them, text, a number, true, false or null. Text of another kind may say it equals anything, so a
-    body or an answer that holds one is held to nothing; this stops there."""
-    left = [value]
+    things, a list of them, text, a number, true, false or null, held no deeper than `patch.DEEPEST` has characters,
+    which no body or answer of a push comes near and a value that holds itself passes. Text of another kind may say it
+    equals anything, so a body or an answer that holds one is held to nothing; this stops there."""
+    left = [(value, "")]
     while left:
-        value = left.pop()
+        value, depth = left.pop()
+        if len(depth) > len(patch.DEEPEST):
+            return False
         if type(value) is dict:
             if not all(type(key) is str for key in value):
                 return False
-            left += list(value.values())
+            left += [(held, depth + "0") for held in value.values()]
         elif type(value) is list:
-            left += value
+            left += [(held, depth + "0") for held in value]
         elif value is not None and type(value) not in (str, int, bool):
             return False
     return True
@@ -234,8 +238,8 @@ def _state(state) -> bool:
 def _step(state, method, path, body):
     """Which request of the push this is, as the state stands, or None where it may not leave. A state that is none
     of `began`'s, or of a push told wrongly, lets nothing leave; nor does a path outside this repo's git data,
-    whatever the method, or a body that holds what JSON does not."""
-    if not _state(state) or type(path) is not str or not _plain(body):
+    whatever the method, a method or a path that is text of another kind, or a body that holds what JSON does not."""
+    if not _state(state) or type(method) is not str or type(path) is not str or not _plain(body):
         return None
     push = state["push"]
     root = "/repos/" + push["repo"] + "/git/"

@@ -1089,7 +1089,7 @@ class Push(unittest.TestCase):
                          GIT + "/"):
                 self.assertFalse(push.permits(state, method, root + rest, body), (method, root + rest))
                 self.assertIsNone(push.seen(state, method, root + rest, body, said), (method, root + rest))
-            for other in ("DELETE", "PUT", method.lower(), None, [method]):
+            for other in ("DELETE", "PUT", method.lower(), None, [method], Odd("DELETE")):
                 self.assertFalse(push.permits(state, other, GIT + rest, body), (other, rest))
             self.assertFalse(push.permits(state, method, None, body))
             self.assertFalse(push.permits(state, method, [GIT + rest], body))
@@ -1533,6 +1533,16 @@ class Push(unittest.TestCase):
                 self.assertIsNone(then(state, method, rest, {"x": 1}, said), name)
                 self.assertIsNone(then(state, "DELETE", rest, body, said), name)
         self.assertIsNone(push.seen(None, "GET", GIT + "commits/" + PARENT, None, answer(200, {"sha": PARENT, "tree": {"sha": ROOT_TREE}})))
+        # A value held deeper than any answer of GitHub's is refused, and so one that holds itself ends there.
+        state, (method, rest, body, said) = before("tree")
+        deep = None
+        for _ in patch.DEEPEST[2:]:  # the answer and its body are two levels, the listing's lists all the rest
+            deep = [deep]
+        self.assertIsNotNone(then(state, method, rest, body, answer(200, listed(ROOT_TREE, BEFORE, more=deep))))
+        self.assertIsNone(then(state, method, rest, body, answer(200, listed(ROOT_TREE, BEFORE, more=[deep]))))
+        looped = listed(ROOT_TREE, BEFORE)
+        looped["more"] = looped
+        self.assertIsNone(then(state, method, rest, body, answer(200, looped)))
 
     def test_the_paths_apply_is_asked_about_are_the_paths_that_land(self):
         changes = {"written": {"docs/b.md": (FILE, b"x\n"), "docs/a.md": (FILE, b"A\n"), "tests/new.py": (FILE, b"")},
