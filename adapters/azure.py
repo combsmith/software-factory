@@ -1,24 +1,53 @@
 """The second transport: what an advisory Lens's reader is asked through, and nothing else (decision 0224). With
-`adapters/github.py` it is one of the two files in this repo that may reach the network, and it may not name GitHub's host
-(tools/check_repo.py). A request is one of four acts, built by `create`, `read`, `cancel` or `chat`, and names no method
-and no path: this file alone writes those, by `wire`, so a caller cannot ask for another, and no request of this file's is
-one `adapters/github.py` would send. They are the requests of two APIs alone: Responses, to create a response, read it
-and cancel it, and Chat Completions, to create one.
+`adapters/github.py` it is one of the two files in this repo that reach the network, and it may not name GitHub's host
+(tools/check_repo.py). A request is one of four acts, built by `create`, `read`, `cancel` or `chat`, and names no
+method and no path: the transport alone writes those, so a caller cannot ask for another, and no request of this
+file's is one `adapters/github.py` would send. An answer is `{status, headers, body}`.
 
-What sends them is the next part to come, and until it does this file imports nothing that reaches the network.
+`Live` sends HTTPS to the one host its caller names, which is the configuration's, held to the forms Azure serves a
+model's API under, on its own port. It sends the paths of two APIs alone: Responses, to create a response, read it and
+cancel it, and Chat Completions, to create one. It takes its key from its caller and never from the environment, and
+sends it under Azure's own header to that host and no other: it follows no redirect and uses no proxy. Each wait on
+the connection has its caller's limit in seconds, which bounds neither the finding of the host's address nor an answer
+that comes slowly: the whole is bounded by the limit of the step that calls. Every answer is bounded in size and
+refused past the bound or short of the length it said, never cut short, and one that is not UTF-8 is text and never
+read as JSON. Of an answer's headers it keeps the two a caller reads, each only when it is short, printable ASCII. No
+refusal names the host, the address or the key, and none is chained to an error of urllib's, which holds the address
+asked. Nothing is installed: the standard library does the rest.
 """
 from __future__ import annotations
 
+import http.client
+import json
 import re
+import urllib.error
+import urllib.request
 
+# The hosts Azure serves a model's API under: one label, the resource's name, below one of three names of Azure's own.
+# The whole of what the configuration gives must be this, so a port, a user, a path or a host that only ends so is none.
+HOSTS = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+                   r"\.(?:openai\.azure\.com|services\.ai\.azure\.com|cognitiveservices\.azure\.com)")
 RESPONSES = "/openai/v1/responses"
 CHAT = "/openai/v1/chat/completions"
 # A response's id as a path's one segment: no slash, dot, percent or query, so it names no other path.
 IDENT = re.compile(r"[A-Za-z0-9_-]{1,200}")
+LARGEST = 4 * 1024 * 1024       # bytes an answer may hold; one larger is refused, never cut short silently
+CHUNK = 1024 * 1024             # bytes read at a time, so the bound costs no more memory than the answer
+LONGEST = 1200                  # seconds a caller may give one wait: the advise step's own limit (decision 0224)
+REDIRECTS = {301, 302, 303, 307, 308}
+KEPT = ("content-type", "retry-after")      # the headers of an answer a caller reads; no other is kept
+HEADER = 100                    # characters a kept header may hold: one longer, or not printable ASCII, is not kept
 
 
 class Unanswered(Exception):
     """A request the transport will not send, or one Azure did not answer whole."""
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if fp is not None:
+            fp.close()
+        raise Unanswered("Azure answered %d, a redirect; the transport follows none" % code)
 
 
 def request(act: str, ident, body) -> dict:
@@ -64,3 +93,78 @@ def wire(req) -> tuple:
     if req["act"] == "read":
         return "GET", "%s/%s" % (RESPONSES, req["id"]), None
     return "POST", "%s/%s/cancel" % (RESPONSES, req["id"]), {}
+
+
+def _answer(status: int, headers, raw: bytes) -> dict:
+    kept = {k.lower(): v for k, v in headers.items()
+            if k.lower() in KEPT and len(v) <= HEADER and v.isascii() and v.isprintable()}
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return {"status": status, "headers": kept, "body": raw.decode("utf-8", errors="replace")}
+    if kept.get("content-type", "").split(";")[0].strip().lower().endswith("json"):
+        try:
+            return {"status": status, "headers": kept, "body": json.loads(text) if text else None}
+        except (ValueError, RecursionError):
+            pass
+    return {"status": status, "headers": kept, "body": text}
+
+
+def _bounded(stream) -> bytes:
+    parts, size = [], 0
+    while True:
+        part = stream.read(CHUNK)
+        if not part:
+            # What is left of the length an answer said, where it said one: an answer that ended before it is cut short.
+            if type(getattr(stream, "length", None)) is int and stream.length > 0:
+                raise Unanswered("an answer shorter than the length it said; it is refused, not kept cut short")
+            return b"".join(parts)
+        size += len(part)
+        if size > LARGEST:
+            raise Unanswered("an answer over %d bytes; it is refused, not cut short" % LARGEST)
+        parts.append(part)
+
+
+class Live:
+    """HTTPS to the one host named, with the key and the seconds its caller gives it."""
+
+    __slots__ = ("opener", "_host", "_key", "_seconds")
+
+    def __init__(self, host: str, key: str, seconds: int):
+        if type(host) is not str or not HOSTS.fullmatch(host):
+            raise Unanswered("the host is one of Azure's, for a model's API, as the configuration names it")
+        if type(key) is not str or not key or not key.isascii() or any(not c.isprintable() or c == " " for c in key):
+            raise Unanswered("a key is one word, given by the caller")
+        if type(seconds) is not int or not 1 <= seconds <= LONGEST:
+            raise Unanswered("a wait's limit is a whole number of seconds, from 1 to %d" % LONGEST)
+        self._host, self._key, self._seconds = host, key, seconds
+        # No proxy from the environment, and no redirect: the request and its key go to the host named, or nowhere.
+        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect,
+                                                  urllib.request.HTTPSHandler)
+
+    def __repr__(self) -> str:
+        return "<azure.Live>"
+
+    def send(self, req: dict) -> dict:
+        verb, path, body = wire(req)
+        headers = {"api-key": self._key, "Accept": "application/json", "User-Agent": "software-factory"}
+        # A refusal is raised only once every handler has ended, so that it is chained to no error of urllib's.
+        try:
+            data = None
+            if body is not None:
+                data, headers["Content-Type"] = json.dumps(body, allow_nan=False).encode(), "application/json"
+            sent = urllib.request.Request("https://%s%s" % (self._host, path), data=data, headers=headers, method=verb)
+            try:
+                with self.opener.open(sent, timeout=self._seconds) as got:
+                    return _answer(got.status, got.headers, _bounded(got))
+            except urllib.error.HTTPError as err:
+                with err:
+                    if err.code in REDIRECTS:
+                        raise Unanswered("Azure answered %d, a redirect; the transport follows none" % err.code)
+                    return _answer(err.code, err.headers, _bounded(err))
+        except Unanswered as err:
+            refused = str(err)
+        except (urllib.error.URLError, OSError, ValueError, TypeError, RecursionError,
+                http.client.HTTPException) as err:
+            refused = "Azure could not be reached, or its answer was cut short: %s" % type(err).__name__
+        raise Unanswered(refused)
