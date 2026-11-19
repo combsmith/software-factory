@@ -1,5 +1,5 @@
-"""The `run` job's step before any other of the Run's: the Run says that no advisory reader has been asked (decision
-0224; the Factory Builder, 2026-11-19).
+"""The step a Run is to take before any other: the Run says that no advisory reader has been asked (decision 0224; the
+Factory Builder, 2026-11-19). The workflow that runs it first is still to come.
 
     python3 -m harness.unasked
 
