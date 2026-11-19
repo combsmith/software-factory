@@ -2708,8 +2708,11 @@ class Purity(unittest.TestCase):
         files = {"kernel/rules.py": brakes, "kernel/other.py": "from kernel import rules\n",
                  "kernel/decide.py": "from kernel.other import rules\n\n\ndef _decision(facts):\n    return facts\n\n\n"
                  "def decide(facts):\n    return rules.paused(_decision, facts)\n"}
-        # What fills it is read there too; the name itself is read off only where its own module's import binds it.
-        self.assertEqual([p for p in check_purity.run(planted(files)) if "reads paused off a value" not in p], [])
+        # What fills it is read there too; the name itself is read off only where its own module's import binds it, so
+        # paused read off the re-export is a read off a value, and that alone is said (Astra's read of #851).
+        got = check_purity.run(planted(files))
+        self.assertTrue(caught(got, "decide.py:9 reads paused off a value"), got)
+        self.assertEqual([p for p in got if "reads paused off a value" not in p], [], got)
 
     def test_a_chain_of_modules_is_read_once_a_level(self):
         # A module re-exported as its own attribute, read down a long chain, is resolved once a level, so the reads

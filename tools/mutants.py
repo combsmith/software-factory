@@ -17714,6 +17714,11 @@ MUTANTS = ISSUE + [
     ("a module of the Kernel's is refused for the name its rules are written for", 'tools/check_purity.py',
      '        if guest and name in KEYED:\n',
      '        if name in KEYED:\n', ('tests.test_tools.Purity.test_the_kernel_is_the_package_python_imports_and_reads_nothing_off_a_value',)),
+    # Astra's read of #851: a module another re-exports is a value to the Kernel, and nothing is read off it.
+    ("a module of the Kernel's re-exported by another is read off as a module", 'tools/check_purity.py',
+     '\n                   if folder + alias.name + ".py" in trees or folder + alias.name + "/__init__.py" in trees]\n',
+     '\n                   if alias.name + ".py" in trees or folder + alias.name + ".py" in trees or folder + alias.name + "/__init__.py" in trees]\n',
+     ('tests.test_tools.Purity.test_what_fills_a_decision_maker_is_a_kernel_function',)),
     ("a guard named terms.py may write the calendar's numbers", 'tools/check_purity.py',
      'KEYED = frozenset(CONFINED) | {"terms.py"}\n',
      'KEYED = frozenset(CONFINED)\n', ('tests.test_tools.Purity.test_the_guards_are_held_as_the_kernel_is_and_import_themselves_alone',)),
