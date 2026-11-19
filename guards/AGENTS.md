@@ -1,6 +1,6 @@
 # guards/
 
-The guards on a Role's own writes, as pure functions: each says what such a write may land, or gives the one reason, a code, why nothing may. `patch.py` applies a Role's patch byte for byte; `push.py` holds what the push that lands it is told.
+The guards on a Role's own writes, as pure functions: each says what such a write may land, or gives the one reason, a code, why nothing may. `patch.py` applies a Role's patch byte for byte; `push.py` holds what the push that lands it may read.
 A guard binds the Role that writes this repo's code. So it lives here, never in `kernel/` or `adapters/`, where that Role may push; a port hands a guard what it read, and the Harness calls it. A guard reads nothing itself.
 
 | Rule | Held by |
@@ -30,4 +30,6 @@ A guard binds the Role that writes this repo's code. So it lives here, never in 
 | What it lands is what git lands, on fixed seeds, of a patch as git writes it and of the same patch broken | `tests/test_guards.py::test_a_patch_as_git_writes_it_lands_what_git_would` |
 | A push is told whole or begins nothing; its changes are `applied`'s, path by path | `tests/test_guards.py::test_a_push_is_told_whole_or_begins_nothing`, `tests/test_guards.py::test_a_pushs_changes_are_what_applied_gives_path_by_path` |
 | `apply` is asked about the paths that land | `tests/test_guards.py::test_the_paths_apply_is_asked_about_are_the_paths_that_land` |
+| No request leaves this repo's git data; it reads only the admitted commit and its branch | `tests/test_guards.py::test_nothing_leaves_outside_this_repos_git_data`, `tests/test_guards.py::test_a_push_reads_the_admitted_commit_and_its_own_branch` |
+| The admitted tree is read whole, and the branch as the Decision admitted it | `tests/test_guards.py::test_the_admitted_tree_is_read_whole_or_not_at_all`, `tests/test_guards.py::test_the_branch_is_read_as_the_decision_admitted_it` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
