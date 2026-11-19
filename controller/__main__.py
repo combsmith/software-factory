@@ -14,8 +14,9 @@ and written to the folder `OUT` for the pass job's next steps (#193's ruling 10 
    and, for reconciliation, what each Factory identity wrote and what the Factory recorded (decision 0112). The issues
    are listed and read after the pull requests and the records, without the tracking issue, by the number the passes
    recorded (issue 901). Not read yet: an issue's Runs' jobs, which decision 0196 asks of the open pull requests'
-   alone; nor is any issue's write reconciled. Its linked pull requests are read, whole only where no pull request
-   names it while their keyword spans are not read (issue 734), so an issue a pull request names defers.
+   alone; nor is any issue's write reconciled. Each issue's linked pull requests are read with their keyword spans
+   from the pass records before this pass, the two the entry already read, and with those not read each issue
+   defers (decision 0186).
 4. It gives the pass what it read and the time after the reads, and writes `pass.json`, `writes.json`, the plan the
    effects step holds to it, and the view's three files under `view/`.
 
@@ -258,9 +259,8 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
         try:
             if apart is None:
                 raise Unanswered("the tracking issue's number was not read")
-            # No pass record is handed on yet, so no span is read, while an issue a pull request names defers (issue 734).
             facts, title = issues_.read(through, home, number, who, lambda: utc(clock), identities=identities,
-                                        earlier=[])
+                                        earlier=before)
             issues.append({"facts": facts, "title": title})
             facts_reads += dated(through.first)
         except Unanswered as err:

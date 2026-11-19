@@ -6132,11 +6132,6 @@ def linked_read(refs=(), events=(), total=None, more=False, updated=UPDATED, rep
             "response": {"status": 200, "headers": {}, "body": {"data": {"repository": {"nameWithOwner": repo, "issue": issue}}}}}
 
 
-def crossed(source: str = "PullRequest") -> dict:
-    """A cross-reference on the issue's timeline, from a pull request or an issue (P-33)."""
-    return {"__typename": "CrossReferencedEvent", "source": {"__typename": source}}
-
-
 IDENTITIES = {"agent": {CONTROLLER_APP[1:]}, "maintainer": {(MAINTAINER, "User")}, "dependency": set()}
 
 
@@ -6693,44 +6688,59 @@ class Linked(unittest.TestCase):
         # Pass records that could not be read give no time and could hide one once seen: the list is not whole.
         self.assertEqual(self.read([linked_read()], None), ([], False))
 
-    def test_the_linked_pull_requests_are_whole_only_where_no_pull_request_names_the_issue(self):  # decision 0186
-        # While keyword spans are unread, a pull request listed or cross-referencing leaves the list short; an issue does not.
+    def test_the_linked_pull_requests_are_whole_where_the_list_and_the_spans_were_read_whole(self):  # decision 0186
+        # A pull request that names the issue is read, whole, with the spans the pass records give: none, where no pass
+        # before this one listed it.
+        named = lambda: [linked_read(ref(7)), pull_read(7), pull_timeline(7)]
         self.assertEqual(self.read([linked_read()]), ([], True))
-        self.assertEqual(self.read([linked_read((), [crossed("Issue")])]), ([], True))
-        self.assertEqual(self.read([linked_read((), [crossed()])]), ([], False))
-        # A source of no type, or not asked, names it; an issue's after it undoes nothing.
-        for events in ([crossed(None)], [crossed("Commit")], [crossed(), crossed("Issue")]):
-            self.assertEqual(self.read([linked_read((), events)]), ([], False), events)
-        # One the read names but leaves out, for its base or its life, names the issue all the same.
-        for named in ([linked_read((), [link("ConnectedEvent", 1, 8)]), pull_read(8, base="next")],
-                      [linked_read(ref(8)), pull_read(8, base="next")], [linked_read((), [closed_by(-70, 13)])]):
-            self.assertEqual(self.read(named), ([], False))
-        self.assertEqual(self.read([linked_read((), total=1)]), ([], False))
-        self.assertEqual(self.read([linked_read(more=True)]), ([], False))
-        self.assertIn("itemTypes: [CLOSED_EVENT, CONNECTED_EVENT, DISCONNECTED_EVENT, CROSS_REFERENCED_EVENT]", linked.QUERY)
-        self.assertIn("... on CrossReferencedEvent { source { __typename } }", linked.QUERY)
-        self.assertEqual(self.read([linked_read((), [{"__typename": "CrossReferencedEvent", "source": None}])]), ([], False))
-        self.assertEqual(self.read([linked_read(ref(7)), pull_read(7), pull_timeline(7)]), ([(7, True, [])], False))
+        self.assertEqual(self.read(named()), ([(7, True, [])], True))
+        self.assertEqual(self.read(named(), [seen_by(0), seen_by(3, [(7, True, [])])]), ([(7, True, [span(3)])], True))
+        # Pass records that could not be read give no time, and the list is not whole, with no pull request too: one
+        # whose keyword a pass saw could go unlisted.
+        self.assertEqual(self.read(named(), None), ([(7, True, [])], False))
+        self.assertEqual(self.read([linked_read()], None), ([], False))
+        # A list read short is not whole whatever the spans, and the spans are still handed on.
+        short = [linked_read(ref(7), total=2), pull_read(7), pull_timeline(7)]
+        self.assertEqual(self.read(short, [seen_by(3, [(7, True, [])])]), ([(7, True, [span(3)])], False))
+        # One the references name to another base is left out, as before, and the list is whole.
+        self.assertEqual(self.read([linked_read(ref(8)), pull_read(8, base="next")]), ([], True))
+        # The read asks the closes and the links by hand alone: no cross-reference decides anything.
+        self.assertIn("itemTypes: [CLOSED_EVENT, CONNECTED_EVENT, DISCONNECTED_EVENT]", linked.QUERY)
+        self.assertNotIn("CrossReferencedEvent", linked.QUERY)
 
-    def test_a_merge_beside_a_rival_keyword_link_is_never_read_with_no_spans(self):  # decision 0186
-        # The Controller's App's 5 merged and closed the issue; the Maintainer's 6 named it too. Read whole with no spans,
-        # the issue would be done; with the spans the passes would give, the two links held it. So it defers.
+    def test_a_merge_beside_a_rival_keyword_link_is_read_by_the_spans_the_pass_records_give(self):  # decision 0186
+        # The Controller's App's 5 merged at 10:19 and closed the issue; the Maintainer's 6 named it too.
         from kernel import issue
         from tests.support import CONFIG
         merge = [issue_event("closed", 19, CONTROLLER_APP)]
-        router = Router(github.Replay(issue_read([issue_event("closed", 20, CONTROLLER_APP)], state="closed", closing=[
-            linked_read(ref(5, 6), [closed_by(20, 5)]),
-            pull_read(5, user=CONTROLLER_APP, merged=19, closed=19, files=2), pull_timeline(5, merge),
-            pull_read(6), pull_timeline(6)])), {"don-petry": "admin"})
-        f, _ = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=[])
-        self.assertEqual(([p["number"] for p in f["linked"]], f["complete"]["linked"]), ([5, 6], False))
-        deferred = issue.derive(f, [], CONFIG)
+
+        def facts_of(earlier, refs=(5, 6)):
+            router = Router(github.Replay(issue_read([issue_event("closed", 20, CONTROLLER_APP)], state="closed", closing=[
+                linked_read(ref(*refs), [closed_by(20, 5)]),
+                pull_read(5, user=CONTROLLER_APP, merged=19, closed=19, files=2), pull_timeline(5, merge),
+                pull_read(6), pull_timeline(6)])), {"don-petry": "admin"})
+            return issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=earlier)[0]
+        reason = lambda f: issue.derive(f, [], CONFIG)["reason"]
+        # A pass saw both keywords before the merge: two links stood at it, and the issue is held.
+        both = [seen_by(3, [(5, True, []), (6, True, [])])]
+        f = facts_of(both)
+        self.assertEqual(([(p["number"], p["keyword"], p["keyword_spans"]) for p in f["linked"]], f["complete"]["linked"]),
+                         ([(5, True, [span(3)]), (6, True, [span(3)])], True))
+        self.assertEqual(reason(f), "merged_while_held")
+        # An edit that takes the rival's keyword out after the merge moves nothing: it stays listed, and the issue held,
+        # also once a pass has seen the keyword gone.
+        self.assertEqual(reason(facts_of(both, refs=(5,))), "merged_while_held")
+        gone = [seen_by(30, [(5, True, [span(3)]), (6, False, [span(3)])])]
+        self.assertEqual(reason(facts_of(gone, refs=(5,))), "merged_while_held")
+        # No pass saw either before the merge, or the first that did read after it: no link stood at it, and it is done.
+        self.assertEqual(reason(facts_of([])), "merged")
+        self.assertEqual(reason(facts_of([seen_by(25, [(5, True, []), (6, True, [])])])), "merged")
+        # Pass records that could not be read: the issue defers, never read done from spans no record gave.
+        unread = facts_of(None)
+        self.assertEqual(([p["number"] for p in unread["linked"]], unread["complete"]["linked"]), ([5, 6], False))
+        deferred = issue.derive(unread, [], CONFIG)
         self.assertEqual((deferred["state"], deferred["reason"], deferred["evidence"]), (None, "facts_incomplete", ["linked"]))
-        whole = dict(f, complete=dict(f["complete"], linked=True))
-        self.assertEqual(issue.derive(whole, [], CONFIG)["reason"], "merged")
-        spans = [dict(p, keyword_spans=[{"seen_at": minute(0), "gone_at": None}]) for p in f["linked"]]
-        self.assertEqual(issue.derive(dict(whole, linked=spans), [], CONFIG)["reason"], "merged_while_held")
-        # The life a writer's reopening began is read: a pushed commit closed it.
+        # The life a writer's reopening began is read: a pushed commit closed it, which no listed pull request merged.
         events = [issue_event("closed", 0), issue_event("reopened", 5), issue_event("closed", 8)]
         router = Router(github.Replay(issue_read(events, state="closed", closing=[
             linked_read((), [closed_by(8, oid="d" * 40)])])), {"don-petry": "admin"})
