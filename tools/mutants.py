@@ -133,6 +133,9 @@ ADVICE_COST = ("tests.test_advisory.Parser.test_a_result_says_what_the_read_cost
 AZURE_ONE = ("tests.test_advisory.Transport.test_the_azure_transport_reaches_one_host_and_two_apis",)
 AZURE_KEY = ("tests.test_advisory.Transport.test_the_azure_transport_takes_its_key_from_its_caller_and_sends_it_nowhere_else",)
 AZURE_BOUND = ("tests.test_advisory.Transport.test_the_azure_transport_bounds_every_answer_in_size_and_time",)
+# Decision 0224: the Run's first step and its advise step, and the test each mutant of theirs is killed by.
+UNASKED = "harness/unasked.py"
+UNASKED_SAYS = ("tests.test_advise.Unasked.test_the_first_step_says_no_reader_was_asked_and_never_fails_its_job",)
 SCRATCH_PARTS = ("tests.test_evals.EvalJob.test_a_set_of_no_case_ends_the_run_before_anything_is_read",)
 CANARY_APART = ("tests.test_evals.EvalJob.test_the_canarys_head_is_apart_from_its_case",)
 NO_ANSWER = ("tests.test_evals.EvalJob.test_a_run_is_given_no_part_of_its_cases_answer_and_its_head_no_history",)
@@ -4512,21 +4515,21 @@ MUTANTS = ISSUE + [
     ("an answer's type is read in one case alone", AZURE,
      '.strip().lower().endswith("json")', '.strip().endswith("json")', AZURE_BOUND),
     # Decision 0224: the Run's first step says that no advisory reader was asked.
-    ('the first step says that a reader was asked', 'harness/unasked.py',
+    ('the first step says that a reader was asked', UNASKED,
      '"asks": 0, "cost_usd": 0}',
-     '"asks": 1, "cost_usd": 0}', ('tests.test_advise.Unasked.test_the_first_step_says_no_reader_was_asked_and_never_fails_its_job',)),
-    ('the first step names a Release its checkout does not', 'harness/unasked.py',
+     '"asks": 1, "cost_usd": 0}', UNASKED_SAYS),
+    ('the first step names a Release its checkout does not', UNASKED,
      '"release": release(),',
-     '"release": "factory/v0.0.0",', ('tests.test_advise.Unasked.test_the_first_step_says_no_reader_was_asked_and_never_fails_its_job',)),
-    ('the first step writes a cost its schema refuses', 'harness/unasked.py',
+     '"release": "factory/v0.0.0",', UNASKED_SAYS),
+    ('the first step writes a cost its schema refuses', UNASKED,
      '    if shared.errors(document, "advice-cost"):\n        raise steps.Stop("cost_unwritable")\n',
-     '', ('tests.test_advise.Unasked.test_the_first_step_says_no_reader_was_asked_and_never_fails_its_job',)),
-    ('the first step writes into a folder that is already there', 'harness/unasked.py',
+     '', UNASKED_SAYS),
+    ('the first step writes into a folder that is already there', UNASKED,
      'steps.new_folder(os.getcwd() if base is None else base, out)',
-     '(os.makedirs(os.path.join(str(base), out), exist_ok=True), os.path.join(str(base), out))[1]', ('tests.test_advise.Unasked.test_the_first_step_says_no_reader_was_asked_and_never_fails_its_job',)),
-    ('the first step fails its job', 'harness/unasked.py',
+     '(os.makedirs(os.path.join(str(base), out), exist_ok=True), os.path.join(str(base), out))[1]', UNASKED_SAYS),
+    ('the first step fails its job', UNASKED,
      '    except Exception as err:    # NOSONAR the step never fails its job: the Run goes on, and is counted as one that left no cost\n',
-     '    except steps.Stop as err:\n', ('tests.test_advise.Unasked.test_the_first_step_says_no_reader_was_asked_and_never_fails_its_job',)),
+     '    except steps.Stop as err:\n', UNASKED_SAYS),
     # Decision 0224: the day's ceiling on advisory reads, as a pass answers it.
     ('a Run still running counts what it says it cost', 'controller/advisory.py',
      ' or record.get("status") != "completed":',
