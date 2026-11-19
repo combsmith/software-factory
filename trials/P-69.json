@@ -1,0 +1,492 @@
+{
+  "schema": "trial/1",
+  "trial": "P-69",
+  "question": "When a pull request linked by hand to an issue, in the issue's Development box, has its base changed to a branch that is not the default one, does the issue's timeline keep the ConnectedEvent naming it, with no DisconnectedEvent after it; do `closedByPullRequestsReferences` on the issue and `closingIssuesReferences` on the pull request still name each other; and when its base returns to the default, what do they say then?",
+  "pass": "Written before the run, in the gates lane's plan at 2026-11-19T20:20Z, nothing having run, for issue 916's part a (record 0236): pass: at step 3 (the base moved to the other branch) and at step 4 (a minute later, nothing changed), the issue's timeline, read whole, holds the ConnectedEvent of step 2 naming the pull request, and no DisconnectedEvent naming it after that ConnectedEvent; so the port lists the pull request among the issue's links by hand while its base is not the default. What closedByPullRequestsReferences and closingIssuesReferences say at each step, and what step 5 (the base back to the default) shows, are recorded and decide nothing. fail otherwise: the move drops the ConnectedEvent or adds a DisconnectedEvent. Passed. Run on 2026-11-19 in the canary through the Maintainer's own gh login, from the desk that acts for him (trial P-68's option A): pull request 125 (trial/p69-link to main, ready, its description naming no issue) and issue 126, opened for the trial; the branch trial/p69-base made from main. The link by hand was made by the Maintainer in GitHub's page, signed in as himself: its ConnectedEvent at 20:49:46Z names don-petry. Steps 3 and 4 hold the ConnectedEvent and no DisconnectedEvent; the pull request's own timeline gives the move as a BaseRefChangedEvent, main to trial/p69-base, at 20:52:20Z, and the move back at 20:53:32Z. Recorded, deciding nothing: a hand link keeps its closing reference on another base, unlike P-33's keyword reference: at steps 3 and 4 the issue's closedByPullRequestsReferences still lists pull request 125, its baseRefName trial/p69-base, and the pull request's closingIssuesReferences still lists issue 126. Step 5 shows the same link and references, the base main again. The writes (the branches, the pull request, the issue, the two base changes, and the undo) are not recorded here. Undone after the run: pull request 125 closed unmerged, issue 126 closed as not planned, both branches deleted; nothing was minted.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-11-19T20:21:34Z",
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization"
+  ],
+  "verdict": "pass",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql --include): the issue's timeline of links, unlinkings, cross-references and closes, with its closedByPullRequestsReferences, and the pull request's base, closingIssuesReferences and timeline of base changes and links, at step 1, as it is; the answer kept whole, of its headers the date and x-github-request-id alone",
+        "headers": {},
+        "body": {
+          "query": "query($owner:String!,$name:String!,$issue:Int!,$pr:Int!){repository(owner:$owner,name:$name){issue(number:$issue){state closedByPullRequestsReferences(first:10,includeClosedPrs:true){totalCount nodes{number baseRefName}} timelineItems(first:100,itemTypes:[CONNECTED_EVENT,DISCONNECTED_EVENT,CROSS_REFERENCED_EVENT,CLOSED_EVENT]){totalCount pageInfo{hasNextPage} nodes{__typename ... on ConnectedEvent{createdAt actor{__typename login} subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt actor{__typename login} subject{__typename ... on PullRequest{number}}} ... on CrossReferencedEvent{createdAt source{__typename ... on PullRequest{number}}} ... on ClosedEvent{createdAt closer{__typename}}}}} pullRequest(number:$pr){state baseRefName closingIssuesReferences(first:10){totalCount nodes{number}} timelineItems(first:100,itemTypes:[BASE_REF_CHANGED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT]){totalCount pageInfo{hasNextPage} nodes{__typename ... on BaseRefChangedEvent{createdAt actor{__typename login} previousRefName currentRefName} ... on ConnectedEvent{createdAt subject{__typename ... on Issue{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on Issue{number}}}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "issue": 126,
+            "pr": 125
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Thu, 19 Nov 2026 20:21:35 GMT",
+          "x-github-request-id": "CA41:F33A8:929D01:1CC1628:6AFF5A4E"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "state": "OPEN",
+                "closedByPullRequestsReferences": {
+                  "totalCount": 0,
+                  "nodes": []
+                },
+                "timelineItems": {
+                  "totalCount": 0,
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": []
+                }
+              },
+              "pullRequest": {
+                "state": "OPEN",
+                "baseRefName": "main",
+                "closingIssuesReferences": {
+                  "totalCount": 0,
+                  "nodes": []
+                },
+                "timelineItems": {
+                  "totalCount": 9,
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": []
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql --include): the issue's timeline of links, unlinkings, cross-references and closes, with its closedByPullRequestsReferences, and the pull request's base, closingIssuesReferences and timeline of base changes and links, at step 2, after the Maintainer linked the pull request to the issue by hand, in the issue's Development box; the answer kept whole, of its headers the date and x-github-request-id alone",
+        "headers": {},
+        "body": {
+          "query": "query($owner:String!,$name:String!,$issue:Int!,$pr:Int!){repository(owner:$owner,name:$name){issue(number:$issue){state closedByPullRequestsReferences(first:10,includeClosedPrs:true){totalCount nodes{number baseRefName}} timelineItems(first:100,itemTypes:[CONNECTED_EVENT,DISCONNECTED_EVENT,CROSS_REFERENCED_EVENT,CLOSED_EVENT]){totalCount pageInfo{hasNextPage} nodes{__typename ... on ConnectedEvent{createdAt actor{__typename login} subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt actor{__typename login} subject{__typename ... on PullRequest{number}}} ... on CrossReferencedEvent{createdAt source{__typename ... on PullRequest{number}}} ... on ClosedEvent{createdAt closer{__typename}}}}} pullRequest(number:$pr){state baseRefName closingIssuesReferences(first:10){totalCount nodes{number}} timelineItems(first:100,itemTypes:[BASE_REF_CHANGED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT]){totalCount pageInfo{hasNextPage} nodes{__typename ... on BaseRefChangedEvent{createdAt actor{__typename login} previousRefName currentRefName} ... on ConnectedEvent{createdAt subject{__typename ... on Issue{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on Issue{number}}}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "issue": 126,
+            "pr": 125
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Thu, 19 Nov 2026 20:52:14 GMT",
+          "x-github-request-id": "C71C:2E2FD0:113CA54:3748241:6AFF617D"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "state": "OPEN",
+                "closedByPullRequestsReferences": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "number": 125,
+                      "baseRefName": "main"
+                    }
+                  ]
+                },
+                "timelineItems": {
+                  "totalCount": 1,
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": [
+                    {
+                      "__typename": "ConnectedEvent",
+                      "createdAt": "2026-11-19T20:49:46Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "subject": {
+                        "__typename": "PullRequest",
+                        "number": 125
+                      }
+                    }
+                  ]
+                }
+              },
+              "pullRequest": {
+                "state": "OPEN",
+                "baseRefName": "main",
+                "closingIssuesReferences": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "number": 126
+                    }
+                  ]
+                },
+                "timelineItems": {
+                  "totalCount": 11,
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": [
+                    {
+                      "__typename": "ConnectedEvent",
+                      "createdAt": "2026-11-19T20:49:46Z",
+                      "subject": {
+                        "__typename": "Issue",
+                        "number": 126
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql --include): the issue's timeline of links, unlinkings, cross-references and closes, with its closedByPullRequestsReferences, and the pull request's base, closingIssuesReferences and timeline of base changes and links, at step 3, after the pull request's base was changed to trial/p69-base, by the Maintainer's gh login (PATCH /repos/combsmith/software-factory-canary/pulls/125, base trial/p69-base, at 20:52:20Z); the answer kept whole, of its headers the date and x-github-request-id alone",
+        "headers": {},
+        "body": {
+          "query": "query($owner:String!,$name:String!,$issue:Int!,$pr:Int!){repository(owner:$owner,name:$name){issue(number:$issue){state closedByPullRequestsReferences(first:10,includeClosedPrs:true){totalCount nodes{number baseRefName}} timelineItems(first:100,itemTypes:[CONNECTED_EVENT,DISCONNECTED_EVENT,CROSS_REFERENCED_EVENT,CLOSED_EVENT]){totalCount pageInfo{hasNextPage} nodes{__typename ... on ConnectedEvent{createdAt actor{__typename login} subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt actor{__typename login} subject{__typename ... on PullRequest{number}}} ... on CrossReferencedEvent{createdAt source{__typename ... on PullRequest{number}}} ... on ClosedEvent{createdAt closer{__typename}}}}} pullRequest(number:$pr){state baseRefName closingIssuesReferences(first:10){totalCount nodes{number}} timelineItems(first:100,itemTypes:[BASE_REF_CHANGED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT]){totalCount pageInfo{hasNextPage} nodes{__typename ... on BaseRefChangedEvent{createdAt actor{__typename login} previousRefName currentRefName} ... on ConnectedEvent{createdAt subject{__typename ... on Issue{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on Issue{number}}}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "issue": 126,
+            "pr": 125
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Thu, 19 Nov 2026 20:52:26 GMT",
+          "x-github-request-id": "C724:2A72E9:145E296:40369D6:6AFF618A"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "state": "OPEN",
+                "closedByPullRequestsReferences": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "number": 125,
+                      "baseRefName": "trial/p69-base"
+                    }
+                  ]
+                },
+                "timelineItems": {
+                  "totalCount": 1,
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": [
+                    {
+                      "__typename": "ConnectedEvent",
+                      "createdAt": "2026-11-19T20:49:46Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "subject": {
+                        "__typename": "PullRequest",
+                        "number": 125
+                      }
+                    }
+                  ]
+                }
+              },
+              "pullRequest": {
+                "state": "OPEN",
+                "baseRefName": "trial/p69-base",
+                "closingIssuesReferences": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "number": 126
+                    }
+                  ]
+                },
+                "timelineItems": {
+                  "totalCount": 12,
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": [
+                    {
+                      "__typename": "ConnectedEvent",
+                      "createdAt": "2026-11-19T20:49:46Z",
+                      "subject": {
+                        "__typename": "Issue",
+                        "number": 126
+                      }
+                    },
+                    {
+                      "__typename": "BaseRefChangedEvent",
+                      "createdAt": "2026-11-19T20:52:20Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "previousRefName": "main",
+                      "currentRefName": "trial/p69-base"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql --include): the issue's timeline of links, unlinkings, cross-references and closes, with its closedByPullRequestsReferences, and the pull request's base, closingIssuesReferences and timeline of base changes and links, at step 4, a minute after step 3, nothing changed; the answer kept whole, of its headers the date and x-github-request-id alone",
+        "headers": {},
+        "body": {
+          "query": "query($owner:String!,$name:String!,$issue:Int!,$pr:Int!){repository(owner:$owner,name:$name){issue(number:$issue){state closedByPullRequestsReferences(first:10,includeClosedPrs:true){totalCount nodes{number baseRefName}} timelineItems(first:100,itemTypes:[CONNECTED_EVENT,DISCONNECTED_EVENT,CROSS_REFERENCED_EVENT,CLOSED_EVENT]){totalCount pageInfo{hasNextPage} nodes{__typename ... on ConnectedEvent{createdAt actor{__typename login} subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt actor{__typename login} subject{__typename ... on PullRequest{number}}} ... on CrossReferencedEvent{createdAt source{__typename ... on PullRequest{number}}} ... on ClosedEvent{createdAt closer{__typename}}}}} pullRequest(number:$pr){state baseRefName closingIssuesReferences(first:10){totalCount nodes{number}} timelineItems(first:100,itemTypes:[BASE_REF_CHANGED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT]){totalCount pageInfo{hasNextPage} nodes{__typename ... on BaseRefChangedEvent{createdAt actor{__typename login} previousRefName currentRefName} ... on ConnectedEvent{createdAt subject{__typename ... on Issue{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on Issue{number}}}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "issue": 126,
+            "pr": 125
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Thu, 19 Nov 2026 20:53:27 GMT",
+          "x-github-request-id": "C735:F548:D6391B:29FD557:6AFF61C6"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "state": "OPEN",
+                "closedByPullRequestsReferences": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "number": 125,
+                      "baseRefName": "trial/p69-base"
+                    }
+                  ]
+                },
+                "timelineItems": {
+                  "totalCount": 1,
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": [
+                    {
+                      "__typename": "ConnectedEvent",
+                      "createdAt": "2026-11-19T20:49:46Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "subject": {
+                        "__typename": "PullRequest",
+                        "number": 125
+                      }
+                    }
+                  ]
+                }
+              },
+              "pullRequest": {
+                "state": "OPEN",
+                "baseRefName": "trial/p69-base",
+                "closingIssuesReferences": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "number": 126
+                    }
+                  ]
+                },
+                "timelineItems": {
+                  "totalCount": 12,
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": [
+                    {
+                      "__typename": "ConnectedEvent",
+                      "createdAt": "2026-11-19T20:49:46Z",
+                      "subject": {
+                        "__typename": "Issue",
+                        "number": 126
+                      }
+                    },
+                    {
+                      "__typename": "BaseRefChangedEvent",
+                      "createdAt": "2026-11-19T20:52:20Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "previousRefName": "main",
+                      "currentRefName": "trial/p69-base"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql --include): the issue's timeline of links, unlinkings, cross-references and closes, with its closedByPullRequestsReferences, and the pull request's base, closingIssuesReferences and timeline of base changes and links, at step 5, after the base was changed back to main, by the Maintainer's gh login (PATCH /repos/combsmith/software-factory-canary/pulls/125, base main, at 20:53:32Z); read a second time, since the first read of this step got no answer from gh and kept nothing; the answer kept whole, of its headers the date and x-github-request-id alone",
+        "headers": {},
+        "body": {
+          "query": "query($owner:String!,$name:String!,$issue:Int!,$pr:Int!){repository(owner:$owner,name:$name){issue(number:$issue){state closedByPullRequestsReferences(first:10,includeClosedPrs:true){totalCount nodes{number baseRefName}} timelineItems(first:100,itemTypes:[CONNECTED_EVENT,DISCONNECTED_EVENT,CROSS_REFERENCED_EVENT,CLOSED_EVENT]){totalCount pageInfo{hasNextPage} nodes{__typename ... on ConnectedEvent{createdAt actor{__typename login} subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt actor{__typename login} subject{__typename ... on PullRequest{number}}} ... on CrossReferencedEvent{createdAt source{__typename ... on PullRequest{number}}} ... on ClosedEvent{createdAt closer{__typename}}}}} pullRequest(number:$pr){state baseRefName closingIssuesReferences(first:10){totalCount nodes{number}} timelineItems(first:100,itemTypes:[BASE_REF_CHANGED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT]){totalCount pageInfo{hasNextPage} nodes{__typename ... on BaseRefChangedEvent{createdAt actor{__typename login} previousRefName currentRefName} ... on ConnectedEvent{createdAt subject{__typename ... on Issue{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on Issue{number}}}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "issue": 126,
+            "pr": 125
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Thu, 19 Nov 2026 20:54:21 GMT",
+          "x-github-request-id": "C75A:6808B:C537BF:26B3DF8:6AFF61FC"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "state": "OPEN",
+                "closedByPullRequestsReferences": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "number": 125,
+                      "baseRefName": "main"
+                    }
+                  ]
+                },
+                "timelineItems": {
+                  "totalCount": 1,
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": [
+                    {
+                      "__typename": "ConnectedEvent",
+                      "createdAt": "2026-11-19T20:49:46Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "subject": {
+                        "__typename": "PullRequest",
+                        "number": 125
+                      }
+                    }
+                  ]
+                }
+              },
+              "pullRequest": {
+                "state": "OPEN",
+                "baseRefName": "main",
+                "closingIssuesReferences": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "number": 126
+                    }
+                  ]
+                },
+                "timelineItems": {
+                  "totalCount": 13,
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": [
+                    {
+                      "__typename": "ConnectedEvent",
+                      "createdAt": "2026-11-19T20:49:46Z",
+                      "subject": {
+                        "__typename": "Issue",
+                        "number": 126
+                      }
+                    },
+                    {
+                      "__typename": "BaseRefChangedEvent",
+                      "createdAt": "2026-11-19T20:52:20Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "previousRefName": "main",
+                      "currentRefName": "trial/p69-base"
+                    },
+                    {
+                      "__typename": "BaseRefChangedEvent",
+                      "createdAt": "2026-11-19T20:53:32Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "previousRefName": "trial/p69-base",
+                      "currentRefName": "main"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
