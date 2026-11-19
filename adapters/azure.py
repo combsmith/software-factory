@@ -59,9 +59,12 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 def request(act: str, ident, body) -> dict:
     """One of the four requests, or a refusal: `create` or `chat` with a JSON object that is not empty and no id, or
     `read` or `cancel` with a response's id and no body."""
-    made = act in ("create", "chat") and ident is None and isinstance(body, dict) and bool(body)
-    named = act in ("read", "cancel") and type(ident) is str and IDENT.fullmatch(ident) is not None and body is None
-    if type(act) is not str or not (made or named):
+    # The act's type is held before it is compared, and the body is a dict itself, never a kind of one that says
+    # otherwise of its own length or truth.
+    made = type(act) is str and act in ("create", "chat") and ident is None and type(body) is dict and len(body) > 0
+    named = type(act) is str and act in ("read", "cancel") and type(ident) is str and IDENT.fullmatch(ident) is not None \
+        and body is None
+    if not (made or named):
         raise Unanswered("the transport sends a response's create, read and cancel and a chat completion's create alone")
     return {"act": act, "id": ident, "body": body}
 
