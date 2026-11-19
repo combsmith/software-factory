@@ -11,7 +11,7 @@ import re
 ANNOTATIONS = {"$schema", "$id", "title", "description", "$defs", "$comment"}
 KEYWORDS = {
     "type", "properties", "required", "additionalProperties", "items", "enum", "const",
-    "minimum", "maximum", "minLength", "minItems", "maxItems", "uniqueItems", "pattern", "$ref",
+    "minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems", "uniqueItems", "pattern", "$ref",
 }
 TYPES = {
     "object": dict, "array": list, "string": str, "boolean": bool,
@@ -87,6 +87,8 @@ def validate(value, schema: dict, root: dict = None, path: str = "$", schemas: d
     if isinstance(value, str):
         if len(value) < schema.get("minLength", 0):
             errors.append("%s: shorter than %d" % (path, schema["minLength"]))
+        if "maxLength" in schema and len(value) > schema["maxLength"]:
+            errors.append("%s: longer than %d" % (path, schema["maxLength"]))
         # A pattern is the schema's own, never the value's: the Release's where a Run acts, and a pull request's only in
         # the checks that already run its code with no secret. So S2631, which reads a file as outside data, crosses no
         # boundary. tests/test_tools.py::test_no_schema_pattern_backtracks_on_a_long_value holds the patterns themselves.

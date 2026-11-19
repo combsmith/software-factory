@@ -407,6 +407,11 @@ def outcome(answer: dict, told: dict = TOLD) -> tuple:
     return result["status"], result["reason"], len(result["findings"])
 
 
+def whole_of(digits: int) -> str:
+    """An answer whose one finding names a line of that many digits: a number advice-answer/1 refuses for its size."""
+    return json.dumps({"schema": "advice-answer/1", "findings": [said()]}).replace('"line": 88', '"line": ' + "8" * digits)
+
+
 class Parser(unittest.TestCase):
     def test_a_readers_findings_become_advisory_findings_whose_ids_are_not_of_their_text(self):
         result = read(answered(said(), said(file=None, line=7, severity="minor"), said(line=None),
@@ -454,7 +459,9 @@ class Parser(unittest.TestCase):
 
     def test_an_answer_is_a_read_only_when_it_completed_whole_from_the_pinned_model_and_parses(self):
         self.assertEqual(outcome(answered(said())), ("completed", None, 1))
-        self.assertEqual(outcome(answered(said(message="n" + "7" * 63))), ("completed", None, 1))
+        # A long run of digits in a reader's words is words: only a number of that length is refused.
+        self.assertEqual(outcome(answered(said(message="n" + "7" * 200))), ("completed", None, 1))
+        self.assertEqual(outcome(answered(text=whole_of(63))), ("failed", "unparsed", 0))
         self.assertEqual(outcome(chatted(said()), KIMI), ("completed", None, 1))
         fenced = "```json\n%s\n```" % json.dumps({"schema": "advice-answer/1", "findings": [said()]})
         self.assertEqual(outcome(chatted(text="\n" + fenced + "\n"), KIMI), ("completed", None, 1))
@@ -462,6 +469,7 @@ class Parser(unittest.TestCase):
         cases = [
             # What Azure answered that is no response: a rate limit, a key refused, anything else.
             ({"status": 429, "headers": {"retry-after": "20"}, "body": {"error": {"code": "rate_limit_exceeded"}}}, "rate_limited"),
+            ({"status": 429, "headers": {}, "body": {}}, "rate_limited"), ({"status": 429, "headers": {}, "body": "Slow down."}, "rate_limited"),
             ({"status": 401, "headers": {}, "body": {"error": {}}}, "no_key"), ({"status": 403, "headers": {}, "body": {}}, "no_key"),
             ({"status": 500, "headers": {}, "body": "<html>"}, "transport"), ({"status": 200, "headers": {}, "body": whole}, "transport"),
             ({"status": 200, "headers": {}, "body": None}, "transport"), ({"status": 201, "headers": {}, "body": answered()["body"]}, "transport"),
@@ -472,6 +480,22 @@ class Parser(unittest.TestCase):
             (answered(said(), status="incomplete"), "cut_short"),
             (answered(said(), status="incomplete", incomplete_details={"reason": "content_filter"}), "refused"),
             (answered(said(), status="failed"), "transport"), (answered(said(), status="cancelled"), "transport"),
+            # What Azure's own error names is its code: a prompt its filter refused, one too long, a limit met late.
+            ({"status": 400, "headers": {}, "body": {"error": {"code": "content_filter"}}}, "refused"),
+            ({"status": 400, "headers": {}, "body": {"error": {"code": "context_length_exceeded"}}}, "too_large"),
+            ({"status": 400, "headers": {}, "body": {"error": {"code": "another"}}}, "transport"),
+            ({"status": 400, "headers": {}, "body": {"error": {"code": ["content_filter"]}}}, "transport"),
+            (answered(said(), status="failed", error={"code": "rate_limit_exceeded"}), "rate_limited"),
+            # A response that says it completed and says beside it that it did not is not a read.
+            (answered(said(), error={"code": "server_error"}), "transport"),
+            (answered(said(), incomplete_details={"reason": "max_output_tokens"}), "cut_short"),
+            (answered(said(), incomplete_details={"reason": "content_filter"}), "refused"),
+            (answered(said(), output=[{"type": "message", "status": "incomplete",
+                                       "content": [{"type": "output_text", "text": whole}]}]), "cut_short"),
+            # A refusal beside a text is a refusal, and a text outside a message is none.
+            (answered(said(), output=[{"type": "message", "content": [{"type": "output_text", "text": whole},
+                                                                      {"type": "refusal", "refusal": "No."}]}]), "refused"),
+            (answered(said(), output=[{"type": "reasoning", "content": [{"type": "output_text", "text": whole}]}]), "unparsed"),
             (answered(said(), status=None), "transport"),
             (answered(said(), output=[{"type": "message", "content": [{"type": "refusal", "refusal": "No."}]}]), "refused"),
             # Another model's answer, however good, is none (decision 0147).
@@ -485,7 +509,8 @@ class Parser(unittest.TestCase):
             (answered(text='{"schema": "advice-answer/1", "findings": [], "cost": NaN}'), "unparsed"),
             (answered(text='{"schema": "advice-answer/1", "findings": [], "verdict": "approve"}'), "unparsed"),
             (answered(text="[" * 100000), "unparsed"), (answered(text=whole[:-1] + ', "findings": []}'), "unparsed"),
-            (answered(said(message="n" + "7" * 64)), "unparsed"), (answered(said(), output=[]), "unparsed"), (answered(said(), output=None), "unparsed"),
+            (answered(text=whole.replace('"line": 88', '"line": ' + "8" * 64)), "unparsed"),
+            (answered(text=json.dumps({"schema": "advice-answer/1", "findings": [{}] * 101})), "unparsed"), (answered(said(), output=[]), "unparsed"), (answered(said(), output=None), "unparsed"),
             (answered(said(), output=[{"type": "message", "content": [{"type": "output_text", "text": whole}] * 2}]), "unparsed"),
             (answered(said(), output=[{"type": "message", "content": [{"type": "output_text", "text": 7}]}]), "unparsed"),
         ]
@@ -496,12 +521,22 @@ class Parser(unittest.TestCase):
                  (chatted(said(), ended="tool_calls"), "unparsed"), (chatted(said(), ended=None), "unparsed"),
                  (chatted(said(), choices=[]), "unparsed"), (chatted(said(), choices=chatted(said())["body"]["choices"] * 2), "unparsed"),
                  (chatted(said(), choices=[{"finish_reason": "stop", "message": {"content": None, "refusal": "No."}}]), "refused"),
+                 (chatted(said(), choices=[{"finish_reason": "stop", "message": {"content": "{}", "refusal": "No."}}]), "refused"),
                  (chatted(said(), choices=[{"finish_reason": "stop", "message": {"content": None}}]), "unparsed"),
                  (chatted(said(), choices=["stop"]), "unparsed"), (chatted(said(), model="kimi-model-2"), "not_the_model"),
                  (answered(said(), model="kimi-model"), "unparsed")]
         for answer, reason in chats:
             status = "failed" if reason in ("unparsed", "not_the_model") else "incomplete"
             self.assertEqual(outcome(answer, KIMI), (status, reason, 0), (reason, answer))
+        # A number too long to be a count or a line is refused as it is read, and findings past the most an answer may
+        # hold never reach the validator, which would write an error for each: neither costs what its size would.
+        with mock.patch.object(advice, "_whole", wraps=advice._whole) as counted:
+            self.assertEqual(outcome(answered(text=whole_of(64))), ("failed", "unparsed", 0))
+        self.assertIn(mock.call("8" * 64), counted.call_args_list)
+        with mock.patch.object(advice, "validate", wraps=advice.validate) as held:
+            self.assertEqual(outcome(answered(text=json.dumps({"schema": "advice-answer/1", "findings": [{}] * 101}))),
+                             ("failed", "unparsed", 0))
+        self.assertFalse([call for call in held.call_args_list if "findings" in call.args[0] and len(call.args[0]["findings"]) > 100])
         # A state checked before the model: a response cut short by another model is still cut short, and counted.
         self.assertEqual(outcome(answered(said(), status="incomplete", model="astra-model-mini")), ("incomplete", "cut_short", 0))
 
@@ -521,6 +556,11 @@ class Parser(unittest.TestCase):
             self.assertIsNone(read(answered(said(), usage=spent))["usage"]["cost_usd"], spent)
         self.assertEqual(read(answered(said(), usage={"input_tokens": 0, "output_tokens": 0}))["usage"]["cost_usd"], 0)
         self.assertIsNone(read(answered(said(), model="Astra Model"))["usage"]["answering_model"])
+        self.assertIsNone(read(answered(said(), model="astra model"))["usage"]["answering_model"])
+        # A count above what advice/1 holds is not known, and never an error of the step's.
+        for spent in ({"input_tokens": 10 ** 9 + 1, "output_tokens": 1}, {"input_tokens": 1, "output_tokens": 10 ** 400}):
+            self.assertIsNone(read(answered(said(), usage=spent))["usage"]["cost_usd"], spent)
+        self.assertEqual(read(answered(said(), usage={"input_tokens": 10 ** 9, "output_tokens": 0}))["usage"]["cost_usd"], 2500)
         limited = read({"status": 429, "headers": {}, "body": {}})["usage"]
         self.assertEqual((limited["answering_model"], limited["input_tokens"], limited["cost_usd"]), (None, None, None))
         # No answer in hand: one of the reasons a step has for it, and no other.

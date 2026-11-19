@@ -1058,6 +1058,13 @@ def http_date(sent: str) -> str:
     return "%s-%02d-%02dT%sZ" % (year, months.index(month) + 1, int(day), clock)
 
 
+def shared_errors(run: dict) -> list:
+    """Where a run record breaks run-record/1."""
+    from controller import shared
+    from tools.jsonschema_lite import validate
+    return validate(run, shared.SCHEMAS["run-record"], schemas=shared.SCHEMAS)
+
+
 NAME = "sf combsmith/software-factory#264 review-change pr-review sha256:5d0c r_01JA6Z"
 
 
@@ -1128,7 +1135,7 @@ class Records(unittest.TestCase):
         slept = []
         got = records.runs(github.Replay(list(found)), canary(), "main", [WORKFLOW], kw.get("dispatcher", DISPATCHER),
                            per_page=kw.get("per_page", 10), sleep=slept.append, kept=kw.get("kept"),
-                           began=kw.get("began"), engines=kw.get("engines"))
+                           began=kw.get("began"), engines=kw.get("engines"), advised=kw.get("advised"), day=kw.get("day"))
         return got, slept
 
     def test_a_run_listed_under_its_workflows_name_is_unidentified_after_one_more_read(self):
@@ -1301,6 +1308,64 @@ class Records(unittest.TestCase):
             got, _ = self.read(failed, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item")),
                                                expired=None))
             self.assertEqual((got["runs"][0]["outcome"], got["complete"]), (None, False), conclusion)
+
+    def test_a_finished_review_runs_advisory_cost_is_read_once_for_the_day_and_never_guessed(self):  # decision 0224
+        # One small file for each finished review Run that started on the pass's day, read once: a cost read whole, or
+        # the lack of one, is kept by its Run and attempt; one that cannot be read now is left off the record and asked
+        # for again. Nothing of it makes the list less than whole.
+        rows = listing("P-17", 3, rows={"status": "completed", "conclusion": "success"})
+        template = rows["response"]["body"]["workflow_runs"][0]
+        names = [NAME.replace("r_01JA6Z", "r_%06dZ" % n) for n in range(4)]
+        rows["response"]["body"].update(total_count=4, workflow_runs=[
+            dict(template, id=700 + n, name=names[n], run_started_at="2026-10-21T0%d:00:00Z" % n) for n in range(4)])
+
+        def cost(n: int, zipped) -> list:
+            found = stored(canary(), 700 + n, zipped, name=artifacts.ADVICE_COST)
+            found[0]["request"]["call"] = found[0]["request"]["call"].replace("name=outcome", "name=advice-cost")
+            return found
+        good = {"schema": "advice-cost/1", "run": "r_000000Z", "release": "factory/v0.3.1", "asks": 2, "cost_usd": 1.42}
+        costs = [cost(0, outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER)), cost(1, None),
+                 cost(2, outcome_zip(dict(good, run="r_000002Z", cost_usd=-1), member=artifacts.ADVICE_COST_MEMBER)),
+                 cost(3, outcome_zip(dict(good, run="r_000003Z", asks=1, cost_usd=None), member=artifacts.ADVICE_COST_MEMBER))]
+
+        def said(got) -> list:
+            return [{k: r[k] for k in records.ADVISED if k in r} for r in got["runs"]]
+
+        def stamped(got) -> int:
+            return len([r for r in got["reads"] if r["read"] == "advice_cost"])
+        first, _ = self.read(rows, *costs[0], *costs[1], *costs[2], *costs[3], day="2026-10-21")
+        self.assertEqual(said(first), [{"advisory_asks": 2, "advisory_cost_usd": 1.42}, {"advisory_cost_usd": None}, {},
+                                       {"advisory_asks": 1, "advisory_cost_usd": None}])
+        self.assertEqual((stamped(first), first["complete"]), (4, True))
+        for run in first["runs"]:
+            self.assertEqual(shared_errors(run), [], run)
+        # The pass after: what was read whole is kept, and the one that could not be read is asked for again, alone.
+        kept = records.advised([{"runs": first["runs"]}])
+        self.assertEqual(sorted(key[0] for key in kept), ["r_000000Z", "r_000001Z", "r_000003Z"])
+        second, _ = self.read(rows, *costs[2], day="2026-10-21", advised=kept)
+        self.assertEqual((said(second), stamped(second)), (said(first), 1))
+        # With no day, as from a caller that sums nothing, and on another day, nothing is read.
+        for day in (None, "2026-10-22", "2026-10-20"):
+            none, _ = self.read(rows, *costs[0], *costs[3], day=day)       # there to be read, and not asked for
+            self.assertEqual((said(none), stamped(none)), ([{}, {}, {}, {}], 0), day)
+        # Only a finished Run is asked, and only a review: one still running has no cost to read, and counts the worst case.
+        for change in ({"status": "in_progress", "conclusion": None}, {"name": NAME.replace("review-change", "fix-findings")}):
+            other = copy.deepcopy(rows)
+            other["response"]["body"].update(total_count=1, workflow_runs=[dict(template, id=700, **dict(
+                {"name": names[0], "run_started_at": "2026-10-21T00:00:00Z"}, **change))])
+            got, _ = self.read(other, *costs[0], day="2026-10-21")
+            self.assertEqual((said(got), stamped(got)), ([{}], 0), change)
+        # A cost GitHub does not answer for ends nothing: the record holds none, and the list is as whole as it was.
+        unanswered = cost(0, outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER))[:2]
+        one = copy.deepcopy(rows)
+        one["response"]["body"].update(total_count=1, workflow_runs=one["response"]["body"]["workflow_runs"][:1])
+        got, _ = self.read(one, *unanswered, day="2026-10-21")
+        self.assertEqual((said(got), got["complete"]), ([{}], True))
+        # A key the record lists twice, or a record that lists no runs, keeps nothing.
+        twice = {"runs": first["runs"][:1] * 2}
+        self.assertEqual((records.advised([twice]), records.advised([{"runs": None}]), records.advised([]), records.advised(None)),
+                         ({}, {}, {}, {}))
+        self.assertEqual(sorted(records.advised([{"runs": first["runs"]}, {"runs": first["runs"][:1]}])), [("r_000000Z", "2026-10-21T00:00:00Z")])
 
     def test_an_outcome_is_read_once_and_kept_by_its_run_and_attempt(self):
         # #285's ruling: an outcome is written once by its attempt's final step, so one a pass record read is kept by
@@ -1847,6 +1912,38 @@ class Artifacts(unittest.TestCase):
         self.assertEqual(artifacts.outcome(github.Replay(stored("o/r", 7, None)), "o/r", 7, self.RUN), (None, True))
         expired = stored("o/r", 7, zipped, expired=True)[:1]
         self.assertEqual(artifacts.outcome(github.Replay(expired), "o/r", 7, self.RUN), (None, True))
+
+    def test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed(self):  # decision 0224
+        # The same requests and the same bounds as an outcome's, with another name and another file inside: the list,
+        # the download's redirect, the storage's answer. Only what the file holds differs, so this rests on the form
+        # `stored` gives an outcome's exchange, which is GitHub's reference's until a trial records one.
+        good = {"schema": "advice-cost/1", "run": self.RUN, "release": "factory/v0.3.1", "asks": 2, "cost_usd": 1.42}
+
+        def kept(zipped, **listed) -> list:
+            found = stored("o/r", 7, zipped, **dict({"name": artifacts.ADVICE_COST}, **listed))
+            found[0]["request"]["call"] = found[0]["request"]["call"].replace("name=outcome", "name=advice-cost")
+            return found
+
+        def read(record, member: str = artifacts.ADVICE_COST_MEMBER, **listed) -> tuple:
+            zipped = record if isinstance(record, bytes) or record is None else outcome_zip(record, member=member)
+            return artifacts.advice_cost(github.Replay(kept(zipped, **listed)), "o/r", 7, self.RUN)
+        self.assertEqual(read(good), ({"asks": 2, "cost_usd": 1.42}, True))
+        self.assertEqual(read(dict(good, asks=1, cost_usd=None)), ({"asks": 1, "cost_usd": None}, True))
+        self.assertEqual(read(dict(good, asks=0, cost_usd=0)), ({"asks": 0, "cost_usd": 0}, True))
+        # A Run that left none, or whose artifact is past its retention, has none: read whole, and still no cost.
+        self.assertEqual(read(None), (None, True))
+        self.assertEqual(read(good, expired=True), (None, True))
+        # What cannot be read whole, breaks advice-cost/1, or is another Run's is no cost, and never a part of one.
+        for record in (dict(good, run="r_OTHER1"), dict(good, cost_usd=-1), dict(good, cost_usd="1.42"), dict(good, asks=-1),
+                       dict(good, asks=1.5), dict(good, findings=0), dict(good, schema="advice-cost/2"),
+                       {k: v for k, v in good.items() if k != "asks"}, {k: v for k, v in good.items() if k != "cost_usd"},
+                       "[]", "not json", b"PK\x03\x04 not a zip", outcome_zip(" " * (artifacts.HELD + 1), member=artifacts.ADVICE_COST_MEMBER),
+                       outcome_zip(good, member="advice.astra.json"), outcome_zip(good, member=artifacts.MEMBER),
+                       outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER, more=("advice.astra.json",))):
+            self.assertEqual(read(record), (None, False), str(record)[:60])
+        for listed in ({"size_in_bytes": artifacts.ZIPPED + 1}, {"digest": "sha256:" + "0" * 64}, {"name": artifacts.NAME},
+                       {"name": "advice-astra"}):
+            self.assertEqual(read(good, **listed), (None, False), listed)
 
     def test_an_outcome_that_cannot_be_read_whole_is_not_whole(self):
         good = outcome_of(self.RUN, "item")
@@ -2801,8 +2898,13 @@ class FindingTexts(unittest.TestCase):
                            ("a repository that is no object", thread_text("PRRT_7", pullRequest={"number": 26, "repository": "o/r"})),
                            ("a comment that is no object", thread_text("PRRT_7", comments={"nodes": [None]})),
                            ("a reply", first(replyTo={"id": "PRRC_1"})), ("a reply GitHub does not say it is not", first(replyTo=...)),
+                           ("a reply to no comment", first(replyTo="PRRC_1")), ("a reply to nought", first(replyTo=0)),
                            ("an edited comment", first(lastEditedAt="2026-11-14T08:00:00Z")),
                            ("an edit GitHub does not say never was", first(lastEditedAt=...)),
+                           ("an edit at no time", first(lastEditedAt=0)), ("an edit that is a flag", first(lastEditedAt=False)),
+                           # An author GitHub gives as none, a deleted account's, is refused as the facts' read of the
+                           # same thread refuses it, before any text is asked for: a read that failed, as it was.
+                           ("an author that is none", first(author=None)), ("no author", first(author=...)),
                            ("another pull request's", thread_text("PRRT_7", number=27)),
                            ("another repo's", thread_text("PRRT_7", repo="o/other")),
                            ("a node that is no thread", thread_text("PRRT_7", __typename="PullRequestReviewComment")),
@@ -2816,8 +2918,13 @@ class FindingTexts(unittest.TestCase):
                            ("a body that is none", thread_text("PRRT_7", None)),
                            ("a body of nothing", thread_text("PRRT_7", "")),
                            ("a body that is no text", thread_text("PRRT_7", 3))):
-            with self.subTest(why), self.assertRaises(github.Unanswered):
+            with self.subTest(why), self.assertRaises(github.Unanswered) as raised:
                 self.read(["PRRT_7"], found)
+            # What GitHub says, and is not the Lens's own unedited first comment, is the thread's own state, told
+            # apart from a read that failed: anyone who can write can make it, and it must not pass for the Factory's.
+            own_state = why in ("a reply", "an edited comment", "a person's", "another App's", "another Lens's")
+            self.assertIs(type(raised.exception), texts.NotOwn if own_state else github.Unanswered, why)
+        self.assertTrue(issubclass(texts.NotOwn, github.Unanswered))
         # The Lens asked for is the one whose words they must be: its own thread is another's to any other Lens.
         with self.assertRaises(github.Unanswered):
             self.read(["PRRT_7"], thread_text("PRRT_7"), lens="qa-lead")
@@ -4493,8 +4600,8 @@ def second_page(found: dict, body) -> dict:
 
 # Each grounded rule of the fake that the port does not read here, by why: the Controller's, the workflows' or a
 # person's, which no port reads (`controller`); the Kernel's, held by its own boundary tests, a race no port can read
-# (`kernel`); or the issues port's, not built (`issues_port`). Every grounded fixture is recorded in the shape its port
-# asks (issue 807).
+# (`kernel`); or the issues port's linked read, not built (`issues_port`). Every grounded fixture is recorded in
+# the shape its port asks (issue 807).
 NOT_READ = {
     # The records port reads what GitHub lists and cannot see a Run it does not list: the race is the Kernel's, held by
     # the unidentified window (decision 0036).
@@ -4507,8 +4614,6 @@ NOT_READ = {
     # request's close and reopening; none of it is built yet (P-61, issue 551).
     "a_link_by_hand_is_timed": "issues_port", "a_type_change_is_timed": "issues_port",
     "a_pull_requests_close_and_reopening_are_timed": "issues_port",
-    "an_issues_content_time_is_read_apart": "issues_port", "a_reopening_names_its_actor": "issues_port",
-    "an_issues_close_and_reopening_say_when": "issues_port",
     "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing": "issues_port",
     # The queue's writes, which the effects port does not make until the App that enqueues is granted contents: write.
     "an_app_enters_the_queue": "controller", "an_app_leaves_the_queue": "controller",
@@ -4681,6 +4786,15 @@ class Contract(unittest.TestCase):
         short_events = timeline.events(github.Replay([per_hundred(p43[13]), second_page(per_hundred(p43[13]), {})]),
                                        {"number": 48, "base": {"repo": {"full_name": canary()}}})
         files = pull.changed_paths(github.Replay([as_compare(p43[10], body("P-43", 8))]), body("P-43", 8), PINNED_BASE)
+        # P-34: issue 42 edited, renamed, commented on, labelled, closed and reopened by the Maintainer, then closed; its
+        # timeline and the issue read by REST as the port reads them, its lastEditedAt as P-34's GraphQL read gave it.
+        # Not through read(): no trial has recorded the port's own GraphQL read, and P-34's, asked at another time,
+        # names another updatedAt (decision 0218). That trial is owed, issue 831.
+        p34 = issues.own(replay("P-34.rest", 1), canary(), 42)
+        p34_events, p34_whole = timeline.events(replay("P-34.rest", 0), {"number": 42, "base": {"repo": {"full_name": canary()}}})
+        p34_accounts = timeline.Accounts(Router(github.Replay([]), {"don-petry": "admin"}), canary(), MACHINE, {})
+        p34_edited = body("P-34", 0)["data"]["repository"]["issue"]["lastEditedAt"]
+        renamed = "2026-10-20T21:17:28Z"
         return {
             # A request made before the App's push stood until the pr-review App dismissed it: not the push.
             "a_request_for_changes_survives_a_push": ({"P-41"}, any(
@@ -4706,6 +4820,17 @@ class Contract(unittest.TestCase):
                 and r["dismissed_by"]["kind"] == "app" for r in reviewed)),
             "a_push_is_new_content": ({"P-29.base"}, before != after),
             "a_push_can_leave_the_diff_as_it_was": ({"P-29.base"}, before == moved != after),
+            # The title's rename, not the body's earlier edit nor updatedAt.
+            "an_issues_content_time_is_read_apart": ({"P-34", "P-34.rest"},
+                issues.content_changed_at(p34["created_at"], p34_edited, p34_events) == renamed > p34_edited
+                and renamed != p34["updated_at"]),
+            "a_reopening_names_its_actor": ({"P-34.rest"}, [p34_accounts.acted(ev) for ev in p34_events
+                                                            if ev["event"] == "reopened"] == [P41_WRITER]),
+            # The Maintainer's reopening began a life, whose first close is the trial's last.
+            "an_issues_close_and_reopening_say_when": ({"P-34.rest"}, p34_whole and p34["state"] == "closed"
+                and issues.life(p34["created_at"], p34_events, p34_accounts)
+                == {"life_started_at": "2026-10-20T21:21:54Z", "reopened_last_by": "writer",
+                    "reopened_last_at": "2026-10-20T21:21:54Z", "closed_first_at": "2026-10-20T21:31:23Z"}),
             "a_check_names_its_run_and_suite": ({"P-65"}, self.run_and_suite_read()),
             "any_app_posts_a_check_under_any_name": ({"P-42", "P-42.port"}, self.posted_under_a_name_read()),
             "a_push_restarts_the_checks": ({"P-42.push"}, self.pushed_pending_read()),
@@ -5970,6 +6095,34 @@ class Items(unittest.TestCase):
                 for n in range(1, items.PAGES + 1)]
         self.assertEqual(self.read(*many)[1], False)
 
+    def test_open_issues_are_listed_from_served_from_by_the_same_pages_and_none_with_no_date(self):  # S3, decision 0218
+        # Only those updated at or after `issues.served_from`, asked in this query: an issue that has not moved since
+        # cannot be served, so the turn-on sweeps no backlog. The pages are the pull requests', held to their wholeness.
+        self.assertIn("issues(states: OPEN, first: 100, after: $after, filterBy: {since: $since}, "
+                      "orderBy: {field: CREATED_AT, direction: ASC})", items.ISSUES)
+        since = "2026-10-01T00:00:00Z"
+
+        def page(numbers, total=None, more=False, after=None, cursor="c1"):
+            # Asked from a second before the date: whether GitHub's `since` holds that second is not grounded, and the
+            # Kernel's `served` leaves out an issue whose life began before it.
+            found = open_page(numbers, total, more, after, cursor)
+            found["request"]["body"] = {"query": items.ISSUES, "variables": dict(found["request"]["body"]["variables"],
+                                                                                 since="2026-09-30T23:59:59Z")}
+            found["response"]["body"]["data"]["repository"]["issues"] = \
+                found["response"]["body"]["data"]["repository"].pop("pullRequests")
+            return found
+
+        def read(*pages):
+            return items.open_issues(github.Replay(list(pages)), HOME, since)
+        self.assertEqual(read(page([4, 5], total=3, more=True), page([9], total=3, after="c1")), ([4, 5, 9], True))
+        self.assertEqual(read(page([4, 5], total=3, more=True), page([9], total=4, after="c1"))[1], False)
+        self.assertEqual(read(page([4], total=2))[1], False)
+        # With no date no issue is served: none is listed, and nothing is asked. One that is no time lists nothing.
+        self.assertEqual(items.open_issues(github.Replay([]), HOME, None), ([], True))
+        for unreadable in ("2026-10-01", "0001-01-01T00:00:00Z"):     # no time, or none a second before it (Carbon)
+            with self.assertRaises(github.Unanswered):
+                items.open_issues(github.Replay([]), HOME, unreadable)
+
     def test_open_pull_requests_of_another_repo_or_with_errors_are_refused(self):
         other = open_page([1])
         other["response"]["body"]["data"]["repository"]["nameWithOwner"] = "a/fork"
@@ -6031,7 +6184,11 @@ class Issues(unittest.TestCase):
     def read(self, exchanges, clock=None, transport=None):
         router = transport or Router(github.Replay(exchanges), {"don-petry": "admin", "stranger": "read"})
         accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]})
-        return issues.read(router, "o/r", 41, accounts, clock or (lambda: self.NOW))
+        found, title = issues.read(router, "o/r", 41, accounts, clock or (lambda: self.NOW))
+        # The title is handed beside the facts, never in them.
+        self.assertEqual(title, (exchanges or issue_read())[0]["response"]["body"]["title"])
+        self.assertNotIn(title, json.dumps(found))
+        return found
 
     def test_an_issues_timeline_is_whole_only_when_its_last_page_names_no_next(self):  # P-33, decision 0218
         said = issue_event("commented", 0)
@@ -6047,6 +6204,61 @@ class Issues(unittest.TestCase):
         self.assertFalse(self.read(first[:2] + [later] + first[2:])["complete"]["timeline"])
         more = {"timelineItems": {"pageInfo": {"hasNextPage": True}, "nodes": []}}
         self.assertFalse(self.read(issue_read([said], edits=more))["complete"]["timeline"])
+        # A last page names its previous and first pages and no next, or carries no link at all: whole, and no page
+        # past it is asked (Carbon).
+        later = rest_answer("/repos/o/r/issues/41/timeline?per_page=100&page=2", [issue_event("commented", 5)],
+                            '<https://x>; rel="prev", <https://x>; rel="first"')
+        self.assertTrue(self.read(first[:2] + [later] + first[2:])["complete"]["timeline"])
+        bare = issue_read([said])
+        bare[1]["response"]["headers"] = {}
+        self.assertTrue(self.read(bare)["complete"]["timeline"])
+
+    def test_a_factory_app_is_named_by_the_id_the_configuration_holds_and_a_person_never_is(self):  # decision 0218
+        # The Controller's label and the investigating App's comment, by Bots the configuration names by their ids under
+        # logins they no longer show; and a User whose login is the Controller's name without `[bot]`, through an App.
+        names = {(41, "Bot"): "combsmith-sf-controller[bot]", (42, "Bot"): "combsmith-sf-business-analyst[bot]"}
+        events = [issue_event("labeled", 1, actor=("old[bot]", 41, "Bot"), label={"name": "factory:triage"}),
+                  issue_event("commented", 2, actor=("older[bot]", 42, "Bot")),
+                  issue_event("labeled", 3, actor=("combsmith-sf-controller", 77, "User"), via={"id": 9},
+                              label={"name": "factory:ready"}),
+                  issue_event("labeled", 4, actor=("dependabot[bot]", 99, "Bot"), label={"name": "x"})]
+        router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
+        accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory=set(names), apps=names)
+        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW)
+        # An App the configuration does not name keeps its login (Carbon).
+        self.assertEqual([e["by"]["name"] for e in found["label_events"]],
+                         ["combsmith-sf-controller[bot]", "combsmith-sf-controller", "dependabot[bot]"])
+        self.assertEqual(found["role_comments"], [{"by": "combsmith-sf-business-analyst[bot]", "at": minute(2)}])
+        # Each App whose account `controller/1` holds, the Controller's and each Role's, by config/apps.json's name; an
+        # account whose App the catalogue does not name is named by its login.
+        held = {"accounts": {"controller": {"id": 41}, "roles": {"business-analyst": {"id": 42}, "dev-lead": None}}}
+        catalogue = {"controller": {"name": "combsmith-sf-controller"}, "business-analyst": {"name": "combsmith-sf-business-analyst"}}
+        self.assertEqual(facts.app_names_of(held, catalogue), names)
+        self.assertEqual(facts.app_names_of(held, {"controller": catalogue["controller"]}), {(41, "Bot"): names[(41, "Bot")]})
+        # One the catalogue names whose account `controller/1` does not hold is named by no id (Carbon).
+        self.assertEqual(facts.app_names_of(held, dict(catalogue, **{"dev-lead": {"name": "combsmith-sf-dev-lead"}})), names)
+
+    def test_an_account_showing_a_configured_apps_name_by_another_id_is_refused(self):  # decision 0218, Astra
+        # A slug reused after a rename: another Bot under the Controller's name, labelling or commenting. It is not that
+        # App, and the read cannot say whose act it was: refused, so the issue defers, never decided on it.
+        names = {(41, "Bot"): "combsmith-sf-controller[bot]"}
+        spoof = ("combsmith-sf-controller[bot]", 99, "Bot")
+        for event in (issue_event("labeled", 1, actor=spoof, label={"name": "factory:triage"}), issue_event("commented", 1, actor=spoof)):
+            router = Router(github.Replay(issue_read([event])), {"don-petry": "admin"})
+            accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory=set(names), apps=names)
+            with self.assertRaises(github.Unanswered, msg=event["event"]):
+                issues.read(router, "o/r", 41, accounts, lambda: self.NOW)
+        # A name the configuration declares, though it holds no account of that App's, no account may show (Carbon).
+        event = issue_event("labeled", 1, actor=("combsmith-sf-dev-lead[bot]", 99, "Bot"), label={"name": "factory:ready"})
+        router = Router(github.Replay(issue_read([event])), {"don-petry": "admin"})
+        reserved = timeline.Accounts(router, "o/r", MACHINE, {}, apps=names, reserved={"combsmith-sf-dev-lead[bot]"})
+        with self.assertRaises(github.Unanswered):
+            issues.read(router, "o/r", 41, reserved, lambda: self.NOW)
+        # The App itself, by its id, is read.
+        events = [issue_event("labeled", 1, actor=("combsmith-sf-controller[bot]", 41, "Bot"), label={"name": "factory:triage"})]
+        router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
+        found, _ = issues.read(router, "o/r", 41, timeline.Accounts(router, "o/r", MACHINE, {}, apps=names), lambda: self.NOW)
+        self.assertEqual(found["label_events"][0]["by"]["name"], names[(41, "Bot")])
 
     def test_an_issues_content_time_is_the_newer_of_its_edit_and_its_rename(self):  # P-34
         def changed(events=(), **change):
@@ -6082,6 +6294,27 @@ class Issues(unittest.TestCase):
                          (minute(5), "writer", minute(5), minute(20)))
         self.assertEqual(life("open", (closed, 0, PERSON), (reopened, 5, PERSON), (closed, 10, PERSON),
                               (reopened, 15, STRANGER)), (minute(5), "other", minute(15), minute(10)))
+
+    def test_label_events_are_read_with_who_made_them_in_the_timelines_order(self):
+        events = [issue_event("labeled", 0, CONTROLLER_APP, label={"name": "factory:triage"}),
+                  issue_event("unlabeled", 5, PERSON, label={"name": "factory:triage"}),
+                  issue_event("labeled", 3, STRANGER, label={"name": "bug"}),
+                  issue_event("labeled", 6, PERSON, {"id": 9}, label={"name": "factory:ready"})]
+        f = self.read(issue_read(events))
+        writer, app = {"kind": "human", "name": "don-petry", "can_write": True}, {"can_write": False}
+        self.assertEqual(f["label_events"], [
+            {"label": "factory:triage", "action": "labeled", "at": minute(0),
+             "by": dict(app, kind="app", name="combsmith-sf-controller[bot]")},
+            {"label": "factory:triage", "action": "unlabeled", "at": minute(5), "by": writer},
+            {"label": "bug", "action": "labeled", "at": minute(3), "by": dict(app, kind="human", name="stranger")},
+            # An App's label with a person's token is the App's (decision 0218).
+            {"label": "factory:ready", "action": "labeled", "at": minute(6), "by": dict(app, kind="app", name="don-petry")}])
+        self.assertEqual(f["author"], writer)
+        # An issue an App opened with a person's token is the App's (decision 0218).
+        self.assertEqual(self.read(issue_read(performed_via_github_app={"id": 9}))["author"],
+                         dict(app, kind="app", name="don-petry"))
+        with self.assertRaises(github.Unanswered):
+            self.read(issue_read([issue_event("labeled", 0, label=None)]))
 
     def test_the_writers_last_acts_and_each_apps_latest_comment_are_read(self):
         other_app = ("github-actions[bot]", 41898282, "Bot")  # an App outside the Factory
@@ -6137,6 +6370,11 @@ class Issues(unittest.TestCase):
             with self.assertRaises(github.Unanswered, msg=at):
                 self.read(found)
 
+    def test_an_issue_that_changed_while_it_was_read_is_refused(self):
+        for edits, issue in (("2026-10-11T11:00:01Z", UPDATED), (UPDATED, "2026-10-11T11:00:01Z")):
+            with self.assertRaises(facts.Moved):
+                self.read(issue_read(edits={"updatedAt": edits}, updated_at=issue))
+
     def test_the_issues_own_facts_hold_to_the_schema_and_leave_its_linked_pull_requests_unread(self):
         from kernel import issue
         from tests.support import CONFIG
@@ -6170,6 +6408,16 @@ class Issues(unittest.TestCase):
         self.assertEqual(f["type_events"], [{"from": None, "to": "Bug", "at": minute(-50)},
                                             {"from": "Bug", "to": "Task", "at": minute(-40)},
                                             {"from": "Task", "to": None, "at": minute(-30)}])
+        # The content is the title and the body, each apart, an empty body as none, and nothing else.
+        content = lambda **change: self.read(issue_read(**change))["content_id"]
+        self.assertEqual(f["content_id"], "sha256:" + hashlib.sha256(b'["A title", "A body"]').hexdigest())
+        self.assertNotEqual(content(title="A ", body="B"), content(title="A", body=" B"))
+        self.assertEqual(content(body=None), content(body=""))
+        self.assertEqual(content(updated_at="2026-10-11T11:30:00Z", edits={"updatedAt": "2026-10-11T11:30:00Z"},
+                                 last=minute(-30)), f["content_id"])
+        # An issue with no labels and no one assigned is read so.
+        bare = self.read(issue_read(labels=[], assignees=[]))
+        self.assertEqual((bare["label_names"], bare["assignees"]), ([], []))
         # The Kernel defers on the pull requests not read yet, and reads the rest as an issue's facts.
         deferred = issue.derive(f, [], CONFIG)
         self.assertEqual((deferred["state"], deferred["reason"], deferred["evidence"]), (None, "facts_incomplete", ["linked"]))
