@@ -15,6 +15,7 @@ import random
 from controller import configuration
 from kernel import terms as t
 from kernel.decide import decide, stuck_runs
+from kernel.gate import closed
 from tools import check_lifecycle
 from tools.hooks import protected
 from tools.jsonschema_lite import validate
@@ -1813,15 +1814,16 @@ class World:
 
     def mend(self):
         """A person with write access mends the pull request: a push for what failed, as a writer, and the Lens's threads
-        answered and resolved by that person's hand, which the gate takes as closed (kernel/gate.py). So is one somebody
-        else resolved on no accepted ruling: the queue App's resolution of a thread a review dropped closes it only on
-        the content that review read (decision 0212), and the mend's push replaced it."""
+        answered and resolved by that person's hand, which the gate takes as closed (kernel/gate.py): each the gate does
+        not take as closed, whoever resolved it, and one the queue App resolved on no accepted ruling, since its
+        resolution of a thread a review dropped closes it only on the content that review read (decision 0212), and the
+        mend's push replaced it."""
         self.mended_at, self.mends = self.now(), self.mends + 1
         self.note("a person mends it")
         self.push(MAINTAINER["name"], writer=True)
         self.caused("human")
         mine = [th for th in self.threads if th["opened_by"]["kind"] == "lens"
-                and (not th["resolved"] or th["resolved_by"]["kind"] != "human" and th["ruling"] != "accepted")]
+                and (not closed(th) or th["resolved_by"]["kind"] == "queue" and th["ruling"] != "accepted")]
         for th in mine:
             th.update(resolved=True, resolved_by=dict(MAINTAINER))
         if mine:
@@ -1832,6 +1834,9 @@ class World:
         failing since, or a Lens's thread opened since. Anything older, or of the mend's own minute, is what the mend was for,
         and so is any other reason to wait."""
         if self.mended_at is None or not self.waits_for_its_author(decision):
+            return False
+        # A wait that names nothing is excused by nothing.
+        if not decision["evidence"]:
             return False
         if decision["reason"] == "check_failed":
             return all(self.completed.get(name) is not None and self.completed[name] > self.mended_at

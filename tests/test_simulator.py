@@ -1492,14 +1492,20 @@ class Simulation(unittest.TestCase):
         # the person takes it too; one resolved on the Lens's accepted ruling stays the queue App's. A Lens's thread
         # another person resolved stays theirs, and a thread a person opened is no Lens's: the mend leaves it open.
         for tid, ruling in (("taken", None), ("ruled", "accepted")):
-            w.threads.append(dict(lens[0], id=tid, resolved=True, resolved_by=dict(world.QUEUE_APP), ruling=ruling))
+            # The dropped one is superseded, which the gate takes as closed on the content that review read.
+            w.threads.append(dict(lens[0], id=tid, resolved=True, resolved_by=dict(world.QUEUE_APP), ruling=ruling,
+                                  superseded=ruling is None))
+        # So does one the gate does not take as closed, whoever resolved it: one without write access, or an App but the
+        # queue App on an accepted ruling (Muse).
+        w.threads.append(dict(lens[0], id="no writer's", resolved=True, resolved_by=dict(world.STRANGER), ruling=None))
+        w.threads.append(dict(lens[0], id="an App's", resolved=True, resolved_by=dict(world.AUTHOR_APP), ruling="accepted"))
         w.threads.append(dict(lens[0], id="theirs", resolved=True, resolved_by=dict(world.COLLEAGUE), ruling=None))
         w.threads.append(dict(lens[0], id="a person's", opened_by=dict(world.STRANGER)))
         w.mend()
         self.assertEqual((w.last_pusher, w.last_writer, w.mended_at, w.mends), (world.MAINTAINER["name"], w.now(), w.now(), 1))
         self.assertTrue(all(th["resolved"] and th["resolved_by"] == world.MAINTAINER for th in lens))
-        self.assertEqual([th["resolved_by"] for th in w.threads[-4:]],
-                         [world.MAINTAINER, world.QUEUE_APP, world.COLLEAGUE, None])
+        self.assertEqual([th["resolved_by"] for th in w.threads[-6:]],
+                         [world.MAINTAINER, world.QUEUE_APP, world.MAINTAINER, world.MAINTAINER, world.COLLEAGUE, None])
         self.assertFalse(w.threads[-1]["resolved"])
         # What waits is excused only by what came after the mend: every thread it names opened since, or every check it
         # names concluded since. One older, one of the mend's own minute or one unknown is enough to refuse it, and so
@@ -1522,10 +1528,21 @@ class Simulation(unittest.TestCase):
             w.completed[second] = concluded
             self.assertFalse(waiting("check_failed", [first, second]), concluded)
             self.assertFalse(waiting("check_failed", [second, first]), concluded)
-        for reason in ("conflict", "human_finding", "acceptance_failed"):
+        for reason in ("conflict", "human_finding", "acceptance_failed", "check_failed", "findings_open"):
             self.assertFalse(waiting(reason, []), reason)
-        w.runs[0]["status"] = "in_progress"
+        for reason in ("conflict", "human_finding", "acceptance_failed"):
+            self.assertFalse(waiting(reason, ["new"]), reason)
+        # A later mend moves the cutoff: what came between the two mends is what the second was for (Astra).
+        w.minute += 5
+        w.mend()
+        self.assertEqual((w.mended_at, w.mends), (w.now(), 2))
         self.assertFalse(waiting("findings_open", ["new"]))
+        w.completed[first], w.completed[second] = World.at(w.minute - 3), World.at(w.minute + 1)
+        self.assertFalse(waiting("check_failed", [first, second]))
+        w.completed[first] = World.at(w.minute + 1)
+        self.assertTrue(waiting("check_failed", [first, second]))
+        w.runs[0]["status"] = "in_progress"
+        self.assertFalse(waiting("check_failed", [first, second]))
 
     def test_every_invariant_not_yet_held_names_a_pending_test(self):
         # When a rule is built and its test loses @pending, its invariant here must start to raise too.
