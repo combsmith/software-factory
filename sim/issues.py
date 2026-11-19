@@ -113,6 +113,7 @@ class IssueWorld:
         self.runs = []                 # every Run ever, with the minute it started, for the retention
         self.branch_head = None
         self.landed_on_an_older_base = False   # an opening Run's apply passed after the default branch moved
+        self.served_base = {}                  # the default branch's head the world served when it admitted each Run
         self.pause_from = 10 + seed * 37 % 200 if seed % 5 in PAUSES else None
         self.pause_reading = PAUSES.get(seed % 5)
         self.paused_passes = 0
@@ -418,6 +419,7 @@ class IssueWorld:
                "content_id": d["admit"]["content_id"], "status": "queued", "conclusion": None, "outcome": None,
                "started_at": self.now(), "minute": self.minute, "head": d["admit"].get("branch_head"),
                "base": d["admit"].get("base_head")}
+        self.served_base[run["run"]] = facts.get("base_head")
         # GitHub: a_queued_run_is_listed
         self.enqueue(run)
         self.moves()
@@ -502,6 +504,11 @@ class IssueWorld:
             admitted["admit"]["branch_head"] = run["head"]
             if run["base"] is not None:
                 admitted["admit"]["base_head"] = run["base"]
+        # The base an opening Run of no branch lands on is the default branch's head the world served when it was
+        # admitted, whatever the branch has moved to since.
+        self.check(run["intent"] != issue.OPENING or run["head"] is not None
+                   or admitted["admit"].get("base_head") == self.served_base[run["run"]],
+                   "an opening Run applies on another base than it was admitted for")
         if not issue.still_admitted(admitted, again):
             # GitHub: a_superseded_run_fails
             run.update(conclusion="failure", outcome="superseded")

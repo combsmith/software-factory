@@ -1184,9 +1184,12 @@ def still_admitted(admitted: dict, again: dict) -> bool:
     for the same content, and for the opening Run the same branch head (I-21). So a label removed, a Hold added, an
     edit made or a head moved while the Run was in flight each stop it. The default branch moving does not: the Run's
     commit lands on the commit it was admitted for, `base_head`, which is left out of the comparison, and nothing
-    holds the default branch still meanwhile."""
+    holds the default branch still meanwhile. Where the second asking carries a base, the Run's own admission names
+    one too, a commit's whole name: the commit lands on its own admission's base, never the second asking's."""
     was, now = admitted.get("admit"), again.get("admit")
     if not isinstance(was, dict) or not isinstance(now, dict):
+        return False
+    if "base_head" in now and not readable_base(was):
         return False
     return _but_base(now) == _but_base(was)
 

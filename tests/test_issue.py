@@ -2495,6 +2495,12 @@ class Apply(unittest.TestCase):
             self.assertFalse(issue.still_admitted({"admit": broken}, again))
             self.assertFalse(issue.still_admitted(admitted, {"admit": broken}))
             self.assertFalse(issue.still_admitted({"admit": broken}, {"admit": broken}))
+        # The Run's own admission names the base it lands on: one that names none, or no commit's whole name, lands
+        # on nothing, and nothing is written.
+        own = {part: admitted["admit"][part] for part in admitted["admit"] if part != "base_head"}
+        for base in ("main", "c0ffee1", "C0FFEE1000000000000000000000000000000000", None):
+            self.assertFalse(issue.still_admitted({"admit": dict(own, base_head=base)}, again), base)
+        self.assertFalse(issue.still_admitted({"admit": own}, again))
         # Only the base is left out: an admission that differs in it AND in a part more is another Run's.
         self.assertFalse(issue.still_admitted(admitted, dict(again, admit=dict(again["admit"], base_head="d00d1e5000000000000000000000000000000000", role="qa-lead"))))
         self.assertFalse(issue.still_admitted(admitted, dict(again, admit=dict(again["admit"], extra=1))))
