@@ -1435,13 +1435,11 @@ class Advisory(unittest.TestCase):
         other = Hub()
         other.conclusion = "success"
         self.assertEqual(effects.role_write(other, self.ITEM, "create_check_run", req, self.LOGIN)["state"], "sent")
-        # The step that shows an advisory read reaches this one write, and a token GitHub refuses is a refused write.
-        self.assertEqual(effects.advisory_write(Hub(), self.ITEM, req, self.LOGIN)["state"], "applied")
-
+        # A token GitHub refuses is a refused write.
         class Refusing:
             def send(self, req):
                 return {"status": 403, "headers": {}, "body": None}
-        back = effects.advisory_write(Refusing(), self.ITEM, req, self.LOGIN)
+        back = effects.advisory_write(Refusing(), self.ITEM, self.HEAD, ["astra"], self.RUN, req, self.LOGIN)
         self.assertEqual((back["state"], back["reason"]), ("refused", "token_refused"))
         # An output of its own is an advisory Lens's alone, and annotates what the request says it does, so that the
         # bound and the count read back are of what is sent: anything else sends nothing.
@@ -1455,6 +1453,60 @@ class Advisory(unittest.TestCase):
         over = dict(req, output=dict(self.OUTPUT, annotations=[self.NOTE] * 51), annotations=[{"finding": "f"}] * 51)
         self.assertEqual(effects.role_write(Hub(), self.ITEM, "create_check_run", over, self.LOGIN)["reason"],
                          "too_many_annotations")
+
+    def test_the_one_write_the_advisory_step_reaches_sends_a_check_run_of_its_lens_on_its_head_and_nothing_else(self):
+        class Hub:
+            """A GitHub that would take anything: it lists no check run, makes any asked and reads it back as made."""
+
+            def __init__(self):
+                self.sent, self.made = [], []
+
+            def send(self, req):
+                self.sent.append(req)
+                if req["method"] == "GET" and "/commits/" in req["path"]:
+                    return {"status": 200, "headers": {}, "body": {"total_count": 0, "check_runs": []}}
+                if req["method"] == "GET":
+                    return {"status": 200, "headers": {}, "body": self.made[-1]}
+                body = req["body"]
+                self.made.append(dict({k: body.get(k) for k in ("name", "head_sha", "external_id", "status", "conclusion")},
+                                      id=7, node_id="CR_7", app={"slug": "combsmith-sf-pr-review"},
+                                      output={"annotations_count": len(body["output"]["annotations"])}))
+                return {"status": 201, "headers": {}, "body": self.made[-1]}
+        req = {"commit": self.HEAD, "name": "advisory-astra", "conclusion": "neutral", "external_id": self.RUN + ":astra",
+               "output": self.OUTPUT, "annotations": [{"finding": "astra:" + "0" * 32}]}
+
+        def write(hub, req, item=self.ITEM, head=self.HEAD, lenses=("astra", "kimi"), run=self.RUN):
+            return effects.advisory_write(hub, item, head, list(lenses), run, req, self.LOGIN)
+        hub = Hub()
+        back = write(hub, req)
+        self.assertEqual((back["state"], back["key"]), ("applied", "CR_7"))
+        listed = "/repos/%s/commits/%s/check-runs?check_name=advisory-astra&filter=all&per_page=100" % (self.ITEM["repo"], self.HEAD)
+        path = "/repos/%s/check-runs" % self.ITEM["repo"]
+        self.assertEqual([(r["method"], r["path"]) for r in hub.sent], [("GET", listed), ("POST", path), ("GET", path + "/7")])
+        self.assertEqual(hub.sent[1]["body"], self.good())
+        # Planted: another name, another Lens than the Run's, another commit, another Run's key, another conclusion, an
+        # output with a field beside the port's, and no output at all, each through the write itself, to a GitHub
+        # that would take it. No write leaves, and none is claimed.
+        role = dict(req, name="factory / pr-review", conclusion="success",
+                    annotations=[{"finding": "f", "path": "a", "start_line": 1, "end_line": 1, "severity": "minor", "body": "b"}])
+        del role["output"]
+        for planted in (dict(req, name="factory / pr-review"), dict(req, name="advisory-muse", external_id=self.RUN + ":muse"),
+                        dict(req, name="advisory-kimi"), dict(req, commit="1" * 40), dict(req, external_id="r_01JA7Z:astra"),
+                        dict(req, conclusion="success"), dict(req, conclusion="failure"),
+                        dict(req, output=dict(self.OUTPUT, text="a reader's words")),
+                        dict(req, output=dict(self.OUTPUT, title="a reader's words")),
+                        dict(req, output=dict(self.OUTPUT, annotations=[dict(self.NOTE, raw_details="x")])),
+                        role, {k: v for k, v in req.items() if k != "output"}, None):
+            hub = Hub()
+            back = write(hub, planted)
+            self.assertEqual((back["state"], back["key"], [r for r in hub.sent if r["method"] != "GET"]),
+                             ("failed", None, []), planted)
+        # The allowlist is the write's own, of the Run, the head and the Lenses it is told: a Lens not among them, a
+        # head that is not the request's and a Run that is not its key's send no write, and but for the Run not a read.
+        for how in ({"lenses": ("kimi",)}, {"lenses": "astra"}, {"lenses": ()}, {"head": "1" * 40}, {"head": "main"},
+                    {"run": None}, {"run": "r_01JA7Z"}):
+            hub = Hub()
+            self.assertEqual((write(hub, req, **how)["state"], len(hub.sent)), ("failed", int(how.get("run") is not None)), how)
 
 
 if __name__ == "__main__":

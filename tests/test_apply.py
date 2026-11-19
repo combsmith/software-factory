@@ -1791,14 +1791,16 @@ class Advised(unittest.TestCase):
         return advised_.asked(str(self.folder(files, placed)), folder, the_task() if admit is None else admit,
                               ended or self.ENDED, held)
 
-    def child(self, files, hub=None, mint_fails=None, revoked=True, seconds=150, clock=lambda: 0, write=None):
-        """`(lines, hub, calls)` of the child asked for what `asked` builds of `files`."""
+    def child(self, files, hub=None, mint_fails=None, revoked=True, seconds=150, clock=lambda: 0, write=None, connect=None,
+              planted=()):
+        """`(lines, hub, calls)` of the child asked for what `asked` builds of `files`, and for `planted`. With
+        `connect` the token is minted by `identity.from_key` itself, through it."""
         hub, calls, lines = hub or Checks(), {"mint": [], "revoke": 0}, []
         said, reqs = self.ask(files)
         d = self.folder({})
         (d / "asked.json").write_text(json.dumps({
             "item": ITEM, "head": HEAD, "run": RUN, "release": RELEASE, "seconds": seconds,
-            "asked": [{"lens": lens, "request": req} for lens, req in reqs]}))
+            "asked": [{"lens": lens, "request": req} for lens, req in reqs + list(planted)]}))
 
         def from_key(app, repo, wanted, key, now, connect):
             calls["mint"].append((app["name"], repo, wanted, key))
@@ -1811,9 +1813,10 @@ class Advised(unittest.TestCase):
                     raise revoked
                 return revoked
             return hub, revoke
-        with unittest.mock.patch.object(identity, "from_key", from_key), \
+        with unittest.mock.patch.object(identity, "from_key", identity.from_key if connect else from_key), \
+                unittest.mock.patch.object(identity, "jwt", lambda *a: "jwt"), \
                 unittest.mock.patch.object(effects, "advisory_write", write or effects.advisory_write):
-            code = advised_.main([str(d)], {advised_.KEY: "k", "OTHER": "x"}, clock=clock, say=lines.append)
+            code = advised_.main([str(d)], {advised_.KEY: "k", "OTHER": "x"}, connect or advised_.Live, clock, lines.append)
         self.assertEqual(code, 0)
         return lines, hub, calls
 
@@ -1849,22 +1852,59 @@ class Advised(unittest.TestCase):
         lines, again, _ = self.child({"astra": sixty, "kimi": advised(lens="kimi")}, hub=Checks(hub.made))
         self.assertEqual((lines[1:3], [b["name"] for b in self.posted(again)]),
                          (["astra shown CR_1", "kimi shown CR_2"], ["advisory-kimi"]))
-        # The writes go through the advisory allowlist of this Run and its Lenses, which lets no other conclusion out.
+        # The one write is told this Run, its head and the Lenses the configuration asks, of which it builds its
+        # allowlist: a Lens planted in what the child is asked, that the configuration does not name, is not written.
         seen = []
-        self.child(self.BOTH, write=lambda t, *a: seen.append(t) or {"state": "applied", "key": "CR_9"})
-        self.assertIsInstance(seen[0], effects.Allowed)
-        good = dict(self.posted(hub)[0], name="advisory-kimi", external_id=RUN + ":kimi", output=advice.shown(advised())[0])
-        path = "/repos/%s/check-runs" % ITEM["repo"]
-        with self.assertRaisesRegex(github.Unanswered, "nothing left"):
-            effects.Allowed(GitHub(), seen[0]._permits, seen[0]._patterns).send(github.request("POST", path, body=good))
-        with self.assertRaisesRegex(github.Unanswered, "may not send"):
-            seen[0].send(github.request("POST", path, body=dict(good, conclusion="success")))
+        self.child(self.BOTH, write=lambda *a: seen.append(a[1:5]) or {"state": "applied", "key": "CR_9"})
+        self.assertEqual(seen[0], (ITEM, HEAD, ["astra", "kimi"], RUN))
+        muse = dict(self.ask(self.BOTH)[1][0][1], name="advisory-muse", external_id=RUN + ":muse")
+        lines, hub, _ = self.child(self.BOTH, planted=[("muse", muse)])
+        self.assertEqual((lines[1:4], [b["name"] for b in self.posted(hub)]),
+                         (["astra shown CR_1", "kimi shown CR_2", "muse not_written"], ["advisory-astra", "advisory-kimi"]))
+
+    def test_the_child_mints_one_token_of_the_check_runs_need_on_the_home_repo_and_a_mint_in_doubt_is_not_revoked(self):
+        class Hub(Checks):
+            def send(self, req):
+                if req["method"] != "DELETE":
+                    return super().send(req)
+                self.sent.append(req)
+                return ok(None, 204)
+        checks = {"checks": "write", "metadata": "read"}
+
+        def go(*answers):
+            app, hub, carried = GitHub(*answers), Hub(), []
+            lines = self.child(self.BOTH, connect=lambda value: carried.append(value) or (app if value == "jwt" else hub))[0]
+            return lines, app.sent, [(r["method"], r["path"]) for r in hub.sent], carried
+        lines, asked, sent, carried = go(installation(), minted(permissions=checks))
+        self.assertEqual(lines, ["began", "astra shown CR_1", "kimi shown CR_2", "revoked"])
+        # One token is asked for, of `checks: write` alone, on the home repo alone, carried by every write, and revoked.
+        self.assertEqual([(r["method"], r["path"], r["body"]) for r in asked],
+                         [("GET", "/repos/%s/installation" % REPO, None), ("POST", "/app/installations/172571064/access_tokens",
+                           {"repositories": ["software-factory"], "permissions": {"checks": "write"}})])
+        self.assertEqual((carried, sent[-1], sent.count(("DELETE", "/installation/token")), len(sent)),
+                         (["jwt", SECRET], ("DELETE", "/installation/token"), 1, 7))
+        # A mint GitHub refused, or answered with more than was asked, or on another repo, or not at all, may have
+        # made a token: it is said `unrevoked`, though `identity` asked the revocation of one it could read, and
+        # nothing is written. Only a refusal before GitHub is asked to mint is `unminted`.
+        wide = minted(permissions=dict(checks, contents="write"))
+        for answers, revoked in (((installation(), minted(403)), []), ((installation(), wide), [("DELETE", "/installation/token")]),
+                                 ((installation(), minted(permissions=checks, repository_selection="all")), [("DELETE", "/installation/token")]),
+                                 ((installation(),), [])):
+            self.assertEqual(go(*answers)[::2], (["began", "unrevoked"], revoked), answers)
+        lines, asked, sent, _ = go(installation(status=404))
+        self.assertEqual((lines, len(asked), sent), (["began", "unminted"], 1, []))
 
     def test_the_child_says_each_thing_it_does_and_always_asks_for_the_revocation(self):
-        # A token not minted, whatever the cause, is said, and nothing is sent.
-        for fails in (identity.Refused("effect_not_granted"), RuntimeError("what no one foresaw")):
+        # A token not minted is said, and nothing is sent: `unminted` only for what is refused before GitHub is
+        # asked for one, and `unrevoked` for any other cause, foreseen or not, since one may have been made.
+        for fails, want in [(identity.Refused(code), "unminted") for code in sorted(advised_.BEFORE)] + [
+                (identity.Refused("token_refused"), "unrevoked"), (identity.Refused("token_not_as_asked"), "unrevoked"),
+                (identity.Refused("token_unreadable"), "unrevoked"), (RuntimeError("what no one foresaw"), "unrevoked"),
+                (RuntimeError("key_unreadable"), "unrevoked")]:
             lines, hub, calls = self.child(self.BOTH, mint_fails=fails)
-            self.assertEqual((lines, hub.sent), (["began", "unminted"], []))
+            self.assertEqual((lines, hub.sent), (["began", want], []), fails)
+        self.assertEqual(sorted(advised_.BEFORE), ["app_unreadable", "effect_not_grantable", "effect_not_granted",
+                                                   "installation_unreadable", "key_cannot_sign", "key_unreadable"])
         # A revocation GitHub does not confirm, or that raises, is said, whatever was shown.
         for revoked in (False, None, RuntimeError("no answer")):
             self.assertEqual(self.child(self.BOTH, revoked=revoked)[0][-1], "unrevoked", revoked)
@@ -1903,6 +1943,9 @@ class Advised(unittest.TestCase):
                 (b"began\nastra shown CR_1\nrevoked\n", {"astra": ("shown", "CR_1"), "kimi": ("out_of_time", None)}),
                 (b"", each("out_of_time")), (None, each("out_of_time")), (b"bega", each("out_of_time")),
                 (b"began\nunminted\n", each("token_not_minted")),
+                # A token said not revoked is not revoked, whatever else is said, before it or after.
+                (b"began\nunrevoked\n", each("token_not_revoked")), (b"began\nunminted\nunrevoked\n", each("token_not_revoked")),
+                (b"began\nastra shown CR_1\nunrevoked\nrevoked\n", each("token_not_revoked", "CR_1")),
                 # A child that began and was not heard to revoke, killed at any point: the token's state is not known.
                 (b"began\n", each("token_not_revoked")), (b"began\nastra shown CR_1\n", each("token_not_revoked", "CR_1")),
                 (b"began\nastra shown CR_1\nkimi not_written\nunrevoked\n", each("token_not_revoked", "CR_1")),
