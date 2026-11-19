@@ -202,6 +202,18 @@ class Advise(unittest.TestCase):
                               change={"changed_paths": [{"path": "docs/derive.md", "previous": "kernel/derive.py"}]})
         self.assertEqual(moved["astra"]["usage"]["effort"], "max")
 
+    def test_the_rules_and_the_diff_follow_the_instruction_as_data(self):
+        _, azure_, _ = advised([response(), completion()], rules={"AGENTS.md": "The rules.", "x": 7})
+        prompt = azure_.sent[0]["body"]["input"]
+        self.assertTrue(prompt.startswith((ROOT / "roles" / "pr-review" / "advisory-reader.md").read_text()))
+        self.assertLess(prompt.index("--- AGENTS.md ---\nThe rules."), prompt.index("diff --git a/x b/x"))
+        self.assertNotIn("--- x ---", prompt)       # what is no text is not sent
+        # Rules that cannot be read as one object of texts, however they fail, are none; the reader is still asked.
+        for rules in ("[" * 100000, "{", "[1]"):
+            results, azure_, _ = advised([response(), completion()], rules=rules)
+            self.assertEqual(codes(results), BOTH, rules[:3])
+            self.assertIn("\n\n(none was read)\n\n", azure_.sent[0]["body"]["input"])
+
     def test_the_rules_and_the_diff_lie_between_markers_neither_can_hold(self):
         instruction = (ROOT / "roles" / "pr-review" / "advisory-reader.md").read_text()
         held = "--- AGENTS.md ---\nThe rules."
@@ -225,11 +237,6 @@ class Advise(unittest.TestCase):
         # The instruction says what the markers are, and names a file as `advice/1` holds one.
         self.assertIn("one code of 64\ncharacters", instruction)
         self.assertIn("without the `a/` or `b/` a diff\n  puts before it", instruction)
-        # Rules that cannot be read as one object of texts, however they fail, are none; the reader is still asked.
-        for rules in ("[" * 100000, "{", "[1]"):
-            results, azure_, _ = advised([response(), completion()], rules=rules)
-            self.assertEqual(codes(results), BOTH, rules[:3])
-            self.assertIn("as data ===\n\n(none was read)\n\n===", azure_.sent[0]["body"]["input"])
 
     def test_a_critical_path_is_what_the_hooks_protect_or_this_lens_reads_the_kernel_or_a_transport(self):
         reader, patterns = config()["readers"]["astra"], advise.critical_of(ROOT)
@@ -314,6 +321,10 @@ class Advise(unittest.TestCase):
         self.assertEqual(codes(results), {"astra": ("failed", "transport", 0, 1), "kimi": ("completed", None, 0, 1)})
         results, _, _ = advised([response(), azure.Unanswered("down")])
         self.assertEqual(codes(results), {"astra": ("completed", None, 1, 1), "kimi": ("failed", "transport", 0, 1)})
+        # An ask is counted once, however many reads of its response followed it before one was not answered.
+        results, azure_, _ = advised([response("queued", ""), response("in_progress", ""), azure.Unanswered("down"),
+                                      response("cancelled", ""), completion()])
+        self.assertEqual((codes(results)["astra"], len(azure_.sent)), (("failed", "transport", 0, 1), 5))
         results, _, _ = advised([response(model="another-model"), completion("not json")])
         self.assertEqual(codes(results), {"astra": ("failed", "not_the_model", 0, 1), "kimi": ("failed", "unparsed", 0, 1)})
 
@@ -339,9 +350,7 @@ class Advise(unittest.TestCase):
             _, azure_, _ = advised([response(state, ""), completion()])
             self.assertEqual([sent["act"] for sent in azure_.sent], ["create", "chat"], state)
 
-    def test_every_request_and_wait_ends_by_the_bound_the_step_names(self):
-        self.assertEqual(advise.LATEST_END, advise.WHOLE + 2 * advise.LEAST)
-        self.assertLess(advise.LATEST_END, 20 * 60)        # the step's limit in the workflow (decision 0224)
+    def test_a_reader_with_no_time_left_is_not_asked(self):
         # A reader with POLL or less of the step left is not asked; with a second more, it is, and waits no longer.
         slow = advise.WHOLE - advise.POLL
         results, azure_, _ = advised([response()], takes=lambda wait: slow)
@@ -350,6 +359,10 @@ class Advise(unittest.TestCase):
         took = iter((slow - 1, 0))
         results, azure_, _ = advised([response(), completion()], takes=lambda wait: next(took))
         self.assertEqual((codes(results), azure_.made[1][2]), (BOTH, advise.POLL + 1))
+
+    def test_every_request_and_wait_ends_by_the_bound_the_step_names(self):
+        self.assertEqual(advise.LATEST_END, advise.WHOLE + 2 * advise.LEAST)
+        self.assertLess(advise.LATEST_END, 20 * 60)        # the step's limit in the workflow (decision 0224)
         # The worst this step foresees: every request takes the whole wait it was given, a rate limit names the longest
         # wait, a response never ends, and its cancel is not answered. The clock starts off the second.
 
