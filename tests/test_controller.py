@@ -1370,9 +1370,8 @@ class Entry(unittest.TestCase):
         self.assertEqual(record["reconciled"]["left"], [{"number": 13, "at": inside}])
         self.assertEqual(record["reconciled"]["owed"], [])
         self.assertEqual(shared.errors(record, "pass"), [])
-        # The same pass asks the records port for the day's advisory costs: the day its own clock names, and what the
-        # pass records before it kept (decision 0224). And the pass is handed the Harness's configuration, which holds
-        # the day's ceiling.
+        # The same pass asks the records port for the costs of the day its own clock names and what the pass records
+        # before it kept (decision 0224), and is handed the Harness's configuration, which holds the day's ceiling.
         asked = []
         real = entry.records.runs
 
@@ -1393,6 +1392,10 @@ class Entry(unittest.TestCase):
         self.assertEqual(asked, [(files["pass.json"]["now"][:10], {(run_["run"], run_["started_at"]): {"advisory_asks": 1, "advisory_cost_usd": 0.5}})])
         self.assertEqual(configuration.load(ROOT, "factory/v0.3.1", "controller")["harness"],
                          json.loads((ROOT / "config" / "harness.json").read_text()))
+        real = configuration._json
+        for instead in ("missing.json", "../Makefile"):     # a Harness configuration not there, or no JSON, is none
+            with unittest.mock.patch.object(configuration, "_json", lambda root, *p: real(root, *p[:-1], instead if p[-1] == "harness.json" else p[-1])):
+                self.assertIsNone(configuration.load(ROOT, "factory/v0.3.1", "controller")["harness"], instead)
 
     def test_the_entry_gathers_what_reconciliation_reads(self):  # decisions 0061, 0112
         # What each snapshot kept is handed to the seen port, each item once; the machine user's pushes are read; a pull
