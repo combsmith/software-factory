@@ -6068,16 +6068,24 @@ class Items(unittest.TestCase):
                 found["response"]["body"]["data"]["repository"].pop("pullRequests")
             return found
 
-        def read(*pages):
-            return items.open_issues(github.Replay(list(pages)), HOME, since)
+        def read(*pages, apart=()):
+            return items.open_issues(github.Replay(list(pages)), HOME, since, apart=apart)
         self.assertEqual(read(page([4, 5], total=3, more=True), page([9], total=3, after="c1")), ([4, 5, 9], True))
         self.assertEqual(read(page([4, 5], total=3, more=True), page([9], total=4, after="c1"))[1], False)
         self.assertEqual(read(page([4], total=2))[1], False)
         # With no date no issue is served: none is listed, and nothing is asked. One that is no time lists nothing.
-        self.assertEqual(items.open_issues(github.Replay([]), HOME, None), ([], True))
+        self.assertEqual(items.open_issues(github.Replay([]), HOME, None, apart=()), ([], True))
         for unreadable in ("2026-10-01", "0001-01-01T00:00:00Z"):     # no time, or none a second before it (Carbon)
             with self.assertRaises(github.Unanswered):
-                items.open_issues(github.Replay([]), HOME, unreadable)
+                items.open_issues(github.Replay([]), HOME, unreadable, apart=())
+        # The Controller's tracking issue, 5, open and updated since the date, is one GitHub lists and counts. It is
+        # left out by the number handed, whoever its author is, and the list is whole by all three (issue 901).
+        self.assertEqual(read(page([4, 5, 9]), apart=[5]), ([4, 9], True))
+        # A number that is no open issue's leaves out none; a list read short is short with or without it.
+        self.assertEqual(read(page([4, 5, 9]), apart=[8]), ([4, 5, 9], True))
+        # Every number handed is left out, not the first alone (Astra).
+        self.assertEqual(read(page([8, 41]), apart=[4, 8]), ([41], True))
+        self.assertEqual(read(page([4, 5], total=3), apart=[5]), ([4], False))
 
     def test_open_pull_requests_of_another_repo_or_with_errors_are_refused(self):
         other = open_page([1])

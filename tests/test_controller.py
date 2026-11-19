@@ -1738,13 +1738,16 @@ class Entry(unittest.TestCase):
         listed_by_the_port = entry.items.open_issues
 
         def listing(listed, whole=True):
-            def open_issues(transport, repo, after):
-                spied["listed"].append((repo, after))
+            # What GitHub lists is `listed`; the port itself leaves out what it is handed, so a number it could not be
+            # handed fails as it would (Carbon).
+            def open_issues(transport, repo, after, *, apart):
+                spied["listed"].append((repo, after, apart))
                 if listed is None:
-                    return listed_by_the_port(transport, repo, after)
+                    return listed_by_the_port(transport, repo, after, apart=apart)
                 if whole is None:
                     raise github.Unanswered("no")
-                return list(listed), whole
+                with unittest.mock.patch.object(entry.items, "_listed", lambda *a: (list(listed), whole)):
+                    return listed_by_the_port(transport, repo, after, apart=apart)
             return open_issues
 
         def read(transport, repo, number, accounts, clock, *, identities):
@@ -1757,9 +1760,16 @@ class Entry(unittest.TestCase):
             transport.send({"method": "GET", "path": "/repos/%s/issues/%d" % (repo, number)})
             return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "Issue five"
 
-        def entry_with(listed, whole=True, configured=served):
+        def entry_with(listed, whole=True, configured=served, recorded=True, tracked=True, previous=None):
             for found in spied.values():
                 del found[:]
+            # The passes before recorded their tracking issue's write under its number, 8, unless none is `tracked`.
+            wrote = {"id": "w1", "type": "tracking_issue", "item": None, "run": None, "state": "already_applied", "key": "8",
+                     "reason": None}
+            written = {"written": [{"schema": "written/1", "pass": "p_01JA7Q", "release": "factory/v0.3.1",
+                                    "writes": [wrote] if tracked else []}],
+                       "read": [{"id": 41, "attempt": 1}], "at": {}, "whole": recorded}
+            held = entry.passes.records if previous is None else (lambda *a: previous)
             table = self.table(numbers=[7])
             table[("GET", "/repos/%s/issues/5" % self.HOME)] = {
                 "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}, "body": {}}
@@ -1767,6 +1777,8 @@ class Entry(unittest.TestCase):
             with unittest.mock.patch.object(entry, "configuration", configured), \
                     unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
                     unittest.mock.patch.object(entry.items, "open_issues", listing(listed, whole)), \
+                    unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: written), \
+                    unittest.mock.patch.object(entry.passes, "records", held), \
                     unittest.mock.patch.object(entry.issues_, "read", read):
                 code, printed, files, _ = self.run_entry(hub)
             spied["graphql"] = [r for _, r in hub.sent if r["path"] == "/graphql"]
@@ -1775,7 +1787,8 @@ class Entry(unittest.TestCase):
         code, printed, files = entry_with([5, 6, 9])
         self.assertEqual((code, printed), (0, "passed\n"))
         record = files["pass.json"]
-        self.assertEqual(spied["listed"], [(self.HOME, since)])
+        # The listing is handed the number the passes recorded their tracking issue under, to leave it out (issue 901).
+        self.assertEqual(spied["listed"], [(self.HOME, since, [8])])
         self.assertEqual([n for _, n, _ in spied["read"]], [5, 6, 9])
         self.assertTrue(all(who is spied["who"][0] for _, _, who in spied["read"]))
         # Each is read with the pull requests' class accounts.
@@ -1800,9 +1813,30 @@ class Entry(unittest.TestCase):
         for whole in (False, None):
             self.assertEqual(entry_with([5], whole), (1, "issue_list_unreadable\n", {}), whole)
             self.assertEqual(spied["read"], [])
+        # The passes' records not read whole: the tracking issue's number may be one not read, so no issue is read, and
+        # each listed is left out as unread; the pull requests are decided as ever (issue 901).
+        code, printed, files = entry_with([5, 8], recorded=False)
+        self.assertEqual((code, spied["read"], files["pass.json"]["issues"]), (0, [], []))
+        self.assertEqual(files["pass.json"]["left_out"], [{"item": item(n), "code": "facts_unanswered"} for n in (5, 8)])
+        self.assertEqual(len(files["pass.json"]["pull_requests"]), 1)
+        # They were handed to the port as none to leave out, never as unread: it cannot take that (Carbon, Kimi).
+        self.assertEqual(spied["listed"], [(self.HOME, since, ())])
+        # Read whole with no tracking issue written: none is known, and each listed is read and decided (Muse, Kimi).
+        code, _, files = entry_with([5], tracked=False)
+        self.assertEqual((code, spied["listed"], [n for _, n, _ in spied["read"]]), (0, [(self.HOME, since, ())], [5]))
+        self.assertEqual(([e["decision"]["item"] for e in files["pass.json"]["issues"]], files["pass.json"]["left_out"]),
+                         ([item(5)], []))
+        # This pass read no write of it, but the last record carried its number, 8: it is left out by that (Astra, Muse).
+        last = json.loads((ROOT / "examples" / "pass.json").read_text())
+        last.update(now="2026-10-12T11:00:00Z", pull_requests=[], reconciled={
+            "runs": [], "passes": [], "items": [], "dispatched": [], "owed": [],
+            "keys": [{"where": "written", "type": "tracking_issue", "key": "8", "at": "2026-10-12T11:00:00Z"}]})
+        code, _, files = entry_with([8, 5], tracked=False, previous=[last])
+        self.assertEqual((code, spied["listed"], [n for _, n, _ in spied["read"]]), (0, [(self.HOME, since, [8])], [5]))
+        self.assertEqual([e["decision"]["item"] for e in files["pass.json"]["issues"]], [item(5)])
         # No date: nothing is listed, asked or read; the one GraphQL read is the pull requests' list.
         code, _, files = entry_with(None, configured=real)
-        self.assertEqual((code, spied["listed"], spied["read"], files["pass.json"]["issues"]), (0, [(self.HOME, None)], [], []))
+        self.assertEqual((code, spied["listed"], spied["read"], files["pass.json"]["issues"]), (0, [(self.HOME, None, [8])], [], []))
         self.assertEqual(len(spied["graphql"]), 1)
 
     def test_a_queues_or_a_lenss_name_declared_as_an_issues_app_refuses_the_issues_alone_and_the_pull_requests_are_decided(self):
@@ -1870,8 +1904,13 @@ class Entry(unittest.TestCase):
         own, events, edits = (r["response"] for r in reads_[:3])
         edits["body"]["data"]["repository"]["nameWithOwner"] = self.HOME
         named = [linked_read(events=[crossed()], repo=self.HOME)["response"]]
+        # The Controller's tracking issue, 8, is open and updated since `served_from`, so GitHub lists it: it is left out
+        # by the number the pass before recorded writing it under, never read, and the list is still whole (issue 901).
         listed = {"data": {"repository": {"nameWithOwner": self.HOME, "issues": {
-            "totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"number": 41}]}}}}
+            "totalCount": 2, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"number": 8}, {"number": 41}]}}}}
+        wrote = {"id": "w1", "type": "tracking_issue", "item": None, "run": None, "state": "applied", "key": "8", "reason": None}
+        written = {"written": [{"schema": "written/1", "pass": "p_01JA7Q", "release": "factory/v0.3.1", "writes": [wrote]}],
+                   "read": [{"id": 41, "attempt": 1}], "at": {}, "whole": True}
         real = entry.configuration
 
         def served(root, release):
@@ -1902,9 +1941,11 @@ class Entry(unittest.TestCase):
                     return through.send(req)
             return Routed()
         hub.connect = routed
-        with unittest.mock.patch.object(entry, "configuration", served):
+        with unittest.mock.patch.object(entry, "configuration", served), \
+                unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: written):
             code, printed, files, _ = self.run_entry(hub)
         self.assertEqual((code, printed), (0, "passed\n"))
+        self.assertEqual((files["pass.json"]["left_out"], [r["path"] for _, r in hub.sent if r["path"].endswith("/issues/8")]), ([], []))
         (decided,) = files["pass.json"]["issues"]
         d = decided["decision"]
         self.assertEqual((d["item"]["number"], d["outcome"], d["reason"], d["evidence"]), (41, "defer", "facts_incomplete", ["linked"]))
@@ -1913,7 +1954,8 @@ class Entry(unittest.TestCase):
         # Named by none, it is whole, and accepted.
         named[0] = linked_read(repo=self.HOME)["response"]
         hub.sent.clear()
-        with unittest.mock.patch.object(entry, "configuration", served):
+        with unittest.mock.patch.object(entry, "configuration", served), \
+                unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: written):
             code, _, files, _ = self.run_entry(hub)
         (decided,) = files["pass.json"]["issues"]
         self.assertEqual((code, decided["decision"]["outcome"], decided["decision"].get("action")), (0, "act", "accept"))
