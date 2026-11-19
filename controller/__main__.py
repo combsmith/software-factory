@@ -281,11 +281,12 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
         except Unanswered as err:
             issues.append({"facts": {"item": {"repo": home, "type": "issue", "number": number}}, "title": None,
                            "unread": reads_.MOVED if isinstance(err, facts_.Moved) else reads_.UNANSWERED})
-    # The served issues' writes are read beside the pull requests' (issue 837): the issues listed, which leave the
-    # tracking issue out by its number. While that number is not read, no issue's writes are: the tracking issue could
-    # be among those listed, and the passes' records read short leave reconciliation short already.
-    seen, unread, gone = writes_seen(transport, config, numbers, kept, before, since, clock, owed,
-                                     listed if apart is not None else ())
+    # The served issues' writes are read beside the pull requests' (issue 837): those of each issue the pass serves,
+    # decided or left out unread, never the tracking issue, which the listing leaves out by its number. While that
+    # number is not read, no issue's writes are: the tracking issue could be among those listed, and the passes'
+    # records read short leave reconciliation short already.
+    served_issues = [e["facts"]["item"]["number"] for e in issues] if apart is not None else ()
+    seen, unread, gone = writes_seen(transport, config, numbers, kept, before, since, clock, owed, served_issues)
     return {"started": started, "pause": pause_.read(transport, home.split("/")[0], [home]),
             "records": runs, "pull_requests": pulls, "issues": issues, pass_.ISSUE_APPS: refused,
             "facts_reads": facts_reads, "usage": {}, "seen": seen, "unread": unread, "gone": gone, "effects": effects}

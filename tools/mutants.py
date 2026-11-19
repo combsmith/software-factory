@@ -14435,10 +14435,9 @@ MUTANTS = ISSUE + [
      'if reads_.item(i) is not None\n', ('tests.test_controller.Record.test_a_pull_request_that_moved_while_read_is_deferred_once_with_no_alert', 'tests.test_controller.Entry.test_a_snapshot_that_moved_is_kept_by_its_code_and_its_writes_are_owed_once')),
     # Issue 837: the served issues' writes are read for reconciliation, and matched as a pull request's are.
     ("the served issues' writes are not read", 'controller/__main__.py',
-     'clock, owed,\n                                     listed if apart is not None else ())',
-     'clock, owed,\n                                     ())', ('tests.test_controller.Entry.test_the_served_issues_writes_are_read_for_reconciliation',)),
+     'clock, owed, served_issues)', 'clock, owed)', ('tests.test_controller.Entry.test_the_served_issues_writes_are_read_for_reconciliation',)),
     ("the issues' writes are read while the tracking issue's number is not", 'controller/__main__.py',
-     'listed if apart is not None else ())', 'listed)',
+     'for e in issues] if apart is not None else ()', 'for e in issues]',
      ('tests.test_controller.Entry.test_the_served_issues_writes_are_read_for_reconciliation',)),
     ("an issue not read takes the pull requests' debt with it", 'controller/__main__.py',
      '                                    since))\n        except Unanswered:\n            parts.append(([], [], False))\n',
