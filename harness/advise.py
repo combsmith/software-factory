@@ -135,6 +135,15 @@ def prompt_of(root: pathlib.Path, folder: str, diff: str) -> str:
     return told + DATA % (held, diff)
 
 
+def cost_of(run: str, release: str, spent: list) -> dict:
+    """The Run's `advice-cost/1` from each reader's usage: the asks summed, and their cost, null where a reader that
+    was asked gave none; no asks and no cost where no reader was asked."""
+    asked_ = [usage for usage in spent if usage["asks"] > 0]
+    known = all(usage["cost_usd"] is not None for usage in asked_)
+    return {"schema": "advice-cost/1", "run": run, "release": release, "asks": sum(usage["asks"] for usage in spent),
+            "cost_usd": round(sum(usage["cost_usd"] for usage in asked_), 6) if known else None}
+
+
 def job(task_folder: str, out: str, env: dict, root: pathlib.Path = ROOT, base=None, **how) -> list:
     """Ask each reader and write its Result into the new folder OUT. Returns `(lens, digest)` for each written."""
     base = pathlib.Path.cwd() if base is None else base
@@ -147,6 +156,10 @@ def job(task_folder: str, out: str, env: dict, root: pathlib.Path = ROOT, base=N
     config = json.loads((root / "config" / "harness.json").read_text())
     made = steps.new_folder(base, out)
     if entry is None or entry["decision"]["admit"]["intent"] != REVIEWING or facts.get("class") == "dependency":
+        # No reader is asked, and the Run says so: with no cost file the Controller's pass could not tell this from a
+        # cost it failed to read, and would count the worst case for a Run that spent nothing (decision 0224).
+        if isinstance(record.get("release"), str):
+            steps.write(made, "advice-cost.json", cost_of(run, record["release"], []))
         return []
     with open(os.path.join(folder, "diff"), "rb") as f:
         diff = f.read().decode("utf-8", errors="replace")
@@ -174,11 +187,7 @@ def job(task_folder: str, out: str, env: dict, root: pathlib.Path = ROOT, base=N
     # What the Controller's pass reads of this Run, and all it reads: how many requests were sent and what they cost,
     # summed here from the tokens each answer counted and the configured prices, and never from a reader's text. A cost
     # is null where a reader that was asked gave no count, so that it is never taken for nought (decision 0224).
-    asked_ = [usage for usage in spent if usage["asks"] > 0]
-    known = all(usage["cost_usd"] is not None for usage in asked_)
-    steps.write(made, "advice-cost.json", {"schema": "advice-cost/1", "run": run, "release": record["release"],
-                                           "asks": sum(usage["asks"] for usage in spent),
-                                           "cost_usd": round(sum(usage["cost_usd"] for usage in asked_), 6) if known else None})
+    steps.write(made, "advice-cost.json", cost_of(run, record["release"], spent))
     return written
 
 
