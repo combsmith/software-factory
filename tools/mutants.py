@@ -8643,7 +8643,8 @@ MUTANTS = ISSUE + [
     ('a read Run is not carried', 'controller/reconcile.py', 'runs=held["runs"] + [{"id": r, "at": now} for r in read.get("runs", []) if FITS_RUN.fullmatch(r)],', 'runs=held["runs"],', WIRE_CARRY),
     ('a read pass is not carried', 'controller/reconcile.py', 'passes=held["passes"] + [dict(p, at=now) for p in read.get("passes", [])],', 'passes=held["passes"],', WIRE_CARRY),
     ('a key too wide is carried', 'controller/reconcile.py', 'for k in sorted(found) if FITS_KEY.fullmatch(k)]', 'for k in sorted(found)]', WIRE_CARRY),
-    ('an item too wide is carried', 'controller/reconcile.py', 'for (t, item), count in sorted(items.items())\n                             if FITS_ITEM.fullmatch(item)]', 'for (t, item), count in sorted(items.items())]', WIRE_CARRY),
+    # No mutant drops FITS_ITEM from carried(): written/1 holds an item's repo to the pass record's own alphabet (issue
+    # 913), so no write it admits has an item too wide to carry, and the guard is left for a schema that widens again.
     ("a Run's name that does not fit is carried", 'controller/reconcile.py', 'for r in read.get("runs", []) if FITS_RUN.fullmatch(r)],', 'for r in read.get("runs", [])],', WIRE_CARRY),
     ('a key too wide is not short', 'controller/reconcile.py', '    short = short or (recorded and unfit(effects))\n', '', WIRE_CARRY),
     ('a carried key is not matched', 'controller/reconcile.py', '    for e in held["keys"]:\n        if since is None or e["at"] >= since:\n            keys.setdefault((e["where"], e["type"]), set()).add(e["key"])\n', '', WIRE_CARRY),
