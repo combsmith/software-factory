@@ -477,7 +477,9 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
                 transport, repo, github_id, record["run"],
                 lambda answer: reads.append(dict(read_at(answer), read="advice_cost")))
         except Unanswered:
-            continue
+            # GitHub is not answering for artifacts: no more are asked for in this read, so that a pass is never kept
+            # waiting out a timeout for each of fifty. What is left is counted at the worst case, and asked for later.
+            break
         if cost is not None:
             record[ADVISED[0]], record[ADVISED[1]] = cost["asks"], cost["cost_usd"]
         else:
