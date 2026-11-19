@@ -112,6 +112,48 @@
           }
         }
       }
+    },
+    "advisory": {
+      "description": "What apply did with each advisory Lens's Result, a code for each Lens the Factory asks (decision 0224): shown as a check run, or why not. Written after the Run's own Effects are recorded, so a record without it is whole. `token_not_revoked` says GitHub did not confirm the token of the check runs revoked; it changes no outcome",
+      "type": "array",
+      "maxItems": 31,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "lens",
+          "code"
+        ],
+        "properties": {
+          "lens": {
+            "type": "string",
+            "pattern": "^[a-z]{1,31}$"
+          },
+          "code": {
+            "enum": [
+              "shown",
+              "advice_missing",
+              "advice_digest_differs",
+              "advice_invalid",
+              "advice_disagrees",
+              "advice_not_the_runs",
+              "advice_not_the_lens",
+              "advice_not_the_content",
+              "advice_finding_not_its_own",
+              "advice_text_not_its_findings",
+              "item_not_read",
+              "superseded",
+              "run_not_whole",
+              "out_of_time",
+              "token_not_minted",
+              "not_written",
+              "not_read_back",
+              "write_raised",
+              "token_not_revoked"
+            ]
+          }
+        }
+      }
     }
   }
 }

@@ -1,0 +1,18 @@
+{
+  "schema": "applied/1",
+  "run": "r_01JA7Q",
+  "release": "factory/v0.3.1",
+  "effects": [],
+  "findings": [],
+  "rulings": [],
+  "advisory": [
+    {
+      "lens": "astra",
+      "code": "shown"
+    },
+    {
+      "lens": "kimi",
+      "code": "token_not_revoked"
+    }
+  ]
+}

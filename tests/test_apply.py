@@ -9,6 +9,7 @@ import base64
 import copy
 import hashlib
 import json
+import os
 import pathlib
 import subprocess
 import tempfile
@@ -1739,10 +1740,10 @@ def advised(*found, **over) -> dict:
 
 
 class Checks:
-    """A fake GitHub that holds check runs: it lists none, makes each one asked, and reads each back as it was made."""
+    """A fake GitHub that holds check runs: it lists those made, makes each one asked, and reads each back as made."""
 
-    def __init__(self):
-        self.sent, self.made = [], []
+    def __init__(self, made=()):
+        self.sent, self.made = [], list(made)
 
     def send(self, req: dict) -> dict:
         self.sent.append(req)
@@ -1754,7 +1755,8 @@ class Checks:
                                   output={"annotations_count": len(body["output"]["annotations"])}))
             return ok(self.made[-1], 201)
         if "/commits/" in req["path"]:
-            return ok({"total_count": 0, "check_runs": []})
+            mine = [m for m in self.made if "check_name=%s&" % m["name"] in req["path"]]
+            return ok({"total_count": len(mine), "check_runs": mine})
         return ok(self.made[int(req["path"].rsplit("/", 1)[1]) - 1])
 
 
@@ -1762,31 +1764,39 @@ class Advised(unittest.TestCase):
     """Decision 0224, "What is shown": `apply` shows each advisory Lens's Result as a check run that is always neutral."""
     CONFIG = {"app": APPS["apps"]["pr-review"], "needs": APPS["needs"]}
     DONE = ({}, {"outcome": None, "reason": None})
+    BOTH = [("astra", "shown"), ("kimi", "shown")]
 
-    def show(self, files: dict, admit=None, done=None, facts=None, read=True, mint_refuses=None, revoked=True, folder="advice"):
-        """`(codes, hub, calls)` of `apply_step.advised` on a folder holding `files`, `{lens: Result, bytes or (bytes,
-        digest)}`."""
-        hub, calls = Checks(), {"mint": [], "revoke": 0}
+    def show(self, files: dict, admit=None, done=None, facts=None, read=True, mint_fails=None, revoked=True,
+             folder="advice", hub=None, left=None, placed=None):
+        """`(codes, hub, calls)` of `apply_step.advised` on a folder of `files`, which `placed(d)` moves or links first."""
+        hub, calls = hub or Checks(), {"mint": [], "revoke": 0}
 
         def mint(wanted):
             calls["mint"].append(wanted)
-            if mint_refuses:
-                raise identity.Refused(mint_refuses)
+            if mint_fails:
+                raise mint_fails
 
             def revoke():
                 calls["revoke"] += 1
+                if isinstance(revoked, Exception):
+                    raise revoked
                 return revoked
             return hub, revoke
-        with tempfile.TemporaryDirectory() as d:
-            pathlib.Path(d, "advice").mkdir()
+        with tempfile.TemporaryDirectory() as top:
+            d = pathlib.Path(top, "base")
+            (d / "advice").mkdir(parents=True)
             for lens, given in files.items():
                 data, digest = given if isinstance(given, tuple) else filed(given)
-                pathlib.Path(d, "advice", "advice.%s.json" % lens).write_bytes(data)
+                (d / "advice" / ("advice.%s.json" % lens)).write_bytes(data)
                 if digest is not None:
-                    pathlib.Path(d, "advice", "advice.%s.sha256" % lens).write_bytes(digest)
+                    (d / "advice" / ("advice.%s.sha256" % lens)).write_bytes(digest)
+            if placed:
+                placed(d)
             held = {"item": (facts or the_facts(), HEAD, runs(), support.context(), None)} if read else {}
-            codes = apply_step.advised(d, folder, the_task() if admit is None else admit, done or self.DONE, held, mint,
-                                       self.CONFIG)
+            more = {} if left is None else {"left": left}
+            codes = apply_step.advised(str(d), folder, the_task() if admit is None else admit, done or self.DONE, held,
+                                       mint, self.CONFIG, **more)
+        self.assertLessEqual({code for _, code in codes}, set(advice.CODES))
         return codes, hub, calls
 
     def posted(self, hub) -> list:
@@ -1794,12 +1804,10 @@ class Advised(unittest.TestCase):
 
     def test_an_advisory_check_run_is_neutral_whatever_its_result_says(self):
         cases = [advised(*[(severity, 86) for severity in SEVERE]), advised(*[("blocking", 86)] * 7), advised(),
-                 advised(status="incomplete", reason="rate_limited"), advised(status="failed", reason="unparsed"),
-                 advised(("blocking", 86), status="failed", reason="transport")]
-        cases += [advised((severity, 86)) for severity in SEVERE]
+                 advised(status="incomplete", reason="rate_limited"), advised(status="failed", reason="unparsed")]
         for case in cases:
             codes, hub, calls = self.show({"astra": case, "kimi": dict(case, lens="kimi", findings=[], texts=[])})
-            self.assertEqual(codes, [("astra", "shown"), ("kimi", "shown")], case["status"])
+            self.assertEqual(codes, self.BOTH, case["status"])
             first, second = self.posted(hub)
             self.assertEqual([(b["name"], b["conclusion"], b["status"], b["head_sha"], b["external_id"])
                               for b in (first, second)],
@@ -1810,19 +1818,22 @@ class Advised(unittest.TestCase):
             # One token, of the check run's need alone, revoked when the check runs are written.
             self.assertEqual((calls["mint"], calls["revoke"]), ([{"checks": "write"}], 1))
         # A reader's words are in the annotations it sends, and nowhere else in any request; at most fifty are sent.
-        codes, hub, _ = self.show({"astra": advised(*[("major", 100 + n) for n in range(60)])})
+        sixty = advised(*[("major", 100 + n) for n in range(60)])
+        codes, hub, _ = self.show({"astra": sixty})
         body, = self.posted(hub)
         notes = body["output"].pop("annotations")
         self.assertEqual((codes[0], len(notes)), (("astra", "shown"), 50))
         self.assertNotIn(MARK, json.dumps([req for req in hub.sent if req["method"] != "POST"]) + json.dumps(body))
         self.assertTrue(all(MARK in n["title"] and MARK in n["message"] for n in notes))
-        # The writes go through the advisory allowlist, which lets no other conclusion out.
+        # `apply` run again on the Run finds each Lens's check run by its key, and makes no second one.
+        again = self.show({"astra": sixty, "kimi": advised(lens="kimi")}, hub=Checks(hub.made))
+        self.assertEqual((again[0], [b["name"] for b in self.posted(again[1])]), (self.BOTH, ["advisory-kimi"]))
+        # The writes go through the advisory allowlist of this Run and its Lenses, which lets no other conclusion out.
         seen = []
         with unittest.mock.patch.object(effects, "role_write", lambda t, *a: seen.append(t) or {"state": "applied"}):
             self.show({"astra": advised()})
         self.assertIsInstance(seen[0], effects.Allowed)
-        good = {"name": "advisory-kimi", "head_sha": HEAD, "external_id": RUN + ":kimi", "status": "completed",
-                "conclusion": "neutral", "output": {"annotations": []}}
+        good = dict(self.posted(hub)[0], name="advisory-kimi", external_id=RUN + ":kimi", output=advice.shown(advised())[0])
         path = "/repos/%s/check-runs" % ITEM["repo"]
         with self.assertRaisesRegex(github.Unanswered, "nothing left"):
             effects.Allowed(GitHub(), seen[0]._permits, seen[0]._patterns).send(github.request("POST", path, body=good))
@@ -1834,10 +1845,8 @@ class Advised(unittest.TestCase):
         data, digest = filed(good)
         for given, want in (((data, b"sha256:" + b"0" * 64 + b"\n"), "advice_digest_differs"),
                             ((data, None), "advice_missing"), (b"not json", "advice_invalid"),
-                            (dict(good, run="r_01JA7Z"), "advice_not_the_runs"),
-                            (dict(good, lens="kimi"), "advice_not_the_lens"),
-                            (dict(good, findings=[dict(good["findings"][0], content_id="sha256:bbbb")]),
-                             "advice_not_the_content")):
+                            (dict(good, status="failed"), "advice_disagrees"),
+                            (dict(good, run="r_01JA7Z"), "advice_not_the_runs")):
             # Nothing of it is shown, and the other Lens's Result is shown as it would be without it.
             codes, hub, calls = self.show({"astra": given, "kimi": advised(lens="kimi")})
             self.assertEqual(codes, [("astra", want), ("kimi", "shown")], want)
@@ -1848,45 +1857,80 @@ class Advised(unittest.TestCase):
         # A Result is looked for under the names the configuration asks a reader for, and under no other.
         codes, hub, calls = self.show({"muse": advised(lens="muse"), "coderabbit": advised(lens="coderabbit")})
         self.assertEqual((codes, calls["mint"]), ([("astra", "advice_missing"), ("kimi", "advice_missing")], []))
-        # A folder that is not there, or outside the step's own, holds no Result.
-        for folder in ("nothing", "../advice", None):
-            codes, hub, calls = self.show({"astra": good}, folder=folder)
-            self.assertEqual((codes[0], hub.sent), (("astra", "advice_missing"), []), folder)
+        # A folder that is not there, one outside the step's own that holds a Result that would hold, and a folder or
+        # a file that is a link to one, hold none.
+        def outside(d):
+            os.rename(d / "advice", d.parent / "out")
+
+        def folder_linked(d):
+            outside(d)
+            os.symlink(d.parent / "out", d / "advice")
+
+        def file_linked(d):
+            os.rename(d / "advice" / "advice.astra.json", d / "kept.json")
+            os.symlink(d / "kept.json", d / "advice" / "advice.astra.json")
+        for folder, placed in (("nothing", None), (None, None), ("../out", outside), ("advice", folder_linked),
+                               ("advice", file_linked)):
+            codes, hub, calls = self.show({"astra": good}, folder=folder, placed=placed)
+            self.assertEqual((codes[0], hub.sent), (("astra", "advice_missing"), []), (folder, placed))
+        # No more of a file is read than the most a Result may be, and one byte.
+        read = []
+        real = advice.held
+        with unittest.mock.patch.object(advice, "LARGEST", 9), \
+                unittest.mock.patch.object(advice, "held", lambda data, *a: read.append(len(data or b"")) or real(data, *a)):
+            self.show({"astra": good})
+        self.assertEqual(read, [10, 0])
 
     def test_an_advisory_result_is_shown_only_for_a_review_of_the_item_as_admitted(self):
         files = {"astra": advised(("major", 86)), "kimi": advised(lens="kimi")}
-        self.assertEqual(self.show(files)[0], [("astra", "shown"), ("kimi", "shown")])
+        each = lambda code: [("astra", code), ("kimi", code)]
+        self.assertEqual(self.show(files)[0], self.BOTH)
         # No other Intent's Run, and no Run no Decision admitted, shows one or says anything of one.
-        for admit in (the_task(intent="fix-findings"), None):
-            codes, hub, calls = self.show(files, admit=admit) if admit else (apply_step.advised(
-                ".", "advice", None, self.DONE, {}, None, self.CONFIG), Checks(), {"mint": []})
-            self.assertEqual((codes, hub.sent, calls["mint"]), ([], [], []))
-        # An item `apply` did not read again, a change under the Run, or facts that are not the admitted content's.
+        self.assertEqual(apply_step.advised(".", "advice", None, self.DONE, {}, None, self.CONFIG), [])
+        codes, hub, calls = self.show(files, admit=the_task(intent="fix-findings"))
+        self.assertEqual((codes, hub.sent, calls["mint"]), ([], [], []))
+        # An item `apply` did not read again, a change under the Run, facts that are not the admitted content's, and a
+        # Run the Factory faulted: nothing is minted. One `apply` refused for the Role's own fault still shows.
         for over, want in (({"read": False}, "item_not_read"),
                            ({"done": ({}, {"outcome": "superseded", "reason": "paused"})}, "superseded"),
                            ({"facts": the_facts(state="closed")}, "superseded"),
-                           ({"facts": the_facts(content_id="sha256:bbbb")}, "superseded")):
+                           ({"facts": the_facts(content_id="sha256:bbbb")}, "superseded"),
+                           ({"done": ({}, {"outcome": "environment", "reason": "effect_failed"})}, "run_not_whole"),
+                           ({"done": ({}, {"outcome": "capacity", "reason": "engine_limit"})}, "run_not_whole")):
             codes, hub, calls = self.show(files, **over)
-            self.assertEqual((codes, hub.sent, calls["mint"]), ([("astra", want), ("kimi", want)], [], []), want)
-        # A Result `apply` refused for the Role's own fault is still a review of the admitted commit.
-        codes, _, _ = self.show(files, done=({}, {"outcome": "item", "reason": "uncovered"}))
-        self.assertEqual(codes, [("astra", "shown"), ("kimi", "shown")])
-        # A token not minted, a write GitHub does not take or that raises, or a token not revoked: each is a code.
-        codes, hub, calls = self.show(files, mint_refuses="effect_not_granted")
-        self.assertEqual((codes, hub.sent), ([("astra", "effect_not_granted"), ("kimi", "effect_not_granted")], []))
-        codes, hub, calls = self.show(dict(files, kimi=b"{}"), mint_refuses="token_unreadable")
-        self.assertEqual(codes, [("astra", "token_unreadable"), ("kimi", "advice_invalid")])
-        self.assertEqual(self.show(files, revoked=False)[0], [("astra", "token_not_revoked"), ("kimi", "token_not_revoked")])
-        for back, want in (({"state": "failed", "reason": "write_refused"}, "write_refused"), ({"state": "sent"},
-                           "not_read_back"), (KeyError("id"), "write_raised"), (github.Unanswered("x"), "write_raised")):
+            self.assertEqual((codes, hub.sent, calls["mint"]), (each(want), [], []), want)
+        self.assertEqual(self.show(files, done=({}, {"outcome": "item", "reason": "uncovered"}))[0], self.BOTH)
+        # A token not minted, whatever the cause, is a code, and nothing is sent.
+        for fails in (identity.Refused("effect_not_granted"), RuntimeError("what no one foresaw")):
+            codes, hub, calls = self.show(dict(files, kimi=b"{}"), mint_fails=fails)
+            self.assertEqual((codes, hub.sent), ([("astra", "token_not_minted"), ("kimi", "advice_invalid")], []))
+        # A token GitHub does not confirm revoked is said for each Lens asked through it, whatever was shown.
+        for revoked in (False, None, RuntimeError("no answer")):
+            self.assertEqual(self.show(files, revoked=revoked)[0], each("token_not_revoked"), revoked)
+        # A write not taken, not read back or that raises, foreseen or not, is a code; the next Lens is still written,
+        # the token revoked all the same, and a revocation not confirmed still said.
+        for back, want in (({"state": "failed", "reason": "write_refused"}, "not_written"), ({"state": "sent"},
+                           "not_read_back"), (KeyError("id"), "write_raised"), (RuntimeError("unforeseen"), "write_raised")):
+            asked = []
+
             def write(*a, back=back):
+                asked.append(a[3]["name"])
                 if isinstance(back, Exception):
                     raise back
                 return back
             with unittest.mock.patch.object(effects, "role_write", write):
                 codes, _, calls = self.show(files)
-            self.assertEqual((codes, calls["revoke"]), ([("astra", want), ("kimi", want)], 1), want)
-
+                unrevoked = self.show(files, revoked=False)[0]
+            self.assertEqual((codes, calls["revoke"], asked[:2]), (each(want), 1, ["advisory-astra", "advisory-kimi"]), want)
+            self.assertEqual(unrevoked, each("token_not_revoked"), want)
+        # Nothing is minted, and no Lens begun, that could not end and be revoked in the time the step has left.
+        self.assertEqual((apply_step.STEP, apply_step.MINT, apply_step.ONE), (240, 40, 90))
+        codes, hub, calls = self.show(files, left=lambda: 129)
+        self.assertEqual((codes, hub.sent, calls["mint"]), (each("out_of_time"), [], []))
+        times = [130, 90, 89]
+        codes, hub, calls = self.show(files, left=lambda: times.pop(0))
+        self.assertEqual((codes, calls["revoke"], [b["name"] for b in self.posted(hub)]),
+                         ([("astra", "shown"), ("kimi", "out_of_time")], 1, ["advisory-astra"]))
 
 if __name__ == "__main__":
     unittest.main()

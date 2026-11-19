@@ -48,6 +48,21 @@ ANNOTATIONS = 50        # GitHub takes at most fifty annotations in one request,
 HEADLINE = 255          # the characters of an annotation's title, GitHub's own bound
 MESSAGE = 8000          # the characters of an annotation's message: under GitHub's 64 KiB whatever the characters are
 LARGEST = 4 * 1024 * 1024       # the bytes of a Result's file `apply` reads: one over it is not read as one
+# What `apply` says it did with one Lens's Result, the codes applied/1 holds (its schema lists the same): shown, or why
+# not. A token GitHub did not confirm revoked is `token_not_revoked`, whatever was shown through it.
+CODES = ("shown", "advice_missing", "advice_digest_differs", "advice_invalid", "advice_disagrees", "advice_not_the_runs",
+         "advice_not_the_lens", "advice_not_the_content", "advice_finding_not_its_own", "advice_text_not_its_findings",
+         "item_not_read", "superseded", "run_not_whole", "out_of_time", "token_not_minted", "not_written",
+         "not_read_back", "write_raised", "token_not_revoked")
+LENS = re.compile(r"[a-z]{1,31}")
+RUN = re.compile(r"r_[0-9A-Z]{6,26}")
+# What no annotation's words hold: a control but a message's newline and tab, what turns the line they are shown on,
+# a line or paragraph separator, and half a surrogate pair.
+UNSHOWN = "\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069\u2028\u2029\ud800-\udfff"
+CODED = re.compile(r"(completed|incomplete \((%s)\)|failed \((%s)\)): \d{1,3} blocking, \d{1,3} major, \d{1,3} minor, "
+                   r"\d{1,3} info; \d{1,3} off the change" % ("|".join(INCOMPLETE), "|".join(FAILED)))
+SUMMARY = "An advisory read: it gates nothing. %d finding(s): %d annotated, %d with no line, %d left out past %d annotations."
+SUMMED = re.compile(re.escape(SUMMARY).replace("%d", r"\d{1,3}"))
 
 
 def _count(value):
@@ -183,7 +198,10 @@ def read(told: dict, answer: dict, asks: int, seconds, schemas: dict) -> dict:
     and the prices."""
     status, body = answer.get("status"), answer.get("body")
     known = isinstance(body, dict) and status == 200
-    usage = body.get("usage") if known and isinstance(body.get("usage"), dict) else {}
+    # What a response says of its tokens while it is still running, or once it is cancelled, is not what it cost:
+    # only one that has ended as completed or incomplete is priced, and any other read's cost is not known.
+    ended = known and (told["api"] != "responses" or body.get("status") in ("completed", "incomplete"))
+    usage = body.get("usage") if ended and isinstance(body.get("usage"), dict) else {}
     names = ("input_tokens", "output_tokens") if told["api"] == "responses" else ("prompt_tokens", "completion_tokens")
     model = body.get("model") if known else None
     spent = _usage(told, model, (_count(usage.get(names[0])), _count(usage.get(names[1]))), asks, seconds)
@@ -208,21 +226,29 @@ def held(data, digest, lens: str, advisory, admit: dict, schemas: dict) -> tuple
     Lens, and one text for each Finding, by its id and in its order."""
     if not isinstance(data, bytes) or not isinstance(digest, bytes) or len(data) > LARGEST:
         return None, "advice_missing"
+    if not isinstance(advisory, (list, tuple)) or not all(isinstance(name, str) for name in advisory):
+        return None, "advice_not_the_lens"
     if digest != ("sha256:%s\n" % hashlib.sha256(data).hexdigest()).encode():
         return None, "advice_digest_differs"
     try:
-        result = json.loads(data.decode("utf-8"))
+        result = json.loads(data.decode("utf-8"), object_pairs_hook=_once, parse_int=_whole, parse_constant=_whole)
     except (ValueError, RecursionError):
-        return None, "advice_invalid"
+        return None, "advice_invalid"       # a key given twice, a number no count has, or no number, among them
     if validate(result, schemas["advice"], schemas=schemas):
         return None, "advice_invalid"
+    # What the schema cannot say and the parser holds: a status and its reason agree, and only a read holds Findings.
+    reason = result["reason"]
+    if result["status"] != ("completed" if reason is None else "incomplete" if reason in INCOMPLETE else "failed") \
+            or (reason is not None and (result["findings"] or result["texts"] or result["off_change"])):
+        return None, "advice_disagrees"
     if (result["run"], result["release"]) != (admit["run"], admit["release"]):
         return None, "advice_not_the_runs"
     if lens not in advisory or result["lens"] != lens:
         return None, "advice_not_the_lens"
     if any(found["content_id"] != admit["content_id"] for found in result["findings"]):
         return None, "advice_not_the_content"
-    if any(found["id"] != found["surface"]["key"] or found["source"]["lens"] != lens for found in result["findings"]):
+    if any(found["id"] != found["surface"]["key"] or found["source"]["lens"] != lens
+           or not found["id"].startswith(lens + ":") for found in result["findings"]):
         return None, "advice_finding_not_its_own"
     ids = [found["id"] for found in result["findings"]]
     if len(set(ids)) != len(ids) or [text["id"] for text in result["texts"]] != ids:
@@ -245,14 +271,40 @@ def shown(result: dict) -> tuple:
     kept, notes = placed[:ANNOTATIONS], []
     for f in kept:
         first, _, rest = bodies[f["id"]].partition("\n")
-        first, rest, line = first.strip(), rest.strip(), f["location"]["start_line"]
+        first, rest = re.sub("[%s\t]" % UNSHOWN, "", first).strip(), re.sub("[%s]" % UNSHOWN, "", rest).strip()
+        line = f["location"]["start_line"]
         note = {"path": f["location"]["path"], "start_line": line, "end_line": line,
                 "annotation_level": LEVEL[f["severity"]], "message": (rest or first or "(no text)")[:MESSAGE]}
         if first and rest:
             note["title"] = first[:HEADLINE]
         notes.append(note)
-    summary = ("An advisory read: it gates nothing. %d finding(s): %d annotated, %d with no line, %d left out past %d "
-               "annotations." % (len(findings), len(kept), len(findings) - len(placed), len(placed) - len(kept),
-                                 ANNOTATIONS))
+    summary = SUMMARY % (len(findings), len(kept), len(findings) - len(placed), len(placed) - len(kept), ANNOTATIONS)
     return ({"title": "%s: %s; %d off the change" % (status, counts, result["off_change"]), "summary": summary,
              "annotations": notes}, [f["id"] for f in kept])
+
+
+def _lined(value) -> bool:
+    return type(value) is int and value >= 1
+
+
+def showable(output) -> bool:
+    """Whether a check run's output is one `shown` builds, and nothing beside it: a title of codes and counts, the
+    summary's one sentence of counts, and at most fifty annotations, each a path, its line, a level that is no failure
+    and a reader's words within their bounds. What a check run's output may hold beyond these, it may not."""
+    if not isinstance(output, dict) or set(output) != {"title", "summary", "annotations"}:
+        return False
+    notes = output["annotations"]
+    if not isinstance(output["title"], str) or not CODED.fullmatch(output["title"]) or not isinstance(notes, list) \
+            or not isinstance(output["summary"], str) or not SUMMED.fullmatch(output["summary"]) or len(notes) > ANNOTATIONS:
+        return False
+    for note in notes:
+        if not isinstance(note, dict) or set(note) - {"title"} != {"path", "start_line", "end_line", "annotation_level",
+                                                                  "message"}:
+            return False
+        words = [note["message"]] + ([note["title"]] if "title" in note else [])
+        if not isinstance(note["path"], str) or not PLACE.fullmatch(note["path"]) or not _lined(note["start_line"]) \
+                or note["end_line"] != note["start_line"] or note["annotation_level"] not in set(LEVEL.values()) \
+                or not all(isinstance(said, str) and said and not re.search("[%s]" % UNSHOWN, said) for said in words) \
+                or len(note["message"]) > MESSAGE or len(note.get("title", "")) > HEADLINE or "\n" in note.get("title", ""):
+            return False
+    return True

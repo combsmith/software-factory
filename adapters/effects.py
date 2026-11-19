@@ -34,7 +34,7 @@ import sys
 import time
 import urllib.parse
 
-from adapters import acceptance, checks, edits, identity, pause as pause_, threads
+from adapters import acceptance, advice, checks, edits, identity, pause as pause_, threads
 from adapters.github import Live, Unanswered, request
 from controller import feed as feed_
 from controller import writes as writes_
@@ -563,6 +563,7 @@ def refused_all(writes, record, reason: str) -> dict:
 ROLE_WRITES = ("submit_review", "create_check_run", "comment")
 # GitHub takes at most fifty annotations in one request: more would need a second write, which nothing sends yet.
 ANNOTATIONS = 50
+ADVISORY = re.compile(advice.CHECK % advice.LENS.pattern)      # the name of an advisory Lens's check run
 LEVEL = {"minor": "warning", "info": "notice"}
 SHA = re.compile(r"[0-9a-f]{40}")
 # A check run's key: the Run's id and the Effect's.
@@ -622,34 +623,31 @@ def role_permits(item: dict, head: str, name: str) -> tuple:
     return permits, patterns
 
 
-# An advisory Lens's check run's key: the Run's id and the Lens's name.
-ADVISED = re.compile(r"r_[0-9A-Z]{6,26}:[a-z]{1,31}")
-NEVER_RED = ("notice", "warning")
-
-
-def advisory_permits(item: dict, head: str, names) -> tuple:
+def advisory_permits(item: dict, head: str, lenses, run: str) -> tuple:
     """`(permits, patterns)`: what the Role App's token may send to show the advisory Lenses' Results on one item
-    (decision 0224), for `Allowed`. A check run named one of `names`, on its head, `head`, completed and concluding
-    `neutral` and nothing else, no annotation of it a failure; the reads that recover it and read it back; nothing
-    else, on no other repo."""
+    (decision 0224), for `Allowed`. For each Lens of `lenses`, a list of names, one check run: named for it, keyed by
+    the Run and the Lens, on the head, `head`, completed and concluding `neutral` and nothing else, its output one
+    `adapters/advice.py` builds and nothing beside it (`showable`); and the reads that recover it and read it back.
+    Names that are no list of Lens names, a Run that is no Run's id and a head that is no commit permit nothing."""
     repo = item["repo"]
+    named = isinstance(lenses, (list, tuple)) and all(isinstance(n, str) and advice.LENS.fullmatch(n) for n in lenses)
+    known = named and isinstance(run, str) and advice.RUN.fullmatch(run) and isinstance(head, str) and SHA.fullmatch(head)
+    keys = {advice.CHECK % lens: "%s:%s" % (run, lens) for lens in lenses} if known else {}
 
     def nothing(body) -> bool:
         return body is None
 
     def advised(body) -> bool:
-        if not isinstance(body, dict) or set(body) != {"name", "head_sha", "external_id", "status", "conclusion", "output"}:
-            return False
-        notes = body["output"].get("annotations") if isinstance(body["output"], dict) else None
-        return (body["conclusion"] == "neutral" and body["status"] == "completed" and body["name"] in names
-                and body["head_sha"] == head and isinstance(head, str) and SHA.fullmatch(head) is not None
-                and isinstance(body["external_id"], str) and ADVISED.fullmatch(body["external_id"]) is not None
-                and isinstance(notes, list)
-                and all(isinstance(n, dict) and n.get("annotation_level") in NEVER_RED for n in notes))
+        return (isinstance(body, dict) and set(body) == {"name", "head_sha", "external_id", "status", "conclusion", "output"}
+                and body["conclusion"] == "neutral" and body["status"] == "completed"
+                and isinstance(body["name"], str) and body["name"] in keys and body["external_id"] == keys[body["name"]]
+                and body["head_sha"] == head and advice.showable(body["output"]))
+    if not keys:
+        return {}, []
     return ({("POST", "/repos/%s/check-runs" % repo): advised},
             [("GET", re.compile(r"/repos/%s/check-runs/[1-9][0-9]{0,18}" % re.escape(repo)), nothing),
-             ("GET", re.compile(r"/repos/%s/commits/%s/check-runs\?check_name=[a-z-]+&filter=all&per_page=100"
-                                % (re.escape(repo), re.escape(str(head)))), nothing)])
+             ("GET", re.compile(r"/repos/%s/commits/%s/check-runs\?check_name=(%s)&filter=all&per_page=100"
+                                % (re.escape(repo), head, "|".join(sorted(keys)))), nothing)])
 
 
 class _TokenRefused(Exception):
@@ -750,6 +748,13 @@ def _check(transport, item: dict, req: dict, login: str) -> dict:
     `output`, an advisory Lens's (decision 0224), is sent with it."""
     if len(req["annotations"]) > ANNOTATIONS:
         return _back("failed", None, reason="too_many_annotations")
+    # An output of the request's own is an advisory Lens's alone, and annotates what the request says it does: so the
+    # bound above and the count read back are of what is sent.
+    own = "output" in req
+    if own and not (ADVISORY.fullmatch(req["name"]) and isinstance(req["output"], dict)
+                    and isinstance(req["output"].get("annotations"), list)
+                    and len(req["output"]["annotations"]) == len(req["annotations"])):
+        return _back("failed", None, reason="output_not_its_own")
     repo, app = item["repo"], login[: -len("[bot]")] if login.endswith("[bot]") else login
     listed = _body(_sent(transport, request("GET", "/repos/%s/commits/%s/check-runs?check_name=%s&filter=all&per_page=100" % (
         repo, req["commit"], urllib.parse.quote(req["name"], safe="")))), 200)
@@ -764,7 +769,7 @@ def _check(transport, item: dict, req: dict, login: str) -> dict:
     if made is None:
         answer = _sent(transport, request("POST", "/repos/%s/check-runs" % repo, body={
             "name": req["name"], "head_sha": req["commit"], "external_id": req["external_id"], "status": "completed",
-            "conclusion": req["conclusion"], "output": req.get("output") or {
+            "conclusion": req["conclusion"], "output": req["output"] if own else {
                 "title": req["name"], "summary": "%d finding(s) that do not gate" % len(req["annotations"]),
                 "annotations": [{"path": a["path"], "start_line": a["start_line"], "end_line": a["end_line"],
                                  "annotation_level": LEVEL.get(a["severity"], "notice"), "message": a["body"]}

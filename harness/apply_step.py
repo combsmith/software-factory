@@ -14,9 +14,9 @@ item read again through that token (`harness/reread.py`), with its diff read aga
 and a mint of the write token its Effects need. Both tokens are
 revoked before the step ends. OUT holds `applied.json` and `outcome.json`, which the job's last step uploads.
 
-Last, and beside all of that, a review's Run shows each advisory Lens's Result as a check run that is always `neutral`
-(`advised`, decision 0224). It changes nothing of the above and never fails the step: what it did for each Lens is a
-code on the step's one line."""
+Last, once both files are written and the read token revoked, a review's Run shows each advisory Lens's Result as a
+check run that is always `neutral` (`advised`, decision 0224). It changes no outcome and never fails the step: what it
+did for each Lens is a code on the step's one line and in `applied.json`, which is replaced whole to hold it."""
 from __future__ import annotations
 
 import json
@@ -26,7 +26,7 @@ import time
 
 from adapters import advice, effects, identity, passes, pull
 from adapters.facts import Moved
-from adapters.github import Live, Unanswered
+from adapters.github import TIMEOUT, Live, Unanswered
 from controller import configuration
 from harness import apply, bundle, read as read_, reread, shared, steps, task
 from harness.steps import Stop
@@ -34,6 +34,10 @@ from harness.steps import Stop
 APP = "pr-review"
 KEY = "PR_REVIEW_APP_KEY"
 REVIEWING = "review-change"     # the Intent whose Run the advisory Lenses read for (decision 0224)
+# The seconds the workflow gives this step (`Apply the Result` in run-jobs.yml, 4 minutes), and what the advisory part
+# needs of them, a request waiting at most TIMEOUT, 20 s. A Lens's check run is three requests and the revocation one,
+# and ONE is those and 10 s for the record: 90 s. Minting is two: nothing is minted with less than 130 s left.
+STEP, ONE, MINT = 240, 4 * TIMEOUT + 10, 2 * TIMEOUT
 
 
 def _ended(run: str, release: str, why: tuple) -> tuple:
@@ -94,14 +98,26 @@ def engine_started(needs):
     return None
 
 
-def advised(base, folder, admit, done: tuple, held: dict, mint, config: dict) -> list:
+def _file(base, folder, name: str, most: int):
+    """At most `most` bytes of a file in `folder`, a folder that really lies inside `base`; None for one that is not
+    there, lies outside, or is a link, which is never followed."""
+    try:
+        opened = os.open(os.path.join(steps.inside(base, folder), name), os.O_RDONLY | os.O_NOFOLLOW)
+        with open(opened, "rb") as f:
+            return f.read(most)
+    except (OSError, Stop, TypeError, ValueError):
+        return None
+
+
+def advised(base, folder, admit, done: tuple, held: dict, mint, config: dict, left=lambda: STEP) -> list:
     """`(lens, code)` for each advisory Lens the Factory asks: `shown` where its Result is now a check run on the
-    admitted commit, else why it is not (decision 0224, "What is shown"). Nothing is shown but for a review's Run whose
-    item `apply` read again and found as admitted: open, on the admitted content, and no change under the Run. Each
-    Result is read from `folder` with the digest beside it and held to its schema and its Run (`adapters/advice.py`'s
-    `held`); one that fails is not shown at all. The check run is the Role App's, named for the Lens, concluding
-    `neutral` whatever the Result says, through a token of the check run's need alone and an allowlist that lets no
-    other conclusion out."""
+    admitted commit, else why not, one of `advice.CODES` (decision 0224, "What is shown"). Only a review's Run shows
+    one, that `apply` ended with no fault or the Role's own, on an item it read again and found as admitted: a change
+    under the Run is `superseded`, a Run the Factory faulted `run_not_whole`. Each Result is read from `folder`, bounded
+    and through no link, and held by `advice.held`; one that fails is not shown at all. The check run is the Role
+    App's, `neutral` whatever the Result says, through a token of its need alone and the advisory allowlist. `left()`
+    is the seconds the step still has: nothing is begun that could not end and be revoked in them (`out_of_time`).
+    Whatever a write does, the revocation is asked for, and unless confirmed every Lens asked is `token_not_revoked`."""
     if admit is None or admit["intent"] != REVIEWING:
         return []
     asks = steps.read_json(steps.ROOT, os.path.join("config", "harness.json"))
@@ -111,46 +127,58 @@ def advised(base, folder, admit, done: tuple, held: dict, mint, config: dict) ->
         return [(lens, "item_not_read") for lens in names]
     if done[1]["outcome"] == "superseded" or facts["state"] != "open" or facts["content_id"] != admit["content_id"]:
         return [(lens, "superseded") for lens in names]
+    if done[1]["outcome"] not in (None, "item"):
+        return [(lens, "run_not_whole") for lens in names]
     said, asked = {}, []
     for lens in names:
-        data = digest = None
-        try:
-            with open(steps.inside(base, os.path.join(folder, "advice.%s.json" % lens)), "rb") as f:
-                data = f.read(advice.LARGEST + 1)
-            with open(steps.inside(base, os.path.join(folder, "advice.%s.sha256" % lens)), "rb") as f:
-                digest = f.read(128)
-        except (OSError, Stop, TypeError):
-            pass
+        data = _file(base, folder, "advice.%s.json" % lens, advice.LARGEST + 1)
+        digest = _file(base, folder, "advice.%s.sha256" % lens, 128)
         result, said[lens] = advice.held(data, digest, lens, names, admit, shared.SCHEMAS)
         if result is not None:
             output, ids = advice.shown(result)
             asked.append((lens, {"commit": head, "name": advice.CHECK % lens, "conclusion": "neutral",
                                  "external_id": "%s:%s" % (admit["run"], lens), "output": output,
                                  "annotations": [{"finding": ident} for ident in ids]}))
-    if asked:
+    if asked and left() < MINT + ONE:
+        said.update({lens: "out_of_time" for lens, _ in asked})
+    elif asked:
         try:
             transport, revoke = mint(identity.permissions(config["app"], config["needs"], ["create_check_run"]))
-        except identity.Refused as err:
-            return [(lens, str(err) if any(lens == a for a, _ in asked) else said[lens]) for lens in names]
+        except Exception:   # NOSONAR a token not minted, for whatever cause, is a code: nothing was written
+            return [(lens, said[lens] or "token_not_minted") for lens in names]
+        allowed = None
+        for lens, req in asked:
+            if left() < ONE:
+                said[lens] = "out_of_time"
+                continue
+            try:
+                allowed = allowed or effects.Allowed(transport, *effects.advisory_permits(admit["item"], head, names,
+                                                                                         admit["run"]))
+                state = effects.role_write(allowed, admit["item"], "create_check_run", req,
+                                           config["app"]["name"] + "[bot]").get("state")
+            except Exception:   # NOSONAR a write that raises, foreseen or not, is a code, and the token is still revoked
+                state = "raised"
+            said[lens] = "shown" if state in ("applied", "already_applied") else \
+                {"sent": "not_read_back", "raised": "write_raised"}.get(state, "not_written")
         try:
-            allowed = effects.Allowed(transport, *effects.advisory_permits(admit["item"], head,
-                                                                           [advice.CHECK % lens for lens in names]))
-            for lens, req in asked:
-                try:
-                    back = effects.role_write(allowed, admit["item"], "create_check_run", req,
-                                              config["app"]["name"] + "[bot]")
-                except (Unanswered, OSError, ValueError, KeyError, TypeError):
-                    back = {"reason": "write_raised"}
-                said[lens] = "shown" if back.get("state") in ("applied", "already_applied") \
-                    else back.get("reason") or "not_read_back"
-        finally:
-            if revoke() is not True:
-                said.update({lens: "token_not_revoked" for lens, _ in asked})
+            gone = revoke() is True
+        except Exception:   # NOSONAR a revocation that raises is one GitHub did not confirm
+            gone = False
+        if not gone:
+            said.update({lens: "token_not_revoked" for lens, _ in asked})
     return [(lens, said[lens]) for lens in names]
 
 
-def written(argv: list, environ: dict, base, clock, connect, said=None) -> tuple:
-    """`(applied/1, outcome/1)` of the Run. `said`, a list, is given what `advised` did, a code for each Lens."""
+def _replaced(folder: str, name: str, data) -> None:
+    """`name` in the step's folder, replaced whole by `data`: written new beside it, through no link, and moved onto
+    it, so that the file is the one before or the one after and never part of either."""
+    steps.write(folder, name + ".new", data)
+    os.replace(os.path.join(folder, name + ".new"), os.path.join(folder, name))
+
+
+def written(argv: list, environ: dict, base, clock, connect, kept=None) -> tuple:
+    """`(applied/1, outcome/1)` of the Run. `kept`, a dict, is given what `advised` needs once the read token is
+    revoked: the Run's admission, the item read again, the mint and the configuration."""
     name, item, pass_id, found = argv[:4]
     release = steps.release()
     config = configuration.load(steps.ROOT, release, APP)
@@ -239,11 +267,8 @@ def written(argv: list, environ: dict, base, clock, connect, said=None) -> tuple
                 done = _ended(parts["run"], release, ("environment", shared.unread(err)))
     finally:
         revoked = revoke()
-    if said is not None:
-        try:
-            said.extend(advised(base, argv[5] if len(argv) > 5 else None, admit, done, held, mint, config))
-        except Exception:   # NOSONAR an advisory read never fails `apply`, nor changes its outcome (decision 0224)
-            said.append(("all", "not_shown"))
+    if kept is not None:
+        kept.update(admit=admit, held=held, mint=mint, config=config)
     # A read token GitHub did not confirm revoked may still read: the Run is the Factory's to look at.
     if revoked is not True:
         return done[0], dict(done[1], outcome="environment", reason="token_not_revoked")
@@ -254,8 +279,8 @@ def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
     argv = steps.given(argv, environ, steps.INPUTS, ("result", "applied", "advice"))
     if len(argv) not in (5, 6):
         raise Stop("usage: python3 -m harness.apply_step NAME ITEM PASS RESULT OUT [ADVICE]")
-    folder, said = steps.new_folder(base, argv[4]), []
-    done, ended = written(argv, environ, base, clock, connect, said)
+    folder, kept, began = steps.new_folder(base, argv[4]), {}, clock()
+    done, ended = written(argv, environ, base, clock, connect, kept)
     started = engine_started(environ.get("NEEDS"))
     if started is not None:
         ended = dict(ended, engine_started=started)
@@ -263,7 +288,20 @@ def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
         raise Stop("records_unreadable")
     steps.write(folder, "applied.json", done)
     steps.write(folder, "outcome.json", ended)
-    shown = "".join("; %s %s" % (advice.CHECK % lens, code) for lens, code in said)
+    # Both files stand as written, whatever follows: the advisory part comes last, changes neither's outcome, and adds
+    # to `applied.json` alone what it did for each Lens (decision 0224).
+    shown = ""
+    try:
+        said = advised(base, argv[5] if len(argv) > 5 else None, kept["admit"], (done, ended), kept["held"], kept["mint"],
+                       kept["config"], lambda: began + STEP - clock()) if kept else []
+        more = dict(done, advisory=[{"lens": lens, "code": code} for lens, code in said])
+        if said and shared.errors(more, "applied"):
+            raise ValueError("what was done for a Lens is no code of applied/1's")
+        if said:
+            _replaced(folder, "applied.json", more)
+        shown = "".join("; %s %s" % (advice.CHECK % lens, code) for lens, code in said)
+    except Exception:   # NOSONAR an advisory read never fails `apply`, nor changes its outcome (decision 0224)
+        shown = "; advisory not_shown"
     return "applied, outcome %s%s" % (ended["outcome"] or "none", shown)
 
 
