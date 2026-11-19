@@ -90,6 +90,7 @@ KEPT = frozenset({NEW, TRIAGE, READY})
 # places for unmerged closes calls a person whatever its reason, the Pause's deferral of it too, and is not listed.
 NEEDS_YOU_REASONS = frozenset({
     "human_hold",
+    "timeline_bounded",
     "merged_while_held",
     "merged_while_hands_off",
     "merged_while_declined",
@@ -615,7 +616,13 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     What was read short or cannot be read is read first, a closed issue's too: rows 1 and 2 read the linked pull
     requests and the timeline, and neither terminal State admits anything.
     """
-    gaps = unread_lists(facts)
+    # A read the port cut at its bound, the issue's timeline or its linked pull requests', defers on its own code, before
+    # any list read short, and calls a person: more comments never bring it back under the bound (decision 0234). A flag not exactly true or false is a
+    # gap in the timeline, never read as within it.
+    bounded = facts.get("timeline_bounded")
+    if bounded is True:
+        return out(None, "timeline_bounded", ["timeline"])
+    gaps = [name for name in ISSUE_READ_IN_FULL if name in unread_lists(facts) or (name == "timeline" and bounded is not False)]
     if gaps:
         return out(None, "facts_incomplete", gaps)
     if facts.get("state") not in ISSUE_STATES or not readable_close(facts):
