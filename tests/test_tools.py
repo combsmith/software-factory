@@ -451,6 +451,33 @@ class Examples(unittest.TestCase):
         for loose in ("^fixed$|b$", "^[a-z]+\\$", "^a|b$", "a$", "^a", "^(a|b)$|^c$", None, 3):
             self.assertFalse(check_examples._anchored(loose), loose)
 
+    def test_a_reference_out_of_the_codes_and_a_pattern_that_admits_a_sentence_are_caught(self):  # issue 913
+        schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
+                   for p in (ROOT / "schemas").glob("*.schema.json")}
+        free = lambda kind, schema: check_examples._free(schema, schemas, schema, kind, "$", set())
+        # A reference out of a kind of codes reaches only a record RECORDS names, whose own rules hold it; any other
+        # kind, a model's answer whole for one, is refused, however it is referred to.
+        for ref in ("apps.schema.json", "trial.schema.json", "trial.schema.json#/$defs/headers"):
+            applied = copy.deepcopy(schemas["applied"])
+            applied["properties"]["extra"] = {"$ref": ref}
+            self.assertTrue(caught(free("applied", applied), "schema applied refers at $.extra to %s, which is neither"
+                                   % ref.split(".")[0]), ref)
+        for kind in check_examples.RECORDS:
+            applied = copy.deepcopy(schemas["applied"])
+            applied["properties"]["extra"] = {"$ref": "%s.schema.json" % kind}
+            self.assertEqual(free("applied", applied), [], kind)
+        self.assertEqual(sorted(check_examples.RECORDS), ["decision", "facts", "finding", "issue-decision", "issue-facts"])
+        # Anchored is not a code: a pattern holds one only where no class of it, no `.` and no escape admits whitespace.
+        for held in ("^[a-z_]+$", "^[^\\s]+$", "^[^/\\s]+/[^/\\s]+$", "^\\S+$", "^[\\w-]+$", "^sf [a-z]+ r_[0-9]+$",
+                     "^[]a]+$", "^sha256:[0-9a-f]{64}$", "^a\\.b$", "^\\x41\\u0042+$"):
+            self.assertTrue(check_examples._coded(held), held)
+        for loose in ("^[^\\^@]*$", "^[^/]+/[^/]+$", "^.+$", "^[a .]+$", "^[\\s\\S]+$", "^[^\\S]+$", "^\\s$", "^\\W+$",
+                      "^\\D+$", "^[a\\x20]+$", "^[a\\u3000]+$", "^[a\\t]+$", "^(?x)a b$", "^(?s).$", "^[a-z]+$|b", None, "^[a-$"):
+            self.assertFalse(check_examples._coded(loose), loose)
+        disposition = copy.deepcopy(schemas["disposition"])
+        disposition["properties"]["note"] = {"type": "string", "pattern": "^[^\\^@]*$"}
+        self.assertTrue(caught(free("disposition", disposition), "schema disposition admits text at $.note"))
+
     def test_a_schema_without_its_envelope_is_caught(self):  # decision 0039
         schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
                    for p in (ROOT / "schemas").glob("*.schema.json")}

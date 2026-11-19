@@ -45,11 +45,18 @@ RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # What one Run carries, and what is written from it, holds codes, never text: a string in these schemas is held by an
 # enum, a const or a pattern anchored at both ends, unless it is a property named `body`, or sits under one named
 # `untrusted`. A body goes out to GitHub or in to the model as data, and nothing reads one back into a decision; what is
-# untrusted is marked for whatever reads the feed, and only view-item has it. A reference into a kind outside this set
-# is held by that kind's own rules, so the existing records are not swept.
+# untrusted is marked for whatever reads the feed, and only view-item has it. A reference out of this set reaches only
+# a record RECORDS names, held by that kind's own rules, so the existing records are not swept.
 CODES_ONLY = ("task", "result", "effect", "disposition", "run-name", "coverage", "run-record",
               "pass", "writes", "written", "applied", "outcome", "view-meta", "view-items", "view-item", "health", "role", "feed",
               "eval-set", "eval-report", "eval-aggregate", "eval-ledger", "rings")
+# The records a kind in CODES_ONLY may refer into, each the Factory's own, read from GitHub by a port and held by its own
+# schema and counter-examples: a reference out of CODES_ONLY to any other kind is refused, so that a record whole of
+# text from outside, a model's answer say, is never carried as codes by a reference (issue 913). A kind joins by a
+# reviewed change to this line.
+RECORDS = ("facts", "decision", "issue-facts", "issue-decision", "finding")
+# What a pattern's class, `.` or escape must match none of to hold a code: whitespace, as Python's \s reads it.
+SPACES = " \t\n\r\x0b\x0c\x1c\x1d\x1e\x1f\x85\xa0\u1680\u2000\u200a\u2028\u2029\u202f\u205f\u3000"
 TEXT_FIELD = "body"
 UNTRUSTED_FIELD = "untrusted"
 UNTRUSTED_KIND = "view-item"
@@ -118,6 +125,36 @@ def _anchored(pattern) -> bool:
     return True
 
 
+def _coded(pattern) -> bool:
+    """Whether `pattern` holds a code: it is anchored, and no class of it, no `.` and no escape matches whitespace, so
+    no sentence passes it (issue 913). A literal space between its parts is a fixed separator, as a Run's name has; an
+    inline flag, which may change what each part reads, is refused."""
+    if not _anchored(pattern) or re.search(r"\(\?[aiLmsux-]", pattern):
+        return False
+    parts, i = [], 0
+    while i < len(pattern):
+        c = pattern[i]
+        if c == "[":
+            j = i + 1 + (pattern[i + 1:i + 2] == "^")
+            j += pattern[j:j + 1] == "]"        # a ] first in a class is a literal
+            while j < len(pattern) and pattern[j] != "]":
+                j += 2 if pattern[j] == "\\" else 1
+            parts.append(pattern[i:j + 1])
+            i = j + 1
+        elif c == "\\":
+            size = {"x": 4, "u": 6, "U": 10}.get(pattern[i + 1:i + 2], 2)
+            parts.append(pattern[i:i + size])
+            i += size
+        else:
+            if c == ".":
+                parts.append(c)
+            i += 1
+    try:
+        return not any(re.fullmatch(part, space) for part in parts for space in SPACES)
+    except re.error:
+        return False
+
+
 def _envelope(kind: str, schema) -> list:
     """What is wrong with `schema`'s envelope for its class in ENVELOPE: nothing, or each sentence."""
     out = []
@@ -182,8 +219,11 @@ def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: 
         if id(target) in active:
             return ["schema %s comes round to itself at %s" % (kind, path)]
         named = FILE.match(ref)
-        if named and named.group(1) not in CODES_ONLY:
+        if named and named.group(1) in RECORDS:
             return []       # a record, held by its own rules and counter-examples; the existing records are not swept
+        if named and named.group(1) not in CODES_ONLY:
+            return ["schema %s refers at %s to %s, which is neither a kind of codes nor a record RECORDS names; hold it "
+                    "to codes, or name it there by a reviewed change" % (kind, path, named.group(1))]
         return _free(target, schemas, target_root, named.group(1) if named else kind, path, seen, active + (id(target),))
     if (kind, id(schema)) in seen:
         return []
@@ -192,7 +232,7 @@ def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: 
     kinds = schema.get("type")
     kinds = kinds if isinstance(kinds, list) else [kinds]
     strings = "string" in kinds or (kinds == [None] and not ("enum" in schema or "const" in schema))
-    if strings and not ("enum" in schema or "const" in schema or _anchored(schema.get("pattern"))):
+    if strings and not ("enum" in schema or "const" in schema or _coded(schema.get("pattern"))):
         out.append("schema %s admits text at %s; a string a Run carries is a code, unless it is named %s"
                    % (kind, path, TEXT_FIELD))
     for name, prop in schema.get("properties", {}).items():
