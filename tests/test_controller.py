@@ -1104,7 +1104,7 @@ def issue_through_the_port(events=(), repo="o/r", exchanges=None, users=None) ->
     _, accounts, _ = entry.reader(router, held_roles())
     accounts.repo = repo
     number = found[0]["response"]["body"]["number"]
-    facts, title = issues.read(router, repo, number, accounts, lambda: "2026-10-11T12:00:00Z", identities=IDENTITIES)
+    facts, title = issues.read(router, repo, number, accounts, lambda: "2026-10-11T12:00:00Z", identities=IDENTITIES, earlier=[])
     return {"facts": facts, "title": title}
 
 
@@ -1747,9 +1747,9 @@ class Entry(unittest.TestCase):
                 return list(listed), whole
             return open_issues
 
-        def read(transport, repo, number, accounts, clock, *, identities):
+        def read(transport, repo, number, accounts, clock, *, identities, earlier):
             spied["read"].append((repo, number, accounts))
-            spied["identities"].append(identities)
+            spied["identities"].append((identities, earlier))
             if number == 6:
                 raise entry.facts_.Moved("moved")
             if number == 9:
@@ -1785,8 +1785,8 @@ class Entry(unittest.TestCase):
         self.assertEqual(spied["listed"], [(self.HOME, since, [8])])
         self.assertEqual([n for _, n, _ in spied["read"]], [5, 6, 9])
         self.assertTrue(all(who is spied["who"][0] for _, _, who in spied["read"]))
-        # Each is read with the pull requests' class accounts.
-        self.assertEqual(spied["identities"], [entry.facts_.accounts_of(CONTROLLER)[0]] * 3)
+        # Each is read with the pull requests' class accounts, and the pass records before this pass, here none.
+        self.assertEqual(spied["identities"], [(entry.facts_.accounts_of(CONTROLLER)[0], [])] * 3)
         # The reader names each App the configuration holds by its account's id, as REST spells its Bot's login.
         catalogue = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
         self.assertEqual(spied["who"][0].apps, {(CONTROLLER["accounts"]["controller"]["id"], "Bot"):

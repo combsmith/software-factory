@@ -20,8 +20,8 @@ import urllib.parse
 import zipfile
 from unittest import mock
 
-from adapters import acceptance, applied, artifacts, checks, edits, effects, facts, github, heldout, issues, items, linked, passes, \
-    pull, records, pause, rules, texts, threads, timeline
+from adapters import acceptance, applied, artifacts, checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
+    passes, pull, records, pause, rules, texts, threads, timeline
 from controller import shared
 from harness import task
 from kernel import brakes
@@ -6166,10 +6166,11 @@ def issue_read(events=(), more=False, last=None, types=(), edits=None, closing=N
 class Issues(unittest.TestCase):
     NOW = "2026-10-11T12:00:00Z"
 
-    def read(self, exchanges, clock=None, transport=None):
+    def read(self, exchanges, clock=None, transport=None, earlier=()):
         router = transport or Router(github.Replay(exchanges), {"don-petry": "admin", "stranger": "read"})
         accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]})
-        found, title = issues.read(router, "o/r", 41, accounts, clock or (lambda: self.NOW), identities=IDENTITIES)
+        found, title = issues.read(router, "o/r", 41, accounts, clock or (lambda: self.NOW), identities=IDENTITIES,
+                                   earlier=None if earlier is None else list(earlier))
         # The title is handed beside the facts, never in them.
         self.assertEqual(title, (exchanges or issue_read())[0]["response"]["body"]["title"])
         self.assertNotIn(title, json.dumps(found))
@@ -6209,7 +6210,7 @@ class Issues(unittest.TestCase):
                   issue_event("labeled", 4, actor=("dependabot[bot]", 99, "Bot"), label={"name": "x"})]
         router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory=set(names), apps=names)
-        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES)
+        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES, earlier=[])
         # An App the configuration does not name keeps its login (Carbon).
         self.assertEqual([e["by"]["name"] for e in found["label_events"]],
                          ["combsmith-sf-controller[bot]", "combsmith-sf-controller", "dependabot[bot]"])
@@ -6232,17 +6233,17 @@ class Issues(unittest.TestCase):
             router = Router(github.Replay(issue_read([event])), {"don-petry": "admin"})
             accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory=set(names), apps=names)
             with self.assertRaises(github.Unanswered, msg=event["event"]):
-                issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES)
+                issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES, earlier=[])
         # A name the configuration declares, though it holds no account of that App's, no account may show (Carbon).
         event = issue_event("labeled", 1, actor=("combsmith-sf-dev-lead[bot]", 99, "Bot"), label={"name": "factory:ready"})
         router = Router(github.Replay(issue_read([event])), {"don-petry": "admin"})
         reserved = timeline.Accounts(router, "o/r", MACHINE, {}, apps=names, reserved={"combsmith-sf-dev-lead[bot]"})
         with self.assertRaises(github.Unanswered):
-            issues.read(router, "o/r", 41, reserved, lambda: self.NOW, identities=IDENTITIES)
+            issues.read(router, "o/r", 41, reserved, lambda: self.NOW, identities=IDENTITIES, earlier=[])
         # The App itself, by its id, is read.
         events = [issue_event("labeled", 1, actor=("combsmith-sf-controller[bot]", 41, "Bot"), label={"name": "factory:triage"})]
         router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
-        found, _ = issues.read(router, "o/r", 41, timeline.Accounts(router, "o/r", MACHINE, {}, apps=names), lambda: self.NOW, identities=IDENTITIES)
+        found, _ = issues.read(router, "o/r", 41, timeline.Accounts(router, "o/r", MACHINE, {}, apps=names), lambda: self.NOW, identities=IDENTITIES, earlier=[])
         self.assertEqual(found["label_events"][0]["by"]["name"], names[(41, "Bot")])
 
     def test_an_issues_content_time_is_the_newer_of_its_edit_and_its_rename(self):  # P-34
@@ -6334,7 +6335,7 @@ class Issues(unittest.TestCase):
                   issue_event("labeled", 3, CONTROLLER_APP, label={"name": "y"})]
         router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, "o/r", approver, lenses, factory, roles=facts_.roles_of(held))
-        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES)
+        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES, earlier=[])
         # The Role's comment is read as its own; its label is no act, and the Controller's is the one counted.
         self.assertEqual((found["role_comments"], found["acts_since_writer"]), ([{"by": role[0], "at": minute(1)}], 1))
         # A pull request's timeline is counted by the same reader: what `acts_since_writer` counts there is as it was,
@@ -6439,6 +6440,8 @@ class Issues(unittest.TestCase):
         self.assertIsNotNone(issue.derive(f, [], CONFIG)["state"])
         deferred = issue.derive(dict(f, complete=dict(f["complete"], linked=False)), [], CONFIG)
         self.assertEqual((deferred["state"], deferred["reason"], deferred["evidence"]), (None, "facts_incomplete", ["linked"]))
+        # The port hands the linked read the pass records it was given: with those not read, they are not whole.
+        self.assertEqual(self.read(issue_read(), earlier=None)["complete"], {"timeline": True, "linked": False, "runs": True})
         with self.assertRaises(github.Unanswered):
             self.read(issue_read(), clock=lambda: "noon")
 
@@ -6490,11 +6493,14 @@ class Linked(unittest.TestCase):
 
     def listed(self, exchanges, began=CREATED, repo="o/r", number=41, updated=UPDATED) -> tuple:
         router = Router(github.Replay(exchanges), {"don-petry": "admin", "stranger": "read"})
-        return linked.listing(router, repo, number, updated, began, IDENTITIES, self.accounts(router))[:2]
+        return linked.listing(router, repo, number, updated, began, IDENTITIES, self.accounts(router), {})[:2]
 
-    def read(self, exchanges) -> tuple:
+    def read(self, exchanges, earlier=()) -> tuple:
+        """The linked pull requests as the port reads them, `(number, keyword, spans)` each, and whether whole."""
         router = Router(github.Replay(exchanges), {"don-petry": "admin", "stranger": "read"})
-        return linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router))
+        found, whole = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router),
+                                   None if earlier is None else list(earlier))
+        return [(p["number"], p["keyword"], p["keyword_spans"]) for p in found], whole
 
     def test_only_a_pull_request_to_the_default_branch_is_listed_as_linked(self):  # P-33, decision 0028
         # 8 is to another base, which carries no closing reference (P-33), as 9, linked by hand, is.
@@ -6661,6 +6667,32 @@ class Linked(unittest.TestCase):
             with self.assertRaises(github.Unanswered):
                 self.listed([linked_read(ref(5)), pull_read(5, files=files), pull_timeline(5)])
 
+    def test_a_pull_request_whose_keyword_a_pass_saw_stays_listed_after_an_edit_takes_it_out_and_no_other_does(self):  # 0186 (1)
+        from kernel import issue
+        # A pass listed 7 with its keyword and 8 with none, linked by hand then. The references name neither now, and no
+        # link by hand is read: 7 is listed, with no keyword and the span that pass began, and 8 is not read at all.
+        before = [seen_by(3, [(7, True, []), (8, False, [])])]
+        found = self.read([linked_read(), pull_read(7), pull_timeline(7)], before)
+        self.assertEqual(found, ([(7, False, [span(3)])], True))
+        # The Kernel reads it as listed for something; with no span it would be listed for nothing.
+        router = Router(github.Replay([linked_read(), pull_read(7), pull_timeline(7)]), {})
+        (kept,), _ = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), before)
+        self.assertTrue(issue.readable_keyword(kept))
+        self.assertFalse(issue.readable_keyword(dict(kept, keyword_spans=[])))
+        # The pass after, whose record holds the span and the keyword gone, ends it; the pull request stays listed.
+        later = [seen_by(6, [(7, False, [span(3)])])]
+        self.assertEqual(self.read([linked_read(), pull_read(7), pull_timeline(7)], later), ([(7, False, [span(3, 6)])], True))
+        # Each is given its own spans, and one still named is listed once, with its keyword and its span.
+        two = [seen_by(3, [(7, True, [span(0, 2)]), (9, True, [])])]
+        found, _ = self.read([linked_read(ref(9)), pull_read(7), pull_timeline(7), pull_read(9), pull_timeline(9)], two)
+        self.assertEqual(found, [(7, False, [span(0, 2), span(3)]), (9, True, [span(3)])])
+        # Once seen, it is read as any listed: to another base now it is left out, and its timeline read short is not whole.
+        self.assertEqual(self.read([linked_read(), pull_read(7, base="next")], before), ([], True))
+        short = [linked_read(), pull_read(7), pull_timeline(7, more=True), rest_answer("/repos/o/r/issues/7/timeline?per_page=100&page=2", {})]
+        self.assertEqual(self.read(short, before), ([(7, False, [span(3)])], False))
+        # Pass records that could not be read give no time and could hide one once seen: the list is not whole.
+        self.assertEqual(self.read([linked_read()], None), ([], False))
+
     def test_the_linked_pull_requests_are_whole_only_where_no_pull_request_names_the_issue(self):  # decision 0186
         # While keyword spans are unread, a pull request listed or cross-referencing leaves the list short; an issue does not.
         self.assertEqual(self.read([linked_read()]), ([], True))
@@ -6678,8 +6710,7 @@ class Linked(unittest.TestCase):
         self.assertIn("itemTypes: [CLOSED_EVENT, CONNECTED_EVENT, DISCONNECTED_EVENT, CROSS_REFERENCED_EVENT]", linked.QUERY)
         self.assertIn("... on CrossReferencedEvent { source { __typename } }", linked.QUERY)
         self.assertEqual(self.read([linked_read((), [{"__typename": "CrossReferencedEvent", "source": None}])]), ([], False))
-        found, whole = self.read([linked_read(ref(7)), pull_read(7), pull_timeline(7)])
-        self.assertEqual(([(p["number"], p["keyword"], p["keyword_spans"]) for p in found], whole), ([(7, True, [])], False))
+        self.assertEqual(self.read([linked_read(ref(7)), pull_read(7), pull_timeline(7)]), ([(7, True, [])], False))
 
     def test_a_merge_beside_a_rival_keyword_link_is_never_read_with_no_spans(self):  # decision 0186
         # The Controller's App's 5 merged and closed the issue; the Maintainer's 6 named it too. Read whole with no spans,
@@ -6691,7 +6722,7 @@ class Linked(unittest.TestCase):
             linked_read(ref(5, 6), [closed_by(20, 5)]),
             pull_read(5, user=CONTROLLER_APP, merged=19, closed=19, files=2), pull_timeline(5, merge),
             pull_read(6), pull_timeline(6)])), {"don-petry": "admin"})
-        f, _ = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES)
+        f, _ = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=[])
         self.assertEqual(([p["number"] for p in f["linked"]], f["complete"]["linked"]), ([5, 6], False))
         deferred = issue.derive(f, [], CONFIG)
         self.assertEqual((deferred["state"], deferred["reason"], deferred["evidence"]), (None, "facts_incomplete", ["linked"]))
@@ -6703,7 +6734,7 @@ class Linked(unittest.TestCase):
         events = [issue_event("closed", 0), issue_event("reopened", 5), issue_event("closed", 8)]
         router = Router(github.Replay(issue_read(events, state="closed", closing=[
             linked_read((), [closed_by(8, oid="d" * 40)])])), {"don-petry": "admin"})
-        f, _ = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES)
+        f, _ = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=[])
         self.assertEqual((f["life_started_at"], f["complete"]["linked"]), (minute(5), False))
 
     def test_the_linked_pull_requests_read_short_are_not_whole_and_one_not_answered_refuses_the_issue(self):
@@ -6741,6 +6772,79 @@ class Linked(unittest.TestCase):
         # An issue that changed while its pull requests were read is read again at the next pass.
         with self.assertRaises(facts.Moved):
             self.listed([answer(updated="2026-10-11T11:00:01Z")])
+
+
+def seen_by(at: int, pulls=(), linked_whole=True, repo="o/r", number=41, **more) -> dict:
+    """A pass record as far as the spans' reader reads one: the facts of issue `number`, read at minute `at`, each of its
+    linked pull requests `(number, keyword, spans)` as that pass handed them on."""
+    listed = [{"number": n, "keyword": keyword, "keyword_spans": spans} for n, keyword, spans in pulls]
+    facts = {"item": {"repo": repo, "type": "issue", "number": number}, "linked": listed, "read_at": minute(at),
+             "complete": {"timeline": True, "linked": linked_whole, "runs": True}}
+    return dict({"schema": "pass/1", "now": minute(at - 1), "issues": [{"facts": facts}]}, **more)
+
+
+def span(seen: int, gone=None) -> dict:
+    return {"seen_at": minute(seen), "gone_at": None if gone is None else minute(gone)}
+
+
+class KeywordSpans(unittest.TestCase):
+    """A closing keyword's link is timed by the pass records that saw it (decision 0186, issue 734)."""
+    ITEM = {"repo": "o/r", "type": "issue", "number": 41}
+
+    def spans(self, *records):
+        return keyword_spans.read(list(records), self.ITEM)
+
+    def test_a_keyword_is_seen_from_the_first_pass_record_that_listed_it_until_the_first_that_saw_it_gone(self):
+        # The first record that listed 7 with its keyword opens a span, at the read of the issue's facts in it, which is
+        # after the pass's own `now`; the record before it, which saw no pull request, gives nothing.
+        first = seen_by(3, [(7, True, [])])
+        self.assertEqual(self.spans(seen_by(0), first), ({7: [span(3)]}, True))
+        # The pass after hands the span on, and its record, the keyword still read, opens no second one.
+        self.assertEqual(self.spans(first, seen_by(6, [(7, True, [span(3)])])), ({7: [span(3)]}, True))
+        # The first record after it that saw the keyword gone ends the span at its own read, and the pull request is
+        # kept, by its span, when its keyword is read no more.
+        gone = seen_by(9, [(7, False, [span(3)])])
+        self.assertEqual(self.spans(first, gone), ({7: [span(3, 9)]}, True))
+        self.assertEqual(self.spans(gone, seen_by(12, [(7, False, [span(3, 9)])])), ({7: [span(3, 9)]}, True))
+        # A keyword put back begins a new span at the record that saw it again, which reaches back to nothing.
+        back = seen_by(15, [(7, True, [span(3, 9)])])
+        self.assertEqual(self.spans(gone, back), ({7: [span(3, 9), span(15)]}, True))
+        self.assertEqual(self.spans(back, seen_by(18, [(7, False, [span(3, 9), span(15)])])),
+                         ({7: [span(3, 9), span(15, 18)]}, True))
+        # Each pull request has its own; one a pass listed with no keyword and no span, linked by hand, has none.
+        both = seen_by(3, [(7, True, []), (8, False, []), (9, True, [span(0)])])
+        self.assertEqual(self.spans(both), ({7: [span(3)], 9: [span(0)]}, True))
+        # The record read is left as it was.
+        self.assertEqual(gone, seen_by(9, [(7, False, [span(3)])]))
+        self.assertEqual(back["issues"][0]["facts"]["linked"][0]["keyword_spans"], [span(3, 9)])
+
+    def test_a_keyword_is_seen_gone_only_by_a_record_that_read_the_linked_pull_requests_whole(self):
+        # A list read short may have missed the reference: the span stays open, and a later whole read ends it then.
+        short = seen_by(9, [(7, False, [span(3)])], linked_whole=False)
+        self.assertEqual(self.spans(short), ({7: [span(3)]}, True))
+        self.assertEqual(self.spans(short, seen_by(12, [(7, False, [span(3)])])), ({7: [span(3, 12)]}, True))
+        # A keyword a short read did name was seen: its span opens.
+        self.assertEqual(self.spans(seen_by(9, [(7, True, [])], linked_whole=False)), ({7: [span(9)]}, True))
+
+    def test_the_spans_are_read_from_the_newest_record_that_holds_the_issue_and_no_record_gives_no_time(self):
+        older, newer = seen_by(3, [(7, True, [])]), seen_by(6, [(7, False, [span(3)])])
+        self.assertEqual(self.spans(older, newer), ({7: [span(3, 6)]}, True))
+        # A record that left the issue out saw nothing of it: the one before it is read.
+        self.assertEqual(self.spans(older, dict(newer, issues=[])), ({7: [span(3)]}, True))
+        # Another issue's facts, or the same number's in another repo, are not this issue's.
+        for other in (seen_by(6, [(7, False, [span(3)])], number=42), seen_by(6, [(7, False, [span(3)])], repo="a/fork")):
+            self.assertEqual(self.spans(older, other), ({7: [span(3)]}, True))
+            self.assertEqual(self.spans(other), ({}, True))
+        # No record at all, or none that holds the issue: no pass saw a keyword, and that is read whole.
+        self.assertEqual(self.spans(), ({}, True))
+        self.assertEqual(self.spans(seen_by(3, number=42)), ({}, True))
+
+    def test_pass_records_that_could_not_be_read_give_no_time_and_are_not_whole(self):
+        self.assertEqual(keyword_spans.read(None, self.ITEM), ({}, False))
+        # The newest at hand, where it is no pass record, gives no time either, whatever the one before it holds.
+        good = seen_by(3, [(7, True, [])])
+        for bad in ({"schema": "pass/1"}, dict(good, issues=[{"facts": {"item": self.ITEM}}]), dict(good, issues=None), "p"):
+            self.assertEqual(self.spans(good, bad), ({}, False), bad)
 
 
 class Rules(unittest.TestCase):
