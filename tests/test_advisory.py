@@ -360,7 +360,11 @@ class Parser(unittest.TestCase):
         # A response still running, cancelled or failed says nothing of what it cost, whatever tokens it shows so far.
         for state in ("queued", "in_progress", "cancelled", "failed", None):
             running = read(answered(said(), status=state))["usage"]
-            self.assertEqual((running["input_tokens"], running["output_tokens"], running["cost_usd"]), (None, None, None), state)
+            self.assertEqual((running["input_tokens"], running["output_tokens"], running["cost_usd"], running["answering_model"]),
+                             (None, None, None, None), state)
+        # Nor does one that says it completed and holds an error beside that, in either API.
+        for failed in (read(answered(said(), error={"code": "server_error"})), read(chatted(said(), error={"code": "x"}), KIMI)):
+            self.assertEqual((failed["usage"]["cost_usd"], failed["usage"]["answering_model"]), (None, None))
         # Tokens Azure did not count as whole numbers are unknown, and so is the cost: never nought.
         for spent in ({"input_tokens": 1000}, {"input_tokens": "1000", "output_tokens": 500}, {"input_tokens": -1, "output_tokens": 500},
                       {"input_tokens": True, "output_tokens": 500}, {"prompt_tokens": 1000, "completion_tokens": 500}, None, []):
