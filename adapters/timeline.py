@@ -71,8 +71,8 @@ class Accounts:
     a Bot's login, `[bot]` and all: that App is named by its id, as a Lens is, never by the login it shows. `reserved`
     names, as REST spells them, Apps the configuration declares by name though it may hold no account of theirs: no
     account but one `apps` names by its id may show one (Carbon). `roles` is each Role App's account, `(id, "Bot")`: a
-    comment of its on an issue is that Role's, and no act of its is counted against the act ceiling, which counts the
-    acts made with no model Run (issue 901)."""
+    comment of its on an issue is that Role's, and, held under `roles` alone, no act of its is counted against the act
+    ceiling, which counts the acts made with no model Run; one that is also a Lens's App is counted as a Lens's (issue 901)."""
 
     def __init__(self, transport, repo: str, approver: tuple, lenses: dict, factory=(), queue=None, apps=None,
                  reserved=(), roles=()):
