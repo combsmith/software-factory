@@ -9349,7 +9349,7 @@ MUTANTS = ISSUE + [
      'named = models_named(text) - (readers if PIN_COPIES.match(rel.as_posix()) else set())',
      'named = models_named(text) - (models_named(text) - {pinned} if PIN_COPIES.match(rel.as_posix()) else set())', ('tests.test_tools.Repo.test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else',)),
     ('a pinned name may lie at any path', 'tools/check_repo.py',
-     '        elif PIN_COPIES.match(rel.as_posix()) and _misplaced(text, readers):\n',
+     '        elif PIN_COPIES.match(rel.as_posix()) and _misplaced(text, readers, pinned):\n',
      '        elif False:\n', ('tests.test_tools.Repo.test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else',)),
     ("a reader's deployment is no pin", 'tools/check_repo.py',
      'READERS, READER_PINS = "readers", ("model", "deployment")',
