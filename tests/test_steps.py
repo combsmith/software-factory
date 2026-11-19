@@ -820,6 +820,26 @@ class Apply(unittest.TestCase):
             self.go(job=None, a_job=reads_only)
         self.assertEqual(seen["change"], [])
 
+    def test_apply_is_handed_what_a_review_may_adopt_from_its_runs_own_advisory_results(self):  # decision 0224
+        # The step reads the advise step's folder it is given, as the run step did, and hands apply the Findings a
+        # Result may adopt from; with the hand-over off, none.
+        result = json.loads((ROOT / "examples" / "advice.json").read_text())
+        result["findings"][0]["content_id"] = CONTENT
+        result.update(run=RUN, release=RELEASE)
+        data = (json.dumps(result) + "\n").encode()
+        files = {"advice.astra.json": data, "advice.astra.sha256": ("sha256:%s\n" % hashlib.sha256(data).hexdigest()).encode()}
+        real = apply_step.steps.read_json
+
+        def handing(base, path):
+            got = real(base, path)
+            return dict(got, advisory_hand_over=True) if path == os.path.join("config", "harness.json") else got
+        with unittest.mock.patch.object(apply_step.advised, "run", lambda *a, **k: []):
+            with unittest.mock.patch.object(apply_step.steps, "read_json", handing):
+                _, _, _, calls = self.go(advice=files)
+            self.assertEqual(calls["job"][0][2]["adoptable"], frozenset({("astra", result["findings"][0]["id"])}))
+            _, _, _, calls = self.go(advice=files)
+            self.assertEqual(calls["job"][0][2]["adoptable"], frozenset())
+
     def test_an_advisory_read_shown_or_not_changes_nothing_apply_does_and_never_fails_it(self):  # decision 0224
         facts = dict(support.facts(), content_id=CONTENT)
         result = json.loads((ROOT / "examples" / "advice.json").read_text())

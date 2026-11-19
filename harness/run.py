@@ -151,7 +151,7 @@ def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotoni
     if len(paths) > 9 and config["harness"].get(task.HAND_OVER) is True:
         advised = {lens: (steps.bounded(inside, paths[9], "advice.%s.json" % lens, advice.LARGEST + 1),
                           steps.bounded(inside, paths[9], "advice.%s.sha256" % lens, 128))
-                   for lens in config["harness"]["advisory"]}
+                   for lens in config["harness"]["advisory"] if lens in config["harness"].get("readers", {})}
     the_task = task.build(admitted, run, read(facts), read(texts), read(role), read(findings), config, change, advised)
     result = answer(the_task, job_env, config, call, clock, session or str(uuid.uuid4()), head)
     data = (json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
@@ -187,7 +187,7 @@ def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.mo
             told += checklist(ROOT, the_task["role"], the_task["intent"]) if review["checklist"] is True else ""
             told += engine.READ_FIRST if review["read_head"] is True else ""
             # Handed the advisory reads, a review is told how to check them; a Task with none is told nothing more.
-            told += "\n\n" + handed(ROOT, the_task["role"]) if "advisory" in the_task else ""
+            told += "\n\n" + handed(ROOT, the_task["role"]) if the_task.get("advisory") else ""
         except RubricUnreadable:
             fault = "rubric_unreadable"
     if fault:

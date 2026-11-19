@@ -458,11 +458,12 @@ class Handed(unittest.TestCase):
         self.assertTrue(all(line == ">" or line.startswith("> ") for line in body.split("\n")), body)
         self.assertEqual(body.split("\n")[:5], ["> severity: major", "> category: functional", "> criterion: PR-3",
                                                 "> place: kernel/decide.py, line 88", ">"])
-        self.assertIn("> `decide` returns `defer`", body)
-        self.assertEqual(task.quoted({"severity": "minor", "location": {"path": "a.py", "start_line": 3, "end_line": 9}},
-                                     {"category": "x", "criterion": None, "body": "t\n\nm"}).split("\n"),
-                         ["> severity: minor", "> category: x", "> criterion: none", "> place: a.py, lines 3 to 9", ">",
-                          "> t", ">", "> m"])
+        self.assertIn("> | `decide` returns `defer`", body)
+        # Each line of its words is led by a bar, so that none reads as one of the four it claims.
+        self.assertEqual(task.quoted({"severity": "minor", "location": {"path": "a.py", "start_line": 3}},
+                                     {"category": "x", "criterion": None, "body": "t\n\nseverity: blocking"}).split("\n"),
+                         ["> severity: minor", "> category: x", "> criterion: none", "> place: a.py, line 3", ">",
+                          "> | t", "> |", "> | severity: blocking"])
         self.assertEqual(task.quoted({"severity": "info"}, {"category": "x", "criterion": None, "body": "t"}).split("\n")[3],
                          "> place: none")
         # A read not completed hands no text, and says why; so does a Result that does not hold, whatever it says.
@@ -479,10 +480,23 @@ class Handed(unittest.TestCase):
         # Each Lens the Factory asks a reader for, and no other: a Lens with no reader's block is told of by no entry.
         t = self.handed({"astra": advised(), "kimi": advised(lens="kimi")}, config=config(readers={"kimi": HARNESS["readers"]["kimi"]}, **ON))
         self.assertEqual(([e["lens"] for e in t["advisory"]], [x["source"] for x in others(t)]), (["kimi"], ["kimi"]))
-        # Ranked and budgeted as advisory text: left out whole, and said, by its Lens, where the room is spent.
-        short = config(texts={"characters": 50}, **ON)
-        t = self.handed(given, config=short)
-        self.assertEqual((others(t), t["omitted"][0]["kind"], t["omitted"][0]["texts"]), ([], "astra", 1))
+        # Handed in the room the texts read for the item leave, a stranger's among them, and never before them: left out
+        # whole, and said under its Lens, where the room is spent. The reader's gravest first.
+        stranger = text("thread:T9", {"kind": "human", "name": "stranger", "can_write": False}, "s" * 100)
+        mine = [x for x in others(self.handed(given)) if x["id"] == FOUND][0]
+        room = task.carried(stranger["body"]) + task.carried(mine["body"])
+        for characters, ids, left in ((room, ["thread:T9", FOUND], []), (room - 1, ["thread:T9"], ["astra"]),
+                                      (100, ["thread:T9"], ["astra"]), (99, [], ["astra", "thread"])):
+            t = task.build(record(), RUN, facts(), [stranger], manifest(), [], config(texts={"characters": characters}, **ON),
+                           DIFF, given)
+            self.assertEqual(([x["id"] for x in others(t)], [o["kind"] for o in t["omitted"]]), (ids, left), characters)
+        three = advised(findings=[dict(json.loads(advised()[0])["findings"][0], severity=s,
+                                       id="astra:%032x" % n, surface={"type": "annotation", "key": "astra:%032x" % n})
+                                  for n, s in enumerate(("minor", "blocking", "info"))],
+                        texts=[dict(json.loads(advised()[0])["texts"][0], id="astra:%032x" % n) for n in range(3)])
+        t = self.handed({"astra": three})
+        self.assertEqual([x["body"].split("\n")[0] for x in others(t)],
+                         ["> severity: blocking", "> severity: minor", "> severity: info"])
 
     def test_nothing_is_handed_unless_the_switch_is_on_and_the_run_is_a_review(self):
         given = {"astra": advised()}
@@ -515,6 +529,10 @@ class Handed(unittest.TestCase):
                 (where / "advice" / "advice.astra.sha256").write_bytes(digest)
                 said = self.job(where, harness)
             self.assertEqual((("\n\n" + handed) in said, FOUND in said, '"advisory": [' in said), (told,) * 3, harness)
+        # A configuration that asks no reader tells of no read, and the review is told nothing more.
+        with tempfile.TemporaryDirectory() as d:
+            said = self.job(pathlib.Path(d), dict(ON, readers={}))
+        self.assertEqual((handed in said, '"advisory": []' in said), (False, True))
         # A Result through a link, or a folder outside the step's own, is no read; the review is still asked.
         with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as elsewhere:
             where = pathlib.Path(d)
