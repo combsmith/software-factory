@@ -2614,6 +2614,8 @@ class Repo(unittest.TestCase):
             return check_examples.run(clone({"config/harness.json": json.dumps(config)}))
         self.assertTrue(caught(run_on(dict(harness, readers={"astra": block})), "config/harness.json: harness: the reader astra is no advisory Lens"))
         self.assertFalse(caught(run_on(dict(named, readers={"astra": block})), "config/harness.json"))
+        # The counter-example is refused for its reader's name, which its schema alone would let pass.
+        self.assertFalse(caught(check_examples.run(clone({})), "harness.a-reader-that-is-no-advisory-lens.json"))
         # The day's ceiling is a figure in dollars beside the advisory Lenses, never among a reader's own settings, and
         # it has no default: the pin's file holds none until a person writes one, and nought is no figure.
         self.assertNotIn("advisory_ceiling_usd_per_day", schema["required"])
@@ -2653,6 +2655,7 @@ class Repo(unittest.TestCase):
         # a key, under another field of a reader, under another top field, and the Engine's pin under a reader.
         for more in ({"texts": {"model": model}}, {"advisory": [deployment]}, {"model": model}, {"deployment": deployment},
                      {"x": name}, {"engine": {"model": name, "also": model}}, {"engine": {"model": name, "model2": name}},
+                     {"x": {"engine": {"model": name}}}, {"x": {"readers": {"astra": {"model": model}}}},
                      {"readers": {"astra": {"model": model, "deployment": deployment, "host": deployment}}},
                      {"readers": {"astra": {"model": [model]}}}, {"readers": {"astra": {"model": {"model": model}}}},
                      {"readers": {model: {"model": model}}}, {"readers": {"model": model}}, {"readers": [{"model": model}]},
@@ -2660,9 +2663,15 @@ class Repo(unittest.TestCase):
                      {"engine": {"model": name, "readers": {"astra": {"model": model}}}}):
             self.assertEqual(problems(config(**more)), ["examples/invalid/harness.a-copy.json" + misplaced], more)
             self.assertTrue(any(p.startswith("config/harness.json: names a model") for p in problems(config(), config(**more))), more)
-        # The Engine's pin may not stand where a reader's does, nor a reader's where the Engine's does: each path's own
-        # form is the schema's, and this check holds that neither names a model anywhere else.
-        self.assertEqual(problems(config(readers={"astra": {"model": name, "deployment": name}})), [])
+        # A name is read at its path as the file is read, not as it is written: one written with an escape, which the
+        # text does not show, is refused where it is no pin, and the Engine's pin is no reader's.
+        escaped = config().replace('"model": "%s"' % model, '"model": "gpt-\\u0036-other"')
+        self.assertNotEqual(escaped, config())
+        self.assertEqual(problems(escaped), ["examples/invalid/harness.a-copy.json" + misplaced])
+        self.assertEqual(problems(config(readers={"astra": {"model": name, "deployment": deployment}})),
+                         ["examples/invalid/harness.a-copy.json" + misplaced])
+        self.assertEqual(problems(config(engine={"model": model})), ["examples/invalid/harness.a-copy.json" + misplaced])
+        self.assertEqual(problems("[" * 100000), [])
         # A copy that cannot be read as JSON has no paths, so it copies no reader's pin; the Engine's it may, as before.
         self.assertEqual(problems('{"engine": {"model": "%s"}' % name), [])
         self.assertEqual(problems('{"readers": {"astra": {"model": "%s"}}' % model), ["examples/invalid/harness.a-copy.json" + misplaced])
@@ -2680,7 +2689,11 @@ class Repo(unittest.TestCase):
                        {"deployment": "a deployment"}, {"model": "A Model"}, {"api": "assistants"}, {"effort": "max"},
                        {"effort": {"critical": "max"}}, {"effort": {"critical": "most", "elsewhere": "xhigh"}}, {"output_tokens": 0},
                        {"prompt_characters": 0}, {"seconds": 0}, {"seconds": 1201}, {"usd_per_million": {"input": 2.5}},
-                       {"usd_per_million": {"input": -1, "output": 20}}, {"key": "k" * 32}, {"tools": ["shell"]}):
+                       {"usd_per_million": {"input": -1, "output": 20}}, {"key": "k" * 32}, {"tools": ["shell"]},
+                       {"usd_per_million": {"input": 2.5, "output": -1}}, {"usd_per_million": {"input": 0, "output": 20}},
+                       {"usd_per_million": {"input": 2.5, "output": 0}}, {"usd_per_million": {"input": 2.5, "output": 10001}},
+                       {"usd_per_million": {"input": 10001, "output": 20}}, {"output_tokens": 1000001},
+                       {"prompt_characters": 10000001}):
             self.assertTrue(validate(dict(whole, readers={"astra": dict(reader, **change)}), schema), change)
         for field in reader:
             self.assertTrue(validate(dict(whole, readers={"astra": {k: v for k, v in reader.items() if k != field}}),

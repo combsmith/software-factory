@@ -320,24 +320,27 @@ def _named_at(value, path: tuple = ()):
     if isinstance(value, dict):
         for key, item in value.items():
             if models_named(key):
-                yield path + (key, None)
+                yield path + (key, None), key
             yield from _named_at(item, path + (key,))
     elif isinstance(value, list):
         for item in value:
             yield from _named_at(item, path + (None,))
     elif isinstance(value, str) and models_named(value):
-        yield path
+        yield path, value
 
 
-def _misplaced(text: str, readers: set) -> bool:
-    """Whether a pin's file, or a copy, names a model anywhere but at the three paths. One that cannot be read as JSON
-    has no paths, so it may copy no reader's pin at all."""
+def _misplaced(text: str, readers: set, pinned) -> bool:
+    """Whether a pin's file, or a copy, names a model anywhere but at the three paths, or names there, as the file is
+    read and not as it is written, one that is no pin: an escape in a string is read here, where the text is not. One
+    that cannot be read as JSON has no paths, so it may copy no reader's pin at all."""
     try:
         data = json.loads(text)
-    except ValueError:
+    except (ValueError, RecursionError):
         return bool(models_named(text) & readers)
-    return any(path != ("engine", "model") and not (len(path) == 3 and path[0] == READERS and type(path[1]) is str and path[2] in READER_PINS)
-               for path in _named_at(data))
+    return any(not (path == ("engine", "model") and value == pinned)
+               and not (len(path) == 3 and path[0] == READERS and type(path[1]) is str and path[2] in READER_PINS
+                        and value in readers)
+               for path, value in _named_at(data))
 
 
 def run(root: pathlib.Path = ROOT) -> list:
@@ -411,7 +414,7 @@ def run(root: pathlib.Path = ROOT) -> list:
         if rel.parts[0] != "docs" and not recorded and \
                 named - ({pinned} if PIN_COPIES.match(rel.as_posix()) else set()):
             problems.append("%s: names a model by its full id" % rel)
-        elif PIN_COPIES.match(rel.as_posix()) and _misplaced(text, readers):
+        elif PIN_COPIES.match(rel.as_posix()) and _misplaced(text, readers, pinned):
             problems.append("%s: names a model outside the Engine's pin and a reader's model and deployment" % rel)
         if path.suffix not in TEXT:
             continue
