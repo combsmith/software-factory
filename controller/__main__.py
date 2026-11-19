@@ -13,9 +13,9 @@ and written to the folder `OUT` for the pass job's next steps (#193's ruling 10 
    null, and each one's own facts by `adapters/issues.py`, with the accounts and the dating the pull requests' have;
    and, for reconciliation, what each Factory identity wrote and what the Factory recorded (decision 0112). The issues
    are listed and read after the pull requests and the records, without the tracking issue, by the number the passes
-   recorded (issue 901). Not read yet: an issue's Runs' jobs, which decision 0196 asks of the open pull requests'
-   alone; nor is any issue's write reconciled. Its linked pull requests are read, whole only where no pull request
-   names it while their keyword spans are not read (issue 734), so an issue a pull request names defers.
+   recorded (issue 901). Not read: an issue's Runs' jobs, since no issue rule reads when a Run began (decision 0231).
+   Not yet reconciled: any issue's write. Its linked pull requests are read, whole only where no pull request names it
+   while their keyword spans are not read (issue 734), so an issue a pull request names defers.
 4. It gives the pass what it read and the time after the reads, and writes `pass.json`, `writes.json`, the plan the
    effects step holds to it, and the view's three files under `view/`.
 
@@ -204,7 +204,8 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
     identities, who, refused = reader(transport, config)
-    # The open pull requests are listed first: the records port asks when a Run began only of theirs (decision 0196).
+    # The open pull requests are listed first: the records port asks when a Run began only of theirs (decision 0196),
+    # and of no issue's, whose rules read no beginning (decision 0231).
     try:
         numbers, whole = items.open_pull_requests(transport, home)
     except Unanswered:
