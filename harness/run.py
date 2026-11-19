@@ -207,7 +207,8 @@ def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.mo
         except RubricUnreadable:
             fault = "rubric_unreadable"
     if fault:
-        # The Factory's fault, read before the CLI is started: a failed Result, and no model call spent (issue 330).
+        # A fault read before the CLI is started, the Factory's or, `findings_not_shown`, the item's own (decision 0227):
+        # a failed Result, and no model call spent (issue 330).
         return engine.failed(the_task, fault, engine.usage_of(the_task, config["harness"], session))
     asked = call or cli_call
 
