@@ -729,6 +729,7 @@ class Apply(unittest.TestCase):
         self.assertIsNone(asked(("PRRT_kw7", "accepted"), ("PRRT_kw14", "rejected")))
         for rulings in ((), (("PRRT_kw7", "accepted"),), (("PRRT_kw14", "rejected"),)):
             self.assertEqual(asked(*rulings), ("item", "finding_not_ruled"), rulings)
+        self.assertEqual(asked(shown=("PRRT_kw7",)), ("item", "finding_not_ruled"))
         # A Finding it was not shown is none it may rule on: one that gates now and was opened, or opened again, since
         # the Run read the item (kw14 here, shown to a Run that read only kw7), and any other thread's.
         self.assertEqual(asked(("PRRT_kw7", "accepted"), ("PRRT_kw14", "accepted"), shown=("PRRT_kw7",)),
@@ -751,6 +752,7 @@ class Apply(unittest.TestCase):
         self.assertEqual(asked(("PRRT_kw7", "accepted"), ("PRRT_kw14", "accepted"), coverage=aside),
                          ("item", "finding_stands_unruled"))
         self.assertIsNone(asked(("PRRT_kw7", "accepted"), ("PRRT_kw14", "rejected"), coverage=aside))
+        self.assertIsNone(asked(("PRRT_kw7", "rejected"), ("PRRT_kw14", "accepted"), coverage=aside))
         last = result()["coverage"][:-1] + [dict(result()["coverage"][-1], verdict="not_applicable", reason="finding_stands")]
         self.assertEqual(asked(("PRRT_kw7", "accepted"), ("PRRT_kw14", "accepted"), coverage=last),
                          ("item", "finding_stands_unruled"))
@@ -776,6 +778,12 @@ class Apply(unittest.TestCase):
             return refused(task=task, res=result(dispositions=dispositions, shown=shown), facts=facts, role=role)
         self.assertIsNone(asked([{"finding": fid("PRRT_kw7"), "decision": {"result": "accepted"}}]))
         self.assertIsNone(asked([{"finding": fid("PRRT_kw7"), "proposal": {"outcome": "fixed"}}], role=author))
+        # A proposal is no ruling that a Finding stands: a criterion set aside for one needs a rejected decision.
+        aside = [dict(c, verdict="not_applicable", reason="finding_stands") if n == 0 else c
+                 for n, c in enumerate(result()["coverage"])]
+        self.assertEqual(refused(task=task, facts=facts, role=author, res=result(
+            coverage=aside, shown=showing(fid("PRRT_kw7")), dispositions=[{"finding": fid("PRRT_kw7"), "proposal": {"outcome": "fixed"}}])),
+            ("item", "finding_stands_unruled"))
         for dispositions, role, code in (
                 ([{"finding": fid("PRRT_kw7")}], ROLE, "disposition_halves"),
                 ([{"finding": fid("PRRT_kw7"), "proposal": {"outcome": "fixed"}, "decision": {"result": "accepted"}}],

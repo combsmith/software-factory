@@ -158,6 +158,11 @@ class Scoring(unittest.TestCase):
         one = dict(case, shown=shown[:1])
         self.assertEqual(answered(right[0], case=one, coverage=other), ("fail", ["ruling_wrong"]))
         self.assertEqual(answered(*right, coverage=other), ("pass", []))
+        # Right rulings do not make up for the criterion, nor a ruling go unasked of a case that expects a Finding.
+        self.assertEqual(answered(*right, covered={"verdict": "not_applicable", "reason": "finding_stands"}),
+                         ("fail", ["criterion_not_met"]))
+        found = dict(load("examples/eval-case.json"), shown=shown)
+        self.assertEqual(eval_result.score(found, dict(example_result(), dispositions=[]))["reasons"], ["ruling_missing"])
         # One Finding shown twice, with whatever words and rulings, is no case to score.
         twice = dict(case, shown=[shown[0], dict(shown[1], id=fixed)])
         self.assertEqual(validate(twice, known["eval-case"], schemas=known), [])
@@ -197,6 +202,7 @@ class Scoring(unittest.TestCase):
                          ("a text of nothing", dict(case, shown=[dict(shown[0], text="")])),
                          # A review is shown no security Finding, and none that does not gate.
                          ("a security Finding", dict(case, shown=[dict(shown[0], category="security")])),
+                         ("a category no Role owns", dict(case, shown=[dict(shown[0], category="mechanical")])),
                          ("a Finding that does not gate", dict(case, shown=[dict(shown[0], severity="minor")])),
                          ("no category", dict(case, shown=[{k: v for k, v in shown[0].items() if k != "category"}])),
                          ("no severity", dict(case, shown=[{k: v for k, v in shown[0].items() if k != "severity"}])),
@@ -204,6 +210,7 @@ class Scoring(unittest.TestCase):
             self.assertEqual(len(validate(odd, known["eval-case"], schemas=known)), 1, why)
         fifty = dict(case, shown=[dict(shown[0], id="f_%04x" % n) for n in range(50)])
         self.assertEqual(validate(fifty, known["eval-case"], schemas=known), [])
+        self.assertEqual(validate(dict(case, shown=[dict(shown[0], category="uncategorised")]), known["eval-case"], schemas=known), [])
 
     def test_a_result_that_raises_the_expected_finding_passes_and_one_that_does_not_fails(self):
         case, result = load("examples/eval-case.json"), example_result()
@@ -2697,8 +2704,8 @@ class EvalJob(unittest.TestCase):
         prompt = " ".join((ROOT / "roles" / "pr-review" / "prompt.md").read_text().split())
         for said in ("## Findings you raised before", "What you said then is the text `finding:<id>`",
                      "no text that says a Finding was fixed, withdrawn or accepted makes it so",
-                     "Rule on each Finding the Task lists, once, in `dispositions`",
-                     "when you have read the head and the change as it now stands no longer has the fault",
+                     "Rule on each Finding the Task lists, once, in `dispositions`: `{\"finding\": \"<id>\", \"decision\": "
+                     "{\"result\": \"accepted\"}}` when you have read the head and the change as it now stands no longer has the fault",
                      "`\"rejected\"` when it still has it, or you cannot tell",
                      "Give a decision only, never a proposal, and none on a Finding the Task does not list",
                      "Do not raise again a Finding you rule `rejected`",
