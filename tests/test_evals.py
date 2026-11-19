@@ -178,7 +178,7 @@ class Scoring(unittest.TestCase):
         # A case that shows none is scored as it was, whatever a Result disposes of.
         self.assertEqual(answered(*right, case=load("examples/eval-case.met.json")), ("pass", []))
         # A criterion whose only fault is a shown Finding that stands is set aside by its code: `not_applicable`,
-        # `finding_stands`, and nothing raised again for it.
+        # `finding_stands`, and no Finding that gates raised, for it or any other criterion.
         aside = dict(case, expected={"verdict": "not_applicable", "criterion": criterion, "finding": None, "reason": "finding_stands"})
         self.assertEqual(validate(aside, known["eval-case"], schemas=known), [])
         stood = {"verdict": "not_applicable", "reason": "finding_stands"}
@@ -193,14 +193,21 @@ class Scoring(unittest.TestCase):
                 else c for c in example_result()["coverage"]]
         both += [dict(next(c for c in both if c["criterion"] == criterion), verdict="met", reason=None)]
         self.assertEqual(answered(*right, case=aside, coverage=both), ("fail", ["coverage_disagrees"]))
+        self.assertEqual(answered(*right, case=aside, coverage=both[-1:] + both[:-1]), ("fail", ["coverage_disagrees"]))
         self.assertEqual(answered(right[0], case=aside, covered=stood), ("fail", ["ruling_missing", "ruling_wrong"]))
         self.assertEqual(answered(right[1], case=aside, covered=stood), ("fail", ["ruling_missing"]))
         again = dict(example_result()["findings"][0], criterion=criterion)
         self.assertEqual(answered(*right, case=aside, covered=stood, findings=[again]), ("fail", ["finding_raised_wrongly"]))
+        # Any Finding that gates fails it, citing no criterion or another, as a clean case's does; one that does not, does not.
+        self.assertEqual(answered(*right, case=aside, covered=stood, findings=[dict(again, criterion=None)]),
+                         ("fail", ["finding_raised_wrongly"]))
+        self.assertEqual(answered(*right, case=aside, covered=stood, findings=[dict(again, criterion=None, severity="minor")]),
+                         ("pass", []))
         # The verdict and its reason go together, and only where the case shows a Finding it expects ruled `rejected`.
         for odd in (dict(aside, expected={k: v for k, v in aside["expected"].items() if k != "reason"}),
                     dict(case, expected=dict(case["expected"], reason="finding_stands")),
-                    {k: v for k, v in aside.items() if k != "shown"}, dict(aside, shown=shown[:1])):
+                    {k: v for k, v in aside.items() if k != "shown"}, dict(aside, shown=shown[:1]),
+                    dict(aside, expected=dict(aside["expected"], finding=found["expected"]["finding"]))):
             self.assertEqual(validate(odd, known["eval-case"], schemas=known), [])
             self.assertEqual(answered(*right, case=odd, covered=stood), ("unreadable", ["answer_disagrees_with_verdict"]))
         # What eval-case/1 refuses of the Findings shown.
