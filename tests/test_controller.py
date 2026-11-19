@@ -1841,6 +1841,50 @@ class Entry(unittest.TestCase):
         # Nothing is written for the issue: the one write is the tracking issue's, which reports the pass's alerts.
         self.assertEqual([w["type"] for w in files["writes.json"]["writes"]], ["tracking_issue"])
 
+    def test_nothing_is_owed_for_an_issue_that_moved(self):  # issue 839, decision 0229
+        # A pull request that moved once has its writes owed to the next pass. An issue that moved is graced too, and
+        # owes nothing: the entry reads no writes by an issue's facts. So a moved issue of a served pull request's
+        # number leaves that pull request's writes read, and nothing owed.
+        real, spied = entry.configuration, []
+
+        def served(root, release):
+            found = real(root, release)
+            found["kernel"]["issues"]["served_from"] = "2026-10-01T00:00:00Z"
+            return found
+
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
+            return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
+
+        def moved(transport, repo, number, accounts, clock):
+            raise entry.facts_.Moved("moved")
+
+        def read(transport, item, kept, identities, apps, since):
+            spied.append(item)
+            return ([], [], True)
+        before = json.loads((ROOT / "examples" / "pass.json").read_text())
+        before["now"] = "2026-10-12T11:00:00Z"
+        before["pull_requests"] = [dict(before["pull_requests"][0], facts=dict(before["pull_requests"][0]["facts"], item=dict(
+            before["pull_requests"][0]["facts"]["item"], number=7)))]
+        before["reconciled"] = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}
+        before["left_out"] = []
+        with unittest.mock.patch.object(entry, "configuration", served), \
+                unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after: ([7], True)), \
+                unittest.mock.patch.object(entry.issues_, "read", moved), \
+                unittest.mock.patch.object(entry.passes, "records", lambda *a: [before]), \
+                unittest.mock.patch.object(entry.seen_, "read", read), \
+                unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)), \
+                unittest.mock.patch.object(entry.applied, "effects",
+                                           lambda *a, **k: {"applied": [], "read": [], "at": {}, "whole": True}), \
+                unittest.mock.patch.object(entry.passes, "written",
+                                           lambda *a, **k: {"written": [], "read": [], "at": {}, "whole": True}):
+            code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
+        record = files["pass.json"]
+        self.assertEqual((code, record["alerts"]), (0, []))
+        self.assertEqual(record["left_out"], [{"item": {"repo": self.HOME, "type": "issue", "number": 7}, "code": "pull_moved"}])
+        self.assertIn({"repo": self.HOME, "type": "pull_request", "number": 7}, spied)
+        self.assertEqual(record["reconciled"]["owed"], [])
+
     def test_what_the_entry_cannot_read_writes_nothing(self):
         for environ, want in (({"RELEASE": None}, "release_untagged"), ({"RELEASE": "v1"}, "release_untagged"),
                               ({"GITHUB_RUN_ID": "1/2"}, "run_unreadable"), ({"GITHUB_RUN_ID": None}, "run_unreadable"),
