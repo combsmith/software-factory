@@ -6677,6 +6677,9 @@ class Linked(unittest.TestCase):
             found, whole = listing(*hand)
             self.assertEqual(([p["number"] for p in found], whole), ([7, 10], False), hand)
         self.assertEqual(listing(link("DisconnectedEvent", 2, 9))[1], True)
+        # In the same second, the timeline's order says which came last, never the time (Astra).
+        self.assertEqual(listing(link("DisconnectedEvent", 2, 9), link("ConnectedEvent", 2, 9))[1], False)
+        self.assertEqual(listing(link("ConnectedEvent", 2, 9), link("DisconnectedEvent", 2, 9))[1], True)
         # A base or default branch that cannot be read is refused, never left out.
         held = pull_read(7)
         held["response"]["body"]["base"]["repo"] = "o/r"
