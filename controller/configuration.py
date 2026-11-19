@@ -55,5 +55,5 @@ def load(root: pathlib.Path, release: str, app: str) -> dict:
             "lifecycles": {"pull_request": _json(root, "lifecycle", "pull_request.json"),
                            "issue": _json(root, "lifecycle", "issue.json")},
             "app": apps["apps"][app], "needs": apps["needs"], "apps": apps["apps"],
-            "authority": _json(root, "config", "authority.json"),
+            "authority": _json(root, "config", "authority.json"), "harness": _readable(root, "config", "harness.json"),
             "credentials": _readable(root, "config", "credential-ages.json")}

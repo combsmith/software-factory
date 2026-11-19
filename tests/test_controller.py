@@ -40,6 +40,14 @@ APP_ACCOUNT = {"id": 5000001, "type": "Bot", "login": "combsmith-sf-controller[b
 ROLE_ACCOUNT = {"id": 5000002, "type": "Bot", "login": "combsmith-sf-pr-review[bot]"}   # a Role App's
 
 
+def written(issues: dict) -> dict:
+    """`issues` as config/defaults.json writes it: each App by the name config/apps.json gives it, with no `[bot]`,
+    which the pass adds as the issues port names an App (`pass_.issue_config`)."""
+    plain = lambda name: name[:-len("[bot]")] if isinstance(name, str) and name.endswith("[bot]") else name
+    return dict(issues, label_apps={k: plain(v) for k, v in issues["label_apps"].items()},
+                intents={k: dict(v, app=plain(v["app"])) if v else v for k, v in issues["intents"].items()})
+
+
 def config(**controller) -> dict:
     """What a pass is given: the Kernel's configuration, with issues served, each Work item's Lifecycle, the feed's
     table, the Controller's own, here with both accounts known, the Release, and the credentials' dates."""
@@ -48,7 +56,7 @@ def config(**controller) -> dict:
                                                       roles={name: dict(ROLE_ACCOUNT) for name in CONTROLLER["accounts"]["roles"]}))
     c.update(controller)
     kernel = {k: v for k, v in copy.deepcopy(support.CONFIG).items() if k != "lifecycle"}
-    kernel["issues"] = test_issue.config()["issues"]
+    kernel["issues"] = written(test_issue.config()["issues"])
     return {"kernel": kernel, "release": "factory/v0.3.1", "controller": c,
             "feed": json.loads((ROOT / "config" / "feed.json").read_text()),
             "lifecycles": {"pull_request": json.loads((ROOT / "lifecycle" / "pull_request.json").read_text()),
@@ -161,6 +169,21 @@ class Record(unittest.TestCase):
                              entry["decision"])
         self.assertNotIn("A title", json.dumps(record))
 
+    def test_an_issue_decision_replays_through_the_issues_kernel_configuration(self):  # decisions 0002, 0218
+        # Replayed through `pass_.issue_config`, as the pass asked it, the Controller's factory:triage counts.
+        from kernel import issue
+        triaged = an_issue(7, label_events=[test_issue.labelled(test_issue.TRIAGE, by=test_issue.CONTROLLER)])
+        record = passed(reads(pulls=[], issues=[triaged]))["record"]
+        (entry,) = record["issues"]
+        self.assertEqual((entry["decision"]["state"], entry["decision"]["admit"]["intent"]), ("triage", "investigate-issue"))
+        kernel = dict(pass_.issue_config(config()["kernel"]), lifecycle=config()["lifecycles"]["issue"])
+        self.assertEqual(issue.decide(entry["facts"], record["runs"], record["context"], kernel, record["now"]),
+                         entry["decision"])
+        # As written, without the suffix, the App's label would not count.
+        written_ = dict(config()["kernel"], lifecycle=config()["lifecycles"]["issue"])
+        self.assertEqual(issue.decide(entry["facts"], record["runs"], record["context"], written_, record["now"])["reason"],
+                         "label_not_counted")
+
     def test_an_issue_is_asked_of_the_issues_kernel_with_its_own_lifecycle(self):  # decision 0028
         out = passed(reads(pulls=[], issues=[an_issue(7), an_issue(8, repo=OTHER_REPO)]))
         got = [(d["schema"], d["state"], d["outcome"], d.get("action")) for d in decisions(out)]
@@ -191,6 +214,44 @@ class Record(unittest.TestCase):
         self.assertEqual(got, [("admit", None, "r_000002A"), ("act", "enqueue", None), ("nothing", None, None)])
         approval = passed(reads(runs=[run()]))["record"]["pull_requests"][0]
         self.assertEqual((approval["decision"].get("action"), approval["run"]), ("issue_approval", "r_000002A"))
+
+    def test_an_admitted_review_is_told_beside_its_decision_whether_the_day_admits_its_readers(self):  # decision 0224
+        # The yes or no is beside the Decision and never in it: it changes no Decision, and only an admitted review
+        # holds one. Each review a pass admits counts the ones admitted before it, at the worst case.
+        harness = {"readers": {"astra": {}}, "advisory_ceiling_usd_per_day": 5, "advisory_worst_case_usd": 2}
+        told = dict(config(), harness=harness)
+
+        def asks(read, cfg=told) -> list:
+            record = passed(read, cfg=cfg)["record"]
+            self.assertEqual(shared.errors(record, "pass"), [])
+            return [(e["decision"]["outcome"], e.get("advisory_ask")) for e in record["pull_requests"]]
+        self.assertEqual(asks(reads(pulls=[pr(1), pr(2), pr(3)])), [("admit", True), ("admit", True), ("admit", False)])
+        plain = passed(reads(pulls=[pr(1), pr(2), pr(3)]))["record"]["pull_requests"]
+        with_it = passed(reads(pulls=[pr(1), pr(2), pr(3)]), cfg=told)["record"]["pull_requests"]
+        self.assertEqual([e["decision"] for e in plain], [e["decision"] for e in with_it])
+        # With no figure configured, or none of the configuration read, the answer is no.
+        self.assertEqual(asks(reads(pulls=[pr(1)]), config()), [("admit", False)])
+        self.assertEqual(asks(reads(pulls=[pr(1)]), dict(config(), harness=None)), [("admit", False)])
+        self.assertEqual(asks(reads(pulls=[pr(1)]), dict(config(), harness=dict(harness, advisory_worst_case_usd=None))), [("admit", False)])
+        # The day's finished reads count what they cost, and one of another day counts nothing.
+        spent = dict(run("r_000009Z", number=9), advisory_asks=2, advisory_cost_usd=3.5)
+        self.assertEqual(asks(reads(pulls=[pr(1)], runs=[spent])), [("admit", False)])
+        self.assertEqual(asks(reads(pulls=[pr(1)], runs=[dict(spent, advisory_cost_usd=3)])), [("admit", True)])
+        self.assertEqual(asks(reads(pulls=[pr(1)], runs=[dict(spent, started_at="2026-10-10T12:10:00Z")])), [("admit", True)])
+        # A pass whose records read an advisory cost is read whole as any other: its Runs are listed, and counted.
+        advised_ = reads(pulls=[pr(1)], runs=[dict(spent, advisory_cost_usd=3)])
+        advised_["records"]["reads"].append({"read": "advice_cost", "date": "2026-10-11T12:59:58Z", "age": 0})
+        out = passed(advised_, cfg=told)
+        self.assertEqual(shared.errors(out["record"], "pass"), [])
+        self.assertEqual(([r["read"] for r in out["record"]["reads"]], len(out["record"]["runs"]), out["record"]["context"]["active_runs"]),
+                         (["runs", "advice_cost", "facts"], 1, 0))
+        self.assertEqual([(e["decision"]["outcome"], e.get("advisory_ask")) for e in out["record"]["pull_requests"]], [("admit", True)])
+        from controller import reads as reads_
+        self.assertEqual(reads_.run_records(advised_["records"]), (True, True))
+        self.assertEqual(reads_.run_records(dict(advised_["records"], reads=advised_["records"]["reads"] + [{"read": "advice", "date": NOW, "age": 0}])), (False, False))
+        # An entry that admits no review holds no answer: an approval here, the review having run.
+        entries = passed(reads(pulls=[pr(42)], runs=[run(number=42)]), cfg=told)["record"]["pull_requests"]
+        self.assertEqual([(e["decision"].get("action"), "advisory_ask" in e) for e in entries], [("issue_approval", False)])
 
     def test_a_queue_act_gets_a_run_id_and_a_dispatch_once_its_workflow_is_named(self):  # issue 381
         # The queue App's acts, an enqueue, a dequeue and a resolution, are each a dispatched Run of the queue workflow,
@@ -1054,6 +1115,104 @@ class Ports(unittest.TestCase):
                          (["item"], ["runs", "outcome", "facts"]))
 
 
+# The Controller's and the investigating Role's Bots, by ids the configuration holds, under logins they no longer show.
+TRIAGE_BOT = ("an-old-login[bot]", 41, "Bot")
+ANALYST_BOT = ("another-old-login[bot]", 42, "Bot")
+
+
+def issue_through_the_port(events=(), repo="o/r", exchanges=None, users=None, linked=True) -> dict:
+    """An issue's pass entry as the issues port reads it, its linked pull requests read whole as `adapters/linked.py`
+    will read them unless `linked` is None, which keeps the port's own word: by default issue 41 of `issue_read` in
+    tests/test_adapters.py, with `events` on its timeline."""
+    from adapters import issues, timeline
+    from tests.test_adapters import MACHINE, Router, issue_read
+    found = issue_read(list(events)) if exchanges is None else exchanges
+    router = Router(github.Replay(found), dict({"don-petry": "admin"}, **(users or {})))
+    names = {TRIAGE_BOT[1:]: test_issue.CONTROLLER["name"], ANALYST_BOT[1:]: test_issue.ANALYST["name"]}
+    accounts = timeline.Accounts(router, repo, MACHINE, {}, factory=set(names), apps=names)
+    number = found[0]["response"]["body"]["number"]
+    facts, title = issues.read(router, repo, number, accounts, lambda: "2026-10-11T12:00:00Z")
+    if linked is not None:
+        facts["complete"]["linked"] = linked
+    return {"facts": facts, "title": title}
+
+
+def issue_passed(entry: dict, issues_config=None, repo="o/r", now="2026-10-11T12:30:00Z") -> dict:
+    """The one Decision a pass makes on `entry`, its issues configured as config/defaults.json writes them."""
+    cfg = config()
+    cfg["kernel"]["issues"] = written(test_issue.config()["issues"] if issues_config is None else issues_config)
+    out = passed(reads(pulls=[], issues=[entry], pause={"org": None, "repos": {repo: None}}), cfg=cfg, now=now)
+    (decision,) = decisions(out)
+    return decision
+
+
+class Issues(unittest.TestCase):
+    """The issues port's facts reach `kernel/issue.py` through the pass (S3)."""
+
+    def test_with_no_app_declared_for_factory_triage_an_accepted_served_issue_gets_no_acceptance_act(self):  # row 10
+        # The narrow turn-on: issues served, no App declared for a label, no triage Intent. Row 10 then adds nothing.
+        narrow = dict(test_issue.SERVED, label_apps={"factory:triage": None, "factory:ready": None},
+                      intents=dict(test_issue.INTENTS, **{test_issue.INVESTIGATE: None, test_issue.JUDGE: None}))
+        entry = an_issue(7, repo="o/r", complete={"timeline": True, "linked": True, "runs": True})
+        d = issue_passed(entry, narrow)
+        self.assertEqual((d["state"], d["outcome"], d["reason"], d.get("action")), ("new", "nothing", "acceptance_due", None))
+        # Declared, the same issue is accepted.
+        declared = issue_passed(entry)
+        self.assertEqual((declared["outcome"], declared.get("action")), ("act", "accept"))
+        # A name that is no name stays none: the Kernel cannot read it, and defers.
+        unnamed = dict(test_issue.SERVED, label_apps={"factory:triage": "", "factory:ready": None})
+        self.assertEqual(issue_passed(entry, unnamed)["reason"], "issues_unreadable")
+
+    def test_an_app_is_named_by_the_id_the_configuration_holds_so_its_label_and_comment_count(self):  # ruling A
+        # The Controller's label and the investigating App's comment count by the App's id: the verdict is wanted next.
+        from tests.test_adapters import issue_event
+        labelled = issue_event("labeled", 1, actor=TRIAGE_BOT, label={"name": "factory:triage"})
+        said = issue_event("commented", 2, actor=ANALYST_BOT)
+        d = issue_passed(issue_through_the_port([labelled, said]))
+        self.assertEqual((d["state"], d["outcome"], d["admit"]["intent"]), ("triage", "admit", "judge-readiness"))
+        # With no comment, the investigation is wanted: the label counted on its own.
+        alone = issue_passed(issue_through_the_port([labelled]))
+        self.assertEqual((alone["state"], alone["admit"]["intent"]), ("triage", "investigate-issue"))
+
+    def test_a_person_whose_login_is_an_apps_name_without_its_suffix_is_not_that_app(self):  # ruling A
+        # A User named as config/defaults.json writes the Controller's App is not it, with its token or through an App.
+        from tests.test_adapters import issue_event
+        name = written(test_issue.SERVED)["label_apps"]["factory:triage"]
+        person = (name, 77, "User")
+        for via in (None, {"id": 9, "slug": "some-app"}):
+            labelled = issue_event("labeled", 1, actor=person, via=via, label={"name": "factory:triage"})
+            d = issue_passed(issue_through_the_port([labelled], users={name: "read"}))
+            self.assertEqual((d["state"], d["outcome"], d["reason"], d.get("label")),
+                             ("new", "act", "label_not_counted", "factory:triage"), via)
+
+    def test_p34s_issue_read_by_the_port_is_deferred_on_its_linked_pull_requests(self):  # P-34, S3
+        # The canary's issue through the port and the pass defers on its linked pull requests, not read yet. Its GraphQL
+        # answer is P-34's lastEditedAt in the port's own query, which no trial has recorded (issue 831).
+        from adapters import issues
+        from tests.test_adapters import body, canary, exchanges as recorded
+        repo = canary()
+        rest = recorded("P-34.rest")
+        own = rest[1]["response"]["body"]
+        owner, name = repo.split("/")
+        edited = {"number": 42, "updatedAt": own["updated_at"],
+                  "lastEditedAt": body("P-34", 0)["data"]["repository"]["issue"]["lastEditedAt"],
+                  "timelineItems": {"pageInfo": {"hasNextPage": False}, "nodes": []}}
+        asked = {"query": issues.QUERY, "variables": {"owner": owner, "name": name, "number": 42}}
+        graphql = {"request": {"via": "graphql", "call": "POST /graphql", "headers": {}, "body": asked},
+                   "response": {"status": 200, "headers": {},
+                                "body": {"data": {"repository": {"nameWithOwner": repo, "issue": edited}}}}}
+        # The port's own word on its linked pull requests, which it does not read yet, reaches the pass (Carbon).
+        entry = issue_through_the_port(repo=repo, exchanges=[rest[1], rest[0], graphql], linked=None)
+        self.assertIs(entry["facts"]["complete"]["linked"], False)
+        d = issue_passed(entry, repo=repo, now="2026-11-13T09:00:00Z")
+        self.assertEqual((d["state"], d["outcome"], d["reason"], d["evidence"]), (None, "defer", "facts_incomplete", ["linked"]))
+        self.assertEqual(entry["title"], own["title"])
+        # Read whole, the Maintainer's closed issue is declined, and nothing is done.
+        entry["facts"]["complete"]["linked"] = True
+        whole = issue_passed(entry, repo=repo, now="2026-11-13T09:00:00Z")
+        self.assertEqual((whole["state"], whole["outcome"], whole["reason"]), ("declined", "nothing", "closed"))
+
+
 class Hub:
     """GitHub as the entry meets it: each request answered by its method and path from the table given, any number of
     times, each recorded with the credential that sent it. A request the table does not hold is refused."""
@@ -1211,6 +1370,29 @@ class Entry(unittest.TestCase):
         self.assertEqual(record["reconciled"]["left"], [{"number": 13, "at": inside}])
         self.assertEqual(record["reconciled"]["owed"], [])
         self.assertEqual(shared.errors(record, "pass"), [])
+        # The same pass asks the records port for the day's advisory costs: the day its own clock names, and what the
+        # pass records before it kept (decision 0224). And the pass is handed the Harness's configuration, which holds
+        # the day's ceiling.
+        asked = []
+        real = entry.records.runs
+
+        def runs(*a, **k):
+            asked.append((k.get("day"), k.get("advised")))
+            return real(*a, **k)
+        kept = dict(before, runs=[dict(before["runs"][0], advisory_asks=1, advisory_cost_usd=0.5)])
+        with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                unittest.mock.patch.object(entry.passes, "records", lambda *a: [kept]), \
+                unittest.mock.patch.object(entry.seen_, "read", read), \
+                unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)), \
+                unittest.mock.patch.object(entry.applied, "effects", lambda *a, **k: {"applied": [], "read": [], "at": {}, "whole": True}), \
+                unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: {"written": [], "read": [], "at": {}, "whole": True}), \
+                unittest.mock.patch.object(entry.records, "runs", runs):
+            code, _, files, _ = self.run_entry(Hub(table))
+        self.assertEqual(code, 0)
+        run_ = kept["runs"][0]
+        self.assertEqual(asked, [(files["pass.json"]["now"][:10], {(run_["run"], run_["started_at"]): {"advisory_asks": 1, "advisory_cost_usd": 0.5}})])
+        self.assertEqual(configuration.load(ROOT, "factory/v0.3.1", "controller")["harness"],
+                         json.loads((ROOT / "config" / "harness.json").read_text()))
 
     def test_the_entry_gathers_what_reconciliation_reads(self):  # decisions 0061, 0112
         # What each snapshot kept is handed to the seen port, each item once; the machine user's pushes are read; a pull
@@ -1568,6 +1750,138 @@ class Entry(unittest.TestCase):
         self.assertEqual([s for s, _ in slept], [pass_.SUCCESSOR_WAIT])
         self.assertEqual(pass_.SUCCESSOR_WAIT, 30)
 
+    def test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is(self):  # S3
+        # Listed from `issues.served_from`, each issue is read with the pull requests' account reader and dated as they
+        # are; one not read is left out by its code, and a list read short stops the pass.
+        since, spied = "2026-10-01T00:00:00Z", {"listed": [], "read": [], "who": []}
+        real = entry.configuration
+
+        def served(root, release):
+            found = real(root, release)
+            found["kernel"]["issues"]["served_from"] = since
+            # One App declared by its id, the Controller's, and one the configuration holds no account of.
+            found["kernel"]["issues"]["label_apps"] = {"factory:triage": found["apps"]["controller"]["name"],
+                                                       "factory:ready": "combsmith-sf-readiness"}
+            found["kernel"]["issues"]["intents"] = dict(found["kernel"]["issues"]["intents"], **{
+                "investigate-issue": {"role": "business-analyst", "app": "combsmith-sf-business-analyst"}})
+            return found
+
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
+            spied["who"].append(who)
+            return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
+
+        listed_by_the_port = entry.items.open_issues
+
+        def listing(listed, whole=True):
+            def open_issues(transport, repo, after):
+                spied["listed"].append((repo, after))
+                if listed is None:
+                    return listed_by_the_port(transport, repo, after)
+                if whole is None:
+                    raise github.Unanswered("no")
+                return list(listed), whole
+            return open_issues
+
+        def read(transport, repo, number, accounts, clock):
+            spied["read"].append((repo, number, accounts))
+            if number == 6:
+                raise entry.facts_.Moved("moved")
+            if number == 9:
+                raise github.Unanswered("no")
+            transport.send({"method": "GET", "path": "/repos/%s/issues/%d" % (repo, number)})
+            return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "Issue five"
+
+        def entry_with(listed, whole=True, configured=served):
+            for found in spied.values():
+                del found[:]
+            table = self.table(numbers=[7])
+            table[("GET", "/repos/%s/issues/5" % self.HOME)] = {
+                "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}, "body": {}}
+            hub = Hub(table)
+            with unittest.mock.patch.object(entry, "configuration", configured), \
+                    unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                    unittest.mock.patch.object(entry.items, "open_issues", listing(listed, whole)), \
+                    unittest.mock.patch.object(entry.issues_, "read", read):
+                code, printed, files, _ = self.run_entry(hub)
+            spied["graphql"] = [r for _, r in hub.sent if r["path"] == "/graphql"]
+            return code, printed, files
+
+        code, printed, files = entry_with([5, 6, 9])
+        self.assertEqual((code, printed), (0, "passed\n"))
+        record = files["pass.json"]
+        self.assertEqual(spied["listed"], [(self.HOME, since)])
+        self.assertEqual([n for _, n, _ in spied["read"]], [5, 6, 9])
+        self.assertTrue(all(who is spied["who"][0] for _, _, who in spied["read"]))
+        # The reader names each App the configuration holds by its account's id, as REST spells its Bot's login.
+        catalogue = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
+        self.assertEqual(spied["who"][0].apps, {(CONTROLLER["accounts"]["controller"]["id"], "Bot"):
+                                                catalogue["controller"]["name"] + "[bot]",
+                                                (CONTROLLER["accounts"]["roles"]["pr-review"]["id"], "Bot"):
+                                                catalogue["pr-review"]["name"] + "[bot]"})
+        # Each name the issues' Kernel is told is an App's is reserved, held by an id or not (Carbon).
+        self.assertEqual(spied["who"][0].reserved, {catalogue["controller"]["name"] + "[bot]", "combsmith-sf-readiness[bot]",
+                                                    "combsmith-sf-business-analyst[bot]"})
+        item = lambda n: {"repo": self.HOME, "type": "issue", "number": n}
+        self.assertEqual([e["decision"]["item"] for e in record["issues"]], [item(5)])
+        self.assertEqual(record["left_out"], [{"item": item(6), "code": "pull_moved"}, {"item": item(9), "code": "facts_unanswered"}])
+        self.assertIn("facts_unreadable", record["alerts"])
+        self.assertEqual([r for r in record["reads"] if r["read"] == "facts"], [{"read": "facts", "date": "2026-10-12T11:59:30Z", "age": 2}])
+        shown = [i for i in files["view/items.json"]["items"] if i["url"].endswith("/issues/5")]
+        self.assertEqual([i["untrusted"] for i in shown], [{"title": "Issue five"}])
+        # A list read short, or not answered, stops the pass before any issue is read; nothing is written.
+        for whole in (False, None):
+            self.assertEqual(entry_with([5], whole), (1, "issue_list_unreadable\n", {}), whole)
+            self.assertEqual(spied["read"], [])
+        # No date: nothing is listed, asked or read; the one GraphQL read is the pull requests' list.
+        code, _, files = entry_with(None, configured=real)
+        self.assertEqual((code, spied["listed"], spied["read"], files["pass.json"]["issues"]), (0, [(self.HOME, None)], [], []))
+        self.assertEqual(len(spied["graphql"]), 1)
+
+    def test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry(self):  # S3, Astra
+        # Through the real port: an issue that read whole would be accepted defers on its unread linked pull requests.
+        from tests.test_adapters import issue_read
+        reads_ = issue_read()
+        own, events, edits = (r["response"] for r in reads_)
+        edits["body"]["data"]["repository"]["nameWithOwner"] = self.HOME
+        listed = {"data": {"repository": {"nameWithOwner": self.HOME, "issues": {
+            "totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"number": 41}]}}}}
+        real = entry.configuration
+
+        def served(root, release):
+            found = real(root, release)
+            found["kernel"]["issues"] = dict(found["kernel"]["issues"], served_from="2026-10-01T00:00:00Z",
+                                             label_apps={"factory:triage": found["apps"]["controller"]["name"], "factory:ready": None})
+            return found
+
+        table = self.table(numbers=[])
+        table.update({("GET", "/repos/%s/issues/41" % self.HOME): own,
+                      ("GET", "/repos/%s/issues/41/timeline?per_page=100" % self.HOME): events,
+                      ("GET", "/repos/%s/collaborators/don-petry/permission" % self.HOME):
+                          {"status": 200, "headers": {}, "body": {"permission": "admin"}}})
+        hub = Hub(table)
+        connect = hub.connect
+
+        def routed(credential):
+            through = connect(credential)
+
+            class Routed:
+                def send(self, req):
+                    query = (req.get("body") or {}).get("query", "") if req["path"] == "/graphql" else ""
+                    if query.startswith(("query OpenIssues", "query IssueEdits")):
+                        hub.sent.append((credential, req))
+                        return copy.deepcopy({"status": 200, "headers": {}, "body": listed} if "OpenIssues" in query else edits)
+                    return through.send(req)
+            return Routed()
+        hub.connect = routed
+        with unittest.mock.patch.object(entry, "configuration", served):
+            code, printed, files, _ = self.run_entry(hub)
+        self.assertEqual((code, printed), (0, "passed\n"))
+        (decided,) = files["pass.json"]["issues"]
+        d = decided["decision"]
+        self.assertEqual((d["item"]["number"], d["outcome"], d["reason"], d["evidence"]), (41, "defer", "facts_incomplete", ["linked"]))
+        # Nothing is written for the issue: the one write is the tracking issue's, which reports the pass's alerts.
+        self.assertEqual([w["type"] for w in files["writes.json"]["writes"]], ["tracking_issue"])
+
     def test_what_the_entry_cannot_read_writes_nothing(self):
         for environ, want in (({"RELEASE": None}, "release_untagged"), ({"RELEASE": "v1"}, "release_untagged"),
                               ({"GITHUB_RUN_ID": "1/2"}, "run_unreadable"), ({"GITHUB_RUN_ID": None}, "run_unreadable"),
@@ -1628,6 +1942,129 @@ class Entry(unittest.TestCase):
         self.assertRegex(files["pass.json"]["pass"], r"^p_[0-9A-Z]{20}$")
         minted = {entry.mint_id("r") for _ in range(100)}
         self.assertEqual(len(minted), 100)
+
+
+class Advisory(unittest.TestCase):
+    """`controller/advisory.py`: whether the day's ceiling admits one more advisory read (decision 0224)."""
+
+    NOW = "2026-11-18T13:00:00Z"
+    HARNESS = {"readers": {"astra": {}}, "advisory_ceiling_usd_per_day": 30, "advisory_worst_case_usd": 2}
+
+    @staticmethod
+    def ran(started: str = "2026-11-18T09:00:00Z", intent: str = "review-change", **advice) -> dict:
+        return dict({"run": "r_01JA7Q", "intent": intent, "started_at": started, "status": "completed"}, **advice)  # finished
+
+    def test_the_days_advisory_spend_counts_an_unknown_cost_at_the_worst_case_and_never_at_nought(self):
+        from controller import advisory
+        ran = self.ran
+        # What one review Run of the day counts: its cost, where it finished, asked and gives one above nought; nothing
+        # where it finished and asked no reader; and the worst case for every other.
+        for record, counts in ((ran(advisory_asks=1, advisory_cost_usd=0.93), 0.93), (ran(advisory_asks=2, advisory_cost_usd=100000), 100000),
+                               (ran(advisory_asks=0, advisory_cost_usd=None), 0), (ran(advisory_asks=0, advisory_cost_usd=0), 0),
+                               (ran(advisory_asks=0), 0),
+                               # It asked and gives no cost, or nought, which no read costs.
+                               (ran(advisory_asks=1, advisory_cost_usd=None), 2), (ran(advisory_asks=1), 2),
+                               (ran(advisory_asks=2, advisory_cost_usd=0), 2), (ran(advisory_asks=1, advisory_cost_usd=-0.0), 2),
+                               (ran(advisory_asks=2, advisory_cost_usd=5e-324), 2), (ran(advisory_asks=2, advisory_cost_usd=4e-7), 2),
+                               (ran(advisory_asks=2, advisory_cost_usd=0.000001), 0.000001),
+                               # Its advice was not read, or it is still running, whatever it says.
+                               (ran(), 2), (ran(advisory_cost_usd=0.5), 2),
+                               (ran(status="in_progress", advisory_asks=1, advisory_cost_usd=0.01), 2),
+                               (ran(status="queued", advisory_asks=0, advisory_cost_usd=None), 2),
+                               (ran(status=None, advisory_asks=1, advisory_cost_usd=0.01), 2),
+                               # Its fields do not agree, or hold what no record may.
+                               (ran(advisory_asks=0, advisory_cost_usd=5), 2), (ran(advisory_asks=1, advisory_cost_usd=-1), 2),
+                               (ran(advisory_asks=1, advisory_cost_usd=float("nan")), 2),
+                               (ran(advisory_asks=1, advisory_cost_usd=float("inf")), 2),
+                               (ran(advisory_asks=1, advisory_cost_usd=10 ** 400), 2), (ran(advisory_asks=1, advisory_cost_usd=100000.01), 2),
+                               (ran(advisory_asks=1, advisory_cost_usd="0.93"), 2), (ran(advisory_asks=1, advisory_cost_usd=True), 2),
+                               (ran(advisory_asks=True, advisory_cost_usd=0.5), 2), (ran(advisory_asks=-1, advisory_cost_usd=0.5), 2),
+                               (ran(advisory_asks="1", advisory_cost_usd=0.5), 2), (ran(advisory_asks=101, advisory_cost_usd=0.5), 2),
+                               (ran(advisory_asks=0, advisory_cost_usd=float("nan")), 2), (None, 2), ("a run", 2), ([], 2)):
+            self.assertEqual(advisory.counted(record, 2), counts, record)
+        # The day is the UTC date of the pass's now. A review Run that started on another day counts nothing, and so does
+        # a Run of another Intent; one whose start cannot be read is not shown to be another day's, and counts.
+        records = [ran(advisory_asks=1, advisory_cost_usd=1.5), ran("2026-11-18T00:00:00Z", advisory_asks=1, advisory_cost_usd=0.25),
+                   ran("2026-11-17T23:59:59Z", advisory_asks=1, advisory_cost_usd=100),
+                   ran("2026-11-19T00:00:00Z", advisory_asks=1, advisory_cost_usd=100),
+                   ran(intent="fix-findings", advisory_asks=1, advisory_cost_usd=100), ran("2026-11-18T23:59:59Z")]
+        self.assertEqual(advisory.spent(records, self.NOW, 2), 3.75)
+        # A Run still in flight counts on today's sum whatever day it started: what runs across midnight is carried.
+        for start in ("2026-11-17T23:59:59Z", "2026-11-10T00:00:00Z", "2026-11-19T00:00:00Z"):
+            for status in ("in_progress", "queued", None):
+                self.assertEqual(advisory.spent([ran(start, status=status, advisory_asks=1, advisory_cost_usd=0.01)], self.NOW, 2), 2,
+                                 (start, status))
+        self.assertEqual(advisory.spent([ran("2026-11-17T23:59:59Z", intent="fix-findings", status="in_progress")], self.NOW, 2), 0)
+        for start in (None, "", 1795000000, "20261118T090000Z", " 2026-11-18T09:00:00Z", "2026-11-17", "2026-11-17T23:59:59+00:00"):
+            self.assertEqual(advisory.spent([ran(start, advisory_asks=1, advisory_cost_usd=7)], self.NOW, 2), 7, start)
+        self.assertEqual(advisory.spent([{"intent": "review-change"}, None, "x"], self.NOW, 2), 6)
+        self.assertEqual(advisory.spent([], self.NOW, 2), 0)
+        # Two records of one Run are two counts: nothing here says which is the Run's, and more is the safe way.
+        self.assertEqual(advisory.spent([ran(advisory_asks=1, advisory_cost_usd=10)] * 2, self.NOW, 2), 20)
+
+    def test_a_review_run_is_told_yes_only_under_a_ceiling_and_a_worst_case_that_are_configured(self):
+        from controller import advisory
+        ran, now, harness = self.ran, self.NOW, self.HARNESS
+        self.assertIs(advisory.admits([], True, now, harness), True)
+        # The day's sum and this Run's own worst case together may reach the ceiling and not pass it, to a millionth.
+        at = [ran(advisory_asks=1, advisory_cost_usd=28)]
+        self.assertIs(advisory.admits(at, True, now, harness), True)
+        self.assertIs(advisory.admits(at + [ran(advisory_asks=1, advisory_cost_usd=0.000001)], True, now, harness), False)
+        self.assertIs(advisory.admits([ran(advisory_asks=1, advisory_cost_usd=0.07)] * 400, True, now, harness), True)
+        self.assertIs(advisory.admits([ran(advisory_asks=1, advisory_cost_usd=0.1)] * 2, True, now,
+                                      dict(harness, advisory_ceiling_usd_per_day=0.3, advisory_worst_case_usd=0.1)), True)
+        # A Run in flight does not refuse the next one: each counts the worst case, fourteen of them and this one.
+        flying = ran(status="in_progress")
+        self.assertIs(advisory.admits([flying] * 14, True, now, harness), True)
+        self.assertIs(advisory.admits([flying] * 15, True, now, harness), False)
+        self.assertIs(advisory.admits([ran(status="in_progress", advisory_asks=1, advisory_cost_usd=0.01)] * 15, True, now, harness), False)
+        # Neither figure has a default: with no ceiling, no worst case, or one that is no figure its schema would hold,
+        # the answer is no; and with no reader, or readers that are no object of them.
+        for change in ({"advisory_ceiling_usd_per_day": None}, {"advisory_worst_case_usd": None}, {"advisory_ceiling_usd_per_day": 0},
+                       {"advisory_worst_case_usd": 0}, {"advisory_ceiling_usd_per_day": "30"}, {"advisory_worst_case_usd": True},
+                       {"advisory_ceiling_usd_per_day": True}, {"advisory_ceiling_usd_per_day": float("inf")},
+                       {"advisory_worst_case_usd": float("nan")}, {"advisory_ceiling_usd_per_day": float("nan")},
+                       {"advisory_ceiling_usd_per_day": -30}, {"advisory_worst_case_usd": -2},
+                       {"advisory_ceiling_usd_per_day": 10 ** 400}, {"advisory_ceiling_usd_per_day": 10001},
+                       {"advisory_worst_case_usd": 5e-324}, {"advisory_worst_case_usd": 0.009},
+                       {"readers": {}}, {"readers": None}, {"readers": True}, {"readers": ["astra"]}, {"readers": "astra"}):
+            self.assertIs(advisory.admits([], True, now, dict(harness, **change)), False, change)
+        self.assertIs(advisory.admits([], True, now, dict(harness, advisory_ceiling_usd_per_day=10000, advisory_worst_case_usd=0.01)), True)
+        for key in harness:
+            self.assertIs(advisory.admits([], True, now, {k: v for k, v in harness.items() if k != key}), False, key)
+        # A worst case above the ceiling admits nothing, and run records not read whole admit nothing.
+        self.assertIs(advisory.admits([], True, now, dict(harness, advisory_worst_case_usd=31)), False)
+        for whole in (False, None, 1, "yes"):
+            self.assertIs(advisory.admits([], whole, now, harness), False, whole)
+        # Whatever it is handed it answers, and what it cannot read it answers no to: a time in another form, which
+        # names no day, and a configuration or run records that are none.
+        spent_ = [ran(advisory_asks=1, advisory_cost_usd=100)]
+        for when in ("20261118T130000Z", "1795006800", " 2026-11-18T13:00:00Z", "2026-11-19T01:00:00+02:00", "", "2026-11",
+                     None, 1795006800, b"2026-11-18T13:00:00Z"):
+            self.assertIs(advisory.admits([], True, when, harness), False, when)
+            self.assertIs(advisory.admits(spent_, True, when, harness), False, when)
+        for odd in (None, [], "x", 7):
+            self.assertIs(advisory.admits([], True, now, odd), False, odd)
+        for odd in (None, {}, "runs", 7):
+            self.assertIs(advisory.admits(odd, True, now, harness), False, odd)
+        self.assertIs(advisory.admits([None] * 15, True, now, harness), False)
+        self.assertIs(advisory.admits([ran(advisory_asks=1, advisory_cost_usd=10 ** 400)] * 15, True, now, harness), False)
+        # The schemas hold the three places the answer and its figures lie.
+        from controller import shared as held
+        from tools.jsonschema_lite import validate
+        harness_schema, record, entry = (held.SCHEMAS["harness"]["properties"], held.SCHEMAS["run-record"],
+                                         held.SCHEMAS["pass"]["properties"]["pull_requests"]["items"])
+        self.assertNotIn("advisory_worst_case_usd", held.SCHEMAS["harness"]["required"])
+        for figure, ok in ((1.91, True), (0, False), (-1, False), ("2", False), (None, False), (10001, False)):
+            self.assertEqual(validate(figure, harness_schema["advisory_worst_case_usd"]) == [], ok, figure)
+        example = json.loads((ROOT / "examples" / "pass.json").read_text())["runs"][0]
+        self.assertEqual(validate(dict(example, advisory_asks=2, advisory_cost_usd=1.42), record, schemas=held.SCHEMAS), [])
+        self.assertEqual(validate(dict(example, advisory_asks=1, advisory_cost_usd=None), record, schemas=held.SCHEMAS), [])
+        for change in ({"advisory_asks": -1}, {"advisory_asks": 1.5}, {"advisory_asks": None}, {"advisory_cost_usd": -1},
+                       {"advisory_cost_usd": "1"}, {"advisory_cost_usd": float("inf")}, {"advisory_asks": 101}):
+            self.assertTrue(validate(dict(example, **change), record, schemas=held.SCHEMAS), change)
+        self.assertEqual(entry["properties"]["advisory_ask"], {"type": "boolean"})
+        self.assertNotIn("advisory_ask", entry["required"])
 
 
 if __name__ == "__main__":

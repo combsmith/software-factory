@@ -1,0 +1,23 @@
+{
+  "schema": "advice-answer/1",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "functional",
+      "criterion": "PR-3",
+      "file": "kernel/decide.py",
+      "line": 88,
+      "title": "A deferral is returned where the facts are whole",
+      "message": "`decide` returns `defer` when `checks` is an empty list, which is a whole read of no check. Input: facts with `checks: []` and every other fact readable."
+    },
+    {
+      "severity": "minor",
+      "category": "delivery",
+      "criterion": null,
+      "file": null,
+      "line": null,
+      "title": "The change's description names a test that is not in it",
+      "message": "The description says `test_an_empty_list_is_whole` holds the rule; no test of that name is added."
+    }
+  ]
+}
