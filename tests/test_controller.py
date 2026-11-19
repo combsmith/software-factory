@@ -1287,6 +1287,7 @@ class Entry(unittest.TestCase):
             os.mkdir(os.path.join(d, "b"))
             with self.assertRaises(ValueError):
                 entry.write({"record": {"cost": float("nan")}, "view": views}, os.path.join(d, "a"))
+            self.assertEqual(os.listdir(os.path.join(d, "a")), [])       # no file is made, an empty one least of all
             entry.write({"record": {"cost": 1.5}, "view": views}, os.path.join(d, "b"))
             self.assertEqual(json.loads(pathlib.Path(d, "b", "pass.json").read_text()), {"cost": 1.5})
 

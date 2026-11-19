@@ -132,7 +132,9 @@ class Recording:
             else:
                 kept = {"status": answer.get("status"), "headers": _headers(answer.get("headers")),
                         "body": _body(body, gone, here + ".response.body")}
-            self.exchanges.append({"request": sent, "response": kept})
+            exchange = {"request": sent, "response": kept}
+            json.dumps(exchange, allow_nan=False)     # a number that is not finite drops this exchange, not the file
+            self.exchanges.append(exchange)
             self.dropped += gone
         except Exception:      # what cannot be kept is left out, and counted; the step goes on as it would
             self.unkept += 1

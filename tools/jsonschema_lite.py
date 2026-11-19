@@ -59,6 +59,23 @@ def _resolve(ref: str, root: dict, schemas: dict = None) -> tuple:
         raise SchemaError("unresolved reference: %s" % ref)
 
 
+def _infinite(value) -> bool:
+    """Whether `value` is a float that is NaN or an infinity: no number, though json.loads reads both (issue 922)."""
+    return isinstance(value, float) and (value != value or value in (float("inf"), float("-inf")))
+
+
+def _not_finite(value, path: str):
+    """Each path under `value` that holds a float that is NaN or an infinity, where no schema describes it."""
+    if _infinite(value):
+        yield path
+    elif isinstance(value, list):
+        for i, item in enumerate(value):
+            yield from _not_finite(item, "%s[%d]" % (path, i))
+    elif isinstance(value, dict):
+        for name, item in value.items():
+            yield from _not_finite(item, "%s.%s" % (path, name))
+
+
 def validate(value, schema: dict, root: dict = None, path: str = "$", schemas: dict = None, chain: tuple = ()) -> list:
     """Return a list of error strings; empty means valid. `schemas` maps a kind to the schema a `$ref` by file names.
     `chain` is the references followed so far at this value, so that a reference that comes round to itself is refused."""
@@ -98,7 +115,7 @@ def validate(value, schema: dict, root: dict = None, path: str = "$", schemas: d
         # NaN is below no minimum and above no maximum, and an infinity passes where no bound stands; json.loads reads
         # both from a file, which no other JSON reader would. So a number here is finite, whatever the schema says
         # (issue 922). An int is always finite.
-        if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+        if _infinite(value):
             errors.append("%s: %r is no finite number" % (path, value))
         if "minimum" in schema and value < schema["minimum"]:
             errors.append("%s: below %s" % (path, schema["minimum"]))
@@ -114,6 +131,8 @@ def validate(value, schema: dict, root: dict = None, path: str = "$", schemas: d
         if "items" in schema:
             for i, item in enumerate(value):
                 errors += validate(item, schema["items"], root, "%s[%d]" % (path, i), schemas)
+        else:       # items no schema describes hold no number that is not finite either
+            errors += ["%s: no finite number" % where for where in _not_finite(value, path)]
     if isinstance(value, dict):
         props = schema.get("properties", {})
         for name in schema.get("required", []):
@@ -127,4 +146,6 @@ def validate(value, schema: dict, root: dict = None, path: str = "$", schemas: d
                 errors.append("%s: unexpected %s" % (path, name))
             elif isinstance(extra, dict):
                 errors += validate(item, extra, root, "%s.%s" % (path, name), schemas)
+            else:
+                errors += ["%s: no finite number" % where for where in _not_finite(item, "%s.%s" % (path, name))]
     return errors

@@ -276,6 +276,12 @@ class Validator(unittest.TestCase):
         self.assertEqual(validate({"cost": nan}, {"type": "object", "properties": {"cost": {"type": "number"}}}),
                          ["$.cost: nan is no finite number"])
         self.assertEqual(validate(nan, {"type": "integer"}), ["$: expected integer"])
+        # Nor where no schema describes the value: items with no `items`, a property no schema names, at any depth.
+        for value, schema, where in ((json.loads("[1, NaN]"), {"type": "array"}, "$[1]"),
+                                     ({"x": inf}, {}, "$.x"), ({"a": {"b": [-inf]}}, {"type": "object"}, "$.a.b[0]"),
+                                     ({"a": 1, "x": [nan]}, {"type": "object", "properties": {"a": {"type": "number"}}}, "$.x[0]")):
+            self.assertEqual(validate(value, schema), ["%s: no finite number" % where], value)
+        self.assertEqual(validate({"x": [1, 2.5]}, {"type": "object"}), [])
         # The other side: a finite number, a float or an int however large, is read as it was.
         for value in (0, 0.0, -0.0, 1.5, 1e308, -1e308, 10 ** 400):
             self.assertEqual(validate(value, {"type": "number"}), [], value)

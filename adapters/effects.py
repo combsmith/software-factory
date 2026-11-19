@@ -1064,8 +1064,9 @@ def main(argv=None, environ=None, base=None, mint=None, clock=None) -> int:
     finally:
         revoked = revoke() if revoke is not None else True
     sent = sent and revoked is True
+    text = json.dumps(written, indent=2, allow_nan=False) + "\n"      # a raise leaves no empty record behind
     with open(os.path.join(out, "written.json"), "w", encoding="utf-8") as kept:
-        kept.write(json.dumps(written, indent=2, allow_nan=False) + "\n")
+        kept.write(text)
     return 0 if sent and not failed(written) else 1
 
 
