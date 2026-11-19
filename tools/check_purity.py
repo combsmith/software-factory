@@ -538,14 +538,21 @@ def _alone(trees: dict, package: str) -> list:
     """What is asked of a package held as the Kernel is, under its own name, beyond the Kernel's rules: `guards/`
     (issue 838). It imports itself alone, by its name, and never the Kernel, which is not protected whole: so what it
     decides is changed nowhere but in it. A relative import is refused: the package is then imported in one way, and
-    `from .. import x`, of which the Kernel's rules say nothing, reaches nothing above it. And no module of it bears a
-    name the rules below are keyed by for a module of the Kernel's."""
+    `from .. import x`, of which the Kernel's rules say nothing, reaches nothing above it. No module of it bears a
+    name the rules below are keyed by for a module of the Kernel's. And it takes no parameter CALLABLE_PARAMETERS
+    names: it makes no Decision, so it calls no function it is given at all."""
     problems = []
     for name, tree in trees.items():
         if name in KEYED:
             problems.append("%s/%s bears the name of a module the Kernel's rules are written for, and they would be "
                             "read of it; name it otherwise" % (package, name))
         for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                given = node.args.posonlyargs + node.args.args + node.args.kwonlyargs
+                given += [a for a in (node.args.vararg, node.args.kwarg) if a]
+                for word in sorted(CALLABLE_PARAMETERS & {a.arg for a in given}):
+                    problems.append("%s:%d takes %s, which the Kernel alone may call; %s/ makes no Decision and calls "
+                                    "no function it is given" % (name, node.lineno, word, package))
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     if alias.name.split(".")[0] == "kernel":
