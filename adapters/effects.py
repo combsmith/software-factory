@@ -703,11 +703,15 @@ def role_write(transport, item: dict, kind: str, req: dict, login: str) -> dict:
     return _back("failed", None, reason="not_built")
 
 
-def advisory_write(transport, item: dict, req: dict, login: str) -> dict:
+def advisory_write(transport, item: dict, head: str, lenses, run: str, req: dict, login: str) -> dict:
     """What the write of one advisory Lens's check run did, read back, as `role_write` gives a Role's: the one write
-    the step that shows an advisory read may reach (decision 0224)."""
+    the step that shows an advisory read may reach (decision 0224). It sends through the advisory allowlist of the
+    Run `run`, its head `head` and the Lenses `lenses`, which it builds itself, whatever transport it is handed: a
+    request of another name, commit, repo or output, or with none of its own, sends no write."""
+    if not isinstance(req, dict) or "output" not in req:
+        return _back("failed", None, reason="output_not_its_own")
     try:
-        return _check(transport, item, req, login)
+        return _check(Allowed(transport, *advisory_permits(item, head, lenses, run)), item, req, login)
     except _TokenRefused:
         return _back("refused", None, reason="token_refused")
 
