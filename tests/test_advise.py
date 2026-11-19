@@ -308,7 +308,7 @@ class Advise(unittest.TestCase):
             results, azure_, _ = advised([], **made)
             self.assertEqual((results, azure_.made), ({}, []), made)
 
-    def test_a_rate_limit_is_waited_for_once_and_a_response_still_running_is_cancelled(self):
+    def test_a_rate_limit_is_waited_for_once(self):
         # The wait a rate limit names, once; a second rate limit is the Result, and nothing is asked in a loop.
         results, azure_, clock = advised([LIMITED, response(), LIMITED, LIMITED])
         self.assertEqual(codes(results), {"astra": ("completed", None, 1, 2), "kimi": ("incomplete", "rate_limited", 0, 2)})
@@ -327,6 +327,8 @@ class Advise(unittest.TestCase):
         self.assertEqual([advise.waited(LIMITED, left) for left in (20 + advise.POLL, 19.9 + advise.POLL, 20, 5)],
                          [20, None, None, None])
         self.assertEqual(advise.waited(dict(LIMITED, headers={"retry-after": "90"}), 100), 90)
+
+    def test_a_response_still_running_when_its_readers_share_is_spent_is_cancelled(self):
         # A response not ended when the reader's share of the step is spent is cancelled, and is `timed_out`.
         polls = advise.WHOLE // 2 // advise.POLL - 1      # the first of two readers has half the step
         results, azure_, clock = advised([response("queued", "")] + [response("in_progress", "")] * polls
