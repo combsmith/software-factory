@@ -639,6 +639,13 @@ class OnlyAPersonEnds(unittest.TestCase):
         self.assertEqual(d["reason"], "human_hold")
         d = go(facts(label_events=[labelled("factory:hold")], opened_for=7), REVIEWED)
         self.assertEqual(d["reason"], "human_hold")
+        # A person's hands-off is never acted on, whatever its issue says: a queued pull request under it stays queued.
+        for stands in ("held", "closed", None):
+            d = go(facts(label_events=[labelled("factory:hands-off")], **dict(OURS, issue_stands=stands)), REVIEWED)
+            self.assertEqual((d["state"], d["reason"]), ("held", "hands_off"), stands)
+            d = go(facts(queue=True, reviews=APPROVED, label_events=[labelled("factory:hands-off")],
+                         **dict(OURS, issue_stands=stands)), REVIEWED)
+            self.assertEqual((d["reason"], d["outcome"], d.get("action")), ("hands_off", "hold", None), stands)
         # A merged or closed pull request is ended, however its issue stands.
         for ended in ("merged", "closed"):
             self.assertEqual(go(facts(state=ended, **dict(OURS, issue_stands="held")), REVIEWED)["state"], ended)
