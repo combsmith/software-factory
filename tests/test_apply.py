@@ -21,7 +21,7 @@ import unittest.mock
 from adapters import advice, effects, github, identity
 from adapters.facts import Moved
 from harness import advised as advised_
-from harness import apply, bundle, engine, shared
+from harness import apply, apply_step, bundle, engine, shared
 from harness import task as task_
 from tests import support
 from tests.test_advisory import MARK, SEVERE, advised as an_advice, filed
@@ -2095,6 +2095,75 @@ class Advised(unittest.TestCase):
                     (len(data or b""), len(digest or b""))) or real(data, digest, *a)):
             self.ask({"astra": long})
         self.assertEqual(read, [(10, 128), (0, 0)])
+
+
+class Adopted(unittest.TestCase):
+    """Decision 0224, "Adoption": a Finding adopted from an advisory annotation is adopted from a Finding of this Run's
+    own advisory Result, taken by its digest, and only where the configuration hands the reads over."""
+    ASKS = dict(json.loads((ROOT / "config" / "harness.json").read_text()), advisory_hand_over=True)
+    ASTRA = advised(("major", 86))
+    FOUND = ASTRA["findings"][0]["id"]
+
+    def ruled(self, found, adoptable, advisory=None):
+        facts = the_facts()
+        n2 = result()["findings"][1]
+        return apply.refusal(the_task(texts=[covering(facts)]), result(findings=[found, n2]), facts, runs(),
+                             support.context(active_runs=1), support.CONFIG, NOW, ROLE, RUBRIC, AUTHORITY,
+                             advisory or ADVISORY, 4242, lines=True, adoptable=adoptable)
+
+    def test_a_finding_is_adopted_from_an_advisory_annotation_only_of_this_runs_own_result(self):
+        n1 = result()["findings"][0]
+        on = lambda lens="astra", key=self.FOUND, kind="annotation": dict(
+            n1, adopted_from={"lens": lens, "surface": {"type": kind, "key": key}})
+        mine = frozenset({("astra", self.FOUND)})
+        self.assertIsNone(self.ruled(on(), mine))
+        for found, adoptable in ((on(), frozenset()), (on(key="astra:" + "1" * 32), mine), (on(lens="kimi"), mine),
+                                 (on(kind="check"), mine), (on(kind="alert"), mine)):
+            self.assertEqual(self.ruled(found, adoptable), ("item", "adopted_surface_not_on_item"), found["adopted_from"])
+        # A Lens the configuration does not name advisory is refused first, whatever is adoptable.
+        self.assertEqual(self.ruled(on(lens="muse"), frozenset({("muse", self.FOUND)})), ("item", "adopted_lens_not_advisory"))
+        self.assertEqual(self.ruled(on(), mine, advisory=["coderabbit"]), ("item", "adopted_lens_not_advisory"))
+        # A thread is held to the facts as before: an id adoptable from an annotation is no thread on the item.
+        self.assertEqual(self.ruled(on(kind="thread"), mine), ("item", "adopted_surface_not_on_item"))
+        self.assertIsNone(self.ruled(n1, frozenset()))
+        # `apply` holds a Result to what its step read as adoptable, and to nothing where it read none: adopted from this
+        # Run's own Result, it goes on as the Result it adopts in place of a thread does.
+        res = result(findings=[on(), result()["findings"][1]])
+        _, ended, calls = Job().go(res, config=dict(Job.CONFIG, adoptable=mine))
+        _, plain, done = Job().go(result())
+        self.assertEqual((ended["reason"], len(calls["mint"])), (plain["reason"], len(done["mint"])))
+        self.assertTrue(calls["mint"])
+        _, ended, calls = Job().go(res)
+        self.assertEqual((ended["outcome"], ended["reason"], calls["mint"]), ("item", "adopted_surface_not_on_item", []))
+
+    def test_what_may_be_adopted_is_read_from_the_runs_own_results_only_where_the_reads_are_handed_over(self):
+        top = tempfile.TemporaryDirectory()
+        self.addCleanup(top.cleanup)
+        base = pathlib.Path(top.name)
+        (base / "advice").mkdir()
+        data, digest = filed(self.ASTRA)
+        (base / "advice" / "advice.astra.json").write_bytes(data)
+        (base / "advice" / "advice.astra.sha256").write_bytes(digest)
+        admit = the_task()
+        got = lambda **over: apply_step.adoptable(str(base), over.get("folder", "advice"), over.get("admit", admit),
+                                                  over.get("asks", self.ASKS))
+        self.assertEqual(got(), frozenset({("astra", self.FOUND)}))
+        off = {k: v for k, v in self.ASKS.items() if k != "advisory_hand_over"}
+        for over in ({"asks": off}, {"asks": dict(off, advisory_hand_over="true")}, {"folder": None}, {"admit": None},
+                     {"admit": dict(admit, intent="fix-change")}, {"admit": dict(admit, run="r_01JA7R")},
+                     {"admit": dict(admit, content_id="sha256:bbbb")}, {"asks": dict(self.ASKS, readers={})}):
+            self.assertEqual(got(**over), frozenset(), over)
+        # Taken by its digest, never through a link, and from the step's own directory alone.
+        (base / "advice" / "advice.astra.sha256").write_bytes(b"sha256:" + b"0" * 64 + b"\n")
+        self.assertEqual(got(), frozenset())
+        with tempfile.TemporaryDirectory() as elsewhere:
+            pathlib.Path(elsewhere, "advice.astra.json").write_bytes(data)
+            pathlib.Path(elsewhere, "advice.astra.sha256").write_bytes(digest)
+            self.assertEqual(got(folder=elsewhere), frozenset())
+            (base / "advice" / "advice.astra.json").unlink()
+            (base / "advice" / "advice.astra.sha256").write_bytes(digest)
+            (base / "advice" / "advice.astra.json").symlink_to(pathlib.Path(elsewhere, "advice.astra.json"))
+            self.assertEqual(got(), frozenset())
 
 if __name__ == "__main__":
     unittest.main()

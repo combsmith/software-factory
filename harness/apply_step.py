@@ -128,6 +128,24 @@ def shown(base, argv: list, environ: dict, folder: str, done: dict, ended: dict,
     return line
 
 
+def adoptable(base, folder, admit, asks: dict) -> frozenset:
+    """The `(Lens, Finding id)` of each Finding a review's Result may adopt from an advisory annotation: each Finding of
+    each Result of a Lens the Factory asks a reader for, read from the advise step's `folder`, bounded and never through
+    a link, taken by its digest and held to `advice/1` and to the Run (`advice.held`), as the run step read it to build
+    the Task. None unless the configuration hands the reads over, and none for a Run that is no review (decision 0224,
+    "Adoption")."""
+    if admit is None or admit["intent"] != task.REVIEWING or asks.get(task.HAND_OVER) is not True or folder is None:
+        return frozenset()
+    names = [lens for lens in asks["advisory"] if lens in asks.get("readers", {})]
+    pairs = set()
+    for lens in names:
+        result, _ = advice.held(steps.bounded(base, folder, "advice.%s.json" % lens, advice.LARGEST + 1),
+                                steps.bounded(base, folder, "advice.%s.sha256" % lens, 128), lens, names, admit,
+                                shared.SCHEMAS)
+        pairs |= {(lens, found["id"]) for found in (result or {"findings": []})["findings"]}
+    return frozenset(pairs)
+
+
 def written(argv: list, environ: dict, base, clock, connect, kept=None) -> tuple:
     """`(applied/1, outcome/1)` of the Run. `kept`, a dict, is given what the advisory part needs once the read token
     is revoked: the Run's admission and the item read again."""
@@ -202,10 +220,12 @@ def written(argv: list, environ: dict, base, clock, connect, kept=None) -> tuple
             login = config["app"]["name"] + "[bot]"
             allowed = effects.Allowed(transport, *effects.role_permits(admit["item"], head, "factory / " + parts["role"]))
             return effects.role_write(allowed, admit["item"], kind, req, login)
+        asks = steps.read_json(steps.ROOT, os.path.join("config", "harness.json"))
         told = {"kernel": dict(config["kernel"], lifecycle=config["lifecycles"]["pull_request"]),
                 "rubric": steps.read_json(steps.ROOT, os.path.join("config", "rubric-%s.json" % parts["role"])),
                 "authority": steps.read_json(steps.ROOT, os.path.join("config", "authority.json")),
-                "advisory": steps.read_json(steps.ROOT, os.path.join("config", "harness.json"))["advisory"],
+                "advisory": asks["advisory"],
+                "adoptable": adoptable(base, argv[5] if len(argv) > 5 else None, admit, asks),
                 "github_run": environ.get("GITHUB_RUN_ID"), "app": config["app"], "needs": config["needs"],
                 # The bound the Task's diff was cut at, so that it is built again as the Run was given it (issue 327).
                 "max_diff_characters": config["kernel"]["limits"]["max_diff_characters"]}

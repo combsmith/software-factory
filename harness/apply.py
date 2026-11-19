@@ -175,7 +175,7 @@ def _superseded(task: dict, facts: dict, runs: list, context: dict, kernel: dict
     return None
 
 
-def _effects(task: dict, result: dict, facts: dict, advisory):
+def _effects(task: dict, result: dict, facts: dict, advisory, adoptable=frozenset()):
     effects = result["effects"]
     if any(kind not in task["permitted_effects"] for kind in effects if effects[kind]):
         return "effect_not_permitted"
@@ -218,13 +218,18 @@ def _effects(task: dict, result: dict, facts: dict, advisory):
         if len(where["path"]) > PATH_LONGEST or where["path"] not in {c["path"] for c in facts["changed_paths"]}:
             return "finding_not_on_change"
         # One adopted is adopted from a reviewer the configuration names advisory, and from that reviewer's thread on
-        # this item: a surface the facts cannot show on this item is no Finding of this review.
+        # this item: a surface the facts cannot show on this item is no Finding of this review. One adopted from an
+        # annotation is adopted from a Finding of this Run's own advisory Result, taken by its digest, which the Task
+        # was handed: `adoptable`, empty unless the configuration hands the reads over (decision 0224, "Adoption").
         adopted = finding.get("adopted_from")
         if adopted is not None:
             if adopted["lens"] not in advisory:
                 return "adopted_lens_not_advisory"
             surface = adopted["surface"]
-            if surface["type"] != "thread" or not any(
+            if surface["type"] == "annotation":
+                if (adopted["lens"], surface["key"]) not in adoptable:
+                    return "adopted_surface_not_on_item"
+            elif surface["type"] != "thread" or not any(
                     th["id"] == surface["key"] and _opened_by(th, adopted["lens"]) for th in facts["threads"]):
                 return "adopted_surface_not_on_item"
     return None
@@ -344,9 +349,10 @@ def _findings_of(facts: dict, thread: str) -> list:
 
 
 def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, kernel: dict, now: str, role: dict,
-            rubric, authority: dict, advisory, github_run=None, lines: bool = True) -> tuple:
+            rubric, authority: dict, advisory, github_run=None, lines: bool = True, adoptable=frozenset()) -> tuple:
     """`(fault, reason)` why nothing may be written, or None. `rubric` is the Intent's when it reviews, else None;
-    `advisory` the reviewers the configuration names advisory; `github_run` is this job's own `GITHUB_RUN_ID`. With
+    `advisory` the reviewers the configuration names advisory, and `adoptable` the `(Lens, Finding id)` of each advisory
+    Finding a Result may adopt from its annotation; `github_run` is this job's own `GITHUB_RUN_ID`. With
     `lines` false, every check but a Finding's lines is made, which needs no diff; by default that one is made too, of
     the Task's diff, so a caller that forgets fails closed: of a Task that carries no diff, as `admitted` gives one,
     the refusal is the Factory's, `diff_not_given` (decision 0148)."""
@@ -366,7 +372,7 @@ def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, ke
         said, _ = covered(rubric, result["coverage"], result["findings"], facts["changed_paths"])
         if said != "covered":
             return ("item", "uncovered") if said == "uncovered" else ("environment", "coverage_unreadable")
-    why = _effects(task, result, facts, advisory) or _dispositions(task, result, facts, role, authority)
+    why = _effects(task, result, facts, advisory, adoptable) or _dispositions(task, result, facts, role, authority)
     if why is None and lines:
         # A Finding's lines are held of the Task's diff: a Task that carries none was handed in without it, which is
         # the Factory's slip, never the Role's, and nothing is written (decision 0148).
@@ -520,7 +526,8 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
     # the diff is read again only for a Result they all let through, so no read of it can hide a change under the Run or
     # turn the Result's own refusal into the environment's (decisions 0146 and 0148).
     why = refusal(admit, result, facts, runs, context, config["kernel"], now, role, config["rubric"],
-                  config["authority"], config["advisory"], config["github_run"], lines=False)
+                  config["authority"], config["advisory"], config["github_run"], lines=False,
+                  adoptable=config.get("adoptable", frozenset()))
     if why is not None:
         record = applied(admit, result, [], role, refused=why[1])
         return record, outcome(admit, record, why)
