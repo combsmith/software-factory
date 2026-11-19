@@ -681,7 +681,7 @@ class Fixture(unittest.TestCase):
         for call in ("GET %s?per_page=4&environment=factory-next" % path, "GET %s?environment=factory-next&per_page=4&page=2" % path,
                      "GET %s?environment=factory-stable&per_page=100" % path, "GET https://api.github.com%s?per_page=4" % path,
                      "gh api --include %s?per_page=4" % path.lstrip("/"), "GET %s/?per_page=4" % path, "GET\t%s?per_page=4" % path,
-                     "GET %s?environment=factory-next" % path, "GET %s" % path):
+                     "GET %s?environment=factory-next" % path, "GET %s" % path, "gh api --include '%s'" % path.lstrip("/")):
             kept = copy.deepcopy(paged)
             kept_page, = [e for item in kept["items"] for e in item["exchanges"] if e["request"]["call"] == page["request"]["call"]]
             kept_page["request"]["call"], kept_page["response"]["headers"]["link"] = call, link
@@ -697,11 +697,22 @@ class Fixture(unittest.TestCase):
         self.assertEqual([p for p in check_release.fixture_problems(later, "refs.json") if "removed says 0 times" in p],
                          ["refs.json: reads a page of Deployments, and removed says 0 times that the link header of the read of "
                           "a Channel's Deployments was taken out, not once"])
+        # A page asked as a field gh api sends in the query is a page too (Astra's read).
+        field = copy.deepcopy(later)
+        field["exchanges"][0]["request"]["call"] = "gh api --include --method GET %s -F page=2" % path.lstrip("/")
+        self.assertTrue(any("removed says 0 times" in p for p in check_release.fixture_problems(field, "refs.json")))
         # Of whichever Channel's Deployments the page was, `removed` says it of that Channel.
         stable = copy.deepcopy(later)
         stable["exchanges"][0]["request"]["call"] = "GET %s?environment=factory-stable&per_page=4" % path
         stable["removed"] = ["exchanges[0].response.headers: the link header of the read of stable's Deployments"]
         self.assertEqual(check_release.fixture_problems(stable, "refs.json"), [])
+        # A `removed` or a response of another type is said, never a crash (Carbon's read).
+        for odd in ({"removed": 1}, {"removed": {"x": 1}}):
+            broken = dict(copy.deepcopy(later), **odd)
+            self.assertTrue(check_release.fixture_problems(broken, "refs.json"))
+        odd_answer = copy.deepcopy(later)
+        odd_answer["exchanges"][0]["response"] = ["not", "an", "answer"]
+        self.assertIsInstance(check_release.fixture_problems(odd_answer, "refs.json"), list)
         # A read of the whole list needs no word in `removed`; one of a Deployment, or of its statuses, is no read of it.
         whole = copy.deepcopy(loose)
         whole["exchanges"][0]["request"]["call"], whole["exchanges"][0]["response"]["headers"] = "GET %s?environment=x" % path, {}

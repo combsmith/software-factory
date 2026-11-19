@@ -45,8 +45,9 @@ SCHEMAS = ("release-fixture", "trial")
 # in any order. A fixture keeps no Link header of one, which names the next page and the last; and where the read is
 # of a page, by `per_page` or `page`, `removed` says once it was taken out (issues 863 and 899). Asked of every fixture
 # of a Release's runs, whatever test reads it. A read of one Deployment, or of its statuses, is no read of the list.
-DEPLOYMENTS_LIST = re.compile(r"\b%s/deployments/?(\?\S*)?(?=\s|$)" % re.escape(API_REPO.lstrip("/")))
-PAGED = re.compile(r"[?&](per_)?page=")
+DEPLOYMENTS_LIST = re.compile(r"\b%s/deployments/?(\?[^\s'\"]*)?(?=[\s'\"]|$)" % re.escape(API_REPO.lstrip("/")))
+# A page asked in the query, or as a field gh api sends as one.
+PAGED = re.compile(r"(?:[?&]|(?:-[fF]|--(?:raw-)?field)\s+)(?:per_)?page=")
 LINK_REMOVED = "the link header of the read of next's Deployments"
 # What `removed` says of it, of whichever Channel's Deployments the read was.
 LINK_SAID = re.compile(r"the link header of the read of [a-z]+'s Deployments")
@@ -244,18 +245,21 @@ def fixture_problems(value, rel: str) -> list:
             request = exchange.get("request") if isinstance(exchange, dict) else None
             listed = DEPLOYMENTS_LIST.search(str(request.get("call", ""))) if isinstance(request, dict) else None
             if listed:
-                pages += bool(PAGED.search(listed.group(1) or ""))
-                answered = (exchange.get("response") or {}).get("headers")
+                pages += bool(PAGED.search(listed.group(1) or "") or PAGED.search(str(request.get("call", ""))[listed.end():]))
+                response = exchange.get("response")
+                answered = response.get("headers") if isinstance(response, dict) else None
                 if any(str(name).lower() == "link" for name in (answered if isinstance(answered, dict) else {})):
                     problems.append("%s: %s[%d].response.headers keeps the Link header of a read of Deployments, which "
                                     "names the next page and the last; take it out, and say so in removed" % (rel, where, i))
             for side in ("request", "response"):
-                held = (exchange.get(side) or {}).get("headers") if isinstance(exchange, dict) else None
+                part = exchange.get(side) if isinstance(exchange, dict) else None
+                held = part.get("headers") if isinstance(part, dict) else None
                 for name in (held if isinstance(held, dict) else {}):
                     if str(name).lower() not in check_trials.HEADERS:
                         problems.append("%s: %s[%d].%s.headers holds %s, which a fixture does not keep"
                                         % (rel, where, i, side, name))
-    said = [entry for entry in value.get("removed") or [] if isinstance(entry, str) and LINK_SAID.search(entry)]
+    removed = value.get("removed") if isinstance(value.get("removed"), list) else []
+    said = [entry for entry in removed if isinstance(entry, str) and LINK_SAID.search(entry)]
     if pages and len(said) != 1:
         problems.append("%s: reads a page of Deployments, and removed says %d times that the link header of the read of "
                         "a Channel's Deployments was taken out, not once" % (rel, len(said)))
