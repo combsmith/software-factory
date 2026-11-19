@@ -1404,6 +1404,9 @@ class Advisory(unittest.TestCase):
                                   (["astra", 7], self.HEAD, self.RUN), (["astra"], "main", self.RUN),
                                   (["astra"], self.HEAD, "anything"), (["astra"], self.HEAD, None)):
             self.assertEqual(effects.advisory_permits(self.ITEM, head, lenses, run), ({}, []), (lenses, head, run))
+        # A repo that names a part of dots alone, which the shape of an owner and a name admits, permits nothing.
+        for repo in ("../x", "x/..", "./x", ".../x"):
+            self.assertEqual(effects.advisory_permits(dict(self.ITEM, repo=repo), self.HEAD, ["astra"], self.RUN), ({}, []), repo)
         role = effects.Allowed(hub, *effects.role_permits(self.ITEM, self.HEAD, "factory / pr-review"))
         with self.assertRaisesRegex(github.Unanswered, "may not send"):
             role.send(github.request("POST", path, body=self.good()))
@@ -1510,19 +1513,24 @@ class Advisory(unittest.TestCase):
             back = write(hub, planted)
             self.assertEqual((back["state"], back["key"], back["reason"], hub.sent),
                              ("failed", None, "not_an_advisory_check_run", []), planted)
-        # An output the port did not build, with a field beside its own or a reader's words where a code stands, is
-        # read for and never written: the allowlist is the write's own, whatever transport it is handed.
-        for output in (dict(self.OUTPUT, text="a reader's words"), dict(self.OUTPUT, title="a reader's words"),
-                       dict(self.OUTPUT, annotations=[dict(self.NOTE, raw_details="x")])):
-            hub = Hub()
-            back = write(hub, dict(req, output=output))
-            self.assertEqual((back["state"], back["key"], [r["method"] for r in hub.sent]), ("failed", None, ["GET"]), output)
+        # An output the port did not build, with a field beside its own or a reader's words where a code stands, and
+        # annotations that are no list, send nothing, not a read, though GitHub already lists this Run's check run.
+        for planted in (dict(req, output=dict(self.OUTPUT, text="a reader's words")),
+                        dict(req, output=dict(self.OUTPUT, title="a reader's words")),
+                        dict(req, output=dict(self.OUTPUT, annotations=[dict(self.NOTE, raw_details="x")])),
+                        dict(req, annotations={"finding": "astra:" + "0" * 32}), dict(req, annotations=None)):
+            hub = Hub(mine)
+            back = write(hub, planted)
+            self.assertEqual((back["state"], back["key"], back["reason"], hub.sent),
+                             ("failed", None, "not_an_advisory_check_run", []), planted)
         # It is told the Run, the head and the Lenses, and holds the request to them: a Lens not among them, a head
         # that is not the request's, a Run that is not its key's, and a repo whose text would turn the path into
-        # another send nothing.
+        # another, a part of dots alone among them, send nothing.
         for how in ({"lenses": ("kimi",)}, {"lenses": "astra"}, {"lenses": ()}, {"lenses": None}, {"head": "1" * 40},
                     {"head": "main"}, {"run": None}, {"run": "r_01JA7Z"},
-                    {"item": dict(self.ITEM, repo=self.ITEM["repo"] + "/check-suites?x=")}, {"item": dict(self.ITEM, repo=7)}):
+                    {"item": dict(self.ITEM, repo=self.ITEM["repo"] + "/check-suites?x=")}, {"item": dict(self.ITEM, repo=7)},
+                    {"item": dict(self.ITEM, repo="../x")}, {"item": dict(self.ITEM, repo="combsmith/..")},
+                    {"item": dict(self.ITEM, repo="./x")}):
             hub = Hub(mine)
             self.assertEqual((write(hub, req, **how)["state"], hub.sent), ("failed", []), how)
 
