@@ -5993,6 +5993,17 @@ MUTANTS = ISSUE + [
     ('a preflight case keeps no mark in the ledger', 'harness/eval/__init__.py',
      '                                alternates=beside, surplus=away, usages=spent, retried=retried)["cases"]]',
      '                                usages=spent, retried=retried)["cases"]]', ('tests.test_evals.EvalJob.test_a_preflight_case_keeps_its_marks_in_the_ledger_as_the_sets_do',)),
+    # Issue 922: the eval job writes no number that is not finite, and refuses one before a file is opened.
+    ('an eval step writes NaN as JSON does not', 'harness/eval/__init__.py',
+     'json.dumps(document, indent=2, sort_keys=True, allow_nan=False)', 'json.dumps(document, indent=2, sort_keys=True)',
+     ('tests.test_evals.EvalJob.test_the_eval_job_writes_no_number_that_is_not_finite',)),
+    ("an eval step's refused file is left empty", 'harness/eval/__init__.py',
+     '    text = json.dumps(document, indent=2, sort_keys=True, allow_nan=False) + "\\n"    # a raise leaves no empty file behind\n    with open(path, "w", encoding="utf-8") as f:\n        f.write(text)\n',
+     '    with open(path, "w", encoding="utf-8") as f:\n        f.write(json.dumps(document, indent=2, sort_keys=True, allow_nan=False) + "\\n")\n',
+     ('tests.test_evals.EvalJob.test_the_eval_job_writes_no_number_that_is_not_finite',)),
+    ("a gate set's ledger writes NaN as JSON does not", 'harness/eval/__init__.py',
+     'indent=2, sort_keys=True, allow_nan=False) + "\\n").encode("utf-8")', 'indent=2, sort_keys=True) + "\\n").encode("utf-8")',
+     ('tests.test_evals.EvalJob.test_the_eval_job_writes_no_number_that_is_not_finite',)),
     # Issue 141: a Consumer entry's protected paths are in the hooks' syntax, one at least, each once as written, and
     # name its setup and test scripts.
     ("a Consumer's script may be any string", 'schemas/consumer.schema.json',
