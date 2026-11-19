@@ -251,11 +251,12 @@ def job(task_folder: str, out: str, env: dict, root: pathlib.Path = ROOT, base=N
     # `ledger` holds, for each reader begun, what was sent to it and its usage once it has a Result. One with none
     # counts its asks at a cost not known, so the file is true wherever the step stops.
     made, ledger, written = folder_of(base, out), [], []
-    try:
+
+    def ask() -> None:
         facts = steps.read_json(base, os.path.join(task_folder, "facts.json"))
         entry = task.decision_of(record, run)
         if entry is None or entry["decision"]["admit"]["intent"] != REVIEWING or facts.get("class") == "dependency":
-            return written      # no reader is asked, and the cost file says so
+            return      # no reader is asked, and the cost file says so
         config = json.loads((root / "config" / "harness.json").read_text())
         readers = config.get("readers", {})
         names = [name for name in config["advisory"] if name in readers]
@@ -301,6 +302,8 @@ def job(task_folder: str, out: str, env: dict, root: pathlib.Path = ROOT, base=N
             except Exception:       # NOSONAR a Result that cannot be written is not claimed; the next reader is asked
                 continue
             written.append((lens, digest))
+    try:
+        ask()
     finally:
         # What the Controller's pass reads of this Run, and all it reads: how many requests were sent and what they
         # cost, summed here from the tokens each answer counted and the configured prices, and never from a reader's
