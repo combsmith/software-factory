@@ -1940,8 +1940,9 @@ class Advised(unittest.TestCase):
         # the next Lens is still written and the token revoked all the same.
         for back, want in (({"state": "failed", "reason": "write_refused"}, "not_written"),
                            ({"state": "refused", "reason": "token_refused"}, "not_written"),
-                           ({"state": "sent"}, "not_read_back"), ({"state": "applied", "key": None}, "not_written"),
-                           ({"state": "applied", "key": "a key?"}, "not_written"),
+                           ({"state": "sent"}, "not_read_back"), ({"state": "applied", "key": None}, "not_read_back"),
+                           ({"state": "applied", "key": "a key?"}, "not_read_back"),
+                           ({"state": "already_applied", "key": None}, "not_read_back"),
                            (KeyError("id"), "write_raised"), (RuntimeError("unforeseen"), "write_raised")):
             def write(*a, back=back):
                 if isinstance(back, Exception):
