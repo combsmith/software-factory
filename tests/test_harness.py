@@ -984,7 +984,8 @@ class Engine(unittest.TestCase):
         # result/1 holds each entry to an id and a digest, and nothing else: no text of the Finding's reaches a Result.
         example = json.loads((ROOT / "examples" / "result.adjudication.json").read_text())
         self.assertEqual(([s["finding"] for s in example["shown"]], shared.errors(example, "result")), ([first, second], []))
-        for name in ("a-finding-shown-with-its-text", "a-finding-shown-by-no-digest", "a-finding-shown-by-its-id-alone"):
+        for name in ("a-finding-shown-with-its-text", "a-finding-shown-by-no-digest", "a-finding-shown-by-its-id-alone",
+                     "a-finding-shown-without-its-digest", "a-digest-shown-without-its-finding"):
             odd = json.loads((ROOT / "examples" / "invalid" / ("result.%s.json" % name)).read_text())
             self.assertEqual(len(shared.errors(odd, "result")), 1, name)
         twice = dict(example, shown=example["shown"][:1] * 2)
