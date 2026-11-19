@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import pathlib
+import random
 import shutil
 import tempfile
 import unittest
@@ -50,11 +51,12 @@ LIMITED = {"status": 429, "headers": {"retry-after": "20"}, "body": {"error": {"
 
 class Azure:
     """A stand-in for `azure.Live`: it keeps how it was made and what it was sent, and answers in turn, or as a
-    function of the request. `during` is called at each send."""
+    function of the request. `during` is called at each send; `takes` says how long a send takes, from the wait it was
+    given."""
 
-    def __init__(self, answers, during=None):
+    def __init__(self, answers, during=None, clock=None, takes=None):
         self.answers, self.made, self.sent = answers if callable(answers) else list(answers), [], []
-        self.during = during
+        self.during, self.clock, self.takes = during, clock, takes
 
     def __call__(self, host, key, seconds):
         self.made.append((host, key, seconds))
@@ -64,6 +66,8 @@ class Azure:
         self.sent.append(request)
         if self.during:
             self.during()
+        if self.takes:
+            self.clock.now += self.takes(self.made[-1][2])
         answer = self.answers(request) if callable(self.answers) else self.answers.pop(0)
         if isinstance(answer, BaseException):
             raise answer
@@ -71,8 +75,8 @@ class Azure:
 
 
 class Clock:
-    def __init__(self):
-        self.now, self.slept = 0.0, []
+    def __init__(self, now: float = 0.0):
+        self.now, self.slept = now, []
 
     def __call__(self) -> float:
         return self.now
@@ -121,14 +125,15 @@ def cost_in(base: pathlib.Path) -> dict:
     return cost
 
 
-def advised(answers, env=None, first: bool = False, readers=None, mid: bool = False, **made) -> tuple:
+def advised(answers, env=None, first: bool = False, readers=None, mid: bool = False, takes=None,
+            start: float = 0.0, **made) -> tuple:
     """`({lens: Result}, the stand-in, the clock)` of one run of the step, each Result held to advice/1 and its digest.
     With `first`, `harness.unasked` runs before it, as in the workflow; with `mid`, the cost file is read at each send."""
     with tempfile.TemporaryDirectory() as where:
         base = pathlib.Path(where)
         folder(base, **made)
-        clock = Clock()
-        stand_in = Azure(answers, (lambda: stand_in.seen.append(cost_in(base))) if mid else None)
+        clock = Clock(start)
+        stand_in = Azure(answers, (lambda: stand_in.seen.append(cost_in(base))) if mid else None, clock, takes)
         stand_in.seen = []
         if first:
             unasked.job([NAME, "advice"], {}, base=base, release=lambda: "factory/v0.3.1")
@@ -169,9 +174,9 @@ class Advise(unittest.TestCase):
                                      rules={"AGENTS.md": "The rules.", "x": 7})
         self.assertEqual(codes(results), BOTH)
         readers = config()["readers"]
-        # Each is reached at its own host with the step's one key, and a wait no longer than its own seconds.
-        self.assertEqual(azure_.made, [(readers["astra"]["host"], "k" * 32, readers["astra"]["seconds"]),
-                                       (readers["kimi"]["host"], "k" * 32, readers["kimi"]["seconds"])])
+        # Each request is made for its own host with the step's one key, and a wait no longer than its reader's seconds.
+        self.assertEqual(azure_.made, [(readers["astra"]["host"], "k" * 32, readers["astra"]["seconds"])] * 3
+                         + [(readers["kimi"]["host"], "k" * 32, readers["kimi"]["seconds"])])
         create, first, second, chat = azure_.sent       # and a response that ended is not cancelled
         self.assertEqual((create["act"], first, second, chat["act"]),
                          ("create", azure.read("resp_1"), azure.read("resp_1"), "chat"))
@@ -249,8 +254,9 @@ class Advise(unittest.TestCase):
         results, azure_, clock = advised([dict(response(), headers={"retry-after": "20"}), DOWN])
         self.assertEqual(codes(results), {"astra": ("completed", None, 1, 1), "kimi": ("failed", "transport", 0, 1)})
         self.assertEqual((clock.slept, len(azure_.sent)), ([], 2))
-        # And only where the wait is less than the reader's time.
-        self.assertEqual([advise.waited(LIMITED, left) for left in (20.1, 20, 5)], [20, None, None])
+        # And only where the reader's time, after the wait, still holds one read of a response: POLL.
+        self.assertEqual([advise.waited(LIMITED, left) for left in (20 + advise.POLL, 19.9 + advise.POLL, 20, 5)],
+                         [20, None, None, None])
         self.assertEqual(advise.waited(dict(LIMITED, headers={"retry-after": "90"}), 100), 90)
 
     def test_a_response_still_running_when_its_readers_share_is_spent_is_cancelled(self):
@@ -262,8 +268,9 @@ class Advise(unittest.TestCase):
         self.assertEqual(azure_.sent[-2], azure.cancel("resp_1"))
         self.assertLessEqual(clock.now, advise.WHOLE)
         self.assertEqual((results["astra"]["usage"]["seconds"], results["astra"]["usage"]["cost_usd"]), (530.0, None))
-        # A reader waits the time left of the step where that is less than its own seconds.
-        self.assertEqual(azure_.made[1][2], advise.WHOLE - 530)
+        # Each request waits the time left of its reader's share where that is less than the reader's own seconds: the
+        # last two reads, the cancel, and the second reader's one ask.
+        self.assertEqual([seconds for _, _, seconds in azure_.made[-4:]], [20, 10, 10, advise.WHOLE - 530])
         # What Azure does not answer, or this step did not foresee of it, is a code, and the next reader is still asked.
         results, azure_, _ = advised([azure.Unanswered("down"), completion()])
         self.assertEqual(codes(results), {"astra": ("failed", "transport", 0, 1), "kimi": ("completed", None, 0, 1)})
@@ -297,6 +304,55 @@ class Advise(unittest.TestCase):
         for state in ("failed", "cancelled", "incomplete"):
             _, azure_, _ = advised([response(state, ""), completion()])
             self.assertEqual([sent["act"] for sent in azure_.sent], ["create", "chat"], state)
+
+    def test_a_reader_with_no_time_left_is_not_asked(self):
+        # A reader with POLL or less of the step left is not asked; with a second more, it is, and waits no longer.
+        slow = advise.WHOLE - advise.POLL
+        results, azure_, _ = advised([response()], takes=lambda wait: slow)
+        self.assertEqual(codes(results), {"astra": ("completed", None, 1, 1), "kimi": ("incomplete", "timed_out", 0, 0)})
+        self.assertEqual(len(azure_.made), 1)
+        took = iter((slow - 1, 0))
+        results, azure_, _ = advised([response(), completion()], takes=lambda wait: next(took))
+        self.assertEqual((codes(results), azure_.made[1][2]), (BOTH, advise.POLL + 1))
+
+    def test_every_request_and_wait_ends_by_the_bound_the_step_names(self):
+        self.assertEqual(advise.LATEST_END, 1082)       # under the 20 minutes the step is to be given (decision 0224)
+        # The worst this step foresees: every request takes the whole wait it was given, a rate limit names the longest
+        # wait, a response never ends, and its cancel is not answered. The clock starts off the second.
+
+        seen = []
+
+        def worst(request: dict):
+            seen.append(request["act"])
+            if request["act"] in ("create", "chat") and seen.count(request["act"]) == 1:
+                return dict(LIMITED, headers={"retry-after": str(advise.LONGEST_WAIT)})
+            return azure.Unanswered("down") if request["act"] == "cancel" else response("in_progress", "")
+        results, azure_, clock = advised(worst, takes=lambda wait: wait, start=0.5)
+        self.assertEqual(codes(results), {"astra": ("incomplete", "timed_out", 0, 2),
+                                          "kimi": ("incomplete", "rate_limited", 0, 1)})      # no time left for its wait
+        self.assertTrue(advise.WHOLE - advise.POLL < clock.now - 0.5 <= advise.LATEST_END, clock.now)
+        self.assertEqual(min(seconds for _, _, seconds in azure_.made), advise.LEAST)       # the cancel, out of time
+        # With the reader whose response is read again asked last, the step ends past WHOLE, and by the bound.
+        del seen[:]
+        _, azure_, clock = advised(worst, takes=lambda wait: wait, start=0.5,
+                                   readers=lambda changed: changed.update(advisory=["kimi", "astra"]))
+        self.assertTrue(advise.WHOLE < clock.now - 0.5 <= advise.LATEST_END, clock.now)
+        # And on fixed seeds, whatever Azure answers and however long each request takes within its wait.
+        latest = 0.0
+        for seed in range(60):
+            dice = random.Random(seed)
+
+            def any_answer(request: dict):
+                pick = dice.randrange(12)
+                if pick < 2 and request["act"] in ("create", "chat"):
+                    return dict(LIMITED, headers={"retry-after": str(dice.randrange(1, 95))})
+                return (azure.Unanswered("down"), DOWN)[pick - 2] if 2 <= pick < 4 else response(("queued", "in_progress")[pick % 2], "")
+            start = dice.random()
+            _, azure_, clock = advised(any_answer, takes=lambda wait: wait * dice.choice((1, 1, dice.random())), start=start,
+                                       readers=lambda changed: changed.update(advisory=dice.sample(["kimi", "astra"], 2)))
+            latest = max(latest, clock.now - start)
+            self.assertLessEqual(clock.now - start, advise.LATEST_END, seed)
+        self.assertGreater(latest, advise.WHOLE - advise.POLL)
 
     def test_a_run_that_asks_no_longer_says_that_no_reader_was_asked(self):
         nothing = {"schema": "advice-cost/1", "run": RUN, "release": "factory/v0.3.1", "asks": 0, "cost_usd": 0}
@@ -376,8 +432,10 @@ class Advise(unittest.TestCase):
 
         def renamed(changed: dict) -> None:
             changed["advisory"], changed["readers"]["kimi-2"] = ["astra", "kimi-2"], changed["readers"].pop("kimi")
-        results, azure_, _ = advised([response()], readers=renamed)
+        results, azure_, _ = advised([response()], readers=renamed, mid=True)
         self.assertEqual((codes(results), len(azure_.sent)), ({"astra": ("completed", None, 1, 1)}, 1))
+        # And it is not among the readers the step says it is about to ask.
+        self.assertEqual(spent(azure_.seen[0]), (1, None))
         # With no diff to send, each reader has a Result and none is asked.
         results, azure_, _ = advised([], drop=("diff",))
         self.assertEqual(codes(results), {"astra": ("failed", "transport", 0, 0), "kimi": ("failed", "transport", 0, 0)})

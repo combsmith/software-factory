@@ -24,6 +24,15 @@ no such word the Result is `budget` (decision 0224, Spend). A diff too large for
 
 What a reader is sent: a fixed instruction, `roles/pr-review/advisory-reader.md` of the Release, then the base's rules
 where the reader's folder holds them, then the whole diff, as data. It is given no tool.
+
+Time. Every request is given its own wait, the reader's seconds or the time left of its share where that is less, and
+never under LEAST; no reader is asked with POLL or less left, none is asked again unless POLL is left after the wait,
+and no response is read again with less than POLL left. So where each request is answered or given up within the wait
+it is given, the last request and the last wait end within LATEST_END seconds of the step's start. The workflow that
+runs the step is still to come, and is to give it a limit past that. What is not bounded here: a wait is the
+transport's limit on each wait on the connection, not on a request whole, so a name that resolves slowly, or an answer
+that trickles in under the limit, can outlast it, and only a limit set outside this file ends the step then, with the
+cost file saying what was asked; and the reading and writing of the Run's own small files, which no clock here times.
 """
 from __future__ import annotations
 
@@ -41,11 +50,13 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 KEY = "ADVISORY_AZURE_KEY"
 REVIEWING = "review-change"
 INSTRUCTION = ("roles", "pr-review", "advisory-reader.md")
-# The seconds the whole step may take, under its own limit in the workflow, 20 minutes (decision 0224), with room to
-# cancel a response and write the files.
-WHOLE = 1080
+WHOLE = 1080            # the seconds the readers share, from the step's start
 POLL = 10               # seconds between two reads of a response still running
 LONGEST_WAIT = 90       # the longest wait a rate limit may name and be waited for; a longer one is not
+LEAST = 1               # the least seconds a request may wait: the transport takes no less
+# The latest a request or a wait of this step's ends, in seconds from its start: a read begun just inside a reader's
+# share may run LEAST past it, and the cancel that follows LEAST more. The limit the workflow gives the step is to be past it.
+LATEST_END = WHOLE + 2 * LEAST
 RUNNING = ("queued", "in_progress")
 ENDED = ("completed", "incomplete", "failed", "cancelled")      # a response in any other state may still be billed
 # Where a change is read at the highest effort: the Kernel, the guards, the Harness, the hooks, the workflows, the
@@ -73,11 +84,16 @@ def body_of(reader: dict, effort: str, prompt: str) -> dict:
 
 
 def waited(answer: dict, left: float):
-    """The seconds a rate limit says to wait, where a 429 names a whole number that is short enough and fits the
-    reader's time; else None."""
+    """The seconds a rate limit says to wait, where a 429 names a whole number that is short enough and leaves POLL
+    of the reader's time after it; else None."""
     said = answer.get("headers", {}).get("retry-after", "") if answer.get("status") == 429 else ""
     seconds = int(said) if isinstance(said, str) and said.isascii() and said.isdigit() and len(said) < 4 else None
-    return seconds if seconds is not None and seconds <= LONGEST_WAIT and seconds < left else None
+    return seconds if seconds is not None and seconds <= LONGEST_WAIT and left - seconds >= POLL else None
+
+
+def wait_of(reader: dict, until: float, clock) -> int:
+    """The seconds one request may wait: the reader's own, or the time left of its share where that is less."""
+    return max(LEAST, min(reader["seconds"], int(until - clock())))
 
 
 def lasted(began: float, clock) -> float:
@@ -146,12 +162,13 @@ def one(reader: dict, told: dict, prompt: str, admitted: bool, key, until: float
     """One reader's Result. `sent` is given each request's act as it is sent, for the caller that must count them."""
     began = clock()
     why = refusal(reader, prompt, admitted, key)
+    if why is None and until - began <= POLL:
+        why = "timed_out"
     if why is not None:
         return advice.unasked(told, why, 0, 0, shared.SCHEMAS)
 
-    live = transport(reader["host"], key, min(reader["seconds"], max(1, int(until - began))))
-
     def send(request: dict) -> dict:
+        live = transport(reader["host"], key, wait_of(reader, until, clock))
         sent.append(request["act"])
         return live.send(request)
     answer, asks = asked(send, reader, body_of(reader, told["effort"], prompt), until, clock, sleep)
@@ -237,25 +254,35 @@ def job(task_folder: str, out: str, env: dict, root: pathlib.Path = ROOT, base=N
         except Exception:       # NOSONAR with no prompt each reader has a Result, `transport`, and none is asked
             prompt = None
         admitted, key = entry.get("advisory_ask") is True, env.get(KEY)
-        about = sum(due(readers[lens], prompt, admitted, key) for lens in names)
+        rows = facts["changed_paths"]
+        paths = [name for row in rows for name in (row["path"], row["previous"]) if isinstance(name, str)]
+
+        def told_of(lens: str):
+            """What a reader's Result is built from, or None where it builds none: such a reader is not asked."""
+            try:
+                reader = readers[lens]
+                told = {"run": run, "release": release, "lens": lens, "content_id": facts["content_id"],
+                        "changed_paths": sorted({row["path"] for row in rows}), "api": reader["api"],
+                        "deployment": reader["deployment"], "model": reader["model"],
+                        "effort": effort_of(reader, paths),
+                        "characters": config["texts"]["characters"], "usd_per_million": reader["usd_per_million"]}
+                advice.unasked(told, "transport", 0, 0, shared.SCHEMAS)
+                return told
+            except Exception:       # NOSONAR whatever is wrong with one reader's settings is that reader's alone
+                return None
+        tolds = {lens: told_of(lens) for lens in names}
+        about = sum(tolds[lens] is not None and due(readers[lens], prompt, admitted, key) for lens in names)
         if about:
             # Before the first request: a step stopped from here on has said how many readers it set out to ask.
             replace(made, unasked.COST, dict(cost_of(run, release, []), asks=about, cost_usd=None))
         for n, lens in enumerate(names):
-            sent, told, began = [], None, clock()
+            sent, told, began = [], tolds[lens], clock()
             ledger.append([sent, None])
+            if told is None:
+                continue            # no advice/1 can be built: it is not asked, and has no Result
             try:
-                reader = readers[lens]
-                rows = facts["changed_paths"]
-                paths = [name for row in rows for name in (row["path"], row["previous"]) if isinstance(name, str)]
-                told = {"run": run, "release": release, "lens": lens, "content_id": facts["content_id"],
-                        "changed_paths": sorted({row["path"] for row in rows}), "api": reader["api"],
-                        "deployment": reader["deployment"], "model": reader["model"],
-                        "effort": effort_of(reader, paths), "characters": config["texts"]["characters"],
-                        "usd_per_million": reader["usd_per_million"]}
-                advice.unasked(told, "transport", 0, 0, shared.SCHEMAS)     # no advice/1 can be built: it is not asked
                 share = clock() + (until - clock()) / (len(names) - n)      # what is left, shared by those still to ask
-                result = one(reader, told, prompt, admitted, key, share, sent, transport, clock, sleep)
+                result = one(readers[lens], told, prompt, admitted, key, share, sent, transport, clock, sleep)
             except Exception:       # NOSONAR whatever one reader's read raises is that reader's Result, and no other's
                 try:
                     result = advice.unasked(told, "transport", asks_of(sent), lasted(began, clock), shared.SCHEMAS)
