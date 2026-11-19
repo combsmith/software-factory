@@ -90,7 +90,7 @@ import urllib.request      # refused: it reaches the network
 
 No dependency, no download and no module that reaches the network, so the required check reads
 nothing outside the commit it judges. The org's secret scan is a separate workflow and an exception. The
-others are the two transports, which alone may import what reaches the network. `adapters/azure.py` is an advisory reader's, to one Azure host, and may not name GitHub's (decision 0224). `adapters/github.py`
+others are the two transports, which alone may import what reaches the network. `adapters/azure.py` is an advisory reader's, to one Azure host, and may not name GitHub's (decision 0224); its tests send nothing. `adapters/github.py`
 sends HTTPS to GitHub's API with no redirect but an artifact's download's, to GitHub's artifact storage alone, and a commit's tarball's, to its archive on codeload alone (decision 0138); every test of it replays a trial's fixture. The check refuses an
 import by name; a module reached by another name, importlib or a subprocess passes it, and review is the guard.
 
