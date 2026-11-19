@@ -4360,6 +4360,8 @@ MUTANTS = ISSUE + [
      '    if len(digits) >= DIGITS:\n', '    if len(digits) > DIGITS:\n', AZURE_BOUND),
     ("the Azure transport verifies by the process's default context", AZURE,
      'urllib.request.HTTPSHandler(context=ssl.create_default_context())', 'urllib.request.HTTPSHandler', AZURE_KEY),
+    ("ssl may be imported outside the two transports", 'tools/check_repo.py',
+     '"socket", "ssl", "ftplib"', '"socket", "ftplib"', ("tests.test_tools.Repo.test_only_the_transport_reaches_the_network",)),
     ('a file row of unknown status is read', 'adapters/pull.py',
      '        if status not in STATUSES or (moved and',
      '        if (moved and', ('tests.test_adapters',)),
