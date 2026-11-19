@@ -9,6 +9,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import unittest
 from unittest import mock
 
@@ -609,7 +610,7 @@ def advised(*found, lens="astra", content=TOLD["content_id"], **over) -> dict:
         out["findings"].append(one)
         out["texts"].append({"id": ident, "category": "functional", "criterion": None,
                              "body": "%s title %d\n\n%s message %d" % (MARK, n, MARK, n)})
-    out.update(lens=lens, run=TOLD["run"], release=TOLD["release"])
+    out.update(lens=lens, run=TOLD["run"], release=TOLD["release"], off_change=0 if over.get("reason") else 1)
     out.update(over)
     return out
 
@@ -633,8 +634,8 @@ class Shown(unittest.TestCase):
         data, digest = filed(good)
         self.assertEqual(held(good), (good, None))
         self.assertEqual(held(advised(lens="kimi", status="incomplete", reason="budget"), "kimi")[1], None)
-        finding, text = good["findings"][0], good["texts"][0]
-        other = "astra:%032x" % 9
+        finding, text_ = good["findings"][0], good["texts"][0]
+        text, other = text_, "astra:%032x" % 9
         for given, want in (
                 ((data, b"sha256:" + b"0" * 64 + b"\n"), "advice_digest_differs"),
                 ((data, digest.strip()), "advice_digest_differs"),
@@ -657,9 +658,29 @@ class Shown(unittest.TestCase):
                 (dict(good, texts=[dict(text, id=other)]), "advice_text_not_its_findings"),
                 (dict(good, findings=[finding, finding], texts=[text, text]), "advice_text_not_its_findings")):
             self.assertEqual(held(given), (None, want), want)
-        # A Lens the configuration does not name advisory has no Result to show, whatever its file says.
+        # A Lens the configuration does not name advisory has no Result to show, whatever its file says; and names
+        # that are no list of names name no Lens, where a string would hold each part of itself.
         self.assertEqual(held(good, advisory=("kimi",)), (None, "advice_not_the_lens"))
         self.assertEqual(held(advised(lens="muse"), "muse"), (None, "advice_not_the_lens"))
+        for names in ("astra kimi", None, ["astra", 7]):
+            self.assertEqual(held(good, advisory=names), (None, "advice_not_the_lens"), names)
+        # A key given twice, where JSON keeps the last, and a number that is none, are no Result: the parser's guards.
+        text = data.decode()
+        for odd in (text.replace('"lens": "astra",', '"lens": "kimi",\n  "lens": "astra",', 1),
+                    text.replace('"cost_usd": 0.93', '"cost_usd": NaN'), text.replace('"asks": 1', '"asks": ' + "1" * 64)):
+            self.assertNotEqual(odd, text)
+            self.assertEqual(held(odd.encode()), (None, "advice_invalid"), odd[:40])
+        # What the schema cannot say: a status and its reason agree, and only a read that completed holds anything.
+        stopped = advised(status="incomplete", reason="budget")
+        for change in ({"reason": "budget"}, {"status": "incomplete"}, {"status": "failed"}):
+            self.assertEqual(held(dict(good, **change)), (None, "advice_disagrees"), change)
+        for change in ({"status": "failed"}, {"reason": "unparsed"}, {"off_change": 1},
+                       {"findings": good["findings"], "texts": good["texts"]}):
+            self.assertEqual(held(dict(stopped, **change)), (None, "advice_disagrees"), change)
+        # A Finding's id opens with its Lens's name, as the parser builds it.
+        alien = "kimi:%032x" % 0
+        self.assertEqual(held(dict(good, findings=[dict(finding, id=alien, surface={"type": "annotation", "key": alien})],
+                                   texts=[dict(text_, id=alien)]))[1], "advice_finding_not_its_own")
 
     def test_what_is_shown_is_codes_and_counts_and_a_readers_words_are_an_annotations_alone(self):
         for case in (advised(("major", 86), ("major", 90), ("minor", 91)), advised(*[("blocking", 86)] * 7),
@@ -688,6 +709,37 @@ class Shown(unittest.TestCase):
         one, two = advice.shown(long)[0]["annotations"]
         self.assertEqual((one.get("title"), one["message"]), (None, "one line"))
         self.assertEqual((two["title"], two["message"]), ("t" * advice.HEADLINE, "m" * advice.MESSAGE))
+        # No control, nothing that turns the line, no separator and no half a pair is shown; a message keeps its lines.
+        long["texts"][0]["body"] = "a\x1b[31m\tb\u202e\x85\r\n\nc\x00\u2066d\u2028\ud800\x7f\te\nf"
+        dirty = advice.shown(long)[0]
+        self.assertEqual((dirty["annotations"][0]["title"], dirty["annotations"][0]["message"]), ("a[31mb", "cd\te\nf"))
+        self.assertTrue(advice.showable(dirty))
+
+    def test_what_may_be_sent_as_shown_is_what_is_built_and_nothing_beside_it(self):
+        note = {"path": "a/b.py", "start_line": 3, "end_line": 3, "annotation_level": "warning", "message": "m", "title": "t"}
+        good = {"title": "incomplete (cut_short): 0 blocking, 1 major, 0 minor, 0 info; 2 off the change",
+                "summary": advice.SUMMARY % (1, 1, 0, 0, 50), "annotations": [note]}
+        self.assertTrue(advice.showable(good))
+        for case in (advised(*[("minor", n + 1) for n in range(70)]), advised(status="failed", reason="unparsed"), advised()):
+            self.assertTrue(advice.showable(advice.shown(case)[0]))
+        bare = {k: v for k, v in note.items() if k != "title"}
+        self.assertTrue(advice.showable(dict(good, annotations=[bare] * 50)))
+        for change in ({"text": "x"}, {"images": []}, {"title": "completed: all good"}, {"title": "done (no_such): " + good["title"][24:]},
+                       {"title": good["title"] + "\nmore"}, {"title": None}, {"summary": "A reader's words."}, {"summary": 7},
+                       {"annotations": [bare] * 51}, {"annotations": None}, {"annotations": ["failure"]}):
+            self.assertFalse(advice.showable(dict(good, **change)), change)
+        self.assertFalse(advice.showable({k: v for k, v in good.items() if k != "summary"}))
+        for change in ({"raw_details": "x"}, {"start_column": 1}, {"path": 7}, {"path": "a b"}, {"start_line": 0, "end_line": 0},
+                       {"start_line": True, "end_line": True}, {"start_line": "3"}, {"end_line": 4},
+                       {"annotation_level": "failure"}, {"annotation_level": None}, {"title": "two\nlines"}, {"title": ""},
+                       {"title": "t" * 256}, {"title": 7}, {"message": ""}, {"message": "m" * 8001}, {"message": None},
+                       {"message": "a\u202eb"}, {"title": "a\x1bb"}):
+            self.assertFalse(advice.showable(dict(good, annotations=[dict(note, **change)])), change)
+        self.assertFalse(advice.showable(dict(good, annotations=[{k: v for k, v in note.items() if k != "path"}])))
+        # The codes `apply` records for a Lens are the ones applied/1 lists, and each is a code.
+        listed = loaded("schemas/applied.schema.json")["properties"]["advisory"]["items"]["properties"]["code"]["enum"]
+        self.assertEqual(listed, list(advice.CODES))
+        self.assertTrue(all(re.fullmatch("[a-z_]+", code) for code in listed))
 
     def test_at_most_fifty_advisory_findings_are_annotated_and_one_with_no_line_is_counted(self):
         found = [("minor", 100 + n) for n in range(55)] + [("major", None), ("blocking", False)] + \

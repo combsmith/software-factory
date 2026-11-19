@@ -622,36 +622,6 @@ def role_permits(item: dict, head: str, name: str) -> tuple:
     return permits, patterns
 
 
-# An advisory Lens's check run's key: the Run's id and the Lens's name.
-ADVISED = re.compile(r"r_[0-9A-Z]{6,26}:[a-z]{1,31}")
-NEVER_RED = ("notice", "warning")
-
-
-def advisory_permits(item: dict, head: str, names) -> tuple:
-    """`(permits, patterns)`: what the Role App's token may send to show the advisory Lenses' Results on one item
-    (decision 0224), for `Allowed`. A check run named one of `names`, on its head, `head`, completed and concluding
-    `neutral` and nothing else, no annotation of it a failure; the reads that recover it and read it back; nothing
-    else, on no other repo."""
-    repo = item["repo"]
-
-    def nothing(body) -> bool:
-        return body is None
-
-    def advised(body) -> bool:
-        if not isinstance(body, dict) or set(body) != {"name", "head_sha", "external_id", "status", "conclusion", "output"}:
-            return False
-        notes = body["output"].get("annotations") if isinstance(body["output"], dict) else None
-        return (body["conclusion"] == "neutral" and body["status"] == "completed" and body["name"] in names
-                and body["head_sha"] == head and isinstance(head, str) and SHA.fullmatch(head) is not None
-                and isinstance(body["external_id"], str) and ADVISED.fullmatch(body["external_id"]) is not None
-                and isinstance(notes, list)
-                and all(isinstance(n, dict) and n.get("annotation_level") in NEVER_RED for n in notes))
-    return ({("POST", "/repos/%s/check-runs" % repo): advised},
-            [("GET", re.compile(r"/repos/%s/check-runs/[1-9][0-9]{0,18}" % re.escape(repo)), nothing),
-             ("GET", re.compile(r"/repos/%s/commits/%s/check-runs\?check_name=[a-z-]+&filter=all&per_page=100"
-                                % (re.escape(repo), re.escape(str(head)))), nothing)])
-
-
 class _TokenRefused(Exception):
     """GitHub would not take the credential, on a read or a write: the write ends refused, and so does every later one."""
 
@@ -746,8 +716,7 @@ def _review(transport, item: dict, req: dict, login: str) -> dict:
 def _check(transport, item: dict, req: dict, login: str) -> dict:
     """A check run: recovered by its `external_id`, the Effect's own, on the commit (section 3.6), else made once,
     complete, with its annotations; read back by its id, by this App, on the commit, with as many annotations as were
-    asked. Each annotation's surface is the check run's key and the Finding's ref. A request that carries its own
-    `output`, an advisory Lens's (decision 0224), is sent with it."""
+    asked. Each annotation's surface is the check run's key and the Finding's ref."""
     if len(req["annotations"]) > ANNOTATIONS:
         return _back("failed", None, reason="too_many_annotations")
     repo, app = item["repo"], login[: -len("[bot]")] if login.endswith("[bot]") else login
@@ -764,7 +733,7 @@ def _check(transport, item: dict, req: dict, login: str) -> dict:
     if made is None:
         answer = _sent(transport, request("POST", "/repos/%s/check-runs" % repo, body={
             "name": req["name"], "head_sha": req["commit"], "external_id": req["external_id"], "status": "completed",
-            "conclusion": req["conclusion"], "output": req.get("output") or {
+            "conclusion": req["conclusion"], "output": {
                 "title": req["name"], "summary": "%d finding(s) that do not gate" % len(req["annotations"]),
                 "annotations": [{"path": a["path"], "start_line": a["start_line"], "end_line": a["end_line"],
                                  "annotation_level": LEVEL.get(a["severity"], "notice"), "message": a["body"]}
