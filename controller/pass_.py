@@ -317,9 +317,16 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     listed, whole, runs, pause, automatic, capacity, context = context_of(records, reads.get("pause"), repos, rules,
                                                                            now, before, previous)
 
+    # A review a pass before told yes whose Run no record lists yet, as for the seconds between a dispatch and GitHub's
+    # list, still asks: it counts as one in flight, at the worst case (issue 932). With the records before unread, what
+    # they told is not known, and no review is told yes.
+    listed_runs = {r["run"] for r in runs}
+    told = [{"intent": advisory_.REVIEWING, "started_at": r["now"]} for r in before for e in r["pull_requests"]
+            if e.get("advisory_ask") is True and e["run"] not in listed_runs]
+
     def asked(entries: list, decide, lifecycle: dict, given: dict) -> list:
         kernel = dict(given, lifecycle=lifecycle)
-        out, asking = [], []
+        out, asking = [], list(told)
         for entry in entries:
             facts = entry["facts"]
             facts["complete"] = dict(facts["complete"])
@@ -333,7 +340,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
             if d["outcome"] == t.ADMIT and d["admit"]["intent"] == advisory_.REVIEWING:
                 # Beside the Decision, never in it: whether the day's ceiling admits this Run's advisory reads
                 # (decision 0224). Each review this pass admits counts the ones admitted before it at the worst case.
-                out[-1]["advisory_ask"] = advisory_.admits(runs + asking, whole, now, config.get("harness") or {})
+                out[-1]["advisory_ask"] = previous is not None \
+                    and advisory_.admits(runs + asking, whole, now, config.get("harness") or {})
                 asking.append({"intent": advisory_.REVIEWING, "started_at": now})
         return out
 

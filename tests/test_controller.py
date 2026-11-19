@@ -253,6 +253,27 @@ class Record(unittest.TestCase):
         entries = passed(reads(pulls=[pr(42)], runs=[run(number=42)]), cfg=told)["record"]["pull_requests"]
         self.assertEqual([(e["decision"].get("action"), "advisory_ask" in e) for e in entries], [("issue_approval", False)])
 
+    def test_a_review_told_yes_a_pass_before_counts_until_its_run_is_listed(self):  # issue 932
+        # Between a dispatch and GitHub's list of Runs no record holds the Run, so the yes a pass before told it is
+        # counted at the worst case; once its record is listed, the record counts instead, and a no told counts nothing.
+        harness = {"readers": {"astra": {}}, "advisory_ceiling_usd_per_day": 5, "advisory_worst_case_usd": 2}
+        told = dict(config(), harness=harness)
+        first = passed(reads(pulls=[pr(1), pr(2), pr(3)]), cfg=told, now="2026-10-11T12:59:30Z")["record"]
+        self.assertEqual([e.get("advisory_ask") for e in first["pull_requests"]], [True, True, False])
+
+        def asks(runs=(), previous=(first,)) -> list:
+            record = passed(reads(pulls=[pr(4)], runs=list(runs)), cfg=told, previous=previous)["record"]
+            self.assertEqual(shared.errors(record, "pass"), [])
+            return [e.get("advisory_ask") for e in record["pull_requests"]]
+        self.assertEqual(asks(), [False])                       # 2 + 2 unlisted, and 2 for this one, pass 5
+        self.assertEqual(asks(previous=()), [True])
+        ids = [e["run"] for e in first["pull_requests"]]
+        listed = [dict(run(ids[i], number=i + 1), advisory_asks=1, advisory_cost_usd=1.5) for i in (0, 1)]
+        self.assertEqual(asks(runs=listed), [True])             # 1.5 + 1.5 listed + 2; the no told counts nothing
+        self.assertEqual(asks(runs=listed[:1]), [False])        # 1.5 listed + 2 unlisted + 2
+        # With the records before unread, what they told is not known: no review is told yes.
+        self.assertEqual(asks(previous=None), [False])
+
     def test_a_queue_act_gets_a_run_id_and_a_dispatch_once_its_workflow_is_named(self):  # issue 381
         # The queue App's acts, an enqueue, a dequeue and a resolution, are each a dispatched Run of the queue workflow,
         # named by run-name/1 with an Intent of its own, so the records port counts each. Until the configuration names
