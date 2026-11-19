@@ -1,7 +1,7 @@
 {
   "schema": "trial/1",
   "trial": "P-68",
-  "question": "When a workflow run has uploaded an artifact of one file, and another of two, what does GitHub answer to the list of the run's artifacts by a name (`GET /repos/{repo}/actions/runs/{id}/artifacts?name=",
+  "question": "When a workflow run has uploaded an artifact of one file, and another of two, what does GitHub answer to the list of the run's artifacts by a name (`GET /repos/{repo}/actions/runs/{id}/artifacts?name=...&per_page=100`), for a name that is there, a name that is not, and after the artifact is deleted; to its download (`GET /repos/{repo}/actions/artifacts/{id}/zip`); and what does the storage the download redirects to answer?",
   "pass": "Yes",
   "repo": "combsmith/software-factory-canary",
   "ran_at": "2026-11-18T23:59:37Z",

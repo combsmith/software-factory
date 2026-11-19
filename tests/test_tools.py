@@ -6071,8 +6071,14 @@ class Trials(unittest.TestCase):
                 ("a download asked another way", lambda e: e[0]["request"].update(via="cli"), "follows no artifact download's redirect")):
             where = "exchanges[0]" if why in ("no download before it", "the download after it, last in the fixture") else "exchanges[1]"
             self.assertTrue(caught(found(change), where + ".request.call " + words), why)
-        # A download a workflow's token asked is a download too; a read of the storage asked any other way is refused.
-        self.assertEqual(found(lambda e: e[0]["request"].update(via="workflow", call=e[0]["request"]["call"].split(" (")[0])), [])
+        # A download is one the port's replay follows: by REST, of an artifact's path its rule admits; and the storage's
+        # answer is no redirect, which the replay would not follow again. A read of the storage asked any other way is
+        # refused.
+        self.assertTrue(caught(found(lambda e: e[0]["request"].update(via="workflow", call=e[0]["request"]["call"].split(" (")[0])),
+                               "exchanges[1].request.call follows no artifact download's redirect"))
+        self.assertTrue(caught(found(lambda e: e[0]["request"].update(call=e[0]["request"]["call"].replace("/artifacts/14482759842/", "/artifacts/0/"))),
+                               "exchanges[1].request.call follows no artifact download's redirect"))
+        self.assertTrue(caught(found(lambda e: e[1]["response"].update(status=302)), "exchanges[1].request.call is answered with a redirect"))
         self.assertTrue(caught(found(lambda e: e[1]["request"].update(via="cli", call="curl -s '%s'" % address)),
                                "exchanges[1].request.call reads the artifact storage other than as a read `via: storage`"))
         # The header is read in any case, as HTTP does; and a storage read later in the fixture is held the same way.

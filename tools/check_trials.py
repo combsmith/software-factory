@@ -52,7 +52,7 @@ REST_READ = re.compile(r"^[A-Z]+ /(?:repos/([^/?\s]+)/([^/?\s]+)|orgs/([^/?\s]+)
 ANY_REPO = re.compile(r"\brepos/([^/?\s]+)/([^/?\s]+)")
 # A read of the artifact storage follows the redirect of an artifact's download, the exchange just before it, and asks the
 # address that redirect gave, with no query (issue 920): its signature is a credential, and kept it would be the asked.
-DOWNLOAD = re.compile(r"^GET /repos/[^/?\s]+/[^/?\s]+/actions/artifacts/[0-9]+/zip(?:\s|$)")
+DOWNLOAD = re.compile(r"^GET (%s)(?:\s|$)" % github.ARTIFACT.pattern)      # the port's own rule for the path
 # A workflow's call is a REST call its token made, by its method and path, or a report of what a run wrote of itself,
 # which names no address (issue 920).
 METHOD_PATH = re.compile(r"^[A-Z]+ /")
@@ -740,7 +740,11 @@ def _stored(data: dict) -> list:
         # The replay keeps the last of headers that differ in case alone, and this would read the first: two are refused.
         locations = [value for key, value in headers.items() if str(key).lower() == "location"]
         location = locations[0] if len(locations) == 1 else None
-        if not (asked.get("via") in ("rest", "workflow") and DOWNLOAD.match(str(asked.get("call", "")))
+        stored = exchange.get("response") if isinstance(exchange.get("response"), dict) else {}
+        if isinstance(stored.get("status"), int) and 300 <= stored["status"] < 400:
+            out.append((where, "is answered with a redirect, which the port's replay does not follow a second time"))
+        # By REST alone: the port's replay follows a download recorded so, and no other (cubic's read).
+        if not (asked.get("via") == "rest" and DOWNLOAD.match(str(asked.get("call", "")))
                 and answer.get("status") == 302
                 and isinstance(location, str)):
             out.append((where, "follows no artifact download's redirect with one address; a read of the artifact storage "
