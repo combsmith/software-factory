@@ -1027,10 +1027,10 @@ class Engine(unittest.TestCase):
             self.assertEqual(len(shared.errors(odd, "result")), 1, name)
         twice = dict(example, shown=example["shown"][:1] * 2)
         self.assertNotEqual(shared.errors(twice, "result"), [])
-        for odd in ("f_zz", "f_9c1", "9c1e", "F_9C1E", "f_9c1e ", None, 9):
+        for odd in ("f_zz", "f_9c1", "9c1e", "F_9C1E", "f_9c1e ", "f_" + "a" * 65, None, 9):
             named = dict(example, shown=[dict(example["shown"][0], finding=odd)])
             self.assertEqual(len(shared.errors(named, "result")), 1, odd)
-        for odd in (None, 9, ["sha256:" + "0" * 64]):
+        for odd in (None, 9, ["sha256:" + "0" * 64], "sha256:" + "0" * 63, "sha256:" + "0" * 65):
             self.assertEqual(len(shared.errors(dict(example, shown=[dict(example["shown"][0], text=odd)]), "result")), 1, odd)
 
     def test_an_answer_that_does_not_validate_is_no_result(self):  # decision 0038, decision 0004
