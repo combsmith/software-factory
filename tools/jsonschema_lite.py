@@ -95,6 +95,11 @@ def validate(value, schema: dict, root: dict = None, path: str = "$", schemas: d
         if "pattern" in schema and (re.search(schema["pattern"], value) is None or value.endswith("\n")):  # NOSONAR
             errors.append("%s: does not match %s" % (path, schema["pattern"]))
     if isinstance(value, (int, float)) and not isinstance(value, bool):
+        # NaN is below no minimum and above no maximum, and an infinity passes where no bound stands; json.loads reads
+        # both from a file, which no other JSON reader would. So a number here is finite, whatever the schema says
+        # (issue 922). An int is always finite.
+        if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+            errors.append("%s: %r is no finite number" % (path, value))
         if "minimum" in schema and value < schema["minimum"]:
             errors.append("%s: below %s" % (path, schema["minimum"]))
         if "maximum" in schema and value > schema["maximum"]:

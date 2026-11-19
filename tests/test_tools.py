@@ -265,6 +265,21 @@ class Validator(unittest.TestCase):
         for schema in ({"type": "array"}, {"type": "array", "uniqueItems": False}):
             self.assertEqual(validate(["AC-1", "AC-1"], schema), [])
 
+    def test_a_number_that_is_not_finite_is_an_error_whatever_the_bounds(self):  # issue 922
+        # json.loads reads NaN and Infinity from a file. NaN is below no minimum and above no maximum, and an infinity
+        # passes where no bound stands, so each is refused by itself, under a number's type, an integer's, or none.
+        nan, inf = float("nan"), float("inf")
+        for schema in ({"type": "number"}, {"type": "number", "minimum": 0}, {"type": "number", "maximum": 30},
+                       {"type": "number", "minimum": 0, "maximum": 30}, {"type": ["number", "null"]}, {}):
+            for value in (nan, inf, -inf, json.loads("NaN"), json.loads("-Infinity")):
+                self.assertTrue(caught(validate(value, schema), "is no finite number"), (schema, value))
+        self.assertEqual(validate({"cost": nan}, {"type": "object", "properties": {"cost": {"type": "number"}}}),
+                         ["$.cost: nan is no finite number"])
+        self.assertEqual(validate(nan, {"type": "integer"}), ["$: expected integer"])
+        # The other side: a finite number, a float or an int however large, is read as it was.
+        for value in (0, 0.0, -0.0, 1.5, 1e308, -1e308, 10 ** 400):
+            self.assertEqual(validate(value, {"type": "number"}), [], value)
+
     def test_a_text_longer_than_the_most_is_an_error(self):  # issue 880
         # Counted in characters, as `minLength` is, never in bytes.
         most = {"type": "string", "maxLength": 3}

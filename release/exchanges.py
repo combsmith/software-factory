@@ -151,7 +151,7 @@ class Recording:
             where = pathlib.Path(folder)
             if not where.is_absolute() or not where.is_dir():
                 return False
-            text = json.dumps(self.kept(), indent=1, sort_keys=True)
+            text = json.dumps(self.kept(), indent=1, sort_keys=True, allow_nan=False)
             with open(where / NAME, "x", encoding="utf-8") as out:
                 out.write(text + "\n")
             return True

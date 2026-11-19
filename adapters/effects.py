@@ -1065,7 +1065,7 @@ def main(argv=None, environ=None, base=None, mint=None, clock=None) -> int:
         revoked = revoke() if revoke is not None else True
     sent = sent and revoked is True
     with open(os.path.join(out, "written.json"), "w", encoding="utf-8") as kept:
-        kept.write(json.dumps(written, indent=2) + "\n")
+        kept.write(json.dumps(written, indent=2, allow_nan=False) + "\n")
     return 0 if sent and not failed(written) else 1
 
 

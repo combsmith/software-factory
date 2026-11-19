@@ -283,7 +283,7 @@ def write(out: dict, directory: str) -> None:
     for name, document in files.items():
         made = os.open(os.path.join(directory, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         with open(made, "w", encoding="utf-8") as f:
-            f.write(json.dumps(document, indent=2, sort_keys=True) + "\n")
+            f.write(json.dumps(document, indent=2, sort_keys=True, allow_nan=False) + "\n")
 
 
 def main(argv=None, environ=None, base=None, clock=time.time, sleep=time.sleep, connect=Live) -> int:
