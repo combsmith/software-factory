@@ -38,7 +38,7 @@ from adapters import applied, facts as facts_, identity, issues as issues_, item
     seen as seen_, timeline
 from adapters.facts import accounts_of as accounts, app_names_of, dispatcher_of as dispatcher, opener_of as opener, queue_of
 from adapters.github import Live, Unanswered
-from controller import configuration as configured, pass_, reads as reads_, reconcile, writes as writes_
+from controller import configuration as configured, issue_runs, pass_, reads as reads_, reconcile, writes as writes_
 from controller.shared import Refused, key as page
 from harness import steps
 
@@ -169,7 +169,8 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     entry's (issue 709)."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
-    # The open pull requests are listed first: the records port asks when a Run began only of theirs (decision 0196).
+    # The open pull requests and the served issues are listed first: the records port asks when a Run began only of
+    # theirs (decision 0196).
     try:
         numbers, whole = items.open_pull_requests(transport, home)
     except Unanswered:
@@ -189,7 +190,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
         runs = records.runs(transport, home, branch, run_files(controller), dispatcher(controller),
                             kept=records.known(earlier), began=records.begun(earlier),
                             engines=records.engines(earlier), sleep=sleep,
-                            of=[{"repo": home, "type": "pull_request", "number": number} for number in numbers])
+                            of=issue_runs.asked_of(home, numbers, listed))
     except Unanswered:
         runs = None
     identities, approver, lenses, factory = accounts(controller)

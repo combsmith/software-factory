@@ -1821,6 +1821,43 @@ class Entry(unittest.TestCase):
         # Nothing is written for the issue: the one write is the tracking issue's, which reports the pass's alerts.
         self.assertEqual([w["type"] for w in files["writes.json"]["writes"]], ["tracking_issue"])
 
+    def test_the_served_issues_runs_are_asked_when_they_began(self):  # issue 836, decision 0196
+        # The entry hands the records port the open pull requests and then the open issues it serves, each by its repo,
+        # its type and its number, so that an issue's Runs are asked when they began within the port's one bound. With
+        # no issue served, the pull requests alone are handed.
+        from controller import issue_runs
+        pull, issue = (lambda n, kind=kind: {"repo": self.HOME, "type": kind, "number": n} for kind in ("pull_request", "issue"))
+        self.assertEqual(issue_runs.asked_of(self.HOME, [7, 8], [5, 6]), [pull(7), pull(8), issue(5), issue(6)])
+        self.assertEqual(issue_runs.asked_of(self.HOME, [7], []), [pull(7)])
+        self.assertEqual(issue_runs.asked_of(self.HOME, [], []), [])
+        # A pull request and an issue of one number are two items, and each is handed.
+        self.assertEqual(issue_runs.asked_of("o/r", [7], [7]), [{"repo": "o/r", "type": "pull_request", "number": 7},
+                                                                {"repo": "o/r", "type": "issue", "number": 7}])
+        real, handed, listed = entry.configuration, [], entry.records.runs
+
+        def served(root, release):
+            found = real(root, release)
+            found["kernel"]["issues"]["served_from"] = "2026-10-01T00:00:00Z"
+            return found
+
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
+            return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
+
+        def issue_read(transport, repo, number, accounts, clock):
+            return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "An issue"
+
+        def runs(*args, **kw):
+            handed.append(kw["of"])
+            return listed(*args, **kw)
+        for configured, issues, want in ((served, [5, 6], [pull(7), issue(5), issue(6)]), (real, [], [pull(7)])):
+            with unittest.mock.patch.object(entry, "configuration", configured), \
+                    unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                    unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after: (list(issues), True)), \
+                    unittest.mock.patch.object(entry.issues_, "read", issue_read), \
+                    unittest.mock.patch.object(entry.records, "runs", runs):
+                code, _, _, _ = self.run_entry(Hub(self.table(numbers=[7])))
+            self.assertEqual((code, handed.pop()), (0, want))
+
     def test_what_the_entry_cannot_read_writes_nothing(self):
         for environ, want in (({"RELEASE": None}, "release_untagged"), ({"RELEASE": "v1"}, "release_untagged"),
                               ({"GITHUB_RUN_ID": "1/2"}, "run_unreadable"), ({"GITHUB_RUN_ID": None}, "run_unreadable"),
