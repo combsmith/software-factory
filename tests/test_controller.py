@@ -249,6 +249,18 @@ class Record(unittest.TestCase):
         from controller import reads as reads_
         self.assertEqual(reads_.run_records(advised_["records"]), (True, True))
         self.assertEqual(reads_.run_records(dict(advised_["records"], reads=advised_["records"]["reads"] + [{"read": "advice", "date": NOW, "age": 0}])), (False, False))
+        # An admission of another Intent holds none either: an advisory read is a review's alone.
+        real = pass_.pull_request.decide
+
+        def fixing(*a):
+            d = real(*a)
+            return dict(d, admit=dict(d["admit"], intent="fix-findings", role="dev-lead")) if d["outcome"] == "admit" else d
+        with unittest.mock.patch.object(pass_.pull_request, "decide", fixing):
+            record = passed(reads(pulls=[pr(1)]), cfg=told)["record"]
+        self.assertEqual([(e["decision"]["admit"]["intent"], "advisory_ask" in e) for e in record["pull_requests"]], [("fix-findings", False)])
+        # Each figure missing alone, or no reader, is a no.
+        for odd in (dict(harness, advisory_ceiling_usd_per_day=None), dict(harness, readers={})):
+            self.assertEqual(asks(reads(pulls=[pr(1)]), dict(config(), harness=odd)), [("admit", False)])
         # An entry that admits no review holds no answer: an approval here, the review having run.
         entries = passed(reads(pulls=[pr(42)], runs=[run(number=42)]), cfg=told)["record"]["pull_requests"]
         self.assertEqual([(e["decision"].get("action"), "advisory_ask" in e) for e in entries], [("issue_approval", False)])
