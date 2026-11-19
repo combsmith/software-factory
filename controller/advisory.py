@@ -22,8 +22,8 @@ worst case together do not pass the ceiling. Neither figure has a default: with 
 Whatever it is handed, it answers, and what it cannot read it answers no to. A caller that admits more than one review
 in a pass hands each the ones before it, as records still running, so that each counts the others' worst case.
 
-`unrevoked` says whether a Run the pass read recorded an advisory token GitHub did not confirm revoked: the alert of
-its own that reaches a person (issue 925).
+`unrevoked` names each Run the pass read that recorded an advisory token GitHub did not confirm revoked, which the
+pass raises an alert of its own for (issue 925).
 """
 from __future__ import annotations
 
@@ -36,8 +36,8 @@ COST, ASKS = "advisory_cost_usd", "advisory_asks"
 LEAST, MOST, DEAREST, ASKED_MOST = 0.01, 10000, 100000, 100
 TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 DAY = len("2026-01-01")
-# The alert a pass raises when a Run it read recorded an advisory token GitHub did not confirm revoked (issue 925).
-UNREVOKED, NOT_REVOKED = "advisory_token_not_revoked", "token_not_revoked"
+# What apply records for a Lens whose check runs' token GitHub did not confirm revoked (issue 925).
+NOT_REVOKED = "token_not_revoked"
 
 
 def _number(value, least, most) -> bool:
@@ -84,14 +84,13 @@ def admits(records, whole, now, harness) -> bool:
     return round(spent(records, now, worst) + worst, 6) <= ceiling
 
 
-def unrevoked(effects) -> bool:
-    """Whether an `applied/1` the pass read for reconciliation says, for any advisory Lens, that GitHub did not confirm
-    the token of its check runs revoked (decision 0224, issue 925). The Run concluded as it would have, so no outcome
-    counts it and no pause starts on it: this alert is the one place it reaches a person. It is raised by the pass that
-    reads the record, which reads each Run once, as the tracking issue opens for any cause; what cannot be read raises
-    nothing here, since reconciliation already raises its own alert for that."""
+def unrevoked(effects) -> list:
+    """The Runs, sorted, whose `applied/1` the pass read for reconciliation says, for any advisory Lens, that GitHub did
+    not confirm the token of its check runs revoked (decision 0224, issue 925). Such a Run concluded as it would have,
+    so no outcome counts it and no pause starts on it: the alert the pass raises for it is the one place it reaches a
+    person. What cannot be read gives none here, since reconciliation raises its own alert for that."""
     applied = effects.get("applied") if isinstance(effects, dict) else None
-    return isinstance(applied, list) and any(
-        isinstance(record, dict) and isinstance(record.get("advisory"), list)
-        and any(isinstance(said, dict) and said.get("code") == NOT_REVOKED for said in record["advisory"])
-        for record in applied)
+    return sorted({record["run"] for record in applied if isinstance(record, dict) and isinstance(record.get("run"), str)
+                   and isinstance(record.get("advisory"), list)
+                   and any(isinstance(said, dict) and said.get("code") == NOT_REVOKED for said in record["advisory"])}
+                  if isinstance(applied, list) else set())

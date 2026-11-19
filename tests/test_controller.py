@@ -270,6 +270,21 @@ class Record(unittest.TestCase):
         plain = {k: v for k, v in done.items() if k != "advisory"}
         self.assertEqual(passed(reads(effects=dict(RECORDED, applied=[plain, revoked])))["alerts"], [])
         self.assertEqual(passed(reads(effects=dict(RECORDED, applied=[plain, done])))["alerts"], ["advisory_token_not_revoked"])
+        self.assertEqual(passed(reads(effects=dict(RECORDED, applied=[done, plain])))["alerts"], ["advisory_token_not_revoked"])
+        first = dict(done, advisory=list(reversed(done["advisory"])))
+        self.assertEqual(passed(reads(effects=dict(RECORDED, applied=[first])))["alerts"], ["advisory_token_not_revoked"])
+        # The Run is read once, so the record carries it on, stamped with when it was first read, and the alert stands
+        # for the token's hour whatever the passes after it read, then clears.
+        self.assertEqual(out["record"]["advisory_unrevoked"], [{"run": done["run"], "at": NOW}])
+        on = passed(reads(), now="2026-10-11T13:59:59Z", previous=[out["record"]])
+        self.assertEqual((on["alerts"], on["record"]["advisory_unrevoked"]), (["advisory_token_not_revoked"], [{"run": done["run"], "at": NOW}]))
+        hour = passed(reads(), now="2026-10-11T14:00:00Z", previous=[on["record"]])
+        self.assertEqual(hour["alerts"], ["advisory_token_not_revoked"])
+        past = passed(reads(), now="2026-10-11T14:00:01Z", previous=[out["record"], on["record"]])
+        self.assertEqual((past["alerts"], past["record"]["advisory_unrevoked"]), ([], []))
+        # Read again by a later pass, as when the records before could not be read, it keeps its first stamp.
+        again = passed(reads(effects=dict(RECORDED, applied=[done])), now="2026-10-11T13:30:00Z", previous=[out["record"]])
+        self.assertEqual(again["record"]["advisory_unrevoked"], [{"run": done["run"], "at": NOW}])
 
     def test_a_queue_act_gets_a_run_id_and_a_dispatch_once_its_workflow_is_named(self):  # issue 381
         # The queue App's acts, an enqueue, a dequeue and a resolution, are each a dispatched Run of the queue workflow,

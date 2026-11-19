@@ -71,6 +71,10 @@ def earlier(previous, now: str):
 # dispatched the pass, whose job began 5 and 6 seconds after: the margin was a few seconds, and nothing held it.
 SUCCESSOR_WAIT = 30
 
+# How long the alert for an advisory token not confirmed revoked stands after a pass first read it: an installation
+# token's own hour (issue 925).
+UNREVOKED_SECONDS = 3600
+
 
 def started_by(started, accounts: dict) -> str:
     """What started the pass, read from its run and never from anything a dispatch carries (decision 0043).
@@ -351,6 +355,17 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
               "reconciliation": reconcile_.entries(found),
               "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or (),
                                                reads.get("gone") or ())}
+    # A Run that recorded an advisory token GitHub did not confirm revoked is read once, by the pass that reads its
+    # record; each record carries it on, stamped with when it was first read, so its alert stands for UNREVOKED_SECONDS,
+    # the token's own hour at least, and a tracking write that fails in one pass does not lose it (issue 925).
+    first_read = {}
+    for r in before:
+        for e in r.get("advisory_unrevoked", []):
+            first_read.setdefault(e["run"], e["at"])
+    for run_ in advisory_.unrevoked(reads.get("effects")):
+        first_read.setdefault(run_, now)
+    record["advisory_unrevoked"] = [{"run": run_, "at": at} for run_, at in sorted(first_read.items())
+                                    if seconds(now, at) <= UNREVOKED_SECONDS]
     checked(record, "pass")
     entries = record["pull_requests"] + record["issues"]
     ids = [record["pass"]] + [e["run"] for e in entries if e["run"] is not None]
@@ -390,7 +405,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     alerts = health_.alerts([e["decision"]["reason"] for e in entries], context, capacity, causes,
                             bool(alarmed), raised, unnamed, reconcile_.alerts(found), due,
                             whole and never_started(runs, now, rules["automatic_pause"]),
-                            advisory_.unrevoked(reads.get("effects")))
+                            bool(record["advisory_unrevoked"]))
     decided = [e["facts"]["item"] for e in entries]
     titles = {key(e["facts"]["item"]): e.get("title") if isinstance(e.get("title"), str) else ""
               for e in pulls + issues if e["facts"]["item"] in decided}

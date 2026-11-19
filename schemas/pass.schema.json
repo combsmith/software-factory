@@ -170,6 +170,29 @@
         ]
       }
     },
+    "advisory_unrevoked": {
+      "description": "Each Run whose applied/1 a pass read says an advisory Lens's token was not confirmed revoked, with when a pass first read it, carried from record to record for an hour, while the pass raises advisory_token_not_revoked (decision 0224, issue 925). Absent in a record written before it; then none is carried.",
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "run",
+          "at"
+        ],
+        "properties": {
+          "run": {
+            "type": "string",
+            "pattern": "^r_[0-9A-Z]{6,26}$"
+          },
+          "at": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+          }
+        }
+      }
+    },
     "credentials_due": {
       "description": "The stored credentials near their limits, or whose rows cannot be read, by their secrets' names alone, sorted: the evidence of `credential_due` (issue 305). Absent in a record written before it",
       "type": "array",
