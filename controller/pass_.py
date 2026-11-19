@@ -71,6 +71,10 @@ def earlier(previous, now: str):
 # dispatched the pass, whose job began 5 and 6 seconds after: the margin was a few seconds, and nothing held it.
 SUCCESSOR_WAIT = 30
 
+# How long a review told yes for its advisory readers counts while no record lists its Run (issue 932). GitHub lists a
+# dispatched Run within seconds; one still unlisted an hour on was not dispatched, or is past the job's own limit.
+UNLISTED_SECONDS = 3600
+
 
 def started_by(started, accounts: dict) -> str:
     """What started the pass, read from its run and never from anything a dispatch carries (decision 0043).
@@ -318,11 +322,22 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
                                                                            now, before, previous)
 
     # A review a pass before told yes whose Run no record lists yet, as for the seconds between a dispatch and GitHub's
-    # list, still asks: it counts as one in flight, at the worst case (issue 932). With the records before unread, what
-    # they told is not known, and no review is told yes.
+    # list, still asks: it counts as one in flight, at the worst case, and each record carries it to the next until its
+    # record is listed or UNLISTED_SECONDS pass, so that a lag longer than the records the pass reads loses none. A Run
+    # GitHub lists that no run-name names counts so too. With the records before unread, what they told is not known,
+    # and no review is told yes (issue 932).
     listed_runs = {r["run"] for r in runs}
-    told = [{"intent": advisory_.REVIEWING, "started_at": r["now"]} for r in before for e in r["pull_requests"]
-            if e.get("advisory_ask") is True and e["run"] not in listed_runs]
+    pending = {}
+    for r in before:
+        for e in r.get("advisory_unlisted", []):
+            pending.setdefault(e["run"], e["told_at"])
+        for e in r["pull_requests"]:
+            if e.get("advisory_ask") is True:
+                pending.setdefault(e["run"], r["now"])
+    unlisted = {run: at for run, at in pending.items() if run not in listed_runs and seconds(now, at) <= UNLISTED_SECONDS}
+    told = [{"intent": advisory_.REVIEWING, "started_at": at} for at in unlisted.values()] + [
+        {"intent": advisory_.REVIEWING, "started_at": u["created_at"], "status": u["status"]}
+        for u in context["unidentified_runs"] or []]
 
     def asked(entries: list, decide, lifecycle: dict, given: dict) -> list:
         kernel = dict(given, lifecycle=lifecycle)
@@ -359,6 +374,10 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
               "reconciliation": reconcile_.entries(found),
               "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or (),
                                                reads.get("gone") or ())}
+    record["advisory_unlisted"] = sorted(
+        [{"run": run, "told_at": at} for run, at in unlisted.items()]
+        + [{"run": e["run"], "told_at": now} for e in record["pull_requests"] if e.get("advisory_ask") is True],
+        key=lambda e: e["run"])
     checked(record, "pass")
     entries = record["pull_requests"] + record["issues"]
     ids = [record["pass"]] + [e["run"] for e in entries if e["run"] is not None]

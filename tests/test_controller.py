@@ -273,6 +273,30 @@ class Record(unittest.TestCase):
         self.assertEqual(asks(runs=listed[:1]), [False])        # 1.5 listed + 2 unlisted + 2
         # With the records before unread, what they told is not known: no review is told yes.
         self.assertEqual(asks(previous=None), [False])
+        # The older of the two records before counts as the newer does, and each record carries what is unlisted to the
+        # next, so a lag longer than the two records read loses none, until its record is listed or an hour passes.
+        quiet = passed(reads(pulls=[]), cfg=told, now="2026-10-11T12:59:40Z", previous=[first])["record"]
+        self.assertEqual(sorted(e["run"] for e in quiet["advisory_unlisted"]), sorted(ids[:2]))
+        self.assertEqual(asks(previous=(first, dict(quiet, advisory_unlisted=[]))), [False])
+        later = passed(reads(pulls=[]), cfg=told, now="2026-10-11T12:59:50Z", previous=[first, quiet])["record"]
+        self.assertEqual(asks(previous=(quiet, later)), [False])
+        self.assertEqual(asks(previous=(dict(quiet, advisory_unlisted=[]), dict(later, advisory_unlisted=[]))), [True])
+        self.assertEqual(asks(runs=listed, previous=(quiet, later)), [True])
+        aged = [dict(e, told_at="2026-10-11T11:59:59Z") for e in later["advisory_unlisted"]]
+        self.assertEqual(asks(previous=(dict(quiet, advisory_unlisted=[]), dict(later, advisory_unlisted=aged))), [True])
+        hour = [dict(e, told_at="2026-10-11T12:00:00Z") for e in later["advisory_unlisted"]]
+        self.assertEqual(asks(previous=(dict(quiet, advisory_unlisted=[]), dict(later, advisory_unlisted=hour))), [False])
+        # Across midnight it counts as any Run in flight does.
+        night = passed(reads(pulls=[pr(1), pr(2)]), cfg=told, now="2026-10-10T23:59:30Z")["record"]
+        dawn = passed(reads(pulls=[pr(4)]), cfg=told, now="2026-10-11T00:00:10Z", previous=[night])["record"]
+        self.assertEqual([e.get("advisory_ask") for e in dawn["pull_requests"]], [False])
+        # The record says each it told yes, and each unlisted it carries, by Run.
+        self.assertEqual(sorted(e["run"] for e in first["advisory_unlisted"]), sorted(ids[:2]))
+        # A Run GitHub lists that no run-name names counts at the worst case too.
+        tight = dict(told, harness=dict(harness, advisory_ceiling_usd_per_day=3))
+        unnamed_ = {"run": "44574655101", "created_at": "2026-10-11T10:00:00Z", "status": "completed"}
+        self.assertEqual([e.get("advisory_ask") for e in passed(reads(pulls=[pr(4)], unidentified=[unnamed_]), cfg=tight)["record"]["pull_requests"]], [False])
+        self.assertEqual([e.get("advisory_ask") for e in passed(reads(pulls=[pr(4)]), cfg=tight)["record"]["pull_requests"]], [True])
 
     def test_a_queue_act_gets_a_run_id_and_a_dispatch_once_its_workflow_is_named(self):  # issue 381
         # The queue App's acts, an enqueue, a dequeue and a resolution, are each a dispatched Run of the queue workflow,
