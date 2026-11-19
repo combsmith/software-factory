@@ -238,6 +238,17 @@ class Record(unittest.TestCase):
         self.assertEqual(asks(reads(pulls=[pr(1)], runs=[spent])), [("admit", False)])
         self.assertEqual(asks(reads(pulls=[pr(1)], runs=[dict(spent, advisory_cost_usd=3)])), [("admit", True)])
         self.assertEqual(asks(reads(pulls=[pr(1)], runs=[dict(spent, started_at="2026-10-10T12:10:00Z")])), [("admit", True)])
+        # A pass whose records read an advisory cost is read whole as any other: its Runs are listed, and counted.
+        advised_ = reads(pulls=[pr(1)], runs=[dict(spent, advisory_cost_usd=3)])
+        advised_["records"]["reads"].append({"read": "advice_cost", "date": "2026-10-11T12:59:58Z", "age": 0})
+        out = passed(advised_, cfg=told)
+        self.assertEqual(shared.errors(out["record"], "pass"), [])
+        self.assertEqual(([r["read"] for r in out["record"]["reads"]], len(out["record"]["runs"]), out["record"]["context"]["active_runs"]),
+                         (["runs", "advice_cost", "facts"], 1, 0))
+        self.assertEqual([(e["decision"]["outcome"], e.get("advisory_ask")) for e in out["record"]["pull_requests"]], [("admit", True)])
+        from controller import reads as reads_
+        self.assertEqual(reads_.run_records(advised_["records"]), (True, True))
+        self.assertEqual(reads_.run_records(dict(advised_["records"], reads=advised_["records"]["reads"] + [{"read": "advice", "date": NOW, "age": 0}])), (False, False))
         # An entry that admits no review holds no answer: an approval here, the review having run.
         entries = passed(reads(pulls=[pr(42)], runs=[run(number=42)]), cfg=told)["record"]["pull_requests"]
         self.assertEqual([(e["decision"].get("action"), "advisory_ask" in e) for e in entries], [("issue_approval", False)])

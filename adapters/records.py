@@ -323,24 +323,32 @@ def engines(previous: list) -> dict:
 
 REVIEWING = "review-change"
 ADVISED = ("advisory_asks", "advisory_cost_usd")
+COSTS = 50           # the most Runs whose advisory cost one read of the records asks for (decision 0224), as JOBS is
 
 
 def advised(previous: list) -> dict:
-    """What the last pass record before this one read of each review Run's advisory cost, by its Run id and when its
-    attempt started (decision 0224): the two fields as the row holds them. A row that holds a cost, or a null one, was
-    read whole, a file or the lack of one, and a Run's cost is written once, so it is not read again. A key the record
-    lists twice is not kept, and nothing is kept from what lists no runs."""
-    last = previous[-1] if isinstance(previous, list) and previous else None
-    rows = last.get("runs") if isinstance(last, dict) else None
-    said, keys = {}, []
-    for row in rows if isinstance(rows, list) else []:
-        key = (row.get("run"), row.get("started_at")) if isinstance(row, dict) else (None, None)
-        if not (isinstance(key[0], str) and isinstance(key[1], str)):
-            continue
-        keys.append(key)
-        if ADVISED[1] in row:
-            said[key] = {name: row[name] for name in ADVISED if name in row}
-    return {key: held for key, held in said.items() if keys.count(key) == 1}
+    """What the pass records before this one read of each review Run's advisory cost, by its Run id and when its
+    attempt started (decision 0224): the two fields as the row holds them, from the last two records at most, and the
+    earlier's word only for a Run the later does not list, as `begun` keeps a beginning. A row that holds a cost, or a
+    null one, was read whole, a file or the lack of one, and a Run's cost is written once, so it is not read again. A
+    key a record lists twice is kept from neither listing, and nothing is kept from what lists no runs."""
+    def read(record) -> tuple:
+        rows = record.get("runs") if isinstance(record, dict) else None
+        said, keys = {}, []
+        for row in rows if isinstance(rows, list) else []:
+            key = (row.get("run"), row.get("started_at")) if isinstance(row, dict) else (None, None)
+            if not (isinstance(key[0], str) and isinstance(key[1], str)):
+                continue
+            keys.append(key)
+            if ADVISED[1] in row:
+                said[key] = {name: row[name] for name in ADVISED if name in row}
+        return {key: held for key, held in said.items() if keys.count(key) == 1}, keys
+    kept = {}
+    for record in (list(previous[-2:]) if isinstance(previous, list) else []):
+        found, listed = read(record)
+        kept = {key: kept[key] for key in kept if key not in listed}
+        kept.update(found)
+    return kept
 
 
 def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, per_page: int = PAGE,
@@ -440,13 +448,19 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     # What each finished review Run of the day says its advisory reads cost (decision 0224): one small file, read once.
     # `day` is the UTC date of the pass's `now`, and None reads none. A cost read whole, or the lack of one, is kept
     # by `advised` and not read again; one that cannot be read now is left off and asked for again, and nothing here
-    # makes the list less than whole or ends the pass: what is not known the pass counts at its worst case.
+    # makes the list less than whole or ends the pass: what is not known the pass counts at its worst case. At most
+    # COSTS are asked for in one read, so a pass with nothing kept, a first one or one after a gap, has a bound; the
+    # rest are left off, counted at the worst case as any unread cost is, and asked for by the passes after.
+    costs = 0
     for record, github_id, _, keyed in ran if day is not None else []:
         if record["status"] != "completed" or record["intent"] != REVIEWING or record["started_at"][:len(day)] != day:
             continue
         if keyed and (record["run"], record["started_at"]) in advised:
             record.update(advised[(record["run"], record["started_at"])])
             continue
+        if costs == COSTS:
+            continue
+        costs += 1
         try:
             cost, read_whole = artifacts.advice_cost(
                 transport, repo, github_id, record["run"],

@@ -1365,7 +1365,27 @@ class Records(unittest.TestCase):
         twice = {"runs": first["runs"][:1] * 2}
         self.assertEqual((records.advised([twice]), records.advised([{"runs": None}]), records.advised([]), records.advised(None)),
                          ({}, {}, {}, {}))
-        self.assertEqual(sorted(records.advised([{"runs": first["runs"]}, {"runs": first["runs"][:1]}])), [("r_000000Z", "2026-10-21T00:00:00Z")])
+        # The last two records are read, as a beginning is kept: the earlier's word stands for a Run the later does not
+        # list, the later's for one it does, and a third record back says nothing.
+        bare = [{k: v for k, v in r.items() if k not in records.ADVISED} for r in first["runs"]]
+        both = records.advised([{"runs": first["runs"]}, {"runs": first["runs"][:1]}])
+        self.assertEqual(sorted(key[0] for key in both), ["r_000000Z", "r_000001Z", "r_000003Z"])
+        self.assertEqual(sorted(key[0] for key in records.advised([{"runs": first["runs"]}, {"runs": bare[:1]}])),
+                         ["r_000001Z", "r_000003Z"])
+        self.assertEqual(records.advised([{"runs": first["runs"]}, {"runs": bare}]), {})
+        self.assertEqual(records.advised([{"runs": first["runs"]}, {"runs": []}, {"runs": []}]), {})
+        changed = [dict(first["runs"][0], advisory_cost_usd=9)]
+        self.assertEqual(records.advised([{"runs": first["runs"]}, {"runs": changed}])[("r_000000Z", "2026-10-21T00:00:00Z")],
+                         {"advisory_asks": 2, "advisory_cost_usd": 9})
+        # One read asks for the costs of so many Runs and no more: the rest are left off, and asked for the pass after.
+        with mock.patch.object(records, "COSTS", 2):
+            capped, _ = self.read(rows, *costs[0], *costs[1], *costs[2], *costs[3], day="2026-10-21")
+        self.assertEqual((said(capped), stamped(capped), capped["complete"]),
+                         ([{"advisory_asks": 2, "advisory_cost_usd": 1.42}, {"advisory_cost_usd": None}, {}, {}], 2, True))
+        self.assertEqual(records.COSTS, 50)
+        with mock.patch.object(records, "COSTS", 1):
+            later, _ = self.read(rows, *costs[2], day="2026-10-21", advised=records.advised([{"runs": capped["runs"]}]))
+        self.assertEqual(stamped(later), 1)        # what is kept is not counted against the cap
 
     def test_an_outcome_is_read_once_and_kept_by_its_run_and_attempt(self):
         # #285's ruling: an outcome is written once by its attempt's final step, so one a pass record read is kept by
