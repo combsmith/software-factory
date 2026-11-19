@@ -11,7 +11,8 @@ and written to the folder `OUT` for the pass job's next steps (#193's ruling 10 
    (`records.begun`), the jobs of the rest asked for the open pull requests' Runs alone, 50 at most (decisions 0193
    and 0196); the facts of each open pull request; the open issues updated since `issues.served_from`, none while it is
    null, and each one's own facts by `adapters/issues.py`, with the accounts and the dating the pull requests' have;
-   and, for reconciliation, what each Factory identity wrote and what the Factory recorded (decision 0112). Not read
+   and, for reconciliation, what each Factory identity wrote and what the Factory recorded (decision 0112). The issues
+   are listed and read last, without the tracking issue, by the number the passes recorded (issue 901). Not read
    yet: an issue's Runs' jobs, which decision 0196 asks of the open pull requests' alone; nor is any issue's write
    reconciled. Its linked pull requests are read, whole only where no pull request names it while their keyword
    spans are not read (issue 734), so an issue a pull request names defers.
@@ -156,6 +157,7 @@ def recorded_effects(transport, config: dict, runs, own: int, before, since: str
     from_passes = passes.written(transport, home, controller["home"]["branch"], controller["workflows"]["poller"], own,
                                  since, known_passes, sleep=sleep)
     return {"applied": from_runs["applied"], "written": from_passes["written"],
+            "tracking": reconcile.tracking(from_passes, before),
             "read": {"runs": from_runs["read"], "passes": from_passes["read"]},
             "at": dict(from_runs["at"], **from_passes["at"]),
             "whole": from_runs["whole"] and from_passes["whole"]}
@@ -209,16 +211,6 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
         numbers, whole = [], False
     if not whole:
         raise Stop("pull_requests_unreadable")
-    # The open issues the Kernel could serve, none while `issues.served_from` is null; a list read short is never the
-    # whole, and stops the pass as the pull requests' does: an issue it left out would read as gone from the view.
-    # Issues whose Apps cannot be told are not listed, as with no date: none is read or decided, and the pass says so.
-    served = None if refused else config["kernel"]["issues"]["served_from"]
-    try:
-        listed, listed_whole = items.open_issues(transport, home, served)
-    except Unanswered:
-        listed, listed_whole = [], False
-    if not listed_whole:
-        raise Stop("issue_list_unreadable")
     earlier = pass_.earlier(reads_.previous_records(previous), now) or []
     try:
         runs = records.runs(transport, home, branch, run_files(controller), dispatcher(controller),
@@ -247,17 +239,6 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
             # Its code goes in the record: one that moved while it was read is not one GitHub did not answer (#658).
             pulls.append({"facts": {"item": {"repo": home, "type": "pull_request", "number": number}}, "title": None,
                           "unread": reads_.MOVED if isinstance(err, facts_.Moved) else reads_.UNANSWERED})
-    # Each issue's own facts, read and dated as a pull request's are; its title beside them.
-    issues = []
-    for number in listed:
-        through = Dated(transport)
-        try:
-            facts, title = issues_.read(through, home, number, who, lambda: utc(clock), identities=identities)
-            issues.append({"facts": facts, "title": title})
-            facts_reads += dated(through.first)
-        except Unanswered as err:
-            issues.append({"facts": {"item": {"repo": home, "type": "issue", "number": number}}, "title": None,
-                           "unread": reads_.MOVED if isinstance(err, facts_.Moved) else reads_.UNANSWERED})
     before = pass_.earlier(reads_.previous_records(previous), now)
     since = utc(lambda: clock() - WINDOW - controller["not_run_seconds"])
     # A pull request that moved for the first time is owed to the next pass's reconciliation, not read short here.
@@ -265,11 +246,36 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     graced = pass_.moved_once([e["facts"]["item"] for e in left], [e["unread"] for e in left], before)
     owed = {e["facts"]["item"]["number"] for e in left if page(e["facts"]["item"]) in graced}
     seen, unread, gone = writes_seen(transport, config, numbers, kept, before, since, clock, owed)
+    effects = recorded_effects(transport, config, runs, int(run_id), before, since, sleep)
+    # The open issues the Kernel could serve, none while `issues.served_from` is null, without the tracking issue, by
+    # the number the passes recorded. A list read short is never the whole, and stops the pass as the pull requests'
+    # does: an issue it left out would read as gone from the view.
+    # Issues whose Apps cannot be told are not listed, as with no date: none is read or decided, and the pass says so.
+    apart = effects.pop("tracking")
+    served = None if refused else config["kernel"]["issues"]["served_from"]
+    try:
+        listed, listed_whole = items.open_issues(transport, home, served, apart=apart or ())
+    except Unanswered:
+        listed, listed_whole = [], False
+    if not listed_whole:
+        raise Stop("issue_list_unreadable")
+    # Each issue's own facts, read and dated as a pull request's are; its title beside them. While the tracking
+    # issue's number is not read, none is: each is left out as unread, so that one is never served as a Work item.
+    issues = []
+    for number in listed:
+        through = Dated(transport)
+        try:
+            if apart is None:
+                raise Unanswered("the tracking issue's number was not read")
+            facts, title = issues_.read(through, home, number, who, lambda: utc(clock), identities=identities)
+            issues.append({"facts": facts, "title": title})
+            facts_reads += dated(through.first)
+        except Unanswered as err:
+            issues.append({"facts": {"item": {"repo": home, "type": "issue", "number": number}}, "title": None,
+                           "unread": reads_.MOVED if isinstance(err, facts_.Moved) else reads_.UNANSWERED})
     return {"started": started, "pause": pause_.read(transport, home.split("/")[0], [home]),
             "records": runs, "pull_requests": pulls, "issues": issues, pass_.ISSUE_APPS: refused,
-            "facts_reads": facts_reads, "usage": {},
-            "seen": seen, "unread": unread, "gone": gone,
-            "effects": recorded_effects(transport, config, runs, int(run_id), before, since, sleep)}
+            "facts_reads": facts_reads, "usage": {}, "seen": seen, "unread": unread, "gone": gone, "effects": effects}
 
 
 def one_pass(transport, config: dict, run_id: str, clock=time.time, sleep=time.sleep) -> dict:
