@@ -15,6 +15,8 @@ is refused whole, so that nothing is dispatched from a pass that cannot be repla
   scope missing is one that was not read;
 - `records`: what `adapters.records.runs` returned, or None if it raised;
 - `pull_requests` and `issues`: `[{"facts", "title"}]`, the title beside the facts and never in them;
+- `issue_apps_unreadable`: true where the issues' configuration names the queue App or a Lens's App as an issue's App
+  (`controller/__main__.py`'s `reader`): no issue is decided, and the pass raises it as an alert (issue 901);
 - `facts_reads`: each facts read's `{"date", "age"}`;
 - `usage`: what was read of the window's job-minutes and GraphQL points, by `factory_job_minutes`, `org_job_minutes`
   and `graphql_points_peak_hour`, each missing until a port reads it;
@@ -54,6 +56,7 @@ PAUSED, NOT_PAUSED = "true", "false"
 CAPACITY, ENVIRONMENT = health_.CAPACITY, health_.ENVIRONMENT
 NOT_RUN = "not_run"
 NEVER_STARTED = "runs_never_started"
+ISSUE_APPS = "issue_apps_unreadable"
 __all__ = ["Refused", "run", "rebuild", "wait_before_reading", "context_of", "issue_config"]
 
 
@@ -304,7 +307,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     # Facts that are not facts, and an item listed twice, never reach the Kernel and no record could hold them: the
     # item is left out of this pass, as one alert, and every other item is decided as it would be without it.
     pulls, left_out, why = reads_.items(copy.deepcopy(reads.get("pull_requests")), "facts")
-    issues, also, why_also = reads_.items(copy.deepcopy(reads.get("issues")), "issue-facts")
+    refused = reads.get(ISSUE_APPS) is True     # the issues alone are refused: the pull requests are decided as ever
+    issues, also, why_also = reads_.items(copy.deepcopy([] if refused else reads.get("issues")), "issue-facts")
     left_out, why = left_out + also, why + why_also
     # A pull request that moved while it was read, and had not in the last pass, is deferred with no alert: the pass its
     # change starts reads it again. Any other left out, or one that moved twice in a row, is the alert (#658).
@@ -384,6 +388,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     alerts = health_.alerts([e["decision"]["reason"] for e in entries], context, capacity, causes,
                             bool(alarmed), raised, unnamed, reconcile_.alerts(found), due,
                             whole and never_started(runs, now, rules["automatic_pause"]))
+    alerts = sorted(alerts + [ISSUE_APPS]) if refused else alerts
     decided = [e["facts"]["item"] for e in entries]
     titles = {key(e["facts"]["item"]): e.get("title") if isinstance(e.get("title"), str) else ""
               for e in pulls + issues if e["facts"]["item"] in decided}

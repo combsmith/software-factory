@@ -6068,16 +6068,24 @@ class Items(unittest.TestCase):
                 found["response"]["body"]["data"]["repository"].pop("pullRequests")
             return found
 
-        def read(*pages):
-            return items.open_issues(github.Replay(list(pages)), HOME, since)
+        def read(*pages, apart=()):
+            return items.open_issues(github.Replay(list(pages)), HOME, since, apart=apart)
         self.assertEqual(read(page([4, 5], total=3, more=True), page([9], total=3, after="c1")), ([4, 5, 9], True))
         self.assertEqual(read(page([4, 5], total=3, more=True), page([9], total=4, after="c1"))[1], False)
         self.assertEqual(read(page([4], total=2))[1], False)
         # With no date no issue is served: none is listed, and nothing is asked. One that is no time lists nothing.
-        self.assertEqual(items.open_issues(github.Replay([]), HOME, None), ([], True))
+        self.assertEqual(items.open_issues(github.Replay([]), HOME, None, apart=()), ([], True))
         for unreadable in ("2026-10-01", "0001-01-01T00:00:00Z"):     # no time, or none a second before it (Carbon)
             with self.assertRaises(github.Unanswered):
-                items.open_issues(github.Replay([]), HOME, unreadable)
+                items.open_issues(github.Replay([]), HOME, unreadable, apart=())
+        # The Controller's tracking issue, 5, open and updated since the date, is one GitHub lists and counts. It is
+        # left out by the number handed, whoever its author is, and the list is whole by all three (issue 901).
+        self.assertEqual(read(page([4, 5, 9]), apart=[5]), ([4, 9], True))
+        # A number that is no open issue's leaves out none; a list read short is short with or without it.
+        self.assertEqual(read(page([4, 5, 9]), apart=[8]), ([4, 5, 9], True))
+        # Every number handed is left out, not the first alone (Astra).
+        self.assertEqual(read(page([8, 41]), apart=[4, 8]), ([41], True))
+        self.assertEqual(read(page([4, 5], total=3), apart=[5]), ([4], False))
 
     def test_open_pull_requests_of_another_repo_or_with_errors_are_refused(self):
         other = open_page([1])
@@ -6313,6 +6321,42 @@ class Issues(unittest.TestCase):
         for who in (CONTROLLER_APP, PERSON):
             with self.assertRaises(github.Unanswered):
                 self.read(issue_read([issue_event("commented", 0, who, {"name": "an App"})]))
+
+    def test_a_role_apps_comment_is_its_roles_and_no_act_of_its_is_counted_on_an_issue_or_a_pull_request(self):  # issue 901
+        # controller/1 holds the investigating Role's App under `roles` alone, and the Controller's, whose label is an act.
+        from adapters import facts as facts_
+        role = ("combsmith-sf-business-analyst[bot]", 42, "Bot")
+        held = json.loads((ROOT / "config" / "controller.json").read_text())
+        held["accounts"].update(controller={"id": 41, "type": "Bot", "login": CONTROLLER_APP[0]},
+                                roles=dict(held["accounts"]["roles"], **{"dev-lead": None, "business-analyst": {
+                                    "id": 42, "type": "Bot", "login": role[0]}}))
+        _, approver, lenses, factory = facts_.accounts_of(held)
+        self.assertEqual(facts_.roles_of(held) - factory, {role[1:]})
+        events = [issue_event("commented", 1, role), issue_event("labeled", 2, role, label={"name": "x"}),
+                  issue_event("labeled", 3, CONTROLLER_APP, label={"name": "y"})]
+        router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
+        accounts = timeline.Accounts(router, "o/r", approver, lenses, factory, roles=facts_.roles_of(held))
+        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES)
+        # The Role's comment is read as its own; its label is no act, and the Controller's is the one counted.
+        self.assertEqual((found["role_comments"], found["acts_since_writer"]), ([{"by": role[0], "at": minute(1)}], 1))
+        # A pull request's timeline is counted by the same reader: what `acts_since_writer` counts there is as it was,
+        # each label and queue entry of the agents, the Lenses, the Controller and the queue App, and no Role's.
+        self.assertEqual(timeline.since_writer(events, accounts), {"last_writer_action_at": None, "acts_since_writer": 1})
+        # With no Role's account told, the comment is no Role's.
+        bare = timeline.Accounts(Router(github.Replay(issue_read(events)), {"don-petry": "admin"}), "o/r", approver, lenses, factory)
+        self.assertEqual(issues.comments(events, bare)[0], [])
+        # A Role's App that is also a Lens's, as controller/1 holds pr-review's, is counted as a Lens's: its label is an
+        # act, on an issue and on a pull request.
+        both = ("combsmith-sf-pr-review[bot]", held["accounts"]["roles"]["pr-review"]["id"], "Bot")
+        self.assertIn(both[1:], facts_.roles_of(held) & set(lenses) & factory)
+        events.append(issue_event("labeled", 4, both, label={"name": "z"}))
+        router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
+        accounts = timeline.Accounts(router, "o/r", approver, lenses, factory, roles=facts_.roles_of(held))
+        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES)
+        self.assertEqual((found["acts_since_writer"], timeline.since_writer(events, accounts)["acts_since_writer"]), (2, 2))
+        # And it is read as that Lens, never as an App, wherever who acted is told: its label on an issue and on a pull request.
+        lens = {"kind": "lens", "name": "pr-review", "can_write": False}
+        self.assertEqual((found["label_events"][-1]["by"], timeline.label_events(events, accounts)[-1]["by"]), (lens, lens))
 
     def test_an_issue_github_did_not_answer_whole_is_refused(self):  # decision 0218
         def edits(drop=None, **change):
