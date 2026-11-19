@@ -16312,7 +16312,7 @@ MUTANTS = ISSUE + [
     ("a write to the list of Deployments is a read of it", "tools/check_release.py",
      '            listed = None if WRITES.search(call) else DEPLOYMENTS_LIST.search(call)', '            listed = DEPLOYMENTS_LIST.search(call)', ("tests.test_release.Fixture.test_no_read_of_the_deployments_list_keeps_a_link_header_however_it_is_written",)),
     ("a write by gh api's method is a read", "tools/check_release.py",
-     'WRITES = re.compile(r"^\\s*(POST|PUT|PATCH|DELETE)\\s|(?:-X|--method)[\\s=]+(?!GET\\b)[A-Za-z]+", re.I)', 'WRITES = re.compile(r"^\\s*(POST|PUT|PATCH|DELETE)\\s", re.I)', ("tests.test_release.Fixture.test_no_read_of_the_deployments_list_keeps_a_link_header_however_it_is_written",)),
+     'WRITES = re.compile(r"(?:^\\s*(?:POST|PUT|PATCH|DELETE)\\s)|(?:(?:-X|--method)[\\s=]+(?!GET\\b)[A-Za-z]+)", re.I)', 'WRITES = re.compile(r"(?:^\\s*(?:POST|PUT|PATCH|DELETE)\\s)", re.I)', ("tests.test_release.Fixture.test_no_read_of_the_deployments_list_keeps_a_link_header_however_it_is_written",)),
     ("a read of Deployments is read only from the start of its call", "tools/check_release.py",
      'DEPLOYMENTS_LIST = re.compile(r"\\b%s/deployments/?(\\?[^\\s\'\\"]*)?(?=[\\s\'\\"]|$)" % re.escape(API_REPO.lstrip("/")), re.I)', 'DEPLOYMENTS_LIST = re.compile(r"^GET /%s/deployments/?(\\?[^\\s\'\\"]*)?(?=[\\s\'\\"]|$)" % re.escape(API_REPO.lstrip("/")), re.I)', ("tests.test_release.Fixture.test_no_read_of_the_deployments_list_keeps_a_link_header_however_it_is_written",)),
     ("a read of Deployments with a slash before its query is none", "tools/check_release.py",

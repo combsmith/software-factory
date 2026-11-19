@@ -47,7 +47,7 @@ SCHEMAS = ("release-fixture", "trial")
 # of a Release's runs, whatever test reads it. A read of one Deployment, or of its statuses, is no read of the list.
 DEPLOYMENTS_LIST = re.compile(r"\b%s/deployments/?(\?[^\s'\"]*)?(?=[\s'\"]|$)" % re.escape(API_REPO.lstrip("/")), re.I)
 # A call that writes, by its first word or gh api's method, which reads no list (cubic's read).
-WRITES = re.compile(r"^\s*(POST|PUT|PATCH|DELETE)\s|(?:-X|--method)[\s=]+(?!GET\b)[A-Za-z]+", re.I)
+WRITES = re.compile(r"(?:^\s*(?:POST|PUT|PATCH|DELETE)\s)|(?:(?:-X|--method)[\s=]+(?!GET\b)[A-Za-z]+)", re.I)
 # The Channel a read of Deployments names by its environment, whose name `removed` must give.
 CHANNEL = re.compile(r"[?&]environment=factory-([a-z]+)(?=&|$)")
 # A page asked in the query, or as a field gh api sends as one.
