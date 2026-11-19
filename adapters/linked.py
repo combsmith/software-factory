@@ -199,6 +199,12 @@ def entry(transport, read: dict, identities: dict, accounts: timeline.Accounts, 
             "keyword": number in join["refs"], "keyword_spans": spans.get(number, []), "close_events": closes(events, accounts)}, whole
 
 
+def linked_now(events: list) -> bool:
+    """Whether a pull request is linked by hand now: its last link or unlinking on the issue's timeline, in the order
+    the timeline gives them, is a link (trials/P-61.json)."""
+    return bool(events) and events[-1]["action"] == "connected"
+
+
 def on_default(read: dict) -> bool:
     """Whether a pull request's base is the default branch, as REST names both; refused where either cannot be read."""
     base = read.get("base") if isinstance(read.get("base"), dict) else {}
@@ -222,8 +228,10 @@ def listing(transport, repo: str, number: int, updated_at: str, began: str, iden
         got = pull.read(transport, repo, candidate)
         if not on_default(got):
             # A closer of this life, or one a pass saw with its keyword, to another base now is no link, and could
-            # have been one: not whole.
-            whole = whole and candidate not in present and candidate not in spans
+            # have been one: not whole. So is one linked by hand now: GitHub keeps its link and its closing reference
+            # when its base moves (trials/P-69.json), and it could have been linked before any pass saw it (decision 0236).
+            whole = whole and candidate not in present and candidate not in spans \
+                and not linked_now(join["links"].get(candidate, []))
             continue
         made, read_whole = entry(transport, got, identities, accounts, join, spans)
         found.append((made, got.get("merge_commit_sha")))
