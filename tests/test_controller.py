@@ -1904,6 +1904,8 @@ class Advisory(unittest.TestCase):
                                # It asked and gives no cost, or nought, which no read costs.
                                (ran(advisory_asks=1, advisory_cost_usd=None), 2), (ran(advisory_asks=1), 2),
                                (ran(advisory_asks=2, advisory_cost_usd=0), 2), (ran(advisory_asks=1, advisory_cost_usd=-0.0), 2),
+                               (ran(advisory_asks=2, advisory_cost_usd=5e-324), 2), (ran(advisory_asks=2, advisory_cost_usd=4e-7), 2),
+                               (ran(advisory_asks=2, advisory_cost_usd=0.000001), 0.000001),
                                # Its advice was not read, or it is still running, whatever it says.
                                (ran(), 2), (ran(advisory_cost_usd=0.5), 2),
                                (ran(status="in_progress", advisory_asks=1, advisory_cost_usd=0.01), 2),
@@ -1926,6 +1928,12 @@ class Advisory(unittest.TestCase):
                    ran("2026-11-19T00:00:00Z", advisory_asks=1, advisory_cost_usd=100),
                    ran(intent="fix-findings", advisory_asks=1, advisory_cost_usd=100), ran("2026-11-18T23:59:59Z")]
         self.assertEqual(advisory.spent(records, self.NOW, 2), 3.75)
+        # A Run still in flight counts on today's sum whatever day it started: what runs across midnight is carried.
+        for start in ("2026-11-17T23:59:59Z", "2026-11-10T00:00:00Z", "2026-11-19T00:00:00Z"):
+            for status in ("in_progress", "queued", None):
+                self.assertEqual(advisory.spent([ran(start, status=status, advisory_asks=1, advisory_cost_usd=0.01)], self.NOW, 2), 2,
+                                 (start, status))
+        self.assertEqual(advisory.spent([ran("2026-11-17T23:59:59Z", intent="fix-findings", status="in_progress")], self.NOW, 2), 0)
         for start in (None, "", 1795000000, "20261118T090000Z", " 2026-11-18T09:00:00Z", "2026-11-17", "2026-11-17T23:59:59+00:00"):
             self.assertEqual(advisory.spent([ran(start, advisory_asks=1, advisory_cost_usd=7)], self.NOW, 2), 7, start)
         self.assertEqual(advisory.spent([{"intent": "review-change"}, None, "x"], self.NOW, 2), 6)
