@@ -334,26 +334,26 @@ def advised(previous: list) -> dict:
     cost and no count read no file where one could be: it is kept as none only once two records in a row say so, as
     `known` keeps an outcome that is not there, since GitHub may list an artifact a little after its Run ends. A key a
     record lists twice is kept from neither listing, and nothing is kept from what lists no runs."""
-    def read(record) -> tuple:
-        rows = record.get("runs") if isinstance(record, dict) else None
-        said, keys = {}, []
+    def costs_in(one) -> tuple:
+        rows = one.get("runs") if isinstance(one, dict) else None
+        said, named_ = {}, []
         for row in rows if isinstance(rows, list) else []:
-            key = (row.get("run"), row.get("started_at")) if isinstance(row, dict) else (None, None)
-            if not (isinstance(key[0], str) and isinstance(key[1], str)):
+            attempt = (row.get("run"), row.get("started_at")) if isinstance(row, dict) else (None, None)
+            if type(attempt[0]) is not str or type(attempt[1]) is not str:
                 continue
-            keys.append(key)
+            named_.append(attempt)
             if ADVISED[1] in row:
-                said[key] = {name: row[name] for name in ADVISED if name in row}
-        return {key: held for key, held in said.items() if keys.count(key) == 1}, keys
-    kept, absent = {}, {}
-    for record in (list(previous[-2:]) if isinstance(previous, list) else []):
-        found, listed = read(record)
-        kept = {key: kept[key] for key in kept if key not in listed}
-        none = {key: held for key, held in found.items() if ADVISED[0] not in held}
-        kept.update({key: held for key, held in found.items() if key not in none})
-        kept.update({key: held for key, held in none.items() if key in absent})     # the second record in a row
+                said[attempt] = {name: row[name] for name in ADVISED if name in row}
+        return {attempt: cost for attempt, cost in said.items() if named_.count(attempt) == 1}, named_
+    costs, absent = {}, {}
+    for one in (previous[-2:] if isinstance(previous, list) else []):
+        read_, named_ = costs_in(one)
+        costs = {attempt: cost for attempt, cost in costs.items() if attempt not in named_}
+        none = {attempt: cost for attempt, cost in read_.items() if ADVISED[0] not in cost}
+        costs.update({attempt: cost for attempt, cost in read_.items() if attempt not in none})
+        costs.update({attempt: cost for attempt, cost in none.items() if attempt in absent})   # the second record in a row
         absent = none
-    return kept
+    return costs
 
 
 def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, per_page: int = PAGE,
