@@ -19139,8 +19139,7 @@ MUTANTS = ISSUE + [
     ('an answer to a request that may not leave is taken', 'guards/push.py',
      '    if step is None or not isinstance(answer, dict)',
      '    if not isinstance(answer, dict)', PUSH_ANSWER),
-    # guards/push.py writes nothing before its reads, one blob to each content, and one tree of exactly the changes,
-    # read back so.
+    # guards/push.py writes nothing before its reads, one blob to each content, and one tree of exactly the changes.
     ('a push writes with the admitted tree unread', 'guards/push.py',
      '    if changes is None or state["before"] is None or not state["branch_read"]:\n',
      '    if changes is None or not state["branch_read"]:\n', PUSH_FIRST),
@@ -19219,6 +19218,8 @@ MUTANTS = ISSUE + [
     ('the admitted tree made again is a change', 'guards/push.py',
      '        if not _sha(name) or name == state["tree"]:\n',
      '        if not _sha(name):\n', PUSH_TREE),
+    # guards/push.py reads the tree made back, makes one commit of it, writes the branch once at that commit, and
+    # lands when the branch is read again.
     ('the tree read back is held to nothing', 'guards/push.py',
      '        if listing is None or not _holds(state["before"], listing, push["changes"], state["made"]):\n',
      '        if listing is None:\n', PUSH_BACK),
@@ -19243,8 +19244,6 @@ MUTANTS = ISSUE + [
     ('a file left alone is not read back', 'guards/push.py',
      '    return all(after[path] == ((written[path][0], made.get(path)) if path in written else before.get(path))\n               for path in after)\n',
      '    return all(after[path] == ((written[path][0], made.get(path)) if path in written else before.get(path))\n               for path in written)\n', PUSH_BACK),
-    # guards/push.py makes one commit of the tree read back, writes the branch once at it, and lands when both are
-    # read again.
     ('a commit is made of a tree not read back', 'guards/push.py',
      '        if (state["checked"] and commit is None and',
      '        if (commit is None and', PUSH_COMMIT),
