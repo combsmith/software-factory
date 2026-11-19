@@ -183,7 +183,10 @@ def read(told: dict, answer: dict, asks: int, seconds, schemas: dict) -> dict:
     and the prices."""
     status, body = answer.get("status"), answer.get("body")
     known = isinstance(body, dict) and status == 200
-    usage = body.get("usage") if known and isinstance(body.get("usage"), dict) else {}
+    # What a response says of its tokens while it is still running, or once it is cancelled, is not what it cost:
+    # only one that has ended as completed or incomplete is priced, and any other read's cost is not known.
+    ended = known and (told["api"] != "responses" or body.get("status") in ("completed", "incomplete"))
+    usage = body.get("usage") if ended and isinstance(body.get("usage"), dict) else {}
     names = ("input_tokens", "output_tokens") if told["api"] == "responses" else ("prompt_tokens", "completion_tokens")
     model = body.get("model") if known else None
     spent = _usage(told, model, (_count(usage.get(names[0])), _count(usage.get(names[1]))), asks, seconds)
