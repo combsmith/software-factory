@@ -1,0 +1,291 @@
+{
+  "schema": "trial/1",
+  "trial": "P-68",
+  "question": "When a workflow run has uploaded an artifact of one file, and another of two, what does GitHub answer to the list of the run's artifacts by a name (`GET /repos/{repo}/actions/runs/{id}/artifacts?name=...&per_page=100`), for a name that is there, a name that is not, and after the artifact is deleted; to its download (`GET /repos/{repo}/actions/artifacts/{id}/zip`); and what does the storage the download redirects to answer?",
+  "pass": "Written before the run, in the design's row for P-68 at commit f7aed80 of the Factory's repo, committed 2026-11-18T23:55:08Z, before the trial's workflow first ran (23:55:45Z); this sitting is its third run, 44425338714, the first two having uploaded a file whose Run name outcome/1 does not allow: The list gives `total_count` and, for each artifact, `id`, `name`, `size_in_bytes`, `expired` and `digest`, the digest as `sha256:` and 64 hex digits, or absent; `size_in_bytes` is the length of the zip the storage serves and `digest` its sha256; the download answers with a redirect to GitHub's artifact storage, a host `tools/check_repo.py`'s `STORAGE` names, and the storage answers 200 with the zip; the zip of a one-file artifact holds that file under its own name and nothing else; and `adapters/artifacts.py` reads the recorded exchange whole with no change (issue 917). Asked as the Maintainer: the answer's shape does not depend on who asks.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-11-18T23:59:37Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "workflow",
+          "name": "p68-artifacts, run 44425338714, its job p68 / download, with its own GITHUB_TOKEN and permissions actions: read alone"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/artifacts/14482759842/zip (curl, following no redirect): the one-file artifact's download, asked inside the run that uploaded it, since nothing that follows a redirect shows it; the job's time when both answers were kept 2026-11-18T23:59:58Z; of the answer's headers the job kept those a fixture may keep, and of `location` its address without its query, which signs it",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 302,
+        "headers": {
+          "date": "Wed, 18 Nov 2026 23:59:58 GMT",
+          "content-type": "text/html;charset=utf-8",
+          "content-length": "0",
+          "location": "https://productionresultssa13.blob.core.windows.net/actions-results/bd6a0fc7-654c-8b04-a22c-f59e76cad947/workflow-job-run-491087ab-d63e-5d37-b32c-21110f863b42/artifacts/25a63e52a98f6fdaa6187da559a0a3a55d845d0322ca183ad6ad5e006c4ed646.zip",
+          "server": "github.com"
+        },
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "anonymous",
+          "name": "no credential but the signature in the address's query, which is not kept"
+        },
+        "via": "storage",
+        "call": "GET https://productionresultssa13.blob.core.windows.net/actions-results/bd6a0fc7-654c-8b04-a22c-f59e76cad947/workflow-job-run-491087ab-d63e-5d37-b32c-21110f863b42/artifacts/25a63e52a98f6fdaa6187da559a0a3a55d845d0322ca183ad6ad5e006c4ed646.zip (curl, following no redirect): the address exchange 0 was answered with, asked by the same job with its query and no Authorization header; the zip as served, kept whole as base64",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-length": "237",
+          "content-type": "application/zip",
+          "last-modified": "Wed, 18 Nov 2026 23:59:48 GMT",
+          "etag": "\"0x8DF45D00707054A\"",
+          "server": "Windows-Azure-Blob/1.0 Microsoft-HTTPAPI/2.0",
+          "date": "Wed, 18 Nov 2026 23:59:57 GMT"
+        },
+        "body": {
+          "base64": "UEsDBBQACAAIAHe/cl0AAAAAAAAAAAAAAAAMAAAAb3V0Y29tZS5qc29uq1YqTs5IzU1UslJQyi8tSc7PTdU3VNJRUCoqzQOJFcUHmFmEBHk6+oAFU3NSE4tTQRJpickl+UWV+mUGeoZ6hsYgWah+kGxmSWouRENicT7EoNTi0pyS+My8ssSczBSlWi4AUEsHCHZUqw1jAAAAegAAAFBLAQItAxQACAAIAHe/cl12VKsNYwAAAHoAAAAMAAAAAAAAAAAAIACkgQAAAABvdXRjb21lLmpzb25QSwUGAAAAAAEAAQA6AAAAnQAAAAAA"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/44425338714/artifacts?name=outcome&per_page=100 (gh api): the run's artifacts by the name of its one-file artifact, uploaded by its job p68 / upload from p68/outcome.json; client time 2026-11-19T00:00:11Z",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 19 Nov 2026 00:00:11 GMT",
+          "etag": "W/\"914386df8816e60fc3f2220702ed8f5d04e302874c7821ea075f8b849ae7863b\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "FA64:2FC5B2:4AC6DF:ECAD00:6AFE3C0B",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4839",
+          "x-ratelimit-reset": "1795046525",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "161"
+        },
+        "body": {
+          "total_count": 1,
+          "artifacts": [
+            {
+              "id": 14482759842,
+              "node_id": "MDg6QXJ0aWZhY3QxNDQ4Mjc1OTg0Mg==",
+              "name": "outcome",
+              "size_in_bytes": 237,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/actions/artifacts/14482759842",
+              "archive_download_url": "https://api.github.com/repos/combsmith/software-factory-canary/actions/artifacts/14482759842/zip",
+              "expired": false,
+              "digest": "sha256:c4157360a74b2299930180ca3c1e3781e72f78c16205478df790d7a1d3f135b7",
+              "created_at": "2026-11-18T23:59:48Z",
+              "updated_at": "2026-11-18T23:59:48Z",
+              "expires_at": "2027-02-16T23:59:37Z",
+              "workflow_run": {
+                "id": 44425338714,
+                "repository_id": 1414593263,
+                "head_repository_id": 1414593263,
+                "head_branch": "trial/p-68",
+                "head_sha": "ee838ec0f422c7bc32e1755a7efb4ad7b2a8bdf4"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/44425338714/artifacts?name=nothing&per_page=100 (gh api): the same list by a name the run uploaded nothing under; client time 2026-11-19T00:00:11Z",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 19 Nov 2026 00:00:11 GMT",
+          "etag": "W/\"0b1073c0a1c3b20e687eb0d5df778e8eac3176813f76716a77545b6258c27376\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "FA65:61554:4D8DE0:F4B304:6AFE3C0B",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4838",
+          "x-ratelimit-reset": "1795046525",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "162"
+        },
+        "body": {
+          "total_count": 0,
+          "artifacts": []
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/44425338714/artifacts?name=two&per_page=100 (gh api): the same list by the name of its two-file artifact, uploaded from p68/two/; client time 2026-11-19T00:00:11Z",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 19 Nov 2026 00:00:12 GMT",
+          "etag": "W/\"a8f179aa44fc1e975dd380a2f9650937af6ba4da471cba9648e4fcb187008302\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "FA66:36309C:4B49E5:EE1911:6AFE3C0B",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4837",
+          "x-ratelimit-reset": "1795046525",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "163"
+        },
+        "body": {
+          "total_count": 1,
+          "artifacts": [
+            {
+              "id": 14484550996,
+              "node_id": "MDg6QXJ0aWZhY3QxNDQ4NDU1MDk5Ng==",
+              "name": "two",
+              "size_in_bytes": 243,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/actions/artifacts/14484550996",
+              "archive_download_url": "https://api.github.com/repos/combsmith/software-factory-canary/actions/artifacts/14484550996/zip",
+              "expired": false,
+              "digest": "sha256:b551c1539ffdb6266e91d61676b180bbaefbe5f1e35a0019331ed316bb515c56",
+              "created_at": "2026-11-18T23:59:50Z",
+              "updated_at": "2026-11-18T23:59:50Z",
+              "expires_at": "2027-02-16T23:59:37Z",
+              "workflow_run": {
+                "id": 44425338714,
+                "repository_id": 1414593263,
+                "head_repository_id": 1414593263,
+                "head_branch": "trial/p-68",
+                "head_sha": "ee838ec0f422c7bc32e1755a7efb4ad7b2a8bdf4"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/44425338714/artifacts?name=outcome&per_page=100 (gh api): the same list as exchange 2, asked after the Maintainer's login deleted artifact 14482759842 (DELETE /repos/combsmith/software-factory-canary/actions/artifacts/14482759842, answered 204); client time 2026-11-19T00:00:32Z",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 19 Nov 2026 00:00:32 GMT",
+          "etag": "W/\"0b1073c0a1c3b20e687eb0d5df778e8eac3176813f76716a77545b6258c27376\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "FA6E:341FC6:4F75D3:FB24D5:6AFE3C20",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4833",
+          "x-ratelimit-reset": "1795046525",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "167"
+        },
+        "body": {
+          "total_count": 0,
+          "artifacts": []
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/artifacts/14482759842/zip (gh api): the deleted artifact's download; client time 2026-11-19T00:00:32Z",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 19 Nov 2026 00:00:32 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "FA6F:176589:4E99AF:F88A38:6AFE3C20",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4832",
+          "x-ratelimit-reset": "1795046525",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "168"
+        },
+        "body": {
+          "message": "Not Found",
+          "documentation_url": "https://docs.github.com/rest/actions/artifacts#download-an-artifact",
+          "status": "404"
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
+    "exchanges[6].request.headers.authorization",
+    "exchanges[0].response.headers.location: its query, which signs the address; the job cut it off before anything was kept",
+    "exchanges[1].request.call: the query of the address asked, the same signature",
+    "exchanges[0].response.headers and exchanges[1].response.headers: every header but those the job kept by name, and of exchange 0's body nothing, which was empty",
+    "exchanges[2].response.headers, exchanges[3], [4], [5] and [6] the same: every header a fixture may not keep",
+    "between exchanges 4 and 5: the Maintainer's DELETE of the one-file artifact, answered 204, which was made and is not kept as an exchange; exchange 5's call says so"
+  ],
+  "verdict": "pass"
+}
