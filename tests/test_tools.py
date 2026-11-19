@@ -2193,6 +2193,48 @@ class Purity(unittest.TestCase):
         root = planted({"kernel/a.py": "from kernel.extra import clock\n", "kernel/extra/clock.py": "import time\n"})
         self.assertTrue(caught(check_purity.run(root), "extra/clock.py:1 imports time"))
 
+    def test_six_older_ways_past_the_kernels_rules_are_caught(self):  # issue 909
+        run = lambda files: check_purity.run(planted(files))
+        # 1. State kept through frozenset: a call in its argument is read, so a list a generator yields is not kept.
+        box = "def _box():\n    yield []\n\n\n"
+        self.assertTrue(caught(run({"kernel/x.py": box + "_KEPT = frozenset([next(_box())])\n"}), "x.py:5 holds a value that can change"))
+        self.assertTrue(caught(run({"kernel/x.py": box + "def f(x, _k=frozenset([next(_box())])):\n    return x\n"}),
+                               "x.py:5 has a default that can change"))
+        for kept in ("frozenset((x for x in ()))", "frozenset([y := 1])", "frozenset(iterable=[next(_box())])"):
+            self.assertTrue(caught(run({"kernel/x.py": box + "_KEPT = %s\n" % kept}), "x.py:5 holds a value that can change"), kept)
+        self.assertEqual(run({"kernel/terms.py": "A = 'a'\n", "kernel/x.py": "from kernel import terms\n\nB = 'b'\n"
+                              "HELD = frozenset({B, terms.A, ('c', 'd')})\nNONE = frozenset()\n"}), [])
+        # 2. A builtin site adds, each of which reads a file, asks the help system or ends the process, as a value.
+        for word in ("license", "copyright", "credits", "help", "exit", "quit"):
+            self.assertTrue(caught(run({"kernel/x.py": "def f():\n    return str(%s)\n" % word}), "x.py:2 uses %s" % word), word)
+        # 3. A folder that holds a .git is skipped by the walk, and an import no file read answers to is refused.
+        hidden = planted({"kernel/x.py": "from kernel.sub import now\n"})
+        (hidden / "kernel" / "sub").mkdir()
+        (hidden / "kernel" / "sub" / ".git").write_text("gitdir: elsewhere\n")
+        (hidden / "kernel" / "sub" / "__init__.py").write_text("import os\n\ndef now():\n    return os.times()\n")
+        found = check_purity.run(hidden)
+        self.assertTrue(caught(found, "kernel/sub/.git holds a .git") and caught(found, "x.py:1 imports kernel.sub, which no file read"))
+        for line in ("import kernel.gone as g\n", "from kernel.gone import x\n", "from kernel.terms.deeper import x\n"):
+            self.assertTrue(caught(run({"kernel/terms.py": "", "kernel/x.py": line}), "which no file read here is"), line)
+        self.assertEqual(run({"kernel/terms.py": "A = 'a'\n", "kernel/sub/y.py": "B = 'b'\n", "kernel/x.py":
+                              "import kernel.terms as t\nimport kernel.sub.y as y\nfrom kernel.sub import y as z\n"
+                              "from kernel import terms\n\n\ndef f():\n    return t.A, y.B, z.B, terms.A\n"}), [])
+        # 4. The package itself, imported under a name, is no module of it: nothing is read off it.
+        self.assertTrue(caught(run({"kernel/q.py": "", "kernel/x.py": "import kernel as k\n\n\ndef f():\n    return k.q\n"}),
+                               "x.py:5 reads q off a value"))
+        # 5. A relative import that climbs past the package; one within it is read by the other rules.
+        self.assertTrue(caught(run({"kernel/x.py": "from .. import tools\n"}), "x.py:1 imports .., from above kernel/"))
+        self.assertTrue(caught(run({"kernel/sub/y.py": "from ... import tools\n"}), "y.py:1 imports ..., from above kernel/"))
+        self.assertFalse(caught(run({"kernel/terms.py": "", "kernel/sub/y.py": "from .. import terms\n"}), "from above kernel/"))
+        # 6. A statement that calls a method of a value it is handed.
+        for body, does in (("    with facts as f:\n        return f\n", "enters what it is handed"),
+                           ("    assert facts, facts\n    return facts\n", "raises"),
+                           ("    yield from facts\n", "drives what it is handed")):
+            self.assertTrue(caught(run({"kernel/x.py": "def f(facts):\n" + body}), "x.py:2 %s" % does), does)
+        for body, does in (("    async with facts as f:\n        return f\n", "enters what it is handed"),
+                           ("    return await facts\n", "awaits what it is handed")):
+            self.assertTrue(caught(run({"kernel/x.py": "async def f(facts):\n" + body}), "x.py:2 %s" % does), does)
+
     def test_the_kernel_is_the_package_python_imports_and_reads_nothing_off_a_value(self):  # issue 851
         # What the guards are held to (issue 838) is asked of the Kernel by the same lines. With no __init__.py Python
         # may import a kernel.py at the root in the package's place, which nothing reads.
@@ -2756,7 +2798,7 @@ class Purity(unittest.TestCase):
                  "    return None\n"
         derive = "from kernel import brakes, gate\nfrom kernel.gate import gates\nimport kernel.gate as gate\n\n\n" \
                  "def derive(facts):\n    pause = brakes.paused(derive, facts)\n    return pause or gates(facts, {})\n"
-        clean = {"kernel/gate.py": gate, "kernel/brakes.py": brakes, "kernel/derive.py": derive}
+        clean = {"kernel/gate.py": gate, "kernel/brakes.py": brakes, "kernel/derive.py": derive, "kernel/terms.py": "HELD = 'h'\n"}
         self.assertEqual(check_purity.run(planted(clean)), [])
         # Any binding of a name either owns stands in for theirs, at any depth and in any form, and so does a binding
         # of either module's own name to anything but that module. Each also binds no name of the other's.

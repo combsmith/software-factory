@@ -21,7 +21,16 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 # `typing` is not among them: it reaches `sys` and an `eval` of its own, and the Kernel needs none of it (issue 588).
 ALLOWED_IMPORTS = {"__future__", "kernel"}
 FORBIDDEN_NAMES = {"open", "print", "input", "exec", "eval", "__import__", "compile", "globals", "locals", "vars",
-                   "getattr", "setattr", "delattr", "__builtins__", "breakpoint", "callable", "iter"}
+                   "getattr", "setattr", "delattr", "__builtins__", "breakpoint", "callable", "iter",
+                   # site's builtins, each of which reads a file, starts the help system or ends the process as a value
+                   # it is handed, `str(license)` among them (issue 909).
+                   "license", "copyright", "credits", "help", "exit", "quit"}
+# The statements that call a method of a value they are handed: `__enter__` and `__exit__`, `__await__`, the iterator
+# `yield from` drives, and `assert`, which raises (issue 909). A `for` over a value is not among them: what the Kernel
+# loops over is a fact, a list or a dictionary.
+HANDLING = {ast.With: "enters what it is handed", ast.AsyncWith: "enters what it is handed",
+            ast.Await: "awaits what it is handed", ast.YieldFrom: "drives what it is handed",
+            ast.Assert: "raises"}
 # What a module may hold at its top level: a value that cannot change after import.
 CONSTANT_CALLS = {"frozenset"}
 # The calendar, which nobody chooses, and so the only numbers but 0 and 1 the Kernel may write: each a constant of
@@ -81,11 +90,17 @@ def _special(node) -> list:
 
 
 def _constant(node) -> bool:
+    """Whether `node` is a value that cannot change after import: a constant, a tuple of them, or a call of
+    CONSTANT_CALLS none of whose arguments calls anything, so that no list a generator yields is kept in it (issue
+    909)."""
     if isinstance(node, ast.Constant):
         return True
     if isinstance(node, ast.Tuple):
         return all(_constant(e) for e in node.elts)
-    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in CONSTANT_CALLS
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in CONSTANT_CALLS
+            and not any(isinstance(n, (ast.Call, ast.Lambda, ast.GeneratorExp, ast.ListComp, ast.SetComp, ast.DictComp,
+                                       ast.NamedExpr, ast.Await, ast.Yield, ast.YieldFrom))
+                        for argument in node.args + [k.value for k in node.keywords] for n in ast.walk(argument)))
 
 
 def _pinned(name: str, node) -> bool:
@@ -569,8 +584,9 @@ def _modules(tree, trees: dict, package: str) -> tuple:
     found, imports, twice = {}, set(), []
     for node in ast.walk(tree):
         own = []
-        if isinstance(node, ast.Import):
-            own = [alias for alias in node.names if alias.asname and alias.name.split(".")[0] == package]
+        if isinstance(node, ast.Import):       # the package itself is no module of it: `import kernel as k` binds none
+            own = [alias for alias in node.names if alias.asname and alias.name.split(".")[0] == package
+                   and "." in alias.name]
         elif isinstance(node, ast.ImportFrom) and not node.level and (node.module or "").split(".")[0] == package:
             folder = "/".join(node.module.split(".")[1:] + [""]).lstrip("/")
             own = [alias for alias in node.names
@@ -626,6 +642,9 @@ def _alone(root: pathlib.Path, read: set, trees: dict, package: str) -> list:
     if (root / package).is_symlink():
         problems.append("%s is a link; what Python imports as %s is then kept somewhere else, which nothing protects"
                         % (package, package))
+    for git in sorted((root / package).rglob(".git")):
+        problems.append("%s holds a .git, and the walk skips its folder whole, so Python could import what is not read "
+                        "here" % git.relative_to(root).as_posix())
     held = [path.relative_to(root / package).as_posix() for path in walk.files(root, package)]
     for name in held:
         if name not in read and name.split("/")[-1] != "AGENTS.md":
@@ -729,6 +748,17 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
             for mod in mods:
                 if mod.split(".")[0] not in ALLOWED_IMPORTS:
                     problems.append("%s:%d imports %s" % (name, line, mod))
+                inner = "/".join(mod.split(".")[1:])
+                if mod.split(".")[0] == "kernel" and inner and inner + ".py" not in read and inner + "/__init__.py" not in read:
+                    problems.append("%s:%d imports %s, which no file read here is: Python would import what this does "
+                                    "not read" % (name, line, mod))
+            if package == "kernel" and isinstance(node, ast.ImportFrom) and node.level > name.count("/") + 1:
+                problems.append("%s:%d imports %s, from above kernel/, which no rule here reads"
+                                % (name, line, "." * node.level + (node.module or "")))
+            for kind, does in HANDLING.items():
+                if isinstance(node, kind):
+                    problems.append("%s:%d %s, which calls a method of a value; the Kernel calls none"
+                                    % (name, line, does))
             if isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
                 problems.append("%s:%d uses %s" % (name, line, node.id))
             if (isinstance(node, ast.Constant) and type(node.value) in (int, float) and node.value not in (0, 1)
