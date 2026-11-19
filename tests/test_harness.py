@@ -1341,8 +1341,11 @@ class Passes(unittest.TestCase):
             self.assertEqual(passes.union(answers)["dispositions"], ruled("rejected"))
         self.assertEqual(passes.union([fixed, dict(fixed)])["dispositions"], ruled("accepted"))
         # So does one that a later answer leaves unruled, or rules only by a proposal: silence is no ruling.
-        proposed = dict(said([]), dispositions=[{"finding": "f_9c1e", "proposal": {"result": "fixed"}}])
-        for answers in ([fixed, said([])], [fixed, proposed], [fixed, dict(fixed), said([])]):
+        proposed = dict(said([]), dispositions=[{"finding": "f_9c1e", "proposal": {"outcome": "fixed"}}])
+        # And one a later answer rules both ways, or by both halves: a hedge is no `accepted`.
+        both_ways = dict(said([]), dispositions=ruled("accepted") + ruled("rejected"))
+        halves = dict(said([]), dispositions=[{"finding": "f_9c1e", "proposal": {"outcome": "fixed"}, "decision": {"result": "accepted"}}])
+        for answers in ([fixed, said([])], [fixed, proposed], [fixed, dict(fixed), said([])], [fixed, both_ways], [fixed, halves]):
             self.assertEqual(passes.union(answers)["dispositions"], ruled("rejected"))
         # Agreement is counted by answer: two answers raising a blocker outvote one raising three minors at the same place.
         minors = [raised("n%d" % i, "kernel/decide.py", line, line, "PR-3", "minor", "functional") for i, line in ((1, 90), (2, 91), (3, 90))]

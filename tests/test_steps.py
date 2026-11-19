@@ -239,12 +239,15 @@ class Reader(unittest.TestCase):
 
         def read_issues(transport, pull_read, who, opener, opened):
             calls["issues"] = (pull_read is pulled, opener, opened is made)
+            calls["accounts"] = who
             return [ISSUE_TEXT]
 
         def read_findings(transport, pull_read, who, lens, asked):
-            # Whose comment is the Lens's own is the port's to tell by the accounts the reader types (issue 856).
+            # Whose comment is the Lens's own is the port's to tell by the accounts the reader types, the ones it reads
+            # the issues by (issue 856).
             calls.setdefault("findings", []).append((transport, pull_read is pulled, isinstance(who, read.timeline.Accounts), lens,
                                                      list(asked)))
+            calls.setdefault("findings_by", []).append(who)
             if said is not None:
                 return said(asked)
             return [{"id": "thread:%s" % ident, "by": dict(LENS), "body": "What it said on %s." % ident} for ident in asked]
@@ -338,6 +341,7 @@ class Reader(unittest.TestCase):
         self.assertEqual(code, 0, printed)
         self.assertEqual(calls["findings"], [("the reader's transport", True, True, "pr-review", [key])
                                              for key in ("PRRT_kw7", "PRRT_kw14")])
+        self.assertTrue(all(who is calls["accounts"] for who in calls["findings_by"]))
         self.assertEqual(json.loads(kept["findings.json"]), [fid("PRRT_kw7"), fid("PRRT_kw14")])
         self.assertEqual(json.loads(kept["texts.json"]), [
             {"id": "finding:" + fid("PRRT_kw7"), "by": LENS, "body": "What it said on PRRT_kw7."},
