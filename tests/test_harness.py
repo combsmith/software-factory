@@ -873,6 +873,8 @@ class Engine(unittest.TestCase):
                           ("a push that is no object", judged(findings=[], effects={"push_commits": ["x"]})),
                           # Nested past what a deep copy walks: still no Result, never a fault of the job's own.
                           ("an answer nested deep", judged(findings=[], effects={"push_commits": json.loads("[" * 600 + "]" * 600)})),
+                          ("a push nested deep beside its patch", judged(findings=[], effects={"push_commits": [
+                              {"id": "e1", "patch": {"body": PATCH}, "x": json.loads("[" * 600 + "]" * 600)}]})),
                           ("two pushes", judged(findings=[], effects={"push_commits": [
                               {"id": "e1", "patch": {"body": PATCH}}, {"id": "e2", "patch": {"body": PATCH}}]}))):
             r = engined(CLI(said=answer(result=said)), the_task, read=True)
@@ -891,8 +893,11 @@ class Engine(unittest.TestCase):
         # A text that is no UTF-8 can be none that is handed over: no Result.
         r = engined(CLI(said=answer(result=pushed(PATCH + "\ud800"))), the_task, read=True)
         self.assertEqual((r["status"], r["reason"]), ("failed", "result_invalid"))
-        # A Result that pushes nothing is as the model answered it.
+        # A Result that pushes nothing is as the model answered it, and every other Effect of one that pushes is kept.
         self.assertEqual(engine.bundled(judged()), judged())
+        said = {"id": "e2", "body": "x"}
+        both = engine.bundled(dict(pushed(), effects=dict(pushed()["effects"], comment=[said])))["effects"]
+        self.assertEqual((both["comment"], sorted(both["push_commits"][0])), ([said], ["bundle", "id", "patch"]))
 
     def test_the_version_is_held_before_and_after_the_call(self):  # L-35
         for versions, asked in (((PIN, "2.1.307"), 1), (("2.1.305", PIN), 0), ((None, PIN), 0), ((PIN, None), 1),
@@ -1480,8 +1485,10 @@ class Job(unittest.TestCase):
             self.assertEqual(result["effects"], {"push_commits": [{"id": "e1", "bundle": {
                 "artifact": "result", "digest": sha((out / "bundle.patch").read_bytes())}}]})
         # The job holds that much and no more: a push with no text, or a bundle that is not its text's, writes no Result.
+        # The bytes are the text's as they are: a last newline missing or doubled is handed over so.
+        for text in (body, PATCH[:-1], PATCH + "\n"):
+            self.assertEqual(run.handed_over(engine.bundled(pushed(text)))[1], text.encode("utf-8"), text)
         whole = engine.bundled(pushed(body))
-        self.assertEqual(run.handed_over(whole)[1], body.encode("utf-8"))
         # Every other Effect of the Result is kept as it was.
         said = {"id": "e2", "body": "x"}
         both = run.handed_over(dict(whole, effects=dict(whole["effects"], comment=[said])))[0]["effects"]
