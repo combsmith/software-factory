@@ -6855,11 +6855,14 @@ class KeywordSpans(unittest.TestCase):
         for none in (seen_by(6, issues=[]), seen_by(6, number=42)):
             self.assertEqual(self.spans(older, none), ({7: [span(3)]}, True))
         # One newer than the base that left the issue out, or an item it cannot name, or whose issues' Apps could not be
-        # told, breaks the chain; another item left out does not.
+        # told, breaks the chain, wherever it stands in `left_out`; another item left out does not.
         apps = {"alerts": ["issue_apps_unreadable"]}
+        other = {"item": dict(self.ITEM, number=42), "code": "facts_unanswered"}
         for left, more, chained in (([{"item": self.ITEM, "code": "facts_unanswered"}], {}, None),
                                     ([{"item": None, "code": "not_facts"}], {}, None), ([], apps, None),
-                                    ([{"item": dict(self.ITEM, number=42), "code": "facts_unanswered"}], {}, True)):
+                                    ([other], {}, True),
+                                    ([other, {"item": self.ITEM, "code": "facts_unanswered"}], {}, None),
+                                    ([other, {"item": None, "code": "not_facts"}], {}, None)):
             self.assertEqual(self.spans(older, seen_by(6, issues=[], left_out=left, **more)), ({7: [span(3)]}, chained))
             self.assertEqual(self.spans(seen_by(6, issues=[], left_out=left, **more)), ({}, chained))
         self.assertEqual(keyword_spans.ISSUE_APPS, "issue_apps_unreadable")
