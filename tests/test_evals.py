@@ -163,6 +163,11 @@ class Scoring(unittest.TestCase):
                          ("fail", ["criterion_not_met"]))
         found = dict(load("examples/eval-case.json"), shown=shown)
         self.assertEqual(eval_result.score(found, dict(example_result(), dispositions=[]))["reasons"], ["ruling_missing"])
+        ruled = [{"finding": f, "decision": {"result": said}} for f, said in right]
+        self.assertEqual(eval_result.score(found, dict(example_result(), dispositions=ruled))["verdict"], "pass")
+        # A criterion not met keeps no ruling from being scored: a completed Result is told each fault.
+        self.assertEqual(answered(covered={"verdict": "not_applicable", "reason": "no_rule_added"}),
+                         ("fail", ["criterion_not_met", "ruling_missing"]))
         # One Finding shown twice, with whatever words and rulings, is no case to score.
         twice = dict(case, shown=[shown[0], dict(shown[1], id=fixed)])
         self.assertEqual(validate(twice, known["eval-case"], schemas=known), [])
@@ -213,11 +218,16 @@ class Scoring(unittest.TestCase):
                          ("a Finding that does not gate", dict(case, shown=[dict(shown[0], severity="minor")])),
                          ("no category", dict(case, shown=[{k: v for k, v in shown[0].items() if k != "category"}])),
                          ("no severity", dict(case, shown=[{k: v for k, v in shown[0].items() if k != "severity"}])),
-                         ("another code", dict(aside, expected=dict(aside["expected"], reason="no_rule_added")))):
+                         ("another code", dict(aside, expected=dict(aside["expected"], reason="no_rule_added"))),
+                         ("no id", dict(case, shown=[{k: v for k, v in shown[0].items() if k != "id"}])),
+                         ("no text", dict(case, shown=[{k: v for k, v in shown[0].items() if k != "text"}])),
+                         ("an info Finding", dict(case, shown=[dict(shown[0], severity="info")])),
+                         ("a person's category", dict(case, shown=[dict(shown[0], category="human")]))):
             self.assertEqual(len(validate(odd, known["eval-case"], schemas=known)), 1, why)
         fifty = dict(case, shown=[dict(shown[0], id="f_%04x" % n) for n in range(50)])
         self.assertEqual(validate(fifty, known["eval-case"], schemas=known), [])
         self.assertEqual(validate(dict(case, shown=[dict(shown[0], category="uncategorised")]), known["eval-case"], schemas=known), [])
+        self.assertEqual(validate(dict(case, shown=[dict(shown[0], severity="blocking")]), known["eval-case"], schemas=known), [])
 
     def test_a_result_that_raises_the_expected_finding_passes_and_one_that_does_not_fails(self):
         case, result = load("examples/eval-case.json"), example_result()
