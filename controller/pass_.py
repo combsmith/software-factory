@@ -363,7 +363,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
         for e in r.get("advisory_unrevoked", []):
             # A stamp at no moment, or after the pass, cannot lapse: it is stamped now, so the alert stands its hour.
             placed = seconds(now, e["at"]) is not None and seconds(now, e["at"]) >= 0
-            first_read.setdefault(e["run"], e["at"] if placed else now)
+            at = e["at"] if placed else now
+            first_read[e["run"]] = min(at, first_read.get(e["run"], at))    # the earliest, whichever record holds it
     for run_ in advisory_.unrevoked(reads.get("effects")):
         first_read.setdefault(run_, now)
     record["advisory_unrevoked"] = [{"run": run_, "at": at} for run_, at in sorted(first_read.items())

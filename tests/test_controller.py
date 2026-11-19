@@ -289,6 +289,22 @@ class Record(unittest.TestCase):
             got = passed(reads(), now="2026-10-11T14:30:00Z", previous=[bad])
             self.assertEqual((got["alerts"], got["record"]["advisory_unrevoked"]),
                              (["advisory_token_not_revoked"], [{"run": done["run"], "at": "2026-10-11T14:30:00Z"}]))
+        # Either record of the two before carries it, the earliest stamp of the two holds, and each Run is its own.
+        for empty in (dict(out["record"], now="2026-10-11T12:55:00Z", advisory_unrevoked=[]),
+                      dict(out["record"], now="2026-10-11T13:05:00Z", advisory_unrevoked=[])):
+            self.assertEqual(passed(reads(), now="2026-10-11T13:30:00Z", previous=[out["record"], empty])["alerts"],
+                             ["advisory_token_not_revoked"])
+        late = dict(out["record"], now="2026-10-11T12:50:00Z", advisory_unrevoked=[{"run": done["run"], "at": "2026-10-11T13:04:00Z"}])
+        early = dict(out["record"], now="2026-10-11T13:05:00Z", advisory_unrevoked=[{"run": done["run"], "at": "2026-10-11T13:00:00Z"}])
+        self.assertEqual(passed(reads(), now="2026-10-11T14:02:00Z", previous=[late, early])["alerts"], [])
+        restamped = dict(out["record"], now="2026-10-11T13:10:00Z",
+                         advisory_unrevoked=[{"run": done["run"], "at": "2026-10-11T13:10:00Z"}, {"run": "r_OTHER1", "at": "2026-10-11T13:10:00Z"}])
+        both = passed(reads(), now="2026-10-11T13:20:00Z", previous=[out["record"], restamped])["record"]["advisory_unrevoked"]
+        self.assertEqual(both, [{"run": done["run"], "at": NOW}, {"run": "r_OTHER1", "at": "2026-10-11T13:10:00Z"}])
+        self.assertEqual(passed(reads(), now="2026-10-11T14:05:00Z", previous=[restamped, out["record"]])["record"]["advisory_unrevoked"],
+                         [{"run": "r_OTHER1", "at": "2026-10-11T13:10:00Z"}])
+        # A record whose Run is no Run's id gives none: what cannot be read is reconciliation's to raise.
+        self.assertEqual(passed(reads(effects=dict(RECORDED, applied=[dict(done, run="")])))["record"]["advisory_unrevoked"], [])
         # Read again by a later pass, as when the records before could not be read, it keeps its first stamp.
         again = passed(reads(effects=dict(RECORDED, applied=[done])), now="2026-10-11T13:30:00Z", previous=[out["record"]])
         self.assertEqual(again["record"]["advisory_unrevoked"], [{"run": done["run"], "at": NOW}])

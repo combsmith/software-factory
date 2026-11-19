@@ -38,6 +38,7 @@ TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 DAY = len("2026-01-01")
 # What apply records for a Lens whose check runs' token GitHub did not confirm revoked (issue 925).
 NOT_REVOKED = "token_not_revoked"
+RUN = re.compile(r"r_[0-9A-Z]{6,26}")     # a Run's id as run-record/1 and pass/1 hold it
 
 
 def _number(value, least, most) -> bool:
@@ -91,6 +92,6 @@ def unrevoked(effects) -> list:
     person. What cannot be read gives none here, since reconciliation raises its own alert for that."""
     applied = effects.get("applied") if isinstance(effects, dict) else None
     return sorted({record["run"] for record in applied if isinstance(record, dict) and isinstance(record.get("run"), str)
-                   and isinstance(record.get("advisory"), list)
+                   and RUN.fullmatch(record["run"]) is not None and isinstance(record.get("advisory"), list)
                    and any(isinstance(said, dict) and said.get("code") == NOT_REVOKED for said in record["advisory"])}
                   if isinstance(applied, list) else set())
