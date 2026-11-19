@@ -130,7 +130,9 @@ class Transport(unittest.TestCase):
 
     def test_the_azure_transport_takes_its_key_from_its_caller_and_sends_it_nowhere_else(self):
         # The key is one word of printable ASCII, given by the caller; nothing is read from the environment.
-        for key in ("", " ", "a b", "a\nb", "a\rb", "kéy", None, 7, b"key"):
+        class Text(str):        # text of another class, which could write itself as another key
+            pass
+        for key in ("", " ", "a b", "a\nb", "a\rb", "kéy", None, 7, b"key", Text(KEY)):
             with self.assertRaises(azure.Unanswered, msg=repr(key)):
                 azure.Live(HOST, key, 30)
         with mock.patch.dict(os.environ, {"ADVISORY_AZURE_KEY": "e" * 32, "AZURE_OPENAI_API_KEY": "e" * 32}):
@@ -181,7 +183,8 @@ class Transport(unittest.TestCase):
         opener = Capture()
         self.assertEqual(live(opener, seconds=azure.LONGEST).send(azure.read(ID))["status"], 200)
         self.assertEqual((opener.sent[0][0].get_method(), opener.sent[0][0].data, opener.sent[0][1]), ("GET", None, azure.LONGEST))
-        # An answer at the bound is kept; one byte over is refused, never cut short.
+        # An answer at the bound, four mebibytes, is kept; one byte over is refused, never cut short.
+        self.assertEqual((azure.LARGEST, azure.HEADER), (4 * 1024 * 1024, 100))
         at = b'"' + b"a" * (azure.LARGEST - 2) + b'"'
         self.assertEqual(len(live(Capture(at)).send(azure.read(ID))["body"]), azure.LARGEST - 2)
         with self.assertRaises(azure.Unanswered):
@@ -207,6 +210,20 @@ class Transport(unittest.TestCase):
         for opener in (Short(), Error(), Slow()):
             with self.assertRaises(azure.Unanswered, msg=type(opener).__name__):
                 live(opener).send(azure.create(ASKED))
+        # An answer that ends before the length it said, a body's or an error's, is cut short too, though no read
+        # raised; one that said none, or gave all of it, is whole.
+        class Left(Answer):
+            length = 47
+
+        class Cut:
+            def open(self, request, timeout=None):
+                raise azure.urllib.error.HTTPError(request.full_url, 500, "x", {}, Left(b"abc"))
+        for opener in (Capture(b'{"a"', Left), Cut()):
+            with self.assertRaisesRegex(azure.Unanswered, "shorter than the length it said"):
+                live(opener).send(azure.read(ID))
+        for length in (0, None):
+            Left.length = length
+            self.assertEqual(live(Capture(b"{}", Left)).send(azure.read(ID))["body"], {})
         # An error Azure answers is an answer, with its status, bounded as any other: a rate limit says how long to wait.
         class Limited:
             def open(self, request, timeout=None):
@@ -245,6 +262,17 @@ class Transport(unittest.TestCase):
             headers = {"Content-Type": "Application/JSON"}
         self.assertEqual(live(Capture(b"{}", Shouted)).send(azure.read(ID))["body"], {})
         self.assertEqual(live(Capture(b"{not json")).send(azure.read(ID))["body"], "{not json")
+        # Bytes that are not UTF-8 are text with each one marked, and never read as JSON: nothing is changed unseen.
+        self.assertEqual(live(Capture(b'{"a": "\xff"}')).send(azure.read(ID))["body"], '{"a": "\ufffd"}')
+        # A header a caller reads is kept only when it is short, printable ASCII: a caller acts on no more than that.
+        class Odd(io.BytesIO):
+            status = 429
+            headers = {"Content-Type": "application/json"}
+        for value in ("1" * 101, "1\r\n2", "\u00b2", "1\x00"):
+            Odd.headers = {"Content-Type": "application/json", "Retry-After": value}
+            self.assertEqual(live(Capture(b"{}", Odd)).send(azure.read(ID))["headers"], {"content-type": "application/json"}, value)
+        Odd.headers = {"Retry-After": "1" * 100}
+        self.assertEqual(live(Capture(b"{}", Odd)).send(azure.read(ID))["headers"], {"retry-after": "1" * 100})
 
 
 if __name__ == "__main__":
