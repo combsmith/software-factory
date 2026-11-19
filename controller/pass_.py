@@ -299,13 +299,17 @@ def issue_config(kernel: dict) -> dict:
 
 
 def issue_order(listed: list, before) -> list:
-    """The order the issues listed are read in: those the last pass record left out as `issue_budget` first, in the
-    order it left them out, then the rest in the listing's order. So the issues go round as a queue: with the list
+    """The order the issues listed are read in: those the newest pass record that read the issues left out as
+    `issue_budget` first, in the order it left them out, then the rest in the listing's order. So the issues go round as a queue: with the list
     unchanged each is read within as many passes as the budget's fit goes into it, which the listing's order among those
     left out would not give, since the last of them would be passed over for good. A last record that cannot be read,
     or holds no `left_out`, gives the listing's order. Derived from the record before alone, which a replay holds
     (decision 0234)."""
-    last = before[-1] if isinstance(before, list) and before else None
+    # The newest record whose pass read the issues: one that read none, its list read short, owes nothing and keeps
+    # nothing of the queue, so it is passed over (decision 0234, ruling B4).
+    read = [r for r in before if not (isinstance(r, dict) and isinstance(r.get("left_out"), list)
+                                      and reads_.UNLISTED_ENTRY in r["left_out"])] if isinstance(before, list) else []
+    last = read[-1] if read else None
     held = last.get("left_out") if isinstance(last, dict) else None
     if not isinstance(held, list):
         return list(listed)

@@ -318,6 +318,9 @@ class IssueWorld:
             # The port's bound on a read the facts depend on, the timeline or the linked pull requests, in the draws below
             # 0.11 that read one of them short, by the draw already made: so no other draw moves (decision 0234).
             facts["timeline_bounded"] = short in ("linked", "timeline") and fault < 0.11
+            # The records' chain of keyword spans broken, beside the linked list read short alone, in the draws from 0.11 to
+            # 0.125, by the draw already made (decision 0234).
+            facts["spans_broken"] = short == "linked" and 0.11 <= fault < 0.125
         elif fault < 0.20 and runs:
             # GitHub: a_new_run_is_listed_late
             runs = runs[:-1]

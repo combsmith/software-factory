@@ -6690,8 +6690,8 @@ class Linked(unittest.TestCase):
     def read(self, exchanges, earlier=()) -> tuple:
         """The linked pull requests as the port reads them, `(number, keyword, spans)` each, and whether whole."""
         router = Router(github.Replay(exchanges), {"don-petry": "admin", "stranger": "read"})
-        found, whole, _ = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router),
-                                      None if earlier is None else list(earlier))
+        found, whole, _, _ = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router),
+                                         None if earlier is None else list(earlier))
         return [(p["number"], p["keyword"], p["keyword_spans"]) for p in found], whole
 
     def test_only_a_pull_request_to_the_default_branch_is_listed_as_linked(self):  # P-33, decision 0028
@@ -6923,7 +6923,7 @@ class Linked(unittest.TestCase):
         self.assertEqual(found, ([(7, False, [span(3)])], True))
         # The Kernel reads it as listed for something; with no span it would be listed for nothing.
         router = Router(github.Replay([linked_read(), pull_read(7), pull_timeline(7)]), {})
-        (kept,), _, _ = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), before)
+        (kept,), _, _, _ = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), before)
         self.assertTrue(issue.readable_keyword(kept))
         self.assertFalse(issue.readable_keyword(dict(kept, keyword_spans=[])))
         # The pass after, whose record holds the span and the keyword gone, ends it; the pull request stays listed.
@@ -6998,6 +6998,26 @@ class Linked(unittest.TestCase):
             linked_read((), [closed_by(8, oid="d" * 40)])])), {"don-petry": "admin"})
         f, _ = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=[])
         self.assertEqual((f["life_started_at"], f["complete"]["linked"]), (minute(5), False))
+
+    def test_a_chain_of_spans_the_records_broke_while_something_names_the_issue_is_said(self):  # decision 0234, (C)
+        # The records break the chain while a pull request names the issue: the linked read says so, and the issue's facts
+        # carry it, so the Kernel calls a person; with nothing naming the issue, nothing is said.
+        from kernel import issue
+        from tests.support import CONFIG
+        broke = [seen_by(3, issues=[], alerts=["issue_apps_unreadable"])]
+        router = Router(github.Replay([linked_read(ref(7)), pull_read(7), pull_timeline(7)]), {"don-petry": "admin"})
+        found, whole, cut, broken = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), broke)
+        self.assertEqual(([p["number"] for p in found], whole, cut, broken), ([7], False, False, True))
+        router = Router(github.Replay([linked_read(ref(7)), pull_read(7), pull_timeline(7)]), {"don-petry": "admin"})
+        self.assertIs(linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), [])[3], False)
+        router = Router(github.Replay(issue_read(closing=[linked_read(ref(7)), pull_read(7), pull_timeline(7)])),
+                        {"don-petry": "admin"})
+        f = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=broke)[0]
+        self.assertEqual((f["complete"]["linked"], f["spans_broken"]), (False, True))
+        self.assertEqual((issue.derive(f, [], CONFIG)["reason"], issue.derive(f, [], CONFIG)["state"]), ("spans_broken", None))
+        router = Router(github.Replay(issue_read(closing=[linked_read((), [crossed("Issue")])])), {"don-petry": "admin"})
+        f = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=broke)[0]
+        self.assertEqual((f["linked"], f["spans_broken"]), ([], False))
 
     def test_the_linked_pull_requests_read_short_are_not_whole_and_one_not_answered_refuses_the_issue(self):
         short = [[linked_read((), total=1)], [linked_read(more=True)], [linked_read(ref(3, repo="a/fork"))],
@@ -7161,6 +7181,18 @@ class KeywordSpans(unittest.TestCase):
                          ({}, None))
         self.assertEqual(self.spans(seen_by(6, issues=[])), ({}, True))
         self.assertEqual(keyword_spans.UNLISTED, "issue_list_unreadable")
+
+    def test_a_record_that_left_the_issue_out_by_its_budget_is_passed_over_for_it_alone(self):  # decision 0234, (B)
+        # The pass did not read the issue, so it saw nothing of it: the base before it stands. With every record at hand
+        # so, the chain is broken. Another issue's skip passes nothing over, and a left out for any other code breaks it.
+        older, budget = seen_by(3, [(7, True, [])]), {"item": self.ITEM, "code": "issue_budget"}
+        self.assertEqual(self.spans(older, seen_by(6, issues=[], left_out=[budget])), ({7: [span(3)]}, True))
+        self.assertEqual(self.spans(seen_by(3, issues=[], left_out=[budget]), seen_by(6, issues=[], left_out=[budget])),
+                         ({}, None))
+        other = dict(budget, item=dict(self.ITEM, number=42))
+        self.assertEqual(self.spans(seen_by(3, [(7, True, [])], left_out=[other])), ({7: [span(3)]}, True))
+        self.assertEqual(self.spans(older, seen_by(6, issues=[], left_out=[dict(budget, code="facts_unanswered")])),
+                         ({7: [span(3)]}, None))
 
     def test_pass_records_that_could_not_be_read_give_no_time_and_are_not_whole(self):
         self.assertEqual(keyword_spans.read(None, self.ITEM), ({}, False))
