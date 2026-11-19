@@ -295,6 +295,22 @@ class Record(unittest.TestCase):
         self.assertEqual(shared.errors(runless, "pass"), [])
         record = passed(reads(pulls=[pr(4)]), cfg=told, previous=[runless])["record"]
         self.assertEqual(([e.get("advisory_ask") for e in record["pull_requests"]], record["advisory_unlisted"]), ([False], []))
+        # A pass in doubt, its records before unread, says until when no review may be told yes, an hour on, and each
+        # pass that reads it carries that on, so two such passes in a row lose no yes; past it, yes again.
+        blind = passed(reads(pulls=[]), cfg=told, now="2026-10-11T12:59:40Z", previous=None)["record"]
+        self.assertEqual((blind["advisory_unlisted"], blind["advisory_doubt_until"]), ([], "2026-10-11T13:59:40Z"))
+        blind2 = dict(blind, now="2026-10-11T12:59:50Z")
+        self.assertEqual(asks(previous=(blind, blind2)), [False])
+        carried = passed(reads(pulls=[]), cfg=told, previous=[blind, blind2])["record"]
+        self.assertEqual(carried["advisory_doubt_until"], "2026-10-11T13:59:40Z")
+        lapsed = passed(reads(pulls=[pr(4)]), cfg=told, now="2026-10-11T13:59:40Z", previous=[dict(carried, now="2026-10-11T13:30:00Z")])["record"]
+        self.assertEqual(([e.get("advisory_ask") for e in lapsed["pull_requests"]], "advisory_doubt_until" in lapsed), ([True], False))
+        self.assertNotIn("advisory_doubt_until", first)
+        self.assertEqual(asks(previous=(dict(quiet, advisory_unlisted=[], advisory_doubt_until="2026-02-31T00:00:00Z"),)), [False])
+        # A record written before the carry counts by its entries alone.
+        older = {k: v for k, v in first.items() if k != "advisory_unlisted"}
+        self.assertEqual(shared.errors(older, "pass"), [])
+        self.assertEqual(asks(previous=(older,)), [False])
         # Across midnight it counts as any Run in flight does.
         night = passed(reads(pulls=[pr(1), pr(2)]), cfg=told, now="2026-10-10T23:59:30Z")["record"]
         dawn = passed(reads(pulls=[pr(4)]), cfg=told, now="2026-10-11T00:00:10Z", previous=[night])["record"]

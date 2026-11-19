@@ -337,6 +337,12 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     # A yes with no Run, or told at no moment or after `now`, cannot be counted or let lapse: it is carried no further,
     # and this pass, in doubt, tells no review yes, as with the records before unread.
     doubt = any(type(run) is not str or seconds(now, at) is None or seconds(now, at) < 0 for run, at in pending.items())
+    # A pass in doubt cannot say what it carries, so it says until when none may be told yes, an hour on, and each pass
+    # that reads that carries it to the next: a chain of passes that could not read the records before loses no yes.
+    held_until = [r["advisory_doubt_until"] for r in before if "advisory_doubt_until" in r]
+    until = max([u for u in held_until if seconds(u, now) is not None and seconds(u, now) > 0], default=None)
+    if previous is None or doubt or any(seconds(u, now) is None for u in held_until):
+        until = max(filter(None, [until, text(moment(now) + datetime.timedelta(seconds=UNLISTED_SECONDS))]))
     unlisted = {run: at for run, at in pending.items() if type(run) is str and run not in listed_runs
                 and seconds(now, at) is not None and 0 <= seconds(now, at) <= UNLISTED_SECONDS}
     told = [{"intent": advisory_.REVIEWING, "started_at": at} for at in unlisted.values()] + [
@@ -359,7 +365,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
             if d["outcome"] == t.ADMIT and d["admit"]["intent"] == advisory_.REVIEWING:
                 # Beside the Decision, never in it: whether the day's ceiling admits this Run's advisory reads
                 # (decision 0224). Each review this pass admits counts the ones admitted before it at the worst case.
-                out[-1]["advisory_ask"] = previous is not None and not doubt \
+                out[-1]["advisory_ask"] = until is None \
                     and advisory_.admits(runs + asking, whole, now, config.get("harness") or {})
                 asking.append({"intent": advisory_.REVIEWING, "started_at": now})
         return out
@@ -382,6 +388,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
         [{"run": run, "told_at": at} for run, at in unlisted.items()]
         + [{"run": e["run"], "told_at": now} for e in record["pull_requests"] if e.get("advisory_ask") is True],
         key=lambda e: e["run"])
+    if until is not None:
+        record["advisory_doubt_until"] = until
     checked(record, "pass")
     entries = record["pull_requests"] + record["issues"]
     ids = [record["pass"]] + [e["run"] for e in entries if e["run"] is not None]
