@@ -2571,7 +2571,8 @@ class Repo(unittest.TestCase):
         # The Maintainer's ruling on #192: the transport alone follows the artifact's redirect, so no other code names
         # the storage it goes to, by either of GitHub's hosts; a test may, to answer for it.
         for text in ('U = "https://productionresultssa0.blob.core.windows.net/x"\n',
-                     'U = "pipelines.actions.githubusercontent.com"\n', 'U = "X.BLOB.CORE.WINDOWS.NET"\n'):
+                     'U = "pipelines.actions.githubusercontent.com"\n', 'U = "X.BLOB.CORE.WINDOWS.NET"\n',
+                     'U = b"x.blob.core.windows.net"\n', 'U = b"raw.githubusercontent.com"\n'):
             for rel in ("adapters/artifacts.py", "tools/a.py", "sim/a.py"):
                 self.assertTrue(caught(check_repo.run(tree({rel: text})), "artifact storage"), (rel, text))
             for rel in ("adapters/github.py", "tests/test_a.py"):
