@@ -864,7 +864,7 @@ class Apply(unittest.TestCase):
             state["order"], state["left"] = list(state["calls"]["order"]), left()
 
             def spawn(command, **how):
-                spawned.append((command[-1], how["timeout"]))
+                spawned.append((command[-2], how["timeout"]))      # the folder, then the digest of what it holds
                 if isinstance(state["says"], Exception):
                     raise state["says"]
                 return subprocess.CompletedProcess(command, 0, state["says"])
