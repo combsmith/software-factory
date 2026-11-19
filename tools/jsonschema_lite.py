@@ -64,7 +64,7 @@ INFINITIES = (float("inf"), float("-inf"))
 
 def _infinite(value) -> bool:
     """Whether `value` is a float that is NaN or an infinity: no number, though json.loads reads both (issue 922)."""
-    return isinstance(value, float) and (value != value or value in INFINITIES)
+    return isinstance(value, float) and (value != value or value in INFINITIES)  # NOSONAR: NaN alone is unequal to itself
 
 
 def _not_finite(value, path: str) -> list:
