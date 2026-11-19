@@ -40,6 +40,14 @@ APP_ACCOUNT = {"id": 5000001, "type": "Bot", "login": "combsmith-sf-controller[b
 ROLE_ACCOUNT = {"id": 5000002, "type": "Bot", "login": "combsmith-sf-pr-review[bot]"}   # a Role App's
 
 
+def written(issues: dict) -> dict:
+    """`issues` as config/defaults.json writes it: each App by the name config/apps.json gives it, with no `[bot]`,
+    which the pass adds as the issues port names an App (`pass_.issue_config`)."""
+    plain = lambda name: name[:-len("[bot]")] if isinstance(name, str) and name.endswith("[bot]") else name
+    return dict(issues, label_apps={k: plain(v) for k, v in issues["label_apps"].items()},
+                intents={k: dict(v, app=plain(v["app"])) if v else v for k, v in issues["intents"].items()})
+
+
 def config(**controller) -> dict:
     """What a pass is given: the Kernel's configuration, with issues served, each Work item's Lifecycle, the feed's
     table, the Controller's own, here with both accounts known, the Release, and the credentials' dates."""
@@ -48,7 +56,7 @@ def config(**controller) -> dict:
                                                       roles={name: dict(ROLE_ACCOUNT) for name in CONTROLLER["accounts"]["roles"]}))
     c.update(controller)
     kernel = {k: v for k, v in copy.deepcopy(support.CONFIG).items() if k != "lifecycle"}
-    kernel["issues"] = test_issue.config()["issues"]
+    kernel["issues"] = written(test_issue.config()["issues"])
     return {"kernel": kernel, "release": "factory/v0.3.1", "controller": c,
             "feed": json.loads((ROOT / "config" / "feed.json").read_text()),
             "lifecycles": {"pull_request": json.loads((ROOT / "lifecycle" / "pull_request.json").read_text()),
@@ -160,6 +168,21 @@ class Record(unittest.TestCase):
             self.assertEqual(decide(entry["facts"], record["runs"], record["context"], kernel, record["now"]),
                              entry["decision"])
         self.assertNotIn("A title", json.dumps(record))
+
+    def test_an_issue_decision_replays_through_the_issues_kernel_configuration(self):  # decisions 0002, 0218
+        # Replayed through `pass_.issue_config`, as the pass asked it, the Controller's factory:triage counts.
+        from kernel import issue
+        triaged = an_issue(7, label_events=[test_issue.labelled(test_issue.TRIAGE, by=test_issue.CONTROLLER)])
+        record = passed(reads(pulls=[], issues=[triaged]))["record"]
+        (entry,) = record["issues"]
+        self.assertEqual((entry["decision"]["state"], entry["decision"]["admit"]["intent"]), ("triage", "investigate-issue"))
+        kernel = dict(pass_.issue_config(config()["kernel"]), lifecycle=config()["lifecycles"]["issue"])
+        self.assertEqual(issue.decide(entry["facts"], record["runs"], record["context"], kernel, record["now"]),
+                         entry["decision"])
+        # As written, without the suffix, the App's label would not count.
+        written_ = dict(config()["kernel"], lifecycle=config()["lifecycles"]["issue"])
+        self.assertEqual(issue.decide(entry["facts"], record["runs"], record["context"], written_, record["now"])["reason"],
+                         "label_not_counted")
 
     def test_an_issue_is_asked_of_the_issues_kernel_with_its_own_lifecycle(self):  # decision 0028
         out = passed(reads(pulls=[], issues=[an_issue(7), an_issue(8, repo=OTHER_REPO)]))
@@ -1054,6 +1077,104 @@ class Ports(unittest.TestCase):
                          (["item"], ["runs", "outcome", "facts"]))
 
 
+# The Controller's and the investigating Role's Bots, by ids the configuration holds, under logins they no longer show.
+TRIAGE_BOT = ("an-old-login[bot]", 41, "Bot")
+ANALYST_BOT = ("another-old-login[bot]", 42, "Bot")
+
+
+def issue_through_the_port(events=(), repo="o/r", exchanges=None, users=None, linked=True) -> dict:
+    """An issue's pass entry as the issues port reads it, its linked pull requests read whole as `adapters/linked.py`
+    will read them unless `linked` is None, which keeps the port's own word: by default issue 41 of `issue_read` in
+    tests/test_adapters.py, with `events` on its timeline."""
+    from adapters import issues, timeline
+    from tests.test_adapters import MACHINE, Router, issue_read
+    found = issue_read(list(events)) if exchanges is None else exchanges
+    router = Router(github.Replay(found), dict({"don-petry": "admin"}, **(users or {})))
+    names = {TRIAGE_BOT[1:]: test_issue.CONTROLLER["name"], ANALYST_BOT[1:]: test_issue.ANALYST["name"]}
+    accounts = timeline.Accounts(router, repo, MACHINE, {}, factory=set(names), apps=names)
+    number = found[0]["response"]["body"]["number"]
+    facts, title = issues.read(router, repo, number, accounts, lambda: "2026-10-11T12:00:00Z")
+    if linked is not None:
+        facts["complete"]["linked"] = linked
+    return {"facts": facts, "title": title}
+
+
+def issue_passed(entry: dict, issues_config=None, repo="o/r", now="2026-10-11T12:30:00Z") -> dict:
+    """The one Decision a pass makes on `entry`, its issues configured as config/defaults.json writes them."""
+    cfg = config()
+    cfg["kernel"]["issues"] = written(test_issue.config()["issues"] if issues_config is None else issues_config)
+    out = passed(reads(pulls=[], issues=[entry], pause={"org": None, "repos": {repo: None}}), cfg=cfg, now=now)
+    (decision,) = decisions(out)
+    return decision
+
+
+class Issues(unittest.TestCase):
+    """The issues port's facts reach `kernel/issue.py` through the pass (S3)."""
+
+    def test_with_no_app_declared_for_factory_triage_an_accepted_served_issue_gets_no_acceptance_act(self):  # row 10
+        # The narrow turn-on: issues served, no App declared for a label, no triage Intent. Row 10 then adds nothing.
+        narrow = dict(test_issue.SERVED, label_apps={"factory:triage": None, "factory:ready": None},
+                      intents=dict(test_issue.INTENTS, **{test_issue.INVESTIGATE: None, test_issue.JUDGE: None}))
+        entry = an_issue(7, repo="o/r", complete={"timeline": True, "linked": True, "runs": True})
+        d = issue_passed(entry, narrow)
+        self.assertEqual((d["state"], d["outcome"], d["reason"], d.get("action")), ("new", "nothing", "acceptance_due", None))
+        # Declared, the same issue is accepted.
+        declared = issue_passed(entry)
+        self.assertEqual((declared["outcome"], declared.get("action")), ("act", "accept"))
+        # A name that is no name stays none: the Kernel cannot read it, and defers.
+        unnamed = dict(test_issue.SERVED, label_apps={"factory:triage": "", "factory:ready": None})
+        self.assertEqual(issue_passed(entry, unnamed)["reason"], "issues_unreadable")
+
+    def test_an_app_is_named_by_the_id_the_configuration_holds_so_its_label_and_comment_count(self):  # ruling A
+        # The Controller's label and the investigating App's comment count by the App's id: the verdict is wanted next.
+        from tests.test_adapters import issue_event
+        labelled = issue_event("labeled", 1, actor=TRIAGE_BOT, label={"name": "factory:triage"})
+        said = issue_event("commented", 2, actor=ANALYST_BOT)
+        d = issue_passed(issue_through_the_port([labelled, said]))
+        self.assertEqual((d["state"], d["outcome"], d["admit"]["intent"]), ("triage", "admit", "judge-readiness"))
+        # With no comment, the investigation is wanted: the label counted on its own.
+        alone = issue_passed(issue_through_the_port([labelled]))
+        self.assertEqual((alone["state"], alone["admit"]["intent"]), ("triage", "investigate-issue"))
+
+    def test_a_person_whose_login_is_an_apps_name_without_its_suffix_is_not_that_app(self):  # ruling A
+        # A User named as config/defaults.json writes the Controller's App is not it, with its token or through an App.
+        from tests.test_adapters import issue_event
+        name = written(test_issue.SERVED)["label_apps"]["factory:triage"]
+        person = (name, 77, "User")
+        for via in (None, {"id": 9, "slug": "some-app"}):
+            labelled = issue_event("labeled", 1, actor=person, via=via, label={"name": "factory:triage"})
+            d = issue_passed(issue_through_the_port([labelled], users={name: "read"}))
+            self.assertEqual((d["state"], d["outcome"], d["reason"], d.get("label")),
+                             ("new", "act", "label_not_counted", "factory:triage"), via)
+
+    def test_p34s_issue_read_by_the_port_is_deferred_on_its_linked_pull_requests(self):  # P-34, S3
+        # The canary's issue through the port and the pass defers on its linked pull requests, not read yet. Its GraphQL
+        # answer is P-34's lastEditedAt in the port's own query, which no trial has recorded (issue 831).
+        from adapters import issues
+        from tests.test_adapters import body, canary, exchanges as recorded
+        repo = canary()
+        rest = recorded("P-34.rest")
+        own = rest[1]["response"]["body"]
+        owner, name = repo.split("/")
+        edited = {"number": 42, "updatedAt": own["updated_at"],
+                  "lastEditedAt": body("P-34", 0)["data"]["repository"]["issue"]["lastEditedAt"],
+                  "timelineItems": {"pageInfo": {"hasNextPage": False}, "nodes": []}}
+        asked = {"query": issues.QUERY, "variables": {"owner": owner, "name": name, "number": 42}}
+        graphql = {"request": {"via": "graphql", "call": "POST /graphql", "headers": {}, "body": asked},
+                   "response": {"status": 200, "headers": {},
+                                "body": {"data": {"repository": {"nameWithOwner": repo, "issue": edited}}}}}
+        # The port's own word on its linked pull requests, which it does not read yet, reaches the pass (Carbon).
+        entry = issue_through_the_port(repo=repo, exchanges=[rest[1], rest[0], graphql], linked=None)
+        self.assertIs(entry["facts"]["complete"]["linked"], False)
+        d = issue_passed(entry, repo=repo, now="2026-11-13T09:00:00Z")
+        self.assertEqual((d["state"], d["outcome"], d["reason"], d["evidence"]), (None, "defer", "facts_incomplete", ["linked"]))
+        self.assertEqual(entry["title"], own["title"])
+        # Read whole, the Maintainer's closed issue is declined, and nothing is done.
+        entry["facts"]["complete"]["linked"] = True
+        whole = issue_passed(entry, repo=repo, now="2026-11-13T09:00:00Z")
+        self.assertEqual((whole["state"], whole["outcome"], whole["reason"]), ("declined", "nothing", "closed"))
+
+
 class Hub:
     """GitHub as the entry meets it: each request answered by its method and path from the table given, any number of
     times, each recorded with the credential that sent it. A request the table does not hold is refused."""
@@ -1567,6 +1688,138 @@ class Entry(unittest.TestCase):
         _, _, _, slept = self.run_entry(Hub(table))
         self.assertEqual([s for s, _ in slept], [pass_.SUCCESSOR_WAIT])
         self.assertEqual(pass_.SUCCESSOR_WAIT, 30)
+
+    def test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is(self):  # S3
+        # Listed from `issues.served_from`, each issue is read with the pull requests' account reader and dated as they
+        # are; one not read is left out by its code, and a list read short stops the pass.
+        since, spied = "2026-10-01T00:00:00Z", {"listed": [], "read": [], "who": []}
+        real = entry.configuration
+
+        def served(root, release):
+            found = real(root, release)
+            found["kernel"]["issues"]["served_from"] = since
+            # One App declared by its id, the Controller's, and one the configuration holds no account of.
+            found["kernel"]["issues"]["label_apps"] = {"factory:triage": found["apps"]["controller"]["name"],
+                                                       "factory:ready": "combsmith-sf-readiness"}
+            found["kernel"]["issues"]["intents"] = dict(found["kernel"]["issues"]["intents"], **{
+                "investigate-issue": {"role": "business-analyst", "app": "combsmith-sf-business-analyst"}})
+            return found
+
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
+            spied["who"].append(who)
+            return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
+
+        listed_by_the_port = entry.items.open_issues
+
+        def listing(listed, whole=True):
+            def open_issues(transport, repo, after):
+                spied["listed"].append((repo, after))
+                if listed is None:
+                    return listed_by_the_port(transport, repo, after)
+                if whole is None:
+                    raise github.Unanswered("no")
+                return list(listed), whole
+            return open_issues
+
+        def read(transport, repo, number, accounts, clock):
+            spied["read"].append((repo, number, accounts))
+            if number == 6:
+                raise entry.facts_.Moved("moved")
+            if number == 9:
+                raise github.Unanswered("no")
+            transport.send({"method": "GET", "path": "/repos/%s/issues/%d" % (repo, number)})
+            return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "Issue five"
+
+        def entry_with(listed, whole=True, configured=served):
+            for found in spied.values():
+                del found[:]
+            table = self.table(numbers=[7])
+            table[("GET", "/repos/%s/issues/5" % self.HOME)] = {
+                "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}, "body": {}}
+            hub = Hub(table)
+            with unittest.mock.patch.object(entry, "configuration", configured), \
+                    unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                    unittest.mock.patch.object(entry.items, "open_issues", listing(listed, whole)), \
+                    unittest.mock.patch.object(entry.issues_, "read", read):
+                code, printed, files, _ = self.run_entry(hub)
+            spied["graphql"] = [r for _, r in hub.sent if r["path"] == "/graphql"]
+            return code, printed, files
+
+        code, printed, files = entry_with([5, 6, 9])
+        self.assertEqual((code, printed), (0, "passed\n"))
+        record = files["pass.json"]
+        self.assertEqual(spied["listed"], [(self.HOME, since)])
+        self.assertEqual([n for _, n, _ in spied["read"]], [5, 6, 9])
+        self.assertTrue(all(who is spied["who"][0] for _, _, who in spied["read"]))
+        # The reader names each App the configuration holds by its account's id, as REST spells its Bot's login.
+        catalogue = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
+        self.assertEqual(spied["who"][0].apps, {(CONTROLLER["accounts"]["controller"]["id"], "Bot"):
+                                                catalogue["controller"]["name"] + "[bot]",
+                                                (CONTROLLER["accounts"]["roles"]["pr-review"]["id"], "Bot"):
+                                                catalogue["pr-review"]["name"] + "[bot]"})
+        # Each name the issues' Kernel is told is an App's is reserved, held by an id or not (Carbon).
+        self.assertEqual(spied["who"][0].reserved, {catalogue["controller"]["name"] + "[bot]", "combsmith-sf-readiness[bot]",
+                                                    "combsmith-sf-business-analyst[bot]"})
+        item = lambda n: {"repo": self.HOME, "type": "issue", "number": n}
+        self.assertEqual([e["decision"]["item"] for e in record["issues"]], [item(5)])
+        self.assertEqual(record["left_out"], [{"item": item(6), "code": "pull_moved"}, {"item": item(9), "code": "facts_unanswered"}])
+        self.assertIn("facts_unreadable", record["alerts"])
+        self.assertEqual([r for r in record["reads"] if r["read"] == "facts"], [{"read": "facts", "date": "2026-10-12T11:59:30Z", "age": 2}])
+        shown = [i for i in files["view/items.json"]["items"] if i["url"].endswith("/issues/5")]
+        self.assertEqual([i["untrusted"] for i in shown], [{"title": "Issue five"}])
+        # A list read short, or not answered, stops the pass before any issue is read; nothing is written.
+        for whole in (False, None):
+            self.assertEqual(entry_with([5], whole), (1, "issue_list_unreadable\n", {}), whole)
+            self.assertEqual(spied["read"], [])
+        # No date: nothing is listed, asked or read; the one GraphQL read is the pull requests' list.
+        code, _, files = entry_with(None, configured=real)
+        self.assertEqual((code, spied["listed"], spied["read"], files["pass.json"]["issues"]), (0, [(self.HOME, None)], [], []))
+        self.assertEqual(len(spied["graphql"]), 1)
+
+    def test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry(self):  # S3, Astra
+        # Through the real port: an issue that read whole would be accepted defers on its unread linked pull requests.
+        from tests.test_adapters import issue_read
+        reads_ = issue_read()
+        own, events, edits = (r["response"] for r in reads_)
+        edits["body"]["data"]["repository"]["nameWithOwner"] = self.HOME
+        listed = {"data": {"repository": {"nameWithOwner": self.HOME, "issues": {
+            "totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"number": 41}]}}}}
+        real = entry.configuration
+
+        def served(root, release):
+            found = real(root, release)
+            found["kernel"]["issues"] = dict(found["kernel"]["issues"], served_from="2026-10-01T00:00:00Z",
+                                             label_apps={"factory:triage": found["apps"]["controller"]["name"], "factory:ready": None})
+            return found
+
+        table = self.table(numbers=[])
+        table.update({("GET", "/repos/%s/issues/41" % self.HOME): own,
+                      ("GET", "/repos/%s/issues/41/timeline?per_page=100" % self.HOME): events,
+                      ("GET", "/repos/%s/collaborators/don-petry/permission" % self.HOME):
+                          {"status": 200, "headers": {}, "body": {"permission": "admin"}}})
+        hub = Hub(table)
+        connect = hub.connect
+
+        def routed(credential):
+            through = connect(credential)
+
+            class Routed:
+                def send(self, req):
+                    query = (req.get("body") or {}).get("query", "") if req["path"] == "/graphql" else ""
+                    if query.startswith(("query OpenIssues", "query IssueEdits")):
+                        hub.sent.append((credential, req))
+                        return copy.deepcopy({"status": 200, "headers": {}, "body": listed} if "OpenIssues" in query else edits)
+                    return through.send(req)
+            return Routed()
+        hub.connect = routed
+        with unittest.mock.patch.object(entry, "configuration", served):
+            code, printed, files, _ = self.run_entry(hub)
+        self.assertEqual((code, printed), (0, "passed\n"))
+        (decided,) = files["pass.json"]["issues"]
+        d = decided["decision"]
+        self.assertEqual((d["item"]["number"], d["outcome"], d["reason"], d["evidence"]), (41, "defer", "facts_incomplete", ["linked"]))
+        # Nothing is written for the issue: the one write is the tracking issue's, which reports the pass's alerts.
+        self.assertEqual([w["type"] for w in files["writes.json"]["writes"]], ["tracking_issue"])
 
     def test_what_the_entry_cannot_read_writes_nothing(self):
         for environ, want in (({"RELEASE": None}, "release_untagged"), ({"RELEASE": "v1"}, "release_untagged"),

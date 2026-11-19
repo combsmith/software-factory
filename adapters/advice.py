@@ -45,6 +45,20 @@ def _count(value):
     return value if type(value) is int and 0 <= value <= COUNTED else None
 
 
+def _counts(usage: dict, names: tuple, said: bool) -> tuple:
+    """`(asked, answered)`, the tokens of a read that ended, each a whole count or None. A count that contradicts
+    itself is not known, so that the cost is not: a prompt of no tokens, an answer with words and no tokens, a total
+    above the two, or reasoning above the output it is part of."""
+    asked, answered = _count(usage.get(names[0])), _count(usage.get(names[1]))
+    total, details = usage.get("total_tokens"), usage.get(names[1] + "_details")
+    thought = details.get("reasoning_tokens") if isinstance(details, dict) else None
+    if asked is not None and answered is not None and (
+            asked == 0 or (said and answered == 0) or (type(total) is int and total > asked + answered)
+            or (type(thought) is int and thought > answered)):
+        return asked, None
+    return asked, answered
+
+
 def _usage(told: dict, model, tokens: tuple, asks: int, seconds) -> dict:
     asked, answered = tokens
     cost = None
@@ -106,6 +120,8 @@ def _responses(body: dict) -> tuple:
 
 def _chat(body: dict) -> tuple:
     """`(reason, text)` of a chat completion."""
+    if body.get("error") is not None:
+        return _fault(body) or "transport", None
     choices = body.get("choices")
     if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
         return "unparsed", None
@@ -117,6 +133,13 @@ def _chat(body: dict) -> tuple:
     if ended != "stop" or not isinstance(message, dict) or type(message.get("content")) is not str:
         return "unparsed", None
     return None, message["content"]
+
+
+def _finished(body: dict) -> bool:
+    """Whether a chat completion holds its one choice, ended for a reason it names: one that does not has not answered."""
+    choices = body.get("choices")
+    return isinstance(choices, list) and len(choices) == 1 and isinstance(choices[0], dict) \
+        and type(choices[0].get("finish_reason")) is str
 
 
 def _whole(digits: str) -> int:
@@ -175,17 +198,18 @@ def read(told: dict, answer: dict, asks: int, seconds, schemas: dict) -> dict:
     status, body = answer.get("status"), answer.get("body")
     known = isinstance(body, dict) and status == 200
     # What a response says of its tokens while it is still running, or once it is cancelled, is not what it cost:
-    # only one that has ended as completed or incomplete is priced, and any other read's cost is not known.
+    # only one that has ended, a response as completed or incomplete and a chat completion with its one choice's
+    # reason, is priced, and any other read's cost is not known.
     ended = known and body.get("error") is None \
-        and (told["api"] != "responses" or body.get("status") in ("completed", "incomplete"))
+        and (body.get("status") in ("completed", "incomplete") if told["api"] == "responses" else _finished(body))
     usage = body.get("usage") if ended and isinstance(body.get("usage"), dict) else {}
     names = ("input_tokens", "output_tokens") if told["api"] == "responses" else ("prompt_tokens", "completion_tokens")
     model = body.get("model") if ended else None      # one that has not answered names no model that did
-    spent = _usage(told, model, (_count(usage.get(names[0])), _count(usage.get(names[1]))), asks, seconds)
+    reason, text = (None, None) if not known else _responses(body) if told["api"] == "responses" else _chat(body)
+    spent = _usage(told, model, _counts(usage, names, text is not None), asks, seconds)
     if not known:
         reason = "rate_limited" if status == 429 else "no_key" if status in (401, 403) else _fault(body) or "transport"
         return _result(told, reason, [], [], 0, spent, schemas)
-    reason, text = _responses(body) if told["api"] == "responses" else _chat(body)
     if reason is None and model != told["model"]:
         reason = "not_the_model"
     found = _answered(text, schemas) if reason is None else None
