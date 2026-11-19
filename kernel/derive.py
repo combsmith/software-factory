@@ -19,6 +19,13 @@ def incomplete(facts: dict) -> list:
     return [name for name in t.READ_IN_FULL if flags.get(name) is not True]
 
 
+def opened_for_an_issue(facts: dict) -> bool:
+    """Whether the facts name the issue the Factory opened this pull request for: a whole number from 1, never a truth
+    value. A fact that is not there, or is anything else, names none."""
+    issue = facts.get("opened_for")
+    return type(issue) is int and issue >= 1
+
+
 def runs_on(runs: list, facts: dict) -> list:
     """Run records for this item, oldest first."""
     mine = [r for r in runs if r["item"] == facts["item"]]
@@ -1240,6 +1247,14 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     stops = [name for name in (t.LABEL_HOLD, t.LABEL_HANDS_OFF) if name in labels]
     if stops:
         return {"state": t.HELD, "reason": "human_hold", "evidence": stops}
+    # A pull request the Factory opened for an issue stands with it: held while a person holds the issue or has closed
+    # it, so that no merge lands meanwhile, and unreadable while how the issue stands was not read (decision 0232).
+    if opened_for_an_issue(facts):
+        stands = facts.get("issue_stands")
+        if stands not in t.ISSUE_STANDS:
+            return {"state": None, "reason": "issue_unreadable", "evidence": []}
+        if stands != t.ISSUE_OPEN:
+            return {"state": t.HELD, "reason": "issue_stopped", "evidence": [stands]}
     if not admitted(facts, labels):
         return {"state": t.HELD, "reason": "outside_not_admitted", "evidence": []}
     if facts["diff"]["files"] == 0:
