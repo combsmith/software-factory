@@ -73,6 +73,12 @@ def issues(transport, pull: dict, accounts, opener=None, opened=None) -> list:
     return found
 
 
+class NotOwn(Unanswered):
+    """A thread was read, and what stands first on it is not its Lens's own unedited words: a comment edited, a reply
+    where the first was deleted, or another account's. That is the item's own state, which a person changed, and no
+    read that failed; a caller that must not let an item's state pass for the Factory's fault tells the two apart."""
+
+
 def findings(transport, pull: dict, accounts, lens: str, threads: list) -> list:
     """`[{id, by, body}]`: what `lens` said on each of `threads`, the ids of the review threads asked for, in the order
     given; `id` is `thread:` and the thread's id. Each is the first comment of a review thread of `pull`, written by
@@ -94,13 +100,17 @@ def findings(transport, pull: dict, accounts, lens: str, threads: list) -> list:
             raise Unanswered("a thread asked for is not that review thread of this pull request")
         first = _held(node.get("comments")).get("nodes")
         said = first[0] if isinstance(first, list) and first and isinstance(first[0], dict) else {}
+        # What GitHub does not say, or says in no form it gives, is a read that failed; what it says, a comment replied
+        # to or the time of an edit, and is not the Lens's own unedited first comment, is the thread's own state.
         if said.get("replyTo", 0) is not None:
-            raise Unanswered("a thread's first comment cannot be read as its opener's")
+            raise (NotOwn if isinstance(said.get("replyTo"), dict) else Unanswered)(
+                "a thread's first comment cannot be read as its opener's")
         if said.get("lastEditedAt", 0) is not None:
-            raise Unanswered("a thread's first comment was edited, or GitHub does not say it never was")
+            raise (NotOwn if isinstance(said.get("lastEditedAt"), str) else Unanswered)(
+                "a thread's first comment was edited, or GitHub does not say it never was")
         by, body = accounts.actor(threads_._account(said.get("author"))), said.get("body")
         if by != {"kind": "lens", "name": lens, "can_write": False}:
-            raise Unanswered("a thread's first comment is not the Lens's own")
+            raise NotOwn("a thread's first comment is not the Lens's own")
         if not isinstance(body, str) or body == "":
             raise Unanswered("a thread's first comment has no text")
         found.append({"id": "thread:%s" % ident, "by": by, "body": body})

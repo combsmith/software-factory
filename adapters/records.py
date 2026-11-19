@@ -321,8 +321,30 @@ def engines(previous: list) -> dict:
     return said_in(previous[-1])[0] if isinstance(previous, list) and previous else {}
 
 
+REVIEWING = "review-change"
+ADVISED = ("advisory_asks", "advisory_cost_usd")
+
+
+def advised(previous: list) -> dict:
+    """What the last pass record before this one read of each review Run's advisory cost, by its Run id and when its
+    attempt started (decision 0224): the two fields as the row holds them. A row that holds a cost, or a null one, was
+    read whole, a file or the lack of one, and a Run's cost is written once, so it is not read again. A key the record
+    lists twice is not kept, and nothing is kept from what lists no runs."""
+    last = previous[-1] if isinstance(previous, list) and previous else None
+    rows = last.get("runs") if isinstance(last, dict) else None
+    said, keys = {}, []
+    for row in rows if isinstance(rows, list) else []:
+        key = (row.get("run"), row.get("started_at")) if isinstance(row, dict) else (None, None)
+        if not (isinstance(key[0], str) and isinstance(key[1], str)):
+            continue
+        keys.append(key)
+        if ADVISED[1] in row:
+            said[key] = {name: row[name] for name in ADVISED if name in row}
+    return {key: held for key, held in said.items() if keys.count(key) == 1}
+
+
 def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, per_page: int = PAGE,
-         sleep=time.sleep, kept=None, began=None, of=None, on=None, engines=None) -> dict:
+         sleep=time.sleep, kept=None, began=None, of=None, on=None, engines=None, advised=None, day=None) -> dict:
     """The run records of the Factory's Role workflows, the ids of counted Runs not yet named, whether the list was
     read whole, and each read's date and age for the pass record. `dispatcher` is the pass job's own token's account,
     by its id and type, `(id, "Bot")`: only a run it dispatched is a Run.
@@ -347,7 +369,7 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     whole. The pass hands the open pull requests, so what it asks is its live work, not the list's history
     (decision 0196). `on`, an item, asks that item's Runs alone, as an act reading its own item again does, and all
     of them: a Run keeps nothing from one read to the next, so a cap on its item's Runs would never be worked off."""
-    kept, engines = kept or {}, engines or {}
+    kept, engines, advised = kept or {}, engines or {}, advised or {}
     roles = {".github/workflows/%s" % name for name in workflows}
 
     def read() -> tuple:
@@ -415,4 +437,24 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
         found, answered = _began(transport, repo, github_id, attempt, record["status"] == "completed")
         record.update(found)
         whole = whole and answered
+    # What each finished review Run of the day says its advisory reads cost (decision 0224): one small file, read once.
+    # `day` is the UTC date of the pass's `now`, and None reads none. A cost read whole, or the lack of one, is kept
+    # by `advised` and not read again; one that cannot be read now is left off and asked for again, and nothing here
+    # makes the list less than whole or ends the pass: what is not known the pass counts at its worst case.
+    for record, github_id, _, keyed in ran if day is not None else []:
+        if record["status"] != "completed" or record["intent"] != REVIEWING or record["started_at"][:len(day)] != day:
+            continue
+        if keyed and (record["run"], record["started_at"]) in advised:
+            record.update(advised[(record["run"], record["started_at"])])
+            continue
+        try:
+            cost, read_whole = artifacts.advice_cost(
+                transport, repo, github_id, record["run"],
+                lambda answer: reads.append(dict(read_at(answer), read="advice_cost")))
+        except Unanswered:
+            continue
+        if cost is not None:
+            record[ADVISED[0]], record[ADVISED[1]] = cost["asks"], cost["cost_usd"]
+        elif read_whole:
+            record[ADVISED[1]] = None       # it left none: read, and counted at the worst case, and not asked for again
     return {"runs": records, "unidentified": unnamed, "complete": whole, "reads": reads, "github_ids": ids}

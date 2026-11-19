@@ -260,12 +260,12 @@
             "properties": {
               "input": {
                 "type": "number",
-                "minimum": 0,
+                "minimum": 1e-06,
                 "maximum": 10000
               },
               "output": {
                 "type": "number",
-                "minimum": 0,
+                "minimum": 1e-06,
                 "maximum": 10000
               }
             }
@@ -274,6 +274,11 @@
       }
     },
     "advisory_ceiling_usd_per_day": {
+      "type": "number",
+      "minimum": 0.01,
+      "maximum": 10000
+    },
+    "advisory_worst_case_usd": {
       "type": "number",
       "minimum": 0.01,
       "maximum": 10000
