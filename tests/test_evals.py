@@ -3693,7 +3693,7 @@ class EvalJob(unittest.TestCase):
         with mock.patch.object(job, "ORIGIN_LEAST", 12):     # the least is the configured one
             self.assertIs(ok(whole), False)
         # These tests otherwise set the least to none. Nothing is printed of a set.
-        with mock.patch.object(job, "ORIGIN_LEAST", 10), contextlib.redirect_stdout(quiet):
+        with mock.patch.object(job, "ORIGIN_LEAST", 10), contextlib.redirect_stdout(quiet), contextlib.redirect_stderr(quiet):
             # Every cell the manifest's shape allows is listed, one of no case among them, each count at one width.
             self.assertEqual(job.cells_of(*self.floored(whole)), [
                 cell("finding", None, False, 10), cell("finding", None, True, 0), cell("finding", "PR-3", False, 10),
