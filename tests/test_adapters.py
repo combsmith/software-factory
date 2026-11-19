@@ -6681,8 +6681,9 @@ class Linked(unittest.TestCase):
         two = [seen_by(3, [(7, True, [span(0, 2)]), (9, True, [])])]
         found, _ = self.read([linked_read(ref(9)), pull_read(7), pull_timeline(7), pull_read(9), pull_timeline(9)], two)
         self.assertEqual(found, [(7, False, [span(0, 2), span(3)]), (9, True, [span(3)])])
-        # Once seen, it is read as any listed: to another base now it is left out, and its timeline read short is not whole.
-        self.assertEqual(self.read([linked_read(), pull_read(7, base="next")], before), ([], True))
+        # Once seen, it is read as any listed: to another base now it is left out and the list is not whole, as its
+        # author may retarget it after a merge; and its timeline read short is not whole.
+        self.assertEqual(self.read([linked_read(), pull_read(7, base="next")], before), ([], False))
         short = [linked_read(), pull_read(7), pull_timeline(7, more=True), rest_answer("/repos/o/r/issues/7/timeline?per_page=100&page=2", {})]
         self.assertEqual(self.read(short, before), ([(7, False, [span(3)])], False))
         # Pass records that could not be read give no time and could hide one once seen: the list is not whole.

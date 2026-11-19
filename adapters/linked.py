@@ -197,8 +197,9 @@ def listing(transport, repo: str, number: int, updated_at: str, began: str, iden
     for candidate in sorted(join["refs"] | set(join["links"]) | present | set(spans)):
         got = pull.read(transport, repo, candidate)
         if not on_default(got):
-            # A closer of this life to another base is no link, and could be one: not whole.
-            whole = whole and candidate not in present
+            # A closer of this life, or one a pass saw with its keyword, to another base now is no link, and could
+            # have been one: not whole.
+            whole = whole and candidate not in present and candidate not in spans
             continue
         made, read_whole = entry(transport, got, identities, accounts, join, spans)
         found.append((made, got.get("merge_commit_sha")))
