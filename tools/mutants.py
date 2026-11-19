@@ -11234,6 +11234,9 @@ MUTANTS = ISSUE + [
     ('a Finding is accepted with the head unread', 'roles/pr-review/prompt.md', 'when you have read the head and the change', 'when the change', ('tests.test_evals.EvalJob.test_the_review_is_told_to_rule_on_each_finding_it_is_shown',)),
     ('a Finding the review cannot tell of is accepted', 'roles/pr-review/prompt.md', 'or you cannot tell. Give', 'unless you cannot tell. Give', ('tests.test_evals.EvalJob.test_the_review_is_told_to_rule_on_each_finding_it_is_shown',)),
     ('a Finding ruled rejected is raised again', 'roles/pr-review/prompt.md', '- Do not raise again a Finding you rule `rejected`', '- Raise again a Finding you rule `rejected`', ('tests.test_evals.EvalJob.test_the_review_is_told_to_rule_on_each_finding_it_is_shown',)),
+    ('a joined review takes the first answer\'s ruling', 'harness/passes.py',
+     'dict(d, decision={"result": "rejected"}) if "decision" in d and d["finding"] in standing else d',
+     'd', ('tests.test_harness.Passes.test_results_are_joined_by_the_merge_rule',)),
     ('a lone Finding shown may go unruled', 'harness/apply.py',
      '    if any(fid not in named for fid in asked):\n',
      '    if len(asked) > 1 and any(fid not in named for fid in asked):\n', ('tests.test_apply.Apply.test_each_finding_shown_is_ruled',)),
@@ -11243,6 +11246,8 @@ MUTANTS = ISSUE + [
     ('a proposal says a Finding stands', 'harness/apply.py',
      'get("result") == "rejected" for d in result["dispositions"]):\n',
      'get("result") != "accepted" for d in result["dispositions"]):\n', ('tests.test_apply.Apply.test_a_disposition_gives_one_half_and_only_the_half_its_role_may_make',)),
+    ('a criterion a standing Finding fails reads as a finding', 'roles/pr-review/prompt.md', ', and never `finding`, which is for a Finding this Result raises', '', ('tests.test_evals.EvalJob.test_the_review_is_told_to_rule_on_each_finding_it_is_shown',)),
+    ('the review is not told a Result that leaves a Finding unruled is refused', 'roles/pr-review/prompt.md', ' A\n  Result that leaves a listed Finding with no decision, or rules on any other, is refused whole.', '', ('tests.test_evals.EvalJob.test_the_review_is_told_to_rule_on_each_finding_it_is_shown',)),
     ('the review is shown a fixed Finding ruled rejected', 'roles/pr-review/prompt.md', '{"result": "accepted"}}`', '{"result": "rejected"}}`', ('tests.test_evals.EvalJob.test_the_review_is_told_to_rule_on_each_finding_it_is_shown',)),
     ('a criterion a standing Finding fails reads as met', 'roles/pr-review/prompt.md', 'reason `finding_stands`: never `met`,', 'reason `finding_stands`, or `met`,', ('tests.test_evals.EvalJob.test_the_review_is_told_to_rule_on_each_finding_it_is_shown',)),
     # Issue 856: what a Lens said on its own review thread is read as a text, held to that thread and that Lens.
