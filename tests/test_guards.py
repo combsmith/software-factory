@@ -1172,6 +1172,19 @@ class Push(unittest.TestCase):
         fewer = {path: held for path, held in BEFORE.items() if path != "run.sh"}
         self.assertIsNone(then(state, method, rest, body, answer(200, listed(ROOT_TREE, fewer))))
 
+    def test_the_branch_is_read_as_the_decision_admitted_it(self):
+        # Absent where the Decision admitted none, and at the admitted head where it admitted one, or the push stops.
+        state, (method, rest, body, said) = before("branch")
+        self.assertTrue(then(state, method, rest, body, answer(404, {"message": "Not Found"}))["branch_read"])
+        for other in (answer(200, ref(PARENT)), answer(200, ref(MADE)), answer(200), answer(403), answer(500), answer(201)):
+            self.assertIsNone(then(state, method, rest, body, other), other)
+        state, (method, rest, body, said) = before("branch", MOVE)
+        self.assertTrue(then(state, method, rest, body, said)["branch_read"])
+        for other in (answer(404), answer(200, ref(MADE)), answer(200, ref(ROOT_TREE)), answer(200),
+                      answer(200, ref(PARENT, "main")), answer(200, {"ref": "refs/heads/" + BRANCH, "object": PARENT}),
+                      answer(200, {"object": {"sha": PARENT}}), answer(200, [ref(PARENT)]), answer(201, ref(PARENT))):
+            self.assertIsNone(then(state, method, rest, body, other), other)
+
     def test_nothing_is_written_before_the_tree_and_the_branch_were_read(self):
         writes = [(told, request) for told in (PUSH, MOVE)
                   for step in ("blob a", "new tree", "new commit", "ref") for request in [before(step, told)[1]]]
@@ -1185,18 +1198,7 @@ class Push(unittest.TestCase):
             self.assertTrue(unread["branch_read"])
             self.assertFalse(push.permits(unread, method, GIT + rest, body), rest)
         self.assertTrue(may(before("blob a")[0], "POST", "blobs", {"content": "QQo=", "encoding": "base64"}))
-        # The branch is as the Decision admitted it, or the push stops: absent where it admitted none, and at the
-        # admitted head where it admitted one.
-        state, (method, rest, body, said) = before("branch")
-        self.assertTrue(then(state, method, rest, body, answer(404, {"message": "Not Found"}))["branch_read"])
-        for other in (answer(200, ref(PARENT)), answer(200, ref(MADE)), answer(200), answer(403), answer(500), answer(201)):
-            self.assertIsNone(then(state, method, rest, body, other), other)
         state, (method, rest, body, said) = before("branch", MOVE)
-        self.assertTrue(then(state, method, rest, body, said)["branch_read"])
-        for other in (answer(404), answer(200, ref(MADE)), answer(200, ref(ROOT_TREE)), answer(200),
-                      answer(200, ref(PARENT, "main")), answer(200, {"ref": "refs/heads/" + BRANCH, "object": PARENT}),
-                      answer(200, {"object": {"sha": PARENT}}), answer(200, [ref(PARENT)]), answer(201, ref(PARENT))):
-            self.assertIsNone(then(state, method, rest, body, other), other)
         # Read again before it is written, a branch that moved stops the push.
         for step in ("new commit", "ref"):
             state, _ = before(step, MOVE)
