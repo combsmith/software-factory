@@ -1,5 +1,6 @@
 # A Run's four jobs, called by run.yml at the Release's channel, with the item's lane on the calling job (#196's rulings 6 and 7; decisions 0004, 0050, 0054, 0058, 0064).
 # `run` reads what the Task is built from with the reader's key in a step of its own, whose token is revoked before the model's step; the model's step holds the model's credential alone, and the Engine sets the scrub and `--tools ""`.
+# Between the two, the advise step asks the advisory readers (decision 0224): it alone holds `ADVISORY_AZURE_KEY`, and no other secret; the module does nothing unless the Run is a review, and always exits 0. Its limit is 20 minutes, past the module's own 18, and the job's rose from 30 to 50 to hold it. What the readers cost goes up as the one-file artifact `advice-cost`, which the Controller's pass reads, and each reader's Result with its digest as an artifact of its own, for `apply`, before the model's step, so that what was spent is on record whatever the model's step does; a file that is not there, as in every Run that is no review, is passed over.
 # `verify` holds no secret and no cache, and takes the Result by the digest `run` reported. `apply` runs whatever failed before it: it writes nothing unless both succeeded, and its last step always leaves the Run's outcome.
 # The first job checks out this workflow's own commit (trial P-55) and hands it on; every later job checks out exactly that commit, with its tags, so that every job runs one Release and each step that needs the Release's name reads its one tag (harness/steps.release). Never the item's code. The CLI is installed at the Engine's pin, its sha256 the one the vendor's release manifest gives for linux-x64.
 name: sf-run-jobs
@@ -19,7 +20,7 @@ permissions: {}
 jobs:
   run:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 50
     environment: factory-run
     permissions:
       contents: read
@@ -61,6 +62,29 @@ jobs:
           READER_APP_KEY: ${{ secrets.READER_APP_KEY }}
         timeout-minutes: 3
         run: python3 -m harness.read
+      - name: Ask the advisory readers, which never fails the Run
+        env:
+          ADVISORY_AZURE_KEY: ${{ secrets.ADVISORY_AZURE_KEY }}
+        timeout-minutes: 20
+        run: python3 -m harness.advise
+      - name: Upload what the readers cost, which the Controller's pass reads
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: advice-cost
+          path: advice/advice-cost.json
+          if-no-files-found: ignore
+      - name: Upload what astra said, with its digest, for apply
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: advice-astra
+          path: advice/advice.astra.*
+          if-no-files-found: ignore
+      - name: Upload what kimi said, with its digest, for apply
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: advice-kimi
+          path: advice/advice.kimi.*
+          if-no-files-found: ignore
       - name: Run the Engine
         id: engine
         env:

@@ -171,6 +171,22 @@ LEGS_TESTS = ("tests.test_tools.Workflows.test_the_legs_of_make_verify_are_told_
 LEG_TESTS = ("tests.test_tools.Verify.test_the_legs_of_make_verify_run_every_test_once",)
 LIMITED = ("tests.test_tools.Workflows.test_each_run_step_stops_under_a_limit_of_its_own_below_its_jobs",)
 NEEDED = ("tests.test_tools.Workflows.test_each_step_limit_holds_what_its_step_needs",)
+ADVISE_STEP = ("tests.test_tools.Workflows.test_the_advise_step_alone_holds_the_azure_key_between_the_reader_and_the_model",)
+ADVICE_UPLOADS = ("tests.test_tools.Workflows.test_the_readers_cost_and_each_readers_result_go_up_as_artifacts_of_their_own",)
+# The advise step of the Run's jobs, the uploads after it and the model's step, as run-jobs.yml writes them: a mutant that
+# moves one is written from these.
+ADVISE_ASKS = ("      - name: Ask the advisory readers, which never fails the Run\n        env:\n"
+               "          ADVISORY_AZURE_KEY: ${{ secrets.ADVISORY_AZURE_KEY }}\n        timeout-minutes: 20\n"
+               "        run: python3 -m harness.advise\n")
+ADVICE_COST_UP = ("      - name: Upload what the readers cost, which the Controller's pass reads\n"
+                  "        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        with:\n"
+                  "          name: advice-cost\n          path: advice/advice-cost.json\n          if-no-files-found: ignore\n")
+ADVICE_KIMI_UP = ("      - name: Upload what kimi said, with its digest, for apply\n"
+                  "        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        with:\n"
+                  "          name: advice-kimi\n          path: advice/advice.kimi.*\n          if-no-files-found: ignore\n")
+ENGINE_RUNS = ("      - name: Run the Engine\n        id: engine\n        env:\n          CLAUDE_CLI: /usr/local/bin/claude\n"
+               "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n        timeout-minutes: 20\n"
+               "        run: python3 -m harness.run\n")
 P13 = "tools/trial_p13_cli.sh"
 P13_TESTS = "tests.test_tools.TrialScript."
 P50 = "tools/trial_p50_linux_sandbox.sh"
@@ -3025,7 +3041,8 @@ MUTANTS = ISSUE + [
     ("the eval job's run step is cut before its budget", ".github/workflows/eval.yml",
      "        timeout-minutes: 109\n", "        timeout-minutes: 30\n", NEEDED),
     ("the Engine's step is cut before its call can end", ".github/workflows/run-jobs.yml",
-     "        timeout-minutes: 20\n", "        timeout-minutes: 15\n", NEEDED),
+     "        timeout-minutes: 20\n        run: python3 -m harness.run\n",
+     "        timeout-minutes: 15\n        run: python3 -m harness.run\n", NEEDED),
     ("a uses: step must have a limit of its own", "tools/check_workflows.py",
      '                 for s in steps if s["key"] == "run"]', '                 for s in steps if s["key"] in ("run", "uses")]',
      LIMITED),
@@ -15303,8 +15320,48 @@ MUTANTS = ISSUE + [
      '    if version not in CLI_CHECKSUMS:\n        return ["config/harness.json pins the CLI at %s, and CLI_CHECKSUMS holds no checksum for it" % version]\n',
      '', ('tests.test_tools.Workflows.test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome',)),
     ("a key named in another case is named nowhere", 'tools/check_workflows.py',
-     'r"factory-run|factory-apply|READER_APP_KEY|PR_REVIEW_APP_KEY", re.I)', 'r"factory-run|factory-apply|READER_APP_KEY|PR_REVIEW_APP_KEY")',
+     'r"factory-run|factory-apply|READER_APP_KEY|PR_REVIEW_APP_KEY|ADVISORY_AZURE_KEY", re.I)',
+     'r"factory-run|factory-apply|READER_APP_KEY|PR_REVIEW_APP_KEY|ADVISORY_AZURE_KEY")',
      ('tests.test_tools.Workflows.test_a_key_and_its_environment_are_named_by_their_one_file',)),
+    # Decision 0224: the advise step of the `run` job, its key, its limit and what it uploads.
+    ("the advisory readers' key may be named by any workflow", 'tools/check_workflows.py',
+     'r"factory-run|factory-apply|READER_APP_KEY|PR_REVIEW_APP_KEY|ADVISORY_AZURE_KEY", re.I)',
+     'r"factory-run|factory-apply|READER_APP_KEY|PR_REVIEW_APP_KEY", re.I)',
+     ('tests.test_tools.Workflows.test_a_key_and_its_environment_are_named_by_their_one_file',)),
+    ("the Run's jobs are held with no advise step", 'tools/check_workflows.py',
+     '        timeout-minutes: 20\n        run: python3 -m harness.advise\n',
+     '        timeout-minutes: 20\n        run: python3 -m harness.steps\n', ADVISE_STEP),
+    ("the model's step is handed the advisory readers' key", '.github/workflows/run-jobs.yml',
+     '          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n',
+     '          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n          ADVISORY_AZURE_KEY: ${{ secrets.ADVISORY_AZURE_KEY }}\n',
+     ADVISE_STEP),
+    ("the advise step is handed the model's credential", '.github/workflows/run-jobs.yml',
+     '          ADVISORY_AZURE_KEY: ${{ secrets.ADVISORY_AZURE_KEY }}\n',
+     '          ADVISORY_AZURE_KEY: ${{ secrets.ADVISORY_AZURE_KEY }}\n          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n',
+     ADVISE_STEP),
+    ("the advisory readers are asked after the model", '.github/workflows/run-jobs.yml',
+     ADVISE_ASKS + ADVICE_COST_UP + ADVICE_KIMI_UP.replace("kimi", "astra") + ADVICE_KIMI_UP + ENGINE_RUNS,
+     ENGINE_RUNS + ADVISE_ASKS + ADVICE_COST_UP + ADVICE_KIMI_UP.replace("kimi", "astra") + ADVICE_KIMI_UP, ADVISE_STEP),
+    ("the advise step is cut before its readers' time is spent", '.github/workflows/run-jobs.yml',
+     '        timeout-minutes: 20\n        run: python3 -m harness.advise\n',
+     '        timeout-minutes: 18\n        run: python3 -m harness.advise\n', ADVISE_STEP),
+    ("the advise step may be skipped or fail softly", '.github/workflows/run-jobs.yml',
+     '        run: python3 -m harness.advise\n',
+     '        run: python3 -m harness.advise\n        continue-on-error: true\n', ADVISE_STEP),
+    ("the readers' cost goes up under a name the Controller's port does not read", '.github/workflows/run-jobs.yml',
+     '          name: advice-cost\n', '          name: advice\n', ADVICE_UPLOADS),
+    ("a Run that left no advice fails at its upload", '.github/workflows/run-jobs.yml',
+     '          path: advice/advice-cost.json\n          if-no-files-found: ignore\n',
+     '          path: advice/advice-cost.json\n          if-no-files-found: error\n', ADVICE_UPLOADS),
+    ("a reader's Result goes up without its digest", '.github/workflows/run-jobs.yml',
+     '          path: advice/advice.kimi.*\n', '          path: advice/advice.kimi.json\n', ADVICE_UPLOADS),
+    ("one reader's Result goes up in another's artifact", '.github/workflows/run-jobs.yml',
+     '          name: advice-kimi\n          path: advice/advice.kimi.*\n',
+     '          name: advice-kimi\n          path: advice/advice.*\n', ADVICE_UPLOADS),
+    ("a reader's Result goes up only where the model's step passed", '.github/workflows/run-jobs.yml',
+     ADVICE_KIMI_UP + ENGINE_RUNS, ENGINE_RUNS + ADVICE_KIMI_UP, ADVICE_UPLOADS),
+    ("a reader the configuration holds has no artifact", '.github/workflows/run-jobs.yml',
+     ADVICE_KIMI_UP + ENGINE_RUNS, ENGINE_RUNS, ADVICE_UPLOADS),
     ('apply runs on no commit', 'tools/check_workflows.py',
      "    if: always() && needs.run.outputs.commit != ''\n",
      '    if: always()\n', ('tests.test_tools.Workflows.test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome',)),

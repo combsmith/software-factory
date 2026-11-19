@@ -275,6 +275,10 @@ ACTIONS_WRITE = {PASS_JOB, WAKE_JOB, LANE_JOB}
 # user's token alone. The CLI
 # is the second exempt install, its version the Engine's pin in config/harness.json, and its checksum CLI_CHECKSUM, the
 # one the vendor's release manifest gives for linux-x64; a pull request that moves the pin moves the checksum.
+# Between the reader's step and the model's, `run` asks the advisory readers (decision 0224): the advise step alone holds
+# the Azure key, and no other secret, under a limit of its own that the job's was raised to hold; what the readers
+# cost, and each reader's Result with its digest, go up as artifacts of their own before the model's step, and a file
+# that is not there fails nothing.
 PASS_WORKFLOW = "pass.yml"
 # The pass, held word for word: the record uploaded before anything is dispatched, the Controller's key on its two steps
 # alone, the pass's own token on the writes' step alone, and the record of each write uploaded whatever failed.
@@ -340,7 +344,7 @@ permissions: {}
 jobs:
   run:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 50
     environment: factory-run
     permissions:
       contents: read
@@ -382,6 +386,29 @@ jobs:
           READER_APP_KEY: ${{ secrets.READER_APP_KEY }}
         timeout-minutes: 3
         run: python3 -m harness.read
+      - name: Ask the advisory readers, which never fails the Run
+        env:
+          ADVISORY_AZURE_KEY: ${{ secrets.ADVISORY_AZURE_KEY }}
+        timeout-minutes: 20
+        run: python3 -m harness.advise
+      - name: Upload what the readers cost, which the Controller's pass reads
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: advice-cost
+          path: advice/advice-cost.json
+          if-no-files-found: ignore
+      - name: Upload what astra said, with its digest, for apply
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: advice-astra
+          path: advice/advice.astra.*
+          if-no-files-found: ignore
+      - name: Upload what kimi said, with its digest, for apply
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: advice-kimi
+          path: advice/advice.kimi.*
+          if-no-files-found: ignore
       - name: Run the Engine
         id: engine
         env:
@@ -651,7 +678,7 @@ jobs:
 # Each key and the environment it lives in, by the one file that may name them (decision 0035): no other workflow names
 # either, so no other job, and no job a fork's code could reach, holds the key.
 KEYED = {PASS_WORKFLOW: re.compile(r"factory-poller|CONTROLLER_APP_KEY", re.I),      # GitHub's names of these
-         RUN_JOBS: re.compile(r"factory-run|factory-apply|READER_APP_KEY|PR_REVIEW_APP_KEY", re.I),     # ignore case
+         RUN_JOBS: re.compile(r"factory-run|factory-apply|READER_APP_KEY|PR_REVIEW_APP_KEY|ADVISORY_AZURE_KEY", re.I),     # ignore case
          APPROVE_JOB: re.compile(r"factory-approve|APPROVER_TOKEN", re.I),
          QUEUE_JOB: re.compile(r"factory-queue|QUEUE_APP_KEY", re.I)}
 # The id GitHub gives the App GitHub Actions: it reports every job in every workflow of the repo.

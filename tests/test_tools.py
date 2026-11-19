@@ -4746,6 +4746,69 @@ class Workflows(unittest.TestCase):
         none = tree({"config/harness.json": "{}"})
         self.assertTrue(caught(check_workflows.run_jobs_problems(good, none), "names no Engine pin"))
 
+    def test_the_advise_step_alone_holds_the_azure_key_between_the_reader_and_the_model(self):  # decision 0224
+        # The readers are asked after the reader's token is revoked and before the model's step, by a step that holds
+        # the Azure key and nothing else; no other step of the file names the key; and the step's limit is past the
+        # module's own budget, since a step cut at its limit fails its job (trial P-42), which this one never may.
+        from harness import advise
+        good = (self.LIVE / "run-jobs.yml").read_text()
+        self.assertEqual(check_workflows.run_jobs_problems(good), [])
+        entries, bad = check_workflows.read(good)
+        self.assertEqual(bad, [])
+        steps = check_workflows._steps(entries, "run")
+        ran = [step["run"]["value"] if "run" in step else None for step in steps]
+        read, asks, model = (ran.index("python3 -m harness.%s" % name) for name in ("read", "advise", "run"))
+        self.assertEqual((asks, ran.count("python3 -m harness.advise")), (read + 1, 1))
+        self.assertLess(asks, model)
+        step = steps[asks]
+        self.assertEqual(set(step), {"name", "env", "timeout-minutes", "run"})       # no if:, and nothing that softens it
+        given = {e["key"]: e["value"] for e in entries if e["step"] == step["run"]["step"] and e["path"][-1] == "env"}
+        self.assertEqual(given, {advise.KEY: "${{ secrets.%s }}" % advise.KEY})
+        self.assertEqual([e["step"] for e in entries if advise.KEY in e["key"] + e["value"]], [step["run"]["step"]])
+        self.assertEqual(check_workflows._uncommented(good).count(advise.KEY), 2)
+        self.assertGreater(int(step["timeout-minutes"]["value"]) * 60, advise.WHOLE)
+        # Each way the key could reach another step, or another secret this one, is not the Run's jobs.
+        key = "          ADVISORY_AZURE_KEY: ${{ secrets.ADVISORY_AZURE_KEY }}\n"
+        model_s = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
+        reader = "          READER_APP_KEY: ${{ secrets.READER_APP_KEY }}\n"
+        for why, text in {"the key beside the model's": good.replace(model_s, model_s + key),
+                          "the key beside the reader's": good.replace(reader, reader + key),
+                          "the model's beside the key": good.replace(key, key + model_s),
+                          "the reader's beside the key": good.replace(key, key + reader),
+                          "the job's token beside the key": good.replace(key, key + "          GH_TOKEN: ${{ github.token }}\n"),
+                          "the key on the job": good.replace("    outputs:\n", "    env:\n" + key[2:] + "    outputs:\n", 1),
+                          "a step that may fail softly": good.replace("        run: python3 -m harness.advise\n",
+                                                                      "        run: python3 -m harness.advise\n"
+                                                                      "        continue-on-error: true\n"),
+                          "no step": good.replace("        run: python3 -m harness.advise\n", "        run: python3 -m harness.steps\n")}.items():
+            self.assertNotEqual(text, good, why)
+            self.assertTrue(caught(check_workflows.run_jobs_problems(text), "it is not the Run's jobs"), why)
+
+    def test_the_readers_cost_and_each_readers_result_go_up_as_artifacts_of_their_own(self):  # decision 0224
+        # The Controller's port reads the cost by the artifact's name and its one file's, so the workflow's are the
+        # port's own; each reader the configuration holds has an artifact of its own, its Result and its digest; they go
+        # up before the model's step, and a file that is not there, as in a Run that is no review, fails nothing.
+        from adapters import artifacts
+        good = (self.LIVE / "run-jobs.yml").read_text()
+        entries, _ = check_workflows.read(good)
+        steps = check_workflows._steps(entries, "run")
+        ran = [step["run"]["value"] if "run" in step else None for step in steps]
+        asks, model = ran.index("python3 -m harness.advise"), ran.index("python3 -m harness.run")
+        between = steps[asks + 1:model]
+        self.assertEqual([set(step) for step in between], [{"name", "uses", "with"}] * len(between))
+        self.assertEqual({(step["uses"]["value"], step["uses"]["comment"]) for step in between}, {check_workflows.UPLOAD})
+        ups = [check_workflows._with(entries, step["uses"]) for step in between]
+        harness = json.loads((ROOT / "config" / "harness.json").read_text())
+        lenses = [lens for lens in harness["advisory"] if lens in harness["readers"]]
+        self.assertEqual(lenses, ["astra", "kimi"])
+        wanted = [{"name": artifacts.ADVICE_COST, "path": "advice/" + artifacts.ADVICE_COST_MEMBER, "if-no-files-found": "ignore"}]
+        wanted += [{"name": "advice-%s" % lens, "path": "advice/advice.%s.*" % lens, "if-no-files-found": "ignore"}
+                   for lens in lenses]
+        self.assertEqual(ups, wanted)
+        # No other step of the Run's jobs uploads under one of these names.
+        named = [e["value"] for e in entries if e["key"] == "name" and e["path"][-1:] == ["with"]]
+        self.assertEqual([name for name in named if name.startswith("advice")], [up["name"] for up in wanted])
+
     def test_a_dash_in_a_blocks_text_is_no_step(self):  # #416's review
         # A line of a | block that starts with "- " is text, not a step of bare text; one where the steps stand is.
         text = GOOD.replace(STEP, STEP + "        env:\n          NOTE: |\n            - a line of text\n", 1)
@@ -4837,14 +4900,14 @@ class Workflows(unittest.TestCase):
     def test_a_key_and_its_environment_are_named_by_their_one_file(self):  # decision 0035
         named = {"READER_APP_KEY": "run-jobs.yml", "factory-apply": "run-jobs.yml", "PR_REVIEW_APP_KEY": "run-jobs.yml",
                  "factory-run": "run-jobs.yml", "APPROVER_TOKEN": "approve-job.yml", "factory-approve": "approve-job.yml",
-                 "CONTROLLER_APP_KEY": "pass.yml", "factory-poller": "pass.yml"}
+                 "CONTROLLER_APP_KEY": "pass.yml", "factory-poller": "pass.yml", "ADVISORY_AZURE_KEY": "run-jobs.yml"}
         for key, owner in named.items():
             text = GOOD.replace("    env:\n      CHECKS_SHARD:", "    env:\n      X: %s\n      CHECKS_SHARD:" % key, 1)
             self.assertTrue(caught(check_workflows.shim_problems("other.yml", text),
                                    "it names a key or the environment that holds it, which only %s names" % owner), key)
             self.assertFalse(caught(check_workflows.shim_problems(owner, text), "which only %s names" % owner), key)
         # GitHub's names of these ignore case, and so does the rule.
-        for spelt in ("Pr_Review_App_Key", "FACTORY-APPLY", "Factory-Poller"):
+        for spelt in ("Pr_Review_App_Key", "FACTORY-APPLY", "Factory-Poller", "Advisory_Azure_Key"):
             text = GOOD.replace("    env:\n      CHECKS_SHARD:", "    env:\n      X: %s\n      CHECKS_SHARD:" % spelt, 1)
             self.assertTrue(caught(check_workflows.shim_problems("other.yml", text), "it names a key"), spelt)
         # A comment that names one names nothing.
