@@ -705,7 +705,8 @@ A Result holds what the Role judged, and only that (decision 0038). The Engine w
 by the Harness or `apply`. `reason` is a code, null when the Run completed: one of the model's with `incomplete` or
 `refused`, or the Harness's with `failed`, and no other; a `superseded` Result, which nothing writes yet, gives none
 (decision 0146). The Harness fills
-`release` and `usage`, the latter from the CLI's own answer: the engine and its version, the model,
+`release`, `shown` and `usage`. `shown` is each Finding the Task listed and kept the text of, by its id and the
+digest of that text (issue 856); `usage` is from the CLI's own answer: the engine and its version, the model,
 the session, each count of tokens as the CLI reports them (P-13: the input tokens alone are a
 fraction of what was read; the tokens written to and read from the cache are the rest), the turns,
 the cost and the seconds. For a Run the CLI never answered the counts are null and `seconds` is

@@ -384,10 +384,11 @@ class Reader(unittest.TestCase):
         self.assertEqual(len(json.loads(self.go(threads=many[1:])[3]["texts.json"])), read.texts.THREADS + 1)
         # A thread in a shape the Kernel's reading does not take, resolved by an account the port could not type, is the
         # item's own state: no Finding is listed and the step does not stop; `apply` asks the Kernel again, which defers.
-        unread = dict(support.thread("PRRT_kw7"), resolved=True, resolved_by=None)
-        code, printed, files, kept, calls = self.go(threads=[unread, support.thread("PRRT_kw14")])
-        self.assertEqual((code, json.loads(kept["findings.json"]), json.loads(kept["texts.json"]), "findings" in calls),
-                         (0, [], [ISSUE_TEXT], False), printed)
+        for unread in (dict(support.thread("PRRT_kw7"), resolved=True, resolved_by=None),
+                       {k: v for k, v in support.thread("PRRT_kw7").items() if k != "severity"}):
+            code, printed, files, kept, calls = self.go(threads=[unread, support.thread("PRRT_kw14")])
+            self.assertEqual((code, json.loads(kept["findings.json"]), json.loads(kept["texts.json"]), "findings" in calls),
+                             (0, [], [ISSUE_TEXT], False), printed)
         # A read GitHub did not answer builds no Task: the step stops by its code, the token revoked, and so it does
         # where the port answers other than one text for the thread.
         for threads_, raising, said in ((threads, (read.texts, "findings", read.Unanswered("a thread's read answered 502")), None),
