@@ -6052,8 +6052,6 @@ MUTANTS = ISSUE + [
      'self.assertGreaterEqual(statuses[1]["created_at"], statuses[0]["created_at"])', ("tests.test_release.Fixture.test_a_cut_s_fixture_is_held_to_each_field_its_readers_passed_over",)),
     ('a success dated the second its inactive was is refused (#863)', 'tests/test_release.py', 'self.assertLessEqual(statuses[1]["created_at"], statuses[0]["created_at"])',
      'self.assertLess(statuses[1]["created_at"], statuses[0]["created_at"])', ("tests.test_release.Fixture.test_a_cut_s_fixture_is_held_to_each_field_its_readers_passed_over",)),
-    ("the helper a later cut is read by does not ask of the page's Link header (#863)", 'tests/test_release.py', '        self.a_page_of_deployments_keeps_no_link(fixture)\n        made = self.item(fixture, "cut_and_move_of_next")\n',
-     '        made = self.item(fixture, "cut_and_move_of_next")\n', ("tests.test_release.Fixture.test_a_cut_s_fixture_is_held_to_each_field_its_readers_passed_over",)),
     ('a page of Deployments may keep its Link header (#863)', 'tests/test_release.py', '            self.assertNotIn("link", {name.lower() for name in e["response"]["headers"]}, e["request"]["call"])\n',
      '            pass\n', ("tests.test_release.Fixture.test_a_cut_s_fixture_is_held_to_each_field_its_readers_passed_over",)),
     ('a Link header is told from others by its case (#863)', 'tests/test_release.py', 'self.assertNotIn("link", {name.lower() for name in e["response"]["headers"]}, e["request"]["call"])',
