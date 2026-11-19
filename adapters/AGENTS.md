@@ -1,8 +1,8 @@
 # adapters/
 
-All the Factory's I/O; `github.py`, `azure.py` reach the network. `items.py` open pull requests, `pull.py` one, `timeline.py` reviews, labels, actors, `checks.py` checks, queue, `threads.py`, `edits.py`, `applied.py` Lenses' records, `facts.py`, `records.py`,
+All the Factory's I/O; `github.py`, `azure.py` reach the network. `items.py` open Work items, `pull.py` one, `timeline.py` reviews, labels, actors, `checks.py` checks, queue, `threads.py`, `edits.py`, `applied.py` Lenses' records, `facts.py`, `records.py`,
 `artifacts.py`, `seen.py` writes made, `passes.py`, `acceptance.py`, `heldout.py`, `rules.py`, `texts.py` a Task's texts, `issues.py` an issue's facts; `effects.py` writes, `pause.py`, `tags.py`, `candidate.py`, `deployments.py`, `identity.py`, `queue.py`.
-Not built yet, by their stories: contract.py, binding.py, linked.py, an issue's linked pull requests, settings.py and usage.py. A port decides nothing and hands the Kernel no text.
+Not built yet, by their stories: contract.py, binding.py, linked.py, keyword_spans.py, draft_checks.py, settings.py and usage.py. A port decides nothing and hands the Kernel no text.
 
 | Rule | Held by |
 |---|---|
