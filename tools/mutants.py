@@ -131,6 +131,7 @@ AZURE_ASKS = ("tests.test_advisory.Transport.test_the_azure_transport_asks_four_
 AZURE_ONE = ("tests.test_advisory.Transport.test_the_azure_transport_reaches_one_host_and_two_apis",)
 AZURE_KEY = ("tests.test_advisory.Transport.test_the_azure_transport_takes_its_key_from_its_caller_and_sends_it_nowhere_else",)
 AZURE_BOUND = ("tests.test_advisory.Transport.test_the_azure_transport_bounds_every_answer_in_size_and_time",)
+AZURE_FRAMED = ("tests.test_advisory.Transport.test_the_azure_transport_reads_only_an_answer_framed_as_azure_frames_one",)
 SCRATCH_PARTS = ("tests.test_evals.EvalJob.test_a_set_of_no_case_ends_the_run_before_anything_is_read",)
 CANARY_APART = ("tests.test_evals.EvalJob.test_the_canarys_head_is_apart_from_its_case",)
 NO_ANSWER = ("tests.test_evals.EvalJob.test_a_run_is_given_no_part_of_its_cases_answer_and_its_head_no_history",)
@@ -4337,6 +4338,28 @@ MUTANTS = ISSUE + [
      ' and v.isascii() and v.isprintable()}', '}', AZURE_BOUND),
     ('a key may be text of another class, which writes itself otherwise', AZURE,
      'type(key) is not str or not key', 'not isinstance(key, str) or not key', AZURE_KEY),
+    ('an Azure answer may say two lengths', AZURE,
+     'if len(lengths) > 1 or (lengths and', 'if (lengths and', AZURE_FRAMED),
+    ("an Azure answer's length may be other than digits", AZURE,
+     ' or (lengths and not LENGTH.fullmatch(lengths[0])):', ':', AZURE_FRAMED),
+    ("an Azure answer's length is matched from its start alone", AZURE,
+     'LENGTH.fullmatch(lengths[0])', 'LENGTH.match(lengths[0])', AZURE_FRAMED),
+    ("an Azure answer's length is told by its header's name in one case alone", AZURE,
+     'if k.lower() == "content-length"]', 'if k == "content-length"]', AZURE_FRAMED),
+    ('an Azure answer may be of no frame', AZURE,
+     '    if not lengths and coded != ["chunked"]:\n', '    if False:\n', AZURE_FRAMED),
+    ('a chunked Azure answer is told in one case alone', AZURE,
+     'coded = [v.lower() for k', 'coded = [v for k', AZURE_FRAMED),
+    ("an Azure answer's frame is not read", AZURE,
+     '                    _framed(got.headers)\n', '', AZURE_FRAMED),
+    ("an Azure error's frame is not read", AZURE,
+     '                    _framed(err.headers)\n', '', AZURE_FRAMED),
+    ("an Azure answer's whole number may be of any length", AZURE,
+     'json.loads(text, parse_int=_whole)', 'json.loads(text)', AZURE_BOUND),
+    ("an Azure answer's whole number of the most digits is read", AZURE,
+     '    if len(digits) >= DIGITS:\n', '    if len(digits) > DIGITS:\n', AZURE_BOUND),
+    ("the Azure transport verifies by the process's default context", AZURE,
+     'urllib.request.HTTPSHandler(context=ssl.create_default_context())', 'urllib.request.HTTPSHandler', AZURE_KEY),
     ('a file row of unknown status is read', 'adapters/pull.py',
      '        if status not in STATUSES or (moved and',
      '        if (moved and', ('tests.test_adapters',)),
