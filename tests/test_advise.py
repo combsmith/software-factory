@@ -201,6 +201,11 @@ class Advise(unittest.TestCase):
         moved, _, _ = advised([response(), completion()],
                               change={"changed_paths": [{"path": "docs/derive.md", "previous": "kernel/derive.py"}]})
         self.assertEqual(moved["astra"]["usage"]["effort"], "max")
+        # Paths that were not read whole may lack the critical one: the change is read at the highest effort.
+        for complete in ({"changed_paths": False}, {}, None, {"changed_paths": "true"}):
+            short, _, _ = advised([response(), completion()], change={
+                "changed_paths": [{"path": "docs/glossary.md", "previous": None}], "complete": complete})
+            self.assertEqual((short["astra"]["usage"]["effort"], short["kimi"]["usage"]["effort"]), ("max", "max"), complete)
 
     def test_the_rules_and_the_diff_follow_the_instruction_as_data(self):
         _, azure_, _ = advised([response(), completion()], rules={"AGENTS.md": "The rules.", "x": 7})
@@ -242,7 +247,7 @@ class Advise(unittest.TestCase):
         begun, ended = prompt.index("=== %s begin: the change" % code), prompt.index("=== %s end: the change" % code)
         self.assertTrue(begun < prompt.index("=== %s end: the change" % guess) < ended)
         self.assertNotIn(code, instruction + held + forged)
-        # The code is made anew for each read: two reads of one diff carry two codes, and neither is the guess.
+        # The code is made anew each time the step runs: two prompts of one diff carry two codes, neither the guess.
         codes_ = [prompt_of(forged).split("\n\n=== ", 1)[1][:64] for _ in range(2)]
         self.assertEqual(len({guess, code, *codes_}), 4)
         self.assertRegex(codes_[0], "^[0-9a-f]{64}$")
@@ -251,7 +256,7 @@ class Advise(unittest.TestCase):
         for said_ in ("The true code is the one on the first such line after these instructions, which no\ndata precedes",
                       "without the `a/` or `b/` a diff\n  puts before it", "An answer that breaks this form is discarded whole",
                       "a whole number from 1 to 999999999", "with no tab and no other control character",
-                      "exactly as it is written there"):
+                      "`PR-` and one to three digits such\n  as `PR-3` and nothing after it, or null where you were given no rubric"):
             self.assertIn(said_, instruction)
 
     def test_a_critical_path_is_what_the_hooks_protect_or_this_lens_reads_the_kernel_or_a_transport(self):
@@ -265,10 +270,11 @@ class Advise(unittest.TestCase):
                      "release/cut.py", "adapters/timeline.py", "adapters/heldout.py", "adapters/identity.py",
                      "adapters/advice.py", "adapters/records.py", "controller/pass_.py", "tools/check_repo.py",
                      "tools/jsonschema_lite.py", "schemas/advice.schema.json", ".gitleaks.toml",
-                     "docs/standards/security-boundaries.md"):          # a check, a credential's reach or the ceiling
+                     "docs/standards/security-boundaries.md", "adapters/pull.py", "adapters/rules.py", "adapters/passes.py",
+                     "tools/mutants.py", "Makefile"):                   # a check, a credential's reach or the ceiling
             self.assertEqual(advise.effort_of(reader, ["docs/glossary.md", path], patterns), "max", path)
-        for path in ("docs/glossary.md", "adapters/pull.py", "adapters/azure.py.md", "tests/test_advise.py", "tools/mutants.py",
-                     "config/harness.json.bak", "roles/fix/prompt.md", "Makefile", "examples/pass.json", "xkernel/a.py"):
+        for path in ("docs/glossary.md", "xadapters/azure.py", "tests/test_advise.py", "tools/mutants.py.md", "tools/untested.py",
+                     "config/harness.json.bak", "roles/fix/prompt.md", "docs/Makefile", "examples/pass.json", "xkernel/a.py"):
             self.assertEqual(advise.effort_of(reader, [path], patterns), "xhigh", path)
         # The list is a union that may only grow: the hooks' own, whatever it comes to hold, and what is named here.
         for listed in json.loads((ROOT / "config" / "hooks.json").read_text())["protected"]:
@@ -278,7 +284,8 @@ class Advise(unittest.TestCase):
             "adapters/artifacts.py", "adapters/records.py", "adapters/effects.py", "controller/", "tools/check_*",
             "tools/jsonschema_lite.py", "tools/commits_are_the_maintainers.py", "schemas/", ".gitleaks.toml",
             ".gitleaksignore", "docs/standards/security-boundaries.md", "CODEOWNERS", "kernel/", "adapters/github.py",
-            "adapters/azure.py"}, set(patterns))
+            "adapters/azure.py", "adapters/", "tools/mutants.py", "Makefile"}, set(advise.SECURITY + advise.ALSO))
+        self.assertLessEqual(set(advise.SECURITY + advise.ALSO), set(patterns))
         # And a list that cannot be read makes every change critical.
         results, _, _ = advised([response(), completion()], hooks=False,
                                 change={"changed_paths": [{"path": "docs/glossary.md", "previous": None}]})
@@ -293,15 +300,17 @@ class Advise(unittest.TestCase):
             results, azure_, _ = advised([], env=env)
             self.assertEqual(codes(results), {"astra": ("failed", "no_key", 0, 0), "kimi": ("failed", "no_key", 0, 0)}, env)
             self.assertEqual(azure_.made, [])
-        # A prompt of exactly the characters a reader takes is asked, and one character more is not.
+        # A prompt of exactly the bytes a reader takes is asked, and one byte more is not: a prompt is held by its
+        # bytes of UTF-8, which bound its tokens, and never by its characters, of which one may be four bytes.
         limit = config()["readers"]["astra"]["prompt_characters"]
         _, azure_, _ = advised([response(), completion()], diff=b"")
-        fits = b"+" * (limit - len(azure_.sent[0]["body"]["input"]))
-        results, azure_, _ = advised([response(), completion()], diff=fits)
-        self.assertEqual((codes(results), len(azure_.sent[0]["body"]["input"])), (BOTH, limit))
-        results, azure_, _ = advised([], diff=fits + b"+")
-        self.assertEqual(codes(results), {"astra": ("incomplete", "too_large", 0, 0), "kimi": ("incomplete", "too_large", 0, 0)})
-        self.assertEqual(azure_.sent, [])
+        room = limit - len(azure_.sent[0]["body"]["input"].encode())
+        for fits in (b"+" * room, "\U0001f600".encode() * (room // 4) + b"+" * (room % 4)):
+            results, azure_, _ = advised([response(), completion()], diff=fits)
+            self.assertEqual((codes(results), len(azure_.sent[0]["body"]["input"].encode())), (BOTH, limit))
+            results, azure_, _ = advised([], diff=fits + b"+")
+            self.assertEqual(codes(results), {"astra": ("incomplete", "too_large", 0, 0), "kimi": ("incomplete", "too_large", 0, 0)})
+            self.assertEqual(azure_.sent, [])
         # No reader reads a dependency's change, none reads for another Intent, and none for a Run the record does not
         # hold: nothing is written or asked.
         for made in ({"change": {"class": "dependency"}}, {"intent": "fix-findings"}, {"run": "r_01JA7X"}):
@@ -501,8 +510,10 @@ class Advise(unittest.TestCase):
 
         def renamed(changed: dict) -> None:
             changed["advisory"], changed["readers"]["kimi-2"] = ["astra", "kimi-2"], changed["readers"].pop("kimi")
-        results, azure_, _ = advised([response()], readers=renamed)
+        results, azure_, _ = advised([response()], readers=renamed, mid=True)
         self.assertEqual((codes(results), len(azure_.sent)), ({"astra": ("completed", None, 1, 1)}, 1))
+        # And it is not among the readers the step says it is about to ask.
+        self.assertEqual(spent(azure_.seen[0]), (1, None))
         # With no diff to send, each reader has a Result and none is asked.
         results, azure_, _ = advised([], drop=("diff",))
         self.assertEqual(codes(results), {"astra": ("failed", "transport", 0, 0), "kimi": ("failed", "transport", 0, 0)})
