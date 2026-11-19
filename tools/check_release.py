@@ -48,6 +48,8 @@ SCHEMAS = ("release-fixture", "trial")
 DEPLOYMENTS_LIST = re.compile(r"\b%s/deployments/?(\?\S*)?(?=\s|$)" % re.escape(API_REPO.lstrip("/")))
 PAGED = re.compile(r"[?&](per_)?page=")
 LINK_REMOVED = "the link header of the read of next's Deployments"
+# What `removed` says of it, of whichever Channel's Deployments the read was.
+LINK_SAID = re.compile(r"the link header of the read of [a-z]+'s Deployments")
 PURE = ("release/cut.py", "release/current.py")
 # What the rules may import: the future's annotations, and each other, never the CLI that reads files.
 ALLOWED_IMPORTS = {"__future__"} | {"release." + pathlib.PurePath(rel).stem for rel in PURE}
@@ -253,10 +255,10 @@ def fixture_problems(value, rel: str) -> list:
                     if str(name).lower() not in check_trials.HEADERS:
                         problems.append("%s: %s[%d].%s.headers holds %s, which a fixture does not keep"
                                         % (rel, where, i, side, name))
-    said = [entry for entry in value.get("removed") or [] if isinstance(entry, str) and LINK_REMOVED in entry]
+    said = [entry for entry in value.get("removed") or [] if isinstance(entry, str) and LINK_SAID.search(entry)]
     if pages and len(said) != 1:
-        problems.append("%s: reads a page of Deployments, and removed says %d times that %s was taken out, not once"
-                        % (rel, len(said), LINK_REMOVED))
+        problems.append("%s: reads a page of Deployments, and removed says %d times that the link header of the read of "
+                        "a Channel's Deployments was taken out, not once" % (rel, len(said)))
     if not any(isinstance(exchanges, list) and exchanges for _, exchanges in groups):
         problems.append("%s: holds no exchange" % rel)
     return problems

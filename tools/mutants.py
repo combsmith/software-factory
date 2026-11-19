@@ -16303,6 +16303,8 @@ MUTANTS = ISSUE + [
      '    if pages and len(said) != 1:\n', '    if pages and len(said) > 1:\n', ("tests.test_release.Fixture.test_a_cut_s_fixture_is_held_to_each_field_its_readers_passed_over",)),
     ("removed may say twice the Link header was taken out", "tools/check_release.py",
      '    if pages and len(said) != 1:\n', '    if pages and len(said) < 1:\n', ("tests.test_release.Fixture.test_a_cut_s_fixture_is_held_to_each_field_its_readers_passed_over",)),
+    ("removed says it of next's Deployments alone", "tools/check_release.py",
+     'LINK_SAID = re.compile(r"the link header of the read of [a-z]+\'s Deployments")', 'LINK_SAID = re.compile(r"the link header of the read of next\'s Deployments")', ("tests.test_release.Fixture.test_no_read_of_the_deployments_list_keeps_a_link_header_however_it_is_written",)),
     ("a read of Deployments is read only from the start of its call", "tools/check_release.py",
      'DEPLOYMENTS_LIST = re.compile(r"\\b%s', 'DEPLOYMENTS_LIST = re.compile(r"^GET /%s', ("tests.test_release.Fixture.test_no_read_of_the_deployments_list_keeps_a_link_header_however_it_is_written",)),
     ("a read of Deployments with a slash before its query is none", "tools/check_release.py",

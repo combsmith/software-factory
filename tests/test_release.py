@@ -695,8 +695,13 @@ class Fixture(unittest.TestCase):
         later = copy.deepcopy(loose)
         later["exchanges"][0]["request"]["call"], later["exchanges"][0]["response"]["headers"] = "GET %s?page=2" % path, {}
         self.assertEqual([p for p in check_release.fixture_problems(later, "refs.json") if "removed says 0 times" in p],
-                         ["refs.json: reads a page of Deployments, and removed says 0 times that %s was taken out, not once"
-                          % check_release.LINK_REMOVED])
+                         ["refs.json: reads a page of Deployments, and removed says 0 times that the link header of the read of "
+                          "a Channel's Deployments was taken out, not once"])
+        # Of whichever Channel's Deployments the page was, `removed` says it of that Channel.
+        stable = copy.deepcopy(later)
+        stable["exchanges"][0]["request"]["call"] = "GET %s?environment=factory-stable&per_page=4" % path
+        stable["removed"] = ["exchanges[0].response.headers: the link header of the read of stable's Deployments"]
+        self.assertEqual(check_release.fixture_problems(stable, "refs.json"), [])
         # A read of the whole list needs no word in `removed`; one of a Deployment, or of its statuses, is no read of it.
         whole = copy.deepcopy(loose)
         whole["exchanges"][0]["request"]["call"], whole["exchanges"][0]["response"]["headers"] = "GET %s?environment=x" % path, {}
@@ -773,7 +778,7 @@ class Fixture(unittest.TestCase):
                 found = check_release.fixture_problems(wrong_, path.name)
                 self.assertEqual(len(found), 1, (path.name, why, found))
                 self.assertIn({"the header kept": "keeps the Link header of a read of Deployments",
-                               "removed does not say": "removed says 0 times that %s was taken out" % check_release.LINK_REMOVED,
+                               "removed does not say": "removed says 0 times that the link header of the read of a Channel's",
                                "removed says twice": "removed says 2 times"}[why], found[0])
                 if path == newest:
                     copy_ = pathlib.Path(folder.name) / path.name
