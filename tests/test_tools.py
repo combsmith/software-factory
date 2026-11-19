@@ -2202,7 +2202,8 @@ class Purity(unittest.TestCase):
                                "x.py:5 has a default that can change"))
         for kept in ("frozenset((x for x in ()))", "frozenset([y := 1])", "frozenset(iterable=[next(_box())])",
                      "frozenset([x for x in ()])", "frozenset({x for x in ()})", "frozenset({x: 1 for x in ()})",
-                     "frozenset([frozenset([next(_box())])])", "frozenset([B for B in (B,)])"):
+                     "frozenset([frozenset([next(_box())])])", "frozenset([B for B in (B,)])", "frozenset([(B for B in (B,))])",
+                     "frozenset({B for B in (B,)})", "frozenset({B: B for B in (B,)})"):
             self.assertTrue(caught(run({"kernel/x.py": box + "B = 'b'\n_KEPT = %s\n" % kept}), "x.py:6 holds a value that can change"), kept)
         self.assertEqual(run({"kernel/terms.py": "A = 'a'\n", "kernel/x.py": "from kernel import terms\n\nB = 'b'\n"
                               "HELD = frozenset({B, terms.A, ('c', 'd')})\nNONE = frozenset()\nNESTED = frozenset([frozenset()])\n"}), [])
@@ -2212,9 +2213,14 @@ class Purity(unittest.TestCase):
         self.assertTrue(caught(run({"kernel/x.py": local}), "x.py:8 has a default that can change"))
         # So too a name the module's top binds that a function around the default binds again, as a local or a
         # parameter: the default is evaluated there, to the local (Carbon's read). At the top, it is the module's.
-        for shadow in ("def build():\n    B = values()\n\n", "def build(B):\n"):
+        for shadow in ("def build():\n    B = values()\n\n", "def build(B):\n", "def build():\n    from kernel.terms import A as B\n\n"):
             text = "B = 'b'\n\n\ndef values():\n    yield 0\n\n\n" + shadow + "    def kept(saved=frozenset({B})):\n        return saved\n    return kept\n"
-            self.assertTrue(caught(run({"kernel/x.py": text}), "has a default that can change"), shadow)
+            self.assertTrue(caught(run({"kernel/terms.py": "A = 'a'\n", "kernel/x.py": text}), "has a default that can change"), shadow)
+        # And a yield's value, which is what a caller sends (Astra's read).
+        self.assertTrue(caught(run({"kernel/x.py": "def build():\n    def kept(saved=frozenset({(yield)})):\n        return saved\n"
+                                    "    yield kept\n"}), "x.py:2 has a default that can change"))
+        self.assertTrue(caught(run({"kernel/x.py": "B = ()\n\n\ndef build():\n    def kept(saved=frozenset({(yield from B)})):\n"
+                                    "        return saved\n    yield kept\n"}), "x.py:5 has a default that can change"))
         self.assertEqual(run({"kernel/x.py": "B = 'b'\n\n\ndef f(B, x=frozenset({B})):\n    return B, x\n\n\n"
                               "def g():\n    def h(x=frozenset({B})):\n        return x\n    return h\n"}), [])
         # Read once a node, so that a deep constant is read in time (Astra's read).
@@ -2230,7 +2236,8 @@ class Purity(unittest.TestCase):
         # target changes what it names (Carbon's read).
         self.assertEqual(run({"kernel/terms.py": "A, B = 'a', 'b'\n", "kernel/x.py": "from kernel.terms import A\n\n"
                               "[C, (D, E)] = 'c', ('d', 'e')\nBOTH = frozenset((A, C, E))\n"}), [])
-        for text in ("A, *B = 'a', 'b'\n", "T = ('a',)\nT[0] = 'b'\n"):
+        for text in ("A, *B = 'a', 'b'\n", "T = ('a',)\nT[0] = 'b'\n", "A, B = frozenset({'a', 'b'})\n", "A, B = 'a', 'b', 'c'\n",
+                     "[A, (B, C)] = 'a', 'bc'\n"):
             self.assertTrue(caught(run({"kernel/x.py": text}), "assigns other than to names"), text)
         # 2. A builtin site adds, each of which reads a file, asks the help system or ends the process, as a value.
         for word in ("license", "copyright", "credits", "help", "exit", "quit"):

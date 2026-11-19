@@ -104,6 +104,16 @@ def _assigned(node) -> list:
     return names
 
 
+def _shaped(target, value) -> bool:
+    """Whether an assignment at a module's top binds names alone, and unpacks only a tuple or list written out with as
+    many elements, each of its own shape: so that no starred name keeps a list, and no name is a set's element in an
+    order the hash seed picks."""
+    if isinstance(target, ast.Name):
+        return True
+    return (isinstance(target, (ast.Tuple, ast.List)) and isinstance(value, (ast.Tuple, ast.List))
+            and len(target.elts) == len(value.elts) and all(_shaped(t, v) for t, v in zip(target.elts, value.elts)))
+
+
 def _top_names(tree) -> set:
     """The names a module binds at its top: a function's, an assignment's, an import's."""
     return {word for node in tree.body for word in _bound(node) + _assigned(node)
@@ -131,8 +141,9 @@ def _answered(name: str, node, word: str, read: set, bound: dict) -> bool:
 def _constant(node, held: frozenset = frozenset()) -> bool:
     """Whether `node` is a value that cannot change after import: a constant, a tuple of them, or a call of
     CONSTANT_CALLS whose arguments call nothing but another such call and name nothing but `held`, the names bound at
-    the module's top, and attributes of them: so that no list a generator yields, and no local value, is kept in it
-    (issue 909). Each node is read once."""
+    the module's top (less, for a default inside a function, those the function may bind; `_scopes`), and attributes
+    of them: so that no list a generator yields, and no local value, is kept in it (issue 909). Each node is read
+    once."""
     if isinstance(node, ast.Constant):
         return True
     if isinstance(node, ast.Tuple):
@@ -147,7 +158,9 @@ def _scopes(tree, held: frozenset) -> dict:
     at the top that holds it, as its defaults are evaluated where such a name may be a local (issue 909)."""
     scopes = {}
     for top in tree.body:
-        inner = frozenset(word for node in ast.walk(top) for word in _bound(node))
+        inner = frozenset(word for node in ast.walk(top) for word in _bound(node) + (
+            [alias.asname or alias.name.split(".")[0] for alias in node.names]
+            if isinstance(node, (ast.Import, ast.ImportFrom)) else []))
         for node in ast.walk(top):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
                 scopes[id(node)] = held if node is top else held - inner
@@ -159,7 +172,8 @@ def _inert(node, held: frozenset) -> bool:
     constant's own call, binds nothing, iterates nothing, and names only `held`, read once each."""
     if isinstance(node, ast.Call):
         return _constant(node, held)
-    if isinstance(node, (ast.GeneratorExp, ast.ListComp, ast.SetComp, ast.DictComp, ast.NamedExpr)):
+    if isinstance(node, (ast.GeneratorExp, ast.ListComp, ast.SetComp, ast.DictComp, ast.NamedExpr, ast.Yield,
+                         ast.YieldFrom)):
         return False
     if isinstance(node, ast.Name):
         return node.id in held
@@ -879,8 +893,8 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
                                 % (name, node.lineno))
             elif not _constant(value, held):
                 problems.append("%s:%d holds a value that can change; State is never stored" % (name, node.lineno))
-            elif any(not isinstance(t, (ast.Name, ast.Tuple, ast.List)) for t in ast.walk(ast.Tuple(
-                    elts=node.targets if isinstance(node, ast.Assign) else [node.target])) if not isinstance(t, ast.expr_context)):
-                problems.append("%s:%d assigns other than to names, which can keep a list a starred name unpacks into; "
+            elif not all(_shaped(target, value) for target in (node.targets if isinstance(node, ast.Assign) else [node.target])):
+                problems.append("%s:%d assigns other than to names, or unpacks other than a tuple of its own shape, which "
+                                "can keep a list a starred name unpacks into, or a set's order; "
                                 "State is never stored" % (name, node.lineno))
     return unread + own + ([_said(problem, package) for problem in problems] if package != "kernel" else problems)
