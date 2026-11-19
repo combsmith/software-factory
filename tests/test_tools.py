@@ -472,6 +472,15 @@ class Examples(unittest.TestCase):
         disposition = copy.deepcopy(schemas["disposition"])
         disposition["properties"]["extra"] = {"type": "array", "items": {"$ref": "finding.schema.json"}}
         self.assertTrue(caught(free("disposition", disposition), "schema disposition refers at $.extra[] to finding"))
+        # Nor through another kind of codes that may: a fragment of it lends none of its records (Astra's read).
+        lender = copy.deepcopy(schemas["applied"])
+        lender.setdefault("$defs", {})["lent"] = {"$ref": "finding.schema.json"}
+        borrower = copy.deepcopy(schemas["disposition"])
+        borrower["properties"]["extra"] = {"$ref": "applied.schema.json#/$defs/lent"}
+        self.assertTrue(caught(check_examples._free(borrower, dict(schemas, applied=lender), borrower, "disposition", "$", set()),
+                               "refers at $.extra to finding"))
+        # SPACES is every character Python's \s matches, none missed and none more.
+        self.assertEqual(set(check_examples.SPACES), {chr(c) for c in range(0x110000) if re.fullmatch(r"\s", chr(c))})
         for ref in ("facts.schema.json#/$defs/changed_path", "finding.schema.json#/$defs/surface"):
             applied = copy.deepcopy(schemas["applied"])
             applied["properties"]["extra"] = {"$ref": ref}

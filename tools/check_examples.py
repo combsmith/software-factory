@@ -210,11 +210,14 @@ def _string_only(node) -> bool:
     return "string" in kinds and not (set(kinds) - {"string", "null"})
 
 
-def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: tuple = ()) -> list:
+def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: tuple = (), owner: str = None) -> list:
     """What is wrong with `schema`, of the kind named, as the schema of what one Run carries: where it admits a string
     that no enum, const or anchored pattern holds, and a reference it makes that cannot be followed, has a keyword
     beside it, or comes round to itself. validate() reads a reference only where a value reaches it, so a branch no
-    example takes is held here. `active` is the chain of references followed at this path."""
+    example takes is held here. `active` is the chain of references followed at this path, and `owner` the kind the
+    walk began in, which alone a reference into a record is read for: a fragment of another kind of codes lends it
+    none of that kind's records."""
+    owner = kind if owner is None else owner
     if not isinstance(schema, dict):
         return []
     ref = schema.get("$ref")
@@ -229,12 +232,13 @@ def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: 
         if id(target) in active:
             return ["schema %s comes round to itself at %s" % (kind, path)]
         named = FILE.match(ref)
-        if named and (kind, named.group(1)) in RECORDS and ref == named.group(1) + ".schema.json":
+        if named and (owner, named.group(1)) in RECORDS and ref == named.group(1) + ".schema.json":
             return []       # a record, held by its own rules and counter-examples; the existing records are not swept
         if named and named.group(1) not in CODES_ONLY:
             return ["schema %s refers at %s to %s, which is neither a kind of codes nor a record RECORDS names for it, "
                     "whole; hold it to codes, or name it there by a reviewed change" % (kind, path, named.group(1))]
-        return _free(target, schemas, target_root, named.group(1) if named else kind, path, seen, active + (id(target),))
+        return _free(target, schemas, target_root, named.group(1) if named else kind, path, seen, active + (id(target),),
+                     owner)
     if (kind, id(schema)) in seen:
         return []
     seen.add((kind, id(schema)))
@@ -252,11 +256,11 @@ def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: 
             continue
         if name == UNTRUSTED_FIELD and kind == UNTRUSTED_KIND:
             continue
-        out += _free(prop, schemas, root, kind, "%s.%s" % (path, name), seen)
+        out += _free(prop, schemas, root, kind, "%s.%s" % (path, name), seen, owner=owner)
     if isinstance(schema.get("items"), dict):
-        out += _free(schema["items"], schemas, root, kind, path + "[]", seen)
+        out += _free(schema["items"], schemas, root, kind, path + "[]", seen, owner=owner)
     if isinstance(schema.get("additionalProperties"), dict):
-        out += _free(schema["additionalProperties"], schemas, root, kind, path + ".*", seen)
+        out += _free(schema["additionalProperties"], schemas, root, kind, path + ".*", seen, owner=owner)
     return out
 
 
