@@ -1342,5 +1342,92 @@ class Asked(unittest.TestCase):
         self.assertTrue(hasattr(effects, "dequeue") and hasattr(effects, "tracking_issue"))
 
 
+class Advisory(unittest.TestCase):
+    """Decision 0224, "What is shown": the allowlist an advisory Lens's check run is written through, and the port
+    that writes it."""
+    ITEM, HEAD, RUN = dict(support.ITEM), "9f1c2d3e4b5a69788796a5b4c3d2e1f0a9b8c7d6", "r_01JA7Q"
+    NOTE = {"path": "a", "start_line": 1, "end_line": 1, "annotation_level": "warning", "message": "m"}
+
+    def good(self, **over) -> dict:
+        return dict({"name": "advisory-astra", "head_sha": self.HEAD, "external_id": self.RUN + ":astra",
+                     "status": "completed", "conclusion": "neutral",
+                     "output": {"title": "t", "summary": "s", "annotations": [dict(self.NOTE)]}}, **over)
+
+    def test_the_advisory_allowlist_lets_out_a_neutral_check_run_of_an_advisory_name_on_its_commit_alone(self):
+        class Hub:
+            sent = []
+
+            def send(self, req):
+                self.sent.append(req)
+                raise github.Unanswered("nothing left")
+        hub, path = Hub(), "/repos/%s/check-runs" % self.ITEM["repo"]
+        allowed = effects.Allowed(hub, *effects.advisory_permits(self.ITEM, self.HEAD, ["advisory-astra", "advisory-kimi"]))
+        listed = "/repos/%s/commits/%s/check-runs?check_name=advisory-kimi&filter=all&per_page=100"
+        fine = [github.request("POST", path, body=self.good()),
+                github.request("POST", path, body=self.good(name="advisory-kimi", output={"annotations": []})),
+                github.request("GET", path + "/77"), github.request("GET", listed % (self.ITEM["repo"], self.HEAD))]
+        for req in fine:
+            with self.assertRaisesRegex(github.Unanswered, "nothing left"):     # it reached the fake
+                allowed.send(req)
+        # No other conclusion, no annotation that is a failure, no other name or commit, whatever asked for it.
+        failing = {"title": "t", "summary": "s", "annotations": [self.NOTE, dict(self.NOTE, annotation_level="failure")]}
+        for key, value in (("conclusion", "success"), ("conclusion", "failure"), ("conclusion", "action_required"),
+                           ("conclusion", None), ("status", "in_progress"), ("name", "factory / pr-review"),
+                           ("name", "gates"), ("head_sha", "1" * 40), ("head_sha", "main"),
+                           ("external_id", self.RUN + ":e2"), ("external_id", "anything"), ("external_id", None),
+                           ("output", failing), ("output", {"title": "t"}), ("output", None),
+                           ("output", {"annotations": ["failure"]})):
+            with self.assertRaisesRegex(github.Unanswered, "may not send", msg=(key, value)):
+                allowed.send(github.request("POST", path, body=self.good(**{key: value})))
+        for req in (github.request("POST", path, body=self.good(actions=[])),
+                    github.request("PATCH", path + "/77", body=self.good()),
+                    github.request("POST", "/repos/combsmith/other/check-runs", body=self.good()),
+                    github.request("GET", "/repos/combsmith/other/check-runs/77"),
+                    github.request("POST", "/repos/%s/issues/42/comments" % self.ITEM["repo"], body={"body": "x"}),
+                    github.request("POST", "/repos/%s/pulls/42/reviews" % self.ITEM["repo"], body={
+                        "commit_id": self.HEAD, "event": "COMMENT", "body": "", "comments": []}),
+                    github.request("GET", listed % (self.ITEM["repo"], "1" * 40))):
+            with self.assertRaisesRegex(github.Unanswered, "may not send"):
+                allowed.send(req)
+        self.assertEqual(len(hub.sent), len(fine))
+        # A commit that is no commit lets nothing out, and the Role's own allowlist lets no advisory check run out.
+        loose = effects.Allowed(hub, *effects.advisory_permits(self.ITEM, "main", ["advisory-astra"]))
+        role = effects.Allowed(hub, *effects.role_permits(self.ITEM, self.HEAD, "factory / pr-review"))
+        for one, body in ((loose, self.good(head_sha="main")), (role, self.good())):
+            with self.assertRaisesRegex(github.Unanswered, "may not send"):
+                one.send(github.request("POST", path, body=body))
+
+    def test_a_check_run_that_carries_its_own_output_is_sent_with_it_and_read_back(self):
+        made = []
+
+        class Hub:
+            def send(self, req):
+                if req["method"] == "POST":
+                    body = req["body"]
+                    made.append(dict({k: body[k] for k in ("name", "head_sha", "external_id", "status", "conclusion")},
+                                     id=7, node_id="CR_7", app={"slug": "combsmith-sf-pr-review"}, sent=body["output"],
+                                     output={"annotations_count": len(body["output"]["annotations"])}))
+                    return {"status": 201, "headers": {}, "body": made[-1]}
+                if "/commits/" in req["path"]:
+                    return {"status": 200, "headers": {}, "body": {"total_count": 0, "check_runs": []}}
+                return {"status": 200, "headers": {}, "body": made[-1]}
+        output = self.good()["output"]
+        req = {"commit": self.HEAD, "name": "advisory-astra", "conclusion": "neutral", "external_id": self.RUN + ":astra",
+               "output": output, "annotations": [{"finding": "astra:" + "0" * 32}]}
+        allowed = effects.Allowed(Hub(), *effects.advisory_permits(self.ITEM, self.HEAD, ["advisory-astra"]))
+        back = effects.role_write(allowed, self.ITEM, "create_check_run", req, "combsmith-sf-pr-review[bot]")
+        self.assertEqual((back["state"], back["key"], back["reason"]), ("applied", "CR_7", None))
+        self.assertEqual((made[0]["sent"], made[0]["conclusion"], made[0]["name"]), (output, "neutral", "advisory-astra"))
+        # A check run read back with another conclusion than the one asked is never claimed.
+        class Other(Hub):
+            def send(self, req):
+                answer = Hub.send(self, req)
+                if req["method"] == "GET" and "/commits/" not in req["path"]:
+                    answer = dict(answer, body=dict(answer["body"], conclusion="success"))
+                return answer
+        back = effects.role_write(Other(), self.ITEM, "create_check_run", req, "combsmith-sf-pr-review[bot]")
+        self.assertEqual(back["state"], "sent")
+
+
 if __name__ == "__main__":
     unittest.main()
