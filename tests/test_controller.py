@@ -1967,6 +1967,11 @@ class Entry(unittest.TestCase):
             "runs": [], "passes": [], "items": [], "dispatched": [], "owed": [],
             "keys": [{"where": "written", "type": "tracking_issue", "key": "8", "at": "2026-10-12T11:00:00Z"}]})
         code, _, files = entry_with([8, 5], tracked=False, previous=[last])
+        # The pass records the entry read are what each issue is read with, all of them, oldest first.
+        self.assertEqual([earlier for _, earlier in spied["identities"]], [[last]])
+        older = dict(last, now="2026-10-12T10:57:00Z")
+        entry_with([8, 5], tracked=False, previous=[last, older])
+        self.assertEqual([earlier for _, earlier in spied["identities"]], [[older, last]])
         self.assertEqual((code, spied["listed"], [n for _, n, _ in spied["read"]]), (0, [(self.HOME, since, [8])], [5]))
         self.assertEqual([e["decision"]["item"] for e in files["pass.json"]["issues"]], [item(5)])
         # No date: nothing is listed, asked or read; the one GraphQL read is the pull requests' list.
@@ -2035,7 +2040,7 @@ class Entry(unittest.TestCase):
     def test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry(self):  # S3, Astra
         # Through the real port: an issue that read whole would be accepted defers while its linked pull requests are read
         # short.
-        from tests.test_adapters import issue_read, linked_read
+        from tests.test_adapters import issue_read, linked_read, passes_listed
         reads_ = issue_read()
         own, events, edits = (r["response"] for r in reads_[:3])
         edits["body"]["data"]["repository"]["nameWithOwner"] = self.HOME
@@ -2087,7 +2092,7 @@ class Entry(unittest.TestCase):
         self.assertEqual((d["item"]["number"], d["outcome"], d["reason"], d["evidence"]), (41, "defer", "facts_incomplete", ["linked"]))
         # Nothing is written for the issue: the one write is the tracking issue's, which reports the pass's alerts.
         self.assertEqual([w["type"] for w in files["writes.json"]["writes"]], ["tracking_issue"])
-        # Named by none, it is whole, and accepted.
+        # Read whole, with the pass records before it read and holding nothing of it, it is whole, and accepted.
         named[0] = linked_read(repo=self.HOME)["response"]
         hub.sent.clear()
         with unittest.mock.patch.object(entry, "configuration", served), \
@@ -2095,6 +2100,14 @@ class Entry(unittest.TestCase):
             code, _, files, _ = self.run_entry(hub)
         (decided,) = files["pass.json"]["issues"]
         self.assertEqual((code, decided["decision"]["outcome"], decided["decision"].get("action")), (0, "act", "accept"))
+        # With the pass records not read, the list short of GitHub's count, the same issue defers (issue 734).
+        hub.table[("GET", passes_listed([])["request"]["call"].split()[1])] = passes_listed([], total=1)["response"]
+        with unittest.mock.patch.object(entry, "configuration", served), \
+                unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: written):
+            code, _, files, _ = self.run_entry(hub)
+        (decided,) = files["pass.json"]["issues"]
+        d = decided["decision"]
+        self.assertEqual((code, d["outcome"], d["reason"], d["evidence"]), (0, "defer", "facts_incomplete", ["linked"]))
 
     def test_what_the_entry_cannot_read_writes_nothing(self):
         for environ, want in (({"RELEASE": None}, "release_untagged"), ({"RELEASE": "v1"}, "release_untagged"),
