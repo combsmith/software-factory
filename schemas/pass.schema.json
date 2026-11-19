@@ -179,7 +179,9 @@
           "reconciliation_unreadable",
           "credential_due",
           "runs_never_started",
-          "issue_apps_unreadable"
+          "issue_apps_unreadable",
+          "issue_budget_spent",
+          "issue_list_unreadable"
         ]
       }
     },
@@ -193,7 +195,7 @@
       }
     },
     "left_out": {
-      "description": "Each item the pass left out, in the order read, with why: a read that moved while it was read (`pull_moved`), one GitHub did not answer (`facts_unanswered`), facts that are not facts, or an item listed twice. The item is null where none can be named. The next pass reads it to tell a second move from a first (#658). Absent in a record written before it",
+      "description": "Each item the pass left out, in the order read, with why: a read that moved while it was read (`pull_moved`), one GitHub did not answer (`facts_unanswered`), facts that are not facts, an item listed twice, an issue the pass's budget of issue requests left unread (`issue_budget`), or, with no item, an issue list read short, when no issue was read (`issue_list_unreadable`, decision 0234). The item is null where none can be named. The next pass reads it to tell a second move from a first (#658). Absent in a record written before it",
       "type": "array",
       "items": {
         "type": "object",
@@ -211,7 +213,7 @@
               "number": {"type": "integer", "minimum": 1}
             }
           },
-          "code": {"enum": ["pull_moved", "facts_unanswered", "not_facts", "listed_twice"]}
+          "code": {"enum": ["pull_moved", "facts_unanswered", "not_facts", "listed_twice", "issue_budget", "issue_list_unreadable"]}
         }
       }
     },

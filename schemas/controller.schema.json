@@ -9,6 +9,7 @@
     "read_gap_seconds",
     "not_run_seconds",
     "max_status_writes",
+    "max_issue_requests",
     "capacity_window_seconds",
     "automatic_pause",
     "thresholds",
@@ -301,6 +302,11 @@
     },
     "max_status_writes": {
       "description": "How many statuses on items one pass writes at most, in item order; the rest wait for the next pass. GitHub limits requests that create content, and a first pass or a Pause changes every status at once.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "max_issue_requests": {
+      "description": "How many requests one pass sends at most to read the issues, counted as they are sent: once they are spent no further issue's read starts, and each issue not read is left out as `issue_budget`. A read begun finishes, and every pass reads one issue at least (decision 0234).",
       "type": "integer",
       "minimum": 1
     },
