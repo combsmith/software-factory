@@ -1922,14 +1922,17 @@ class Entry(unittest.TestCase):
             before["pull_requests"][0]["facts"]["item"], number=7)))]
         before["reconciled"] = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}
 
-        def entry_with(short=(), unanswered=()):
+        def entry_with(short=(), unanswered=(), wrote=()):
             del spied[:]
 
             def read(transport, item, kept, identities, apps, since):
-                spied.append((item, kept, since))
+                spied.append((item, kept, since, identities, apps))
                 if item["number"] in unanswered:
                     raise github.Unanswered("no")
-                return ([], [], item["number"] not in short)
+                # What a Factory identity wrote on the issue, where the port is handed the identities to tell it by.
+                writes = [{"by": by, "kind": "label", "item": dict(item), "key": None, "at": "2026-10-12T11:30:00Z"}
+                          for by in set(identities.values()) & set(wrote)] if item["type"] == "issue" else []
+                return (writes, [], item["number"] not in short)
             with unittest.mock.patch.object(entry, "configuration", served), \
                     unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
                     unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after, **k: ([5, 6], True)), \
@@ -1949,6 +1952,16 @@ class Entry(unittest.TestCase):
         self.assertEqual([s[:2] for s in spied], [(item("pull_request", 7), {}), (item("issue", 5), None), (item("issue", 6), None)])
         self.assertEqual({s[2] for s in spied}, {"2026-10-11T06:00:00Z"})
         self.assertNotIn("reconciliation_unreadable", record["alerts"])
+        self.assertNotIn("write_unmatched", record["alerts"])
+        # An issue's writes are told by the identities and the Apps a pull request's are, and what the port gives of
+        # them reaches reconciliation: the Controller's label on a served issue, which no Effect recorded, is the alert,
+        # named by the issue's page.
+        self.assertEqual([s[3:] for s in spied[1:]], [spied[0][3:]] * 2)
+        self.assertEqual(spied[0][3][(CONTROLLER["accounts"]["controller"]["id"], "Bot")], "controller")
+        record = entry_with(wrote=("controller",))
+        self.assertIn("write_unmatched", record["alerts"])
+        self.assertEqual([(e["by"], e["write"], e["item"]) for e in record["reconciliation"]],
+                         [("controller", "label", "https://github.com/%s/issues/%d" % (self.HOME, n)) for n in (5, 6)])
         for missed in ({"short": (5,)}, {"unanswered": (5,)}, {"short": (6,)}):
             record = entry_with(**missed)
             self.assertIn("reconciliation_unreadable", record["alerts"], missed)

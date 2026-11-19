@@ -14,8 +14,9 @@ and written to the folder `OUT` for the pass job's next steps (#193's ruling 10 
    and, for reconciliation, what each Factory identity wrote and what the Factory recorded (decision 0112). The issues
    are listed and read after the pull requests and the records, without the tracking issue, by the number the passes
    recorded (issue 901). Not read yet: an issue's Runs' jobs, which decision 0196 asks of the open pull requests'
-   alone; nor is any issue's write reconciled. Its linked pull requests are read, whole only where no pull request
-   names it while their keyword spans are not read (issue 734), so an issue a pull request names defers.
+   alone. A served issue's writes are reconciled while it is open (decision 0230); one that left between two passes is
+   not read yet. Its linked pull requests are read, whole only where no pull request names it while their keyword
+   spans are not read (issue 734), so an issue a pull request names defers.
 4. It gives the pass what it read and the time after the reads, and writes `pass.json`, `writes.json`, the plan the
    effects step holds to it, and the view's three files under `view/`.
 
