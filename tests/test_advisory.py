@@ -49,6 +49,24 @@ class Capture:
         return self._answer(self._body)
 
 
+class Real:
+    """An opener that answers by http.client's own reader over raw bytes, which stay readable once it closes them."""
+
+    def __init__(self, raw: bytes):
+        self.wire = io.BytesIO(raw)
+        self.wire.close = lambda: None
+
+    def makefile(self, mode):
+        return self.wire
+
+    def open(self, request, timeout=None):
+        got = azure.http.client.HTTPResponse(self)
+        got.begin()
+        if got.status >= 400:
+            raise azure.urllib.error.HTTPError(request.full_url, got.status, "x", got.headers, got)
+        return got
+
+
 def live(opener=None, host: str = HOST, key: str = KEY, seconds: int = 30) -> azure.Live:
     transport = azure.Live(host, key, seconds)
     if opener is not None:
@@ -225,7 +243,10 @@ class Transport(unittest.TestCase):
         refused = (b"", b"Content-Length: 2\r\nContent-Length: 2\r\n", b"Content-Length: 2\r\ncontent-length: 3\r\n",
                    b"Content-Length: +2\r\n", b"Content-Length: 2x\r\n", b"Content-Length: 1_0\r\n",
                    b"Content-Length: \xb2\r\n", b"Content-Length: -1\r\n", b"Transfer-Encoding: gzip\r\n",
-                   b"Transfer-Encoding: gzip, chunked\r\n", b"Transfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n")
+                   b"Transfer-Encoding: gzip, chunked\r\n", b"Transfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n",
+                   b"Content-Length: 999\r\nTransfer-Encoding: chunked\r\n", b"Content-Length: 2\r\nTransfer-Encoding: gzip\r\n",
+                   b"Content-Length: 2\r\nTransfer-Encoding: gzip, chunked\r\n", b"Content-Length: 00000000002\r\n",
+                   b"Content-Length: %d\r\n" % (azure.LARGEST + 1), b"Content-Length: %s\r\n" % (b"9" * 5000))
         for lines in refused:
             Got.headers = headers(lines)
             with self.assertRaisesRegex(azure.Unanswered, "refused, not read", msg=lines):
@@ -238,7 +259,7 @@ class Transport(unittest.TestCase):
                 live(Error()).send(azure.read(ID))
         self.assertEqual(Got.asked, [])
         for lines in (b"Content-Length: 2\r\n", b"content-length: 2\r\n", b"Transfer-Encoding: chunked\r\n",
-                      b"Transfer-Encoding: Chunked\r\n"):
+                      b"Transfer-Encoding: Chunked\r\n", b"Content-Length: 0000000002\r\n"):
             Got.headers = headers(lines)
             self.assertEqual(live(Capture(b"{}", Got)).send(azure.read(ID))["body"], {}, lines)
 
@@ -246,6 +267,35 @@ class Transport(unittest.TestCase):
                 def open(self, request, timeout=None, lines=lines):
                     raise azure.urllib.error.HTTPError(request.full_url, 500, "x", headers(lines), Got(b"{}"))
             self.assertEqual(live(Fault()).send(azure.read(ID))["status"], 500, lines)
+        # So too through http.client's own reader.
+        for status in (b"200 OK", b"500 x"):
+            for lines in refused[-6:]:
+                with self.assertRaisesRegex(azure.Unanswered, "refused, not read", msg=lines):
+                    live(Real(b"HTTP/1.1 %s\r\n%s\r\n2\r\n{}\r\n0\r\n\r\n" % (status, lines))).send(azure.read(ID))
+            for lines, body in ((b"Content-Length: 2\r\n", b"{}"), (b"Transfer-Encoding: chunked\r\n", b"2\r\n{}\r\n0\r\n\r\n")):
+                got = live(Real(b"HTTP/1.1 %s\r\nContent-Type: application/json\r\n%s\r\n%s" % (status, lines, body)))
+                self.assertEqual(got.send(azure.read(ID))["body"], {}, lines)
+
+    def test_the_azure_transport_reads_no_more_of_a_connection_than_an_answer_may_hold(self):
+        # A chunk's size of -1, or a trailer without end, reads no more than the bound and a frame's allowance.
+        cap = azure.LARGEST + azure.FRAMING
+        self.assertEqual(azure.FRAMING, 64 * 1024)
+        line = b"x: " + b"y" * 60000 + b"\r\n"
+        for status in (b"200 OK", b"500 x"):
+            for body in (b"-1\r\n" + b"x" * (cap + 10), b"2\r\n{}\r\n0\r\n" + line * (cap // len(line) + 2)):
+                head = b"HTTP/1.1 %s\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n" % status
+                opener = Real(head + body)
+                with self.assertRaises(azure.Unanswered, msg=(status, body[:2])):
+                    live(opener).send(azure.read(ID))
+                self.assertLessEqual(opener.wire.tell(), len(head) + cap)
+        for take in (lambda c: c.read(), lambda c: c.read(azure.CHUNK), lambda c: c.readline(),
+                     lambda c: c.readline(70000), lambda c: c.readinto(bytearray(azure.CHUNK))):
+            wire = io.BytesIO(b"x" * (cap + 10))
+            capped = azure._Capped(wire)
+            with self.assertRaises(azure.Unanswered):
+                while take(capped):
+                    pass
+            self.assertEqual(wire.tell(), cap)
 
     def test_the_azure_transport_bounds_every_answer_in_size_and_time(self):
         # The seconds are its caller's, a whole number from one to the longest a step may wait on one request.
@@ -261,8 +311,11 @@ class Transport(unittest.TestCase):
         self.assertEqual((azure.LARGEST, azure.HEADER), (4 * 1024 * 1024, 100))
         at = b'"' + b"a" * (azure.LARGEST - 2) + b'"'
         self.assertEqual(len(live(Capture(at)).send(azure.read(ID))["body"]), azure.LARGEST - 2)
-        with self.assertRaises(azure.Unanswered):
-            live(Capture(at + b" ")).send(azure.read(ID))
+        class Chunked(Answer):
+            headers = dict(Answer.headers, **{"Transfer-Encoding": "chunked"})
+        for answer in (Answer, Chunked):
+            with self.assertRaises(azure.Unanswered):
+                live(Capture(at + b" ", answer)).send(azure.read(ID))
         self.assertEqual(set(Answer.asked), {azure.CHUNK})      # never the whole of what is sent, read to be refused
         # Azure out of reach, or an answer cut short while it is read, a body's or an error's, is refused and never
         # another exception.
@@ -284,21 +337,26 @@ class Transport(unittest.TestCase):
         for opener in (Short(), Error(), Slow()):
             with self.assertRaises(azure.Unanswered, msg=type(opener).__name__):
                 live(opener).send(azure.create(ASKED))
-        # An answer that ends before the length it said, a body's or an error's, is cut short too, though no read
-        # raised; one that said none, or gave all of it, is whole.
-        class Left(Answer):
-            headers = dict(Answer.headers, **{"Content-Length": "47"})
-            length = 47
+        # An answer of more or fewer bytes than the length it said, a body's or an error's, is refused: they are counted
+        # as read, never taken from the stream, which an error may not forward.
+        def said(frame):
+            class Said(Answer):
+                headers = dict(Answer.headers, **frame)
+            return Said
 
         class Cut:
+            def __init__(self, length, body):
+                self.length, self.body = length, body
+
             def open(self, request, timeout=None):
-                raise azure.urllib.error.HTTPError(request.full_url, 500, "x", {"Content-Length": "47"}, Left(b"abc"))
-        for opener in (Capture(b'{"a"', Left), Cut()):
-            with self.assertRaisesRegex(azure.Unanswered, "shorter than the length it said"):
-                live(opener).send(azure.read(ID))
-        for length, frame in ((0, {"Content-Length": "2"}), (None, {"Transfer-Encoding": "chunked"})):
-            Left.length, Left.headers = length, dict(Answer.headers, **frame)
-            self.assertEqual(live(Capture(b"{}", Left)).send(azure.read(ID))["body"], {})
+                raise azure.urllib.error.HTTPError(request.full_url, 500, "x", {"Content-Length": self.length},
+                                                   io.BytesIO(self.body))
+        for length, body in (("47", b'{"a"'), ("2", b"{} ")):
+            for opener in (Capture(body, said({"Content-Length": length})), Cut(length, body)):
+                with self.assertRaisesRegex(azure.Unanswered, "the length it said", msg=(length, body)):
+                    live(opener).send(azure.read(ID))
+        for frame in ({"Content-Length": "2"}, {"Transfer-Encoding": "chunked"}):
+            self.assertEqual(live(Capture(b"{}", said(frame))).send(azure.read(ID))["body"], {})
         # An error Azure answers is an answer, with its status, bounded as any other: a rate limit says how long to wait.
         class Limited:
             def open(self, request, timeout=None):
@@ -311,7 +369,7 @@ class Transport(unittest.TestCase):
 
         class Large:
             def open(self, request, timeout=None):
-                raise azure.urllib.error.HTTPError(request.full_url, 500, "x", {"Content-Length": str(azure.LARGEST + 1)},
+                raise azure.urllib.error.HTTPError(request.full_url, 500, "x", {"Transfer-Encoding": "chunked"},
                                                    io.BytesIO(b"x" * (azure.LARGEST + 1)))
         with self.assertRaises(azure.Unanswered) as refused:
             live(Large()).send(azure.create(ASKED))
@@ -344,6 +402,8 @@ class Transport(unittest.TestCase):
             headers = {"Content-Type": "Application/JSON"}
         self.assertEqual(live(Capture(b"{}", Shouted)).send(azure.read(ID))["body"], {})
         self.assertEqual(live(Capture(b"{not json")).send(azure.read(ID))["body"], "{not json")
+        for text in (b'{"a": NaN}', b"[Infinity]", b"-Infinity"):
+            self.assertEqual(live(Capture(text)).send(azure.read(ID))["body"], text.decode())
         # Bytes that are not UTF-8 are text with each one marked, and never read as JSON: nothing is changed unseen.
         self.assertEqual(live(Capture(b'{"a": "\xff"}')).send(azure.read(ID))["body"], '{"a": "\ufffd"}')
         # A header a caller reads is kept only when it is short, printable ASCII: a caller acts on no more than that.
@@ -355,6 +415,12 @@ class Transport(unittest.TestCase):
             self.assertEqual(live(Capture(b"{}", Odd)).send(azure.read(ID))["headers"], {"content-type": "application/json"}, value)
         Odd.headers = {"Retry-After": "1" * 100}
         self.assertEqual(live(Capture(b"{}", Odd)).send(azure.read(ID))["headers"], {"retry-after": "1" * 100})
+        # Of a header given twice the last value is kept, or none where the last is refused, never one before it.
+        for last, kept in ((b"2", {"content-type": "application/json", "retry-after": "2"}), (b"\xb2", {}), (b"1" * 101, {})):
+            Odd.headers = azure.http.client.parse_headers(io.BytesIO(
+                b"Content-Type: application/json\r\nRetry-After: 1\r\nContent-Length: 2\r\nContent-Type: %s\r\n"
+                b"Retry-After: %s\r\n\r\n" % (b"application/json" if kept else last, last)))
+            self.assertEqual(live(Capture(b"{}", Odd)).send(azure.read(ID))["headers"], kept, last)
 
 
 if __name__ == "__main__":
