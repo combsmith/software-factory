@@ -6,7 +6,8 @@ CREDENTIALS. A writer is an adapter function that holds a write. A function reac
 names a module constant that names it, or names a class one of whose methods, its bases' among them, reaches it,
 through any number of calls, modules and re-exports. Outside `adapters/` and the tests, only the callers in CALLERS
 reach a writer, each exactly the writers it lists: a new caller, or a caller reaching a new writer, fails until
-CALLERS names it in the same change, and a listing no longer true fails too. What the syntax cannot read is a problem,
+CALLERS names it in the same change, and a listing no longer true fails too. A caller ROUTES names reaches its writers
+through the functions it lists alone: it names no other outside it that reaches a writer. What the syntax cannot read is a problem,
 never a pass: a method or a query that is not a literal, a name a module does not define, a module that reaches a write
 handed on as a value, a request built by hand, an adapter loaded by name or taken from `sys.modules` by any way the
 syntax names, a class's attribute set by `setattr` or from outside the class's own module's top level by any name for
@@ -38,6 +39,12 @@ CALLERS = {
     "harness/queue.py": {"adapters.queue:enqueue", "adapters.queue:dequeue", "adapters.queue:resolve"},
     "harness/queue_step.py": {"adapters.queue:enqueue", "adapters.queue:dequeue", "adapters.queue:resolve"},
     "release/move.py": {"adapters.tags:write", "adapters.deployments:record"},
+}
+# The callers of CALLERS held to a route as well as to writers: each names, of what reaches a writer and lies outside
+# it, the functions listed here and no other, so that the writer is reached through them alone. harness/advised.py
+# reaches adapters.effects:_check through effects.advisory_write, which builds its own allowlist (decision 0224).
+ROUTES = {
+    "harness/advised.py": {"adapters.effects:advisory_write"},
 }
 # The transport's own: each checks again a request `request` built, whatever its method, and builds none of its own.
 TRANSPORT = {(GITHUB, "Live.send"), (GITHUB, "Replay.send")}
@@ -1021,6 +1028,16 @@ def run(root: pathlib.Path = ROOT) -> list:
         elif listed is not None and found != listed:
             problems.append("%s reaches %s, and CALLERS lists %s; name what it reaches, in the change that changes it" %
                             (node_mod.rel, ", ".join(sorted(found)) or "no write", ", ".join(sorted(listed))))
+    for rel, via in sorted(ROUTES.items()):
+        mod = mods.get(_name(rel))
+        if mod is None or rel not in CALLERS:
+            problems.append("ROUTES names %s, which is not a caller here; take it off" % rel)
+            continue
+        named = {"%s:%s" % there for qual in mod.units for there in reading.graph.get((mod.name, qual), ())
+                 if there[0] != mod.name and reach.get(there)}
+        problems += ["%s names %s, which reaches a GitHub write, and ROUTES holds it to %s; reach the writer through "
+                     "that alone" % (rel, what, ", ".join(sorted(via))) for what in sorted(named - via)]
+        problems += ["ROUTES holds %s to %s, which it does not name; take it off" % (rel, what) for what in sorted(via - named)]
     problems += ["CALLERS names %s, which is not here; take it off" % rel for rel in sorted(CALLERS) if _name(rel) not in mods]
     problems += ["RUNNERS names %s, which holds no command; take it off" % rel for rel in RUNNERS if rel not in commanding]
     problems += ["PATCHERS names %s for %s, which it does not set; take it off" % (rel, what) for rel, names in

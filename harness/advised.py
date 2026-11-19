@@ -2,13 +2,14 @@
 0224, "What is shown"). `harness/apply_step.py` calls `run` last, once the Run's record and its outcome are written and
 its read token revoked; nothing here changes either, and nothing here can keep the step past its time.
 
-    python3 -m harness.advised WORK
+    python3 -m harness.advised WORK DIGEST
 
 Three parts. `asked` decides, with no network, which Lens has a Result to show and builds its check run. `run` writes
 those into WORK, a folder of the step's own, starts this module as a child with the Role App's key and nothing else,
 and kills it at a hard deadline, so the step never waits on the network after the Run's files are written. The child,
-`main`, mints a token of the check run's need alone, writes each check run through the advisory allowlist, revokes the
-token, and says what it did a line at a time as it goes, which `told` reads back whatever became of the child:
+`main`, holds what it is asked to the SHA-256 the step gave it, DIGEST, mints a token of the check run's need alone,
+writes each check run through the advisory allowlist, revokes the token, and says what it did a line at a time as it
+goes, which `told` reads back whatever became of the child:
 
     began                   before the token is asked for
     unminted                no token was minted: `identity` refused before GitHub was asked for one
@@ -22,6 +23,7 @@ GitHub may have made a token all the same, and `unrevoked` is said, never `unmin
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -50,8 +52,9 @@ MOST = 4 * 1024 * 1024      # the bytes of what the child says that are read
 # The bytes of what the child is asked that it reads. It is written as UTF-8, not escaped, so that one Lens's check run
 # is under three mebibytes whatever its characters: fifty annotations of a message, a title and a path of at most 8000,
 # 255 and 1024 characters (`adapters/advice.py`), of four bytes at most. applied/1 holds eight Lenses at most. So one
-# reader's words cannot crowd another Lens's check run out of what is read.
-ASKED = 8 * 3 * 1024 * 1024
+# reader's words cannot crowd another Lens's check run out of what is read. The child asks for no more Lenses than that.
+LENSES = 8
+ASKED = LENSES * 3 * 1024 * 1024
 # What `identity` refuses before GitHub is asked to mint: with one of these, and no other, no token was made.
 BEFORE = frozenset({"key_unreadable", "key_cannot_sign", "app_unreadable", "effect_not_grantable", "effect_not_granted",
                     "installation_unreadable"})
@@ -124,7 +127,8 @@ def told(out, lenses: list) -> dict:
 def run(base, folder, work: str, admit, ended: dict, held: dict, environ: dict, left, spawn=subprocess.run) -> list:
     """`(lens, code, key)` for each advisory Lens the Factory asks, for `advice.recorded`. `work` is a new folder of
     the step's own; `left()` the seconds the step still has. The child is given the Role App's key in its environment
-    and nothing else of the step's, the folder's path on its command line, and its time; it is killed at the deadline."""
+    and nothing else of the step's, the folder's path and the SHA-256 of what it is asked on its command line, and its
+    time; it is killed at the deadline."""
     said, reqs = asked(base, folder, admit, ended, held)
     lenses = [lens for lens, _ in reqs]
     seconds = min(CHILD, int(left()) - RESERVE)
@@ -132,12 +136,14 @@ def run(base, folder, work: str, admit, ended: dict, held: dict, environ: dict, 
         heard = {lens: ("out_of_time", None) for lens in lenses}
     elif reqs:
         made = steps.new_folder(base, work)
-        steps.write(made, "asked.json", json.dumps({
+        data = json.dumps({
             "item": admit["item"], "head": held["item"][1], "run": admit["run"], "release": admit["release"],
             "seconds": seconds, "asked": [{"lens": lens, "request": req} for lens, req in reqs]},
-            ensure_ascii=False, allow_nan=False).encode("utf-8", "replace"))
+            ensure_ascii=False, allow_nan=False).encode("utf-8", "replace")
+        steps.write(made, "asked.json", data)
         try:
-            out = spawn(COMMAND + [made], cwd=str(steps.ROOT), env={KEY: environ.get(KEY) or "", "PATH": environ.get("PATH", "")},
+            out = spawn(COMMAND + [made, hashlib.sha256(data).hexdigest()], cwd=str(steps.ROOT),
+                        env={KEY: environ.get(KEY) or "", "PATH": environ.get("PATH", "")},
                         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=seconds,
                         check=False).stdout
         except subprocess.TimeoutExpired as killed:
@@ -150,20 +156,29 @@ def run(base, folder, work: str, admit, ended: dict, held: dict, environ: dict, 
 
 def main(argv: list, environ: dict, connect=Live, clock=time.monotonic, say=None) -> int:
     """The child. It reads what it is asked from the folder it is given, says each thing it does as it does it, and
-    always ends 0: what it could not do is what it did not say. It says codes and keys alone."""
+    always ends 0: what it could not do is what it did not say. It says codes and keys alone. What it is asked whose
+    bytes are not the ones the step hashed, on an item of another repo than the one its token is minted for, or that
+    asks for no Lens or more than LENSES, asks nothing of GitHub, and it says nothing."""
     say = say or (lambda line: print(line, flush=True))
     began = clock()
     try:
         with open(os.open(os.path.join(argv[0], "asked.json"), os.O_RDONLY | os.O_NOFOLLOW), "rb") as f:
-            asking = json.loads(f.read(ASKED).decode("utf-8"))
+            raw = f.read(ASKED)
+        if hashlib.sha256(raw).hexdigest() != argv[1]:
+            return 0        # not the bytes the step wrote: the head, the Run and the item are read from no other
+        asking = json.loads(raw.decode("utf-8"))
         config = configuration.load(steps.ROOT, asking["release"], APP)
         asks = steps.read_json(steps.ROOT, os.path.join("config", "harness.json"))
         names = [lens for lens in asks["advisory"] if lens in asks.get("readers", {})]
         # What it is asked is held to the configuration again: a Lens it does not ask a reader for, or a check run
-        # under another Lens's name, is not written and not said.
+        # under another Lens's name, is not written and not said; a Lens asked twice is written once, as first asked.
         todo = [one for one in asking["asked"]
                 if one["lens"] in names and one["request"]["name"] == advice.CHECK % one["lens"]]
+        todo = [one for n, one in enumerate(todo) if one["lens"] not in [other["lens"] for other in todo[:n]]]
         item, lenses = asking["item"], [one["lens"] for one in todo]
+        # The token is minted for the home repo alone, and no token is minted for nothing.
+        if item["repo"] != config["controller"]["home"]["repo"] or not todo or len(todo) > LENSES:
+            return 0
         say("began")
         try:
             transport, revoke = identity.from_key(
