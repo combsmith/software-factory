@@ -9,17 +9,22 @@ import base64
 import copy
 import hashlib
 import json
+import os
 import pathlib
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 import unittest.mock
 
-from adapters import effects, github, identity
+from adapters import advice, effects, github, identity
 from adapters.facts import Moved
+from harness import advised as advised_
 from harness import apply, bundle, engine, shared
 from harness import task as task_
 from tests import support
+from tests.test_advisory import MARK, SEVERE, advised as an_advice, filed
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 APPS = json.loads((ROOT / "config" / "apps.json").read_text())
@@ -1731,6 +1736,301 @@ class Job(unittest.TestCase):
         record, ended, calls = self.go(quiet)
         self.assertEqual((record["effects"], ended["outcome"], calls["mint"]), ([], None, []))
 
+
+
+def advised(*found, **over) -> dict:
+    """An advisory Lens's Result of Run RUN on the admitted content, as tests/test_advisory.py builds one."""
+    return an_advice(*found, content="sha256:aaaa", **over)
+
+
+class Checks:
+    """A fake GitHub that holds check runs: it lists those made, makes each one asked, and reads each back as made."""
+
+    def __init__(self, made=()):
+        self.sent, self.made = [], list(made)
+
+    def send(self, req: dict) -> dict:
+        self.sent.append(req)
+        if req["method"] == "POST":
+            body = req["body"]
+            self.made.append(dict({k: body[k] for k in ("name", "head_sha", "external_id", "status", "conclusion")},
+                                  id=len(self.made) + 1, node_id="CR_%d" % (len(self.made) + 1),
+                                  app={"slug": "combsmith-sf-pr-review"},
+                                  output={"annotations_count": len(body["output"]["annotations"])}))
+            return ok(self.made[-1], 201)
+        if "/commits/" in req["path"]:
+            mine = [m for m in self.made if "check_name=%s&" % m["name"] in req["path"]]
+            return ok({"total_count": len(mine), "check_runs": mine})
+        return ok(self.made[int(req["path"].rsplit("/", 1)[1]) - 1])
+
+
+class Advised(unittest.TestCase):
+    """Decision 0224, "What is shown": `apply` shows each advisory Lens's Result as a check run that is always neutral,
+    in a child it kills at a deadline."""
+    ENDED = {"outcome": None, "reason": None}
+    BOTH = {"astra": advised(("major", 86)), "kimi": advised(lens="kimi")}
+
+    def folder(self, files: dict, placed=None):
+        """A step's directory whose `advice` folder holds `files`, `{lens: Result, bytes or (bytes, digest)}`, which
+        `placed(d)` then moves or links."""
+        top = tempfile.TemporaryDirectory()
+        self.addCleanup(top.cleanup)
+        d = pathlib.Path(top.name, "base")
+        (d / "advice").mkdir(parents=True)
+        for lens, given in files.items():
+            data, digest = given if isinstance(given, tuple) else filed(given)
+            (d / "advice" / ("advice.%s.json" % lens)).write_bytes(data)
+            if digest is not None:
+                (d / "advice" / ("advice.%s.sha256" % lens)).write_bytes(digest)
+        if placed:
+            placed(d)
+        return d
+
+    def ask(self, files, admit=None, ended=None, facts=None, read=True, folder="advice", placed=None):
+        held = {"item": (facts or the_facts(), HEAD, runs(), support.context(), None)} if read else {}
+        return advised_.asked(str(self.folder(files, placed)), folder, the_task() if admit is None else admit,
+                              ended or self.ENDED, held)
+
+    def child(self, files, hub=None, mint_fails=None, revoked=True, seconds=150, clock=lambda: 0, write=None):
+        """`(lines, hub, calls)` of the child asked for what `asked` builds of `files`."""
+        hub, calls, lines = hub or Checks(), {"mint": [], "revoke": 0}, []
+        said, reqs = self.ask(files)
+        d = self.folder({})
+        (d / "asked.json").write_text(json.dumps({
+            "item": ITEM, "head": HEAD, "run": RUN, "release": RELEASE, "seconds": seconds,
+            "asked": [{"lens": lens, "request": req} for lens, req in reqs]}))
+
+        def from_key(app, repo, wanted, key, now, connect):
+            calls["mint"].append((app["name"], repo, wanted, key))
+            if mint_fails:
+                raise mint_fails
+
+            def revoke():
+                calls["revoke"] += 1
+                if isinstance(revoked, Exception):
+                    raise revoked
+                return revoked
+            return hub, revoke
+        with unittest.mock.patch.object(identity, "from_key", from_key), \
+                unittest.mock.patch.object(effects, "advisory_write", write or effects.advisory_write):
+            code = advised_.main([str(d)], {advised_.KEY: "k", "OTHER": "x"}, clock=clock, say=lines.append)
+        self.assertEqual(code, 0)
+        return lines, hub, calls
+
+    def posted(self, hub) -> list:
+        return [req["body"] for req in hub.sent if req["method"] == "POST"]
+
+    def test_an_advisory_check_run_is_neutral_whatever_its_result_says(self):
+        cases = [advised(*[(severity, 86) for severity in SEVERE]), advised(*[("blocking", 86)] * 7), advised(),
+                 advised(status="incomplete", reason="rate_limited"), advised(status="failed", reason="unparsed")]
+        for case in cases:
+            lines, hub, calls = self.child({"astra": case, "kimi": dict(case, lens="kimi", findings=[], texts=[])})
+            self.assertEqual(lines, ["began", "astra shown CR_1", "kimi shown CR_2", "revoked"], case["status"])
+            first, second = self.posted(hub)
+            self.assertEqual([(b["name"], b["conclusion"], b["status"], b["head_sha"], b["external_id"])
+                              for b in (first, second)],
+                             [("advisory-astra", "neutral", "completed", HEAD, RUN + ":astra"),
+                              ("advisory-kimi", "neutral", "completed", HEAD, RUN + ":kimi")])
+            self.assertEqual(first["output"], advice.shown(case)[0])
+            self.assertNotIn("failure", [a["annotation_level"] for a in first["output"]["annotations"]])
+            # One token of the home repo, of the check run's need alone, by the key it was given, revoked at the end.
+            self.assertEqual((calls["mint"], calls["revoke"]),
+                             ([("combsmith-sf-pr-review", REPO, {"checks": "write"}, "k")], 1))
+        # A reader's words are in the annotations it sends, and nowhere else: not in any other request, nor in what
+        # the child says. At most fifty are sent.
+        sixty = advised(*[("major", 100 + n) for n in range(60)])
+        lines, hub, _ = self.child({"astra": sixty})
+        body, = self.posted(hub)
+        notes = body["output"].pop("annotations")
+        self.assertEqual(len(notes), 50)
+        self.assertNotIn(MARK, json.dumps([req for req in hub.sent if req["method"] != "POST"] + [body, lines]))
+        self.assertTrue(all(MARK in n["title"] and MARK in n["message"] for n in notes))
+        # `apply` run again on the Run finds each Lens's check run by its key, and makes no second one.
+        lines, again, _ = self.child({"astra": sixty, "kimi": advised(lens="kimi")}, hub=Checks(hub.made))
+        self.assertEqual((lines[1:3], [b["name"] for b in self.posted(again)]),
+                         (["astra shown CR_1", "kimi shown CR_2"], ["advisory-kimi"]))
+        # The writes go through the advisory allowlist of this Run and its Lenses, which lets no other conclusion out.
+        seen = []
+        self.child(self.BOTH, write=lambda t, *a: seen.append(t) or {"state": "applied", "key": "CR_9"})
+        self.assertIsInstance(seen[0], effects.Allowed)
+        good = dict(self.posted(hub)[0], name="advisory-kimi", external_id=RUN + ":kimi", output=advice.shown(advised())[0])
+        path = "/repos/%s/check-runs" % ITEM["repo"]
+        with self.assertRaisesRegex(github.Unanswered, "nothing left"):
+            effects.Allowed(GitHub(), seen[0]._permits, seen[0]._patterns).send(github.request("POST", path, body=good))
+        with self.assertRaisesRegex(github.Unanswered, "may not send"):
+            seen[0].send(github.request("POST", path, body=dict(good, conclusion="success")))
+
+    def test_the_child_says_each_thing_it_does_and_always_asks_for_the_revocation(self):
+        # A token not minted, whatever the cause, is said, and nothing is sent.
+        for fails in (identity.Refused("effect_not_granted"), RuntimeError("what no one foresaw")):
+            lines, hub, calls = self.child(self.BOTH, mint_fails=fails)
+            self.assertEqual((lines, hub.sent), (["began", "unminted"], []))
+        # A revocation GitHub does not confirm, or that raises, is said, whatever was shown.
+        for revoked in (False, None, RuntimeError("no answer")):
+            self.assertEqual(self.child(self.BOTH, revoked=revoked)[0][-1], "unrevoked", revoked)
+        # A write not taken, refused, not read back, read back with no key, or that raises, foreseen or not, is a code;
+        # the next Lens is still written and the token revoked all the same.
+        for back, want in (({"state": "failed", "reason": "write_refused"}, "not_written"),
+                           ({"state": "refused", "reason": "token_refused"}, "not_written"),
+                           ({"state": "sent"}, "not_read_back"), ({"state": "applied", "key": None}, "not_written"),
+                           ({"state": "applied", "key": "a key?"}, "not_written"),
+                           (KeyError("id"), "write_raised"), (RuntimeError("unforeseen"), "write_raised")):
+            def write(*a, back=back):
+                if isinstance(back, Exception):
+                    raise back
+                return back
+            lines, _, calls = self.child(self.BOTH, write=write)
+            self.assertEqual((lines, calls["revoke"]), (["began", "astra " + want, "kimi " + want, "revoked"], 1), want)
+            self.assertEqual(self.child(self.BOTH, write=write, revoked=False)[0][-1], "unrevoked")
+        # No Lens is begun that could not end and be revoked in the child's time: it is not said, and the token is
+        # revoked for those that were, and when none was.
+        self.assertEqual((advised_.ONE, advised_.LEAST, advised_.CHILD, advised_.RESERVE), (85, 130, 150, 30))
+        times = iter([0, 65, 66])
+        lines, hub, calls = self.child(self.BOTH, clock=lambda: next(times))
+        self.assertEqual((lines, calls["revoke"]), (["began", "astra shown CR_1", "revoked"], 1))
+        lines, hub, calls = self.child(self.BOTH, seconds=84)
+        self.assertEqual((lines, hub.sent, calls["revoke"]), (["began", "revoked"], [], 1))
+        # What it is asked that it cannot read is nothing said, and it ends as any child does.
+        self.assertEqual(advised_.main(["/nothing/here"], {}, say=lines.append), 0)
+        self.assertEqual(lines, ["began", "revoked"])
+
+    def test_what_a_child_did_not_say_its_parent_records(self):
+        both = ["astra", "kimi"]
+        each = lambda code, key=None: {"astra": (code, key), "kimi": (code, None)}
+        for out, want in (
+                (b"began\nastra shown CR_1\nkimi not_written\nrevoked\n", {"astra": ("shown", "CR_1"), "kimi": ("not_written", None)}),
+                # A Lens not reached is out of time; and so is every Lens of a child that never began.
+                (b"began\nastra shown CR_1\nrevoked\n", {"astra": ("shown", "CR_1"), "kimi": ("out_of_time", None)}),
+                (b"", each("out_of_time")), (None, each("out_of_time")), (b"bega", each("out_of_time")),
+                (b"began\nunminted\n", each("token_not_minted")),
+                # A child that began and was not heard to revoke, killed at any point: the token's state is not known.
+                (b"began\n", each("token_not_revoked")), (b"began\nastra shown CR_1\n", each("token_not_revoked", "CR_1")),
+                (b"began\nastra shown CR_1\nkimi not_written\nunrevoked\n", each("token_not_revoked", "CR_1")),
+                (b"began\nastra shown CR_1\nkimi shown CR_2\nrevoke", {"astra": ("token_not_revoked", "CR_1"),
+                                                                       "kimi": ("token_not_revoked", "CR_2")}),
+                # A line cut short by the kill, a Lens not asked, a code that is none, a shown with no key and a key
+                # with no shown say nothing; a Lens said twice is said once.
+                (b"began\nastra shown CR_1\nkimi show", each("token_not_revoked", "CR_1")),
+                (b"began\nastra shown CR_1\nkimi shown CR_", each("token_not_revoked", "CR_1")),
+                (b"began\nastra shown CR_1\nrevoked", each("token_not_revoked", "CR_1")),
+                (b"began\nmuse shown CR_3\nastra a_sentence\nkimi shown\nastra not_written CR_1\nrevoked\n", each("out_of_time")),
+                (b"began\nastra shown CR_1\nastra not_written\nrevoked\n", {"astra": ("shown", "CR_1"), "kimi": ("out_of_time", None)}),
+                (b"began\n\xff\nrevoked\n", each("out_of_time"))):
+            self.assertEqual(advised_.told(out, both), want, out)
+
+    def test_the_child_is_given_the_key_alone_and_is_killed_at_its_deadline(self):
+        d, calls = self.folder(self.BOTH), []
+        held = {"item": (the_facts(), HEAD, runs(), support.context(), None)}
+
+        def go(left, spawn, files=d, work="work"):
+            env = {advised_.KEY: "the key", "PATH": "/usr/bin", "RUN_DIGEST": "x", "GITHUB_TOKEN": "t", "NEEDS": "{}"}
+            return advised_.run(str(files), "advice", work, the_task(), self.ENDED, held, env, lambda: left, spawn)
+
+        def spawn(command, **how):
+            calls.append((command, how))
+            return subprocess.CompletedProcess(command, 0, b"began\nastra shown CR_1\nkimi shown CR_2\nrevoked\n")
+        self.assertEqual(go(240, spawn), [("astra", "shown", "CR_1"), ("kimi", "shown", "CR_2")])
+        (command, how), = calls
+        work = os.path.realpath(d / "work")
+        self.assertEqual((command, how["env"], how["timeout"], how["stdin"], how["cwd"]),
+                         ([sys.executable, "-m", "harness.advised", work], {advised_.KEY: "the key", "PATH": "/usr/bin"},
+                          150, subprocess.DEVNULL, str(ROOT)))
+        # What it is asked lies in a new folder of the step's own, the step's alone to read, and holds no key.
+        asked = json.loads(pathlib.Path(work, "asked.json").read_text())
+        self.assertEqual((asked["seconds"], [a["lens"] for a in asked["asked"]], asked["head"], asked["run"]),
+                         (150, ["astra", "kimi"], HEAD, RUN))
+        self.assertEqual((os.stat(work).st_mode & 0o777, "the key" in json.dumps(asked)), (0o700, False))
+        # The deadline leaves the step its reserve, and a child that could not mint, write one check run and revoke in
+        # what is left is not started.
+        go(170, spawn, work="w2")
+        self.assertEqual(calls[-1][1]["timeout"], 140)
+        del calls[:]
+        self.assertEqual((go(159, spawn, work="w3"), calls, os.path.exists(d / "w3")),
+                         ([("astra", "out_of_time", None), ("kimi", "out_of_time", None)], [], False))
+        # With no Result to show no child is started; and a Lens with none keeps its code beside one that has.
+        self.assertEqual((go(240, spawn, files=self.folder({})), calls),
+                         ([("astra", "advice_missing", None), ("kimi", "advice_missing", None)], []))
+        self.assertEqual(go(240, lambda c, **h: subprocess.CompletedProcess(c, 0, b"began\nkimi shown CR_2\nrevoked\n"),
+                            files=self.folder({"kimi": advised(lens="kimi")})),
+                         [("astra", "advice_missing", None), ("kimi", "shown", "CR_2")])
+        # A child killed at its deadline is read as far as it said; one that cannot be started says nothing.
+        def killed(command, **how):
+            raise subprocess.TimeoutExpired(command, how["timeout"], output=b"began\nastra shown CR_1\nkim")
+
+        def absent(command, **how):
+            raise OSError("no such file")
+        self.assertEqual(go(240, killed, work="w4"), [("astra", "token_not_revoked", "CR_1"), ("kimi", "token_not_revoked", None)])
+        self.assertEqual(go(240, absent, work="w5"), [("astra", "out_of_time", None), ("kimi", "out_of_time", None)])
+        # A child that hangs is killed, in fact, and what it had said is kept.
+        hangs = "import time; print('began', flush=True); print('astra shown CR_1', flush=True); time.sleep(60)"
+        began = time.monotonic()
+        with unittest.mock.patch.object(advised_, "COMMAND", [sys.executable, "-c", hangs]), \
+                unittest.mock.patch.object(advised_, "CHILD", 1), unittest.mock.patch.object(advised_, "LEAST", 1):
+            said = go(240, subprocess.run, work="w6")
+        self.assertEqual(said, [("astra", "token_not_revoked", "CR_1"), ("kimi", "token_not_revoked", None)])
+        self.assertLess(time.monotonic() - began, 20)
+        # Every entry is one applied/1 holds.
+        self.assertEqual(shared.errors(dict({"schema": "applied/1", "run": RUN, "release": RELEASE, "effects": [], "findings": []}, advisory=advice.recorded(said)), "applied"), [])
+
+    def test_an_advisory_result_is_asked_for_only_for_a_review_of_the_item_as_admitted(self):
+        each = lambda code: ({"astra": code, "kimi": code}, [])
+        said, reqs = self.ask(self.BOTH)
+        self.assertEqual((said, [lens for lens, _ in reqs]), ({"astra": None, "kimi": None}, ["astra", "kimi"]))
+        # No other Intent's Run, and no Run no Decision admitted, has anything said of it.
+        self.assertEqual(advised_.asked(".", "advice", None, self.ENDED, {}), ({}, []))
+        self.assertEqual(self.ask(self.BOTH, admit=the_task(intent="fix-findings")), ({}, []))
+        # A change under the Run, by its outcome whatever was read or by the facts read again; a Run the Factory
+        # faulted; an item not read again. One `apply` refused for the Role's own fault is still a review of the commit.
+        for over, want in (({"ended": {"outcome": "superseded", "reason": "paused"}}, "superseded"),
+                           ({"ended": {"outcome": "superseded", "reason": "head_moved"}, "read": False}, "superseded"),
+                           ({"facts": the_facts(state="closed")}, "superseded"),
+                           ({"facts": the_facts(content_id="sha256:bbbb")}, "superseded"),
+                           ({"ended": {"outcome": "environment", "reason": "effect_failed"}}, "run_not_whole"),
+                           ({"ended": {"outcome": "environment", "reason": "result_unreadable"}, "read": False}, "run_not_whole"),
+                           ({"ended": {"outcome": "capacity", "reason": "engine_limit"}}, "run_not_whole"),
+                           ({"read": False}, "item_not_read")):
+            self.assertEqual(self.ask(self.BOTH, **over), each(want), over)
+        self.assertEqual(len(self.ask(self.BOTH, ended={"outcome": "item", "reason": "uncovered"})[1]), 2)
+        # A Result that does not hold is its code, and the other Lens's is asked for as it would be without it.
+        good = self.BOTH["astra"]
+        data, digest = filed(good)
+        for given, want in (((data, b"sha256:" + b"0" * 64 + b"\n"), "advice_digest_differs"), ((data, None), "advice_missing"),
+                            (b"not json", "advice_invalid"), (dict(good, status="failed"), "advice_disagrees"),
+                            (dict(good, run="r_01JA7Z"), "advice_not_the_runs")):
+            said, reqs = self.ask(dict(self.BOTH, astra=given))
+            self.assertEqual((said, [lens for lens, _ in reqs]), ({"astra": want, "kimi": None}, ["kimi"]), want)
+        # A Result is looked for under the names the configuration asks a reader for, and under no other.
+        self.assertEqual(self.ask({"muse": advised(lens="muse"), "coderabbit": advised(lens="coderabbit")}), each("advice_missing"))
+        # The folder is followed to where it really is and must lie inside the step's own; the file is never a link.
+        # One that is not there, one outside that holds a Result that would hold, a folder linked to it, and a file
+        # that is a link, to a Result inside the step's own even, hold none; a folder linked to one inside holds it.
+        def outside(d):
+            os.rename(d / "advice", d.parent / "out")
+
+        def linked_out(d):
+            outside(d)
+            os.symlink(d.parent / "out", d / "advice")
+
+        def linked_in(d):
+            os.rename(d / "advice", d / "kept")
+            os.symlink(d / "kept", d / "advice")
+
+        def file_linked(d):
+            os.rename(d / "advice" / "advice.astra.json", d / "kept.json")
+            os.symlink(d / "kept.json", d / "advice" / "advice.astra.json")
+        for folder, placed, want in (("nothing", None, "advice_missing"), (None, None, "advice_missing"),
+                                     ("../out", outside, "advice_missing"), ("advice", linked_out, "advice_missing"),
+                                     ("advice", file_linked, "advice_missing"), ("advice", linked_in, None)):
+            self.assertEqual(self.ask({"astra": good}, folder=folder, placed=placed)[0]["astra"], want, (folder, placed))
+        # No more of a Result's file is read than the most one may be and a byte, nor of its digest than a digest is.
+        read = []
+        real = advice.held
+        long = (filed(good)[0], b"s" * 500)
+        with unittest.mock.patch.object(advice, "LARGEST", 9), \
+                unittest.mock.patch.object(advice, "held", lambda data, digest, *a: read.append(
+                    (len(data or b""), len(digest or b""))) or real(data, digest, *a)):
+            self.ask({"astra": long})
+        self.assertEqual(read, [(10, 128), (0, 0)])
 
 if __name__ == "__main__":
     unittest.main()
