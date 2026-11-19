@@ -1564,10 +1564,14 @@ class RunStarts(unittest.TestCase):
     def test_an_issues_decision_is_the_same_whatever_began_at_its_runs_carry(self):  # issue 836, decision 0231
         # No issue rule reads when a Run's jobs began, `began_at`: each reads `started_at`, which the run list gives with
         # no job asked. So the records port is asked the jobs of no issue's Run (decision 0196), and an issue's State and
-        # Decision are the same with no `began_at`, a null one, one before the Run's start and one long after it.
+        # Decision are the same with no `began_at`, a null one, one before the Run's start and one long after it. So
+        # are the brakes' counts of an issue's Runs since a writer acted.
         settings = (config(), config(intents=INTENTS))
         kept = [[], JUDGED, [investigated()], [investigated(), run(minute=6, name="r2")], [opening()], JUDGED + [opening()],
-                [failed(INVESTIGATE, 3, "i1")], [investigated(status="in_progress")]]
+                [failed(INVESTIGATE, 3, "i1")], [investigated(status="in_progress")],
+                # At the attempts brake and one short of it: the brakes count the Runs started since a writer acted.
+                [failed(INVESTIGATE, 1 + i, "f%d" % i) for i in range(LIMITS["max_attempts"])],
+                [failed(INVESTIGATE, 1 + i, "f%d" % i) for i in range(LIMITS["max_attempts"] - 1)]]
         asked = [(f, runs) for _, f, runs, _ in CASES] + [(f, runs) for f in (
             facts(), TRIAGED, facts(label_events=READIED), facts(label_events=READIED_BY_A_PERSON)) for runs in kept]
         differing = 0
@@ -1575,7 +1579,7 @@ class RunStarts(unittest.TestCase):
             for cfg in settings:
                 for now in (NOW, at(59), "2027-01-01T00:00:00Z"):
                     plain = (derive(f, runs, cfg), decide(f, runs, cfg=cfg, now=now))
-                    for began in ("absent", None, at(0), at(58), "2026-12-31T00:00:00Z"):
+                    for began in ("absent", None, "2026-01-01T00:00:00Z", at(0), at(58), "2026-12-31T00:00:00Z"):
                         told = [dict(r) if began == "absent" else dict(r, began_at=began) for r in runs]
                         self.assertEqual((derive(f, told, cfg), decide(f, told, cfg=cfg, now=now)), plain, (f, runs, began))
                     # The start itself is read: the cases are ones a Run's start decides, or the test would hold nothing.
