@@ -32,12 +32,18 @@ STDLIB = STDLIB | {"importlib"}
 # http: adapters/github.py and adapters/azure.py, the two transports, refuse an answer http.client cut short. NETWORK
 # refuses it anywhere else.
 STDLIB = STDLIB | {"http"}
+# ssl: adapters/azure.py makes its own context, so that a default replaced elsewhere cannot turn verification off.
+# NETWORK refuses it anywhere else.
+STDLIB = STDLIB | {"ssl"}
 # zipfile and zlib: adapters/artifacts.py opens a Run's artifact, a zip GitHub serves, of one file and bounded.
 STDLIB = STDLIB | {"zipfile", "zlib"}
 # uuid: harness/run.py names a Run's session before the call, so that its usage names it even when the CLI never answers.
 STDLIB = STDLIB | {"uuid"}
 # email: tools/check_apps.py reads the date on GitHub's answer, an HTTP date, with email.utils alone.
 STDLIB = STDLIB | {"email"}
+# unicodedata: harness/advise.py holds a prompt to the most bytes it comes to in NFC or NFKC, the forms a tokenizer may
+# put it in before it splits it (decision 0224).
+STDLIB = STDLIB | {"unicodedata"}
 # The network. Only a transport reaches it, so a request to GitHub is made in one file a review can read whole;
 # everywhere else these are refused, the required check fetches nothing, and a test replays what a trial recorded.
 # A net, as the search for secrets is: a subprocess or importlib can still reach out, and review is the real guard.
