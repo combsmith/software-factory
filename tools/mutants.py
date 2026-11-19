@@ -124,6 +124,7 @@ S3_PERSON = ("tests.test_controller.Issues.test_a_person_whose_login_is_an_apps_
 F901_ROLE = ("tests.test_adapters.Issues.test_a_role_apps_comment_is_its_roles_and_no_act_of_its_is_counted_on_an_issue_or_a_pull_request",)
 F901_NAMES = ("tests.test_controller.Entry.test_a_queues_or_a_lenss_name_declared_as_an_issues_app_refuses_the_issues_alone_and_the_pull_requests_are_decided",)
 F901_PASS = ("tests.test_controller.Issues.test_issues_whose_apps_cannot_be_told_are_not_decided_and_the_pull_requests_are",)
+F901_TRACKED = ("tests.test_reconcile.Tracking.test_the_tracking_issues_number_is_what_the_passes_recorded_and_none_while_their_records_are_not_whole",)
 S3_ROW10 = ("tests.test_controller.Issues.test_with_no_app_declared_for_factory_triage_an_accepted_served_issue_gets_no_acceptance_act",)
 COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers",)
 ALSO_AT = ("tests.test_evals.Scoring.test_a_finding_at_any_place_the_case_gives_is_at_the_place",)
@@ -2180,7 +2181,7 @@ MUTANTS = ISSUE + [
      '            if e["state"] in LANDED and e["key"] is not None:',
      '            if e["key"] is not None:', ("tests.test_reconcile",)),
     ('a written write that did not land matches', 'controller/reconcile.py',
-     '            if w["state"] not in LANDED:\n                continue\n',
+     '            if w["state"] not in LANDED and (w["type"], w["reason"]) != ("tracking_issue", "assignee_dropped"):\n                continue\n',
      '', ("tests.test_reconcile",)),
     ('one recorded dequeue matches every dequeue', 'controller/reconcile.py',
      '            items[slot] = items.get(slot, 0) - 1\n',
@@ -8518,7 +8519,7 @@ MUTANTS = ISSUE + [
     ('the written read waits by the clock', 'controller/__main__.py', 'since, known_passes, sleep=sleep)', 'since, known_passes)', ("tests.test_controller.Entry.test_the_entry_gathers_what_reconciliation_reads",)),
     ('the records port waits by the clock', 'controller/__main__.py', 'engines=records.engines(earlier), sleep=sleep,\n', 'engines=records.engines(earlier),\n', ("tests.test_controller.Entry.test_the_entry_gathers_what_reconciliation_reads",)),
     ('the reads wait by the clock', 'controller/__main__.py', 'utc(clock), clock, started, sleep)', 'utc(clock), clock, started)', ("tests.test_controller.Entry.test_the_entry_gathers_what_reconciliation_reads",)),
-    ('the recorded Effects wait by the clock', 'controller/__main__.py', 'int(run_id), before, since, sleep)}', 'int(run_id), before, since)}', ("tests.test_controller.Entry.test_the_entry_gathers_what_reconciliation_reads",)),
+    ('the recorded Effects wait by the clock', 'controller/__main__.py', 'int(run_id), before, since, sleep)\n', 'int(run_id), before, since)\n', ("tests.test_controller.Entry.test_the_entry_gathers_what_reconciliation_reads",)),
     ("any Run's record vouches for an approval", 'adapters/applied.py', '            if record.get("intent") != APPROVING:\n                kept = dict(kept, effects=[e for e in kept["effects"] if e["type"] != "approve"])\n', '', WIRE_RUNS),
     ("no Run's record vouches for an approval", 'adapters/applied.py', 'if record.get("intent") != APPROVING:', 'if True:', WIRE_RUNS),
     ('a pass reads every Run in the window', 'adapters/applied.py', '        if tried == most:\n            out["whole"] = False\n            break\n        tried += 1\n        try:\n            kept, whole', '        try:\n            kept, whole', WIRE_RUNS),
@@ -13841,7 +13842,7 @@ MUTANTS = ISSUE + [
      '         names, reserved, roles_of(controller))',
      '         names, (), roles_of(controller))', S3_ENTRY),
     # Issue 901: a Role's App held under `roles` alone comments as that Role and makes no counted act; the queue's or
-    # a Lens's name declared an issue's App refuses the issues alone.
+    # a Lens's name declared an issue's App refuses the issues alone; the tracking issue is no Work item.
     ("a comment by a Role's App held under roles alone is dropped", 'adapters/issues.py',
      ' or (ident, kind) in accounts.roles:',
      ':', F901_ROLE + S3_NAMED),
@@ -13893,6 +13894,33 @@ MUTANTS = ISSUE + [
     ("a Lens is told by the name its id is configured under alone, not its login", 'controller/__main__.py',
      'taken = {a["login"] for a in held} | {',
      'taken = {', F901_NAMES),
+    ('the tracking issue is listed as an open issue', 'adapters/items.py',
+     'return [number for number in numbers if number not in apart], whole',
+     'return numbers, whole', S3_LIST + S3_LINKED),
+    ('the listing is handed no tracking issue', 'controller/__main__.py',
+     'apart=apart or ())',
+     'apart=())', S3_ENTRY + S3_LINKED),
+    ("the issues are read while the tracking issue's number is not", 'controller/__main__.py',
+     '            if apart is None:\n                raise Unanswered("the tracking issue\'s number was not read")\n',
+     '', S3_ENTRY),
+    ("records not read whole give the tracking issue's number", 'controller/reconcile.py',
+     '    if not isinstance(written, dict) or written.get("whole") is not True:\n        return None\n',
+     '    if not isinstance(written, dict):\n        return None\n', F901_TRACKED + S3_ENTRY),
+    ("a tracking issue written with its assignee dropped is listed as an open issue", 'controller/reconcile.py',
+     ' and (w["type"], w["reason"]) != ("tracking_issue", "assignee_dropped"):',
+     ':', F901_TRACKED),
+    ("any failed write of the tracking issue names it", 'controller/reconcile.py',
+     '(w["type"], w["reason"]) != ("tracking_issue", "assignee_dropped")',
+     'w["type"] != "tracking_issue"', F901_TRACKED),
+    ("any write that failed with its assignee dropped is keyed", 'controller/reconcile.py',
+     '(w["type"], w["reason"]) != ("tracking_issue", "assignee_dropped")',
+     'w["reason"] != "assignee_dropped"', F901_TRACKED),
+    ("the tracking issue's number the last record carried is forgotten", 'controller/reconcile.py',
+     '_keys({"applied": [], "written": written["written"]}, before)\n    return sorted',
+     '_keys({"applied": [], "written": written["written"]})\n    return sorted', F901_TRACKED),
+    ("any write's key is the tracking issue's number", 'controller/reconcile.py',
+     'for k in keys.get((WRITTEN, "tracking_issue"), ()) if k.isdigit())',
+     'for found in keys.values() for k in found if k.isdigit())', F901_TRACKED),
     ("the account reader reserves no Intent's App", 'controller/__main__.py',
      ' \\\n        + [intent["app"] for intent in declared["intents"].values() if isinstance(intent, dict)]\n',
      '\n', S3_ENTRY),
