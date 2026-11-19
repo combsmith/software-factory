@@ -6346,6 +6346,9 @@ class Issues(unittest.TestCase):
         accounts = timeline.Accounts(router, "o/r", approver, lenses, factory, roles=facts_.roles_of(held))
         found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES)
         self.assertEqual((found["acts_since_writer"], timeline.since_writer(events, accounts)["acts_since_writer"]), (2, 2))
+        # And it is read as that Lens, never as an App, wherever who acted is told: its label on an issue and on a pull request.
+        lens = {"kind": "lens", "name": "pr-review", "can_write": False}
+        self.assertEqual((found["label_events"][-1]["by"], timeline.label_events(events, accounts)[-1]["by"]), (lens, lens))
 
     def test_an_issue_github_did_not_answer_whole_is_refused(self):  # decision 0218
         def edits(drop=None, **change):
