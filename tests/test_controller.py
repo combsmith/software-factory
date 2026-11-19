@@ -1813,7 +1813,8 @@ class Entry(unittest.TestCase):
         queue = {"id": 5000009, "type": "Bot", "login": "combsmith-sf-queue[bot]"}
         renamed = {"lens": "pr-review", "login": "an-old-login[bot]", "id": CONTROLLER["accounts"]["roles"]["pr-review"]["id"]}
         other = {"lens": "coderabbit", "login": "coderabbitai[bot]", "id": 136622811}
-        intent = lambda app: {"intents": {"investigate-issue": {"role": "business-analyst", "app": app},
+        intent = lambda app: {"label_apps": {"factory:triage": "combsmith-sf-controller", "factory:ready": None},
+                              "intents": {"investigate-issue": {"role": "business-analyst", "app": app},
                                           "judge-readiness": None, "open-pull-request": None}}
         whos = []
 
@@ -1838,15 +1839,24 @@ class Entry(unittest.TestCase):
         ready = lambda name: {"label_apps": {"factory:triage": "combsmith-sf-controller", "factory:ready": name}}
         # The issues are listed as with no date, so none is; pull request 7 is decided, and nothing is written for an issue.
         refused = (0, "passed\n", True, [7], [])
-        self.assertEqual(entry_with(ready("combsmith-sf-pr-review")), refused)
-        # The pull requests' reader does not reserve the name that collides, so no snapshot is refused for it; a name
-        # that does not collide stays reserved.
-        self.assertEqual(whos[-1].reserved, {"combsmith-sf-controller[bot]"})
-        self.assertEqual(entry_with(intent("combsmith-sf-pr-review")), refused)
-        self.assertEqual(entry_with(ready("combsmith-sf-queue"), queue=queue), refused)
+        # The pull requests' reader does not reserve the name that collides, whichever App's it is and wherever it is
+        # declared, so no snapshot is refused for it; a name that does not collide stays reserved.
+        unreserved = lambda issues, **accounts: (entry_with(issues, **accounts), whos[-1].reserved)
+        refused = (refused, {"combsmith-sf-controller[bot]"})
+        self.assertEqual(unreserved(ready("combsmith-sf-pr-review")), refused)
+        self.assertEqual(unreserved(intent("combsmith-sf-pr-review")), refused)
+        self.assertEqual(unreserved(ready("combsmith-sf-queue"), queue=queue), refused)
+        self.assertEqual(unreserved(intent("combsmith-sf-queue"), queue=queue), refused)
+        self.assertEqual(unreserved(ready("bors"), queue=dict(queue, login="bors[bot]")), refused)
         # A Lens is told by the login the configuration holds for it, and by the name its id is configured under.
-        self.assertEqual(entry_with(ready("coderabbitai"), lenses=[other]), refused)
-        self.assertEqual(entry_with(ready("combsmith-sf-pr-review"), lenses=[renamed]), refused)
+        self.assertEqual(unreserved(ready("coderabbitai"), lenses=[other]), refused)
+        self.assertEqual(unreserved(intent("coderabbitai"), lenses=[other]), refused)
+        self.assertEqual(unreserved(ready("combsmith-sf-pr-review"), lenses=[renamed]), refused)
+        self.assertEqual(unreserved(ready("combsmith-sf-pr-review"), lenses=[dict(renamed, lens="coderabbit")]), refused)
+        # The queue, and a Lens held under no Role, are told too by the name config/apps.json gives their code, though
+        # the login held for each is another.
+        self.assertEqual(unreserved(ready("combsmith-sf-queue"), queue=dict(queue, login="an-old-login[bot]")), refused)
+        self.assertEqual(unreserved(ready("combsmith-sf-pr-review"), lenses=[dict(renamed, id=5000010)]), refused)
         # The queue's name with no queue App held, and any other App's, are no queue's and no Lens's: the issues are
         # listed from their date, here by a listing that is whole only with no date, which stops the pass.
         for issues, accounts in ((ready("combsmith-sf-queue"), {}), (ready("combsmith-sf-readiness"), {"queue": queue}),

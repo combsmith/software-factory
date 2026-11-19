@@ -43,6 +43,7 @@ from adapters.github import Live, Unanswered
 from controller import configuration as configured, pass_, reads as reads_, reconcile, writes as writes_
 from controller.shared import Refused, key as page
 from harness import steps
+from kernel.terms import BOT_SUFFIX
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 APP = "controller"
@@ -180,7 +181,15 @@ def reader(transport, config: dict) -> tuple:
         + [intent["app"] for intent in declared["intents"].values() if isinstance(intent, dict)]
     names, queue = app_names_of(controller, config["apps"]), queue_of(controller)
     held = [a for a in controller["accounts"]["lenses"] + [controller["accounts"]["queue"]] if a]
-    taken = {a["login"] for a in held} | {names.get((a["id"], "Bot")) for a in held}
+    # Each is told too by the name config/apps.json gives its code, the queue's and each Lens's, though the login held
+    # for it is another: the App the issues name could be it renamed.
+    def app_name(code):
+        app = config["apps"].get(code)
+        return app["name"] + BOT_SUFFIX if isinstance(app, dict) and app.get("name") else None
+
+    taken = {a["login"] for a in held} | {names.get((a["id"], "Bot")) for a in held} \
+        | {app_name(a["lens"]) for a in controller["accounts"]["lenses"]} \
+        | {app_name("queue") if controller["accounts"]["queue"] else None}
     refused = bool(taken & set(reserved))
     reserved = [name for name in reserved if name not in taken]
     return identities, timeline.Accounts(transport, controller["home"]["repo"], approver, lenses, factory, queue,
