@@ -1820,6 +1820,13 @@ class Advised(unittest.TestCase):
         self.assertEqual(code, 0)
         return lines, hub, calls
 
+    def wordy(self, lens: str) -> tuple:
+        """A Result of `lens` with as many of a reader's words as one may hold, each of four bytes: its file and digest."""
+        big = advised(*[("major", 100 + n) for n in range(50)], lens=lens)
+        for text in big["texts"]:
+            text["body"] = "\U0001f600" * 8300
+        return filed(json.dumps(big, ensure_ascii=False).encode())
+
     def posted(self, hub) -> list:
         return [req["body"] for req in hub.sent if req["method"] == "POST"]
 
@@ -1857,10 +1864,15 @@ class Advised(unittest.TestCase):
         seen = []
         self.child(self.BOTH, write=lambda *a: seen.append(a[1:5]) or {"state": "applied", "key": "CR_9"})
         self.assertEqual(seen[0], (ITEM, HEAD, ["astra", "kimi"], RUN))
-        muse = dict(self.ask(self.BOTH)[1][0][1], name="advisory-muse", external_id=RUN + ":muse")
-        lines, hub, _ = self.child(self.BOTH, planted=[("muse", muse)])
-        self.assertEqual((lines[1:4], [b["name"] for b in self.posted(hub)]),
-                         (["astra shown CR_1", "kimi shown CR_2", "muse not_written"], ["advisory-astra", "advisory-kimi"]))
+        # Nor is one the Factory asks no reader for, nor a check run under another Lens's name; none is said.
+        (_, astra), (_, kimi) = self.ask(self.BOTH)[1]
+        planted = [(lens, dict(astra, name="advisory-" + lens, external_id="%s:%s" % (RUN, lens))) for lens in ("muse", "coderabbit")]
+        lines, hub, _ = self.child(self.BOTH, planted=planted + [("astra", kimi), ("astra\nrevoked", astra)])
+        self.assertEqual((lines, [b["name"] for b in self.posted(hub)]),
+                         (["began", "astra shown CR_1", "kimi shown CR_2", "revoked"], ["advisory-astra", "advisory-kimi"]))
+        # One reader's words, however many bytes they come to, crowd no Lens's check run out of what the child reads.
+        lines, hub, _ = self.child({"astra": self.wordy("astra"), "kimi": self.wordy("kimi")})
+        self.assertEqual(lines, ["began", "astra shown CR_1", "kimi shown CR_2", "revoked"])
 
     def test_the_child_mints_one_token_of_the_check_runs_need_on_the_home_repo_and_a_mint_in_doubt_is_not_revoked(self):
         class Hub(Checks):
@@ -1946,6 +1958,7 @@ class Advised(unittest.TestCase):
                 # A token said not revoked is not revoked, whatever else is said, before it or after.
                 (b"began\nunrevoked\n", each("token_not_revoked")), (b"began\nunminted\nunrevoked\n", each("token_not_revoked")),
                 (b"began\nastra shown CR_1\nunrevoked\nrevoked\n", each("token_not_revoked", "CR_1")),
+                (b"unrevoked\n", each("token_not_revoked")), (b"astra shown CR_1\nunrevoked\n", each("token_not_revoked", "CR_1")),
                 # A child that began and was not heard to revoke, killed at any point: the token's state is not known.
                 (b"began\n", each("token_not_revoked")), (b"began\nastra shown CR_1\n", each("token_not_revoked", "CR_1")),
                 (b"began\nastra shown CR_1\nkimi not_written\nunrevoked\n", each("token_not_revoked", "CR_1")),
@@ -1983,6 +1996,14 @@ class Advised(unittest.TestCase):
         self.assertEqual((asked["seconds"], [a["lens"] for a in asked["asked"]], asked["head"], asked["run"]),
                          (150, ["astra", "kimi"], HEAD, RUN))
         self.assertEqual((os.stat(work).st_mode & 0o777, "the key" in json.dumps(asked)), (0o700, False))
+        # It is written as UTF-8, a reader's words as they are and not escaped to three times their bytes, so that every
+        # Lens's check run fits what the child reads.
+        wordy = self.folder({"astra": self.wordy("astra"), "kimi": self.wordy("kimi")})
+        go(240, spawn, files=wordy, work="w7")
+        raw = pathlib.Path(os.path.realpath(wordy / "w7"), "asked.json").read_bytes()
+        self.assertTrue("\U0001f600".encode() in raw and advised_.MOST // 2 < len(raw) < advised_.ASKED // 4, len(raw))
+        self.assertEqual(advised_.ASKED, 24 * 1024 * 1024)
+        del calls[-1]
         # The deadline leaves the step its reserve, and a child that could not mint, write one check run and revoke in
         # what is left is not started.
         go(170, spawn, work="w2")

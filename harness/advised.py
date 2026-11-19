@@ -46,7 +46,12 @@ COMMAND = [sys.executable, "-m", "harness.advised"]
 # could not end, and be revoked, inside its time: three requests and one, and five seconds to say so.
 CHILD, RESERVE, LEAST = 150, 30, 6 * TIMEOUT + 10
 ONE = 4 * TIMEOUT + 5
-MOST = 4 * 1024 * 1024      # the bytes of what the child is asked and of what it says that are read
+MOST = 4 * 1024 * 1024      # the bytes of what the child says that are read
+# The bytes of what the child is asked that it reads. It is written as UTF-8, not escaped, so that one Lens's check run
+# is under three mebibytes whatever its characters: fifty annotations of a message, a title and a path of at most 8000,
+# 255 and 1024 characters (`adapters/advice.py`), of four bytes at most. applied/1 holds eight Lenses at most. So one
+# reader's words cannot crowd another Lens's check run out of what is read.
+ASKED = 8 * 3 * 1024 * 1024
 # What `identity` refuses before GitHub is asked to mint: with one of these, and no other, no token was made.
 BEFORE = frozenset({"key_unreadable", "key_cannot_sign", "app_unreadable", "effect_not_grantable", "effect_not_granted",
                     "installation_unreadable"})
@@ -103,13 +108,16 @@ def told(out, lenses: list) -> dict:
         if one and one.group(1) in lenses and one.group(1) not in said and one.group(2) in advice.CODES \
                 and (one.group(2) == "shown") == (one.group(3) is not None):
             said[one.group(1)] = (one.group(2), one.group(3))
-    if "unminted" in lines and "unrevoked" not in lines:
+    # The token's state is not known: it was asked for, and GitHub was not heard to revoke it.
+    unknown = {lens: ("token_not_revoked", said.get(lens, (None, None))[1]) for lens in lenses}
+    if "unrevoked" in lines:
+        return unknown      # said so: whatever else was said, before it or after, and though it was not heard to begin
+    if "unminted" in lines:
         return {lens: ("token_not_minted", None) for lens in lenses}
     if "began" not in lines:
         return {lens: ("out_of_time", None) for lens in lenses}     # nothing was asked of GitHub
-    if "revoked" not in lines or "unrevoked" in lines:
-        # The token's state is not known: it was asked for, and GitHub was not heard to revoke it.
-        return {lens: ("token_not_revoked", said.get(lens, (None, None))[1]) for lens in lenses}
+    if "revoked" not in lines:
+        return unknown
     return {lens: said.get(lens, ("out_of_time", None)) for lens in lenses}
 
 
@@ -124,9 +132,10 @@ def run(base, folder, work: str, admit, ended: dict, held: dict, environ: dict, 
         heard = {lens: ("out_of_time", None) for lens in lenses}
     elif reqs:
         made = steps.new_folder(base, work)
-        steps.write(made, "asked.json", {"item": admit["item"], "head": held["item"][1], "run": admit["run"],
-                                         "release": admit["release"], "seconds": seconds,
-                                         "asked": [{"lens": lens, "request": req} for lens, req in reqs]})
+        steps.write(made, "asked.json", json.dumps({
+            "item": admit["item"], "head": held["item"][1], "run": admit["run"], "release": admit["release"],
+            "seconds": seconds, "asked": [{"lens": lens, "request": req} for lens, req in reqs]},
+            ensure_ascii=False, allow_nan=False).encode("utf-8", "replace"))
         try:
             out = spawn(COMMAND + [made], cwd=str(steps.ROOT), env={KEY: environ.get(KEY) or "", "PATH": environ.get("PATH", "")},
                         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=seconds,
@@ -146,10 +155,15 @@ def main(argv: list, environ: dict, connect=Live, clock=time.monotonic, say=None
     began = clock()
     try:
         with open(os.open(os.path.join(argv[0], "asked.json"), os.O_RDONLY | os.O_NOFOLLOW), "rb") as f:
-            asking = json.loads(f.read(MOST).decode("utf-8"))
+            asking = json.loads(f.read(ASKED).decode("utf-8"))
         config = configuration.load(steps.ROOT, asking["release"], APP)
-        names = steps.read_json(steps.ROOT, os.path.join("config", "harness.json"))["advisory"]
-        item, lenses = asking["item"], [one["lens"] for one in asking["asked"] if one["lens"] in names]
+        asks = steps.read_json(steps.ROOT, os.path.join("config", "harness.json"))
+        names = [lens for lens in asks["advisory"] if lens in asks.get("readers", {})]
+        # What it is asked is held to the configuration again: a Lens it does not ask a reader for, or a check run
+        # under another Lens's name, is not written and not said.
+        todo = [one for one in asking["asked"]
+                if one["lens"] in names and one["request"]["name"] == advice.CHECK % one["lens"]]
+        item, lenses = asking["item"], [one["lens"] for one in todo]
         say("began")
         try:
             transport, revoke = identity.from_key(
@@ -160,7 +174,7 @@ def main(argv: list, environ: dict, connect=Live, clock=time.monotonic, say=None
             say("unminted" if isinstance(refused, identity.Refused) and str(refused) in BEFORE else "unrevoked")
             return 0
         try:
-            for one in asking["asked"]:
+            for one in todo:
                 if asking["seconds"] - (clock() - began) < ONE:
                     continue        # not said, so `out_of_time`: the token is still revoked
                 try:
