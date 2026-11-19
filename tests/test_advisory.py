@@ -586,18 +586,42 @@ class Parser(unittest.TestCase):
                              (None, None, None, None), state)
         # Nor does one that says it completed and holds an error beside that, in either API.
         for failed in (read(answered(said(), error={"code": "server_error"})), read(chatted(said(), error={"code": "x"}), KIMI)):
-            self.assertEqual((failed["usage"]["cost_usd"], failed["usage"]["answering_model"]), (None, None))
+            self.assertEqual((failed["usage"]["cost_usd"], failed["usage"]["answering_model"], failed["reason"]),
+                             (None, None, "transport"))
+        # An error Azure names is its code in either API, and never another model's fault.
+        for error, reason in (("content_filter", "refused"), ("rate_limit_exceeded", "rate_limited")):
+            for failed in (read(answered(said(), error={"code": error})), read(chatted(said(), error={"code": error}), KIMI)):
+                self.assertEqual((failed["status"], failed["reason"]), ("incomplete", reason))
+        # A chat completion that holds no one choice ended for a reason it names has not answered: it is not priced.
+        for body in ({"choices": []}, {"choices": None}, {"choices": [{"finish_reason": None, "message": {"content": ""}}]},
+                     {"choices": [{"message": {"content": "x"}}] * 2}):
+            running = read(chatted(said(), **body), KIMI)
+            self.assertEqual((running["usage"]["cost_usd"], running["usage"]["answering_model"], running["reason"]),
+                             (None, None, "unparsed"), body)
+        for ended in ("length", "content_filter", "tool_calls"):
+            self.assertEqual(read(chatted(said(), ended=ended), KIMI)["usage"]["cost_usd"], 0.0125, ended)
         # Tokens Azure did not count as whole numbers are unknown, and so is the cost: never nought.
         for spent in ({"input_tokens": 1000}, {"input_tokens": "1000", "output_tokens": 500}, {"input_tokens": -1, "output_tokens": 500},
                       {"input_tokens": True, "output_tokens": 500}, {"prompt_tokens": 1000, "completion_tokens": 500}, None, []):
             self.assertIsNone(read(answered(said(), usage=spent))["usage"]["cost_usd"], spent)
-        self.assertEqual(read(answered(said(), usage={"input_tokens": 0, "output_tokens": 0}))["usage"]["cost_usd"], 0)
+        # Nor is a count that contradicts itself: a prompt of no tokens, an answer with words and none, a total above
+        # the two, reasoning above the output it is part of. One that agrees with itself is priced.
+        for more in ({"input_tokens": 0, "output_tokens": 0}, {"input_tokens": 0}, {"output_tokens": 0}, {"total_tokens": 1501},
+                     {"total_tokens": 900000}, {"output_tokens_details": {"reasoning_tokens": 501}}):
+            self.assertIsNone(read(answered(said(), usage=dict({"input_tokens": 1000, "output_tokens": 500}, **more)))["usage"]["cost_usd"], more)
+        self.assertIsNone(read(chatted(said(), usage={"prompt_tokens": 1000, "completion_tokens": 10,
+                                                      "completion_tokens_details": {"reasoning_tokens": 50000}}), KIMI)["usage"]["cost_usd"])
+        for more in ({"total_tokens": 1500}, {"total_tokens": 1499}, {"total_tokens": "many"}, {"total_tokens": True},
+                     {"output_tokens_details": {"reasoning_tokens": 500}}, {"output_tokens_details": 7}):
+            self.assertEqual(read(answered(said(), usage=dict({"input_tokens": 1000, "output_tokens": 500}, **more)))["usage"]["cost_usd"], 0.0125, more)
+        # An answer that was refused has no words, and may have no tokens.
+        self.assertEqual(read(chatted(said(), ended="content_filter", usage={"prompt_tokens": 1000, "completion_tokens": 0}), KIMI)["usage"]["cost_usd"], 0.0025)
         self.assertIsNone(read(answered(said(), model="Astra Model"))["usage"]["answering_model"])
         self.assertIsNone(read(answered(said(), model="astra model"))["usage"]["answering_model"])
         # A count above what advice/1 holds is not known, and never an error of the step's.
         for spent in ({"input_tokens": 10 ** 9 + 1, "output_tokens": 1}, {"input_tokens": 1, "output_tokens": 10 ** 400}):
             self.assertIsNone(read(answered(said(), usage=spent))["usage"]["cost_usd"], spent)
-        self.assertEqual(read(answered(said(), usage={"input_tokens": 10 ** 9, "output_tokens": 0}))["usage"]["cost_usd"], 2500)
+        self.assertEqual(read(answered(said(), usage={"input_tokens": 10 ** 9, "output_tokens": 1}))["usage"]["cost_usd"], 2500.00002)
         limited = read({"status": 429, "headers": {}, "body": {}})["usage"]
         self.assertEqual((limited["answering_model"], limited["input_tokens"], limited["cost_usd"]), (None, None, None))
         # No answer in hand: one of the reasons a step has for it, and no other.
