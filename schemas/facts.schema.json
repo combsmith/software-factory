@@ -568,7 +568,7 @@
       "minimum": 1
     },
     "issue_stands": {
-      "description": "How the issue this pull request was opened for stands, as `kernel/issue.py`'s `stands` reads it: `open`, `held` while a Hold or hands-off stands on it, or `closed` while it is closed, whoever closed it. Null where it was not read, and on a pull request the Factory opened for no issue. It is filled by the Controller, which joins the pull request to its issue by `opened_for`; the facts port gives none of it. A pull request with `opened_for` an issue's number and this not one of the three words is unreadable, and the Kernel defers it (decision 0232). Not required: facts made before it, an eval set's among them, hold no `opened_for` either, and are read as they stand",
+      "description": "How the issue this pull request was opened for stands, as `kernel/issue.py`'s `stands` reads it: `open`, `held` while a Hold stands on it, or hands-off anyone but a person placed, or `closed` while it is closed, whoever closed it. Null where it was not read, and on a pull request the Factory opened for no issue. It is filled by the Controller, which joins the pull request to its issue by `opened_for`; the facts port gives none of it. A pull request with `opened_for` an issue's number and this not one of the three words is unreadable, and the Kernel defers it (decision 0232). Not required: facts made before it, an eval set's among them, hold no `opened_for` either, and are read as they stand",
       "enum": [
         "open",
         "held",

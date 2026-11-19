@@ -1329,13 +1329,23 @@ class Stands(unittest.TestCase):
 
     def test_an_issue_stands_open_held_or_closed_from_its_state_and_its_own_labels(self):
         self.assertEqual(self.stands(facts()), "open")
-        # A Hold binds whoever placed it, and only a person releases it; hands-off stops the pull request whoever
-        # placed it, since the stop fails safe and a person ends it. factory:admit stops nothing.
+        # A Hold binds whoever placed it, and only a person releases it; hands-off anyone but a person placed is read as
+        # one. A person's hands-off is no stop: the Factory never acts under it, and a dequeue is an act; a Hold beside
+        # it does not stop the pull request either, as row 1 reads a merge under it. factory:admit stops nothing.
         for by in (WRITER, CONTROLLER, OTHER_APP, OUTSIDER, MACHINE):
             self.assertEqual(self.stands(facts(label_events=[labelled(HOLD, by)])), "held", by)
+        for by in (CONTROLLER, OTHER_APP, OUTSIDER, MACHINE):
             self.assertEqual(self.stands(facts(label_events=[labelled(HANDS_OFF, by)])), "held", by)
+        for by in (WRITER, COLLEAGUE):
+            self.assertEqual(self.stands(facts(label_events=[labelled(HANDS_OFF, by)])), "open", by)
+            self.assertEqual(self.stands(facts(label_events=[labelled(HANDS_OFF, by), labelled(HOLD, OTHER_APP, 2)])),
+                             "open", by)
+        # Removed by a person in the second it was placed, a person's hands-off is read as a Hold.
+        self.assertEqual(self.stands(facts(label_events=[labelled(HANDS_OFF), unlabelled(HANDS_OFF, minute=1),
+                                                          labelled(HANDS_OFF, OTHER_APP, 1)])), "held")
         self.assertEqual(self.stands(facts(label_events=[labelled(HOLD), unlabelled(HOLD)])), "open")
-        self.assertEqual(self.stands(facts(label_events=[labelled(HANDS_OFF), unlabelled(HANDS_OFF, COLLEAGUE)])), "open")
+        self.assertEqual(self.stands(facts(label_events=[labelled(HANDS_OFF, OTHER_APP), unlabelled(HANDS_OFF, COLLEAGUE)])),
+                         "open")
         for by in (CONTROLLER, OUTSIDER, MACHINE):
             self.assertEqual(self.stands(facts(label_events=[labelled(HOLD), unlabelled(HOLD, by)])), "held", by)
         self.assertEqual(self.stands(facts(label_events=[labelled(ADMIT)])), "open")
