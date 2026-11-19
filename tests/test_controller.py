@@ -1109,7 +1109,7 @@ def issue_through_the_port(events=(), repo="o/r", exchanges=None, users=None) ->
     _, accounts, _ = entry.reader(router, held_roles())
     accounts.repo = repo
     number = found[0]["response"]["body"]["number"]
-    facts, title = issues.read(router, repo, number, accounts, lambda: "2026-10-11T12:00:00Z", identities=IDENTITIES)
+    facts, title = issues.read(router, repo, number, accounts, lambda: "2026-10-11T12:00:00Z", identities=IDENTITIES, earlier=[])
     return {"facts": facts, "title": title}
 
 
@@ -1774,7 +1774,7 @@ class Entry(unittest.TestCase):
                     return listed_by_the_port(transport, repo, after, apart=apart)
             return open_issues
 
-        def read(transport, repo, number, accounts, clock, *, identities):
+        def read(transport, repo, number, accounts, clock, *, identities, earlier):
             spied["read"].append((repo, number, accounts))
             spied["identities"].append(identities)
             if number == 6:
