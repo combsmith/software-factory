@@ -1792,15 +1792,22 @@ class Advised(unittest.TestCase):
                               ended or self.ENDED, held)
 
     def child(self, files, hub=None, mint_fails=None, revoked=True, seconds=150, clock=lambda: 0, write=None, connect=None,
-              planted=()):
-        """`(lines, hub, calls)` of the child asked for what `asked` builds of `files`, and for `planted`. With
-        `connect` the token is minted by `identity.from_key` itself, through it."""
+              planted=(), digest=None, item=ITEM, names=None):
+        """`(lines, hub, calls)` of the child asked for what `asked` builds of `files`, and for `planted`, on `item`,
+        given the SHA-256 of what it is asked or `digest`. With `connect` the token is minted by `identity.from_key`
+        itself, through it; with `names` the configuration asks a reader for those Lenses."""
         hub, calls, lines = hub or Checks(), {"mint": [], "revoke": 0}, []
         said, reqs = self.ask(files)
         d = self.folder({})
-        (d / "asked.json").write_text(json.dumps({
-            "item": ITEM, "head": HEAD, "run": RUN, "release": RELEASE, "seconds": seconds,
-            "asked": [{"lens": lens, "request": req} for lens, req in reqs + list(planted)]}))
+        data = json.dumps({
+            "item": item, "head": HEAD, "run": RUN, "release": RELEASE, "seconds": seconds,
+            "asked": [{"lens": lens, "request": req} for lens, req in reqs + list(planted)]}).encode()
+        (d / "asked.json").write_bytes(data)
+        real = advised_.steps.read_json
+
+        def read_json(root, rel):
+            asks = real(root, rel)
+            return dict(asks, advisory=names, readers={n: {} for n in names}) if names and rel.endswith("harness.json") else asks
 
         def from_key(app, repo, wanted, key, now, connect):
             calls["mint"].append((app["name"], repo, wanted, key))
@@ -1815,8 +1822,10 @@ class Advised(unittest.TestCase):
             return hub, revoke
         with unittest.mock.patch.object(identity, "from_key", identity.from_key if connect else from_key), \
                 unittest.mock.patch.object(identity, "jwt", lambda *a: "jwt"), \
-                unittest.mock.patch.object(effects, "advisory_write", write or effects.advisory_write):
-            code = advised_.main([str(d)], {advised_.KEY: "k", "OTHER": "x"}, connect or advised_.Live, clock, lines.append)
+                unittest.mock.patch.object(effects, "advisory_write", write or effects.advisory_write), \
+                unittest.mock.patch.object(advised_.steps, "read_json", read_json):
+            code = advised_.main([str(d), hashlib.sha256(data).hexdigest() if digest is None else digest],
+                                 {advised_.KEY: "k", "OTHER": "x"}, connect or advised_.Live, clock, lines.append)
         self.assertEqual(code, 0)
         return lines, hub, calls
 
@@ -1864,12 +1873,15 @@ class Advised(unittest.TestCase):
         seen = []
         self.child(self.BOTH, write=lambda *a: seen.append(a[1:5]) or {"state": "applied", "key": "CR_9"})
         self.assertEqual(seen[0], (ITEM, HEAD, ["astra", "kimi"], RUN))
-        # Nor is one the Factory asks no reader for, nor a check run under another Lens's name; none is said.
+        # Nor is one the Factory asks no reader for, nor a check run under another Lens's name; none is said. A Lens
+        # asked twice is written once.
         (_, astra), (_, kimi) = self.ask(self.BOTH)[1]
         planted = [(lens, dict(astra, name="advisory-" + lens, external_id="%s:%s" % (RUN, lens))) for lens in ("muse", "coderabbit")]
-        lines, hub, _ = self.child(self.BOTH, planted=planted + [("astra", kimi), ("astra\nrevoked", astra)])
+        lines, hub, _ = self.child(self.BOTH, planted=planted + [("astra", kimi), ("astra\nrevoked", astra), ("astra", astra)])
         self.assertEqual((lines, [b["name"] for b in self.posted(hub)]),
                          (["began", "astra shown CR_1", "kimi shown CR_2", "revoked"], ["advisory-astra", "advisory-kimi"]))
+        lines, hub, _ = self.child({"astra": self.BOTH["astra"]}, planted=[("kimi", astra)])
+        self.assertEqual((lines, [b["name"] for b in self.posted(hub)]), (["began", "astra shown CR_1", "revoked"], ["advisory-astra"]))
         # One reader's words, however many bytes they come to, crowd no Lens's check run out of what the child reads.
         lines, hub, _ = self.child({"astra": self.wordy("astra"), "kimi": self.wordy("kimi")})
         self.assertEqual(lines, ["began", "astra shown CR_1", "kimi shown CR_2", "revoked"])
@@ -1946,6 +1958,24 @@ class Advised(unittest.TestCase):
         self.assertEqual(advised_.main(["/nothing/here"], {}, say=lines.append), 0)
         self.assertEqual(lines, ["began", "revoked"])
 
+    def test_the_child_asks_github_nothing_for_what_the_step_did_not_write_or_its_token_does_not_hold(self):
+        # What it is asked whose bytes are not those the step hashed, or with no hash at all, an item of another repo
+        # than the home repo its token is minted for, no Lens to show, and more Lenses than applied/1 holds: nothing is
+        # minted, nothing sent and nothing said, and its parent records each Lens `out_of_time`.
+        (_, astra), _ = self.ask(self.BOTH)[1]
+        many = ["astra", "kimi"] + ["lens" + c for c in "abcdefg"]
+        each = [(lens, dict(astra, name="advisory-" + lens, external_id="%s:%s" % (RUN, lens))) for lens in many[2:]]
+        for how in ({"digest": "0" * 64}, {"digest": hashlib.sha256(b"another file").hexdigest()}, {"digest": ""},
+                    {"item": dict(ITEM, repo="combsmith/other")}, {"files": {}},
+                    {"files": {}, "planted": [("muse", dict(astra, name="advisory-muse", external_id=RUN + ":muse"))]},
+                    {"names": many, "planted": each}):
+            lines, hub, calls = self.child(**dict({"files": self.BOTH}, **how))
+            self.assertEqual((lines, hub.sent, calls["mint"]), ([], [], []), how)
+        self.assertEqual(advised_.told(b"", ["astra", "kimi"]), {"astra": ("out_of_time", None), "kimi": ("out_of_time", None)})
+        # As many Lenses as applied/1 holds are each written.
+        lines, hub, calls = self.child(self.BOTH, names=many[:8], planted=each[:6])
+        self.assertEqual((lines[0], len(lines), lines[-1], len(calls["mint"])), ("began", 10, "revoked", 1))
+
     def test_what_a_child_did_not_say_its_parent_records(self):
         both = ["astra", "kimi"]
         each = lambda code, key=None: {"astra": (code, key), "kimi": (code, None)}
@@ -1988,8 +2018,10 @@ class Advised(unittest.TestCase):
         self.assertEqual(go(240, spawn), [("astra", "shown", "CR_1"), ("kimi", "shown", "CR_2")])
         (command, how), = calls
         work = os.path.realpath(d / "work")
+        # It is given the SHA-256 of what it is asked, which it holds the file to.
+        digest = hashlib.sha256(pathlib.Path(work, "asked.json").read_bytes()).hexdigest()
         self.assertEqual((command, how["env"], how["timeout"], how["stdin"], how["cwd"]),
-                         ([sys.executable, "-m", "harness.advised", work], {advised_.KEY: "the key", "PATH": "/usr/bin"},
+                         ([sys.executable, "-m", "harness.advised", work, digest], {advised_.KEY: "the key", "PATH": "/usr/bin"},
                           150, subprocess.DEVNULL, str(ROOT)))
         # What it is asked lies in a new folder of the step's own, the step's alone to read, and holds no key.
         asked = json.loads(pathlib.Path(work, "asked.json").read_text())
@@ -2002,7 +2034,6 @@ class Advised(unittest.TestCase):
         go(240, spawn, files=wordy, work="w7")
         raw = pathlib.Path(os.path.realpath(wordy / "w7"), "asked.json").read_bytes()
         self.assertTrue("\U0001f600".encode() in raw and advised_.MOST // 2 < len(raw) < advised_.ASKED // 4, len(raw))
-        self.assertEqual(advised_.ASKED, 24 * 1024 * 1024)
         del calls[-1]
         # The deadline leaves the step its reserve, and a child that could not mint, write one check run and revoke in
         # what is left is not started.

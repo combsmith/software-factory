@@ -143,6 +143,7 @@ SHOWN_SAID = ("tests.test_apply.Advised.test_the_child_says_each_thing_it_does_a
 SHOWN_TOLD = ("tests.test_apply.Advised.test_what_a_child_did_not_say_its_parent_records",)
 SHOWN_KILLED = ("tests.test_apply.Advised.test_the_child_is_given_the_key_alone_and_is_killed_at_its_deadline",)
 SHOWN_ASKED = ("tests.test_apply.Advised.test_an_advisory_result_is_asked_for_only_for_a_review_of_the_item_as_admitted",)
+SHOWN_HELD = ("tests.test_apply.Advised.test_the_child_asks_github_nothing_for_what_the_step_did_not_write_or_its_token_does_not_hold",)
 # Decision 0224: the Run's first step and its advise step, and the test each mutant of theirs is killed by.
 UNASKED = "harness/unasked.py"
 UNASKED_SAYS = ("tests.test_advise.Unasked.test_the_first_step_says_no_reader_was_asked_and_never_fails_its_job",)
@@ -4864,8 +4865,23 @@ MUTANTS = ISSUE + [
      'back = effects._check(transport, item, one["request"], config["app"]["name"] + "[bot]")', SHOWN_NEUTRAL),
     ('the child reads no more of what it is asked than of what it says', ADVISED,
      'f.read(ASKED)', 'f.read(MOST)', SHOWN_NEUTRAL),
+    ('the child reads what it is asked though its bytes are not those the step hashed', ADVISED,
+     '        if hashlib.sha256(raw).hexdigest() != argv[1]:\n', '        if False:\n', SHOWN_HELD),
+    ('the step gives the child no hash of what it asks', ADVISED,
+     'COMMAND + [made, hashlib.sha256(data).hexdigest()]', 'COMMAND + [made, ""]', SHOWN_KILLED),
+    ('a Lens asked twice is written twice', ADVISED,
+     '        todo = [one for n, one in enumerate(todo) if one["lens"] not in [other["lens"] for other in todo[:n]]]\n', '',
+     SHOWN_NEUTRAL),
+    ("the child writes on an item of another repo than its token's", ADVISED,
+     'if item["repo"] != config["controller"]["home"]["repo"] or not todo', 'if not todo', SHOWN_HELD),
+    ('a child asked for no Lens mints a token', ADVISED,
+     ' or not todo or len(todo) > LENSES:', ' or len(todo) > LENSES:', SHOWN_HELD),
+    ('a child asks for more Lenses than applied/1 holds', ADVISED,
+     ' or len(todo) > LENSES:', ':', SHOWN_HELD),
+    ('a child asked for as many Lenses as applied/1 holds asks for none', ADVISED,
+     ' or len(todo) > LENSES:', ' or len(todo) >= LENSES:', SHOWN_HELD),
     ("what the child is asked is escaped to three times a reader's bytes", ADVISED,
-     'ensure_ascii=False, allow_nan=False).encode("utf-8", "replace"))', 'allow_nan=False).encode("utf-8", "replace"))', SHOWN_KILLED),
+     'ensure_ascii=False, allow_nan=False).encode("utf-8", "replace")\n', 'allow_nan=False).encode("utf-8", "replace")\n', SHOWN_KILLED),
     ("the child's token may write more than a check run", ADVISED,
      '["create_check_run"]), environ.get(KEY)',
      '["create_check_run", "submit_review"]), environ.get(KEY)', ('tests.test_apply.Advised.test_the_child_mints_one_token_of_the_check_runs_need_on_the_home_repo_and_a_mint_in_doubt_is_not_revoked',)),
@@ -17370,6 +17386,19 @@ MUTANTS = ISSUE + [
      'for n in ast.walk(fn) if isinstance(n, (ast.Import, ast.ImportFrom))', 'for n in own if isinstance(n, (ast.Import, ast.ImportFrom))', ('tests.test_tools.Writes.test_a_writer_is_reached_by_any_name_it_goes_by',)),
     ("the mutation runner's own load by name fails", 'tools/check_writes.py',
      '        if mod.rel not in NAME_LOADERS:\n', '        if True:\n', ('tests.test_tools.Writes.test_on_main_only_the_callers_listed_reach_a_write_and_each_what_it_lists',)),
+    # Decision 0224: a caller held to a route reaches its writer through that route alone.
+    ('a caller held to a route may name another way to its writer', 'tools/check_writes.py',
+     'for what in sorted(named - via)]', 'for what in []]', ('tests.test_tools.Writes.test_a_caller_held_to_a_route_reaches_its_writer_through_that_alone',)),
+    ('a route its caller no longer names stands', 'tools/check_writes.py',
+     'for what in sorted(via - named)]', 'for what in []]', ('tests.test_tools.Writes.test_a_caller_held_to_a_route_reaches_its_writer_through_that_alone',)),
+    ('a route may be of a module that is no caller', 'tools/check_writes.py',
+     'if mod is None or rel not in CALLERS:', 'if mod is None:', ('tests.test_tools.Writes.test_a_caller_held_to_a_route_reaches_its_writer_through_that_alone',)),
+    ('a route of a caller that is not here is read', 'tools/check_writes.py',
+     'if mod is None or rel not in CALLERS:', 'if rel not in CALLERS:', ('tests.test_tools.Writes.test_a_caller_held_to_a_route_reaches_its_writer_through_that_alone',)),
+    ("a function of the caller's own is read as another way to its writer", 'tools/check_writes.py',
+     'if there[0] != mod.name and reach.get(there)}', 'if reach.get(there)}', ('tests.test_tools.Writes.test_a_caller_held_to_a_route_reaches_its_writer_through_that_alone',)),
+    ('a name that reaches no writer is read as another way to it', 'tools/check_writes.py',
+     'if there[0] != mod.name and reach.get(there)}', 'if there[0] != mod.name}', ('tests.test_tools.Writes.test_a_caller_held_to_a_route_reaches_its_writer_through_that_alone',)),
     # Decision 0194: the Maintainer's continue or stop, and what he was shown before it.
     ('a decision point recorded twice passes', 'tools/check_release.py',
      '        if isinstance(name, str) and name in seen:',
