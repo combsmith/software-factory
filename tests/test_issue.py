@@ -2498,12 +2498,28 @@ class Apply(unittest.TestCase):
         # The Run's own admission names the base it lands on: one that names none, or no commit's whole name, lands
         # on nothing, and nothing is written.
         own = {part: admitted["admit"][part] for part in admitted["admit"] if part != "base_head"}
-        for base in ("main", "c0ffee1", "C0FFEE1000000000000000000000000000000000", None):
+        for base in ("main", "c0ffee1", "C0FFEE1000000000000000000000000000000000", None, "c0ffee1" + "0" * 34,
+                     "c0ffee1" + "0" * 32, "g" + "0" * 39):
             self.assertFalse(issue.still_admitted({"admit": dict(own, base_head=base)}, again), base)
+            # Nor does a second asking whose base cannot be read, or two admissions that share one such base.
+            self.assertFalse(issue.still_admitted(admitted, {"admit": dict(own, base_head=base)}), base)
+            self.assertFalse(issue.still_admitted({"admit": dict(own, base_head=base)}, {"admit": dict(own, base_head=base)}), base)
         self.assertFalse(issue.still_admitted({"admit": own}, again))
+        self.assertFalse(issue.still_admitted(admitted, {"admit": own}))
+        # A base stands on both admissions or on neither: an admission of a branch that stands carries none.
+        standing = decide(dict(f, branch_head="c0ffee1000000000000000000000000000000000"))
+        self.assertNotIn("base_head", standing["admit"])
+        self.assertTrue(issue.still_admitted(standing, standing))
+        for base in ("c0ffee1000000000000000000000000000000000", None):
+            self.assertFalse(issue.still_admitted({"admit": dict(standing["admit"], base_head=base)}, standing), base)
+        # And the branch head is compared on its own: a branch that stands and moved stops the Run.
+        self.assertFalse(issue.still_admitted(standing, decide(dict(f, branch_head="d00d1e5000000000000000000000000000000000"))))
         # Only the base is left out: an admission that differs in it AND in a part more is another Run's.
         self.assertFalse(issue.still_admitted(admitted, dict(again, admit=dict(again["admit"], base_head="d00d1e5000000000000000000000000000000000", role="qa-lead"))))
         self.assertFalse(issue.still_admitted(admitted, dict(again, admit=dict(again["admit"], extra=1))))
+        moved = dict(again["admit"], base_head="d00d1e5000000000000000000000000000000000")
+        self.assertFalse(issue.still_admitted(admitted, {"admit": dict(moved, extra=1)}))
+        self.assertFalse(issue.still_admitted({"admit": dict(admitted["admit"], extra=1)}, {"admit": moved}))
 
     def test_an_investigating_or_readiness_run_is_refused_once_the_issue_changed(self):
         admitted = decide(TRIAGED)
