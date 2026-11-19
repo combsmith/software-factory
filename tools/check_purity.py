@@ -91,12 +91,24 @@ def _special(node) -> list:
     return [w for w in words if len(w) > 4 and w.startswith("__") and w.endswith("__")]
 
 
+def _assigned(node) -> list:
+    """The names an assignment at a module's top binds, each element of a tuple or list it unpacks into among them."""
+    targets = list(getattr(node, "targets", [getattr(node, "target", None)]))
+    names = []
+    while targets:
+        target = targets.pop(0)
+        if isinstance(target, ast.Name):
+            names.append(target.id)
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            targets += target.elts
+    return names
+
+
 def _top_names(tree) -> set:
     """The names a module binds at its top: a function's, an assignment's, an import's."""
-    return {word for node in tree.body for word in _bound(node) + [
-        target.id for target in getattr(node, "targets", [getattr(node, "target", None)]) if isinstance(target, ast.Name)]
-        + ([alias.asname or alias.name.split(".")[0] for alias in node.names]
-           if isinstance(node, (ast.Import, ast.ImportFrom)) else [])}
+    return {word for node in tree.body for word in _bound(node) + _assigned(node)
+            + ([alias.asname or alias.name.split(".")[0] for alias in node.names]
+               if isinstance(node, (ast.Import, ast.ImportFrom)) else [])}
 
 
 def _answered(name: str, node, word: str, read: set, bound: dict) -> bool:
@@ -794,10 +806,7 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
         problems += _calls(name, tree, trees, takers, tops)
         calendar, wrong = _calendar(name, tree)
         problems += wrong
-        held = frozenset(word for node in tree.body for word in _bound(node) + [
-            target.id for target in getattr(node, "targets", [getattr(node, "target", None)]) if isinstance(target, ast.Name)]
-            + ([alias.asname or alias.name.split(".")[0] for alias in node.names]
-               if isinstance(node, (ast.Import, ast.ImportFrom)) else []))
+        held = frozenset(bound[name])
         scopes = _scopes(tree, held)
         for node in ast.walk(tree):
             line = getattr(node, "lineno", 0)
@@ -870,4 +879,8 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
                                 % (name, node.lineno))
             elif not _constant(value, held):
                 problems.append("%s:%d holds a value that can change; State is never stored" % (name, node.lineno))
+            elif any(not isinstance(t, (ast.Name, ast.Tuple, ast.List)) for t in ast.walk(ast.Tuple(
+                    elts=node.targets if isinstance(node, ast.Assign) else [node.target])) if not isinstance(t, ast.expr_context)):
+                problems.append("%s:%d assigns other than to names, which can keep a list a starred name unpacks into; "
+                                "State is never stored" % (name, node.lineno))
     return unread + own + ([_said(problem, package) for problem in problems] if package != "kernel" else problems)

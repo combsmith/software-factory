@@ -17595,6 +17595,10 @@ MUTANTS = ISSUE + [
      '    own = _alone(root, read, trees, package)\n',
      '    own = []\n', ('tests.test_tools.Purity.test_the_guards_are_held_as_the_kernel_is_and_import_themselves_alone',)),
     # Issue 909: six older ways past the Kernel's rules.
+    ("a name a tuple at the top unpacks into is bound nowhere", "tools/check_purity.py",
+     '        elif isinstance(target, (ast.Tuple, ast.List)):\n            targets += target.elts\n', '', ("tests.test_tools.Purity.test_six_older_ways_past_the_kernels_rules_are_caught",)),
+    ("a starred name at the top keeps its list", "tools/check_purity.py",
+     '            elif any(not isinstance(t, (ast.Name, ast.Tuple, ast.List)) for t in ast.walk(ast.Tuple(', '            elif False and any(not isinstance(t, (ast.Name, ast.Tuple, ast.List)) for t in ast.walk(ast.Tuple(', ("tests.test_tools.Purity.test_six_older_ways_past_the_kernels_rules_are_caught",)),
     ("a default inside a function names the module's names, whatever the function binds", "tools/check_purity.py",
      'scopes[id(node)] = held if node is top else held - inner', 'scopes[id(node)] = held', ("tests.test_tools.Purity.test_six_older_ways_past_the_kernels_rules_are_caught",)),
     ("a default at the module's top is read as though its own function's parameters were bound around it", "tools/check_purity.py",

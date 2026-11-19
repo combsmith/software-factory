@@ -2226,6 +2226,12 @@ class Purity(unittest.TestCase):
                      "def f():\n    frozenset = list\n    return frozenset\n", "def f():\n    for frozenset in ():\n        pass\n",
                      "def f():\n    return (frozenset := list)\n", "from kernel import terms as frozenset\n"):
             self.assertTrue(caught(run({"kernel/terms.py": "A = 'a'\n", "kernel/x.py": text}), "binds frozenset"), text)
+        # A name a tuple or a list at the top unpacks into is bound there; a starred one would keep a list, and any other
+        # target changes what it names (Carbon's read).
+        self.assertEqual(run({"kernel/terms.py": "A, B = 'a', 'b'\n", "kernel/x.py": "from kernel.terms import A\n\n"
+                              "[C, (D, E)] = 'c', ('d', 'e')\nBOTH = frozenset((A, C, E))\n"}), [])
+        for text in ("A, *B = 'a', 'b'\n", "T = ('a',)\nT[0] = 'b'\n"):
+            self.assertTrue(caught(run({"kernel/x.py": text}), "assigns other than to names"), text)
         # 2. A builtin site adds, each of which reads a file, asks the help system or ends the process, as a value.
         for word in ("license", "copyright", "credits", "help", "exit", "quit"):
             self.assertTrue(caught(run({"kernel/x.py": "def f():\n    return str(%s)\n" % word}), "x.py:2 uses %s" % word), word)
