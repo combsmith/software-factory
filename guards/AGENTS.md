@@ -34,7 +34,7 @@ A guard binds the Role that writes this repo's code. So it lives here, never in 
 | The admitted tree is read whole, and the branch as the Decision admitted it | `tests/test_guards.py::test_the_admitted_tree_is_read_whole_or_not_at_all`, `tests/test_guards.py::test_the_branch_is_read_as_the_decision_admitted_it` |
 | An answer is GitHub's to that request, or the push stops | `tests/test_guards.py::test_an_answer_is_githubs_to_that_request_or_the_push_stops` |
 | Nothing is written before those reads; one blob to each written content | `tests/test_guards.py::test_nothing_is_written_before_the_tree_and_the_branch_were_read`, `tests/test_guards.py::test_a_blob_is_made_once_of_each_written_files_base64` |
-| One tree, of exactly the changes, by the blobs made | `tests/test_guards.py::test_the_one_tree_names_exactly_the_changes_by_the_blobs_made` |
-| No commit before the tree is read back so; one commit, on the admitted one | `tests/test_guards.py::test_the_tree_read_back_is_the_admitted_one_with_the_changes`, `tests/test_guards.py::test_the_one_commit_is_of_the_tree_read_back_on_the_admitted_commit` |
+| One tree, of exactly the changes, read back so before any commit | `tests/test_guards.py::test_the_one_tree_names_exactly_the_changes_by_the_blobs_made`, `tests/test_guards.py::test_the_tree_read_back_is_the_admitted_one_with_the_changes` |
+| One commit, of the tree read back, on the admitted one | `tests/test_guards.py::test_the_one_commit_is_of_the_tree_read_back_on_the_admitted_commit` |
 | The branch is written once, never by force; a push lands when read again | `tests/test_guards.py::test_the_branch_is_written_once_at_the_commit_made_never_by_force`, `tests/test_guards.py::test_a_push_lands_when_the_branch_and_the_commit_are_read_again` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
