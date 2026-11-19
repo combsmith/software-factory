@@ -1993,8 +1993,8 @@ def head_problems(root: pathlib.Path, live: list) -> list:
     """Why a workflow in `live` could run a secret beside settings a Role's push wrote (decision 0225, issue 845).
 
     A workflow is exposed when it runs on pull_request or merge_group, or its events cannot be read as events that
-    leave both out, and its text names `secrets` outside a whole-line comment or a job of it calls another workflow,
-    which may hold an environment's secrets with none named. One listed in HEAD_SETTINGS reads those files of the
+    leave both out, and its text names `secrets` outside a whole-line comment, a job of it calls another workflow,
+    which may hold an environment's secrets with none named, or a line of it cannot be read, which may hide either. One listed in HEAD_SETTINGS reads those files of the
     head, each a path of `config/hooks.json`'s protected list, word for word; it has no `run:`, which would run the
     head's own code beside the secret, and its text is the one its row's hash holds. One not listed gives every
     checkout a `ref:` in BASES. Neither has a line read() could not read, nor calls another workflow, whose steps are
@@ -2013,7 +2013,7 @@ def head_problems(root: pathlib.Path, live: list) -> list:
             e["value"] for e in entries if e["key"] == "on" and not e["path"] and e["value"]}
         spared = not bad and bool(events) and events <= EVENTS and not events & JUDGED
         called = [e for e in entries if e["key"] == "uses" and len(e["path"]) == 2 and e["path"][0] == "jobs"]
-        if spared or not (called or ANY_SECRET.search(_uncommented(text))):
+        if spared or not (bad or called or ANY_SECRET.search(_uncommented(text))):
             continue
         exposed.add(path.name)
         where = path.relative_to(root)

@@ -3113,6 +3113,9 @@ class Workflows(unittest.TestCase):
                 "a secret handed to a workflow it calls, beside a job that checks out the base":
                     steps + base + "  two:\n    uses: ./.github/workflows/called.yml\n    secrets:\n      T: ${{ secrets.T }}\n",
                 "a line that cannot be read": steps + base + "\t  - run: make checks\n",
+                # Kimi's, Carbon's: a job read() cannot read may call a workflow, though no secret is named.
+                "a workflow called by a line that cannot be read": top.replace("    runs-on: ubuntu-24.04\n", "") .replace(
+                    "  one:\n", "  one: {uses: ./.github/workflows/called.yml}\n"),
                 "the event as a value": steps.replace("on:\n  pull_request:\n  merge_group:\n", "on: pull_request\n") + head,
                 "the events as a list": steps.replace("  pull_request:\n  merge_group:\n", "  - pull_request\n") + head,
                 "an event that is none": steps.replace("  pull_request:\n  merge_group:\n", "  pull_request_target:\n") + head,
