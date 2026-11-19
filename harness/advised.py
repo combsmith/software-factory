@@ -172,12 +172,15 @@ def main(argv: list, environ: dict, connect=Live, clock=time.monotonic, say=None
         names = [lens for lens in asks["advisory"] if lens in asks.get("readers", {})]
         # What it is asked is held to the configuration again: a Lens it does not ask a reader for, or a check run
         # under another Lens's name, is not written and not said; a Lens asked twice is written once, as first asked.
+        # More asked than applied/1 can record is no ask at all, refused before anything is filtered or compared.
+        if not isinstance(asking["asked"], list) or len(asking["asked"]) > LENSES:
+            return 0
         todo = [one for one in asking["asked"]
                 if one["lens"] in names and one["request"]["name"] == advice.CHECK % one["lens"]]
         todo = [one for n, one in enumerate(todo) if one["lens"] not in [other["lens"] for other in todo[:n]]]
         item, lenses = asking["item"], [one["lens"] for one in todo]
         # The token is minted for the home repo alone, and no token is minted for nothing.
-        if item["repo"] != config["controller"]["home"]["repo"] or not todo or len(todo) > LENSES:
+        if item["repo"] != config["controller"]["home"]["repo"] or not todo:
             return 0
         say("began")
         try:
@@ -201,7 +204,9 @@ def main(argv: list, environ: dict, connect=Live, clock=time.monotonic, say=None
                 if state in ("applied", "already_applied") and isinstance(key, str) and advice.KEY.fullmatch(key):
                     say("%s shown %s" % (one["lens"], key))
                 else:
-                    say("%s %s" % (one["lens"], {"sent": "not_read_back", "raised": "write_raised"}.get(state, "not_written")))
+                    # A check run made whose key cannot be read is one not read back, never one not written.
+                    made = "not_read_back" if state in ("sent", "applied", "already_applied") else None
+                    say("%s %s" % (one["lens"], made or {"raised": "write_raised"}.get(state, "not_written")))
         finally:
             try:
                 gone = revoke() is True
