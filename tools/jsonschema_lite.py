@@ -59,12 +59,13 @@ def _resolve(ref: str, root: dict, schemas: dict = None) -> tuple:
         raise SchemaError("unresolved reference: %s" % ref)
 
 
-INFINITIES = (float("inf"), float("-inf"))
+LOWEST, HIGHEST = float("-inf"), float("inf")
 
 
 def _infinite(value) -> bool:
-    """Whether `value` is a float that is NaN or an infinity: no number, though json.loads reads both (issue 922)."""
-    return isinstance(value, float) and (value != value or value in INFINITIES)  # NOSONAR: NaN alone is unequal to itself
+    """Whether `value` is a float that is NaN or an infinity: no number, though json.loads reads both (issue 922). A
+    finite float lies strictly between the two infinities; NaN, below and above nothing, does not."""
+    return isinstance(value, float) and not LOWEST < value < HIGHEST
 
 
 def _not_finite(value, path: str) -> list:
