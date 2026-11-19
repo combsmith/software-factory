@@ -547,12 +547,6 @@ def _alone(trees: dict, package: str) -> list:
             problems.append("%s/%s bears the name of a module the Kernel's rules are written for, and they would be "
                             "read of it; name it otherwise" % (package, name))
         for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-                given = node.args.posonlyargs + node.args.args + node.args.kwonlyargs
-                given += [a for a in (node.args.vararg, node.args.kwarg) if a]
-                for word in sorted(CALLABLE_PARAMETERS & {a.arg for a in given}):
-                    problems.append("%s:%d takes %s, which the Kernel alone may call; %s/ makes no Decision and calls "
-                                    "no function it is given" % (name, node.lineno, word, package))
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     if alias.name.split(".")[0] == "kernel":
@@ -565,6 +559,12 @@ def _alone(trees: dict, package: str) -> list:
                 if node.module.split(".")[0] == "kernel":
                     problems.append("%s:%d imports %s; %s/ imports itself alone" % (name, node.lineno, node.module, package))
                 node.module = _swapped(node.module, package)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                given = node.args.posonlyargs + node.args.args + node.args.kwonlyargs
+                given += [a for a in (node.args.vararg, node.args.kwarg) if a]
+                for word in sorted(CALLABLE_PARAMETERS & {a.arg for a in given}):
+                    problems.append("%s:%d takes %s, which the Kernel alone may call; %s/ makes no Decision and calls "
+                                    "no function it is given" % (name, node.lineno, word, package))
     return problems
 
 
