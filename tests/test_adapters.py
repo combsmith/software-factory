@@ -6676,6 +6676,10 @@ class Linked(unittest.TestCase):
             found, whole = listing(*hand)
             self.assertEqual(([p["number"] for p in found], whole), ([7, 10], False), hand)
         self.assertEqual(listing(link("DisconnectedEvent", 2, 9))[1], True)
+        # As P-69 recorded it, the pull request linked by hand on another base is still among the references (Muse).
+        found, whole = self.listed([linked_read(ref(7, 9), [link("ConnectedEvent", 1, 9)]), pull_read(7), pull_timeline(7),
+                                    pull_read(9, base="trial")])
+        self.assertEqual(([p["number"] for p in found], whole), ([7], False))
         # In the same second, the timeline's order says which came last, never the time (Astra).
         self.assertEqual(listing(link("DisconnectedEvent", 2, 9), link("ConnectedEvent", 2, 9))[1], False)
         self.assertEqual(listing(link("ConnectedEvent", 2, 9), link("DisconnectedEvent", 2, 9))[1], True)

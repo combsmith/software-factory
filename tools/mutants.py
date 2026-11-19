@@ -14350,6 +14350,8 @@ MUTANTS = ISSUE + [
      'return bool(events) and events[-1]["action"] == "connected"', 'return bool(events)', ("tests.test_adapters.Linked.test_only_a_pull_request_to_the_default_branch_is_listed_as_linked",)),
     ("the link by hand read is the latest by time, not the last in order",
      'return bool(events) and events[-1]["action"] == "connected"', 'return bool(events) and max(events, key=lambda e: e["at"])["action"] == "connected"', ("tests.test_adapters.Linked.test_only_a_pull_request_to_the_default_branch_is_listed_as_linked",)),
+    ("a referenced pull request linked by hand to another base leaves the list whole",
+     'and not linked_now(join["links"].get(candidate, []))', 'and not (linked_now(join["links"].get(candidate, [])) and candidate not in join["refs"])', ("tests.test_adapters.Linked.test_only_a_pull_request_to_the_default_branch_is_listed_as_linked",)),
     ("the first link by hand is read, not the last",
      'return bool(events) and events[-1]["action"] == "connected"', 'return bool(events) and events[0]["action"] == "connected"', ("tests.test_adapters.Linked.test_only_a_pull_request_to_the_default_branch_is_listed_as_linked",)),
     ("a pull request to another base is listed as linked",
