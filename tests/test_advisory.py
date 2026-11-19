@@ -22,7 +22,18 @@ ID = "resp_0123456789abcdef"
 ASKED = {"model": "a-deployment", "input": "the prompt", "background": True, "store": True}
 
 
-class Answer(io.BytesIO):
+class Framed(io.BytesIO):
+    """An answer's body, framed as Azure frames one: by the frame its headers say, or else by the length of the body."""
+    headers = {}
+
+    def __init__(self, body: bytes = b""):
+        super().__init__(body)
+        said = type(self).headers
+        framed = {k.lower() for k in said.keys()} & {"content-length", "transfer-encoding"}
+        self.headers = said if framed else dict(said, **{"Content-Length": str(len(body))})
+
+
+class Answer(Framed):
     status = 200
     headers = {"Content-Type": "application/json; charset=utf-8", "Retry-After": "7", "Set-Cookie": "c=1"}
     asked = []
@@ -177,6 +188,51 @@ class Transport(unittest.TestCase):
             self.assertNotIn(secret, text)
             self.assertNotIn(HOST, text)
         self.assertNotIn(secret, repr(live(key=secret)))
+        # It verifies the host's certificate by a context of its own, so a default context replaced elsewhere in the
+        # process, as one that verifies nothing, does not turn that off.
+        with mock.patch.object(azure.ssl, "_create_default_https_context", azure.ssl._create_unverified_context):
+            handlers = live().opener.handlers
+        made = [getattr(h, "_context", None) for h in handlers if isinstance(h, azure.urllib.request.HTTPSHandler)]
+        self.assertEqual([(getattr(c, "verify_mode", None), getattr(c, "check_hostname", None)) for c in made],
+                         [(azure.ssl.CERT_REQUIRED, True)])
+
+    def test_the_azure_transport_reads_only_an_answer_framed_as_azure_frames_one(self):
+        # Azure frames each of its answers, chunked or with one length of digits alone. Any other answer, a body's or
+        # an error's, could be read otherwise by another reader, or end only where its connection does, so that one
+        # cut short is not told from one whole: it is refused before any of it is read.
+        def headers(lines: bytes):
+            return azure.http.client.parse_headers(io.BytesIO(b"Content-Type: application/json\r\n" + lines + b"\r\n"))
+
+        class Got(Answer):     # an answer with the headers as they were sent, and no frame of the fake's own
+            asked = []
+
+            def __init__(self, body: bytes = b""):
+                super().__init__(body)
+                self.headers = type(self).headers
+        refused = (b"", b"Content-Length: 2\r\nContent-Length: 2\r\n", b"Content-Length: 2\r\ncontent-length: 3\r\n",
+                   b"Content-Length: +2\r\n", b"Content-Length: 2x\r\n", b"Content-Length: 1_0\r\n",
+                   b"Content-Length: \xb2\r\n", b"Content-Length: -1\r\n", b"Transfer-Encoding: gzip\r\n",
+                   b"Transfer-Encoding: gzip, chunked\r\n", b"Transfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n")
+        for lines in refused:
+            Got.headers = headers(lines)
+            with self.assertRaisesRegex(azure.Unanswered, "refused, not read", msg=lines):
+                live(Capture(b"{}", Got)).send(azure.read(ID))
+
+            class Error:
+                def open(self, request, timeout=None, lines=lines):
+                    raise azure.urllib.error.HTTPError(request.full_url, 500, "x", headers(lines), Got(b"{}"))
+            with self.assertRaisesRegex(azure.Unanswered, "refused, not read", msg=lines):
+                live(Error()).send(azure.read(ID))
+        self.assertEqual(Got.asked, [])
+        for lines in (b"Content-Length: 2\r\n", b"content-length: 2\r\n", b"Transfer-Encoding: chunked\r\n",
+                      b"Transfer-Encoding: Chunked\r\n"):
+            Got.headers = headers(lines)
+            self.assertEqual(live(Capture(b"{}", Got)).send(azure.read(ID))["body"], {}, lines)
+
+            class Fault:
+                def open(self, request, timeout=None, lines=lines):
+                    raise azure.urllib.error.HTTPError(request.full_url, 500, "x", headers(lines), Got(b"{}"))
+            self.assertEqual(live(Fault()).send(azure.read(ID))["status"], 500, lines)
 
     def test_the_azure_transport_bounds_every_answer_in_size_and_time(self):
         # The seconds are its caller's, a whole number from one to the longest a step may wait on one request.
@@ -207,7 +263,7 @@ class Transport(unittest.TestCase):
 
         class Error:
             def open(self, request, timeout=None):
-                raise azure.urllib.error.HTTPError(request.full_url, 500, "x", {}, Broken())
+                raise azure.urllib.error.HTTPError(request.full_url, 500, "x", {"Content-Length": "10"}, Broken())
 
         class Slow:
             def open(self, *a, **k):
@@ -218,22 +274,23 @@ class Transport(unittest.TestCase):
         # An answer that ends before the length it said, a body's or an error's, is cut short too, though no read
         # raised; one that said none, or gave all of it, is whole.
         class Left(Answer):
+            headers = dict(Answer.headers, **{"Content-Length": "47"})
             length = 47
 
         class Cut:
             def open(self, request, timeout=None):
-                raise azure.urllib.error.HTTPError(request.full_url, 500, "x", {}, Left(b"abc"))
+                raise azure.urllib.error.HTTPError(request.full_url, 500, "x", {"Content-Length": "47"}, Left(b"abc"))
         for opener in (Capture(b'{"a"', Left), Cut()):
             with self.assertRaisesRegex(azure.Unanswered, "shorter than the length it said"):
                 live(opener).send(azure.read(ID))
-        for length in (0, None):
-            Left.length = length
+        for length, frame in ((0, {"Content-Length": "2"}), (None, {"Transfer-Encoding": "chunked"})):
+            Left.length, Left.headers = length, dict(Answer.headers, **frame)
             self.assertEqual(live(Capture(b"{}", Left)).send(azure.read(ID))["body"], {})
         # An error Azure answers is an answer, with its status, bounded as any other: a rate limit says how long to wait.
         class Limited:
             def open(self, request, timeout=None):
                 raise azure.urllib.error.HTTPError(request.full_url, 429, "x", {"Content-Type": "application/json",
-                                                                               "Retry-After": "20"},
+                                                                               "Retry-After": "20", "Content-Length": "42"},
                                                    io.BytesIO(b'{"error": {"code": "rate_limit_exceeded"}}'))
         self.assertEqual(live(Limited()).send(azure.create(ASKED)),
                          {"status": 429, "headers": {"content-type": "application/json", "retry-after": "20"},
@@ -241,7 +298,8 @@ class Transport(unittest.TestCase):
 
         class Large:
             def open(self, request, timeout=None):
-                raise azure.urllib.error.HTTPError(request.full_url, 500, "x", {}, io.BytesIO(b"x" * (azure.LARGEST + 1)))
+                raise azure.urllib.error.HTTPError(request.full_url, 500, "x", {"Content-Length": str(azure.LARGEST + 1)},
+                                                   io.BytesIO(b"x" * (azure.LARGEST + 1)))
         with self.assertRaises(azure.Unanswered) as refused:
             live(Large()).send(azure.create(ASKED))
         self.assertIsNone(refused.exception.__context__)
@@ -254,15 +312,21 @@ class Transport(unittest.TestCase):
                 live(Capture()).send(azure.create(body))
         self.assertEqual(len(live(Capture(b"[" * 200000)).send(azure.read(ID))["body"]), 200000)
         self.assertIsNone(live(Capture(b"")).send(azure.read(ID))["body"])
+        # A whole number of more digits than any count is text, never read: Python 3.9 reads one of any length, and
+        # one of four mebibytes takes most of a minute.
+        self.assertEqual(azure.DIGITS, 64)
+        self.assertEqual(live(Capture(b'{"n": %s}' % (b"9" * 63))).send(azure.read(ID))["body"], {"n": int("9" * 63)})
+        for many in (b"9" * 64, b"-" + b"9" * 63, b"1" * 100000):
+            self.assertEqual(live(Capture(b'{"n": %s}' % many)).send(azure.read(ID))["body"], '{"n": %s}' % many.decode())
         # A body that is not JSON, or says it is and is not, is text, and no header is kept but the ones named.
-        class Plain(io.BytesIO):
+        class Plain(Framed):
             status = 502
             headers = {"Content-Type": "text/html", "X-Other": "1"}
         self.assertEqual(live(Capture(b"<html>", Plain)).send(azure.read(ID)),
                          {"status": 502, "headers": {"content-type": "text/html"}, "body": "<html>"})
         self.assertEqual(live(Capture(b"{}", Plain)).send(azure.read(ID))["body"], "{}")
 
-        class Shouted(io.BytesIO):
+        class Shouted(Framed):
             status = 200
             headers = {"Content-Type": "Application/JSON"}
         self.assertEqual(live(Capture(b"{}", Shouted)).send(azure.read(ID))["body"], {})
@@ -270,7 +334,7 @@ class Transport(unittest.TestCase):
         # Bytes that are not UTF-8 are text with each one marked, and never read as JSON: nothing is changed unseen.
         self.assertEqual(live(Capture(b'{"a": "\xff"}')).send(azure.read(ID))["body"], '{"a": "\ufffd"}')
         # A header a caller reads is kept only when it is short, printable ASCII: a caller acts on no more than that.
-        class Odd(io.BytesIO):
+        class Odd(Framed):
             status = 429
             headers = {"Content-Type": "application/json"}
         for value in ("1" * 101, "1\r\n2", "\u00b2", "1\x00"):
@@ -574,9 +638,12 @@ class Parser(unittest.TestCase):
                                  "answering_model": "astra-model", "effort": "xhigh", "asks": 2, "input_tokens": 1000,
                                  "output_tokens": 500, "cost_usd": 0.0125, "seconds": 318.4})
         self.assertEqual(read(chatted(said()), KIMI)["usage"]["cost_usd"], 0.0125)
-        # A read that failed after it was paid for still says what it cost, and names the model that answered.
-        other = read(answered(said(), model="astra-model-mini"))["usage"]
-        self.assertEqual((other["answering_model"], other["model"], other["cost_usd"]), ("astra-model-mini", "astra-model", 0.0125))
+        # A read that failed after it was paid for still says what it cost. One another model answered names that
+        # model, and is not priced at the pinned model's prices, which are not its own: its cost is not known.
+        other = read(answered(said(), model="astra-model-mini"))
+        self.assertEqual((other["reason"], other["usage"]["answering_model"], other["usage"]["model"], other["usage"]["cost_usd"],
+                          other["usage"]["input_tokens"]), ("not_the_model", "astra-model-mini", "astra-model", None, 1000))
+        self.assertIsNone(read(chatted(said(), model="kimi-model-2"), KIMI)["usage"]["cost_usd"])
         self.assertEqual(read(answered(text="No."))["usage"]["cost_usd"], 0.0125)
         self.assertEqual(read(answered(said(), status="incomplete"))["usage"]["cost_usd"], 0.0125)
         # A response still running, cancelled or failed says nothing of what it cost, whatever tokens it shows so far.
@@ -598,24 +665,70 @@ class Parser(unittest.TestCase):
             running = read(chatted(said(), **body), KIMI)
             self.assertEqual((running["usage"]["cost_usd"], running["usage"]["answering_model"], running["reason"]),
                              (None, None, "unparsed"), body)
-        for ended in ("length", "content_filter", "tool_calls"):
+        for ended in ("length", "content_filter", "tool_calls", "function_call"):
             self.assertEqual(read(chatted(said(), ended=ended), KIMI)["usage"]["cost_usd"], 0.0125, ended)
+        # A reason no API names is not an end: the choice has not answered.
+        for ended in ("done", "STOP", "", "stop "):
+            running = read(chatted(said(), ended=ended), KIMI)
+            self.assertEqual((running["usage"]["cost_usd"], running["usage"]["answering_model"], running["reason"]),
+                             (None, None, "unparsed"), ended)
         # Tokens Azure did not count as whole numbers are unknown, and so is the cost: never nought.
         for spent in ({"input_tokens": 1000}, {"input_tokens": "1000", "output_tokens": 500}, {"input_tokens": -1, "output_tokens": 500},
                       {"input_tokens": True, "output_tokens": 500}, {"prompt_tokens": 1000, "completion_tokens": 500}, None, []):
             self.assertIsNone(read(answered(said(), usage=spent))["usage"]["cost_usd"], spent)
         # Nor is a count that contradicts itself: a prompt of no tokens, an answer with words and none, a total above
         # the two, reasoning above the output it is part of. One that agrees with itself is priced.
+        # Neither of its two counts is known then, so the Result says no input either.
         for more in ({"input_tokens": 0, "output_tokens": 0}, {"input_tokens": 0}, {"output_tokens": 0}, {"total_tokens": 1501},
                      {"total_tokens": 900000}, {"output_tokens_details": {"reasoning_tokens": 501}}):
-            self.assertIsNone(read(answered(said(), usage=dict({"input_tokens": 1000, "output_tokens": 500}, **more)))["usage"]["cost_usd"], more)
-        self.assertIsNone(read(chatted(said(), usage={"prompt_tokens": 1000, "completion_tokens": 10,
-                                                      "completion_tokens_details": {"reasoning_tokens": 50000}}), KIMI)["usage"]["cost_usd"])
+            spent = read(answered(said(), usage=dict({"input_tokens": 1000, "output_tokens": 500}, **more)))["usage"]
+            self.assertEqual((spent["input_tokens"], spent["output_tokens"], spent["cost_usd"]), (None, None, None), more)
+        spent = read(chatted(said(), usage={"prompt_tokens": 1000, "completion_tokens": 10,
+                                            "completion_tokens_details": {"reasoning_tokens": 50000}}), KIMI)["usage"]
+        self.assertEqual((spent["input_tokens"], spent["output_tokens"], spent["cost_usd"]), (None, None, None))
         for more in ({"total_tokens": 1500}, {"total_tokens": 1499}, {"total_tokens": "many"}, {"total_tokens": True},
                      {"output_tokens_details": {"reasoning_tokens": 500}}, {"output_tokens_details": 7}):
             self.assertEqual(read(answered(said(), usage=dict({"input_tokens": 1000, "output_tokens": 500}, **more)))["usage"]["cost_usd"], 0.0125, more)
-        # An answer that was refused has no words, and may have no tokens.
-        self.assertEqual(read(chatted(said(), ended="content_filter", usage={"prompt_tokens": 1000, "completion_tokens": 0}), KIMI)["usage"]["cost_usd"], 0.0025)
+        # A total below its two is priced at their sum, the higher figure.
+        self.assertEqual(read(answered(said(), usage={"input_tokens": 1000, "output_tokens": 500, "total_tokens": 1}))["usage"]["cost_usd"], 0.0125)
+        # A cost is never lower than what was billed. A read a content filter ended with no words anywhere, an empty
+        # text being none, may have answered no tokens, and is priced at its prompt alone.
+        none = {"prompt_tokens": 1000, "completion_tokens": 0}
+        for message in ({"content": None}, {"content": ""}, {"content": "", "refusal": ""}, {}):
+            self.assertEqual(read(chatted(said(), ended="content_filter", usage=none, choices=[
+                {"finish_reason": "content_filter", "message": message}]), KIMI)["usage"]["cost_usd"], 0.0025, message)
+        for spent in ({"prompt_tokens": 1000}, {"prompt_tokens": 1000, "completion_tokens": None}):
+            self.assertIsNone(read(chatted(said(), usage=spent, choices=[
+                {"finish_reason": "content_filter", "message": {"content": None}}]), KIMI)["usage"]["cost_usd"], spent)
+        silenced = {"input_tokens": 1000, "output_tokens": 0}
+        for output in ([], [{"type": "message", "content": []}], [{"type": "message", "content": [{"type": "output_text", "text": ""}]}]):
+            self.assertEqual(read(answered(said(), status="incomplete", incomplete_details={"reason": "content_filter"},
+                                           usage=silenced, output=output))["usage"]["cost_usd"], 0.0025, output)
+        # Any other read of no tokens is not known: one that ended otherwise, or holds words, a text or a refusal's.
+        for ended, message in (("length", {"content": ""}), ("tool_calls", {"content": None, "tool_calls": []}),
+                               ("stop", {"content": ""}), ("length", {"content": "{\"findings\""}),
+                               ("content_filter", {"content": "partial"}), ("content_filter", {"content": None, "refusal": "I can't."}),
+                               ("stop", {"content": None, "refusal": "I can't."})):
+            spent = read(chatted(said(), usage=none, choices=[{"finish_reason": ended, "message": message}]), KIMI)["usage"]
+            self.assertEqual((spent["input_tokens"], spent["output_tokens"], spent["cost_usd"]), (None, None, None), (ended, message))
+        text = {"type": "output_text", "text": "x"}
+        for state, details, output in (
+                ("completed", None, [{"type": "message", "content": [text, text]}]),
+                ("completed", None, [{"type": "message", "content": [{"type": "refusal", "refusal": "No."}]}]),
+                ("completed", {"reason": "content_filter"}, []),
+                ("incomplete", {"reason": "max_output_tokens"}, []),
+                ("incomplete", None, []),
+                ("incomplete", {"reason": "content_filter"}, [{"type": "message", "content": [text]}]),
+                ("incomplete", {"reason": "content_filter"}, [{"type": "message", "content": [{"type": "refusal", "refusal": "No."}]}])):
+            spent = read(answered(said(), status=state, incomplete_details=details, usage=silenced, output=output))["usage"]
+            self.assertEqual((spent["input_tokens"], spent["output_tokens"], spent["cost_usd"]), (None, None, None), (state, details, output))
+        # A cost is rounded up to the millionth of a dollar, never down to nought, and the float's own noise is no
+        # millionth: a hundred tokens at seven cents a million are seven millionths, which a float writes a little above.
+        tiny = dict(TOLD, usd_per_million={"input": 0.01, "output": 0.01})
+        self.assertEqual(read(answered(said(), usage={"input_tokens": 1, "output_tokens": 1}), tiny)["usage"]["cost_usd"], 0.000001)
+        self.assertEqual(read(answered(said(), usage={"input_tokens": 1, "output_tokens": 1}))["usage"]["cost_usd"], 0.000023)
+        noisy = dict(TOLD, usd_per_million={"input": 0.07, "output": 0.07})
+        self.assertEqual(read(answered(said(), usage={"input_tokens": 100, "output_tokens": 100}), noisy)["usage"]["cost_usd"], 0.000014)
         self.assertIsNone(read(answered(said(), model="Astra Model"))["usage"]["answering_model"])
         self.assertIsNone(read(answered(said(), model="astra model"))["usage"]["answering_model"])
         # A count above what advice/1 holds is not known, and never an error of the step's.
