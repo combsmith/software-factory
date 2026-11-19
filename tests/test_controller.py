@@ -1966,8 +1966,13 @@ class Entry(unittest.TestCase):
             record = entry_with(**missed)
             self.assertIn("reconciliation_unreadable", record["alerts"], missed)
             self.assertEqual(record["reconciled"]["owed"], [], missed)
-        # A pull request read short is owed still, and an issue beside it changes nothing of that.
+        # A pull request read short is owed still, and an issue beside it changes nothing of that, read whole, short or
+        # unanswered (Astra).
         self.assertEqual(entry_with(short=(7,))["reconciled"]["owed"], [7])
+        for missed in ({"short": (7, 5)}, {"short": (7,), "unanswered": (5,)}):
+            record = entry_with(**missed)
+            self.assertIn("reconciliation_unreadable", record["alerts"], missed)
+            self.assertEqual(record["reconciled"]["owed"], [7], missed)
 
     def test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry(self):  # S3, Astra
         # Through the real port: an issue that read whole would be accepted defers while a pull request names it.
