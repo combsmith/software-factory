@@ -155,18 +155,26 @@ def writes_seen(transport, config: dict, numbers: list, kept: dict, before, sinc
     return seen_.seen(parts, since), unread, sorted(newly)
 
 
-def recorded_effects(transport, config: dict, runs, own: int, before, since: str, sleep=time.sleep) -> dict:
-    """The Effects the Factory recorded and no record before this pass read: each Run's `applied/1` and each pass's
-    `written/1`, read once, and all of them again where the last record holds none (decision 0112). `sleep` is the
-    entry's, for each port's one wait before its second look (issue 709)."""
+def recorded_passes(transport, config: dict, own: int, before, since: str, sleep=time.sleep) -> dict:
+    """Each pass's `written/1` that no record before this pass read, read once, and all of them again where the last
+    record holds none (decision 0112): `adapters/passes.written`'s answer. It is read before the issues are listed, for
+    the numbers the passes recorded the tracking issue under (issue 901). Passes run one at a time, in the poller's one
+    concurrency group, so none records a write while this one reads."""
     controller = config["controller"]
-    home = controller["home"]["repo"]
-    known_runs, known_passes = reconcile.known(before)
+    _, known_passes = reconcile.known(before)
+    return passes.written(transport, controller["home"]["repo"], controller["home"]["branch"],
+                          controller["workflows"]["poller"], own, since, known_passes, sleep=sleep)
+
+
+def recorded_effects(transport, config: dict, runs, before, since: str, from_passes: dict, sleep=time.sleep) -> dict:
+    """The Effects the Factory recorded and no record before this pass read: each Run's `applied/1`, read once, and all
+    of them again where the last record holds none, beside the passes' `from_passes` (decision 0112). The Runs' are read
+    after the writes are seen, as a Run still running may record what it wrote in between: read first, its write would
+    be short (issue 837). `sleep` is the entry's, for each port's one wait before its second look (issue 709)."""
+    home = config["controller"]["home"]["repo"]
+    known_runs, _ = reconcile.known(before)
     from_runs = applied.effects(transport, home, runs, since, known_runs, sleep=sleep)
-    from_passes = passes.written(transport, home, controller["home"]["branch"], controller["workflows"]["poller"], own,
-                                 since, known_passes, sleep=sleep)
     return {"applied": from_runs["applied"], "written": from_passes["written"],
-            "tracking": reconcile.tracking(from_passes, before),
             "read": {"runs": from_runs["read"], "passes": from_passes["read"]},
             "at": dict(from_runs["at"], **from_passes["at"]),
             "whole": from_runs["whole"] and from_passes["whole"]}
@@ -254,12 +262,12 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     left = [e for e in pulls if "unread" in e]
     graced = pass_.moved_once([e["facts"]["item"] for e in left], [e["unread"] for e in left], before)
     owed = {e["facts"]["item"]["number"] for e in left if page(e["facts"]["item"]) in graced}
-    effects = recorded_effects(transport, config, runs, int(run_id), before, since, sleep)
+    from_passes = recorded_passes(transport, config, int(run_id), before, since, sleep)
     # The open issues the Kernel could serve, none while `issues.served_from` is null, without the tracking issue, by
     # the number the passes recorded. A list read short is never the whole, and stops the pass as the pull requests'
     # does: an issue it left out would read as gone from the view.
     # Issues whose Apps cannot be told are not listed, as with no date: none is read or decided, and the pass says so.
-    apart = effects.pop("tracking")
+    apart = reconcile.tracking(from_passes, before)
     served = None if refused else config["kernel"]["issues"]["served_from"]
     try:
         listed, listed_whole = items.open_issues(transport, home, served, apart=apart or ())
@@ -287,6 +295,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     # records read short leave reconciliation short already.
     served_issues = [e["facts"]["item"]["number"] for e in issues] if apart is not None else ()
     seen, unread, gone = writes_seen(transport, config, numbers, kept, before, since, clock, owed, served_issues)
+    effects = recorded_effects(transport, config, runs, before, since, from_passes, sleep)
     return {"started": started, "pause": pause_.read(transport, home.split("/")[0], [home]),
             "records": runs, "pull_requests": pulls, "issues": issues, pass_.ISSUE_APPS: refused,
             "facts_reads": facts_reads, "usage": {}, "seen": seen, "unread": unread, "gone": gone, "effects": effects}

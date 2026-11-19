@@ -1902,7 +1902,7 @@ class Entry(unittest.TestCase):
         # snapshot, whether its facts were read or not. One whose writes cannot be read whole, or not at all, leaves
         # reconciliation short, which says so; it is not owed as a pull request is, since what is owed is read as a pull
         # request that left.
-        real, spied = entry.configuration, []
+        real, spied, order = entry.configuration, [], []
 
         def served(root, release):
             found = real(root, release)
@@ -1923,10 +1923,11 @@ class Entry(unittest.TestCase):
         before["reconciled"] = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}
 
         def entry_with(short=(), unanswered=(), wrote=(), recorded=True):
-            del spied[:]
+            del spied[:], order[:]
 
             def read(transport, item, kept, identities, apps, since):
                 spied.append((item, kept, since, identities, apps))
+                order.append("seen")
                 if item["number"] in unanswered:
                     raise github.Unanswered("no")
                 # What a Factory identity wrote on the issue, where the port is handed the identities to tell it by.
@@ -1935,21 +1936,25 @@ class Entry(unittest.TestCase):
                 return (writes, [], item["number"] not in short)
             with unittest.mock.patch.object(entry, "configuration", served), \
                     unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
-                    unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after, **k: ([5, 6], True)), \
+                    unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after, **k: (
+                        order.append("listed") or [5, 6], True)), \
                     unittest.mock.patch.object(entry.issues_, "read", issue_read), \
                     unittest.mock.patch.object(entry.passes, "records", lambda *a: [before]), \
                     unittest.mock.patch.object(entry.seen_, "read", read), \
                     unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)), \
-                    unittest.mock.patch.object(entry.applied, "effects",
-                                               lambda *a, **k: {"applied": [], "read": [], "at": {}, "whole": True}), \
-                    unittest.mock.patch.object(entry.passes, "written",
-                                               lambda *a, **k: {"written": [], "read": [], "at": {}, "whole": recorded}):
+                    unittest.mock.patch.object(entry.applied, "effects", lambda *a, **k: order.append("applied") or {
+                        "applied": [], "read": [], "at": {}, "whole": True}), \
+                    unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: order.append("passes") or {
+                        "written": [], "read": [], "at": {}, "whole": recorded}):
                 code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
             self.assertEqual(code, 0)
             return files["pass.json"]
         item = lambda kind, n: {"repo": self.HOME, "type": kind, "number": n}
         record = entry_with()
         self.assertEqual([s[:2] for s in spied], [(item("pull_request", 7), {}), (item("issue", 5), None), (item("issue", 6), None)])
+        # The passes' records are read before the issues are listed, for the tracking issue's numbers; the Runs' Effects
+        # after every write is seen, as a Run still running may record what it wrote in between (security read).
+        self.assertEqual(order, ["passes", "listed", "seen", "seen", "seen", "applied"])
         self.assertEqual({s[2] for s in spied}, {"2026-10-11T06:00:00Z"})
         self.assertNotIn("reconciliation_unreadable", record["alerts"])
         self.assertNotIn("write_unmatched", record["alerts"])
@@ -1966,6 +1971,12 @@ class Entry(unittest.TestCase):
             record = entry_with(**missed)
             self.assertIn("reconciliation_unreadable", record["alerts"], missed)
             self.assertEqual(record["reconciled"]["owed"], [], missed)
+        # What an issue read short gives still reaches reconciliation: the Controller's label read before the read fell
+        # short is the alert, beside the shortness (Astra).
+        record = entry_with(short=(5,), wrote=("controller",))
+        self.assertTrue({"write_unmatched", "reconciliation_unreadable"} <= set(record["alerts"]))
+        self.assertEqual([e["item"] for e in record["reconciliation"]],
+                         ["https://github.com/%s/issues/%d" % (self.HOME, n) for n in (5, 6)])
         # A pull request read short is owed still, and an issue beside it changes nothing of that, read whole, short or
         # unanswered (Astra).
         self.assertEqual(entry_with(short=(7,))["reconciled"]["owed"], [7])
