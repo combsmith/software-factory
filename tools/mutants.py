@@ -14458,8 +14458,11 @@ MUTANTS = ISSUE + [
      '    if not isinstance(earlier, list):\n        return {}, False\n',
      '    if not isinstance(earlier, list):\n        return {}, True\n', K734_UNREAD),
     ("a record that is no pass record is read as holding nothing",
-     '    except (KeyError, TypeError):\n        return {}, False\n',
-     '    except (KeyError, TypeError):\n        return {}, True\n', K734_UNREAD),
+     '    except (KeyError, TypeError, ValueError):\n        return {}, False\n',
+     '    except (KeyError, TypeError, ValueError):\n        return {}, True\n', K734_UNREAD),
+    ("a span that is no object raises out of the reader",
+     '    except (KeyError, TypeError, ValueError):\n',
+     '    except (KeyError, TypeError):\n', K734_UNREAD),
 ]] + [
     ("an issue's facts that do not hold to the schema are handed on", 'adapters/issues.py',
      '    if problems:\n        raise Unanswered("the issue\'s facts',

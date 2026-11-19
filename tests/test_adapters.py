@@ -6872,7 +6872,8 @@ class KeywordSpans(unittest.TestCase):
         self.assertEqual(keyword_spans.read(None, self.ITEM), ({}, False))
         # The newest at hand, where it is no pass record, gives no time either, whatever the one before it holds.
         good = seen_by(3, [(7, True, [])])
-        for bad in ({"schema": "pass/1"}, dict(good, issues=[{"facts": {"item": self.ITEM}}]), dict(good, issues=None), "p"):
+        for bad in ({"schema": "pass/1"}, dict(good, issues=[{"facts": {"item": self.ITEM}}]), dict(good, issues=None), "p",
+                    seen_by(6, [(7, True, ["x"])])):
             self.assertEqual(self.spans(good, bad), ({}, False), bad)
 
 

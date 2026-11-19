@@ -67,6 +67,6 @@ def read(earlier, item: dict) -> tuple:
             for pull in found["linked"] if found is not None else ():
                 spans[pull["number"]] = after(dict(pull, keyword_spans=spans.get(pull["number"], [])),
                                               found["read_at"], False)
-    except (KeyError, TypeError):
+    except (KeyError, TypeError, ValueError):
         return {}, False
     return {number: found for number, found in spans.items() if found}, True if chained else None
