@@ -204,11 +204,14 @@ def union(results: list) -> dict:
         body = {"body": next((e["body"] for e in given if e["body"] is not None), None)} if kind == "submit_review" else {}
         effects[kind] = [dict({"id": "e%d" % ids, field: items[kind]}, **body)]
     cited = {f["criterion"] for f in findings if f.get("criterion")}
-    # A Finding shown stands where any answer rules it so, whichever came first: one answer's `accepted` never resolves a
-    # thread another says still has its fault (the security read of issue 856's step 2).
-    standing = {d["finding"] for result in results for d in result["dispositions"]
-                if d.get("decision", {}).get("result") == "rejected"}
-    dispositions = [dict(d, decision={"result": "rejected"}) if "decision" in d and d["finding"] in standing else d
+    # A Finding shown is fixed only where every answer rules it so, by a decision alone, and none rules it standing,
+    # whichever came first: one answer's `accepted` never resolves a thread another says still has its fault, leaves
+    # unruled, or rules both ways or by both halves (the security reads and Carbon's read of issue 856's step 2).
+    fixed = set.intersection(*({d["finding"] for d in result["dispositions"]
+                                if "proposal" not in d and d.get("decision", {}).get("result") == "accepted"}
+                               for result in results)) \
+        - {d["finding"] for result in results for d in result["dispositions"] if d.get("decision", {}).get("result") == "rejected"}
+    dispositions = [dict(d, decision={"result": "rejected"}) if "decision" in d and d["finding"] not in fixed else d
                     for d in results[0]["dispositions"]]
     return dict(results[0], findings=findings, effects=effects, coverage=_covered(results, cited), usage=usage,
                 dispositions=dispositions)
