@@ -6042,6 +6042,26 @@ class Trials(unittest.TestCase):
                 ("a longer path", lambda e: call(e, "GET %s/x (curl)" % address), "is not of the address"),
                 ("a query kept", lambda e: call(e, "GET %s?a=1 (curl)" % address), "keeps a query"),
                 ("a fragment", lambda e: call(e, "GET %s#a (curl)" % address), "keeps a query"),
+                ("an empty query", lambda e: call(e, "GET %s? (curl)" % address), "keeps a query"),
+                ("a query in the words after it", lambda e: call(e, "GET %s (its query: ?sv=1)" % address), "keeps a query"),
+                ("a parameter in the words after it", lambda e: call(e, "GET %s sig=QUJD" % address), "keeps a query"),
+                ("a parameter in the address", lambda e: call(e, "GET %s;sig (curl)" % address), "keeps a query"),
+                ("a shorter path", lambda e: call(e, "GET %s (curl)" % address[:-4]), "is not of the address"),
+                ("another host, the redirect's too", lambda e: (e[0]["response"]["headers"].update(location="https://elsewhere.example/a.zip"),
+                                                                call(e, "GET https://elsewhere.example/a.zip (curl)")),
+                 "is of an address off GitHub's artifact storage"),
+                ("the redirect given twice", lambda e: e[0]["response"]["headers"].update(Location=address + "x"),
+                 "follows no artifact download's redirect with one address"),
+                ("an empty redirect", lambda e: (e[0]["response"]["headers"].update(location=""), call(e, "GET  (curl)")),
+                 "is of an address off GitHub's artifact storage"),
+                ("a download answered 301", lambda e: e[0]["response"].update(status=301), "follows no artifact download's redirect"),
+                ("a download asked by another method", lambda e: e[0]["request"].update(
+                    call=e[0]["request"]["call"].replace("GET ", "POST ", 1)), "follows no artifact download's redirect"),
+                ("a download of no repo's path", lambda e: e[0]["request"].update(
+                    call="GET /orgs/combsmith/actions/artifacts/1/zip"), "follows no artifact download's redirect"),
+                ("a download's path run on", lambda e: e[0]["request"].update(
+                    call="GET /repos/combsmith/%s/actions/artifacts/1/zipx" % check_trials.CANARY), "follows no artifact download's redirect"),
+                ("the download after it, last in the fixture", lambda e: e.append(e.pop(0)), "follows no artifact download's redirect"),
                 ("another method", lambda e: call(e, "PUT %s (curl)" % address), "is no GET"),
                 ("no download before it", lambda e: e.pop(0), "follows no artifact download's redirect"),
                 ("a download answered 200", lambda e: e[0]["response"].update(status=200), "follows no artifact download's redirect"),
@@ -6049,8 +6069,12 @@ class Trials(unittest.TestCase):
                     call="GET /repos/combsmith/%s/actions/runs/1/logs" % check_trials.CANARY), "follows no artifact download's redirect"),
                 ("a redirect with no address", lambda e: e[0]["response"]["headers"].pop("location"), "follows no artifact download's redirect"),
                 ("a download asked another way", lambda e: e[0]["request"].update(via="cli"), "follows no artifact download's redirect")):
-            where = "exchanges[0]" if why == "no download before it" else "exchanges[1]"
+            where = "exchanges[0]" if why in ("no download before it", "the download after it, last in the fixture") else "exchanges[1]"
             self.assertTrue(caught(found(change), where + ".request.call " + words), why)
+        # A download a workflow's token asked is a download too; a read of the storage asked any other way is refused.
+        self.assertEqual(found(lambda e: e[0]["request"].update(via="workflow")), [])
+        self.assertTrue(caught(found(lambda e: e[1]["request"].update(via="cli", call="curl -s '%s'" % address)),
+                               "exchanges[1].request.call reads the artifact storage other than as a read `via: storage`"))
         # The header is read in any case, as HTTP does; and a storage read later in the fixture is held the same way.
         def capital(e):
             e[0]["response"]["headers"]["Location"] = e[0]["response"]["headers"].pop("location")
@@ -6062,8 +6086,16 @@ class Trials(unittest.TestCase):
         self.assertEqual(check_trials.fixture_problems(data), [])
         for call, words in (("POST /repos/outside/x/actions/workflows/p9-chain.yml/dispatches", "names the owner outside"),
                             ("GET /repos/combsmith/../outside/x", "climbs out of its repo"),
-                            ("What the run read from https://elsewhere.example/x", "is a workflow's report that names an address"),
-                            ("What the run read of repos/outside/x", "is a workflow's report that names an address")):
+                            ("GET /orgs/outside/actions/runners", "names the owner outside"),
+                            ("What the run read from https://elsewhere.example/x", "is a workflow's report that may name an address"),
+                            ("What the run read of repos/outside/x", "is a workflow's report that may name an address"),
+                            ("gh workflow run p9-chain -R outside/x", "is a workflow's report that may name an address"),
+                            ("What it read of uploads.github.com", "is a workflow's report that may name an address"),
+                            ("What it pushed to git@github", "is a workflow's report that may name an address"),
+                            ("What it read of repos%2Foutside", "is a workflow's report that may name an address"),
+                            ("What it read at C:\\outside", "is a workflow's report that may name an address"),
+                            ("What the run read from //elsewhere", "is a workflow's report that may name an address"),
+                            ("What the run read from /orgs/outside/repos", "is a workflow's report that may name an address")):
             copy = json.loads(json.dumps(data))
             copy["exchanges"][9]["request"]["call"] = call
             self.assertTrue(caught(check_trials.fixture_problems(copy), "exchanges[9].request.call " + words), call)
