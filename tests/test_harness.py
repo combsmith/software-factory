@@ -910,6 +910,8 @@ class Engine(unittest.TestCase):
                           ("a push that is no object", judged(findings=[], effects={"push_commits": ["x"]})),
                           # Nested past what a deep copy walks: still no Result, never a fault of the job's own.
                           ("an answer nested deep", judged(findings=[], effects={"push_commits": json.loads("[" * 600 + "]" * 600)})),
+                          ("a push nested deep beside its patch", judged(findings=[], effects={"push_commits": [
+                              {"id": "e1", "patch": {"body": PATCH}, "x": json.loads("[" * 600 + "]" * 600)}]})),
                           ("two pushes", judged(findings=[], effects={"push_commits": [
                               {"id": "e1", "patch": {"body": PATCH}}, {"id": "e2", "patch": {"body": PATCH}}]}))):
             r = engined(CLI(said=answer(result=said)), the_task, read=True)
@@ -928,8 +930,11 @@ class Engine(unittest.TestCase):
         # A text that is no UTF-8 can be none that is handed over: no Result.
         r = engined(CLI(said=answer(result=pushed(PATCH + "\ud800"))), the_task, read=True)
         self.assertEqual((r["status"], r["reason"]), ("failed", "result_invalid"))
-        # A Result that pushes nothing is as the model answered it.
+        # A Result that pushes nothing is as the model answered it, and every other Effect of one that pushes is kept.
         self.assertEqual(engine.bundled(judged()), judged())
+        said = {"id": "e2", "body": "x"}
+        both = engine.bundled(dict(pushed(), effects=dict(pushed()["effects"], comment=[said])))["effects"]
+        self.assertEqual((both["comment"], sorted(both["push_commits"][0])), ([said], ["bundle", "id", "patch"]))
 
     def test_the_version_is_held_before_and_after_the_call(self):  # L-35
         for versions, asked in (((PIN, "2.1.307"), 1), (("2.1.305", PIN), 0), ((None, PIN), 0), ((PIN, None), 1),
@@ -1016,14 +1021,17 @@ class Engine(unittest.TestCase):
         # result/1 holds each entry to an id and a digest, and nothing else: no text of the Finding's reaches a Result.
         example = json.loads((ROOT / "examples" / "result.adjudication.json").read_text())
         self.assertEqual(([s["finding"] for s in example["shown"]], shared.errors(example, "result")), ([first, second], []))
-        for name in ("a-finding-shown-with-its-text", "a-finding-shown-by-no-digest", "a-finding-shown-by-its-id-alone"):
+        for name in ("a-finding-shown-with-its-text", "a-finding-shown-by-no-digest", "a-finding-shown-by-its-id-alone",
+                     "a-finding-shown-without-its-digest", "a-digest-shown-without-its-finding"):
             odd = json.loads((ROOT / "examples" / "invalid" / ("result.%s.json" % name)).read_text())
             self.assertEqual(len(shared.errors(odd, "result")), 1, name)
         twice = dict(example, shown=example["shown"][:1] * 2)
         self.assertNotEqual(shared.errors(twice, "result"), [])
-        for odd in ("f_zz", "f_9c1", "9c1e", "F_9C1E", "f_9c1e "):
+        for odd in ("f_zz", "f_9c1", "9c1e", "F_9C1E", "f_9c1e ", None, 9):
             named = dict(example, shown=[dict(example["shown"][0], finding=odd)])
             self.assertEqual(len(shared.errors(named, "result")), 1, odd)
+        for odd in (None, 9, ["sha256:" + "0" * 64]):
+            self.assertEqual(len(shared.errors(dict(example, shown=[dict(example["shown"][0], text=odd)]), "result")), 1, odd)
 
     def test_an_answer_that_does_not_validate_is_no_result(self):  # decision 0038, decision 0004
         bad = [answer(result={}), answer(result=judged(run="r_01JA7Z")), answer(result=judged(reason="all_good")),
@@ -1517,8 +1525,10 @@ class Job(unittest.TestCase):
             self.assertEqual(result["effects"], {"push_commits": [{"id": "e1", "bundle": {
                 "artifact": "result", "digest": sha((out / "bundle.patch").read_bytes())}}]})
         # The job holds that much and no more: a push with no text, or a bundle that is not its text's, writes no Result.
+        # The bytes are the text's as they are: a last newline missing or doubled is handed over so.
+        for text in (body, PATCH[:-1], PATCH + "\n"):
+            self.assertEqual(run.handed_over(engine.bundled(pushed(text)))[1], text.encode("utf-8"), text)
         whole = engine.bundled(pushed(body))
-        self.assertEqual(run.handed_over(whole)[1], body.encode("utf-8"))
         # Every other Effect of the Result is kept as it was.
         said = {"id": "e2", "body": "x"}
         both = run.handed_over(dict(whole, effects=dict(whole["effects"], comment=[said])))[0]["effects"]
