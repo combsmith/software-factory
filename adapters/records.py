@@ -451,17 +451,20 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
         record.update(found)
         whole = whole and answered
     # What each finished review Run of the day says its advisory reads cost (decision 0224): one small file, read once.
-    # `day` is the UTC date of the pass's `now`, and None reads none. A cost read whole, or the lack of one, is kept
-    # by `advised` and not read again; one that cannot be read now is left off and asked for again, and nothing here
-    # makes the list less than whole or ends the pass: what is not known the pass counts at its worst case. At most
+    # `day` is the UTC date of the pass's `now`, and None reads none. A cost read from its file is kept by `advised`
+    # and not read again; the lack of one, or a file that is no cost, is kept once two passes in a row found it so; one
+    # GitHub does not answer for is left off and asked for again. Nothing here makes the list less than whole or ends
+    # the pass: what is not known the pass counts at its worst case. At most
     # COSTS are asked for in one read, so a pass with nothing kept, a first one or one after a gap, has a bound; the
     # rest are left off, counted at the worst case as any unread cost is, and asked for by the passes after.
     costs = 0
-    for record, github_id, _, keyed in ran if day is not None else []:
+    for record, github_id, attempt, keyed in ran if day is not None else []:
         if record["status"] != "completed" or record["intent"] != REVIEWING or record["started_at"][:len(day)] != day:
             continue
-        if "never_ran" in record:
-            record[ADVISED[0]] = 0          # it ran no step, so it asked no reader: nothing to read, and nothing spent
+        if "never_ran" in record and attempt == 1:
+            # Its one attempt ran no step, so it asked no reader: nothing to read, and nothing spent. A later attempt
+            # that never ran says nothing of the ones before it, which may have asked: that Run is read as any other.
+            record[ADVISED[0]] = 0
             continue
         if keyed and (record["run"], record["started_at"]) in advised:
             record.update(advised[(record["run"], record["started_at"])])
@@ -477,6 +480,8 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
             continue
         if cost is not None:
             record[ADVISED[0]], record[ADVISED[1]] = cost["asks"], cost["cost_usd"]
-        elif read_whole:
-            record[ADVISED[1]] = None       # it left none: read, and counted at the worst case, and not asked for again
+        else:
+            # It left none, or one that cannot be read as a cost: either way counted at the worst case, and, once two
+            # passes in a row say so, not asked for again, so that fifty that never read do not hold the cap all day.
+            record[ADVISED[1]] = None
     return {"runs": records, "unidentified": unnamed, "complete": whole, "reads": reads, "github_ids": ids}
