@@ -6433,6 +6433,9 @@ class Issues(unittest.TestCase):
                 issues.tracking({"user": user, "body": body}, mine)
             with self.assertRaises(github.Unanswered, msg=user):
                 read(issue_read(user=user, body=body)[:1])
+        # So does a body left out of the App's issue: never read as null (Kimi).
+        with self.assertRaises(github.Unanswered):
+            issues.tracking({"user": app}, mine)
 
     def test_the_issues_own_facts_hold_to_the_schema_with_its_linked_pull_requests(self):
         from kernel import issue

@@ -68,12 +68,12 @@ def tracking(issue: dict, controller) -> bool:
     """Whether REST's issue is the Controller's tracking issue: opened by its App, `controller`, by the account's id and
     type, and with a body the write step wrote, by the write step's own test (`adapters/effects.causes_of`). An issue
     the App opened with any other body is no tracking issue, and is served. An opener that cannot be read refuses the
-    issue, so that one is never served for want of it. With no App named, `controller` None, the write step writes no
+    issue, as does a body left out of the App's issue, so that one is never served for want of them. With no App named, `controller` None, the write step writes no
     tracking issue, and none is one (decision 0233)."""
     if controller is None:
         return False
     _, ident, kind = timeline.Accounts.account(issue.get("user"))
-    return (ident, kind) == tuple(controller) and effects.causes_of(issue.get("body")) is not None
+    return (ident, kind) == tuple(controller) and effects.causes_of(_field(issue, "body")) is not None
 
 
 def _field(node, key: str):
