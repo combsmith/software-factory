@@ -125,7 +125,8 @@
                 "graphql",
                 "cli",
                 "git",
-                "workflow"
+                "workflow",
+                "storage"
               ]
             },
             "call": {
