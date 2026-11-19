@@ -248,8 +248,9 @@ def _readers(harness) -> list:
         elif not re.fullmatch(r"[a-z]{1,31}", name):
             out.append("harness: the reader %s has a name advice/1 cannot hold: letters alone, 31 at most" % name)
     # The worst case one read is counted at is no less than what one Run may cost by the readers' own caps and prices:
-    # each reader's largest prompt at a token a character, and its whole output cap. A figure under it would count a
-    # read whose cost is not known at less than it may have spent (decision 0224, Spend).
+    # each reader's largest prompt at a token a byte, which is the most a prompt of that many bytes can be and what the
+    # step that asks holds a prompt to (`prompt_characters` bounds its bytes of UTF-8), and its whole output cap. A
+    # figure under it would count a read whose cost is not known at less than it may have spent (decision 0224, Spend).
     worst = harness.get("advisory_worst_case_usd")
     if worst is not None and not out:
         most = sum((r["prompt_characters"] * r["usd_per_million"]["input"] + r["output_tokens"] * r["usd_per_million"]["output"])
