@@ -298,6 +298,9 @@ class Unreadable(unittest.TestCase):
             d = derive(f)
             self.assertEqual((d["state"], d["reason"], d["evidence"]), (None, "timeline_bounded", ["timeline"]))
             self.assertEqual((what(decide(f)), decide(f)["attention"]), (("defer", "timeline_bounded", None), "needs_you"))
+        # Cut at a linked pull request's read alone, the issue's own timeline whole, it defers so too (Astra, Kimi).
+        f = facts(timeline_bounded=True, complete={"timeline": True, "linked": False, "runs": True})
+        self.assertEqual((derive(f)["reason"], decide(f)["attention"]), ("timeline_bounded", "needs_you"))
         # Within the bound, a timeline read short is the plain gap, which mends itself and calls no one.
         short = facts(timeline_bounded=False, complete={"timeline": False, "linked": True, "runs": True})
         self.assertEqual((derive(short)["reason"], derive(short)["evidence"], decide(short)["attention"]),
@@ -337,6 +340,7 @@ class Unreadable(unittest.TestCase):
         # met unflagged too.
         self.assertTrue(all(False in (complete["timeline"], complete["linked"]) for bounded, complete in seen if bounded is True))
         self.assertTrue(any(bounded is True and complete["linked"] is False for bounded, complete in seen))
+        self.assertTrue(any(bounded is True and complete["timeline"] is False for bounded, complete in seen))
         self.assertTrue(all(bounded in (True, False) for bounded, _ in seen))
         self.assertTrue(any(bounded is False and complete["timeline"] is False for bounded, complete in seen))
         self.assertTrue(any(bounded is False and complete["linked"] is False for bounded, complete in seen))
