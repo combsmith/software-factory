@@ -127,11 +127,17 @@ def advice_cost(transport, repo: str, github_id: int, run: str, seen=None) -> tu
     held, whole = read(transport, repo, github_id, seen, ADVICE_COST, ADVICE_COST_MEMBER)
     if held is None:
         return None, whole
+
+    def once(pairs: list) -> dict:
+        if len({key for key, _ in pairs}) != len(pairs):
+            raise ValueError("a key is given twice")        # JSON would keep the last: a second cost of nought
+        return dict(pairs)
     try:
-        record = json.loads(held.decode("utf-8"))
+        record = json.loads(held.decode("utf-8"), object_pairs_hook=once)
     except (ValueError, RecursionError):
         record = None
-    if not isinstance(record, dict) or validate(record, SCHEMAS["advice-cost"]) or record["run"] != run:
+    if not isinstance(record, dict) or validate(record, SCHEMAS["advice-cost"]) or record["run"] != run \
+            or record["cost_usd"] != record["cost_usd"]:        # no number at all, which is within every bound
         return None, False
     return {"asks": record["asks"], "cost_usd": record["cost_usd"]}, True
 
