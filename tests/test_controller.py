@@ -1922,7 +1922,7 @@ class Entry(unittest.TestCase):
             before["pull_requests"][0]["facts"]["item"], number=7)))]
         before["reconciled"] = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}
 
-        def entry_with(short=(), unanswered=(), wrote=()):
+        def entry_with(short=(), unanswered=(), wrote=(), recorded=True):
             del spied[:]
 
             def read(transport, item, kept, identities, apps, since):
@@ -1943,7 +1943,7 @@ class Entry(unittest.TestCase):
                     unittest.mock.patch.object(entry.applied, "effects",
                                                lambda *a, **k: {"applied": [], "read": [], "at": {}, "whole": True}), \
                     unittest.mock.patch.object(entry.passes, "written",
-                                               lambda *a, **k: {"written": [], "read": [], "at": {}, "whole": True}):
+                                               lambda *a, **k: {"written": [], "read": [], "at": {}, "whole": recorded}):
                 code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
             self.assertEqual(code, 0)
             return files["pass.json"]
@@ -1973,6 +1973,11 @@ class Entry(unittest.TestCase):
             record = entry_with(**missed)
             self.assertIn("reconciliation_unreadable", record["alerts"], missed)
             self.assertEqual(record["reconciled"]["owed"], [7], missed)
+        # While the passes' records are not read whole, the tracking issue's number is not read, and that issue could be
+        # among those listed: no issue's writes are read, and reconciliation is short by the records alone (issue 901).
+        record = entry_with(recorded=False)
+        self.assertEqual([s[0] for s in spied], [item("pull_request", 7)])
+        self.assertIn("reconciliation_unreadable", record["alerts"])
 
     def test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry(self):  # S3, Astra
         # Through the real port: an issue that read whole would be accepted defers while a pull request names it.
