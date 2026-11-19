@@ -29,9 +29,10 @@ DEFAULTS = "config/defaults.json"
 REPO = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9_.-]{1,100}")
 SHA = re.compile(r"[0-9a-f]{40}")
 UNREADABLE = "push_list_unreadable"
-# The base's rules an advisory reader is sent, and the most bytes of one that are read (decision 0224).
+# The base's rules an advisory reader is sent, and the most bytes of one that are read (decision 0224): the three come
+# to about 11,000 today, and three at the most are a sixth of a reader's prompt, so no rule crowds the diff out of it.
 RULES = ("AGENTS.md", "kernel/AGENTS.md", "config/rubric-pr-review.json")
-LONGEST = 200000
+LONGEST = 10000
 
 
 def _file_at(transport, repo: str, path: str, sha: str):

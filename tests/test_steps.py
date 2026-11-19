@@ -196,7 +196,8 @@ class Reader(unittest.TestCase):
     """The reader's step, its ports stood in for: what it reads, what it holds them to, and its token."""
 
     def go(self, record=RECORD, head=HEAD, first=HEAD, change=DIFF, revoked=True, argv=None, environ=None, complete=True,
-           refs=TAGS, commit=CHECKED_OUT, tarred=None, tree=None, raising=None, threads=(), said=None, rules=None):
+           refs=TAGS, commit=CHECKED_OUT, tarred=None, tree=None, raising=None, threads=(), said=None, rules=None,
+           target=None, protected=True):
         """`commit` is what `steps.commit()` gives, or a function that stands in for it; `tarred` what the head's
         tarball read gives for a commit, or raises; `tree` what the read of the commit's tree gives, or raises: by default
         the tree of the one file `support.tarball` holds. `raising`, where given, is `(module, name, error)`: that read
@@ -225,7 +226,7 @@ class Reader(unittest.TestCase):
                 return revoked
             return "the reader's transport", revoke
         facts = support.facts(item=dict(support.ITEM, number=42), content_id=CONTENT, threads=list(threads))
-        pulled = {"head": {"sha": first}, "number": 42}
+        pulled = {"head": {"sha": first}, "number": 42, "base": target or {"ref": "main", "sha": "c" * 40, "repo": {"full_name": HOME}}}
         listed = {"runs": [], "unidentified": [], "complete": complete, "reads": [], "github_ids": {}}
         calls["recorded"], calls["listed"], calls["asked"], calls["opener"] = [], [], [], []
         calls["opened"], calls["opened_role"] = [], []
@@ -267,7 +268,7 @@ class Reader(unittest.TestCase):
                 unittest.mock.patch.object(read.applied, "opened", read_opened), \
                 unittest.mock.patch.object(read.facts_, "opener_role", lambda kernel: "dev-lead"), \
                 unittest.mock.patch.object(read.pull, "read", lambda *a: pulled), \
-                unittest.mock.patch.object(read.pull, "base", lambda *a: {"head": "b" * 40}), \
+                unittest.mock.patch.object(read.pull, "base", lambda *a: {"head": "b" * 40, "protected": protected}), \
                 unittest.mock.patch.object(read.pull, "change", lambda *a: change), \
                 unittest.mock.patch.object(read.texts, "issues", read_issues), \
                 unittest.mock.patch.object(read.texts, "findings", read_findings), \
@@ -306,10 +307,17 @@ class Reader(unittest.TestCase):
         # The base's rules an advisory reader is sent, read at the commit the change was compared against (decision 0224).
         self.assertEqual((calls["rules"], json.loads(kept["rules.json"])),
                          ([("the reader's transport", HOME, "b" * 40)], {"AGENTS.md": "# The rules"}))
-        # For another Intent none is read, and the file says so; a rule that could not be read is left out, and stops nothing.
+        # For another Intent none is read, and the file says so; nor for a pull request on another branch than the one the
+        # Factory serves, one not protected, or one of another repo, whose rules its author may have written.
         with unittest.mock.patch.object(read, "REVIEWING", "another-intent"):
             code, _, _, kept, calls = self.go()
         self.assertEqual((code, json.loads(kept["rules.json"]), "rules" in calls), (0, {}, False))
+        for over in ({"target": {"ref": "theirs", "sha": "c" * 40, "repo": {"full_name": HOME}}}, {"protected": False},
+                     {"protected": None}, {"target": {"ref": "main", "sha": "c" * 40, "repo": {"full_name": "o/fork"}}},
+                     {"target": {"ref": "main", "sha": "c" * 40, "repo": "o/fork"}}):
+            code, _, _, kept, calls = self.go(**over)
+            self.assertEqual((code, json.loads(kept["rules.json"]), "rules" in calls), (0, {}, False), over)
+        # What the port read is written as it gave it, none among them.
         code, _, _, kept, _ = self.go(rules={})
         self.assertEqual((code, json.loads(kept["rules.json"])), (0, {}))
         # The threads are held to what the item's Lenses recorded, read from the run records (issue 338).

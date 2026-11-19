@@ -6757,15 +6757,23 @@ class Rules(unittest.TestCase):
         gone["response"].update(status=404, body={"message": "Not Found"})
         for second in (gone, self.answer(b"# The Kernel\n", "kernel/AGENTS.md", size=3),
                        self.answer(b"\xff\xfe", "kernel/AGENTS.md"),
-                       self.answer(b"x" * (rules.LONGEST + 1), "kernel/AGENTS.md")):
+                       self.answer(b"x" * (rules.LONGEST + 1), "kernel/AGENTS.md"),
+                       self.answer("\u00e9".encode() * (rules.LONGEST // 2 + 1), "kernel/AGENTS.md")):
             got = rules.texts_at(github.Replay([whole[0], second, whole[2]]), "o/r", self.SHA)
             self.assertEqual(sorted(got), ["AGENTS.md", "config/rubric-pr-review.json"])
         at_bound = self.answer(b"x" * rules.LONGEST, "kernel/AGENTS.md")
         self.assertIn("kernel/AGENTS.md", rules.texts_at(github.Replay([whole[0], at_bound, whole[2]]), "o/r", self.SHA))
         # None answered is none read, never a fault; a repo or commit in another form asks nothing.
         self.assertEqual(rules.texts_at(github.Replay([]), "o/r", self.SHA), {})
+        class Asked:
+            sent = []
+
+            def send(self, req):
+                self.sent.append(req)
+                raise github.Unanswered("not asked")
         for repo, sha in (("o/..", self.SHA), ("o", self.SHA), ("o/r", "b" * 39), ("o/r", None), (None, self.SHA)):
-            self.assertEqual(rules.texts_at(github.Replay(list(whole)), repo, sha), {}, (repo, sha))
+            self.assertEqual(rules.texts_at(Asked(), repo, sha), {}, (repo, sha))
+        self.assertEqual(Asked.sent, [])
 
     def test_a_commit_that_names_no_model_lens_is_unreadable(self):
         unreadable = (None, "push_list_unreadable")

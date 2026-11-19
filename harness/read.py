@@ -10,7 +10,8 @@ finds in it the Decision of the Run id the run-name names, which must be of the 
 reads the pull request's facts, its threads held to what its Lenses recorded, and the bytes of its diff, which must be the content the Decision admitted;
 reads the tarball of its head, the commit the diff was read at, through the transport's one redirect to codeload, and
 that commit's tree, which the head unpacked is held to file by file (decision 0142); and writes,
-into the new folder OUT, the record, the Run id, the facts, the diff, the texts, the Role's manifest and the Findings,
+into the new folder OUT, the record, the Run id, the facts, the diff, the texts, the Role's manifest, the Findings and
+the base's rules,
 and the head unpacked by hand into `head/` (decision 0138), which is read as data and never run,
 for `python3 -m harness.run OUT RESULT`. A head that cannot be read or unpacked whole, or is not its commit's tree, stops
 the step, `head_unreadable`. The token is revoked before the step ends, whatever happened, and a token
@@ -28,8 +29,9 @@ rules on each (issue 856). One whose words are not the Lens's own, an edited com
 no text: `run` then asks nothing and ends as the item's own, `findings_not_shown`, and the thread gates on. A read
 GitHub did not answer stops the step, `finding_texts_unreadable`.
 For a review, the base's rules an advisory reader is sent are read at the commit the change is compared against and
-written to `rules.json`, `{path: text}`, each one read whole and none that is not (`adapters/rules.py`, decision 0224); for
-any other Intent it is empty, and a rule that cannot be read stops nothing.
+written to `rules.json`, `{path: text}`, each one read whole and none that is not (`adapters/rules.py`, decision 0224), of
+the branch the Factory serves alone; for any other Intent or branch it is empty, and a rule that cannot be read stops
+nothing.
 Not read yet, by the stories that hold them: any other thread's text; the Finding records a Decision names
 (`harness/apply.py` writes them, and `adapters/applied.py` reads them for the threads alone); an issue's Run, whose
 reads are the issue Lifecycle's."""
@@ -169,13 +171,19 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
     if str(first["head"]["sha"]) != head:
         raise Stop("head_moved")
     with reading("change"):
-        based = pull.base(transport, first)["head"]
+        on = pull.base(transport, first)
+        based = on["head"]
         change = pull.change(transport, first, based)
     if "sha256:" + hashlib.sha256(change).hexdigest() != admit["content_id"]:
         raise Stop("content_moved")
     role = steps.read_json(steps.ROOT, os.path.join("roles", "%s.json" % admit["role"]))
-    # The base's rules an advisory reader is sent, at the commit the change was compared against, for a review alone.
-    rules = rules_.texts_at(transport, home, based) if admit["intent"] == REVIEWING else {}
+    # The base's rules an advisory reader is sent, at the commit the change was compared against, for a review alone, and
+    # only of the branch the Factory serves, protected, in its own repo: a pull request its author turned onto another
+    # branch, whose rules the author may have written, is sent none (decision 0224).
+    target = first.get("base") if isinstance(first.get("base"), dict) else {}
+    served = target.get("ref") == branch and isinstance(target.get("repo"), dict) \
+        and target["repo"].get("full_name") == home and on.get("protected") is True
+    rules = rules_.texts_at(transport, home, based) if admit["intent"] == REVIEWING and served else {}
     # The head's tree at the commit the diff was read at, for the review to read (decision 0138), and the commit's tree as
     # git holds it, which the archive is held to: one export-ignore or export-subst shaped is not the commit (0142).
     try:
