@@ -9,8 +9,12 @@ what a Run knows before it has read anything: its id, the last word of its run-n
 from GitHub. A Run that stops before its advise step has then left a cost, nought, and a pass does not count the worst
 case for it; `harness/advise.py` replaces the file before it asks anyone.
 
-The step never fails its job: with a run-name it cannot read, no one Release tag on the checkout, or a folder already
-there, it writes nothing, and the pass counts the Run as it counts any that left no cost.
+It needs the job's checkout to have fetched tags (`fetch-tags: true`): the Release is named from the checkout's own
+tags, with no token, and a checkout with none has no Release this step can name.
+
+The step never fails its job: with a run-name it cannot read, no one Release tag on the checkout, tags not fetched
+among the reasons, or a folder already there, it writes nothing and exits 0, and the pass counts the Run as it counts
+any that left no cost.
 """
 from __future__ import annotations
 
