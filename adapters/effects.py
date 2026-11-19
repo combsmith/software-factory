@@ -628,9 +628,11 @@ def advisory_permits(item: dict, head: str, lenses, run: str) -> tuple:
     (decision 0224), for `Allowed`. For each Lens of `lenses`, a list of names, one check run: named for it, keyed by
     the Run and the Lens, on the head, `head`, completed and concluding `neutral` and nothing else, its output one
     `adapters/advice.py` builds and nothing beside it (`showable`); and the reads that recover it and read it back.
-    Names that are no list of Lens names, a Run that is no Run's id and a head that is no commit permit nothing."""
+    Names that are no list of Lens names, a Run that is no Run's id, a head that is no commit and a repo that is no
+    owner and name, which could turn a path into another, permit nothing."""
     repo = item["repo"]
-    named = isinstance(lenses, (list, tuple)) and all(isinstance(n, str) and advice.LENS.fullmatch(n) for n in lenses)
+    named = isinstance(lenses, (list, tuple)) and all(isinstance(n, str) and advice.LENS.fullmatch(n) for n in lenses) \
+        and isinstance(repo, str) and identity.REPO.fullmatch(repo)
     known = named and isinstance(run, str) and advice.RUN.fullmatch(run) and isinstance(head, str) and SHA.fullmatch(head)
     keys = {advice.CHECK % lens: "%s:%s" % (run, lens) for lens in lenses} if known else {}
 
@@ -706,10 +708,16 @@ def role_write(transport, item: dict, kind: str, req: dict, login: str) -> dict:
 def advisory_write(transport, item: dict, head: str, lenses, run: str, req: dict, login: str) -> dict:
     """What the write of one advisory Lens's check run did, read back, as `role_write` gives a Role's: the one write
     the step that shows an advisory read may reach (decision 0224). It sends through the advisory allowlist of the
-    Run `run`, its head `head` and the Lenses `lenses`, which it builds itself, whatever transport it is handed: a
-    request of another name, commit, repo or output, or with none of its own, sends no write."""
-    if not isinstance(req, dict) or "output" not in req:
-        return _back("failed", None, reason="output_not_its_own")
+    Run `run`, its head `head` and the Lenses `lenses`, which it builds itself, whatever transport it is handed. The
+    request is held first, before anything is sent, so that the recovery of a check run already made claims none that
+    is not this Run's: its name one of the Lenses', its key the Run's and that Lens's, its conclusion `neutral`, its
+    commit the head, and an output of its own. Any other sends nothing, and an output the port did not build no write."""
+    keys = {advice.CHECK % lens: "%s:%s" % (run, lens) for lens in lenses} \
+        if isinstance(lenses, (list, tuple)) and all(isinstance(lens, str) for lens in lenses) else {}
+    if not (isinstance(req, dict) and "output" in req and isinstance(req.get("name"), str) and req["name"] in keys
+            and keys[req["name"]] == req.get("external_id") and req.get("conclusion") == "neutral"
+            and req.get("commit") == head):
+        return _back("failed", None, reason="not_an_advisory_check_run")
     try:
         return _check(Allowed(transport, *advisory_permits(item, head, lenses, run)), item, req, login)
     except _TokenRefused:

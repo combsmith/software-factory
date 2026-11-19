@@ -1780,6 +1780,7 @@ class Advised(unittest.TestCase):
                 # A token said not revoked is not revoked, whatever else is said, before it or after.
                 (b"began\nunrevoked\n", each("token_not_revoked")), (b"began\nunminted\nunrevoked\n", each("token_not_revoked")),
                 (b"began\nastra shown CR_1\nunrevoked\nrevoked\n", each("token_not_revoked", "CR_1")),
+                (b"unrevoked\n", each("token_not_revoked")), (b"astra shown CR_1\nunrevoked\n", each("token_not_revoked", "CR_1")),
                 # A child that began and was not heard to revoke, killed at any point: the token's state is not known.
                 (b"began\n", each("token_not_revoked")), (b"began\nastra shown CR_1\n", each("token_not_revoked", "CR_1")),
                 (b"began\nastra shown CR_1\nkimi not_written\nunrevoked\n", each("token_not_revoked", "CR_1")),

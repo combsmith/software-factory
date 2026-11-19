@@ -1456,57 +1456,75 @@ class Advisory(unittest.TestCase):
 
     def test_the_one_write_the_advisory_step_reaches_sends_a_check_run_of_its_lens_on_its_head_and_nothing_else(self):
         class Hub:
-            """A GitHub that would take anything: it lists no check run, makes any asked and reads it back as made."""
+            """A GitHub that would take anything: it lists the check runs it is given, of whatever name is asked, makes
+            any asked and reads each back as it is."""
 
-            def __init__(self):
-                self.sent, self.made = [], []
+            def __init__(self, *listed):
+                self.sent, self.made = [], [dict(run, id=n + 1, node_id="CR_OLD", app={"slug": "combsmith-sf-pr-review"},
+                                                 output={"annotations_count": 1}) for n, run in enumerate(listed)]
+                self.listed = list(self.made)
 
             def send(self, req):
                 self.sent.append(req)
                 if req["method"] == "GET" and "/commits/" in req["path"]:
-                    return {"status": 200, "headers": {}, "body": {"total_count": 0, "check_runs": []}}
+                    return {"status": 200, "headers": {}, "body": {"total_count": len(self.listed), "check_runs": self.listed}}
                 if req["method"] == "GET":
-                    return {"status": 200, "headers": {}, "body": self.made[-1]}
+                    return {"status": 200, "headers": {}, "body": self.made[int(req["path"].rsplit("/", 1)[1]) - 1]}
                 body = req["body"]
                 self.made.append(dict({k: body.get(k) for k in ("name", "head_sha", "external_id", "status", "conclusion")},
-                                      id=7, node_id="CR_7", app={"slug": "combsmith-sf-pr-review"},
+                                      id=len(self.made) + 1, node_id="CR_7", app={"slug": "combsmith-sf-pr-review"},
                                       output={"annotations_count": len(body["output"]["annotations"])}))
                 return {"status": 201, "headers": {}, "body": self.made[-1]}
         req = {"commit": self.HEAD, "name": "advisory-astra", "conclusion": "neutral", "external_id": self.RUN + ":astra",
                "output": self.OUTPUT, "annotations": [{"finding": "astra:" + "0" * 32}]}
 
         def write(hub, req, item=self.ITEM, head=self.HEAD, lenses=("astra", "kimi"), run=self.RUN):
-            return effects.advisory_write(hub, item, head, list(lenses), run, req, self.LOGIN)
+            return effects.advisory_write(hub, item, head, list(lenses) if isinstance(lenses, tuple) else lenses, run, req,
+                                          self.LOGIN)
         hub = Hub()
         back = write(hub, req)
         self.assertEqual((back["state"], back["key"]), ("applied", "CR_7"))
         listed = "/repos/%s/commits/%s/check-runs?check_name=advisory-astra&filter=all&per_page=100" % (self.ITEM["repo"], self.HEAD)
         path = "/repos/%s/check-runs" % self.ITEM["repo"]
-        self.assertEqual([(r["method"], r["path"]) for r in hub.sent], [("GET", listed), ("POST", path), ("GET", path + "/7")])
+        self.assertEqual([(r["method"], r["path"]) for r in hub.sent], [("GET", listed), ("POST", path), ("GET", path + "/1")])
         self.assertEqual(hub.sent[1]["body"], self.good())
-        # Planted: another name, another Lens than the Run's, another commit, another Run's key, another conclusion, an
-        # output with a field beside the port's, and no output at all, each through the write itself, to a GitHub
-        # that would take it. No write leaves, and none is claimed.
+        # The Run's own check run, made before, is claimed and not made again.
+        mine = dict(self.good(), output=None)
+        hub = Hub(mine)
+        self.assertEqual((write(hub, req)["state"], [r["method"] for r in hub.sent]), ("already_applied", ["GET", "GET"]))
+        # Planted through the write itself, to a GitHub that would take it and that already holds a check run of
+        # whatever is asked for, which a recovery would claim: another name, a Lens not the Run's, another Lens's key,
+        # another Run's key, another commit, another conclusion, a Role's request with no output of its own, and
+        # what is no request. Nothing is sent, not a read, and nothing is claimed.
         role = dict(req, name="factory / pr-review", conclusion="success",
                     annotations=[{"finding": "f", "path": "a", "start_line": 1, "end_line": 1, "severity": "minor", "body": "b"}])
         del role["output"]
+        bare = {k: v for k, v in req.items() if k != "output"}
         for planted in (dict(req, name="factory / pr-review"), dict(req, name="advisory-muse", external_id=self.RUN + ":muse"),
-                        dict(req, name="advisory-kimi"), dict(req, commit="1" * 40), dict(req, external_id="r_01JA7Z:astra"),
-                        dict(req, conclusion="success"), dict(req, conclusion="failure"),
-                        dict(req, output=dict(self.OUTPUT, text="a reader's words")),
-                        dict(req, output=dict(self.OUTPUT, title="a reader's words")),
-                        dict(req, output=dict(self.OUTPUT, annotations=[dict(self.NOTE, raw_details="x")])),
-                        role, {k: v for k, v in req.items() if k != "output"}, None):
-            hub = Hub()
+                        dict(req, name="advisory-kimi"), dict(req, external_id="r_01JA7Z:astra"), dict(req, external_id=None),
+                        dict(req, commit="1" * 40), dict(req, conclusion="success"), dict(req, conclusion="failure"),
+                        dict(req, name=["advisory-astra"]), role, bare, dict(bare, annotations=[]), None):
+            asked = planted if isinstance(planted, dict) else {}
+            hub = Hub(dict(mine, **{k: asked[k] for k in ("name", "external_id", "conclusion") if k in asked},
+                           head_sha=asked.get("commit", self.HEAD)))
             back = write(hub, planted)
-            self.assertEqual((back["state"], back["key"], [r for r in hub.sent if r["method"] != "GET"]),
-                             ("failed", None, []), planted)
-        # The allowlist is the write's own, of the Run, the head and the Lenses it is told: a Lens not among them, a
-        # head that is not the request's and a Run that is not its key's send no write, and but for the Run not a read.
-        for how in ({"lenses": ("kimi",)}, {"lenses": "astra"}, {"lenses": ()}, {"head": "1" * 40}, {"head": "main"},
-                    {"run": None}, {"run": "r_01JA7Z"}):
+            self.assertEqual((back["state"], back["key"], back["reason"], hub.sent),
+                             ("failed", None, "not_an_advisory_check_run", []), planted)
+        # An output the port did not build, with a field beside its own or a reader's words where a code stands, is
+        # read for and never written: the allowlist is the write's own, whatever transport it is handed.
+        for output in (dict(self.OUTPUT, text="a reader's words"), dict(self.OUTPUT, title="a reader's words"),
+                       dict(self.OUTPUT, annotations=[dict(self.NOTE, raw_details="x")])):
             hub = Hub()
-            self.assertEqual((write(hub, req, **how)["state"], len(hub.sent)), ("failed", int(how.get("run") is not None)), how)
+            back = write(hub, dict(req, output=output))
+            self.assertEqual((back["state"], back["key"], [r["method"] for r in hub.sent]), ("failed", None, ["GET"]), output)
+        # It is told the Run, the head and the Lenses, and holds the request to them: a Lens not among them, a head
+        # that is not the request's, a Run that is not its key's, and a repo whose text would turn the path into
+        # another send nothing.
+        for how in ({"lenses": ("kimi",)}, {"lenses": "astra"}, {"lenses": ()}, {"lenses": None}, {"head": "1" * 40},
+                    {"head": "main"}, {"run": None}, {"run": "r_01JA7Z"},
+                    {"item": dict(self.ITEM, repo=self.ITEM["repo"] + "/check-suites?x=")}, {"item": dict(self.ITEM, repo=7)}):
+            hub = Hub(mine)
+            self.assertEqual((write(hub, req, **how)["state"], hub.sent), ("failed", []), how)
 
 
 if __name__ == "__main__":

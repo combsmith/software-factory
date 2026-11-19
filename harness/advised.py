@@ -75,11 +75,14 @@ def told(out, lenses: list) -> dict:
         if one and one.group(1) in lenses and one.group(1) not in said and one.group(2) in advice.CODES \
                 and (one.group(2) == "shown") == (one.group(3) is not None):
             said[one.group(1)] = (one.group(2), one.group(3))
-    if "unminted" in lines and "unrevoked" not in lines:
+    # The token's state is not known: it was asked for, and GitHub was not heard to revoke it.
+    unknown = {lens: ("token_not_revoked", said.get(lens, (None, None))[1]) for lens in lenses}
+    if "unrevoked" in lines:
+        return unknown      # said so: whatever else was said, before it or after, and though it was not heard to begin
+    if "unminted" in lines:
         return {lens: ("token_not_minted", None) for lens in lenses}
     if "began" not in lines:
         return {lens: ("out_of_time", None) for lens in lenses}     # nothing was asked of GitHub
-    if "revoked" not in lines or "unrevoked" in lines:
-        # The token's state is not known: it was asked for, and GitHub was not heard to revoke it.
-        return {lens: ("token_not_revoked", said.get(lens, (None, None))[1]) for lens in lenses}
+    if "revoked" not in lines:
+        return unknown
     return {lens: said.get(lens, ("out_of_time", None)) for lens in lenses}
