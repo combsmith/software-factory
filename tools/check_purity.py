@@ -129,6 +129,19 @@ def _constant(node, held: frozenset = frozenset()) -> bool:
             and all(_inert(argument, held) for argument in node.args + [k.value for k in node.keywords]))
 
 
+def _scopes(tree, held: frozenset) -> dict:
+    """The names a default may name, by the id of each function or lambda: `held` for one at the module's top, whose
+    defaults the module's top evaluates; for one inside another, `held` less every name bound anywhere in the statement
+    at the top that holds it, as its defaults are evaluated where such a name may be a local (issue 909)."""
+    scopes = {}
+    for top in tree.body:
+        inner = frozenset(word for node in ast.walk(top) for word in _bound(node))
+        for node in ast.walk(top):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                scopes[id(node)] = held if node is top else held - inner
+    return scopes
+
+
 def _inert(node, held: frozenset) -> bool:
     """Whether `node`, in a constant's argument, evaluates to a value that cannot change: it calls nothing but a
     constant's own call, binds nothing, iterates nothing, and names only `held`, read once each."""
@@ -785,6 +798,7 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
             target.id for target in getattr(node, "targets", [getattr(node, "target", None)]) if isinstance(target, ast.Name)]
             + ([alias.asname or alias.name.split(".")[0] for alias in node.names]
                if isinstance(node, (ast.Import, ast.ImportFrom)) else []))
+        scopes = _scopes(tree, held)
         for node in ast.walk(tree):
             line = getattr(node, "lineno", 0)
             mods = []
@@ -829,7 +843,7 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
                 problems.append("%s:%d keeps state between calls" % (name, line))
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
                 defaults = node.args.defaults + [d for d in node.args.kw_defaults if d is not None]
-                if not all(_constant(d, held) for d in defaults):
+                if not all(_constant(d, scopes[id(node)]) for d in defaults):
                     problems.append("%s:%d has a default that can change, which is state kept between calls"
                                     % (name, line))
             if isinstance(node, ast.ClassDef):

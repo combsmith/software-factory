@@ -17595,6 +17595,12 @@ MUTANTS = ISSUE + [
      '    own = _alone(root, read, trees, package)\n',
      '    own = []\n', ('tests.test_tools.Purity.test_the_guards_are_held_as_the_kernel_is_and_import_themselves_alone',)),
     # Issue 909: six older ways past the Kernel's rules.
+    ("a default inside a function names the module's names, whatever the function binds", "tools/check_purity.py",
+     'scopes[id(node)] = held if node is top else held - inner', 'scopes[id(node)] = held', ("tests.test_tools.Purity.test_six_older_ways_past_the_kernels_rules_are_caught",)),
+    ("a default at the module's top is read as though its own function's parameters were bound around it", "tools/check_purity.py",
+     'scopes[id(node)] = held if node is top else held - inner', 'scopes[id(node)] = held - inner', ("tests.test_tools.Purity.test_six_older_ways_past_the_kernels_rules_are_caught",)),
+    ("a default is read off the names of the whole module", "tools/check_purity.py",
+     'if not all(_constant(d, scopes[id(node)]) for d in defaults):', 'if not all(_constant(d, held) for d in defaults):', ("tests.test_tools.Purity.test_six_older_ways_past_the_kernels_rules_are_caught",)),
     ("a from-import's names are not read", "tools/check_purity.py",
      '                    if not _answered(name, node, alias.name, read, bound):\n', '                    if False:\n', ("tests.test_tools.Purity.test_six_older_ways_past_the_kernels_rules_are_caught",)),
     ("a name a module binds answers no from-import", "tools/check_purity.py",

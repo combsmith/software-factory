@@ -2210,12 +2210,21 @@ class Purity(unittest.TestCase):
         local = ("def values():\n    yield 0\n\n\ndef build():\n    cursor = values()\n\n"
                  "    def kept(saved=frozenset({cursor})):\n        return saved\n    return kept\n")
         self.assertTrue(caught(run({"kernel/x.py": local}), "x.py:8 has a default that can change"))
+        # So too a name the module's top binds that a function around the default binds again, as a local or a
+        # parameter: the default is evaluated there, to the local (Carbon's read). At the top, it is the module's.
+        for shadow in ("def build():\n    B = values()\n\n", "def build(B):\n"):
+            text = "B = 'b'\n\n\ndef values():\n    yield 0\n\n\n" + shadow + "    def kept(saved=frozenset({B})):\n        return saved\n    return kept\n"
+            self.assertTrue(caught(run({"kernel/x.py": text}), "has a default that can change"), shadow)
+        self.assertEqual(run({"kernel/x.py": "B = 'b'\n\n\ndef f(B, x=frozenset({B})):\n    return B, x\n\n\n"
+                              "def g():\n    def h(x=frozenset({B})):\n        return x\n    return h\n"}), [])
         # Read once a node, so that a deep constant is read in time (Astra's read).
         deep = "KEPT = " + "frozenset([" * 60 + "frozenset()" + "])" * 60 + "\n"
         self.assertEqual(run({"kernel/x.py": deep}), [])
         # And frozenset is the builtin: a name the Kernel binds to it, by a function, an import or a parameter, is refused.
         for text in ("def frozenset():\n    return []\n\n\nKEPT = frozenset()\n", "from kernel.terms import A as frozenset\n",
-                     "def f(frozenset):\n    return frozenset\n"):
+                     "def f(frozenset):\n    return frozenset\n", "def f(*, frozenset=None):\n    return frozenset\n",
+                     "def f():\n    frozenset = list\n    return frozenset\n", "def f():\n    for frozenset in ():\n        pass\n",
+                     "def f():\n    return (frozenset := list)\n", "from kernel import terms as frozenset\n"):
             self.assertTrue(caught(run({"kernel/terms.py": "A = 'a'\n", "kernel/x.py": text}), "binds frozenset"), text)
         # 2. A builtin site adds, each of which reads a file, asks the help system or ends the process, as a value.
         for word in ("license", "copyright", "credits", "help", "exit", "quit"):
@@ -2252,10 +2261,13 @@ class Purity(unittest.TestCase):
         # 5. A relative import that climbs past the package; one within it is read by the other rules.
         self.assertTrue(caught(run({"kernel/x.py": "from .. import tools\n"}), "x.py:1 imports .., from above kernel/"))
         self.assertTrue(caught(run({"kernel/sub/y.py": "from ... import tools\n"}), "y.py:1 imports ..., from above kernel/"))
-        self.assertFalse(caught(run({"kernel/terms.py": "", "kernel/sub/y.py": "from .. import terms\n"}), "from above kernel/"))
+        self.assertEqual(run({"kernel/terms.py": "", "kernel/sub/y.py": "from .. import terms\n"}), [])
+        self.assertTrue(caught(run({"kernel/terms.py": "", "kernel/sub/y.py": "from .. import gone\n"}), "no such name"))
+        self.assertEqual(run({"kernel/sub/__init__.py": "S = 's'\n", "kernel/x.py": "from kernel.sub import S\n"}), [])
         # The guards refuse every relative import by their own rule, once: this one is the Kernel's.
-        self.assertFalse(caught(check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": "from .. import tools\n"})),
-                                "from above"))
+        found = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": "from .. import tools\n"}))
+        self.assertEqual(len(found), 1, found)
+        self.assertTrue(caught(found, "guards/ imports itself alone") and not caught(found, "from above"), found)
         # 6. A statement that calls a method of a value it is handed.
         for body, does in (("    with facts as f:\n        return f\n", "enters what it is handed"),
                            ("    assert facts, facts\n    return facts\n", "raises"),
@@ -2264,6 +2276,9 @@ class Purity(unittest.TestCase):
         for body, does in (("    async with facts as f:\n        return f\n", "enters what it is handed"),
                            ("    async for item in facts:\n        return item\n", "drives what it is handed"),
                            ("    return [item async for item in facts]\n", "drives what it is handed"),
+                           ("    return {item async for item in facts}\n", "drives what it is handed"),
+                           ("    return {item: 1 async for item in facts}\n", "drives what it is handed"),
+                           ("    return (item async for item in facts)\n", "drives what it is handed"),
                            ("    return await facts\n", "awaits what it is handed")):
             self.assertTrue(caught(run({"kernel/x.py": "async def f(facts):\n" + body}), "x.py:2 %s" % does), does)
 
