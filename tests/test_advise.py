@@ -50,12 +50,12 @@ LIMITED = {"status": 429, "headers": {"retry-after": "20"}, "body": {"error": {"
 
 class Azure:
     """A stand-in for `azure.Live`: it keeps how it was made and what it was sent, and answers in turn, or as a
-    function of the request. `takes` says how long a send takes, from the wait it was given; `during` is called at
-    each send."""
+    function of the request. `during` is called at each send; `takes` says how long a send takes, from the wait it was
+    given."""
 
-    def __init__(self, answers, clock=None, takes=None, during=None):
+    def __init__(self, answers, during=None, clock=None, takes=None):
         self.answers, self.made, self.sent = answers if callable(answers) else list(answers), [], []
-        self.clock, self.takes, self.during = clock, takes, during
+        self.during, self.clock, self.takes = during, clock, takes
 
     def __call__(self, host, key, seconds):
         self.made.append((host, key, seconds))
@@ -127,7 +127,7 @@ def cost_in(base: pathlib.Path) -> dict:
     return cost
 
 
-def advised(answers, env=None, first: bool = False, takes=None, mid: bool = False, readers=None, hooks: bool = True,
+def advised(answers, env=None, first: bool = False, readers=None, mid: bool = False, takes=None, hooks: bool = True,
             start: float = 0.0, **made) -> tuple:
     """`({lens: Result}, the stand-in, the clock)` of one run of the step, each Result held to advice/1 and its digest.
     With `first`, `harness.unasked` runs before it, as in the workflow; with `mid`, the cost file is read at each send."""
@@ -135,7 +135,7 @@ def advised(answers, env=None, first: bool = False, takes=None, mid: bool = Fals
         base = pathlib.Path(where)
         folder(base, **made)
         clock = Clock(start)
-        stand_in = Azure(answers, clock, takes, (lambda: stand_in.seen.append(cost_in(base))) if mid else None)
+        stand_in = Azure(answers, (lambda: stand_in.seen.append(cost_in(base))) if mid else None, clock, takes)
         stand_in.seen = []
         if first:
             unasked.job([NAME, "advice"], {}, base=base, release=lambda: "factory/v0.3.1")
