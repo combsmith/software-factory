@@ -4839,7 +4839,7 @@ MUTANTS = ISSUE + [
     ('a pull request whose issue a person held or closed goes on', 'kernel/derive.py',
      '        if stands != t.ISSUE_OPEN:\n            return {"state": t.HELD, "reason": "issue_stopped", "evidence": [stands]}\n',
      '', ('tests.test_decide.OnlyAPersonEnds.test_a_pull_request_whose_issue_a_person_held_or_closed_is_held_and_leaves_the_queue',)),
-    ('how its issue stands, not read, is read as open', 'kernel/derive.py',
+    ('how its issue stands, not read, is read as a stop', 'kernel/derive.py',
      '        if stands not in t.ISSUE_STANDS:\n            return {"state": None, "reason": "issue_stands_unreadable", "evidence": []}\n',
      '', ('tests.test_decide.OnlyAPersonEnds.test_a_pull_request_whose_issue_a_person_held_or_closed_is_held_and_leaves_the_queue',)),
     ('a word the Kernel does not know for how its issue stands is a stop', 'kernel/derive.py',

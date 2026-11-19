@@ -7,7 +7,7 @@ Not built yet, by the stories that hold their rules: relay.py, backpressure.py, 
 
 | Rule | Held by |
 |---|---|
-| The pass asks the Kernel through its entry points alone, each Lifecycle's `decide`, `unnamed_scope` and `stands`, and imports no clock and nothing that reaches out | `tests/test_controller.py::test_the_pass_asks_the_kernel_through_its_entry_points_alone` |
+| The pass asks the Kernel only through each Lifecycle's `decide`, `unnamed_scope` and the issues' `stands`, and imports no clock and nothing that reaches out | `tests/test_controller.py::test_the_pass_asks_the_kernel_through_its_entry_points_alone` |
 | The pass record holds what the Kernel was given, and replays every Decision | `tests/test_controller.py::test_the_pass_record_holds_what_the_kernel_was_given_and_replays_it` |
 | A Run id is minted for an admission, an approval, or a queue act once its workflow is named | `tests/test_controller.py::test_a_queue_act_gets_a_run_id_and_a_dispatch_once_its_workflow_is_named` |
 | A Run is dispatched by its run-name; a capacity fault defers model Runs for its window | `tests/test_controller.py::test_the_runs_to_dispatch_are_named_by_their_run_names`, `tests/test_controller.py::test_a_capacity_fault_defers_model_runs_for_its_window` |
