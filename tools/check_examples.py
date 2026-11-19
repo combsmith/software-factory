@@ -137,6 +137,10 @@ def _coded(pattern) -> bool:
     it, a limit record 0038 names."""
     if not _anchored(pattern) or re.search(r"\(\?[#aiLmsux-]", pattern):
         return False
+    try:        # a pattern that is no pattern holds nothing, and validate() would fail on it (cubic's read)
+        re.compile(pattern)
+    except re.error:
+        return False
     parts, i, depth = [], 0, 0
     while i < len(pattern):
         c = pattern[i]
