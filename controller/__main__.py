@@ -274,11 +274,11 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
                                         earlier=[], controller=(own_app["id"], own_app["type"]) if own_app else None)
             issues.append({"facts": facts, "title": title})
             facts_reads += dated(through.first)
-        except issues_.Tracking:
-            continue
         except Unanswered as err:
             issues.append({"facts": {"item": {"repo": home, "type": "issue", "number": number}}, "title": None,
                            "unread": reads_.MOVED if isinstance(err, facts_.Moved) else reads_.UNANSWERED})
+        except issues_.Tracking:
+            continue
     return {"started": started, "pause": pause_.read(transport, home.split("/")[0], [home]),
             "records": runs, "pull_requests": pulls, "issues": issues, pass_.ISSUE_APPS: refused,
             "facts_reads": facts_reads, "usage": {}, "seen": seen, "unread": unread, "gone": gone, "effects": effects}

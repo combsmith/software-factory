@@ -6427,7 +6427,7 @@ class Issues(unittest.TestCase):
                                    (dict(user={"login": "stranger", "id": CONTROLLER_APP[1], "type": "User"}, body=body), mine),
                                    (dict(user=app, body=body), None)):
             self.assertEqual(read(issue_read(**change), controller)["item"]["number"], 41, change)
-        # An opener that cannot be read refuses the issue before any other read: it is never served for want of it.
+        # An opener that cannot be read refuses the issue: it is never served for want of it.
         for user in (None, {"login": CONTROLLER_APP[0], "id": CONTROLLER_APP[1]}, dict(app, id=str(CONTROLLER_APP[1]))):
             with self.assertRaises(github.Unanswered, msg=user):
                 read(issue_read(user=user, body=body)[:1])
