@@ -562,10 +562,11 @@ def _said(problem: str, package: str) -> str:
 
 
 def _modules(tree, trees: dict, package: str) -> tuple:
-    """`(names, imports)`: the names a file binds to modules of `package`, and the imports that bind them, each by its
-    id: `import package.x as name`, and `from package[.y] import name` where that names a file or a folder of the
-    package's."""
-    found, imports = set(), set()
+    """`(names, imports, twice)`: the names a file binds to modules of `package`; the imports that bind them, each by
+    its id: `import package.x as name`, and `from package[.y] import name` where that names a file or a folder of the
+    package's; and (line, name) for each of those that binds a name another binds to another module. A name is read
+    file-wide, not by scope."""
+    found, imports, twice = {}, set(), []
     for node in ast.walk(tree):
         own = []
         if isinstance(node, ast.Import):
@@ -574,9 +575,12 @@ def _modules(tree, trees: dict, package: str) -> tuple:
             folder = "/".join(node.module.split(".")[1:] + [""]).lstrip("/")
             own = [alias for alias in node.names
                    if folder + alias.name + ".py" in trees or folder + alias.name + "/__init__.py" in trees]
-        found |= {alias.asname or alias.name for alias in own}
-        imports |= {id(alias) for alias in own}
-    return found, imports
+        for alias in own:
+            dotted = alias.name if isinstance(node, ast.Import) else node.module + "." + alias.name
+            if found.setdefault(alias.asname or alias.name, dotted) != dotted:
+                twice.append((node.lineno, alias.asname or alias.name))
+            imports.add(id(alias))
+    return set(found), imports, twice
 
 
 def _bound(node) -> list:
@@ -599,7 +603,8 @@ def _alone(root: pathlib.Path, read: set, trees: dict, package: str) -> list:
 
     - It is the package Python imports, and what Python imports of it is what is read here: each folder of it has an
       `__init__.py`; it holds the source this check reads and an `AGENTS.md` alone, so no compiled module stands in a
-      source's place and no file Python could run goes unread; and it holds no link.
+      source's place and no file Python could run goes unread; and it holds no link. A committed `__pycache__/` is not
+      this check's: tools/walk.py passes over it, and tools/check_repo.py refuses it (`_unloadable`).
     - It imports itself alone, by its name, and never the Kernel, which is not protected whole: so what it decides is
       changed nowhere but in it. A relative import is refused: the package is then imported in one way, and
       `from .. import x`, of which the Kernel's rules say nothing, reaches nothing above it.
@@ -607,7 +612,11 @@ def _alone(root: pathlib.Path, read: set, trees: dict, package: str) -> list:
       parameter the Kernel may call: it calls nothing it is given.
     - It reads nothing of a value but by a built-in type's method that it calls: a generator's frame, and through it
       every builtin and every module's names, is one attribute away from any function. A name of one of its own
-      modules is read off, and so that name is bound by its import alone: no parameter, local or other import takes it.
+      modules is read off, and so that name is bound by its import alone: no parameter, local or other import takes it,
+      and no two imports bind it to two modules.
+    - A limit: a module's name is resolved file-wide, not by scope, so a name a guard imports in one function and reads
+      in another, where Python reads it as a builtin, passes. No builtin's plain attribute reaches a frame, globals or
+      builtins, and issue 851 resolves names by scope for the Kernel and the guards alike.
     """
     problems = []
     if (root / package).is_symlink():
@@ -632,7 +641,11 @@ def _alone(root: pathlib.Path, read: set, trees: dict, package: str) -> list:
             problems.append("%s/%s bears the name of a module the Kernel's rules are written for, and they would be "
                             "read of it; name it otherwise" % (package, name))
         called = {id(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)}
-        modules, imports = _modules(tree, trees, package)
+        modules, imports, twice = _modules(tree, trees, package)
+        for line, word in twice:
+            problems.append("%s:%d binds %s, which another import binds to another module of %s/; a module's name is "
+                            "bound by one import alone, so that what is read off it is that module's"
+                            % (name, line, word, package))
         for node in ast.walk(tree):
             taken = _bound(node)
             if isinstance(node, (ast.Import, ast.ImportFrom)):
