@@ -1208,7 +1208,7 @@ def issue_through_the_port(events=(), repo="o/r", exchanges=None, users=None) ->
     _, accounts, _ = entry.reader(router, held_roles())
     accounts.repo = repo
     number = found[0]["response"]["body"]["number"]
-    facts, title = issues.read(router, repo, number, accounts, lambda: "2026-10-11T12:00:00Z", identities=IDENTITIES, earlier=[])
+    facts, title = issues.read(router, repo, number, accounts, lambda: "2026-10-11T12:00:00Z", identities=IDENTITIES, earlier=[], default_head=None)
     return {"facts": facts, "title": title}
 
 
@@ -1841,7 +1841,8 @@ class Entry(unittest.TestCase):
     def test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is(self):  # S3
         # Listed from `issues.served_from`, each issue is read with the pull requests' account reader and dated as they
         # are; one not read is left out by its code, and a list read short stops the pass.
-        since, spied = "2026-10-01T00:00:00Z", {"listed": [], "read": [], "who": [], "identities": []}
+        since, spied = "2026-10-01T00:00:00Z", {"listed": [], "read": [], "who": [], "identities": [], "heads": []}
+        head = "3b8e5d1c0a9f7e6d5c4b3a291807f6e5d4c3b2a1"
         real = entry.configuration
 
         def served(root, release):
@@ -1873,10 +1874,11 @@ class Entry(unittest.TestCase):
                     return listed_by_the_port(transport, repo, after, apart=apart)
             return open_issues
 
-        def read(transport, repo, number, accounts, clock, *, identities, earlier, kernel):
+        def read(transport, repo, number, accounts, clock, *, identities, earlier, default_head, kernel):
             spied["read"].append((repo, number, accounts))
             spied["identities"].append((identities, earlier))
             spied.setdefault("kernel", []).append(kernel)
+            spied["heads"].append(default_head)
             if number == 6:
                 raise entry.facts_.Moved("moved")
             if number == 9:
@@ -1897,6 +1899,11 @@ class Entry(unittest.TestCase):
             table = self.table(numbers=[7])
             table[("GET", "/repos/%s/issues/5" % self.HOME)] = {
                 "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}, "body": {}}
+            table[("GET", "/repos/%s" % self.HOME)] = {
+                "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:40 GMT", "age": "5"},
+                "body": {"default_branch": "main"}}
+            table[("GET", "/repos/%s/git/ref/heads/main" % self.HOME)] = {
+                "status": 200, "headers": {}, "body": {"ref": "refs/heads/main", "object": {"type": "commit", "sha": head}}}
             hub = Hub(table)
             with unittest.mock.patch.object(entry, "configuration", configured), \
                     unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
@@ -1906,6 +1913,8 @@ class Entry(unittest.TestCase):
                     unittest.mock.patch.object(entry.issues_, "read", read):
                 code, printed, files, _ = self.run_entry(hub)
             spied["graphql"] = [r for _, r in hub.sent if r["path"] == "/graphql"]
+            spied["repo"] = [r for _, r in hub.sent if r["path"] == "/repos/%s" % self.HOME]
+            spied["ref"] = [r for _, r in hub.sent if r["path"] == "/repos/%s/git/ref/heads/main" % self.HOME]
             return code, printed, files
 
         code, printed, files = entry_with([5, 6, 9])
@@ -1920,6 +1929,8 @@ class Entry(unittest.TestCase):
         # And the Kernel's configuration, which says whether a draft's checks are read (decision 0217, issue 878).
         self.assertEqual([k["author_role"] for k in spied["kernel"]], [None] * 3)
         self.assertTrue(all("required_lenses" in k for k in spied["kernel"]))
+        # The default branch's head is read once for the pass, and each issue is given it (decision 0242).
+        self.assertEqual((spied["heads"], len(spied["repo"]), len(spied["ref"])), ([head] * 3, 1, 1))
         # The reader names each App the configuration holds by its account's id, as REST spells its Bot's login.
         catalogue = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
         self.assertEqual(spied["who"][0].apps, {(CONTROLLER["accounts"]["controller"]["id"], "Bot"):
@@ -1933,7 +1944,10 @@ class Entry(unittest.TestCase):
         self.assertEqual([e["decision"]["item"] for e in record["issues"]], [item(5)])
         self.assertEqual(record["left_out"], [{"item": item(6), "code": "pull_moved"}, {"item": item(9), "code": "facts_unanswered"}])
         self.assertIn("facts_unreadable", record["alerts"])
-        self.assertEqual([r for r in record["reads"] if r["read"] == "facts"], [{"read": "facts", "date": "2026-10-12T11:59:30Z", "age": 2}])
+        # The default head's read is dated as a facts read, beside the issue's own.
+        self.assertEqual([r for r in record["reads"] if r["read"] == "facts"],
+                         [{"read": "facts", "date": "2026-10-12T11:59:40Z", "age": 5},
+                          {"read": "facts", "date": "2026-10-12T11:59:30Z", "age": 2}])
         shown = [i for i in files["view/items.json"]["items"] if i["url"].endswith("/issues/5")]
         self.assertEqual([i["untrusted"] for i in shown], [{"title": "Issue five"}])
         # A list read short, or not answered, stops the pass before any issue is read; nothing is written.

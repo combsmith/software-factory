@@ -11,8 +11,8 @@ The pull requests that close the issue are read by `adapters/linked.py`, after t
 `linked` as it lists them, and `complete.linked` true only where it reads them whole and no pull request names the
 issue, while their keyword spans are not read; so an issue any pull request names defers. The issue is read once more
 after them, and refused if it moved. Not read yet, and said so: `branch_head`, which needs the count of pull requests
-the Factory opened for the issue, is null; and `default_head`, the default branch's head, which is to be read once for
-each repo in a pass (decision 0242), is null, so an opening Run with no branch head defers. `complete.runs` is true: the pass puts the records port's answer in its place
+the Factory opened for the issue, is null. `default_head`, the default branch's head, is read once for each repo in a
+pass by `default_head` and given to each issue's facts, null where it could not be read (decision 0242). `complete.runs` is true: the pass puts the records port's answer in its place
 (`controller/pass_.py`'s `asked`), and false here would leave every issue unreadable.
 """
 from __future__ import annotations
@@ -20,6 +20,8 @@ from __future__ import annotations
 import hashlib
 import json
 import pathlib
+import re
+import urllib.parse
 
 from adapters import facts, linked, timeline
 from adapters.github import Unanswered, raw, request
@@ -27,6 +29,7 @@ from kernel import gate
 from tools.jsonschema_lite import validate
 
 PAGE = 100            # changes of type read at most; more is not the whole timeline
+SHA = re.compile(r"[0-9a-f]{40}")
 STATES = ("open", "closed")
 # Where each change of type names the type before and after: none, where it names neither.
 TYPED = {"IssueTypeAddedEvent": (None, "issueType"), "IssueTypeChangedEvent": ("prevIssueType", "issueType"),
@@ -165,13 +168,38 @@ def comments(events: list, accounts: timeline.Accounts) -> tuple:
     return [{"by": login, "at": latest[login]} for login in sorted(latest)], said
 
 
+def _body(answer) -> dict:
+    return answer["body"] if answer["status"] == 200 and isinstance(answer["body"], dict) else {}
+
+
+def default_head(transport, repo: str):
+    """The sha of `repo`'s default branch's head, or None where it cannot be read: the repo's own read names the branch,
+    and the branch's ref, never a name a tag could share, gives its head, a commit. Read once for each repo in a pass and
+    given to each issue's facts, as the base the first opening Run is admitted at (decision 0242)."""
+    try:
+        branch = _body(transport.send(request("GET", "/repos/%s" % repo))).get("default_branch")
+        if not (isinstance(branch, str) and branch):
+            return None
+        path = "/repos/%s/git/ref/heads/%s" % (repo, urllib.parse.quote(branch, safe="/"))
+        ref = _body(transport.send(request("GET", path)))
+    except (Unanswered, UnicodeError):     # a name no path can carry, such as a lone surrogate, is read as none too
+        return None
+    head = ref.get("object") if isinstance(ref.get("object"), dict) else {}
+    sha = head.get("sha")
+    if ref.get("ref") != "refs/heads/" + branch or head.get("type") != "commit" \
+            or not (isinstance(sha, str) and SHA.fullmatch(sha)):
+        return None
+    return sha
+
+
 def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=facts._utc, *, identities: dict,
-         earlier, kernel=None) -> tuple:
+         earlier, default_head, kernel=None) -> tuple:
     """`(facts, title)`: `issue-facts/1` for one issue of `repo`, held to its schema, and its title beside the facts,
     never in them, for the view alone. `accounts` tells who acted, the Factory's Apps among them, `identities` the class's
     accounts of a pull request that closes it (`adapters/pull.own`), `earlier` the pass records before this pass, oldest
-    first, or None where they could not be read, and `clock` gives the time after the last read. `kernel`, the Kernel's
-    configuration, says whether the Factory's linked draft's checks are read (`adapters/draft_checks.py`)."""
+    first, or None where they could not be read, `default_head` the default branch's head `default_head` read for the
+    pass, or None, and `clock` gives the time after the last read. `kernel`, the Kernel's configuration, says whether
+    the Factory's linked draft's checks are read (`adapters/draft_checks.py`)."""
     issue = own(transport, repo, number)
     events, whole = timeline.events(transport, {"number": number, "base": {"repo": {"full_name": repo}}})
     edited = edits(transport, repo, number)
@@ -211,7 +239,7 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
         "last_writer_comment_at": said,
         "acts_since_writer": writer["acts_since_writer"],
         "branch_head": None,
-        "default_head": None,
+        "default_head": default_head,
         "complete": {"timeline": whole and edited["whole"], "linked": closing_whole, "runs": True},
         "read_at": now,
     })

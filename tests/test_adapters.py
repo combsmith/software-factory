@@ -6445,12 +6445,51 @@ def issue_read(events=(), more=False, last=None, types=(), edits=None, closing=N
 
 class Issues(unittest.TestCase):
     NOW = "2026-10-11T12:00:00Z"
+    HEAD = "3b8e5d1c0a9f7e6d5c4b3a291807f6e5d4c3b2a1"
+
+    def test_the_default_branchs_head_is_read_by_its_ref_and_given_to_the_facts_or_is_none(self):  # decision 0242
+        # The repo names its default branch; that branch's ref, read as a branch and never a name a tag could share,
+        # gives its head, a commit. Anything else is none: the opening Run with no branch head then defers.
+        def head(repo, ref=None, branch="main"):
+            exchanges = [rest_answer("/repos/o/r", repo)]
+            if ref is not None:
+                exchanges.append(rest_answer("/repos/o/r/git/ref/heads/%s" % branch, ref))
+            return issues.default_head(github.Replay(exchanges), "o/r")
+
+        def ref(name="refs/heads/main", kind="commit", sha=self.HEAD):
+            return {"ref": name, "object": {"type": kind, "sha": sha}}
+
+        self.assertEqual(head({"default_branch": "main"}, ref()), self.HEAD)
+        self.assertEqual(head({"default_branch": "rel/1 #2"}, ref("refs/heads/rel/1 #2"), branch="rel/1%20%232"),
+                         self.HEAD)
+        for repo, answer in (({}, None), ({"default_branch": ""}, None), ({"default_branch": 7}, None),
+                             ({"default_branch": "main"}, ref("refs/tags/main")),
+                             ({"default_branch": "main"}, ref(kind="tag")),
+                             ({"default_branch": "main"}, ref(sha="main")),
+                             ({"default_branch": "main"}, ref(sha=self.HEAD.upper())),
+                             ({"default_branch": "main"}, ref(sha=self.HEAD + "0")),
+                             ({"default_branch": "main"}, ref("refs/heads/other")),
+                             ({"default_branch": "\ud800"}, None),
+                             ({"default_branch": "main"}, [])):
+            self.assertIsNone(head(repo, answer), (repo, answer))
+        # A read GitHub does not answer is none too, never a raise that leaves the issue unread: the repo's, or the ref's
+        # after it, and a ref answered with another status than 200.
+        self.assertIsNone(issues.default_head(github.Replay([]), "o/r"))
+        self.assertIsNone(issues.default_head(github.Replay([rest_answer("/repos/o/r", {"default_branch": "main"})]), "o/r"))
+        partial = rest_answer("/repos/o/r/git/ref/heads/main", ref())
+        partial["response"]["status"] = 206
+        self.assertIsNone(issues.default_head(github.Replay([rest_answer("/repos/o/r", {"default_branch": "main"}),
+                                                             partial]), "o/r"))
+        # The issue's facts carry what the pass read, and null where it read nothing.
+        self.assertEqual(self.read(issue_read())["default_head"], self.HEAD)
+        self.HEAD = None
+        self.assertIsNone(self.read(issue_read())["default_head"])
 
     def read(self, exchanges, clock=None, transport=None, earlier=()):
         router = transport or Router(github.Replay(exchanges), {"don-petry": "admin", "stranger": "read"})
         accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]})
         found, title = issues.read(router, "o/r", 41, accounts, clock or (lambda: self.NOW), identities=IDENTITIES,
-                                   earlier=None if earlier is None else list(earlier))
+                                   earlier=None if earlier is None else list(earlier), default_head=self.HEAD)
         # The title is handed beside the facts, never in them.
         self.assertEqual(title, (exchanges or issue_read())[0]["response"]["body"]["title"])
         self.assertNotIn(title, json.dumps(found))
@@ -6490,7 +6529,7 @@ class Issues(unittest.TestCase):
                   issue_event("labeled", 4, actor=("dependabot[bot]", 99, "Bot"), label={"name": "x"})]
         router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory=set(names), apps=names)
-        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES, earlier=[])
+        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES, earlier=[], default_head=None)
         # An App the configuration does not name keeps its login (Carbon).
         self.assertEqual([e["by"]["name"] for e in found["label_events"]],
                          ["combsmith-sf-controller[bot]", "combsmith-sf-controller", "dependabot[bot]"])
@@ -6513,17 +6552,17 @@ class Issues(unittest.TestCase):
             router = Router(github.Replay(issue_read([event])), {"don-petry": "admin"})
             accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory=set(names), apps=names)
             with self.assertRaises(github.Unanswered, msg=event["event"]):
-                issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES, earlier=[])
+                issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES, earlier=[], default_head=None)
         # A name the configuration declares, though it holds no account of that App's, no account may show (Carbon).
         event = issue_event("labeled", 1, actor=("combsmith-sf-dev-lead[bot]", 99, "Bot"), label={"name": "factory:ready"})
         router = Router(github.Replay(issue_read([event])), {"don-petry": "admin"})
         reserved = timeline.Accounts(router, "o/r", MACHINE, {}, apps=names, reserved={"combsmith-sf-dev-lead[bot]"})
         with self.assertRaises(github.Unanswered):
-            issues.read(router, "o/r", 41, reserved, lambda: self.NOW, identities=IDENTITIES, earlier=[])
+            issues.read(router, "o/r", 41, reserved, lambda: self.NOW, identities=IDENTITIES, earlier=[], default_head=None)
         # The App itself, by its id, is read.
         events = [issue_event("labeled", 1, actor=("combsmith-sf-controller[bot]", 41, "Bot"), label={"name": "factory:triage"})]
         router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
-        found, _ = issues.read(router, "o/r", 41, timeline.Accounts(router, "o/r", MACHINE, {}, apps=names), lambda: self.NOW, identities=IDENTITIES, earlier=[])
+        found, _ = issues.read(router, "o/r", 41, timeline.Accounts(router, "o/r", MACHINE, {}, apps=names), lambda: self.NOW, identities=IDENTITIES, earlier=[], default_head=None)
         self.assertEqual(found["label_events"][0]["by"]["name"], names[(41, "Bot")])
 
     def test_an_issues_content_time_is_the_newer_of_its_edit_and_its_rename(self):  # P-34
@@ -6615,7 +6654,7 @@ class Issues(unittest.TestCase):
                   issue_event("labeled", 3, CONTROLLER_APP, label={"name": "y"})]
         router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, "o/r", approver, lenses, factory, roles=facts_.roles_of(held))
-        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES, earlier=[])
+        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES, earlier=[], default_head=None)
         # The Role's comment is read as its own; its label is no act, and the Controller's is the one counted.
         self.assertEqual((found["role_comments"], found["acts_since_writer"]), ([{"by": role[0], "at": minute(1)}], 1))
         # A pull request's timeline is counted by the same reader: what `acts_since_writer` counts there is as it was,
@@ -6631,7 +6670,7 @@ class Issues(unittest.TestCase):
         events.append(issue_event("labeled", 4, both, label={"name": "z"}))
         router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, "o/r", approver, lenses, factory, roles=facts_.roles_of(held))
-        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES, earlier=[])
+        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES, earlier=[], default_head=None)
         self.assertEqual((found["acts_since_writer"], timeline.since_writer(events, accounts)["acts_since_writer"]), (2, 2))
         # And it is read as that Lens, never as an App, wherever who acted is told: its label on an issue and on a pull request.
         lens = {"kind": "lens", "name": "pr-review", "can_write": False}
@@ -6713,7 +6752,8 @@ class Issues(unittest.TestCase):
         self.assertEqual(seen, [len(sent)])
         # No pull request names it: the list read is empty and whole (adapters/linked.py).
         self.assertEqual(sent[4]["body"]["query"], linked.QUERY)
-        self.assertEqual((f["linked"], f["branch_head"], f["complete"]), ([], None, {"timeline": True, "linked": True, "runs": True}))
+        self.assertEqual((f["linked"], f["branch_head"], f["default_head"], f["complete"]),
+                         ([], None, self.HEAD, {"timeline": True, "linked": True, "runs": True}))
         self.assertEqual((f["type"], f["label_names"], f["assignees"]), (None, ["kernel"], ["don-petry"]))
         self.assertEqual(f["type_events"], [{"from": None, "to": "Bug", "at": minute(-50)},
                                             {"from": "Bug", "to": "Task", "at": minute(-40)},
@@ -7029,7 +7069,7 @@ class Linked(unittest.TestCase):
             linked_read(ref(5, 6), [closed_by(20, 5)]),
             pull_read(5, user=CONTROLLER_APP, merged=19, closed=19, files=2), pull_timeline(5, merge),
             pull_read(6), pull_timeline(6)])), {"don-petry": "admin"})
-        f, _ = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=[])
+        f, _ = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=[], default_head=None)
         self.assertEqual(([p["number"] for p in f["linked"]], f["complete"]["linked"]), ([5, 6], False))
         deferred = issue.derive(f, [], CONFIG)
         self.assertEqual((deferred["state"], deferred["reason"], deferred["evidence"]), (None, "facts_incomplete", ["linked"]))
@@ -7041,7 +7081,7 @@ class Linked(unittest.TestCase):
         events = [issue_event("closed", 0), issue_event("reopened", 5), issue_event("closed", 8)]
         router = Router(github.Replay(issue_read(events, state="closed", closing=[
             linked_read((), [closed_by(8, oid="d" * 40)])])), {"don-petry": "admin"})
-        f, _ = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=[])
+        f, _ = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=[], default_head=None)
         self.assertEqual((f["life_started_at"], f["complete"]["linked"]), (minute(5), False))
 
     def test_the_linked_pull_requests_read_short_are_not_whole_and_one_not_answered_refuses_the_issue(self):
@@ -7439,7 +7479,7 @@ class DraftChecks(unittest.TestCase):
                                              pull_timeline(5), pull_read(6, draft=True), pull_timeline(6)])
             transport = Router(github.Replay(exchanges_), {"don-petry": "admin"})
             got = issues.read(transport, "o/r", 41, timeline.Accounts(transport, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]}),
-                              lambda: Issues.NOW, identities=IDENTITIES, earlier=[], kernel=given)[0]
+                              lambda: Issues.NOW, identities=IDENTITIES, earlier=[], default_head=None, kernel=given)[0]
             self.assertEqual([p.get("checks") for p in got["linked"]], ["failing", None])
 
 

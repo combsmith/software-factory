@@ -262,6 +262,11 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     # Each issue's own facts, read and dated as a pull request's are; its title beside them. While the tracking
     # issue's number is not read, none is: each is left out as unread, so that one is never served as a Work item.
     issues = []
+    # The default branch's head, read once for the pass and given to each issue's facts (decision 0242).
+    asked = Dated(transport)
+    head = issues_.default_head(asked, home) if listed else None
+    # Dated as every facts read is, when it gives the base an opening Run may be admitted at.
+    facts_reads += dated(asked.first) if head is not None else []
     for number in listed:
         through = Dated(transport)
         try:
@@ -269,7 +274,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
                 raise Unanswered("the tracking issue's number was not read")
             # No pass record is handed on yet, so no span is read, while an issue a pull request names defers (issue 734).
             facts, title = issues_.read(through, home, number, who, lambda: utc(clock), identities=identities,
-                                        earlier=[], kernel=config["kernel"])
+                                        earlier=[], default_head=head, kernel=config["kernel"])
             issues.append({"facts": facts, "title": title})
             facts_reads += dated(through.first)
         except Unanswered as err:
