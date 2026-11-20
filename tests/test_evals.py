@@ -2172,8 +2172,9 @@ class EvalJob(unittest.TestCase):
                                modelUsage={}), 1
         good = live.answer(live.judged(findings=[], effects={})), 0
 
-        def asked(*said, clock=lambda: 0.0):
+        def asked(*said, clock=lambda: 0.0, versions=None):
             cli, slept = Answers(*said), []
+            cli.versions = list(versions) if versions is not None else cli.versions
             heads = self.temp / "heads"
             (heads / case["id"]).mkdir(parents=True, exist_ok=True)
             review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, clock, heads, sleep=slept.append)
@@ -2313,6 +2314,56 @@ class EvalJob(unittest.TestCase):
             self.assertEqual((result["reason"], review.retried, review.seen), ("engine_failed", {}, {"raised": "OSError", "erred": True}))
             result, review, calls, slept = asked(said, subprocess.TimeoutExpired(["claude"], 1))
             self.assertEqual((result["reason"], review.retried, review.seen), ("engine_timeout", {}, {"timed_out": True, "erred": True}))
+            # An answer the Engine refuses after its call, another model's or one that fails its schema, is of a call the
+            # watch saw succeed, so the word it kept is a later call's: the cause is left out, never taken from that
+            # call, and the case is not the vendor's (issue 865).
+            others = (live.answer(modelUsage={live.MODEL + "-other": {}}), 0)
+            invalid = (live.answer(live.judged(status="no such status")), 0)
+            cut = (live.answer(live.judged(status="incomplete", reason="change_not_reviewed_whole", findings=[], effects={})), 0)
+            refused = (live.answer(live.judged(status="refused", reason="task_not_a_review", findings=[], effects={})), 0)
+            for first, reason in ((others, "engine_model"), (invalid, "result_invalid"), (cut, "change_not_reviewed_whole"),
+                                  (refused, "task_not_a_review")):
+                for later in (vendor(503), OSError("no such file"), subprocess.TimeoutExpired(["claude"], 1), good):
+                    result, review, calls, slept = asked(first, later)
+                    self.assertEqual((result["reason"], review.retried, calls, review.seen, job.seen_of(review)),
+                                     (reason, {}, 2, {}, {}), reason)
+                    self.assertFalse(job.transient(result, review.seen))
+            # So is the word beside two answers that completed: neither call's is the pair's. And so is that of a call
+            # that erred where another model answered it: the watch cannot tell it from a later call's.
+            result, review, calls, slept = asked(good, good)
+            self.assertEqual((result["status"], calls, review.seen), ("completed", 2, {}))
+            erred = (live.answer(is_error=True, structured_output=None, modelUsage={live.MODEL + "-other": {}}), 1)
+            result, review, calls, slept = asked(erred, good)
+            self.assertEqual((result["reason"], calls, review.seen), ("engine_model", 2, {}))
+            # So is the word beside a Result of no call, or of a call the version changed under: the first is failed
+            # before its call, at the version read, and the one call made is the second Result's.
+            for versions, calls_made in (((None,), 1), ((live.PIN, None), 2)):
+                result, review, calls, slept = asked(*[vendor(503)] * calls_made, versions=versions)
+                self.assertEqual((result["reason"], review.retried, calls, review.seen), ("engine_version", {}, calls_made, {}))
+            # A retry's Result is held as the first ask's is.
+            result, review, calls, slept = asked(vendor(529), good, others, vendor(503))
+            self.assertEqual((result["reason"], review.retried, calls, review.seen), ("engine_model", {case["id"]: 1}, 4, {}))
+        # A case of one Result keeps its call's word, whatever the Engine made of its answer: it is that Result's own. So
+        # with the version read before the call and after it, and none where the call was never made.
+        for first, reason in ((others, "engine_model"), (invalid, "result_invalid")):
+            result, review, calls, slept = asked(first)
+            self.assertEqual((result["reason"], calls, job.seen_of(review)), (reason, 1, {"subtype": "success", "exit": 0}))
+        result, review, calls, slept = asked(vendor(503), versions=(live.PIN, None))
+        self.assertEqual((result["reason"], calls, review.seen["api_error_status"]), ("engine_version", 1, 503))
+        result, review, calls, slept = asked(versions=(None,))
+        self.assertEqual((result["reason"], calls, review.seen), ("engine_version", 0, {}))
+        # Its calls are counted by the ask: not with the ask a retry follows, nor with a case before it that ended in
+        # what its call raised.
+        result, review, calls, slept = asked(vendor(529), others)
+        self.assertEqual((result["reason"], review.retried, job.seen_of(review)),
+                         ("engine_model", {case["id"]: 1}, {"subtype": "success", "exit": 0}))
+        cli, heads = Answers(RuntimeError("no such call"), others), self.temp / "heads"
+        review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, lambda: 0.0, heads, sleep=lambda seconds: None)
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            (heads / case["id"]).mkdir(parents=True, exist_ok=True)
+            self.assertRaises(RuntimeError, review, case)
+            (heads / case["id"]).mkdir(parents=True, exist_ok=True)
+            self.assertEqual((review(case)["reason"], job.seen_of(review)), ("engine_model", {"subtype": "success", "exit": 0}))
         # The test is of a failed Result alone: a completed one is never transient, whatever the call said. Each probe is of
         # a Result the Engine failed, so that it reaches the guard it is of.
         result = dict(result, status="failed", reason="engine_failed")
@@ -3274,6 +3325,22 @@ class EvalJob(unittest.TestCase):
         marks = {c["id"]: (c.get("at_alternate"), c.get("surplus_gating")) for c in ledger["preflight"]}
         self.assertEqual(marks, {first[0]: (True, None), first[1]: (None, 2), first[2]: (None, None)})
 
+    def test_the_eval_job_writes_no_number_that_is_not_finite(self):  # issue 922
+        # A number that is not finite is no JSON. A step's file, the report among them, and a gate set's ledger refuse
+        # one at the write, before a file is opened, so that no reader is left a file it cannot parse, or an empty one.
+        from harness import eval as job
+        for odd in (float("nan"), float("inf"), float("-inf")):
+            with self.assertRaisesRegex(ValueError, "not JSON compliant"):
+                job._write(self.work, "odd.json", {"usage": {"cost_usd": odd}})
+            self.assertFalse((self.work / "odd.json").exists())
+        self.set(self.cases, gate=True, natural=[])
+        self.step(job.plan)
+        self.step(the_fetch(), self.home(self.cases, gate=True))
+        with mock.patch.object(job, "ledger_of", lambda *a, **k: {"usage": {"cost_usd": float("nan")}}):
+            with self.assertRaisesRegex(ValueError, "not JSON compliant"):
+                self.step(job.score, lambda case: example_result())
+        self.assertFalse((self.temp / "heldout" / job.LEDGER).exists())
+
     def test_a_gate_sets_faults_are_the_codes_of_cases_not_read_alone(self):  # Muse's read of #628
         # A case the reviewer failed is counted under its kind, never as a fault: only a case not read says its code,
         # by how many (decision 0164).
@@ -3846,20 +3913,22 @@ class EvalJob(unittest.TestCase):
 
     def floored(self, groups, floors=None):
         """A synthetic gate set of `groups`, each `(criterion, verdict, how many)`, its cases fetched into a scratch
-        folder: `(found, place)`. It floors PR-3 at a half unless `floors` says other (issue 692)."""
+        folder: `(found, place)`. It floors PR-3 at a half unless `floors` says other (issue 692). Every other case is
+        natural, unless a group says how many of its own are, its first (issue 695)."""
         import tempfile
         place = pathlib.Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, place, True)
         (place / "cases").mkdir()
         cases = []
-        for name, kind, many in groups:
-            for _ in range(many):
+        for name, kind, many, *marked in groups:
+            for at in range(many):
                 ident = "c-%d" % len(cases)
                 finding = None if kind != "finding" else {"category": "functional", "severity": "major",
                                                       "location": {"path": "kernel/x.py", "start_line": 1, "end_line": 1}}
                 (place / "cases" / ("%s.json" % ident)).write_text(
                     json.dumps({"expected": {"verdict": kind, "criterion": name, "finding": finding}}))
-                cases.append({"id": ident, "sha256": "%064x" % len(cases), "natural": len(cases) % 2 == 0})
+                cases.append({"id": ident, "sha256": "%064x" % len(cases),
+                              "natural": at < marked[0] if marked else len(cases) % 2 == 0})
         found = {"schema": "eval-set/1", "role": "pr-review", "intent": "review-change", "gate": True, "count": len(cases),
                  "cases": cases, "bars": {"finding": [3, 10], "met": [9, 10]}, "kind_least": 20,
                  "record": "docs/decisions/0164-the-gate-sets-record.md", "preflight": ["p-0", "p-1", "p-2"],
@@ -3874,6 +3943,143 @@ class EvalJob(unittest.TestCase):
         report = job.aggregate(kept, found, assessed, place, {}, b"", None, {p: (job.PASS, []) for p in found["preflight"]})
         report["ledger"]["sealed_sha256"], report["models"] = "f" * 64, ["claude-opus"]
         return report
+
+    def test_a_gate_sets_sealed_ledger_says_where_two_of_its_groups_overlap_in_a_few_cases_and_nothing_public_does(self):
+        # Issue 695, decision 0220. A cell is a kind, the criterion the set floors or none of them, and natural or not.
+        # Made-up sets, each group `(criterion, kind, how many, how many of them natural)`; no held-out set is read.
+        from harness import eval as job
+        judged = lambda report, of: job.verdict(report, of, "d" * 64, "a" * 40, "factory/v0.1.0")
+        pooled = lambda reports, of: job.pooled_verdict(reports, of, "d" * 64, "a" * 40, "factory/v0.1.0")
+        cell = lambda kind, criterion, natural, cases, width=2: {
+            "kind": kind, "criterion": criterion, "natural": natural, "cases": "%0*d" % (width, cases), "few": int(0 < cases < 10)}
+        ok = lambda groups, **floors: not any(c["few"] for c in job.cells_of(*self.floored(groups, **floors)))
+        whole = [("PR-3", "finding", 20, 10), ("PR-4", "finding", 10, 0), ("PR-1", "met", 20, 10)]
+        import contextlib
+        quiet = io.StringIO()
+        with mock.patch.object(job, "ORIGIN_LEAST", 12):     # the least is the configured one
+            self.assertIs(ok(whole), False)
+        # These tests otherwise set the least to none. Nothing is printed of a set.
+        with mock.patch.object(job, "ORIGIN_LEAST", 10), contextlib.redirect_stdout(quiet), contextlib.redirect_stderr(quiet):
+            # Every cell the manifest's shape allows is listed, one of no case among them, each count at one width.
+            self.assertEqual(job.cells_of(*self.floored(whole)), [
+                cell("finding", None, False, 10), cell("finding", None, True, 0), cell("finding", "PR-3", False, 10),
+                cell("finding", "PR-3", True, 10), cell("met", None, False, 10), cell("met", None, True, 10)])
+            # Every case of the floored criterion natural, and one other finding natural too: the natural cases' passes
+            # less the criterion's are that one case's verdict, though each group the report counts holds ten.
+            one = [("PR-3", "finding", 10, 10), ("PR-4", "finding", 10, 1), ("PR-1", "met", 20, 0)]
+            found, place = self.floored(one)
+            cells = job.cells_of(found, place)
+            self.assertEqual(cells, [cell("finding", None, False, 9), cell("finding", None, True, 1),
+                                     cell("finding", "PR-3", False, 0), cell("finding", "PR-3", True, 10),
+                                     cell("met", None, False, 20), cell("met", None, True, 0)])
+            # A sealed ledger's size is public, so its cells are as long whatever they are: another set of as many cases.
+            other = job.cells_of(*self.floored([("PR-3", "finding", 10, 5), ("PR-4", "finding", 10, 5), ("PR-1", "met", 20, 3)]))
+            self.assertNotEqual(other, cells)
+            # A count's width is the set's own count's, not its cells': ten cases, no cell of which holds ten.
+            self.assertEqual([c["cases"] for c in job.cells_of(*self.floored([("PR-3", "finding", 4, 2), ("PR-1", "met", 6, 3)]))],
+                             ["00", "00", "02", "02", "03", "03"])
+            self.assertEqual(len(json.dumps(other, indent=2)), len(json.dumps(cells, indent=2)))
+            for name, groups in (("nine natural findings beyond the floor", [("PR-3", "finding", 10, 10), ("PR-4", "finding", 19, 9), ("PR-1", "met", 20, 0)]),
+                                 ("nine natural cases of the floored criterion", [("PR-3", "finding", 19, 9), ("PR-1", "met", 20, 10)]),
+                                 ("one clean case that is not natural", [("PR-3", "finding", 20, 10), ("PR-1", "met", 21, 20)]),
+                                 # A kind is a cell's: five findings beyond the floor, five clean, all natural.
+                                 ("a kind apart", [("PR-3", "finding", 20, 10), ("PR-4", "finding", 15, 5), ("PR-1", "met", 15, 5)])):
+                self.assertIs(ok(groups), False, name)
+            # Ten is enough, and a cell of no case is not a few.
+            self.assertIs(ok([("PR-3", "finding", 20, 10), ("PR-4", "finding", 10, 10), ("PR-1", "met", 20, 0)]), True)
+            # A criterion the set does not floor is no cell of its own, and each one it floors is.
+            spread = [("PR-3", "finding", 20, 10), ("PR-4", "finding", 10, 5), ("PR-5", "finding", 10, 5), ("PR-1", "met", 20, 10)]
+            self.assertEqual((ok(spread), ok(spread, floors={"PR-3": [1, 2], "PR-4": [1, 2]}), ok(spread, floors={})),
+                             (True, False, True))
+            # Each floored criterion's cells are its own, in the criteria's order whatever the manifest's: four of five.
+            self.assertEqual(job.cells_of(*self.floored([("PR-3", "finding", 10, 5), ("PR-4", "finding", 10, 5), ("PR-1", "met", 20, 10)],
+                                                        floors={"PR-4": [1, 2], "PR-3": [1, 2]})),
+                             [cell("finding", None, False, 0), cell("finding", None, True, 0),
+                              cell("finding", "PR-3", False, 5), cell("finding", "PR-3", True, 5),
+                              cell("finding", "PR-4", False, 5), cell("finding", "PR-4", True, 5),
+                              cell("met", None, False, 10), cell("met", None, True, 10)])
+            # A set that floors no criterion has four cells, and one of a hundred cases counts at three digits.
+            bare = job.cells_of(*self.floored([("PR-3", "finding", 20, 9), ("PR-1", "met", 20, 11)], floors={}))
+            self.assertEqual([(c["cases"], c["few"]) for c in bare], [("11", 0), ("09", 1), ("09", 1), ("11", 0)])
+            self.assertEqual([c["cases"] for c in job.cells_of(*self.floored([("PR-3", "finding", 50, 25), ("PR-1", "met", 50, 20)]))],
+                             ["000", "000", "025", "025", "030", "020"])
+            # A floored criterion no case is of keeps its two cells, of none.
+            self.assertEqual([c["cases"] for c in job.cells_of(*self.floored(whole, floors={"PR-3": [1, 2], "PR-9": [1, 2]}))
+                              if c["criterion"] == "PR-9"], ["00", "00"])
+            # Nor is the criterion of a clean case: a floor counts the cases that expect a Finding on it alone.
+            self.assertIs(ok([("PR-3", "finding", 20, 10), ("PR-3", "met", 10, 5), ("PR-1", "met", 10, 5)]), True)
+            # Nothing public says any of it, and nothing is stopped. A word that every cell is whole, beside the counts
+            # a report gives and the marks a manifest gives by id, could tell which cases a floored criterion's are.
+            report = self.written(found, place, set())
+            self.assertEqual((job._errors(report, "eval-aggregate"), job.floor_short(found, place)), ([], False))
+            self.assertNotIn("cells", json.dumps(report))
+            self.assertTrue(job._errors(dict(report, cells=cells), "eval-aggregate"))     # nor may a report hold them
+            self.assertEqual(job.tally_of_aggregate(report), "40 of 40 passed; no code; preflight 3 of 3 passed")
+            self.assertEqual((judged(report, found), pooled([report] * 3, found)), ("pass", "pass"))
+            # A development set counts no group, so nothing is said of it; nor of a set a case of which cannot be read.
+            development = {k: v for k, v in found.items() if k not in ("gate", "criterion_bars") + job.OWN}
+            self.assertIsNone(job.cells_of(development, place))
+            (place / "cases" / "c-0.json").unlink()
+            self.assertIsNone(job.cells_of(found, place))
+        # The run seals it in the ledger, and no step's line says a word of it: two natural cases on two criteria, each a cell of one.
+        cases = {ident: json.loads(data) for ident, data in self.cases.items()}
+        first, other = (cases[ident]["expected"] for ident in cases)
+        other["criterion"] = "PR-4" if first["criterion"] != "PR-4" else "PR-3"
+        cases = {ident: (json.dumps(case, indent=2) + "\n").encode() for ident, case in cases.items()}
+        self.assertEqual(quiet.getvalue(), "")
+        printed = io.StringIO()
+        # The run step is told each count two digits wider here, and the ledger keeps what it is told.
+        real, told = job.cells_of, []
+        wide = lambda found, place: told[-1] if told else [dict(c, cases="00" + c["cases"]) for c in real(found, place)]
+        with mock.patch.object(job, "ORIGIN_LEAST", 2), mock.patch.object(job, "FLOOR_LEAST", 1), \
+                mock.patch.object(job, "cells_of", wide), \
+                contextlib.redirect_stdout(printed), contextlib.redirect_stderr(printed):
+            self.set(cases, gate=True, natural=list(cases), floors={first["criterion"]: [1, 2]})
+            planned = self.step(job.plan)
+            fetched = self.step(job.fetch, self.home(cases, gate=True))
+            said = self.step(job.score, lambda case: example_result())
+            # The run again, told other cells: the ledger is as long, and the judge and the report say the same.
+            sealed, written, again = self.temp / "heldout" / job.LEDGER, self.work / job.REPORT, {}
+
+            def judged_run():
+                # The judge's line of the run just scored, and its report but for its ledger's hashes, of a new salt.
+                report = json.loads(written.read_text())
+                written.write_text(json.dumps(dict(report, ledger=dict(report["ledger"], sealed_sha256="f" * 64))))
+                return self.step(job.judge), {k: v for k, v in report.items() if k != "ledger"}
+            first_run, (judged, public) = sealed.read_bytes(), judged_run()
+            for name, cases, flag in (("none a few", "000", 0), ("each a few", "001", 1), ("each whole", "023", 0)):
+                told.append([dict(c, cases=cases, few=flag) for c in json.loads(first_run)["cells"]])
+                sealed.unlink()
+                self.assertEqual(self.step(job.score, lambda case: example_result()), said, name)
+                again[name] = (len(sealed.read_bytes()), json.dumps(json.loads(sealed.read_bytes())["cells"]) == json.dumps(told[-1]),
+                               judged_run() == (judged, public))
+            self.assertEqual(again, dict.fromkeys(again, (len(first_run), True, True)))
+            sealed.write_bytes(first_run)
+        # Each step's line, word for word, and nothing else printed.
+        self.assertEqual((planned, fetched, said, judged, printed.getvalue()),
+                         ("planned 2 cases after 3 to preflight", "fetched 2 of 2 cases, 3 of 3 to preflight",
+                          "scored 2 of 2 cases, 1 passed",
+                          "1 of 2 passed; answer_off_rubric 1; preflight 3 of 3 passed; a blocking case not passed", ""))
+        ledger = json.loads((self.temp / "heldout" / job.LEDGER).read_text())
+        few = lambda kind, criterion, natural, cases: dict(cell(kind, criterion, natural, cases, 3), few=int(cases == 1))
+        text = lambda cells: json.dumps(cells, sort_keys=True)      # as text, since True is 1 to Python and not to a reader
+        self.assertEqual(text(ledger["cells"]), text([few("finding", None, False, 0), few("finding", None, True, 1),
+                                                      few("finding", first["criterion"], False, 0), few("finding", first["criterion"], True, 1),
+                                                      few("met", None, False, 0), few("met", None, True, 0)]))
+        self.assertEqual(job._errors(ledger, "eval-ledger"), [])
+        # A ledger says its cells or that they could not be read, never nothing.
+        self.assertTrue(job._errors({k: v for k, v in ledger.items() if k != "cells"}, "eval-ledger"))
+        self.assertEqual(job._errors(dict(ledger, cells=None), "eval-ledger"), [])
+        # The cells have a shape: cells that say nothing, or nothing of their count, make no ledger.
+        each = lambda **changed: [dict(c, **changed) for c in ledger["cells"]]
+        for cells in ([], ledger["cells"][:3], [{}] * 4, each(cases=1), each(cases="x"), each(cases=""), each(cases="0" * 10),
+                      each(few=2), each(few=True), each(few=1.0), each(natural=1), each(kind="other"), each(criterion="not one"),
+                      each(criterion=3), *([{k: v for k, v in c.items() if k != gone} for c in ledger["cells"]]
+                                           for gone in ("kind", "criterion", "natural", "cases", "few"))):
+            self.assertTrue(job._errors(dict(ledger, cells=cells), "eval-ledger"), cells)
+        # And the run's report is a report, with no field of the cells.
+        self.assertEqual(job._errors(json.loads((self.work / job.REPORT).read_text()), "eval-aggregate"), [])
+        self.assertNotIn("cells", (self.work / job.REPORT).read_text())
 
     def test_a_gate_set_holds_a_floor_per_criterion_read_from_each_cases_expected_criterion(self):  # issue 692
         from harness import eval as job
