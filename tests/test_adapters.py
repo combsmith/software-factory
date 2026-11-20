@@ -1063,6 +1063,8 @@ class Diff(unittest.TestCase):
             def send(self, req):
                 self.asked.append((req["method"], req["path"], req["accept"]))
                 found = self.answers[req["accept"]]
+                if found is github.Unanswered:
+                    raise github.Unanswered("no answer")
                 return found if isinstance(found, dict) and "status" in found else {"status": 200, "headers": {}, "body": found}
         seen = set()
         pinned = "/repos/%s/compare/%s...%s" % (data["base"]["repo"]["full_name"], PINNED_BASE, commit)
@@ -1084,7 +1086,8 @@ class Diff(unittest.TestCase):
         pull.diff(asked, data, PINNED_BASE)
         self.assertEqual(asked.asked, [("GET", pinned, github.DIFF)])
         # A compare whose files cannot be read gives none: the binary file's line is GitHub's, at each read its own.
-        for unread in ({"status": 500, "headers": {}, "body": files}, {"files": "x"}, ["x"], {"files": [None, {"sha": 1}]}):
+        for unread in ({"status": 500, "headers": {}, "body": files}, {"files": "x"}, ["x"], {"files": [None, {"sha": 1}]},
+                       github.Unanswered):
             got = {pull.diff(Sent(binary(ids) + text % "1aab6ce4..2bbc7df5", unread), data, PINNED_BASE)["content_id"]
                    for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8")}
             self.assertEqual(len(got), 2, unread)

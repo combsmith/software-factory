@@ -1517,6 +1517,8 @@ ISSUE = [
 
 MUTANTS = ISSUE + [
     # Issue 1016: a binary file's change is bound to its full blob id.
+    ("a compare's files not answered make the diff unread", 'adapters/pull.py',
+     '    except Unanswered:\n        return ()\n    rows = answer["body"]', '    except ValueError:\n        return ()\n    rows = answer["body"]', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
     ('a renamed binary file is bound by its new path alone', 'adapters/pull.py',
      '"diff --git a/%s b/%s" % (before, name)}', '"diff --git a/%s b/%s" % (name, name)}', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
     ("a renamed binary file's row is read by its new path for both", 'adapters/pull.py',
@@ -1532,7 +1534,7 @@ MUTANTS = ISSUE + [
     ('a blob of SHA-256 names none', 'adapters/pull.py',
      'BLOB = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")', 'BLOB = re.compile(r"[0-9a-f]{40}")', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
     ("the compare's files are asked of the base branch's own compare", 'adapters/pull.py',
-     '    answer = transport.send(request("GET", path))\n    rows = answer["body"]', '    answer = transport.send(request("GET", path.split("...")[0] + "...HEAD"))\n    rows = answer["body"]', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
+     '        answer = transport.send(request("GET", path))\n    except Unanswered:', '        answer = transport.send(request("GET", path.split("...")[0] + "...HEAD"))\n    except Unanswered:', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
     ('only the first file of a diff is looked at for a binary one', 'adapters/pull.py',
      'for start, end in zip(starts, starts[1:] + [len(text)])):\n        return ()', 'for start, end in zip(starts[:1], [len(text)])):\n        return ()', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
     ('a binary file whose head is all zeros is deleted, whatever its part says', 'adapters/pull.py',

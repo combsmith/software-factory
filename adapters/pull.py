@@ -276,12 +276,15 @@ def _binary(part: str, blobs) -> str:
 def blobs(transport, path: str, text: str) -> tuple:
     """Each file the compare at `path` lists, by the path it had, its path and its head's full blob id, read only
     where `text`, that compare's diff, holds a binary file's part: what `canonical` writes such a file's index line from (issue 1016). A compare
-    whose files cannot be read gives none, and a binary file's index line is then kept as GitHub sent it, a content
+    whose files cannot be read, its read not answered among them, gives none, and a binary file's index line is then kept as GitHub sent it, a content
     that may move, never one taken for another."""
     starts = [found.start() for found in FILE.finditer(text)]
     if not any(BINARY_FILE.search(text[start:end]) for start, end in zip(starts, starts[1:] + [len(text)])):
         return ()
-    answer = transport.send(request("GET", path))
+    try:
+        answer = transport.send(request("GET", path))
+    except Unanswered:
+        return ()
     rows = answer["body"].get("files") if answer["status"] == 200 and isinstance(answer["body"], dict) else None
     if not isinstance(rows, list):
         return ()
