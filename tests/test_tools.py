@@ -4784,7 +4784,7 @@ class Workflows(unittest.TestCase):
         # runs the item's code (decision 0219): each checkout names its ref, the Release's own commit, and a later job's is
         # the one the run job's `commit` step handed on; each `run:` runs a module of the Release's harness from the folder
         # the job starts in, the CLI's install from the vendor word for word, or the wake's one call; the other steps are
-        # the pinned checkout, upload and download actions, each with its own inputs and the data folders below; the CLI is
+        # the pinned checkout, upload and download actions, each with its own inputs and one of the data folders below; the CLI is
         # the one installed, on the runner named; and no key moves where or how a step runs, or hands it more environment:
         # no `working-directory:`, `shell:`, `defaults:`, `container:`, and no name of `env:` outside the set below. Each
         # is named here, not read from tools/check_workflows.py, so that a step added there and here alike is still refused.
@@ -4823,7 +4823,9 @@ class Workflows(unittest.TestCase):
                         if e["key"] == key and len(e["path"]) == 3 and e["path"][2] == "steps"}
             named, actions = of_step("name"), {k: v.split("@")[0] for k, v in of_step("uses").items()}
             refs = {(e["path"][1], e["step"]) for e in entries if e["key"] == "ref" and e["path"][2:] == ["steps", "with"]}
-            found = [step for step, action in actions.items() if action == "actions/checkout" and step not in refs]
+            paths_of = {(e["path"][1], e["step"]) for e in entries if e["key"] == "path" and e["path"][2:] == ["steps", "with"]}
+            found = [step for step, action in actions.items() if action == "actions/checkout" and step not in refs
+                     or action in ("actions/upload-artifact", "actions/download-artifact") and step not in paths_of]
             if any(e["value"] == "${{ needs.run.outputs.commit }}" for e in entries) and not (
                     [e["value"] for e in entries if e["path"] == ["jobs", "run", "outputs"] and e["key"] == "commit"]
                     == [fixed["commit"]] and of_step("id").get(("run", 2)) == "commit"
@@ -4888,6 +4890,9 @@ class Workflows(unittest.TestCase):
                 ("a runner of its own", good.replace("    runs-on: ubuntu-24.04\n    timeout-minutes: 33\n",
                                                      "    runs-on: self-hosted\n    timeout-minutes: 33\n")),
                 ("the Result uploaded from the harness", good.replace("          path: result/\n", "          path: harness/\n")),
+                ("the Result downloaded into the Release's folder", good.replace(
+                    "          artifact-ids: ${{ needs.run.outputs.artifact }}\n          path: result\n      - name: Verify the Result\n",
+                    "          artifact-ids: ${{ needs.run.outputs.artifact }}\n      - name: Verify the Result\n")),
                 ("the Result downloaded into the harness", good.replace("          path: result\n", "          path: harness\n", 1)),
                 ("the wake runs more", good.replace('-f ref=main || echo', '-f ref=main; make || echo'))):
             self.assertNotEqual(text, good, why)
