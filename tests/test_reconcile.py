@@ -20,7 +20,8 @@ OTHER = dict(ITEM, number=43)
 URL = "https://github.com/combsmith/software-factory/pull/42"
 ACCOUNTS = json.loads((ROOT / "config" / "controller.json").read_text())["accounts"]
 KNOWN = dict(ACCOUNTS, controller={"id": 5000001, "type": "Bot", "login": "combsmith-sf-controller[bot]"},
-             roles={"pr-review": {"id": 5000002, "type": "Bot", "login": "combsmith-sf-pr-review[bot]"}})
+             roles={"pr-review": {"id": 5000002, "type": "Bot", "login": "combsmith-sf-pr-review[bot]"}},
+             lenses=[{"lens": "pr-review", "login": "combsmith-sf-pr-review[bot]", "id": 5000002}])
 # The pass job's token's account, once it is set: dispatches are reconciled from then on (ruling 2).
 TOKEN = dict(KNOWN, workflow_token={"id": 5000003, "type": "Bot"})
 
@@ -343,7 +344,9 @@ class Hand(unittest.TestCase):
         # The rule starts for an item where the record that decided it starts it, not where the last record does: one
         # written before it decided the item, and a later one that carries hands did not (issue 887).
         for before in ([], [passed(hands=None)], [passed([], hands=None)], [passed(item=OTHER), passed(item=OTHER)],
-                       [passed(hands=None, **review), passed([], item=OTHER)]):
+                       [passed(hands=None, **review), passed([], item=OTHER)],
+                       # Nor does a last record that carried none, though it did not decide the item and an earlier did.
+                       [passed(hands=["PRRT_t"], **review), passed([], item=OTHER, hands=None)]):
             found = check(seen(HAND), before=before)
             self.assertEqual((found["unmatched"], found["short"]), ([], True), before)
             self.assertEqual((reconcile.alerts(found), reconcile.entries(found)), (["reconciliation_unreadable"], waved))
@@ -826,6 +829,11 @@ class SeenPort(unittest.TestCase):
         answered = json.loads((ROOT / "trials" / "P-39.accounts.json").read_text())["exchanges"]
         self.assertEqual([{k: e["response"]["body"][k] for k in ("login", "id", "type")} for e in answered],
                          [ACCOUNTS["controller"], ACCOUNTS["roles"]["pr-review"]])
+        # A Lens whose account is not its Role's, or that has no Role, is a thread the facts read as that Lens's and this
+        # port as no Role's: a person's resolution of it would be no write, so no identity is known (issue 887).
+        for lenses in ([{"lens": "pr-review", "login": "x[bot]", "id": 999000111}], [{"lens": "qa-lead", "login": "x[bot]", "id": 5000002}]):
+            self.assertIs(seen_.identities(dict(KNOWN, lenses=lenses))[1], False, lenses)
+        self.assertIs(seen_.identities(dict(KNOWN, lenses=[]))[1], True)
         # Two identities of one account cannot be told apart: neither is known (issue 328).
         twice = dict(KNOWN, roles={"pr-review": dict(KNOWN["controller"])})
         self.assertEqual(seen_.identities(twice), ({(281750570, "User"): "approver"}, False))

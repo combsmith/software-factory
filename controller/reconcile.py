@@ -138,7 +138,7 @@ def _hands(seen: dict, before) -> tuple:
     carried_ = {e["key"] for e in held or () if _within(e["at"], seen["since"])}
     matched, unjudged = set(), set()
     for w in filter(_is_hands, seen["writes"]):
-        named = _named(before, key(w["item"]))
+        named = _named(before, key(w["item"])) if held is not None else None
         if w["key"] in carried_ or (named is not None and w["key"] in named):
             matched.add(w["key"])
         elif named is None:

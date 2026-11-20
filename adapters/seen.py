@@ -391,4 +391,11 @@ def identities(accounts: dict) -> tuple:
         found[told] = "queue"
     for told in twice:
         del found[told]
+    # A Lens's thread is the facts' by the Lens's account, and a hand's here by its Role's: where the two are not one
+    # account, a person's resolution of that Lens's thread would be read as no write, so no identity is known (issue 887).
+    roles = accounts.get("roles") if isinstance(accounts.get("roles"), dict) else {}
+    for lens in accounts.get("lenses") or ():
+        role = roles.get(lens.get("lens")) if isinstance(lens, dict) else None
+        if not isinstance(role, dict) or (role["id"], role.get("type", "User")) != (lens.get("id"), "Bot"):
+            known = False
     return found, known and not twice
