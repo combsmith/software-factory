@@ -1437,13 +1437,30 @@ class Simulation(unittest.TestCase):
                   "status": "completed", "conclusion": "success", "started_at": w.at(25)}
         w.runs = [review]
         self.assertTrue(w.dropped_since_the_push(th))
+        # A thread opened at the push itself is no thread before it, as the Kernel reads `opened_at >= pushed`; a
+        # category the Kernel does not know, or none, and a thread no Lens opened are never dropped (the reader audit).
         for change in ({"category": "security"}, {"ruling": "rejected"}, {"opened_at": w.at(22)}, {"dropped": False},
-                       {"opened_by": dict(th["opened_by"], name="another-lens")}):
+                       {"opened_by": dict(th["opened_by"], name="another-lens")}, {"opened_at": w.at(20)},
+                       {"category": None}, {"category": "bogus"}, {"opened_by": dict(th["opened_by"], kind="human")}):
             self.assertFalse(w.dropped_since_the_push(dict(th, **change)), change)
+        # A review that began at the push itself is no review after it, and one still running has succeeded at nothing.
         for change in ({"started_at": w.at(15)}, {"content_id": "sha256:other"}, {"role": "another-lens"},
-                       {"conclusion": "failure"}, {"intent": "fix-findings"}):
+                       {"conclusion": "failure"}, {"intent": "fix-findings"}, {"started_at": w.at(20)},
+                       {"status": "in_progress"}):
             w.runs = [dict(review, **change)]
             self.assertFalse(w.dropped_since_the_push(th), change)
+        # Through the act, the Kernel asked again saying the same: the queue App's resolution of a dropped thread is
+        # taken, and one of a security Finding's breaks the world, as the Kernel never asks it (the reader audit).
+        def resolving(thread):
+            w.runs = [dict(review, item=dict(world.ITEM))]
+            w.threads = [dict(thread)]
+            d = {"outcome": "act", "action": "resolve_thread", "evidence": [thread["id"]], "content_id": w.cid()}
+            with mock.patch.object(world, "decide", lambda *a: dict(d)):
+                w.apply_action(d)
+            return w.threads[0]
+        self.assertEqual(resolving(th)["resolved_by"], world.QUEUE_APP)
+        with self.assertRaises(world.Broken):
+            resolving(dict(th, category="security"))
 
     def test_every_invariant_not_yet_held_names_a_pending_test(self):
         # When a rule is built and its test loses @pending, its invariant here must start to raise too.

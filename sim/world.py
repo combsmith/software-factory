@@ -19,6 +19,9 @@ from tools import check_lifecycle
 from tools.hooks import protected
 from tools.jsonschema_lite import validate
 
+# The categories whose thread a later review may drop, as the Kernel reads them: each it knows but security's (0212).
+DROPPABLE = tuple(c for c in t.CATEGORIES if c != "security")
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # The Kernel is given the defaults, the Lifecycle whose staleness limits it reads, and the protected paths and Lenses'
 # inputs from config/hooks.json, and which of them only a person decides, as the Controller gives it them.
@@ -605,11 +608,11 @@ class World:
         self.trace.append("%s %s" % (self.now(), what))
 
     def dropped_since_the_push(self, th: dict) -> bool:
-        """Whether a Lens's thread is one its later review dropped, as the world says it (decision 0212): marked dropped,
-        not ruled rejected, not a security Finding's, opened before the last push, with a review by its Lens that
-        succeeded on this content and began after that push."""
-        return th.get("dropped") is True and th["ruling"] != "rejected" and th["category"] != "security" \
-            and th["opened_at"] < self.last_push and any(
+        """Whether a Lens's thread is one its later review dropped, as the Kernel reads it (decision 0212): a Lens's,
+        marked dropped, of a category the Kernel knows that is not security, not ruled rejected, opened before the last
+        push, with a review by its Lens that succeeded on this content and began after that push."""
+        return th["opened_by"]["kind"] == "lens" and th.get("dropped") is True and th["ruling"] != "rejected" \
+            and th["category"] in DROPPABLE and th["opened_at"] < self.last_push and any(
                 r["role"] == th["opened_by"]["name"] and r["intent"] == "review-change" and r["status"] == "completed"
                 and r["conclusion"] == "success" and r["content_id"] == self.cid() and r["started_at"] > self.last_push
                 for r in self.runs)
