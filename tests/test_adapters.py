@@ -7446,6 +7446,7 @@ class DraftChecks(unittest.TestCase):
 PUSHED = json.loads((ROOT / "trials" / "P-71.json").read_text())["repo"]       # P-71's repo, and its work branch
 WORK = "factory-work/issue-9971-1"
 NAMED = "a" * 40
+MIXED = "0123456789abcdef" * 2 + "01234567"     # a name of digits and letters both
 
 
 def calmly(send, *args):
@@ -7467,6 +7468,26 @@ class Posing:
 
     def __eq__(self, other):
         return True
+
+
+class Lying(str):
+    """Text of another kind: equal to any text and unequal to none, and read as other text by str(), replace and split."""
+    __hash__ = str.__hash__
+
+    def __eq__(self, other):
+        return True
+
+    def __ne__(self, other):
+        return False
+
+    def __str__(self):
+        return "main"
+
+    def replace(self, old, new, count=-1):
+        return "eA=="
+
+    def split(self, sep=None, maxsplit=-1):
+        return ["o", "a.md"]
 
 
 class Push(unittest.TestCase):
@@ -7492,6 +7513,7 @@ class Push(unittest.TestCase):
         good = [github.request(method, path, body=body) for method, path, body in (
             ("GET", git + "commits/" + NAMED, None), ("GET", git + "trees/" + NAMED + "?recursive=1", None),
             ("GET", git + "blobs/" + NAMED, None), ("GET", git + "ref/heads/" + WORK, None),
+            ("GET", git + "blobs/" + MIXED, None), ("POST", git + "trees", dict(tree, base_tree=MIXED)),
             ("POST", git + "blobs", blob), ("POST", git + "blobs", dict(blob, content="eHh4\neA==\n")),
             ("POST", git + "blobs", dict(blob, content="")),
             ("POST", git + "trees", dict(tree, tree=[entry, dict(entry, path="bin/b.sh", mode="100755"),
@@ -7507,27 +7529,34 @@ class Push(unittest.TestCase):
             ("GET", git + "commits/main", None), ("GET", git + "trees/" + NAMED, None),
             ("GET", git + "ref/heads/main", None), ("GET", git + "ref/heads/factory-work/issue-9971-2", None),
             ("GET", git + "commits/" + NAMED, {}), ("GET", git + "ref/heads/" + WORK, {"sha": NAMED}),
+            # Of a name of 39 hex digits, or of 41.
+            ("GET", git + "blobs/" + NAMED[:-1], None), ("GET", git + "commits/" + NAMED + "a", None),
             # A blob of another repo's, another encoding or one that is no text, a key more, no text, or no base64:
             # alphabet, padding, length.
             ("POST", other + "blobs", blob), ("POST", git + "blobs", dict(blob, encoding="utf-8")),
             ("POST", git + "blobs", dict(blob, encoding=Posing())),
             ("POST", git + "blobs", dict(blob, size=1)), ("POST", git + "blobs", dict(blob, content=Posing())),
-            ("POST", git + "blobs", dict(blob, content=b"eA==")),
+            ("POST", git + "blobs", dict(blob, content=b"eA==")), ("POST", git + "blobs", dict(blob, content=1)),
             ("POST", git + "blobs", dict(blob, content="not base64!")), ("POST", git + "blobs", dict(blob, content="e!A==")),
-            ("POST", git + "blobs", dict(blob, content="eA=")), ("POST", git + "blobs", dict(blob, content="eHh4e")),
-            # A tree of a symlink, a submodule, an entry with a key more or no name; with a key more, of no list, or of
-            # a good entry and then a bad one; of a path that is no text, or names no file; upon a name with more after it.
+            ("POST", git + "blobs", dict(blob, content="eA=")), ("POST", git + "blobs", dict(blob, content="YWJj=")),
+            ("POST", git + "blobs", dict(blob, content="YWJj==")), ("POST", git + "blobs", dict(blob, content="YWJj====")),
+            ("POST", git + "blobs", dict(blob, content="eA==eA==")), ("POST", git + "blobs", dict(blob, content="eHh4e")),
+            # A tree of a symlink, a submodule, an entry of another type, with a key more or no name; with a key more,
+            # of no list, or of a good entry and then a bad one; of a path that is no text, names no file or holds a
+            # control character; upon a name with more after it, or of 39 or 41 hex digits.
             ("POST", git + "trees", dict(tree, base_tree="main")), ("POST", other + "trees", tree),
+            ("POST", git + "trees", dict(tree, base_tree=NAMED[:-1])),
+            ("POST", git + "trees", dict(tree, base_tree=NAMED + "a")),
             ("POST", git + "trees", dict(tree, mode="100644")), ("POST", git + "trees", dict(tree, tree={})),
             ("POST", git + "trees", dict(tree, tree=[entry, dict(entry, mode="120000")])),
             ("POST", git + "trees", dict(tree, tree=[entry, dict(entry, path=b"b.md")])),
             ("POST", git + "trees", dict(tree, base_tree=NAMED + "\n"))] + [
             ("POST", git + "trees", dict(tree, tree=[dict(entry, **bad)]))
-            for bad in ({"mode": "120000"}, {"type": "commit"}, {"size": 1}, {"sha": "x"}, {"path": b"a.md"},
-                        {"path": Posing()})] + [
+            for bad in ({"mode": "120000"}, {"mode": "160000", "type": "commit"}, {"type": "commit"}, {"size": 1},
+                        {"sha": "x"}, {"path": b"a.md"}, {"path": 1}, {"path": Posing()})] + [
             ("POST", git + "trees", dict(tree, tree=[dict(entry, path=path)]))
             for path in ("", "/a.md", "docs/", "docs//a.md", "./a.md", "docs/./a.md", "../a.md", "docs/../a.md",
-                         ".", "..")] + [
+                         ".", "..", "docs/a\x00b", "docs/a\nb", "\x1fa.md", "docs/a\x7fb")] + [
             # A commit of no parent or two, a tree of no name, another repo's; with a key more; of a message no text,
             # parents no list, or a parent of no name.
             ("POST", git + "commits", dict(commit, parents=[])), ("POST", git + "commits", dict(commit, parents=[NAMED] * 2)),
@@ -7535,7 +7564,7 @@ class Push(unittest.TestCase):
             ("POST", git + "commits", dict(commit, author={"name": "a"})),
             ("POST", git + "commits", dict(commit, committer={"name": "a"})),
             ("POST", git + "commits", dict(commit, signature="s")),
-            ("POST", git + "commits", dict(commit, message=1)), ("POST", git + "commits", dict(commit, parents={0: NAMED})),
+            ("POST", git + "commits", dict(commit, message=1)), ("POST", git + "commits", dict(commit, parents={"0": NAMED})),
             ("POST", git + "commits", dict(commit, parents=["main"])),
             # Another ref made: the default branch, a tag, another work branch, by its own path, a key more; or at no name.
             ("POST", git + "refs", {"ref": "refs/heads/main", "sha": NAMED}),
@@ -7551,6 +7580,7 @@ class Push(unittest.TestCase):
             ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": 0}),
             ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": "false"}),
             ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": False, "extra": 1}),
             ("PATCH", git + "refs/heads/main", {"sha": NAMED, "force": False}),
             ("PATCH", git + "refs/heads/factory-work/issue-9971-2", {"sha": NAMED, "force": False}),
             ("PATCH", git + "ref/heads/" + WORK, {"sha": NAMED, "force": False}),
@@ -7563,10 +7593,56 @@ class Push(unittest.TestCase):
             self.assertIsInstance(calmly(sending.send, github.request(method, path, body=body)), github.Unanswered,
                                   (method, path, body))
         self.assertEqual(recording.sent, good)
+        # A read of another repo's whose name differs from this one's where it holds a dot, by any pattern.
+        dotted = effects.Allowed(recording, *push.allowed("o/a.b", WORK))
+        self.assertEqual(dotted.send(github.request("GET", "/repos/o/a.b/git/blobs/" + NAMED))["status"], 200)
+        for rest in ("blobs/" + NAMED, "trees/" + NAMED + "?recursive=1", "commits/" + NAMED):
+            self.assertIsInstance(calmly(dotted.send, github.request("GET", "/repos/o/axb/git/" + rest)),
+                                  github.Unanswered, rest)
+        self.assertEqual(recording.sent, good + [github.request("GET", "/repos/o/a.b/git/blobs/" + NAMED)])
         # A token for a repo or a branch told wrongly, a work branch's name with more after it among them, sends
-        # nothing at all.
-        for repo, branch in (("o/..", WORK), (PUSHED, "main"), (PUSHED, None), (PUSHED, WORK + "/../main")):
+        # nothing at all: nor one for a repo with more after it, or for the work branch of an issue or an attempt 0.
+        for repo, branch in (("o/..", WORK), (PUSHED, "main"), (PUSHED, None), (PUSHED, WORK + "/../main"),
+                             ("o/repo/extra", WORK), ("owner/repo/../other", WORK),
+                             (PUSHED, "factory-work/issue-9971-0"), (PUSHED, "factory-work/issue-0-1"),
+                             (PUSHED, "factory-work/issue-9971-01")):
             self.assertEqual(push.allowed(repo, branch), ({}, []), (repo, branch))
+
+    def test_a_pushs_token_holds_each_thing_it_is_told_to_its_exact_kind(self):
+        # Text of another kind, that equals any text and reads as other text, as the repo or the branch: no token.
+        for repo, branch in ((Lying(PUSHED), WORK), (PUSHED, Lying(WORK))):
+            self.assertEqual(calmly(push.allowed, repo, branch), ({}, []), (repo, branch))
+        recording = self.Recording()
+        sending = effects.Allowed(recording, *push.allowed(PUSHED, WORK))
+        git = "/repos/%s/git/" % PUSHED
+        entry = {"path": "a.md", "mode": "100644", "type": "blob", "sha": NAMED}
+        tree = {"base_tree": NAMED, "tree": [entry]}
+        blob = {"content": "eA==", "encoding": "base64"}
+        holding, deep = [], NAMED
+        holding.append(holding)
+        for _ in range(600):
+            deep = [deep]
+        refused = [
+            # A body holding text of another kind: as the ref made, a file's mode, type or path, a blob's content or
+            # encoding, a key.
+            ("POST", git + "refs", {"ref": Lying("refs/heads/main"), "sha": NAMED}),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, mode=Lying("120000"))])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, type=Lying("commit"))])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path=Lying("../a.md"))])),
+            ("POST", git + "blobs", dict(blob, content=Lying("not base64!"))),
+            ("POST", git + "blobs", dict(blob, encoding=Lying("utf-8"))),
+            ("POST", git + "blobs", {Lying("content"): "eA==", "encoding": "base64"}),
+            # A body of more things than any push holds, and then one that holds itself, or is nested deep.
+            ("POST", git + "trees", dict(tree, tree=[entry] * (push.MOST // 5))),
+            ("POST", git + "trees", dict(tree, tree=holding)),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, sha=deep)]))]
+        for method, path, body in refused:
+            self.assertIsInstance(calmly(sending.send, github.request(method, path, body=body)), github.Unanswered,
+                                  (method, path))
+        self.assertEqual(recording.sent, [])
+        # The most a body may hold is sent.
+        most = github.request("POST", git + "trees", body=dict(tree, tree=[entry] * (push.MOST // 5 - 1)))
+        self.assertEqual(sending.send(most)["status"], 200)
 
 
 if __name__ == "__main__":
