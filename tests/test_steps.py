@@ -1034,6 +1034,49 @@ class ControllerKey(unittest.TestCase):
 
 
 class Reread(unittest.TestCase):
+    def test_a_factory_pull_request_is_told_how_its_issue_stands_at_the_act(self):  # decision 0232, issue 964
+        # The read again joins the issue a pull request the Factory opened was opened for, as the pass does: its state
+        # and own label events by the issues port, told by the account reader the pull request is read with, and
+        # `issue_stands` filled by the Kernel's `stands`. So an approval the pass issued with the issue open is still
+        # wanted at the act; one whose issue a person held since, or that cannot be read, is not.
+        from controller import configuration
+        from kernel.decide import still_wanted
+        from tests import test_decide as td
+        config = configuration.load(ROOT, RELEASE, "pr-review")
+        ours = support.facts(**dict(td.AGENT, opened_for=41))
+        del ours["issue_stands"]         # the facts port gives no word of how an issue stands (decision 0232)
+        person = {"kind": "human", "name": "don-petry", "can_write": True}
+        hold = {"label": "factory:hold", "action": "labeled", "by": person, "at": "2026-10-11T12:00:00Z"}
+        open_ = {"state": "open", "label_events": [], "complete": {"timeline": True}}
+        held = dict(open_, label_events=[hold])
+        asked = []
+
+        def again(stood, facts=ours):
+            def read(transport, repo, number, accounts):
+                asked.append((repo, number, isinstance(accounts, reread.timeline.Accounts)))
+                if stood is None:
+                    raise reread.facts_.Moved("moved")
+                return copy.deepcopy(stood)
+            with unittest.mock.patch.object(reread.records, "runs", lambda *a, **k: copy.deepcopy(tc.listed([]))), \
+                    unittest.mock.patch.object(reread.facts_, "snapshot", lambda *a, **k: (copy.deepcopy(facts), "t", HEAD)), \
+                    unittest.mock.patch.object(reread.pause_, "read", lambda *a: {"org": None, "repos": {HOME: None}}), \
+                    unittest.mock.patch.object(reread.issues_, "stood", read):
+                return reread.item("t", config, 42, support.NOW, lambda: support.NOW)[0]
+        decided = td.go(dict(ours, issue_stands="open"), td.REVIEWED)
+        self.assertEqual((decided["outcome"], decided["action"]), ("act", "issue_approval"))
+        got = again(open_)
+        self.assertEqual((got["issue_stands"], asked), ("open", [(HOME, 41, True)]))
+        self.assertTrue(still_wanted(decided, td.go(got, td.REVIEWED)))
+        for stood, stands, reason in ((held, "held", "issue_stopped"), (None, None, "issue_stands_unreadable")):
+            got = again(stood)
+            self.assertEqual(got["issue_stands"], stands)
+            self.assertEqual(td.go(got, td.REVIEWED)["reason"], reason)
+            self.assertFalse(still_wanted(decided, td.go(got, td.REVIEWED)), reason)
+        # A pull request opened for no issue asks nothing, and its facts are as the snapshot gave them.
+        del asked[:]
+        plain = support.facts()
+        self.assertEqual((again(held, plain), asked), (plain, []))
+
     def test_the_item_is_read_again(self):
         listed = tc.listed([tc.run(status="in_progress")])
         facts = support.facts()
