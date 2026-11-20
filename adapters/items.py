@@ -15,7 +15,11 @@ only if its present life began at or after that date (`kernel/issue.py`'s `serve
 that began that life moved its `updatedAt` then. So an issue that has not moved since the date is not served, and is
 not read: turning issues on serves what opens or moves from then, and sweeps no backlog. GitHub is asked from a second
 before the date, since no trial has shown whether its `since` holds an issue updated in that very second; the Kernel's
-`served` leaves out what began before it. With no date, the default, no issue is served, and none is listed or read."""
+`served` leaves out what began before it. With no date, the default, no issue is served, and none is listed or read.
+
+The Controller's own tracking issue is no Work item: it is left out by the number its passes recorded writing it under,
+which the caller hands as `apart`, never by its author, and the list is whole by every issue GitHub counted, that one
+among them (issue 901)."""
 from __future__ import annotations
 
 import datetime
@@ -66,9 +70,10 @@ def open_pull_requests(transport, repo: str) -> tuple:
         "query": QUERY, "variables": {"owner": owner, "name": name, "after": after}})))
 
 
-def open_issues(transport, repo: str, since) -> tuple:
+def open_issues(transport, repo: str, since, *, apart) -> tuple:
     """`(numbers, whole)`: every open issue of `repo` updated at or after `since`, `issues.served_from`, by number, in
-    the order opened, and whether that was every one GitHub counts; with no `since`, none, whole, and nothing asked."""
+    the order opened, but those numbered in `apart`, the tracking issue's, and whether what GitHub listed was every one
+    it counts; with no `since`, none, whole, and nothing asked."""
     if since is None:
         return [], True
     try:
@@ -76,8 +81,9 @@ def open_issues(transport, repo: str, since) -> tuple:
     except (TypeError, ValueError, OverflowError):
         raise Unanswered("issues.served_from is no time") from None
     owner, name = repo.split("/")
-    return _listed(repo, "issues", lambda after: transport.send(request("POST", "/graphql", body={
+    numbers, whole = _listed(repo, "issues", lambda after: transport.send(request("POST", "/graphql", body={
         "query": ISSUES, "variables": {"owner": owner, "name": name, "after": after, "since": asked}})))
+    return [number for number in numbers if number not in apart], whole
 
 
 def _listed(repo: str, listed: str, ask) -> tuple:

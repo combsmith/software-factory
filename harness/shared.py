@@ -13,6 +13,10 @@ SCHEMAS = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
            for p in sorted((ROOT / "schemas").glob("*.schema.json"))}
 # Who wrote a text, as the facts name an actor.
 SCHEMAS["actor"] = {"$ref": "facts.schema.json#/$defs/actor"}
+# How a Run that writes code hands its patch over: a file of this name, beside the Result in the artifact of this name,
+# which `run` writes and a push's bundle names (issue 880, decision 0219).
+BUNDLE_ARTIFACT = "result"
+BUNDLE_FILE = "bundle.patch"
 
 
 def errors(value, kind: str) -> list:
