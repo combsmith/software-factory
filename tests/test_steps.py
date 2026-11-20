@@ -859,7 +859,7 @@ class Apply(unittest.TestCase):
         def went(advice=None, **over):
             del seen[:], spawned[:]
             state["calls"] = {}
-            with unittest.mock.patch.object(reread, "item", lambda *a: (facts, HEAD, [], support.context())), \
+            with unittest.mock.patch.object(reread, "item", lambda *a, **k: (facts, HEAD, [], support.context())), \
                     unittest.mock.patch.object(effects, "role_write", lambda t, i, kind, *a: seen.append(kind) or {
                         "state": "applied", "key": "IC_x"}), \
                     unittest.mock.patch.object(apply_step.advised, "run", run):
