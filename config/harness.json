@@ -51,7 +51,7 @@
     "kimi": {
       "host": "foundry-project-1-cs-resource.services.ai.azure.com",
       "deployment": "kimi-k3.1-pro",
-      "model": "kimi-k3.1-pro",
+      "model": "Kimi-K3.1",
       "api": "chat",
       "effort": {
         "critical": "max",
