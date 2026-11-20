@@ -121,7 +121,9 @@ class Recording:
             sent = {"as": AS, "via": "rest", "call": "%s %s" % (req["method"], req["path"]), "headers": headers,
                     "body": _body(req.get("body"), gone, here + ".request.body")}
             if answer is None:
-                self.exchanges.append({"request": sent, "response": {"raised": raised}})
+                exchange = {"request": sent, "response": {"raised": raised}}
+                json.dumps(exchange, allow_nan=False)     # as below: a number that is not finite drops this exchange
+                self.exchanges.append(exchange)
                 self.dropped += gone
                 return
             body = answer.get("body")
@@ -132,7 +134,9 @@ class Recording:
             else:
                 kept = {"status": answer.get("status"), "headers": _headers(answer.get("headers")),
                         "body": _body(body, gone, here + ".response.body")}
-            self.exchanges.append({"request": sent, "response": kept})
+            exchange = {"request": sent, "response": kept}
+            json.dumps(exchange, allow_nan=False)     # a number that is not finite drops this exchange, not the file
+            self.exchanges.append(exchange)
             self.dropped += gone
         except Exception:      # what cannot be kept is left out, and counted; the step goes on as it would
             self.unkept += 1
@@ -151,7 +155,7 @@ class Recording:
             where = pathlib.Path(folder)
             if not where.is_absolute() or not where.is_dir():
                 return False
-            text = json.dumps(self.kept(), indent=1, sort_keys=True)
+            text = json.dumps(self.kept(), indent=1, sort_keys=True, allow_nan=False)
             with open(where / NAME, "x", encoding="utf-8") as out:
                 out.write(text + "\n")
             return True

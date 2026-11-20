@@ -27,6 +27,7 @@ import re
 import urllib.parse
 
 from adapters.github import DIFF, Unanswered, raw, request
+from adapters.pull import canonical
 
 PAGE = 100
 WRITE = {"admin", "maintain", "write"}
@@ -70,12 +71,14 @@ class Accounts:
     Factory App whose account the configuration holds, `(id, "Bot")`, to the name it is configured under, as REST spells
     a Bot's login, `[bot]` and all: that App is named by its id, as a Lens is, never by the login it shows. `reserved`
     names, as REST spells them, Apps the configuration declares by name though it may hold no account of theirs: no
-    account but one `apps` names by its id may show one (Carbon)."""
+    account but one `apps` names by its id may show one (Carbon). `roles` is each Role App's account, `(id, "Bot")`: a
+    comment of its on an issue is that Role's, and, held under `roles` alone, no act of its is counted against the act
+    ceiling, which counts the acts made with no model Run; one that is also a Lens's App is counted as a Lens's (issue 901)."""
 
     def __init__(self, transport, repo: str, approver: tuple, lenses: dict, factory=(), queue=None, apps=None,
-                 reserved=()):
+                 reserved=(), roles=()):
         self.transport, self.repo, self.approver = transport, repo, tuple(approver)
-        self.lenses, self.factory, self.answers = dict(lenses), set(factory), {}
+        self.lenses, self.factory, self.answers, self.roles = dict(lenses), set(factory), {}, set(roles)
         self.queue = tuple(queue) if queue is not None else None
         self.apps, self.reserved = dict(apps or {}), set(reserved)
 
@@ -241,8 +244,9 @@ def label_events(timeline: list, accounts: Accounts) -> list:
 
 def _content(transport, repo: str, base_head: str, commit: str) -> str:
     """The content id of a commit, as the pull request's own is: the sha256 of the bytes of its diff against its merge
-    base. A diff GitHub will not serve, `too_large`, or one of a commit no longer there, is the commit's own id hashed,
-    as `adapters/pull.py` does for the head: never the same as a served diff's, so never read as unchanged."""
+    base, each index line cut as `adapters/pull.py` cuts it. A diff GitHub will not serve, `too_large`, or one of a
+    commit no longer there, is the commit's own id hashed, as `adapters/pull.py` does for the head: never the same as a
+    served diff's, so never read as unchanged."""
     if not SHA.match(str(commit)) or not SHA.match(str(base_head)):
         raise Unanswered("a review's commit or the base's head cannot be read")
     answer = transport.send(request("GET", "/repos/%s/compare/%s...%s" % (repo, base_head, commit), accept=DIFF))
@@ -251,7 +255,7 @@ def _content(transport, repo: str, base_head: str, commit: str) -> str:
         return "sha256:" + hashlib.sha256(commit.encode()).hexdigest()
     if answer["status"] != 200 or not isinstance(answer["body"], str):
         raise Unanswered("the content of %s answered %d" % (commit, answer["status"]))
-    return "sha256:" + hashlib.sha256(raw(answer["body"])).hexdigest()
+    return "sha256:" + hashlib.sha256(raw(canonical(answer["body"]))).hexdigest()
 
 
 def _dismissals(timeline: list) -> dict:
