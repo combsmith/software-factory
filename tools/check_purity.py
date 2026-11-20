@@ -527,11 +527,12 @@ def _source(path: pathlib.Path) -> str:
     reads the second only after a comment or a blank line and knows other names, so that it can refuse, never miss.
     Raises ValueError for either."""
     data = path.read_bytes()
-    for line in data[len(BOM):].splitlines()[:2] if data.startswith(BOM) else data.splitlines()[:2]:
+    head = data[len(BOM):] if data.startswith(BOM) else data
+    for line in head.splitlines()[:2]:
         declared = CODING.match(line)
-        if declared and declared.group(1).decode("ascii", "replace").lower().replace("_", "-") not in UTF8:
-            raise ValueError("it declares the encoding %s, and Python would run what its text does not show"
-                             % declared.group(1).decode("ascii", "replace"))
+        name = declared.group(1).decode("ascii", "replace") if declared else None
+        if name is not None and name.lower().replace("_", "-") not in UTF8:
+            raise ValueError("it declares the encoding %s, and Python would run what its text does not show" % name)
     try:
         return data.decode("utf-8-sig")
     except UnicodeDecodeError:
