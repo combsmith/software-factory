@@ -1517,6 +1517,16 @@ ISSUE = [
 
 MUTANTS = ISSUE + [
     # Issue 1016: a binary file's change is bound to its full blob id.
+    ('a binary file whose head is all zeros is deleted, whatever its part says', 'adapters/pull.py',
+     ' and DELETED.search(part) and files.endswith(" and /dev/null"):', ':', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
+    ('a binary file with no deleted mode line is deleted by its /dev/null', 'adapters/pull.py',
+     ' and DELETED.search(part) and files', ' and files', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
+    ('a binary file with a deleted mode line is deleted whatever its binary line names', 'adapters/pull.py',
+     ' and DELETED.search(part) and files.endswith(" and /dev/null"):', ' and DELETED.search(part):', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
+    ('a blob id of any length names a blob', 'adapters/pull.py',
+     'BLOB = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")', 'BLOB = re.compile(r"^[0-9a-f]{7,65}$")', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
+    ('a binary file last in the diff ends with a newline', 'adapters/pull.py',
+     'differ\\n?\\Z",', 'differ\\n\\Z",', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
     ("a binary file's index line is kept whatever the files say", 'adapters/pull.py',
      '        else:\n            header = _binary(header, blobs)\n', '', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
     ("the content id is hashed with no binary file's blob id", 'adapters/pull.py',
@@ -1530,7 +1540,8 @@ MUTANTS = ISSUE + [
     ('a head the files name twice is written from one of them', 'adapters/pull.py',
      '        if len(named) != 1:\n', '        if not named:\n', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
     ("a deleted binary file's head is looked for among the blobs", 'adapters/pull.py',
-     '    if set(head) == {"0"}:\n        whole = head[:7]\n', '    if False:\n        whole = head[:7]\n', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
+     '    if set(head) == {"0"} and DELETED.search(part) and files.endswith(" and /dev/null"):\n        whole = head[:7]\n',
+     '    if False:\n        whole = head[:7]\n', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
     ("a binary file's base id is kept as GitHub sent it", 'adapters/pull.py',
      '"index %s..%s%s" % (base[:7], whole, mode)', '"index %s..%s%s" % (base, whole, mode)', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
     ("a binary file's mode is dropped", 'adapters/pull.py',
@@ -1544,7 +1555,7 @@ MUTANTS = ISSUE + [
     ('a compare that did not answer 200 gives its files', 'adapters/pull.py',
      'if answer["status"] == 200 and isinstance(answer["body"], dict)', 'if isinstance(answer["body"], dict)', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
     ("a binary line worded otherwise is a binary file's", 'adapters/pull.py',
-     '\\nBinary files [^\\n]* differ', '\\n[^\\n]*', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
+     '\\nBinary files ([^\\n]*) differ', '\\n([^\\n]*)', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
     # Trial P-68 (issue 917): the artifact read GitHub answered, and the port's reading of it.
     ("the storage a trial recorded, an account numbered in two digits, is refused", 'adapters/github.py',
      'STORAGE = re.compile(r"productionresultssa(?:[0-9]|[1-9][0-9]{1,2})\\.blob\\.core\\.windows\\.net")',

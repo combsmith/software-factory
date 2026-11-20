@@ -999,11 +999,23 @@ class Diff(unittest.TestCase):
         gone = "diff --git a/g.png b/g.png\ndeleted file mode 100644\nindex %s\nBinary files a/g.png and /dev/null differ\n"
         for ids in ("0e91505d..00000000", "0e91505d0..000000000"):
             self.assertEqual(pull.canonical(gone % ids), gone % "0e91505..0000000", ids)
+        # The security read: a blob ground to as many leading zeros as GitHub abbreviates is all zeros too, so only a
+        # part that says it was deleted, by its mode line and by /dev/null, is read as a deletion; any other is bound to
+        # its own full id, and two such blobs are two contents.
+        zeros, more = "0" * 9 + "a" * 31, "0" * 9 + "b" * 31
+        for ids in ("0e91505d..00000000", "0e91505d0..000000000"):
+            self.assertEqual(pull.canonical(binary(ids), (zeros,)), binary("0e91505..%s" % zeros), ids)
+            self.assertNotEqual(pull.canonical(binary(ids), (zeros,)), pull.canonical(binary(ids), (more,)), ids)
+            self.assertEqual(pull.canonical(binary(ids)), binary(ids), ids)
+            for half in (gone.replace("deleted file mode 100644\n", ""), gone.replace(" and /dev/null", " and b/g.png")):
+                self.assertEqual(pull.canonical(half % ids), half % ids, half)
         # Where the files name no blob the head's id begins, or more than one, or none at all, the line is kept as
         # GitHub sent it: a content that may move, never one taken for another.
         for given in ((), (other,), (head, ground[:8] + "9" + ground[9:]), ("9f114f5d" + "e" * 32, head[:9] + "f" * 31)):
             self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), given), binary("0e91505d..9f114f5d"), given)
         # A part that ends otherwise, or says more after its binary line, is kept, files or none.
+        # A binary file last in the diff, with no newline after, is bound as well.
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d")[:-1], (head,)), bound[:-1])
         for kept in (binary("0e91505d..9f114f5d").replace(" differ\n", " differ\nmore\n"),
                      binary("0e91505d..9f114f5d").replace("Binary files", "Binary Files"),
                      binary("0e91505d..9f114f5d").replace("100644", "100644 and more")):
@@ -1015,7 +1027,8 @@ class Diff(unittest.TestCase):
         commit = data["head"]["sha"]
         text = "diff --git a/f.py b/f.py\nindex %s\n--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
         files = {"files": [{"filename": "f.py", "sha": "x" * 40}, {"filename": "img.png", "sha": head},
-                           {"filename": "f.py", "sha": other.upper()}, {"filename": "h.png", "sha": head[:9] + "Z" * 31}]}
+                           {"filename": "f.py", "sha": other.upper()}, {"filename": "h.png", "sha": head[:9] + "Z" * 31},
+                           {"filename": "i.png", "sha": head[:39]}, {"filename": "j.png", "sha": head + "0"}]}
 
         class Sent:
             def __init__(self, diff: str, compared):

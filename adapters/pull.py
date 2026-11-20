@@ -40,8 +40,11 @@ EMPTY = ("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
 # A binary file's part of a diff, ending as git ends it: its index line, then the line that says the files differ. Its
 # head's blob id, which GitHub abbreviates to 8 characters at one read and 9 at the next, is made whole from the
 # compare's files, so its content is one at every read and no blob ground to share a prefix passes for it (issue 1016).
-BINARY_FILE = re.compile(r"^index ([0-9a-f]{7,64})\.\.([0-9a-f]{7,64})((?: [0-7]{6})?)\nBinary files [^\n]* differ\n?\Z",
+BINARY_FILE = re.compile(r"^index ([0-9a-f]{7,64})\.\.([0-9a-f]{7,64})((?: [0-7]{6})?)\nBinary files ([^\n]*) differ\n?\Z",
                          re.MULTILINE)
+# A deleted file's mode line. Only a part that says it, and whose binary line names /dev/null after, is a deletion: a
+# blob ground to as many leading zeros as GitHub abbreviates is all zeros too (the security read of issue 1016).
+DELETED = re.compile(r"^deleted file mode [0-7]{6}$", re.MULTILINE)
 BLOB = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 # The account type each class needs: the Factory's Apps and a dependency bot are Bots, the Maintainer a person.
 KINDS = {"agent": "Bot", "maintainer": "User", "dependency": "Bot"}
@@ -232,8 +235,9 @@ def canonical(text: str, blobs=()) -> str:
     A binary file's part that ends as git ends it, its index line and then `Binary files ... differ`, is cut too where
     `blobs`, the full blob ids of the compare's files, holds exactly one id that its head's id begins: that id is
     written whole, and its base's cut to 7, as the result is the head's blob whatever the base held, and the base's is
-    of the base branch's history, which no author writes. A deleted binary file, whose head is no blob, has both cut.
-    Any other binary file keeps its index line as GitHub sent it (issue 1016)."""
+    of the base branch's history, which no author writes. A deleted binary file, whose part says so by its mode line
+    and by /dev/null, and whose head is no blob, all zeros, has both cut. Any other binary file keeps its index line as
+    GitHub sent it (issue 1016)."""
     starts = [found.start() for found in FILE.finditer(text)]
     parts = [text[:starts[0]] if starts else text]
     for start, end in zip(starts, starts[1:] + [len(text)]):
@@ -254,8 +258,8 @@ def _binary(part: str, blobs) -> str:
     found = BINARY_FILE.search(part)
     if not found:
         return part
-    base, head, mode = found.groups()
-    if set(head) == {"0"}:
+    base, head, mode, files = found.groups()
+    if set(head) == {"0"} and DELETED.search(part) and files.endswith(" and /dev/null"):
         whole = head[:7]
     else:
         named = {blob for blob in blobs if blob.startswith(head)}
