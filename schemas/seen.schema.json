@@ -104,6 +104,14 @@
             ],
             "pattern": "^[A-Za-z0-9_=:-]{1,100}$"
           },
+          "commit": {
+            "description": "Of an approval alone: the commit it approved, as GitHub gives the review's commit_id, null where none could be read; reconciliation holds a hand approval to it, never to the item alone (issue 1026)",
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-f]{40}$"
+          },
           "at": {
             "type": [
               "string",
