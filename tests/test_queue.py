@@ -3,7 +3,6 @@ step through its two credentials."""
 from __future__ import annotations
 
 import copy
-import shutil
 import json
 import pathlib
 import tempfile
@@ -366,18 +365,20 @@ class Step(unittest.TestCase):
         # The port reads the pull request's state and its threads before it writes, each a need of the queue App's
         # pull_requests grant: a grant that lists either alone is short, and nothing is minted or written (Astra's read).
         environ = {"GITHUB_TOKEN": "g", "QUEUE_APP_KEY": "k", "FACTORY_PAUSED": ""}
-        real = json.loads((steps.ROOT / "config" / "apps.json").read_text())
+        text = (steps.ROOT / "config" / "apps.json").read_text()
+        real = json.loads(text)
         for kept in (["read:facts.state"], ["read:facts.threads"]):
             apps = copy.deepcopy(real)
             apps["apps"]["queue"]["permissions"]["pull_requests"]["needs"] = kept
-            with tempfile.TemporaryDirectory() as folder:
-                for entry in steps.ROOT.iterdir():
-                    if entry.name != "config" and not entry.name.startswith("."):
-                        (pathlib.Path(folder) / entry.name).symlink_to(entry)
-                shutil.copytree(steps.ROOT / "config", pathlib.Path(folder) / "config")
-                (pathlib.Path(folder) / "config" / "apps.json").write_text(json.dumps(apps))
-                with unittest.mock.patch.object(queue_step.steps, "ROOT", pathlib.Path(folder)):
-                    (done, ended), _, wanted, asked = self.written(environ, answers=())
+            # The step reads config/apps.json as this one, with the queue App's grant narrowed: no other file changes.
+            class narrowed:
+                dumps = staticmethod(json.dumps)
+
+                @staticmethod
+                def loads(read, apps=apps):
+                    return copy.deepcopy(apps) if read == text else json.loads(read)
+            with unittest.mock.patch.object(queue_step, "json", narrowed):
+                (done, ended), _, wanted, asked = self.written(environ, answers=())
             self.assertEqual((ended["outcome"], ended["reason"], wanted, asked.sent),
                              ("environment", "read_not_granted", [], []), kept)
 
