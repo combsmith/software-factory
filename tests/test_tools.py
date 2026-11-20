@@ -3737,17 +3737,22 @@ class Workflows(unittest.TestCase):
 
     def test_the_merge_groups_read_refuses_when_the_live_transport_fails_or_answers_another_shape(self):
         # Issue 1048: adapters/github.py is no protected path, though a merge group's opener is read through its Live and
-        # request (decision 0240's limit). So this guards the behaviour instead: the check builds the transport's own Live
-        # from the job's token, and every way its read can fail or answer in another shape refuses, with the code. Only
-        # the socket is stood in for; the request, its headers, the status and the body are read by the transport itself.
+        # request, for cost: it is the one transport for every port. So this guards the behaviour instead: the check builds
+        # the transport's own Live from the job's token, and every way its read can fail or answer in another shape
+        # refuses, with the code. Only the socket is stood in for; the request, its headers, the status and the body are
+        # read by the transport itself. It holds against a regression, not an edit made to tell the stand-in apart; that
+        # the opener follows no redirect and takes no proxy is held by tests/test_adapters.py's own test of Live.
         self.assertIs(commits_are_the_maintainers.Live, github.Live)
         self.assertIs(commits_are_the_maintainers.request, github.request)
         root = tree({"config/hooks.json": json.dumps({"openers": [{"login": "ada", "id": 1, "is": "the Maintainer"}]})})
         where = root / "event.json"
         sha = "a" * 40
-        where.write_text(json.dumps({"merge_group": {"head_ref": "refs/heads/gh-readonly-queue/main/pr-44-" + sha,
-                                                     "base_ref": "refs/heads/main", "head_sha": "b" * 40, "base_sha": sha},
-                                     "repository": {"full_name": "o/r"}}))
+
+        def named(number):
+            where.write_text(json.dumps({"merge_group": {"head_ref": "refs/heads/gh-readonly-queue/main/pr-%d-%s" % (number, sha),
+                                                         "base_ref": "refs/heads/main", "head_sha": "b" * 40, "base_sha": sha},
+                                         "repository": {"full_name": "o/r"}}))
+        named(44)
         environ = {"EVENT": "merge_group", "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"}
         pull = {"number": 44, "state": "open", "user": {"login": "ada", "id": 1},
                 "base": {"ref": "main", "repo": {"full_name": "o/r"}}, "head": {"repo": {"full_name": "o/r"}}}
@@ -3758,6 +3763,12 @@ class Workflows(unittest.TestCase):
             def __init__(self, raw, status=200, headers=None):
                 super().__init__(raw)
                 self.status, self.headers = status, JSON if headers is None else headers
+
+        class Cut(Answer):      # the connection closes while the body is read
+            def read(self, size=-1):
+                if self.tell():
+                    raise github.http.client.IncompleteRead(b"")
+                return super().read(1)
 
         class Socket:
             def __init__(self, answer):
@@ -3787,15 +3798,19 @@ class Workflows(unittest.TestCase):
         self.assertEqual([(s.get_method(), s.full_url, s.get_header("Authorization")) for s in sent],
                          [("GET", "https://api.github.com/repos/o/r/pulls/44", "Bearer t")])
 
-        def refused(answer):
+        def refused(answer, code="merge_group_pull_unreadable"):
             found = read(answer)[0]
-            self.assertTrue(found and all(f.startswith("merge_group_pull_unreadable") for f in found), (answer, found))
+            self.assertTrue(found and all(f.split(":")[0] == code for f in found), (answer, found))
         # A read that fails refuses: no connection, an answer cut short, a redirect, one over the transport's bound.
         refused(github.urllib.error.URLError("down"))
         refused(ConnectionResetError())
         refused(github.Redirected(302, "https://api.github.com/repositories/1/pulls/44"))
         refused(github.urllib.error.HTTPError("https://api.github.com/x", 301, "x", {"Location": "/x"}, io.BytesIO()))
-        refused(Answer(b" " * (github.LARGEST + 1)))
+        refused(Cut(whole))
+        # The bound is the transport's: the pull request padded past it is refused, not cut short and read, and padded to
+        # it exactly passes (Astra, Kimi, Muse and the Claude review).
+        refused(Answer(whole + b" " * (github.LARGEST + 1 - len(whole))))
+        self.assertEqual(read(Answer(whole + b" " * (github.LARGEST - len(whole))))[0], [])
         # And so does an answer in another shape: an error whose body is the pull request itself, not JSON, JSON that
         # cannot be read, or JSON that is no pull request, another one, or none.
         for code in (404, 403, 500, 304):
@@ -3807,6 +3822,14 @@ class Workflows(unittest.TestCase):
         for body in ([pull], "x", None, dict(pull, number="44"), dict(pull, number=45)):
             refused(Answer(json.dumps(body).encode()))
         refused(Answer(b""))
+        # The repository the answer names is the one held: a fork's head read through the transport refuses for the fork.
+        found = read(Answer(json.dumps(dict(pull, head={"repo": {"full_name": "fork/r"}})).encode()))[0]
+        self.assertEqual([f.split(" this repo")[0] for f in found], ["the pull request is opened from fork/r, and only from"])
+        # And a number is a number: for pull request 1, true is no answer, though true == 1 in Python (Astra's read).
+        named(1)
+        for number in (True, 1.0):
+            refused(Answer(json.dumps(dict(pull, number=number)).encode()))
+        self.assertEqual(read(Answer(json.dumps(dict(pull, number=1)).encode()))[0], [])
 
     def test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds(self):
         # Issue 409: main reads both, neither in place of the other, so the commits job is not weakened by the opener.
