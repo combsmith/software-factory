@@ -39,6 +39,11 @@ VERSION_READS = 2 * 30
 # retried a 5xx or a lost connection for about three minutes by then, and an overload not at all (issue 615).
 RETRIES = 2
 RETRY_WAIT = 30
+# The reasons the Engine fails a Result for by its call alone: one that erred, timed out, or gave no answer to hold.
+CALL_FAILED = ("engine_failed", "engine_timeout", "no_answer")
+# What the Engine asks the CLI for one Result: its version, and where it goes on to its call, the call and its version
+# again (V and C). Anything more was asked for more Results than one, whether each made its call or failed before it.
+ONE_ASK = ("V", "VCV")
 ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 
@@ -61,15 +66,16 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, he
         manifest = json.load(f)
     deadline = began + BUDGET
     asked = call or live.cli_call
-    seen, retried = {}, {}
+    seen, retried, calls = {}, {}, []
 
     def watched(args, env, timeout, **given):
         """The CLI's call, as the Engine makes it, in the case's head where it reads one, with what it said of the case
         kept for its cause: its exit, the subtype its answer names, how it says it ended and the vendor's status, that it
         timed out, or the class of what the call raised. Nothing of the answer itself is kept. Of a case's several calls,
-        the first that did not succeed is the one kept, since that is the one whose Result `passes.union` returns: one
-        that erred, or that gave no answer to hold to a schema, the Engine's `no_answer`. An answer that fails its schema
-        or another model's are the Engine's to tell after the call, and the watch keeps no word of them."""
+        the first that did not succeed is the one kept: one that erred, or that gave no answer to hold to a schema, the
+        Engine's `no_answer`. An answer that fails its schema or another model's are the Engine's to tell after the
+        call, and the watch cannot: `own` leaves the word out where it may be another call's."""
+        calls.append("V" if args[1:] == ["--version"] else "C")
         if args[1:] == ["--version"] or seen.get("erred") is True:
             return asked(args, env=env, timeout=timeout, **given)
         try:
@@ -92,8 +98,21 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, he
                                                      and isinstance(said.get("structured_output"), dict))
         return done
 
+    def own(result: dict) -> dict:
+        """One ask's Result, with the watch's word left beside it only where it is the word of the call that Result came
+        of. `passes.union` returns the first Result of several that did not complete. Where that one failed by its call
+        alone, CALL_FAILED, every call before it succeeded, so the first that did not is its own, and its word is kept.
+        Failed any other way, or completed, the Result may be of a call the watch saw succeed, or of none, and the word
+        kept a later call's: it is left out, never reported as that Result's cause (issue 865). Where one Result alone
+        was asked for, ONE_ASK, the word is its own."""
+        if "".join(calls) not in ONE_ASK and result.get("reason") not in CALL_FAILED:
+            seen.clear()
+        calls.clear()
+        return result
+
     def review(case: dict) -> dict:
         seen.clear()
+        calls.clear()
         facts = case["facts"]
         admit = {"role": case["role"], "intent": case["intent"], "content_id": facts.get("content_id")}
         # The issue a change serves, as a live Run reads it (adapters/texts.py), where the case holds one (decision 0110).
@@ -119,6 +138,7 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, he
         head = os.path.join(str(heads), case["id"]) if heads is not None else None
         try:
             attempts = [live.answer(the_task, env, config, watched, clock, head=head)]
+            own(attempts[-1])
             while transient(attempts[-1], seen) and retried.get(case["id"], 0) < RETRIES \
                     and deadline - clock() >= RETRY_WAIT + takes:
                 sleep(RETRY_WAIT)
@@ -128,6 +148,7 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, he
                 retried[case["id"]] = retried.get(case["id"], 0) + 1
                 seen.clear()
                 attempts.append(live.answer(the_task, env, config, watched, clock, head=head))
+                own(attempts[-1])
             # What every attempt used is the case's, summed as a case's several calls are, on the last attempt's Result.
             return attempts[0] if len(attempts) == 1 else dict(attempts[-1], usage=passes._usage(attempts[::-1]))
         finally:
