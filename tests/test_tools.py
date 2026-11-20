@@ -3313,6 +3313,10 @@ class Workflows(unittest.TestCase):
         pushed = "other.yml runs on a push beside a secret, and is not read as filtered to main alone"
         main = "name: w\non:\n  push:\n    branches:\n      - main  # the default branch\npermissions: {}\njobs:\n  one:\n    runs-on: ubuntu-24.04\n"
         for held in (main + secret + "    steps:\n" + head, main + "    steps:\n" + head,
+                     # YAML's compact list, a comment and a blank line between, and two spaces after the dash.
+                     main.replace("      - main  # the default branch\n", "    - main\n") + secret + "    steps:\n" + head,
+                     main.replace("      - main  # the default branch\n", "      # the default branch\n\n      -  main\n")
+                     + secret + "    steps:\n" + head,
                      main.replace("  push:\n    branches:\n      - main  # the default branch\n", "  schedule:\n    - cron: '0 3 * * *'\n")
                      + secret + "    steps:\n" + head):
             self.assertEqual([p for p in problems(held)[1] if pushed in p], [], held)
@@ -3323,11 +3327,23 @@ class Workflows(unittest.TestCase):
                            "a pattern": main.replace("- main", "- m*"),
                            "tags beside": main.replace("  # the default branch\n", "\n    tags:\n      - v1\n"),
                            "branches as a flow list": main.replace("    branches:\n      - main  # the default branch\n", "    branches: [main]\n"),
-                           "a branch that is no list item": main.replace("- main  # the default branch", "main")}.items():
+                           "a branch that is no list item": main.replace("- main  # the default branch", "main"),
+                           "branches-ignore": main.replace("    branches:\n", "    branches-ignore:\n"),
+                           "a name a space trims to main": main.replace("- main  # the default branch", "- main\u00a0")}.items():
             self.assertTrue(caught(problems(wrong + secret + "    steps:\n" + head)[1], pushed), why)
             # With no secret it passes; but a line the check cannot read, a flow list among them, may hide one.
-            unread = why in ("branches as a flow list", "a branch that is no list item")
+            unread = why in ("branches as a flow list", "a branch that is no list item", "a name a space trims to main")
             self.assertEqual(bool([p for p in problems(wrong + "    steps:\n" + head)[1] if pushed in p]), unread, why)
+        # Beside another event, by a workflow called alone, and by events written as a list, which cannot be read, the
+        # push is held too, with no checkout for another rule to catch (Astra's read).
+        bare = "      - run: make checks\n"
+        for why, wrong in {"beside a schedule": main.replace("    branches:\n      - main  # the default branch\n",
+                                                             "  schedule:\n    - cron: '0 3 * * *'\n") + secret + "    steps:\n" + bare,
+                           "a workflow called alone": main.replace("    branches:\n      - main  # the default branch\n", "")
+                           .replace("    runs-on: ubuntu-24.04\n", "    uses: ./.github/workflows/called.yml\n"),
+                           "events as a list": main.replace("  push:\n    branches:\n      - main  # the default branch\n", "  - push\n")
+                           + secret + "    steps:\n" + bare}.items():
+            self.assertTrue(caught(problems(wrong)[1], pushed), why)
         # The listed workflow checks out the head, so nothing of it is run beside the secret: no command, and no
         # workflow called, whose steps are not read here.
         runs = "sonarcloud.yml runs on a pull request or a merge group beside a secret and the head it checks out, and is not read as"

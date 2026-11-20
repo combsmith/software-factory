@@ -1995,20 +1995,22 @@ def credential_problems(root: pathlib.Path, live: list) -> list:
 
 def _pushed_to_main(text: str, entries: list) -> bool:
     """Whether a workflow that runs on push runs on a push to main alone: its `push:` holds `branches:` and nothing
-    else, a block list of the one item `main`. Any other form, a value, a pattern, tags, paths or more branches, is
-    not read as that (issue 907)."""
+    else, a block list of the one item `main`, at the key's own indent or deeper, comments and blank lines between.
+    Any other form, a value, a pattern, `branches-ignore`, tags, paths or more branches, is not read as that, nor is a
+    name that any space but a plain one trims to main (issue 907)."""
     under = [e for e in entries if e["path"][:2] == ["on", "push"]]
     if [(e["key"], e["value"], e["path"]) for e in under] != [("branches", "", ["on", "push"])]:
         return False
     items = []
     for raw in text.split("\n")[under[0]["line"]:]:
-        line = raw.strip()
+        line = raw.strip(" ")
         if not line or line.startswith("#"):
             continue
-        if len(raw) - len(raw.lstrip(" ")) <= under[0]["indent"]:
+        lead = len(raw) - len(raw.lstrip(" "))
+        if lead < under[0]["indent"] or (lead == under[0]["indent"] and not line.startswith("- ")):
             break
-        items.append(line.split(" #")[0].strip())
-    return items == ["- main"]
+        items.append(line[2:].split(" #")[0].strip(" ") if line.startswith("- ") else None)
+    return items == ["main"]
 
 
 def head_problems(root: pathlib.Path, live: list) -> list:
@@ -2021,7 +2023,8 @@ def head_problems(root: pathlib.Path, live: list) -> list:
     head's own code beside the secret, and its text is the one its row's hash holds. One not listed gives every
     checkout a `ref:` in BASES, and runs on no event but those BASED names, on any other of which that ref is empty and
     the checkout takes the pushed or dispatched commit. Neither has a line read() could not read, nor calls another workflow, whose steps are
-    not read here. A workflow on `push` beside a secret runs on a push to main alone (issue 907).
+    not read here. A workflow on `push` beside a secret runs on a push to main alone, and one whose events cannot be
+    read is held as if it ran on any push (issue 907).
     A row for a workflow that is not exposed, or not there, is stale. What cannot be read checks nothing, and says so."""
     try:
         protected = [entry["path"] for entry in json.loads((root / "config" / "hooks.json").read_text())["protected"]]
@@ -2037,7 +2040,7 @@ def head_problems(root: pathlib.Path, live: list) -> list:
         spared = not bad and bool(events) and events <= EVENTS and not events & JUDGED
         called = [e for e in entries if e["key"] == "uses" and len(e["path"]) == 2 and e["path"][0] == "jobs"]
         secret = bool(bad or called or ANY_SECRET.search(_uncommented(text)))
-        if secret and "push" in events and not _pushed_to_main(text, entries):
+        if secret and (not events or "push" in events and not _pushed_to_main(text, entries)):
             problems.append("%s runs on a push beside a secret, and is not read as filtered to main alone: a Role's "
                             "push to a branch of this repo would run it on the Role's commit beside the secret; give "
                             "`push:` `branches:` with `- main` alone, or run on no push (issue 907)" % path.relative_to(root))
