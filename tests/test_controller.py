@@ -2109,6 +2109,13 @@ class Entry(unittest.TestCase):
                             tracked=(9,), listing=(5, 9))
         self.assertEqual([s for s in spied if s[1] == 9], [])
         self.assertNotIn("owed_issues", record["reconciled"])
+        # Owed, or kept as left, by a pass that could not tell it, it is never read as left either (Muse).
+        for held_ in (dict(held, owed_issues=[9]), dict(held, left_issues=[{"number": 9, "at": "2026-10-12T10:00:00Z"}])):
+            record = entry_with(dict(before, reconciled=held_), tracked=(9,), listing=(5, 9))
+            self.assertEqual(([s for s in spied if s[1] == 9], "owed_issues" in record["reconciled"]), ([], False), held_)
+        # Owed and listed again, it is read once, as served (Muse).
+        entry_with(dict(before, issues=[issue(5)], reconciled=dict(held, owed_issues=[41])), listing=(5, 41))
+        self.assertEqual([s for s in spied if s[1] == 41], [("issue", 41, None)])
         # Owed and stamped inside the window, it is read once, as gone: read short it stays owed, read whole the debt is
         # paid and the stamp kept; a write on it then is still the alert (Claude, Astra).
         both = dict(before, issues=[issue(5)], reconciled=dict(held, owed_issues=[41],
