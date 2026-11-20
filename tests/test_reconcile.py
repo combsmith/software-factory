@@ -396,6 +396,39 @@ class HandApproval(unittest.TestCase):
         for changed in (approval(commit=None), approval(commit=OTHER_HEAD), approval(at="2026-10-11T12:31:00Z")):
             self.assertEqual(kinds(check(seen(changed), before=later)), [("approver", "approval")], changed)
 
+    def test_what_was_read_as_hand_or_taken_is_carried_until_its_pull_request_leaves(self):
+        hand = "model_lens_input_needs_person"
+        found = check(seen(approval()), before=[decided_as(hand)])
+        held = reconcile.carried([decided_as(hand)], recorded(), seen(), NOW, hand=found["hand"], taken=found["taken"])
+        self.assertEqual((held["hand"], "taken" in held), ([{"key": "PRR_1", "item": URL, "head": HEAD, "at": GIVEN}], False))
+        record = dict(json.loads((ROOT / "examples" / "pass.json").read_text()), reconciled=held)
+        self.assertEqual(validate(record, SCHEMAS["pass"], schemas=SCHEMAS), [])
+        # Kept, once, however old, while the pull request is open; read again, it is not carried twice.
+        old = dict(held, hand=[dict(held["hand"][0], at="2026-10-09T00:00:00Z")])
+        aged = [dict(decided_as(hand), reconciled=old)]
+        self.assertEqual(reconcile.carried(aged, recorded(), seen(), NOW, hand=found["hand"])["hand"], old["hand"])
+        # An unmatched approval's head is carried too, a keyless one's among them, once each.
+        second = check(seen(approval("PRR_2"), approval(None, at="2026-10-11T12:40:00Z")), before=aged)
+        self.assertEqual([t["key"] for t in second["taken"]], ["PRR_2", None])
+        taken = reconcile.carried(aged, recorded(), seen(), NOW, taken=second["taken"])
+        self.assertEqual(taken["taken"], [{"key": "PRR_2", "item": URL, "head": HEAD}, {"key": None, "item": URL, "head": HEAD}])
+        self.assertEqual(validate(dict(record, reconciled=taken), SCHEMAS["pass"], schemas=SCHEMAS), [])
+        again = [dict(decided_as(hand), reconciled=taken)]
+        self.assertEqual(reconcile.carried(again, recorded(), seen(), NOW, taken=second["taken"])["taken"], taken["taken"])
+        # Dropped by the pass that reads the pull request leave, which carries nothing new for it, either kind; and
+        # nothing new is carried while a leaving read of it is in the window, though what came before stays.
+        for name in ("hand", "taken"):
+            self.assertNotIn(name, reconcile.carried(again, recorded(), seen(), NOW, gone=[42]), name)
+            self.assertNotIn(name, reconcile.carried([decided_as(hand)], recorded(), seen(), NOW, gone=[42],
+                                                     hand=found["hand"], taken=second["taken"]), name)
+        left = dict(taken, left=[{"number": 42, "at": NOW}])
+        kept = reconcile.carried([dict(decided_as(hand), reconciled=left)], recorded(), seen(), NOW, hand=found["hand"])
+        self.assertEqual((kept["hand"], kept["taken"]), (old["hand"], taken["taken"]))
+        fresh = reconcile.carried([dict(decided_as(hand), reconciled=dict(reconcile.EMPTY, left=left["left"]))],
+                                  recorded(), seen(), NOW, hand=found["hand"], taken=second["taken"])
+        self.assertEqual(("hand" in fresh, "taken" in fresh), (False, False))
+        self.assertNotIn("hand", reconcile.carried([], recorded(), seen(), NOW))
+
     def test_an_approval_of_a_head_the_pass_did_not_decide_or_whose_commit_cannot_be_read_is_unmatched(self):
         hand = "model_lens_input_needs_person"
         for name, write, before in (

@@ -27,7 +27,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILL = ROOT / ".claude" / "skills" / "cut-a-release" / "SKILL.md"
 # The skill's section "When the Factory cannot approve", word for word (decision 0198): what it says of who approves,
 # and by what, changes only with this line.
-CANNOT_APPROVE_SHA256 = "29fcbc9374f77f49fc0bd45d81107ec13497b48320a5add6d8676918527b1fda"
+CANNOT_APPROVE_SHA256 = "5eaa2d9ad8e3da1048aefbf222edc9aee4eb5c332f391116ef258d3a732880f7"
 REPO = "combsmith/software-factory"
 A, B, C, D = ("a" * 40, "b" * 40, "c" * 40, "d" * 40)
 NEXT, STABLE = "factory/v0-next", "factory/v0-stable"
@@ -1459,8 +1459,10 @@ class Skill(unittest.TestCase):
         # says when a Pause is needed for it, on either side of the day a queue account is named.
         self.assertIn("While `accounts.queue` in\n`config/controller.json` is null, nothing carries that Decision out", section)
         self.assertIn("Once it names an account,\nthe Maintainer sets the Pause before the enqueue", section)
-        # A hand approval alarms, the section says so, and every entry of the alert is read while it stands.
-        self.assertIn("The next pass raises the alert `write_unmatched` for it", section)
+        # A hand approval of a pull request waiting for a person is information, any other approval alarms, the section
+        # says so, and every entry is read while it stands (decision 0241).
+        self.assertIn("The next pass reports it as the entry `hand_approval`, information that names", section)
+        self.assertIn("Any other approval no Effect records raises the alert `write_unmatched`", section)
         self.assertIn("so every entry is read for as long as it stands", section)
         self.assertIn("The match clears nothing else", section)
         self.assertIn("No session rotates or revokes the token.", section)

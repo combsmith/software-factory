@@ -268,6 +268,33 @@ class Record(unittest.TestCase):
         self.assertEqual(decisions({"record": full})[0]["reason"], "concurrency")
         replays(full)
 
+    def test_a_hand_approval_is_carried_in_the_record_as_information(self):  # decision 0241
+        # The pass hands reconciliation the record before it, and carries what it read as a hand approval for the next.
+        from tests import test_decide
+        facts = test_decide.changing(changed_paths=["docs/notes.md", "harness/run.py"], **test_decide.DEPENDENCY)
+        facts["item"] = dict(support.ITEM, number=42)
+        head = "a" * 40
+        before = passed(reads(pulls=[{"facts": facts, "title": "t", "head": head}], runs=[run(number=42)]),
+                        now="2026-10-11T12:00:00Z")["record"]
+        self.assertEqual((before["pull_requests"][0]["decision"]["reason"], before["pull_requests"][0]["head"]),
+                         ("model_lens_input_needs_person", head))
+        approval = {"by": "approver", "kind": "approval", "item": dict(support.ITEM, number=42), "key": "PRR_h",
+                    "at": "2026-10-11T12:30:00Z", "commit": head}
+        seen = dict(SEEN, since="2026-10-11T00:00:00Z", writes=[approval])
+        record = passed(reads(pulls=[], seen=seen), previous=[before])["record"]
+        url = "https://github.com/%s/pull/42" % REPO
+        self.assertIn({"alert": "hand_approval", "by": "approver", "write": "approval", "item": url, "key": "PRR_h"},
+                      record["reconciliation"])
+        self.assertNotIn("write_unmatched", record["alerts"])
+        self.assertEqual(record["reconciled"]["hand"], [{"key": "PRR_h", "item": url, "head": head,
+                                                         "at": "2026-10-11T12:30:00Z"}])
+        self.assertEqual(shared.errors(record, "pass"), [])
+        # On another head it is unmatched, and nothing is carried.
+        other = passed(reads(pulls=[], seen=dict(seen, writes=[dict(approval, commit="b" * 40)])), previous=[before])["record"]
+        self.assertIn("write_unmatched", other["alerts"])
+        self.assertNotIn("hand", other["reconciled"])
+        self.assertEqual(other["reconciled"]["taken"], [{"key": "PRR_h", "item": url, "head": "b" * 40}])
+
     def test_an_issue_decision_replays_through_the_issues_kernel_configuration(self):  # decisions 0002, 0218
         # Replayed through `pass_.issue_config`, as the pass asked it, the Controller's factory:triage counts.
         from kernel import issue
