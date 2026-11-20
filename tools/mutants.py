@@ -21375,6 +21375,12 @@ MUTANTS = ISSUE + [
     ("the Run's first job checks out the item", '.github/workflows/run-jobs.yml',
      '          ref: ${{ job.workflow_sha }}\n', '          ref: ${{ inputs.item }}\n',
      ('tests.test_tools.Workflows.test_no_job_of_a_run_runs_the_items_code',)),
+    ("the Engine step runs from the head's folder", '.github/workflows/run-jobs.yml',
+     '        id: engine\n', '        id: engine\n        working-directory: task/head\n',
+     ('tests.test_tools.Workflows.test_no_job_of_a_run_runs_the_items_code',)),
+    ("the CLI's install runs a command after an allowed start", '.github/workflows/run-jobs.yml',
+     '-o /tmp/claude "${url}"\n', '-o /tmp/claude "${url}"; make\n',
+     ('tests.test_tools.Workflows.test_no_job_of_a_run_runs_the_items_code',)),
     # Issue 589: the advisory check of a changed line of Python that no test notices.
 ] + [(name, rel, old, new, tuple("tests.test_untested." + test for test in tests)) for name, rel, old, new, tests in (
     ("a revert a crash alone notices is a kill", "tools/untested.py",

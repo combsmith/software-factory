@@ -4781,13 +4781,30 @@ class Workflows(unittest.TestCase):
 
     def test_no_job_of_a_run_runs_the_items_code(self):  # decision 0239, issue 952
         # Every job of a Run's workflow can reach ACTIONS_RUNTIME_TOKEN, and the run job the model's credential, so none
-        # runs the item's code (decision 0219): each checks out the Release's own commit alone, and each step runs a module
-        # of the Release's harness, the CLI's install from the vendor, or the wake's one call. Named here, not read from
-        # tools/check_workflows.py, so that a step added there and here alike is still refused.
+        # runs the item's code (decision 0219): each checks out the Release's own commit alone, by a pinned action; each
+        # step runs a module of the Release's harness from the folder the job starts in, the CLI's install from the vendor
+        # word for word, or the wake's one call; and no key moves where or how a step runs, or hands it more environment:
+        # no `working-directory:`, `shell:`, `defaults:`, `container:`, and no name of `env:` outside the set below. Each
+        # is named here, not read from tools/check_workflows.py, so that a step added there and here alike is still refused.
         release = {"${{ job.workflow_sha }}", "${{ needs.run.outputs.commit }}"}
-        install = re.compile(r"(url=\"https://downloads\.claude\.ai/|curl -sSfL --proto '=https' |echo \"\$\{CLI_CHECKSUM\}"
-                             r"  /tmp/claude\" \| sha256sum -c$|chmod 0755 /tmp/claude$|sudo mv /tmp/claude /usr/local/bin/"
-                             r"claude$|printf '%s\\n' 'deb |sudo RES_OPTIONS='timeout:5 attempts:2' apt-get (update|install) )")
+        keys = {(): {"name", "on", "permissions", "jobs"},
+                ("job",): {"env", "environment", "if", "needs", "outputs", "permissions", "runs-on", "steps", "timeout-minutes"},
+                ("step",): {"env", "id", "if", "name", "run", "timeout-minutes", "uses", "with"},
+                ("env",): {"CLAUDE_CLI", "CLAUDE_CODE_OAUTH_TOKEN", "CLI_CHECKSUM", "CLI_VERSION", "GH_TOKEN", "ITEM", "NAME",
+                           "NEEDS", "PASS", "PR_REVIEW_APP_KEY", "READER_APP_KEY", "REPO", "RUN_DIGEST", "APPROVER_TOKEN",
+                           "FACTORY_PAUSED", "GITHUB_TOKEN", "QUEUE_APP_KEY"},
+                ("with",): {"artifact-ids", "fetch-tags", "if-no-files-found", "name", "path", "persist-credentials", "ref"}}
+        shapes = {"CLI_VERSION": r"[0-9]+\.[0-9]+\.[0-9]+", "CLI_CHECKSUM": r"[0-9a-f]{64}"}
+        debs = " ".join("'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://%s/ubuntu %s main'" % (host, suite)
+                        for host in ("azure.archive.ubuntu.com", "mirrors.edge.kernel.org")
+                        for suite in ("noble", "noble-updates", "noble-security"))
+        apt = ("sudo RES_OPTIONS='timeout:5 attempts:2' apt-get %s -o Dir::Etc::sourcelist=/tmp/ubuntu.list "
+               "-o Dir::Etc::sourceparts=- -o Acquire::Retries=%d -o Acquire::https::Timeout=10%s")
+        install = ['url="https://downloads.claude.ai/claude-code-releases/${CLI_VERSION}/linux-x64/claude"',
+                   "curl -sSfL --proto '=https' --proto-redir '=https' -o /tmp/claude \"${url}\"",
+                   'echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c', "chmod 0755 /tmp/claude",
+                   "sudo mv /tmp/claude /usr/local/bin/claude", "printf '%s\\n' " + debs + " > /tmp/ubuntu.list",
+                   apt % ("update -q", 0, " || true"), apt % ("install -y --no-install-recommends", 2, " bubblewrap")]
         wake = ('timeout 60 gh api -X POST "repos/$REPO/actions/workflows/poller.yml/dispatches" -f ref=main || '
                 'echo "the next pass waits for the backstop"')
 
@@ -4797,15 +4814,20 @@ class Workflows(unittest.TestCase):
                      if e["key"] == "name" and len(e["path"]) == 3 and e["path"][2] == "steps"}
             found = []
             for e in entries:
-                job = e["path"][1] if len(e["path"]) > 1 else None
-                if e["key"] == "ref" and e["value"] not in release or e["key"] == "uses" and not re.fullmatch(
+                path, job = e["path"], e["path"][1] if len(e["path"]) > 1 else None
+                where = (() if path == [] else ("job",) if len(path) == 2 and path[0] == "jobs" else
+                         ("step",) if path[2:] == ["steps"] else (path[-1],) if path[-1] in ("env", "with") else None)
+                if where is not None and e["key"] not in keys[where]:
+                    found.append(e["key"])
+                elif where == ("env",) and e["key"] in shapes and not re.fullmatch(shapes[e["key"]], e["value"]):
+                    found.append(e["value"])
+                elif e["key"] == "ref" and e["value"] not in release or e["key"] == "uses" and not re.fullmatch(
                         r"actions/(checkout|upload-artifact|download-artifact)@[0-9a-f]{40}", e["value"]):
                     found.append(e["value"])
                 elif e["key"] == "run" and e["body"]:
-                    if named.get((job, e["step"])) != "Install the CLI at the Engine's pin" or \
-                            not all(install.match(line) for line in e["body"]):
+                    if named.get((job, e["step"])) != "Install the CLI at the Engine's pin" or e["body"] != install:
                         found.append(e["body"])
-                elif e["key"] == "run" and e["path"][2:] == ["steps"] and \
+                elif e["key"] == "run" and path[2:] == ["steps"] and \
                         not re.fullmatch(r"python3 -m harness\.\w+", e["value"]) and (job, e["value"]) != ("wake", wake):
                     found.append(e["value"])
             return bad + found
@@ -4813,6 +4835,7 @@ class Workflows(unittest.TestCase):
         for name in ("run-jobs.yml", "approve-job.yml", "queue-job.yml"):
             self.assertEqual(runs_the_items_code((self.LIVE / name).read_text()), [], name)
         good = (self.LIVE / "run-jobs.yml").read_text()
+        engine_step = "        id: engine\n"
         for why, text in (
                 ("the item's tests beside the model", good.replace(
                     "        run: python3 -m harness.run\n",
@@ -4822,9 +4845,19 @@ class Workflows(unittest.TestCase):
                                                       "          ref: ${{ inputs.item }}\n")),
                 ("the install runs a script", good.replace("          chmod 0755 /tmp/claude\n",
                                                            "          chmod 0755 /tmp/claude\n          sh ./setup.sh\n")),
+                ("a command after an allowed start", good.replace('-o /tmp/claude "${url}"\n', '-o /tmp/claude "${url}"; make\n')),
+                ("a version that is a path", good.replace('CLI_VERSION: "2.1.306"', 'CLI_VERSION: "2.1.306/../x"')),
                 ("a local action", good.replace("        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
                                                 " # v7.0.2\n        with:\n          name: result\n",
                                                 "        uses: ./\n        with:\n          name: result\n")),
+                ("the Engine from the head's folder", good.replace(engine_step, engine_step + "        working-directory: task/head\n")),
+                ("the Engine in another shell", good.replace(engine_step, engine_step + "        shell: bash ./x {0}\n")),
+                ("the run job's defaults", good.replace("    environment: factory-run\n", "    environment: factory-run\n"
+                                                        "    defaults:\n      run:\n        working-directory: task/head\n")),
+                ("more environment for the Engine", good.replace("          CLAUDE_CLI: /usr/local/bin/claude\n",
+                                                                 "          CLAUDE_CLI: /usr/local/bin/claude\n          PYTHONPATH: task/head\n")),
+                ("a checkout into the head's folder", good.replace("          persist-credentials: false\n",
+                                                                   "          persist-credentials: false\n          sparse-checkout: x\n", 1)),
                 ("the wake runs more", good.replace('-f ref=main || echo', '-f ref=main; make || echo'))):
             self.assertNotEqual(text, good, why)
             self.assertNotEqual(runs_the_items_code(text), [], why)
