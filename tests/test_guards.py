@@ -1670,18 +1670,18 @@ class Opening(unittest.TestCase):
 
     def test_a_drafts_title_and_body_are_text_this_reads(self):
         self.assertIsNone(draft())
-        self.assertIsNone(draft(body=""))
         self.assertNone(["## What\n\n- a\tb\n\nC# 9, 100% sure, 50% off, a < b, a <= b, <3, x & y, a && b, R & D"])
         # No text of its exact kind: text of another kind may say it is anything.
         for wrong in (None, b"x", Odd("x"), 1, ["x"], {"x": "x"}):
             self.assertEqual(draft(title=wrong), opening.UNREADABLE, repr(wrong))
             self.assertEqual(draft(body=wrong), opening.UNREADABLE, repr(wrong))
         self.assertEqual(draft(body=Odd("")), opening.UNREADABLE)
-        # A title is one line, of something; a body holds no control character but a line break and a tab.
+        # A title is one line, of something; a body is of something, and holds no control character but a line break
+        # and a tab.
         for title in ("", " ", "　", "a\nb", "a\tb", "a\rb", "a\x00", "a\x1b", "a\x7f", "a\x85", "a\x9f", "a ",
                       "a "):
             self.assertEqual(draft(title=title), opening.UNREADABLE, repr(title))
-        for body in ("a\rb", "a\r\nb", "\x00", "a\x08", "a\x0b", "a\x1f", "a\x7f", "a\x80", "a\x85", "a ", "a "):
+        for body in ("", " ", "\n", " \t\n", "a\rb", "a\r\nb", "\x00", "a\x08", "a\x0b", "a\x1f", "a\x7f", "a\x80", "a\x85", "a ", "a "):
             self.assertEqual(draft(body=body), opening.UNREADABLE, repr(body))
         # A lone surrogate, as JSON's escape gives one, is no character: no UTF-8 carries it, so GitHub cannot be sent it.
         # The characters either side of the surrogates are text, and so is one outside the Basic Multilingual Plane.
