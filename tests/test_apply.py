@@ -1215,6 +1215,18 @@ class Push(unittest.TestCase):
         # The Kernel's own code is verify's input alone: pushed, and held at convergence (decision 0020).
         self.assertIsNone(apply.push_refusal(["kernel/derive.py"], [None], own_list()))
 
+    def test_the_repos_own_list_holds_the_settings_a_scan_reads_beside_its_token(self):  # issue 845
+        # sonarcloud.yml checks out a pull request's head and runs the scan with SONAR_TOKEN beside it, and the scan
+        # takes its settings, the host it sends to among them, from the head's sonar-project.properties. A Role's push
+        # that changes the file, in any case, or renames or copies it away, is refused.
+        for paths, previous in ((["sonar-project.properties"], [None]), (["SONAR-PROJECT.PROPERTIES"], [None]),
+                                (["docs/kept.properties"], ["sonar-project.properties"]),
+                                (["docs/a.md", "sonar-project.properties"], [None, None])):
+            self.assertEqual(apply.push_refusal(paths, previous, own_list()), "push_protected", (paths, previous))
+        # The scan reads the one at the top of the repo alone: the name elsewhere, or a longer one, is no setting of it.
+        for path in ("docs/sonar-project.properties", "sonar-project.properties.md"):
+            self.assertIsNone(apply.push_refusal([path], [None], own_list()), path)
+
 
 def own_list() -> list:
     """What a push may not touch, as this checkout holds it: config/hooks.json read with config/defaults.json's model

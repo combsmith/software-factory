@@ -28,6 +28,7 @@ import pathlib
 
 from adapters import acceptance, applied, checks, edits, pull, threads, timeline
 from adapters.github import Unanswered
+from kernel.terms import BOT_SUFFIX
 from tools.jsonschema_lite import validate
 
 
@@ -160,6 +161,25 @@ def accounts_of(controller: dict) -> tuple:
     factory = bots(held["agents"]) | set(lenses) | ({(held["controller"]["id"], "Bot")} if held["controller"] else set())
     queue = queue_of(controller)
     return identities, approver, lenses, factory | ({queue} if queue else set())
+
+
+def roles_of(controller: dict) -> set:
+    """Each Role App's bot account `controller/1` holds under `roles`, `(id, "Bot")`: whose comment on an issue is that
+    Role's (`adapters/issues.comments`). They are kept apart from `accounts_of`'s Factory accounts, whose labels the act
+    ceiling counts: a Role's act is its Run's, bounded by the Run ceiling, on a pull request as on an issue (issue 901)."""
+    return {(account["id"], "Bot") for account in (controller["accounts"].get("roles") or {}).values()
+            if isinstance(account, dict)}
+
+
+def app_names_of(controller: dict, apps: dict) -> dict:
+    """`{(id, "Bot"): name}`: each Factory App whose bot account `controller/1` holds, the Controller's and each Role's,
+    by the name config/apps.json gives it with the suffix REST spells a Bot's login with, so that
+    `adapters/timeline.Accounts` names that App by its id. An App the configuration does not name is left out, and is
+    named by its login."""
+    held = controller["accounts"]
+    accounts = [("controller", held.get("controller"))] + sorted((held.get("roles") or {}).items())
+    return {(account["id"], "Bot"): apps[code]["name"] + BOT_SUFFIX for code, account in accounts
+            if isinstance(account, dict) and isinstance(apps.get(code), dict) and apps[code].get("name")}
 
 
 def queue_of(controller: dict):
