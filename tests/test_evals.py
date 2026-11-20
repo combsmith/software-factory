@@ -2029,8 +2029,9 @@ class EvalJob(unittest.TestCase):
                                modelUsage={}), 1
         good = live.answer(live.judged(findings=[], effects={})), 0
 
-        def asked(*said, clock=lambda: 0.0):
+        def asked(*said, clock=lambda: 0.0, versions=None):
             cli, slept = Answers(*said), []
+            cli.versions = list(versions) if versions is not None else cli.versions
             heads = self.temp / "heads"
             (heads / case["id"]).mkdir(parents=True, exist_ok=True)
             review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, clock, heads, sleep=slept.append)
@@ -2170,6 +2171,56 @@ class EvalJob(unittest.TestCase):
             self.assertEqual((result["reason"], review.retried, review.seen), ("engine_failed", {}, {"raised": "OSError", "erred": True}))
             result, review, calls, slept = asked(said, subprocess.TimeoutExpired(["claude"], 1))
             self.assertEqual((result["reason"], review.retried, review.seen), ("engine_timeout", {}, {"timed_out": True, "erred": True}))
+            # An answer the Engine refuses after its call, another model's or one that fails its schema, is of a call the
+            # watch saw succeed, so the word it kept is a later call's: the cause is left out, never taken from that
+            # call, and the case is not the vendor's (issue 865).
+            others = (live.answer(modelUsage={live.MODEL + "-other": {}}), 0)
+            invalid = (live.answer(live.judged(status="no such status")), 0)
+            cut = (live.answer(live.judged(status="incomplete", reason="change_not_reviewed_whole", findings=[], effects={})), 0)
+            refused = (live.answer(live.judged(status="refused", reason="task_not_a_review", findings=[], effects={})), 0)
+            for first, reason in ((others, "engine_model"), (invalid, "result_invalid"), (cut, "change_not_reviewed_whole"),
+                                  (refused, "task_not_a_review")):
+                for later in (vendor(503), OSError("no such file"), subprocess.TimeoutExpired(["claude"], 1), good):
+                    result, review, calls, slept = asked(first, later)
+                    self.assertEqual((result["reason"], review.retried, calls, review.seen, job.seen_of(review)),
+                                     (reason, {}, 2, {}, {}), reason)
+                    self.assertFalse(job.transient(result, review.seen))
+            # So is the word beside two answers that completed: neither call's is the pair's. And so is that of a call
+            # that erred where another model answered it: the watch cannot tell it from a later call's.
+            result, review, calls, slept = asked(good, good)
+            self.assertEqual((result["status"], calls, review.seen), ("completed", 2, {}))
+            erred = (live.answer(is_error=True, structured_output=None, modelUsage={live.MODEL + "-other": {}}), 1)
+            result, review, calls, slept = asked(erred, good)
+            self.assertEqual((result["reason"], calls, review.seen), ("engine_model", 2, {}))
+            # So is the word beside a Result of no call, or of a call the version changed under: the first is failed
+            # before its call, at the version read, and the one call made is the second Result's.
+            for versions, calls_made in (((None,), 1), ((live.PIN, None), 2)):
+                result, review, calls, slept = asked(*[vendor(503)] * calls_made, versions=versions)
+                self.assertEqual((result["reason"], review.retried, calls, review.seen), ("engine_version", {}, calls_made, {}))
+            # A retry's Result is held as the first ask's is.
+            result, review, calls, slept = asked(vendor(529), good, others, vendor(503))
+            self.assertEqual((result["reason"], review.retried, calls, review.seen), ("engine_model", {case["id"]: 1}, 4, {}))
+        # A case of one Result keeps its call's word, whatever the Engine made of its answer: it is that Result's own. So
+        # with the version read before the call and after it, and none where the call was never made.
+        for first, reason in ((others, "engine_model"), (invalid, "result_invalid")):
+            result, review, calls, slept = asked(first)
+            self.assertEqual((result["reason"], calls, job.seen_of(review)), (reason, 1, {"subtype": "success", "exit": 0}))
+        result, review, calls, slept = asked(vendor(503), versions=(live.PIN, None))
+        self.assertEqual((result["reason"], calls, review.seen["api_error_status"]), ("engine_version", 1, 503))
+        result, review, calls, slept = asked(versions=(None,))
+        self.assertEqual((result["reason"], calls, review.seen), ("engine_version", 0, {}))
+        # Its calls are counted by the ask: not with the ask a retry follows, nor with a case before it that ended in
+        # what its call raised.
+        result, review, calls, slept = asked(vendor(529), others)
+        self.assertEqual((result["reason"], review.retried, job.seen_of(review)),
+                         ("engine_model", {case["id"]: 1}, {"subtype": "success", "exit": 0}))
+        cli, heads = Answers(RuntimeError("no such call"), others), self.temp / "heads"
+        review = step.reviewer(dict(live.JOB), "factory/v0.1.0", 0, cli, lambda: 0.0, heads, sleep=lambda seconds: None)
+        with mock.patch.object(step, "run_id", lambda: live.RUN):
+            (heads / case["id"]).mkdir(parents=True, exist_ok=True)
+            self.assertRaises(RuntimeError, review, case)
+            (heads / case["id"]).mkdir(parents=True, exist_ok=True)
+            self.assertEqual((review(case)["reason"], job.seen_of(review)), ("engine_model", {"subtype": "success", "exit": 0}))
         # The test is of a failed Result alone: a completed one is never transient, whatever the call said. Each probe is of
         # a Result the Engine failed, so that it reaches the guard it is of.
         result = dict(result, status="failed", reason="engine_failed")
@@ -3074,6 +3125,22 @@ class EvalJob(unittest.TestCase):
         ledger = json.loads((self.temp / "heldout" / job.LEDGER).read_text())
         marks = {c["id"]: (c.get("at_alternate"), c.get("surplus_gating")) for c in ledger["preflight"]}
         self.assertEqual(marks, {first[0]: (True, None), first[1]: (None, 2), first[2]: (None, None)})
+
+    def test_the_eval_job_writes_no_number_that_is_not_finite(self):  # issue 922
+        # A number that is not finite is no JSON. A step's file, the report among them, and a gate set's ledger refuse
+        # one at the write, before a file is opened, so that no reader is left a file it cannot parse, or an empty one.
+        from harness import eval as job
+        for odd in (float("nan"), float("inf"), float("-inf")):
+            with self.assertRaisesRegex(ValueError, "not JSON compliant"):
+                job._write(self.work, "odd.json", {"usage": {"cost_usd": odd}})
+            self.assertFalse((self.work / "odd.json").exists())
+        self.set(self.cases, gate=True, natural=[])
+        self.step(job.plan)
+        self.step(the_fetch(), self.home(self.cases, gate=True))
+        with mock.patch.object(job, "ledger_of", lambda *a, **k: {"usage": {"cost_usd": float("nan")}}):
+            with self.assertRaisesRegex(ValueError, "not JSON compliant"):
+                self.step(job.score, lambda case: example_result())
+        self.assertFalse((self.temp / "heldout" / job.LEDGER).exists())
 
     def test_a_gate_sets_faults_are_the_codes_of_cases_not_read_alone(self):  # Muse's read of #628
         # A case the reviewer failed is counted under its kind, never as a fault: only a case not read says its code,

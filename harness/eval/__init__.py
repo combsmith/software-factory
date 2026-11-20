@@ -271,8 +271,9 @@ def _read(directory, name: str):
 
 def _write(directory, name: str, document) -> None:
     path = within(directory, name)
+    text = json.dumps(document, indent=2, sort_keys=True, allow_nan=False) + "\n"    # a raise leaves no empty file behind
     with open(path, "w", encoding="utf-8") as f:
-        f.write(json.dumps(document, indent=2, sort_keys=True) + "\n")
+        f.write(text)
 
 
 def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
@@ -1169,7 +1170,7 @@ def gate_scored(kept: dict, found: dict, place: pathlib.Path, review, causes: di
     ledger = (json.dumps(ledger_of(kept, found, assessed, causes, alternates, results, surplus, usages,
                                    (ahead, told, spent, answers, beside, away), getattr(review, "retried", None),
                                    cells_of(found, place)),
-                         indent=2, sort_keys=True) + "\n").encode("utf-8")
+                         indent=2, sort_keys=True, allow_nan=False) + "\n").encode("utf-8")
     with open(os.open(within(place, LEDGER), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
         out.write(ledger)
     return assessed, aggregate(kept, found, assessed, place, results, ledger, usages, ahead, getattr(review, "retried", None))
