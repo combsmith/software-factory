@@ -814,6 +814,10 @@ MOVES = [
     # The queue drops a pull request that conflicts.
     Move("GitHub works out it conflicts", "platform",
          lambda pr: set_fact(mergeable=False, queue=False)(pr) if pr["facts"]["mergeable"] is None else None),
+    # A conflict is worked out within seconds of a base move, so two reads can give true and then false with no unknown
+    # between (trial P-40, `trials/P-40.at-once.json`).
+    Move("the base moves and GitHub works out at once that it conflicts", "platform",
+         lambda pr: set_fact(mergeable=False, queue=False)(pr) if pr["facts"]["mergeable"] is True else None),
     Move("GitHub retargets it at the default branch", "platform", set_fact(targets_protected=True)),
     Move("a dependency bot rebases it", "platform", rebase),
     Move("a dependency bot rebases it onto a workflow's pin", "platform", pins),
@@ -1081,6 +1085,36 @@ class Transitions(unittest.TestCase):
         self.assertEqual(sorted(declared - set(made) - set(UNREACHED)), [], "remove it, or say in UNREACHED why not")
         # Nothing is kept that is found, or not declared.
         self.assertEqual(sorted(set(UNREACHED) - (declared - set(made))), [])
+
+    def test_a_conflict_worked_out_at_once_is_explored(self):  # issue 811
+        # A conflict read straight after a head that merges, with no unknown between, is one move: so the explorer, two
+        # moves deep, reads what follows it. At the Run ceiling with a review Run in flight, the conflict is the owner's
+        # to fix, and when the Lens's review passes, the Run ceiling holds it: the Hold the Lens's review makes. The same
+        # Hold is three moves through unknown, so the move finds it and does not make it.
+        moves = {m.name: m for m in MOVES}
+        at_once = ("the base moves and GitHub works out at once that it conflicts", "a Lens's review passes")
+        through = ("the base moves", "GitHub works out it conflicts", "a Lens's review passes")
+        for steps in (at_once, through):
+            item, readings = BASES["awaiting_review at the Run ceiling, with a review Run"], []
+            for step in steps:
+                item = moves[step].make(item)
+                self.assertIsNotNone(item, step)
+                readings.append(tuple(kernel(item)[k] for k in ("state", "reason")))
+            self.assertEqual(readings[-2:], [(t.ADDRESSING, "conflict"), (t.HELD, "run_ceiling")], steps)
+        # Two moves deep, only the move reaches it.
+        held = (t.ADDRESSING, t.HELD, "lens", "max_runs_per_item")
+        start = {k: BASES[k] for k in ("awaiting_review at the Run ceiling, with a review Run",)}
+        self.assertIn(held, holds_made_by_no_person(explore(start, MOVES)[0]))
+        self.assertNotIn(held, holds_made_by_no_person(explore(start, [m for m in MOVES if m.name != at_once[0]])[0]))
+        self.assertIn(held, holds_made_by_no_person(explored()[0]))
+        # From a merge state not worked out, the move is not made: that is the slow way, through unknown.
+        unknown = dict(BASES["conflict"], facts=dict(BASES["conflict"]["facts"], mergeable=None))
+        self.assertIsNone(moves[at_once[0]].make(unknown))
+        # The queue drops a queued pull request that conflicts at once, as it drops one worked out through unknown (Astra).
+        queued = BASES["approval_lost"]
+        self.assertEqual((queued["facts"]["queue"], queued["facts"]["mergeable"]), (True, True))
+        after = moves[at_once[0]].make(queued)["facts"]
+        self.assertEqual((after["mergeable"], after["queue"]), (False, False))
 
     def test_a_push_that_leaves_the_diff_as_it_was_asks_a_gating_lens_again(self):  # issue 855, decision 0212
         # A head pushed with the diff as it was keeps its content id, and its checks start again. While a Lens's own thread
