@@ -362,6 +362,19 @@ class Effects(unittest.TestCase):
                                  effects.listed("combsmith/software-factory",
                                                 json.loads((ROOT / "config" / "controller.json").read_text())["accounts"]["controller"])]))
 
+    def test_a_record_holding_a_number_that_is_not_finite_is_no_file(self):  # issue 922
+        # The record's own ids are copied into written.json even where the record is refused: NaN there fails the step
+        # at the write, and leaves no file another reader cannot parse, not even an empty one.
+        o = out()
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = pathlib.Path(tmp)
+            (folder / "pass.json").write_text(json.dumps(dict(o["record"], **{"pass": float("nan")})))
+            (folder / "writes.json").write_text(json.dumps(writes_.plan(o)))
+            argv = [str(folder / "pass.json"), str(folder / "writes.json"), str(folder)]
+            with self.assertRaises(ValueError):
+                effects.main(argv, environ={}, base=tmp)
+            self.assertFalse((folder / "written.json").exists())
+
     def test_a_failed_write_is_recorded_and_fails_the_step(self):
         o = out()
         with tempfile.TemporaryDirectory() as tmp:
