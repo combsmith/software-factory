@@ -16,10 +16,17 @@ from tools.hooks import protected
 
 # Fixed seeds: the required check cannot fail at random. SIM_SEEDS shortens a local run.
 SEEDS = range(1, 1 + int(os.environ.get("SIM_SEEDS", "300")))
-# The first seed whose Hold takes a queued item out, and the first whose lost approval does since a killed Run may leave
-# no outcome (issue 286) (test_the_seeds_take_a_pull_request_out_of_the_queue_for_each_cause), and the first of each
-# world on which a newer Run cancels the one waiting (a_run_waits_its_turn).
-HOLD_SEED, LOST_SEED, LANE_SEED, ISSUE_LANE_SEED = 109, 69, 2, 54
+# The first seed whose Hold takes a queued item out, the first whose lost approval does since a killed Run may leave no
+# outcome (issue 286), the first whose open gate does, and the first that shows another App's check under a Lens's
+# name, since only an agent's pull request is mended by a Role (issue 824)
+# (test_the_seeds_take_a_pull_request_out_of_the_queue_for_each_cause); the first of each world on which a
+# newer Run cancels the one waiting (a_run_waits_its_turn); and the first whose review left a criterion uncovered until
+# its attempts held the item (test_the_seeds_serve_a_review_that_left_a_criterion_uncovered).
+HOLD_SEED, LOST_SEED, GATE_SEED, APP_SEED, LANE_SEED, ISSUE_LANE_SEED, UNCOVERED_SEED = 1, 237, 351, 57, 2, 54, 221
+# The first seed on which a Lens's review is asked again on unchanged content, the head pushed past it with the diff as
+# it was while its thread stands, and the first on which a later review of the Lens drops a thread that the queue App
+# then resolves (test_the_seeds_push_a_head_that_leaves_the_diff_as_it_was_and_say_a_thread_dropped).
+AGAIN_SEED, DROPPED_SEED = 261, 46
 # Seeds on which the item is a dependency update with no acceptance contract: to a workflow's pin, and to neither list.
 DEPENDENCY_ON_THE_LIST, DEPENDENCY_OFF_THE_LIST = 4, 34
 
@@ -329,7 +336,8 @@ class Simulation(unittest.TestCase):
             last = world.settle()
             # A check with no verdict that a person has not run again waits for that person, and says so.
             stuck = last["reason"] == "check_unreadable" and last["attention"] == "needs_you"
-            resting = last["state"] in ("merged", "held") or stuck
+            # A pull request the Factory did not open waits for its author, a person, to mend it (issue 824).
+            resting = last["state"] in ("merged", "held") or stuck or world.waits_for_its_author(last)
             self.assertTrue(resting, "seed %d rests in %s (%s)\n%s" % (
                 seed, last["state"], last["reason"], "\n".join(world.trace[-15:])))
 
@@ -354,13 +362,16 @@ class Simulation(unittest.TestCase):
         self.rests_on_its_bound(dict(queue_merges=False), "act_ceiling")
 
     def rests_on_its_bound(self, world: dict, reason: str):
-        """A world that never ends on its own stops on its bound, or earlier on the Run ceiling."""
+        """A world that never ends on its own stops on its bound, or earlier on the Run ceiling. One the Factory did not
+        open may wait for its author instead, who acts no more once the faults stop (issue 824)."""
         reasons = []
         for seed in SEEDS:
             w = World(seed, **world)
             for _ in range(250):
                 w.step()
             last = w.settle()
+            if w.waits_for_its_author(last):
+                continue
             self.assertEqual((w.pr_state, last["state"]), ("open", "held"), "seed %d: %s\n%s" % (
                 seed, last["reason"], "\n".join(w.trace[-15:])))
             # Or on a description edited after the approval, on the Maintainer's own pull request, where GitHub refuses
@@ -1051,11 +1062,12 @@ class Simulation(unittest.TestCase):
                 shown.update(e.split(":")[1] for e in d["evidence"] if e.count(":") >= 2)
             return d
 
-        # The first seed whose Hold takes an item out lies past a local run of forty seeds since the lane cancels a
-        # waiting Run (trials/P-44.json), and so does the first whose approval is lost since a killed Run may leave no
-        # outcome (issue 286): each is run as well, so a short run still asks for that cause.
+        # The first seed whose approval is lost lies past a local run of forty seeds since a killed Run may leave no
+        # outcome (issue 286), the first whose gate is open past the default three hundred, and the first that shows
+        # another App's check past forty, since only an agent's pull request is mended by a Role (issue 824): each is
+        # run as well, so a short run still asks for each cause.
         with mock.patch.object(world, "decide", recording):
-            for seed in sorted(set(SEEDS) | {HOLD_SEED, LOST_SEED}):
+            for seed in sorted(set(SEEDS) | {HOLD_SEED, LOST_SEED, GATE_SEED, APP_SEED}):
                 w = World(seed)
                 for _ in range(250):
                     w.step()
@@ -1189,8 +1201,10 @@ class Simulation(unittest.TestCase):
                 exhausted = exhausted or any(uncovered(ran[e]) for e in d["evidence"])
             return d
 
+        # The first seed that reaches the attempts lies past a local run of eighty seeds since only an agent's pull
+        # request is mended by a Role (issue 824): it is run as well.
         with mock.patch.object(world, "decide", recording):
-            for seed in SEEDS:
+            for seed in sorted(set(SEEDS) | {UNCOVERED_SEED}):
                 w = World(seed)
                 for _ in range(250):
                     w.step()
@@ -1329,6 +1343,108 @@ class Simulation(unittest.TestCase):
         self.assertEqual(seen, {"an App took the Hold off", "an App added hands-off",
                                 "an App resolved the Maintainer's thread"})
 
+    def test_only_a_pull_request_the_factory_did_not_open_waits_for_its_author(self):  # issue 824, decision 0216
+        # An agent's pull request names the issue the Factory opened it for; the Maintainer's and the bot's name none.
+        worlds = [World(seed) for seed in (1, 2, world.DEPENDENCY_SEED)]
+        self.assertEqual({w.cls: w.facts()["opened_for"] for w in worlds},
+                         {"maintainer": None, "agent": world.ISSUE, "dependency": None})
+        # Only one that names none rests on its author, and only in addressing, for what a fix answers, with nothing
+        # admitted. The Factory's own item rests where it always has.
+        waiting = {"state": terms.ADDRESSING, "reason": "findings_open", "outcome": terms.NOTHING}
+        for w in worlds:
+            self.assertEqual(w.waits_for_its_author(waiting), w.cls != "agent", w.cls)
+            for other in (dict(waiting, state=terms.HELD), dict(waiting, outcome=terms.ADMIT),
+                          dict(waiting, outcome=terms.HOLD), dict(waiting, reason="awaiting_review")):
+                self.assertFalse(w.waits_for_its_author(other), (w.cls, other))
+        # Nor while a Run of its is open, queued or in progress: the item waits on that Run first.
+        for status in ("queued", "in_progress"):
+            w = World(1)
+            while not w.runs:
+                w.step()
+            w.runs = [dict(r, status="completed") for r in w.runs] + [dict(w.runs[0], run="open", status=status)]
+            self.assertFalse(w.waits_for_its_author(waiting), status)
+            w.runs = w.runs[:-1]
+            self.assertTrue(w.waits_for_its_author(waiting), status)
+        self.assertEqual(set(world.MENDS), {"check_failed", "findings_open", "human_finding", "conflict",
+                                            "acceptance_failed"})
+        # On their own pull request the Maintainer, its author, mends what waits for them, as a writer: on the first seed.
+        pushes, push = [], World.push
+
+        def pushing(w, who, writer, keep=False):
+            pushes.append((w.trace[-1].endswith("the author mends it"), who, writer))
+            return push(w, who, writer, keep)
+
+        w = World(1)
+        with mock.patch.object(World, "push", pushing):
+            for _ in range(250):
+                w.step()
+        self.assertEqual(w.cls, "maintainer")
+        self.assertEqual({(who, writer) for mends, who, writer in pushes if mends}, {(world.MAINTAINER["name"], True)})
+        # And only there: on an agent's pull request a Role mends it, and the bot's waits for its own author, on the seed
+        # whose bot's pull request comes to wait while the Maintainer acts.
+        for seed in (2, world.DEPENDENCY_SEED, DEPENDENCY_OFF_THE_LIST):
+            w, pushes[:] = World(seed), []
+            with mock.patch.object(World, "push", pushing):
+                for _ in range(250):
+                    w.step()
+            self.assertNotEqual(w.cls, "maintainer")
+            self.assertEqual([p for p in pushes if p[0]], [], seed)
+            self.assertFalse(any(line.endswith("the author mends it") for line in w.trace), seed)
+        # No fix Run is ever admitted on one that names no issue: the world's own invariant says so if one is.
+        for w in worlds:
+            while not w.runs:
+                w.step()
+            w.runs.append(dict(w.runs[0], intent="fix-findings", run="fix"))
+            if w.cls == "agent":
+                w.invariants()
+            else:
+                self.assertRaises(world.Broken, w.invariants)
+
+    def test_the_seeds_push_a_head_that_leaves_the_diff_as_it_was_and_say_a_thread_dropped(self):  # issue 855
+        # A person's push now and then leaves the diff as it was, its content the same (trials/P-29.base.json); a Lens's
+        # later review now and then drops a thread, which the queue App then resolves on no accepted ruling (decision
+        # 0212); and the Lens is asked again on unchanged content, pushed past while its thread stood. Every invariant
+        # holds throughout: the check on the act takes a dropped thread as an accepted one, and I-11 allows that review.
+        contents, dropped, resolved, again = [], False, False, False
+        for seed in sorted(set(SEEDS) | {AGAIN_SEED, DROPPED_SEED}):
+            w = World(seed)
+            for _ in range(250):
+                before, lines = w.cid(), len(w.trace)
+                w.step()
+                if any(line.endswith("pushed a head that leaves the diff as it was") for line in w.trace[lines:]):
+                    contents.append((seed, before, w.cid()))
+            dropped = dropped or any(th.get("dropped") is True for th in w.threads)
+            resolved = resolved or any(th.get("dropped") is True and th["resolved"] and th["ruling"] != "accepted"
+                                       and th["resolved_by"] == world.QUEUE_APP for th in w.threads)
+            reviews = [r["content_id"] for r in w.runs if r["intent"] == "review-change" and r["conclusion"] == "success"]
+            again = again or len(reviews) != len(set(reviews))
+        # Every push that left the diff as it was kept the content, on every seed.
+        self.assertTrue(contents)
+        self.assertEqual([c for c in contents if c[1] != c[2]], [])
+        self.assertEqual((dropped, resolved, again), (True, True, True))
+
+    def test_the_queue_app_resolves_a_dropped_thread_only_as_the_kernel_may(self):  # issue 855, decision 0212
+        # The world's check on the queue App's act takes a dropped thread as an accepted one only where the Kernel may
+        # resolve it: marked dropped, not ruled rejected, not a security Finding's, opened before the last push, with a
+        # review of its own Lens that succeeded on this content and began after that push. Each other case is refused.
+        w = World(2)
+        w.minute = 30
+        w.last_push = w.at(20)
+        th = {"id": "D", "resolved": False, "opened_by": {"kind": "lens", "name": "pr-review", "can_write": True},
+              "category": "functional", "severity": "major", "resolved_by": None, "opened_at": w.at(10), "ruling": None,
+              "dropped": True}
+        review = {"run": "rv", "role": "pr-review", "intent": "review-change", "content_id": w.cid(),
+                  "status": "completed", "conclusion": "success", "started_at": w.at(25)}
+        w.runs = [review]
+        self.assertTrue(w.dropped_since_the_push(th))
+        for change in ({"category": "security"}, {"ruling": "rejected"}, {"opened_at": w.at(22)}, {"dropped": False},
+                       {"opened_by": dict(th["opened_by"], name="another-lens")}):
+            self.assertFalse(w.dropped_since_the_push(dict(th, **change)), change)
+        for change in ({"started_at": w.at(15)}, {"content_id": "sha256:other"}, {"role": "another-lens"},
+                       {"conclusion": "failure"}, {"intent": "fix-findings"}):
+            w.runs = [dict(review, **change)]
+            self.assertFalse(w.dropped_since_the_push(th), change)
+
     def test_every_invariant_not_yet_held_names_a_pending_test(self):
         # When a rule is built and its test loses @pending, its invariant here must start to raise too.
         text = (pathlib.Path(__file__).resolve().parent / "test_decide.py").read_text()
@@ -1341,6 +1457,8 @@ class Simulation(unittest.TestCase):
             for _ in range(400):
                 world.step()
             last = world.settle()
+            if world.waits_for_its_author(last):
+                continue
             self.assertIn(last["state"], ("merged", "held"), "seed %d: %s %s" % (seed, last["state"], last["reason"]))
 
 

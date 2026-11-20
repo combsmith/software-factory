@@ -211,6 +211,15 @@
           "draft": {
             "type": "boolean"
           },
+          "checks": {
+            "description": "How its head's required checks stand: failing once one has concluded against it, pending while one has not concluded or is not yet listed, as after a push, passing once all have passed; null where they could not be read. Read only where a draft the Factory opened is linked",
+            "enum": [
+              "passing",
+              "failing",
+              "pending",
+              null
+            ]
+          },
           "opened_at": {
             "description": "When it opened. A linked one's opening moves the issue, as its close does",
             "type": "string",

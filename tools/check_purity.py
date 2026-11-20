@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
+import re
 
 from tools import walk
 
@@ -516,6 +517,32 @@ def _packages(trees: dict, tops: dict) -> list:
     return problems
 
 
+# A source encoding declaration, as PEP 263 writes it, which Python reads on either of a file's first two lines.
+CODING = re.compile(rb"^[ \t\f]*#.*?coding[:=][ \t]*([-\w.]+)")
+UTF8 = ("utf-8", "utf8")
+BOM = b"\xef\xbb\xbf"
+
+
+def _source(path: pathlib.Path) -> str:
+    """The text of a Kernel file, as Python and every reader of the text read it alike: UTF-8, strictly, and declared so
+    or not at all. A file declaring another encoding would run code its text does not show, so it is refused, as are
+    bytes that are not UTF-8 (issue 992). Read after a byte order mark, as Python reads it, each of the first two lines
+    is held to that whatever the first holds, and only the names utf-8 and utf8 are UTF-8's: stricter than Python, which
+    reads the second only after a comment or a blank line and knows other names, so that it can refuse, never miss.
+    Raises ValueError for either."""
+    data = path.read_bytes()
+    head = data[len(BOM):] if data.startswith(BOM) else data
+    for line in head.splitlines()[:2]:
+        declared = CODING.match(line)
+        name = declared.group(1).decode("ascii", "replace") if declared else None
+        if name is not None and name.lower().replace("_", "-") not in UTF8:
+            raise ValueError("it declares the encoding %s, and Python would run what its text does not show" % name)
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise ValueError("its bytes are not UTF-8") from None
+
+
 def _swapped(dotted: str, package: str) -> str:
     """A module's name with the Kernel's and `package`'s changed over at its head, or as it was: the rules below then
     read the package's imports of itself as they read the Kernel's of itself, and its imports of the Kernel as of any
@@ -582,7 +609,7 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
     for path in files:
         name = path.relative_to(root / package).as_posix()
         try:
-            trees[name] = ast.parse(path.read_text(errors="replace"), str(path))
+            trees[name] = ast.parse(_source(path), str(path))
         except (SyntaxError, ValueError) as err:
             unread.append("%s cannot be read as Python: %s" % (name, err))
     own = _alone(trees, package) if package != "kernel" else []

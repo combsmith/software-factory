@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from kernel import brakes
 from kernel import terms as t
-from kernel.derive import (acted_since_writer, derive, hands_off, in_progress, incomplete, moved_at, overdue, run_deferral, runs_on, since_writer,
-                           unnamed_past, unnamed_within, unreadable_labels)
+from kernel.derive import (acted_since_writer, derive, hands_off, in_progress, incomplete, moved_at, opened_for_an_issue, overdue, run_deferral, runs_on,
+                           since_writer, unnamed_past, unnamed_within, unreadable_labels)
 
 SCHEMA = "decision/1"
 
@@ -65,13 +65,17 @@ def _decision(facts, state, reason, evidence, outcome, working=False, **extra) -
     return d
 
 
-def _wanted_run(state: str, reason: str, config: dict):
-    """The Run this State calls for, as (role, intent), or None."""
+def _wanted_run(facts: dict, state: str, reason: str, config: dict, evidence: list):
+    """The Run this State calls for, as (role, intent), or None. A review is the one of the Lens the evidence names, which
+    derive takes from the model Lenses the configuration requires: with two, the second once the first has reviewed
+    (issue 855). A fix is the
+    author Role's push, so one is wanted only on a pull request the Factory opened, `opened_for` an issue's number: on a
+    person's or a builder's, whose branch is theirs, the author mends it (decision 0216)."""
     if state == t.VERIFYING and reason == "awaiting_review":
-        return (config["required_lenses"]["model"][0], "review-change")
+        return (evidence[0], "review-change")
     if state == t.ADDRESSING and reason in ("check_failed", "findings_open", "human_finding", "conflict",
                                               "acceptance_failed"):
-        if config["author_role"] is None:
+        if config["author_role"] is None or not opened_for_an_issue(facts):
             return None
         return (config["author_role"], "fix-findings")
     if state == t.ADJUDICATING and reason != "resolve_due":
@@ -204,7 +208,7 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
         return _decision(facts, state, reason, evidence, t.HOLD)
 
     mine = runs_on(runs, facts)
-    wanted = _wanted_run(state, reason, config)
+    wanted = _wanted_run(facts, state, reason, config, evidence)
     if in_progress(mine):
         # No Run in flight lowers a count: attempts, rounds and the Run ceiling count completed Runs, and only a
         # writer's action renews them. So a count the completed Runs have spent holds the item, whatever Run waits and

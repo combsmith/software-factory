@@ -161,7 +161,8 @@
           "write_unmatched",
           "reconciliation_unreadable",
           "credential_due",
-          "runs_never_started"
+          "runs_never_started",
+          "issue_apps_unreadable"
         ]
       }
     },
@@ -188,7 +189,7 @@
             "additionalProperties": false,
             "required": ["repo", "type", "number"],
             "properties": {
-              "repo": {"type": "string", "pattern": "^[^/]+/[^/]+$"},
+              "repo": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
               "type": {"enum": ["pull_request", "issue"]},
               "number": {"type": "integer", "minimum": 1}
             }
