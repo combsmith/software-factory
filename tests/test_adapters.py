@@ -6348,7 +6348,8 @@ class Items(unittest.TestCase):
         self.assertEqual(read(page([4], total=2))[1], False)
         # With no date no issue is served: none is listed, and nothing is asked. One that is no time lists nothing.
         self.assertEqual(items.open_issues(github.Replay([]), HOME, None, apart=()), ([], True))
-        for unreadable in ("2026-10-01", "0001-01-01T00:00:00Z"):     # no time, or none a second before it (Carbon)
+        # A date that is no text is no time either, never a crash (issue 965).
+        for unreadable in ("2026-10-01", "0001-01-01T00:00:00Z", 20261001, False, 0, ""):  # no time, or none a second before it (Carbon)
             with self.assertRaises(github.Unanswered):
                 items.open_issues(github.Replay([]), HOME, unreadable, apart=())
         # The Controller's tracking issue, 5, open and updated since the date, is one GitHub lists and counts. It is
@@ -6503,6 +6504,10 @@ class Issues(unittest.TestCase):
         self.assertEqual(facts.app_names_of(held, {"controller": catalogue["controller"]}), {(41, "Bot"): names[(41, "Bot")]})
         # One the catalogue names whose account `controller/1` does not hold is named by no id (Carbon).
         self.assertEqual(facts.app_names_of(held, dict(catalogue, **{"dev-lead": {"name": "combsmith-sf-dev-lead"}})), names)
+        # One the catalogue holds with no name, or an empty one, is named by its login, never by the suffix alone (issue 965).
+        for unnamed in ({}, {"name": ""}):
+            self.assertEqual(facts.app_names_of({"accounts": {"controller": {"id": 41}, "roles": {}}}, {"controller": unnamed}),
+                             {}, unnamed)
 
     def test_an_account_showing_a_configured_apps_name_by_another_id_is_refused(self):  # decision 0218, Astra
         # A slug reused after a rename: another Bot under the Controller's name, labelling or commenting. It is not that
@@ -6520,6 +6525,47 @@ class Issues(unittest.TestCase):
         reserved = timeline.Accounts(router, "o/r", MACHINE, {}, apps=names, reserved={"combsmith-sf-dev-lead[bot]"})
         with self.assertRaises(github.Unanswered):
             issues.read(router, "o/r", 41, reserved, lambda: self.NOW, identities=IDENTITIES, earlier=[])
+        # A name reserved refuses only the account that shows it: another Bot is read by its login (issue 965).
+        event = issue_event("labeled", 1, actor=("dependabot[bot]", 99, "Bot"), label={"name": "x"})
+        router = Router(github.Replay(issue_read([event])), {"don-petry": "admin"})
+        reserved = timeline.Accounts(router, "o/r", MACHINE, {}, apps=names, reserved={"combsmith-sf-dev-lead[bot]"})
+        found, _ = issues.read(router, "o/r", 41, reserved, lambda: self.NOW, identities=IDENTITIES, earlier=[])
+        self.assertEqual(found["label_events"][0]["by"]["name"], "dependabot[bot]")
+        # The queue App is read by its id as the queue, but under a name the configuration holds or reserves it is
+        # refused too: renamed onto it, it could be read as that App (issue 965).
+        queued = timeline.Accounts(router, "o/r", MACHINE, {}, queue=(99, "Bot"), apps=names,
+                                   reserved={"combsmith-sf-dev-lead[bot]"})
+        for login in ("combsmith-sf-controller[bot]", "combsmith-sf-dev-lead[bot]"):
+            with self.assertRaises(github.Unanswered, msg=login):
+                queued.actor({"login": login, "id": 99, "type": "Bot"})
+        self.assertEqual(queued.actor({"login": "combsmith-sf-queue[bot]", "id": 99, "type": "Bot"}),
+                         {"kind": "queue", "name": "combsmith-sf-queue[bot]", "can_write": False})
+        # A queue whose id is held among the Apps too is held to the login it shows, and named by it: another App's name
+        # is refused, a name of its own is read, and so is its own App's name, reserved or not (issue 965).
+        own = timeline.Accounts(router, "o/r", MACHINE, {}, queue=(99, "Bot"),
+                                apps={**names, (99, "Bot"): "combsmith-sf-queue[bot]"},
+                                reserved={"combsmith-sf-queue[bot]"})
+        with self.assertRaises(github.Unanswered):
+            own.actor({"login": "combsmith-sf-controller[bot]", "id": 99, "type": "Bot"})
+        for login in ("renamed-queue[bot]", "combsmith-sf-queue[bot]"):
+            self.assertEqual(own.actor({"login": login, "id": 99, "type": "Bot"}),
+                             {"kind": "queue", "name": login, "can_write": False}, login)
+        # A Lens is told by its id and read as its own name whatever login it shows, so no name it shows is read as an
+        # App's (issue 901).
+        lens = timeline.Accounts(router, "o/r", MACHINE, {(77, "Bot"): "verify"}, apps=names)
+        self.assertEqual(lens.actor({"login": "combsmith-sf-controller[bot]", "id": 77, "type": "Bot"}),
+                         {"kind": "lens", "name": "verify", "can_write": False})
+        # A User's login is compared as it is: a person may hold an App's name without its suffix (issue 965).
+        self.assertEqual(queued.named("combsmith-sf-controller", 17, "User"), "combsmith-sf-controller")
+        # GraphQL spells a Bot's login with no suffix, as the threads port passes it on: another account under either
+        # name is refused as REST's is, and the App itself is named by its id (issue 965).
+        for login in ("combsmith-sf-controller", "combsmith-sf-dev-lead"):
+            with self.assertRaises(github.Unanswered, msg=login):
+                queued.actor(threads._account({"__typename": "Bot", "login": login, "databaseId": 98}))
+        self.assertEqual(queued.actor(threads._account({"__typename": "Bot", "login": "combsmith-sf-controller",
+                                                        "databaseId": 41}))["name"], names[(41, "Bot")])
+        self.assertEqual(queued.actor(threads._account({"__typename": "Bot", "login": "dependabot", "databaseId": 98}))["name"],
+                         "dependabot")
         # The App itself, by its id, is read.
         events = [issue_event("labeled", 1, actor=("combsmith-sf-controller[bot]", 41, "Bot"), label={"name": "factory:triage"})]
         router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
