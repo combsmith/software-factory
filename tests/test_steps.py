@@ -1046,12 +1046,17 @@ class Reread(unittest.TestCase):
         # pass, or whose outcome the pass read as none, is read as before; nothing is kept from what is no pass record.
         done = dict(tc.run(name="r_01JA6Z", status="completed", conclusion="failure", outcome="environment"),
                     engine_started=True)
+        other = dict(tc.run(name="r_01JA7B", number=43, status="completed", conclusion="failure", outcome="item",
+                            at="2026-10-11T12:30:00Z"), engine_started=False)
         bare = tc.run(name="r_01JA7A", status="completed", conclusion="failure", outcome=None, at="2026-10-11T12:20:00Z")
-        record = dict(RECORD, runs=[done, bare])
+        record = dict(RECORD, runs=[done, bare, other])
         self.assertEqual(shared.errors(record, "pass"), [])
-        key = (done["run"], done["started_at"])
-        self.assertEqual(reread.held(record), {"kept": {key: "environment"}, "engines": {key: True}})
-        for nothing in (None, False, {"schema": "pass/1"}, dict(record, schema="pass/2")):
+        key, key2 = (done["run"], done["started_at"]), (other["run"], other["started_at"])
+        self.assertEqual(reread.held(record), {"kept": {key: "environment", key2: "item"},
+                                               "engines": {key: True, key2: False}})
+        # Nothing is kept from what is no whole pass record, however much like one it holds runs.
+        for nothing in (None, False, {"schema": "pass/1"}, {"schema": "pass/1", "runs": [done]},
+                        dict(record, schema="pass/2")):
             self.assertEqual(reread.held(nothing), {"kept": {}, "engines": {}}, nothing)
         # The read again hands the records port what the record holds, and the reader does too.
         told = []
@@ -1062,7 +1067,10 @@ class Reread(unittest.TestCase):
                 unittest.mock.patch.object(reread.pause_, "read", lambda *a: {"org": None, "repos": {HOME: None}}):
             reread.item("t", config, 42, support.NOW, lambda: support.NOW, record=record)
             reread.item("t", config, 42, support.NOW, lambda: support.NOW)
-        self.assertEqual([(k["kept"], k["engines"]) for k in told], [({key: "environment"}, {key: True}), ({}, {})])
+        self.assertEqual([(k["kept"], k["engines"]) for k in told],
+                         [({key: "environment", key2: "item"}, {key: True, key2: False}), ({}, {})])
+        # Given a record, the read again still asks no job and only this item's Runs, as without one (decision 0199).
+        self.assertEqual([(k["began"], k["on"]) for k in told], [({}, {"repo": HOME, "type": "pull_request", "number": 42})] * 2)
 
     def test_the_item_is_read_again(self):
         listed = tc.listed([tc.run(status="in_progress")])
