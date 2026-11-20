@@ -297,7 +297,8 @@ class Reader(unittest.TestCase):
         # Of the run list of both Role workflows, the model Lenses' Runs on this item, held to the authority table.
         # No job is asked: this read hands the Kernel no run record, so when a Run began is nothing to it, and jobs
         # that could not be read would refuse a Task for nothing (decision 0199).
-        self.assertEqual(calls["listed"], [(["run.yml", "approve.yml"], {})])
+        # The outcomes the pass record read are kept, not read again.
+        self.assertEqual(calls["listed"], [(["run.yml", "approve.yml"], reread.held(RECORD))])
         self.assertEqual(calls["asked"], [{"repo": HOME, "numbers": [42], "lenses": {"pr-review"}, "authority": AUTHORITY}])
         # A list read short holds them to nothing recorded, not whole: the Task is refused rather than built on it.
         self.assertEqual(self.go(complete=False)[4]["recorded"], [({}, False, [])])
@@ -665,14 +666,14 @@ class Apply(unittest.TestCase):
                              (github.Unanswered("no answer"), ("environment", "facts_unreadable")),
                              # Named by the read again's stage and the snapshot's part (pull request 688, the dry run).
                              (staged, ("environment", "snapshot_timeline_unreadable"))):
-            def reading(*a, raised=raised):
+            def reading(*a, raised=raised, **k):
                 raise raised
             with unittest.mock.patch.object(reread, "item", reading):
                 code, _, ended, _ = self.go(a_job=lambda admit, result, read_, *a: read_())
             self.assertEqual((ended["outcome"], ended["reason"]), want, raised)
         # A fault of the read's own code is told its stage (decision 0187), and apply still fails on it as it did: by
         # no read's code, and with no outcome of its own.
-        def faulty(*a):
+        def faulty(*a, **k):
             with shared.staged("context"):
                 raise TypeError("an answer no adapter expected")
         with unittest.mock.patch.object(reread, "item", faulty):
@@ -687,7 +688,8 @@ class Apply(unittest.TestCase):
             raise reread.facts_.Moved("moved")
         with unittest.mock.patch.object(reread, "item", plain):
             self.go(a_job=lambda admit, result, read_, *a: read_())
-        self.assertEqual(asked_for, [{}])
+        # It hands the read again the pass record that admitted the Run, whose outcomes are not read again.
+        self.assertEqual(asked_for, [{"record": RECORD}])
         # A record that cannot be read is the environment's; a Decision of another item, no Decision of this Run's.
         code, _, ended, calls = self.go(record=github.Unanswered)
         self.assertEqual((ended["outcome"], ended["reason"], calls["job"]), ("environment", "record_unreadable", []))
@@ -770,7 +772,7 @@ class Apply(unittest.TestCase):
             revoke()
             return apply_step._ended(admit["run"], admit["release"], (None, None))
 
-        def item(transport, config, number, now, clock):
+        def item(transport, config, number, now, clock, record=None):
             seen["reread"].append((transport, number))
             return facts, HEAD, [], support.context()
 
@@ -857,7 +859,7 @@ class Approve(unittest.TestCase):
         # The item is read again through the approver's token held to its item, too.
         self.assertEqual([type(t) for t in reread_through], [effects.Approving])
         # And asked for the Pause by name, so a Pause the port could not read says which read it was (decision 0192).
-        self.assertEqual(asked_for, [{"name_pause": True}])
+        self.assertEqual(asked_for, [{"name_pause": True, "record": RECORD}])
         self.assertEqual((record, run_, config["approver"], config["github_run"]), (RECORD, RUN, "donpetry-bot", "9"))
         self.assertEqual(done["effects"][0]["state"], "applied")
         with tempfile.TemporaryDirectory() as d:
@@ -1034,6 +1036,30 @@ class ControllerKey(unittest.TestCase):
 
 
 class Reread(unittest.TestCase):
+    def test_a_runs_records_read_keeps_the_outcomes_its_pass_read(self):
+        # A Run reads the run list again, in `read` and in `apply`, and an outcome its pass record already read is kept,
+        # not downloaded again: an outcome is written once, by its attempt's last step. A Run that failed after the
+        # pass, or whose outcome the pass read as none, is read as before; nothing is kept from what is no pass record.
+        done = dict(tc.run(name="r_01JA6Z", status="completed", conclusion="failure", outcome="environment"),
+                    engine_started=True)
+        bare = tc.run(name="r_01JA7A", status="completed", conclusion="failure", outcome=None, at="2026-10-11T12:20:00Z")
+        record = dict(RECORD, runs=[done, bare])
+        self.assertEqual(shared.errors(record, "pass"), [])
+        key = (done["run"], done["started_at"])
+        self.assertEqual(reread.held(record), {"kept": {key: "environment"}, "engines": {key: True}})
+        for nothing in (None, False, {"schema": "pass/1"}, dict(record, schema="pass/2")):
+            self.assertEqual(reread.held(nothing), {"kept": {}, "engines": {}}, nothing)
+        # The read again hands the records port what the record holds, and the reader does too.
+        told = []
+        from controller import configuration
+        config = configuration.load(ROOT, RELEASE, "pr-review")
+        with unittest.mock.patch.object(reread.records, "runs", lambda *a, **k: told.append(k) or tc.listed([])), \
+                unittest.mock.patch.object(reread.facts_, "snapshot", lambda *a, **k: (support.facts(), "t", HEAD)), \
+                unittest.mock.patch.object(reread.pause_, "read", lambda *a: {"org": None, "repos": {HOME: None}}):
+            reread.item("t", config, 42, support.NOW, lambda: support.NOW, record=record)
+            reread.item("t", config, 42, support.NOW, lambda: support.NOW)
+        self.assertEqual([(k["kept"], k["engines"]) for k in told], [({key: "environment"}, {key: True}), ({}, {})])
+
     def test_the_item_is_read_again(self):
         listed = tc.listed([tc.run(status="in_progress")])
         facts = support.facts()
@@ -1142,7 +1168,8 @@ class Reread(unittest.TestCase):
         self.assertEqual(asked[:2], [["run.yml", "approve.yml"], ("combsmith", [HOME])])
         # The read asks the records port when this item's Runs began, with nothing kept, and no other item's, so
         # that the act decides on its item's records as the pass does (decision 0199).
-        self.assertEqual(began[0], {"began": {}, "on": {"repo": HOME, "type": "pull_request", "number": 42}})
+        self.assertEqual(began[0], {"began": {}, "on": {"repo": HOME, "type": "pull_request", "number": 42},
+                                    "kept": {}, "engines": {}})
         # Asked for the Pause by name, a Pause the port could not read is raised as a read of the `pause` stage, its
         # part the port's for the first scope unreadable, the org's before the repo's (decision 0192). Not asked, as
         # apply reads it, the same Pause is the context's and nothing is raised.
