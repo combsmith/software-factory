@@ -884,6 +884,96 @@ class Diff(unittest.TestCase):
         data["changed_files"] += 1
         self.assertIs(pull.diff(compared("P-29.base", 2, data), data, PINNED_BASE)["complete"], False)
 
+    def test_index_ids_of_any_length_are_one_content(self):
+        # 2026-11-19: GitHub sent pull request 903's compare with each index line's blob ids 8 characters long at one
+        # read and 9 at the next, and every Run that read it twice ended content_moved. Each id is cut to git's least,
+        # 7, so the content id, its count, the bytes a Run is given and a review's content are one whatever the read gave.
+        def sent(world: str, gate: str, empty: str, gone: str) -> str:
+            # The first file's name holds `diff --git `, and the second's `@@ `: neither begins a file or a hunk but at
+            # the start of a line.
+            return ("diff --git a/sim/diff --git w.py b/sim/diff --git w.py\nindex %s\n--- a/sim/diff --git w.py\n"
+                    "+++ b/sim/diff --git w.py\n"
+                    "@@ -15,2 +15,3 @@\n from controller import configuration\n+from kernel.gate import closed\n"
+                    " from kernel import terms as t\ndiff --git a/kernel/gate@@ -1 +1 @@ x.py b/kernel/gate@@ -1 +1 @@ x.py\nindex %s\n"
+                    "--- a/kernel/gate@@ -1 +1 @@ x.py\n+++ b/kernel/gate@@ -1 +1 @@ x.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
+                    "diff --git a/kernel/__init__.py b/kernel/__init__.py\nnew file mode 100755\nindex %s\n"
+                    "diff --git a/old/__init__.py b/old/__init__.py\ndeleted file mode 100644\nindex %s\n"
+                    % (world, gate, empty, gone))
+        eight = sent("0e91505d..9f114f5d 100644", "77da7d97..7227c4f0 100755", "00000000..e69de29b", "e69de29b..00000000")
+        nine = sent("0e91505d0..9f114f5d8 100644", "77da7d97f..7227c4f06 100755", "000000000..e69de29bb",
+                    "e69de29bb..000000000")
+        # Ids of 7 beside longer ones, of 64, and of 40, as a full index gives them: an empty file's ids are none and
+        # the empty blob's.
+        whole = sent("0e91505..9f114f5d8a7c 100644", "77da7d97f" + "0" * 55 + "..7227c4f06" + "1" * 31 + " 100755",
+                     "0" * 40 + "..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+                     "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391.." + "0" * 40)
+        seven = sent("0e91505..9f114f5 100644", "77da7d9..7227c4f 100755", "0000000..e69de29", "e69de29..0000000")
+        self.assertEqual([pull.canonical(text) for text in (eight, nine, whole, seven)], [seven] * 4)
+        # An index line without a mode is cut as well, and an empty file's in a repo of SHA-256; an id already shorter
+        # than 7 is left as it is.
+        self.assertEqual(pull.canonical(sent("0e91505d0..9f114f5", "1..2", "0" * 64 + ".." + pull.EMPTY[1],
+                                             pull.EMPTY[1] + ".." + "0" * 64)),
+                         sent("0e91505..9f114f5", "1..2", "0000000..473a0f4", "473a0f4..0000000"))
+        self.assertEqual(pull.EMPTY, (hashlib.sha1(b"blob 0\x00").hexdigest(),
+                                      hashlib.sha256(b"blob 0\x00").hexdigest()))
+        data = body("P-29.base", 1)
+        data.update(changed_files=4, additions=2, deletions=1)
+        commit = data["head"]["sha"]
+        seen = set()
+        for text in (eight, nine, whole):
+            answer = github._answer(200, {"Content-Type": github.DIFF}, text.encode())
+            exchange = dict(exchanges("P-29.base")[2], response=dict(exchanges("P-29.base")[2]["response"],
+                                                                     body=answer["body"]))
+            got = pull.diff(github.Replay([as_compare(exchange, data)]), data, PINNED_BASE)
+            self.assertIs(got["complete"], True)
+            self.assertEqual(got["diff"]["characters"], task.carried(task.numbered(seven)))
+            given = pull.change(github.Replay([as_compare(exchange, data)]), data, PINNED_BASE)
+            review = copy.deepcopy(exchange)
+            review["request"]["call"] = "GET /repos/%s/compare/%s...%s" % (canary(), BASE_HEAD, commit)
+            seen.add((got["content_id"], "sha256:" + hashlib.sha256(given).hexdigest(), given,
+                      timeline._content(github.Replay([review]), canary(), BASE_HEAD, commit)))
+        content = "sha256:" + hashlib.sha256(seven.encode()).hexdigest()
+        self.assertEqual(seen, {(content, content, seven.encode(), content)})
+
+    def test_only_a_files_own_index_line_is_cut(self):
+        kept = "".join((
+            # Before the first file's header, nothing is a file's index line.
+            "index 0e91505d0..9f114f5d8\n",
+            # A line of a hunk, and one after it, are no header's, so one that reads as an index line is kept; so is a
+            # file's name that ends as one.
+            "diff --git a/index 0e91505d0..9f114f5d8 b/index 0e91505d0..9f114f5d8\nindex 0e91505..9f114f5 100644\n"
+            "--- a/index 0e91505d0..9f114f5d8\n+++ b/index 0e91505d0..9f114f5d8\n@@ -1,2 +1,2 @@\n"
+            " index 0e91505d0..9f114f5d8 100644\n-index 77da7d97f..7227c4f06\n+index 77da7d97f..7227c4f06 100644\n"
+            "index 0e91505d0..9f114f5d8 100644\n",
+            # A file no hunk tells, a binary one among them, keeps its index line, though another file has hunks: it is
+            # all that tells its content, git never gives two blobs one abbreviation, and two blobs made to share their
+            # first 7 characters must stay two contents. Only an empty file's part is cut, and only when it says nothing
+            # more, names no blob, all zeros, and a blob whose id begins as the empty blob's does.
+            "diff --git a/logo.png b/logo.png\nindex 11aab6ce..11aab6c4 100644\nBinary files a/logo.png and b/logo.png "
+            "differ\n",
+            "diff --git a/w.bin b/w.bin\nnew file mode 100644\nindex 00000000..e69de29b\n"
+            "Binary files /dev/null and b/w.bin differ\n",
+            "diff --git a/x.bin b/x.bin\nnew file mode 100644\nindex 00000000..e69de29c\n",
+            "diff --git a/y.bin b/y.bin\nnew file mode 100644\nindex 11aab6ce..e69de29b\n",
+            "diff --git a/z.bin b/z.bin\nnew file mode 100644\nindex 00000000..000000000\n",
+            "diff --git a/u.bin b/u.bin\nnew file mode 100644\nindex 00000001..e69de29b\n",
+            "diff --git a/v.bin b/v.bin\nnew file mode 100644\nindex 000000000..e69de29b0\n",
+            # A line that begins `@@ ` but is no hunk's header tells nothing of a binary file.
+            "diff --git a/t.bin b/t.bin\nindex 11aab6ce..11aab6c4 100644\nBinary files a/t.bin and b/t.bin differ\n"
+            "@@ incomplete\n",
+            # A line that says more than an index line, and an id longer than any git gives, are not index lines.
+            "diff --git a/a b/a\nindex 0e91505d0..9f114f5d8 100644 and more\nindex %s..9f114f5d8\n@@ -1 +1 @@\n-a\n+b\n"
+            % ("0" * 65),
+            "diff --git a/b b/b\nindex 0e91505d0..%s 100644\n@@ -1 +1 @@\n-a\n+b\n" % ("9" * 65),
+        ))
+        self.assertEqual(pull.canonical(kept), kept)
+        # In one diff a binary file is kept and a file of text cut, each by its own hunks.
+        text = "diff --git a/f.py b/f.py\nindex %s\n--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
+        binary = ("diff --git a/logo.png b/logo.png\nindex 11aab6ce..11aab6c4 100644\n"
+                  "Binary files a/logo.png and b/logo.png differ\n")
+        self.assertEqual(pull.canonical(binary + text % "0e91505d0..9f114f5d8 100644"),
+                         binary + text % "0e91505..9f114f5 100644")
+
     def test_a_diff_github_will_not_serve_is_truncated_and_new_content_at_every_push(self):
         # trials/P-29.truncated.json: 3,001 files, a 406 too_large. Read whole, so the Kernel holds it as too large;
         # its content is the head commit's, so a push is never read as unchanged.
