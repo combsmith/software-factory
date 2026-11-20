@@ -312,12 +312,17 @@ def _dismissals(timeline: list) -> dict:
     return found
 
 
-def reviews(transport, pull: dict, timeline: list, accounts: Accounts, base_head: str, kept=None) -> tuple:
-    """Every submitted review, with who submitted it, its state as GitHub holds it now, its commit and that commit's
-    content id, and, from the timeline, who dismissed it and what it was before. Whether the list was read whole.
-    `kept`, where given, keeps the list as GitHub gave it, for reconciliation (`adapters/seen.py`)."""
+def reviews(transport, pull: dict, timeline: list, accounts: Accounts, base_head: str, kept=None,
+            timeline_whole=True) -> tuple:
+    """`(reviews, whole, cut)`: every submitted review, with who submitted it, its state as GitHub holds it now, its
+    commit and that commit's content id, and, from the timeline, who dismissed it and what it was before; whether the
+    list was read whole; and whether it was cut at its bound. `kept`, where given, keeps the list as GitHub gave it, for
+    reconciliation (`adapters/seen.py`). Anyone can review a pull request, so the list is read to `BOUND` pages, as its
+    timeline is (issue 1009, decision 0234). A dismissal a timeline not read whole does not hold may be past its end, so
+    the reviews are then not whole, where one read whole refuses the read."""
     repo = pull["base"]["repo"]["full_name"]
-    listed, whole = _pages(transport, "/repos/%s/pulls/%d/reviews?per_page=%d" % (repo, pull["number"], PAGE))
+    listed, whole, cut = _paged(transport, "/repos/%s/pulls/%d/reviews?per_page=%d" % (repo, pull["number"], PAGE),
+                                BOUND)
     if kept is not None:
         kept["reviews"] = (listed, whole)
     dismissals = _dismissals(timeline)
@@ -329,6 +334,11 @@ def reviews(transport, pull: dict, timeline: list, accounts: Accounts, base_head
         state = STATES.get(review.get("state"))
         if state is None:
             raise Unanswered("a review state GitHub does not give: %r" % (review.get("state"),))
+        # One dismissed past a timeline not read whole is left out before its commit is asked, so no read for it can
+        # refuse the snapshot (Astra).
+        if state == "dismissed" and review.get("id") not in dismissals and timeline_whole is not True:
+            whole = False
+            continue
         commit = review.get("commit_id")
         if commit not in contents:
             contents[commit] = _content(transport, repo, base_head, commit)
@@ -348,7 +358,7 @@ def reviews(transport, pull: dict, timeline: list, accounts: Accounts, base_head
         found.append({"by": accounts.actor(review.get("user")), "state": state, "commit": commit,
                       "content_id": contents[commit], "submitted_at": _time(review.get("submitted_at")),
                       "dismissed_by": dismissed_by, "dismissed_from": dismissed_from})
-    return found, whole
+    return found, whole, cut
 
 
 def since_writer(timeline: list, accounts: Accounts) -> dict:
