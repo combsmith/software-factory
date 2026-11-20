@@ -44,9 +44,9 @@ CHECK = "advisory-%s"
 # the two lighter a `notice`.
 SEVERITIES = ("blocking", "major", "minor", "info")
 LEVEL = {"blocking": "warning", "major": "warning", "minor": "notice", "info": "notice"}
-ANNOTATIONS = 50        # GitHub takes at most fifty annotations in one request, and one request is all that is sent
+ANNOTATIONS = 50        # GitHub takes fifty in one request, refusing fifty-one whole (P-73): one is sent
 HEADLINE = 255          # the characters of an annotation's title, GitHub's own bound
-MESSAGE = 8000          # the characters of an annotation's message: under GitHub's 64 KiB whatever the characters are
+MESSAGE = 8000          # a message's characters: under the 65,535 GitHub keeps, cutting more silently (P-73)
 LARGEST = 4 * 1024 * 1024       # the bytes of a Result's file `apply` reads: one over it is not read as one
 # What `apply` says it did with one Lens's Result, the codes applied/1 holds (its schema lists the same): shown, or why
 # not. A token GitHub did not confirm revoked is `token_not_revoked`, whatever was shown through it.
