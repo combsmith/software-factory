@@ -554,9 +554,11 @@ class Records(unittest.TestCase):
         # record that binds a pull request to its opening Run (issue 342), and approve beside them, which no Result may;
         # and the queue App's three acts, which no Result may ask for either (issue 381).
         recorded = SCHEMAS["applied"]["properties"]["effects"]["items"]["properties"]["type"]["enum"]
+        # Held by what each list holds, not by its order: a type left out is caught however the rest are listed.
         self.assertIn("open_pull_request", SCHEMAS["effect"]["$defs"]["type"]["enum"])
-        self.assertEqual(recorded, SCHEMAS["effect"]["$defs"]["type"]["enum"]
-                         + ["approve", "enqueue", "dequeue", "resolve_thread"])
+        self.assertEqual(len(recorded), len(set(recorded)))
+        self.assertEqual(set(recorded), set(SCHEMAS["effect"]["$defs"]["type"]["enum"])
+                         | {"approve", "enqueue", "dequeue", "resolve_thread"})
         for act in ("enqueue", "dequeue", "resolve_thread"):
             self.assertNotIn(act, SCHEMAS["effect"]["$defs"]["type"]["enum"])
 

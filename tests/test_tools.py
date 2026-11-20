@@ -791,13 +791,13 @@ class Examples(unittest.TestCase):
 
     def test_a_draft_is_the_models_title_and_body_alone_within_githubs_bounds(self):  # issue 838
         # The opening Run's draft is the model's title and body, each text under a body, and names nothing of where it
-        # opens: its branches and its closing line are apply's. One to a Result, after a push or alone: a Run admitted
-        # on a work branch already pushed pushes nothing and opens the draft from what is there.
+        # opens: its branches and its closing line are apply's. One to a Result, after a push or alone: the schema
+        # cannot say which, and apply is to hold it from the Decision (decision 0219's row "Who opens the draft").
         effect = json.loads((ROOT / "schemas" / "effect.schema.json").read_text())
         opening = effect["properties"]["open_pull_request"]["items"]
         self.assertEqual((sorted(opening["properties"]), sorted(opening["required"])), (["body", "id", "title"],) * 2)
         title = opening["properties"]["title"]
-        self.assertEqual((sorted(title["properties"]), title["required"]), (["body"], ["body"]))
+        self.assertEqual((sorted(title["properties"]), title.get("required")), (["body"], ["body"]))
         refused = lambda effects: validate(effects, effect) != []
         gone = object()
         draft = lambda **item: {k: v for k, v in dict({"id": "e2", "title": {"body": "A title"}, "body": "A body."},
@@ -806,10 +806,14 @@ class Examples(unittest.TestCase):
         self.assertIs(refused({"open_pull_request": [draft()]}), False)
         self.assertIs(refused({"push_commits": [push], "open_pull_request": [draft()]}), False)
         self.assertIs(refused({"open_pull_request": []}), False)
+        self.assertIs(refused({"open_pull_request": [draft(id="e999")]}), False)
         self.assertIs(refused({"open_pull_request": [draft(), draft(id="e3")]}), True)
+        self.assertIs(refused({"open_pull_request": [None]}), True)
         for name, item in (("no title", draft(title=gone)), ("no body", draft(body=gone)),
+                           ("an id no record keys", draft(id="e1000")), ("an id of no Effect", draft(id="n2")),
                            ("a title as a bare string", draft(title="A title")),
                            ("a title of nothing", draft(title={"body": ""})),
+                           ("a title of white space alone", draft(title={"body": " \t "})),
                            ("a title with no body", draft(title={})), ("a title that is no text", draft(title={"body": 7})),
                            ("a title that names more", draft(title={"body": "A title", "lang": "en"})),
                            ("a body of nothing", draft(body="")), ("a body that is none", draft(body=None)),
@@ -818,12 +822,14 @@ class Examples(unittest.TestCase):
             self.assertIs(refused({"open_pull_request": [item]}), True, name)
         # The bounds are GitHub's, stated here and nowhere else: a title of at most 256 characters, the model's alone,
         # and a body of at most 65,536, of which apply's closing line takes the last; so the model's is held to 65,000.
-        # One character more is no draft.
-        self.assertEqual(title["properties"]["body"], {"type": "string", "minLength": 1, "maxLength": 256})
+        # One character more is no draft. A character is a code point, as the validator counts one: one outside the
+        # Basic Multilingual Plane counts once, as one inside it does.
+        self.assertEqual(title["properties"]["body"], {"type": "string", "pattern": "\\S", "maxLength": 256})
         self.assertEqual(opening["properties"]["body"], {"type": "string", "minLength": 1, "maxLength": 65000})
-        self.assertIs(refused({"open_pull_request": [draft(title={"body": "t" * 256}, body="b" * 65000)]}), False)
-        self.assertIs(refused({"open_pull_request": [draft(title={"body": "t" * 257})]}), True)
-        self.assertIs(refused({"open_pull_request": [draft(body="b" * 65001)]}), True)
+        for c in ("t", "\U0001F642"):
+            self.assertIs(refused({"open_pull_request": [draft(title={"body": c * 256}, body=c * 65000)]}), False, c)
+            self.assertIs(refused({"open_pull_request": [draft(title={"body": c * 257})]}), True, c)
+            self.assertIs(refused({"open_pull_request": [draft(body=c * 65001)]}), True, c)
 
     def test_only_success_can_pass_a_check(self):  # I-27, L-07
         # The configuration may say what a conclusion means, but never that one with no verdict has passed.

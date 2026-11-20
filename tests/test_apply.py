@@ -602,6 +602,30 @@ class Apply(unittest.TestCase):
         self.assertEqual(record["findings"], [])
         self.assertEqual(apply.outcome(the_task(), record, ("item", "finding_gates"))["outcome"], "item")
 
+    def test_an_opening_the_task_does_not_permit_is_refused_by_the_permission_not_by_the_schema(self):  # issue 838
+        # effect/1 lets a Result ask to open a pull request, so a Result that asks for it reads as result/1 whole: what
+        # refuses it, where its Role does not permit it, is the permission. The CLI is handed no list for it, so it is
+        # no Result there, and apply refuses it as an Effect the Task does not permit before it writes anything.
+        opening = {"id": "e3", "title": {"body": "A title"}, "body": "A body."}
+        asked = result(effects=dict(result()["effects"], open_pull_request=[opening]))
+        self.assertEqual(shared.errors(asked, "result"), [])
+        self.assertNotIn("open_pull_request", the_task()["permitted_effects"])
+        self.assertNotIn("open_pull_request", engine.handed(the_task())["properties"]["effects"]["properties"])
+        self.assertIs(engine.held(asked, the_task()), False)
+        self.assertEqual(refused(res=asked), ("item", "effect_not_permitted"))
+        # The same Result where its Task permits the opening is held: so it is the permission that refused it.
+        permits = the_task(permitted_effects=["submit_review", "create_check_run", "open_pull_request"])
+        self.assertIs(engine.held(result(), the_task()), True)
+        self.assertIs(engine.held(asked, permits), True)
+
+    def test_every_effect_a_roles_manifest_permits_is_one_apply_writes_in_its_order(self):  # issue 838
+        # An Effect apply's ORDER does not list is never written and never recorded, so no Role may permit one before
+        # apply's dispatch writes it: the grant for an opening lands with that dispatch or after it, never before.
+        permitted = {kind for path in sorted((ROOT / "roles").glob("*.json"))
+                     for intent in json.loads(path.read_text())["intents"] for kind in intent["permitted_effects"]}
+        self.assertTrue(permitted)
+        self.assertEqual(sorted(permitted - set(apply.ORDER)), [])
+
     def test_a_finding_names_a_place_in_the_change_and_is_adopted_only_from_an_advisory_thread_on_it(self):  # 0145
         # A Finding names a place in the change: a place outside it, or a surface the facts cannot show on this item,
         # is no Finding of this review. The place is a path the change holds on its head's side, as the facts name it.

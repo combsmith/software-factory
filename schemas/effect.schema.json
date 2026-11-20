@@ -56,8 +56,8 @@
       }
     },
     "open_pull_request": {
-      "$comment": "The bounds are GitHub's, and stated here and nowhere else, as patch.body's is: a guard writes no number. GitHub refuses a pull request whose title is over 256 characters, or whose body is over 65,536. The title is the model's alone, so it may hold all 256. apply appends its closing line to the body, so the model's body is held to 65,000, which leaves 536 characters: far more than a line that closes one issue by its number takes. Each is counted in characters, as the validator counts them.",
-      "description": "The opening Run's draft (issue 838): its title and its body, each the model's text under a body, and nothing else. The branch it is opened from is the work branch the Decision admitted, and the branch it is opened to the default branch; the closing line, the one link in the draft, which closes exactly the Run's issue, apply appends to the body: each is apply's, from the Decision and the issue, never the Result's. apply writes it after the push, so the draft holds the commit just pushed; a Run admitted on a work branch already pushed asks for it alone, and pushes nothing. apply refuses a reference GitHub could read as a link, a mention or a closing keyword in either text. One to a Result. No Role permits it yet, and it opens nothing until apply has its writer.",
+      "$comment": "The bounds are GitHub's, and stated here and nowhere else, as patch.body's is: a guard writes no number. GitHub refuses a pull request whose title is over 256 characters, or whose body is over 65,536. The title is the model's alone, so it may hold all 256. apply appends its closing line to the body, so the model's body is held to 65,000, which leaves 536 characters: far more than a line that closes one issue by its number takes. Each is counted in code points, as the validator counts them; how GitHub counts is grounded by no trial. The title holds at least one character that is not white space, by its pattern; the validator refuses any value under a pattern that ends in a line break, which no one-line title needs.",
+      "description": "The opening Run's draft (issue 838): its title and its body, each the model's text under a body, and nothing else. The branch it is opened from is the work branch the Decision admitted, and the branch it is opened to the default branch; the closing line, the one link in the draft, which closes exactly the Run's issue, is apply's to append to the body: each is apply's, from the Decision and the issue, never the Result's. None of what apply does with it is built yet. Once its dispatch is, apply is to write the draft after the push, so that the draft holds the commit just pushed, and to refuse, before it mints any token, a reference GitHub could read as a link, a mention or a closing keyword in either text. A Run admitted on a work branch at the commit an earlier opening Run of this issue pushed is to ask for it alone and push nothing; a work branch at any other commit is refused, and no draft is opened from it. One to a Result. No Role permits it, and it opens nothing until apply has its writer.",
       "type": "array",
       "maxItems": 1,
       "items": {
@@ -82,7 +82,7 @@
             "properties": {
               "body": {
                 "type": "string",
-                "minLength": 1,
+                "pattern": "\\S",
                 "maxLength": 256
               }
             }
