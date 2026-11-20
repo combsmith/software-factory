@@ -329,6 +329,14 @@
       ]
     },
     {
+      "reason": "acceptance_bounded",
+      "question": "acceptance_bounded",
+      "choices": [
+        "fix_the_source",
+        "close"
+      ]
+    },
+    {
       "reason": "intents_unreadable",
       "question": "fact_unreadable",
       "choices": [
