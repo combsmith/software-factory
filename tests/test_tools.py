@@ -3066,8 +3066,8 @@ class Workflows(unittest.TestCase):
         hooks = {"protected": [{"path": ".github/", "is": "the workflows"}, {"path": "sonar-project.properties", "is": "the scan's"}]}
 
         def problems(other=None, scan=scan, hooks=json.dumps(hooks), kept=scan):
-            # The listed workflow is held by its row's hash: here the hash of `kept`, the pins left out.
-            row = (("sonar-project.properties",), hashlib.sha256(check_workflows.PIN.sub("@PIN", kept).encode()).hexdigest())
+            # The listed workflow is held by its row's hash: here the hash of `kept`, its pins kept.
+            row = (("sonar-project.properties",), hashlib.sha256(kept.encode()).hexdigest())
             files = {".github/workflows/sonarcloud.yml": scan, ".github/workflows/other.yml": other, "config/hooks.json": hooks}
             root = tree({name: text for name, text in files.items() if text is not None})
             with mock.patch.dict(check_workflows.HEAD_SETTINGS, {"sonarcloud.yml": row}):
@@ -3136,11 +3136,14 @@ class Workflows(unittest.TestCase):
                            "a line that cannot be read": scan + "\t  - run: make checks\n"}.items():
             self.assertEqual([p for p in problems(scan=wrong, kept=wrong)[1] if runs not in p], [], why)
             self.assertTrue(caught(problems(scan=wrong, kept=wrong)[1], runs), why)
-        # It is held word for word, the pins left out: a step given a `with:`, which may move what it reads, is caught
-        # until its row's hash is the new text's, and a pin moved is not.
+        # It is held word for word, its pins kept: a step given a `with:`, which may move what it reads, is caught until
+        # its row's hash is the new text's, and so is a pin moved, whose action's code runs beside the token (the Factory
+        # Builder's ruling on #1012).
         changed = "sonarcloud.yml reads a head beside a secret, so it is held word for word, and it has changed"
         moved = scan + "      - uses: some/scan@%s # v8.3.0\n" % ("d" * 40)
-        self.assertEqual(problems(scan=moved.replace("d" * 40 + " # v8.3.0", "e" * 40 + " # v8.4.0"), kept=moved)[1], [])
+        bumped = moved.replace("d" * 40 + " # v8.3.0", "e" * 40 + " # v8.4.0")
+        self.assertTrue(caught(problems(scan=bumped, kept=moved)[1], changed))
+        self.assertEqual(problems(scan=bumped, kept=bumped)[1], [])
         self.assertTrue(caught(problems(scan=moved + "        with:\n          projectBaseDir: docs\n", kept=moved)[1], changed))
         # Astra's read: the live scan, so changed, is caught by its row as written; and a row with no hash holds nothing.
         live_scan = (ROOT / ".github" / "workflows" / "sonarcloud.yml").read_text()

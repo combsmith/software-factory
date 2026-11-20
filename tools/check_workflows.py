@@ -883,10 +883,11 @@ JUDGED = {"pull_request", "merge_group"}
 # What a workflow that runs on pull_request or merge_group beside a secret takes its settings from in the head it checks
 # out, by its file: each a path, word for word, of config/hooks.json's protected list, so apply refuses a Role's push
 # that changes it (decision 0188). What it reads of the head as data alone, the sources a scan analyses, is not listed.
-# The workflow is held word for word by a hash taken with the pins left out, as EXEMPT holds ci.yml: a step, a `with:`
-# or an `env:` changed may change what it reads, so read its actions again, then record the new hash. A workflow with
+# The workflow is held word for word by a hash, its pins kept, unlike EXEMPT's: a step, a `with:`, an `env:` or a pin
+# changed may change what it reads, and its actions' code runs beside the token, so a person reads its actions again,
+# a Dependabot bump among them, then records the new hash (the Factory Builder's ruling on #1012). A workflow with
 # no row here checks out the base alone (decision 0225, issue 845).
-HEAD_SETTINGS = {"sonarcloud.yml": (("sonar-project.properties",), "813af1f7166818949cca35fb26cb18e4a634fda80f433449321562af166309e8")}
+HEAD_SETTINGS = {"sonarcloud.yml": (("sonar-project.properties",), "5c75fa2c84e43a4d817088953ae00cce4f85dd43b692c911eeacbd06d0b28363")}
 BASES = (BASE, SCAN_BASE)      # a checkout's `ref:` that is the base's commit, on pull_request and merge_group
 # The events on which that ref is the base's, or the default branch's own commit: on push or a dispatch it is empty, and
 # the checkout takes the commit pushed or dispatched, a Role's branch among them (the Claude read of #1012).
@@ -2023,7 +2024,7 @@ def head_problems(root: pathlib.Path, live: list) -> list:
         where = path.relative_to(root)
         listed, kept = HEAD_SETTINGS.get(path.name, ((), None))
         # A row with no hash, or another, holds no text: the change is caught.
-        if path.name in HEAD_SETTINGS and hashlib.sha256(PIN.sub("@PIN", text).encode()).hexdigest() != kept:
+        if path.name in HEAD_SETTINGS and hashlib.sha256(text.encode()).hexdigest() != kept:
             problems.append("%s reads a head beside a secret, so it is held word for word, and it has changed: read "
                             "again what of the head its actions take their settings from, list each in HEAD_SETTINGS, "
                             "then record its new hash there" % where)
