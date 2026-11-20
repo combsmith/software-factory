@@ -1683,6 +1683,10 @@ class Opening(unittest.TestCase):
             self.assertEqual(draft(title=title), opening.UNREADABLE, repr(title))
         for body in ("a\rb", "a\r\nb", "\x00", "a\x08", "a\x0b", "a\x1f", "a\x7f", "a\x80", "a\x85", "a ", "a "):
             self.assertEqual(draft(body=body), opening.UNREADABLE, repr(body))
+        # A lone surrogate, as JSON's escape gives one, is no character: no UTF-8 carries it, so GitHub cannot be sent it.
+        # The characters either side of the surrogates are text, and so is one outside the Basic Multilingual Plane.
+        self.assertEach(opening.UNREADABLE, ["\ud800", "a\ud800b", "a\udbff", "\udc00a", "a\udfff", "\udfff\ud800"])
+        self.assertNone(["a\ud7ff", "a\ue000", "a\U0001F642", "\U00010000\U0010FFFF"])
         # Text that reads as other text: a character reference, a percent-escape, raw HTML, and each behind a backslash.
         self.assertEach(opening.UNREADABLE, ["&#35;12", "&#x40;x", "&num;12", "&commat;x", "AT&T", "%23", "%2F", "%E2%80",
                                              "50%a", "<!-- -->", "#<!-- -->12", "<b>", "</b>", "<?x", "<!DOCTYPE", "<A href>",

@@ -7,7 +7,8 @@ mentions no one and closes nothing.
 
 - `refusal(title, body)`: None where the draft may say them, or the one reason, a code, why it may not. The first
   of these that holds is the one given:
-  - `UNREADABLE`: a title or a body that is no text of its exact kind; a title that is empty or blank, or holds a
+  - `UNREADABLE`: a title or a body that is no text of its exact kind; one that holds a lone surrogate, U+D800 to
+    U+DFFF, which is no character, so no UTF-8 can carry it to GitHub; a title that is empty or blank, or holds a
     line break, a tab or another control character; a body that holds a control character but a line break or a
     tab; or text that reads as other text once GitHub renders it: a character reference (`&` before a letter or
     `#`), a percent-escape (`%` before a hex digit) or raw HTML (`<` before a letter, `/`, `!` or `?`).
@@ -59,6 +60,10 @@ CLOSES = "opening_closes"           # a closing keyword in the Result's own text
 CONTROL = ("\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0b\x0c\r\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b"
            "\x1c\x1d\x1e\x1f\x7f\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f\x90\x91\x92\x93\x94"
            "\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f\u2028\u2029")
+# The first and the last surrogate: a str may hold one alone, as JSON's escape gives it, but it is no character, and
+# no UTF-8 encodes it. Compared as characters, since a guard writes no number but 0 and 1.
+SURROGATE_FIRST = "\ud800"
+SURROGATE_LAST = "\udfff"
 # And what a title may not hold beside it: a title is one line.
 BREAKS = "\t\n"
 DIGITS = "0123456789"
@@ -86,8 +91,9 @@ def _follows(text: str, mark: str, chars: str) -> bool:
 
 
 def _text(said, banned: str) -> bool:
-    """Whether `said` is text of its exact kind that holds none of `banned`, and nothing that reads as other text."""
-    if type(said) is not str or any(c in banned for c in said):
+    """Whether `said` is text of its exact kind that holds none of `banned` and no lone surrogate, and nothing that reads
+    as other text."""
+    if type(said) is not str or any(c in banned or SURROGATE_FIRST <= c <= SURROGATE_LAST for c in said):
         return False
     return not any(_follows(text, "&", REFERENCE) or _follows(text, "%", HEX) or _follows(text, "<", TAG)
                    for text in _readings(said))
