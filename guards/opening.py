@@ -9,8 +9,8 @@ mentions no one and closes nothing.
   of these that holds is the one given:
   - `UNREADABLE`: a title or a body that is no text of its exact kind; one that holds a lone surrogate, U+D800 to
     U+DFFF, which is no character, so no UTF-8 can carry it to GitHub; a title that is empty or blank, or holds a
-    line break, a tab or another control character; a body that holds a control character but a line break or a
-    tab; or text that reads as other text once GitHub renders it: a character reference (`&` before a letter or
+    line break, a tab or another control character; a body that is empty or blank, or holds a control character
+    but a line break or a tab; or text that reads as other text once GitHub renders it: a character reference (`&` before a letter or
     `#`), a percent-escape (`%` before a hex digit) or raw HTML (`<` before a letter, `/`, `!` or `?`).
   - `LINKS`: a reference GitHub could read as a link to an issue, a pull request or a discussion: `#` before a digit,
     so also `owner/repo#12`; `GH-` before a digit; a path whose part `issue`, `issues`, `pull`, `pulls` or
@@ -112,7 +112,7 @@ def _closes(text: str) -> bool:
 
 def refusal(title, body):
     """None where a draft may be opened with `title` and `body`, the Result's own, or the one reason why not."""
-    if not (_text(title, CONTROL + BREAKS) and title.split() and _text(body, CONTROL)):
+    if not (_text(title, CONTROL + BREAKS) and title.split() and _text(body, CONTROL) and body.split()):
         return UNREADABLE
     texts = _readings(title) + _readings(body)
     if any(_links(text) for text in texts):
