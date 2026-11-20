@@ -2861,6 +2861,7 @@ class FindingTexts(unittest.TestCase):
                            ("a reply to an id that is a number", first(replyTo={"id": 17})),
                            ("a reply to an id of blanks", first(replyTo={"id": " "})),
                            ("a reply that hides an edit of no form", first(replyTo={"id": "PRRC_1"}, lastEditedAt=False)),
+                           ("a reply that hides an author that cannot be read", first(replyTo={"id": "PRRC_1"}, author=None)),
                            ("an edit that hides a reply of no form", first(replyTo={}, lastEditedAt="2026-11-14T08:00:00Z")),
                            ("a reply to an id with more after it", first(replyTo={"id": "PRRC_1!"})),
                            ("an edit that hides a login GitHub never gives", first(lastEditedAt="2026-11-14T08:00:00Z", author={
@@ -2909,10 +2910,13 @@ class FindingTexts(unittest.TestCase):
         # A pull request numbered 1 is not the one a number given as a flag names.
         with self.assertRaises(github.Unanswered):
             self.read(["PRRT_7"], thread_text("PRRT_7", number=True), pull=dict(self.PULL, number=1))
-        # A Lens no App is held for reads no one's words as its own, a person's, another App's or a Lens's.
-        for opened in (PERSON, APP, LENS):
-            with self.subTest(lens=None, opened=opened), self.assertRaises(texts.NotOwn):
-                self.read(["PRRT_7"], thread_text("PRRT_7", opened=opened), lens=None)
+        # Words are read as a Lens's only where a Lens is named: with none, nothing is asked of GitHub.
+        for lens in (None, "", 7):
+            with self.subTest(lens=lens):
+                with self.assertRaises(github.Unanswered) as raised:
+                    self.read(["PRRT_7"], lens=lens)
+                self.assertIs(type(raised.exception), github.Unanswered)
+                self.assertEqual(self.sent, [])
         # A User's login GitHub never gives is a read that was wrong, as the facts' reader takes it.
         with self.assertRaises(github.Unanswered) as raised:
             self.read(["PRRT_7"], thread_text("PRRT_7", opened=("pr-review[bot]", 4242, "User")))

@@ -30,9 +30,9 @@ from adapters.github import Unanswered, request
 THREADS = 50      # the most threads one call reads the texts of: a longer list raises, and none of it is read
 # A review thread's id as GitHub gives one, and as a text's id carries it.
 THREAD_ID = re.compile(r"[A-Za-z0-9_-]{1,100}")
-# The time of an edit as GitHub gives one; anything else in its place is no form GitHub gives (issue 974).
 # A comment's id as GitHub gives one, a legacy one in padded Base64 among them; anything else in its place is none.
 COMMENT_ID = re.compile(r"[A-Za-z0-9_+/=-]{1,200}")
+# The time of an edit as GitHub gives one; anything else in its place is no form GitHub gives (issue 974).
 EDITED = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 THREAD = """query TextsThread($id: ID!) {
   node(id: $id) {
@@ -104,6 +104,8 @@ def findings(transport, pull: dict, accounts, lens: str, threads: list) -> list:
     if not isinstance(threads, list) or len(threads) > THREADS or len(set(map(repr, threads))) != len(threads) \
             or not all(isinstance(t, str) and THREAD_ID.fullmatch(t) for t in threads):
         raise Unanswered("the threads asked for cannot be read as a list of threads")
+    if not isinstance(lens, str) or lens == "":
+        raise Unanswered("no Lens is named whose words the threads would hold")
     repo, found = pull["base"]["repo"]["full_name"], []
     for ident in threads:
         answer = transport.send(request("POST", "/graphql", body={"query": THREAD, "variables": {"id": ident}}))
