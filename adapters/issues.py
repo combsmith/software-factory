@@ -11,7 +11,8 @@ The pull requests that close the issue are read by `adapters/linked.py`, after t
 `linked` as it lists them, and `complete.linked` true only where it reads them whole and no pull request names the
 issue, while their keyword spans are not read; so an issue any pull request names defers. The issue is read once more
 after them, and refused if it moved. Not read yet, and said so: `branch_head`, which needs the count of pull requests
-the Factory opened for the issue, is null. `complete.runs` is true: the pass puts the records port's answer in its place
+the Factory opened for the issue, is null; and `default_head`, the default branch's head, which is to be read once for
+each repo in a pass (decision 0242), is null, so an opening Run with no branch head defers. `complete.runs` is true: the pass puts the records port's answer in its place
 (`controller/pass_.py`'s `asked`), and false here would leave every issue unreadable.
 """
 from __future__ import annotations
@@ -210,6 +211,7 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
         "last_writer_comment_at": said,
         "acts_since_writer": writer["acts_since_writer"],
         "branch_head": None,
+        "default_head": None,
         "complete": {"timeline": whole and edited["whole"], "linked": closing_whole, "runs": True},
         "read_at": now,
     })

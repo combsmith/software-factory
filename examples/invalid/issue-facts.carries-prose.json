@@ -115,6 +115,7 @@
   "last_writer_comment_at": null,
   "acts_since_writer": 0,
   "branch_head": null,
+  "default_head": "3b8e5d1c0a9f7e6d5c4b3a291807f6e5d4c3b2a1",
   "complete": {
     "timeline": true,
     "linked": true,

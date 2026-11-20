@@ -55,6 +55,8 @@ ISSUE_STATES = ("open", "closed")
 # written as shapes, as terms.py writes a time's: a length is no limit anyone chooses, and so is not configuration.
 CONTENT_FEWEST = "ffff"
 CONTENT_MOST = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+# A commit's sha, forty lower-case hex digits, written as a shape too: the base the first opening Run is admitted at.
+SHA_SHAPE = "ffffffffffffffffffffffffffffffffffffffff"
 # The Intents of an issue's Runs that its State reads, as their run records name them. The issue's decision, which
 # admits them, uses these codes. The readiness Run judges whether the issue is ready for this content, and its `apply`
 # adds factory:ready. The opening Run creates the work's branch and its draft pull request.
@@ -821,6 +823,17 @@ def readable_head(facts: dict) -> bool:
                                        or (isinstance(facts["branch_head"], str) and facts["branch_head"] != ""))
 
 
+def is_sha(value) -> bool:
+    """Whether `value` is a commit's whole sha: forty lower-case hex digits, never a branch's name or a short sha."""
+    return isinstance(value, str) and len(value) == len(SHA_SHAPE) and all(c in t.HEX_DIGITS for c in value)
+
+
+def readable_base(facts: dict) -> bool:
+    """The default branch's head, which the first opening Run is admitted at and its push lands on: a whole sha, read
+    only where an opening Run would be admitted with no branch head, and never defaulted (decision 0242)."""
+    return is_sha(facts.get("default_head"))
+
+
 def readable_intents(intents) -> bool:
     """Whether `issues.intents` can be read whole: each Intent named, and mapped to null, which admits nothing, or to a
     Role and its App, each a name."""
@@ -980,7 +993,12 @@ def _wanted(facts, state, reason, evidence, mine, intents):
         return _decision(facts, state, "no_statement", evidence, t.NOTHING)
     if not readable_head(facts):
         return _decision(facts, state, "branch_unreadable", evidence, t.DEFER)
-    return (who["role"], OPENING, {"branch_head": facts["branch_head"]})
+    if facts["branch_head"] is not None:
+        return (who["role"], OPENING, {"branch_head": facts["branch_head"]})
+    # The first opening Run, with no branch yet, is admitted at the default branch's head, its base (decision 0242).
+    if not readable_base(facts):
+        return _decision(facts, state, "base_unreadable", evidence, t.DEFER)
+    return (who["role"], OPENING, {"branch_head": None, "base": facts["default_head"]})
 
 
 def without_opening(runs: list) -> list:
@@ -1169,5 +1187,13 @@ def still_admitted(admitted: dict, again: dict) -> bool:
     """Whether `apply` may write. Before any Effect it asks the Kernel again, leaving its own Run out of the records
     (I-38), and writes nothing unless that admits the same Run: the same Role and Intent, which only one State admits,
     for the same content, and for the opening Run the same branch head (I-21). So a label removed, a Hold added, an
-    edit made or a head moved while the Run was in flight each stop it."""
-    return again.get("admit") is not None and again.get("admit") == admitted.get("admit")
+    edit made or a head moved while the Run was in flight each stop it. The base is never compared: a default branch
+    that moved is no refusal, and `apply` lands on the base of the admission it recorded (decision 0242)."""
+    now, then = again.get("admit"), admitted.get("admit")
+    if not (isinstance(now, dict) and isinstance(then, dict)):
+        return False
+    # Two bases are told apart by nothing, but a base is on both or on neither, each a whole sha: a Run recorded with no
+    # base, or with one that is no sha, is admitted again only by an admission of its own.
+    if ("base" in now) != ("base" in then) or not all(is_sha(d["base"]) for d in (now, then) if "base" in d):
+        return False
+    return {k: v for k, v in now.items() if k != "base"} == {k: v for k, v in then.items() if k != "base"}

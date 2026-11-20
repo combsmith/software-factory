@@ -113,6 +113,11 @@
           ],
           "minLength": 1
         },
+        "base": {
+          "description": "The opening Run's alone, while its branch head is null: the default branch's head it was admitted at, which its first push lands on. apply's asking again never compares it (decision 0242)",
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
         "pull_request": {
           "description": "The implementing Run's alone: the number of the linked draft the Factory opened, whose failing checks admitted it",
           "type": "integer",

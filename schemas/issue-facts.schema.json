@@ -25,6 +25,7 @@
     "last_writer_comment_at",
     "acts_since_writer",
     "branch_head",
+    "default_head",
     "complete",
     "read_at"
   ],
@@ -415,6 +416,14 @@
         "null"
       ],
       "minLength": 1
+    },
+    "default_head": {
+      "description": "The sha of the repo's default branch's head, read once for each repo in a pass and given to each issue's facts; null where it could not be read. The first opening Run is admitted with it as its base, the commit its first push lands on (decision 0242)",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{40}$"
     },
     "complete": {
       "type": "object",

@@ -214,6 +214,9 @@ class IssueWorld:
             "last_writer_action_at": self.last_writer, "last_writer_comment_at": self.last_writer_comment,
             # GitHub: the_timeline_shows_each_act
             "acts_since_writer": self.acts, "branch_head": self.branch_head,
+            # The default branch's head, which the first opening Run is admitted at (decision 0242). It moves each
+            # minute, so an opening Run's apply meets a head other than the base it was admitted at.
+            "default_head": "%040x" % (0xd0d0 + self.minute),
             "complete": {"timeline": True, "linked": True, "runs": True}, "read_at": self.now(),
         })
 
@@ -413,7 +416,8 @@ class IssueWorld:
         intent = d["admit"]["intent"]
         run = {"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": d["admit"]["role"], "intent": intent,
                "content_id": d["admit"]["content_id"], "status": "queued", "conclusion": None, "outcome": None,
-               "started_at": self.now(), "minute": self.minute, "head": d["admit"].get("branch_head")}
+               "started_at": self.now(), "minute": self.minute, "head": d["admit"].get("branch_head"),
+               "base": d["admit"].get("base")}
         # GitHub: a_queued_run_is_listed
         self.enqueue(run)
         self.moves()
@@ -496,6 +500,8 @@ class IssueWorld:
         admitted = {"admit": {k: run[k] for k in ("role", "intent", "content_id")}}
         if run["intent"] == issue.OPENING:
             admitted["admit"]["branch_head"] = run["head"]
+            if run["base"] is not None:
+                admitted["admit"]["base"] = run["base"]
         if not issue.still_admitted(admitted, again):
             # GitHub: a_superseded_run_fails
             run.update(conclusion="failure", outcome="superseded")
