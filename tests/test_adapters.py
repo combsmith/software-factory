@@ -6429,8 +6429,14 @@ IDENTITIES = {"agent": {CONTROLLER_APP[1:]}, "maintainer": {(MAINTAINER, "User")
 
 def p72_read() -> tuple:
     """`(facts, title, the transport)`: trials/P-72.json's read after the reopening, through `adapters/issues.py`'s
-    read() as the port sends it, the Maintainer's permission answered as P-53 records it."""
-    router = Router(github.Replay(exchanges("P-72")[12:]), {"don-petry": "admin"})
+    read() as the port sends it, the Maintainer's permission answered as P-53 records it. The linked pull requests'
+    query has asked commit references since P-72 ran (issue 734), so its read is a stub holding what P-72's answer said:
+    no reference and one close with no closer. The issue's own reads are P-72's."""
+    recorded = exchanges("P-72")
+    said = recorded[15]["response"]["body"]["data"]["repository"]["issue"]
+    stub = linked_read(events=said["timelineItems"]["nodes"], total=said["closedByPullRequestsReferences"]["totalCount"],
+                       updated=said["updatedAt"], repo=canary(), number=130)
+    router = Router(github.Replay(recorded[12:15] + [stub, recorded[16]]), {"don-petry": "admin"})
     found, title = issues.read(router, canary(), 130, timeline.Accounts(router, canary(), MACHINE, {}),
                                lambda: "2026-11-20T16:26:04Z", identities=IDENTITIES, earlier=[])
     return found, title, router
