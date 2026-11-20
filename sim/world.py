@@ -1077,7 +1077,7 @@ class World:
             # queue App resolved on a drop stands again once a push leaves no review after it, as kernel/gate.py reads it.
             pushed_past = all(r["started_at"] <= self.last_push for r in done) and any(
                 th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"]
-                and (not th["resolved"] or th["resolved_by"] == QUEUE_APP and th["ruling"] != "accepted")
+                and (not th["resolved"] or (th["resolved_by"] == QUEUE_APP and th["ruling"] != "accepted"))
                 and (th["severity"] in ("blocking", "major") or th["category"] == "security")
                 and (th["ruling"] != "accepted" or th["category"] == "security") and not self.dropped_since_the_push(th)
                 for th in self.threads)

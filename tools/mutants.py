@@ -17269,7 +17269,7 @@ MUTANTS = ISSUE + [
     ("I-11 leaves an accepted security Finding's thread out", "sim/world.py",
      '(th["ruling"] != "accepted" or th["category"] == "security")', 'th["ruling"] != "accepted"', ('tests.test_simulator.Simulation.test_a_thread_the_queue_app_resolved_stays_closed_past_a_push_and_i11_allows_an_accepted_security_thread',)),
     ("I-11 reads a thread the queue App resolved on a drop as closed past a push", "sim/world.py",
-     '(not th["resolved"] or th["resolved_by"] == QUEUE_APP and th["ruling"] != "accepted")', 'not th["resolved"]', ('tests.test_simulator.Simulation.test_a_thread_the_queue_app_resolved_stays_closed_past_a_push_and_i11_allows_an_accepted_security_thread',)),
+     '(not th["resolved"] or (th["resolved_by"] == QUEUE_APP and th["ruling"] != "accepted"))', 'not th["resolved"]', ('tests.test_simulator.Simulation.test_a_thread_the_queue_app_resolved_stays_closed_past_a_push_and_i11_allows_an_accepted_security_thread',)),
     ("a review says dropped of a resolved thread opened as it began or after", "sim/world.py",
      ' and th["resolved"] \\\n                        and th["opened_at"] < run["started_at"]:\n', ' and th["resolved"]:\n', ('tests.test_simulator.Simulation.test_a_thread_the_queue_app_resolved_stays_closed_past_a_push_and_i11_allows_an_accepted_security_thread',)),
     ("a marker equal to True is taken as dropped", "sim/world.py",

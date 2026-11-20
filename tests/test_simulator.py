@@ -1438,7 +1438,7 @@ class Simulation(unittest.TestCase):
         w.runs = [review]
         self.assertTrue(w.dropped_since_the_push(th))
         # Each category the Kernel knows but security's may be dropped, read from the Kernel's own list (Astra).
-        for category in (c for c in world.t.CATEGORIES if c != "security"):
+        for category in (c for c in terms.CATEGORIES if c != "security"):
             self.assertTrue(w.dropped_since_the_push(dict(th, category=category)), category)
         # A thread opened at the push itself is no thread before it, as the Kernel reads `opened_at >= pushed`; a
         # category the Kernel does not know, or none, and a thread no Lens opened are never dropped (the reader audit).
