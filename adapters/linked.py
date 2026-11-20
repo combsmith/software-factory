@@ -26,8 +26,8 @@ seen, so the issue defers, and so does one whose records at hand break the chain
 Fail closed all the same while the Controller hands no pass record on (issue 734): the Kernel would read no span as a
 keyword that stood at a merge (`keyword_stood`), and could read an issue done that a rival's link held. So
 `complete.linked` is true, besides, only where no pull request names the issue: none referenced, linked or its closer,
-of any base or life, and nothing but an issue, as read, cross-referencing it, as the read also asks; the list is handed
-on all the same, for the pass records.
+of any base or life, nothing but an issue, as read, cross-referencing it, and no commit referencing it, as the read
+also asks; the list is handed on all the same, for the pass records.
 """
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ QUERY = """query IssueLinked($owner: String!, $name: String!, $number: Int!) {
         totalCount
         nodes { number repository { nameWithOwner } }
       }
-      timelineItems(itemTypes: [CLOSED_EVENT, CONNECTED_EVENT, DISCONNECTED_EVENT, CROSS_REFERENCED_EVENT], first: %d) {
+      timelineItems(itemTypes: [CLOSED_EVENT, CONNECTED_EVENT, DISCONNECTED_EVENT, CROSS_REFERENCED_EVENT, REFERENCED_EVENT], first: %d) {
         pageInfo { hasNextPage }
         nodes {
           __typename
@@ -56,6 +56,7 @@ QUERY = """query IssueLinked($owner: String!, $name: String!, $number: Int!) {
           ... on ConnectedEvent { createdAt subject { __typename ... on PullRequest { number repository { nameWithOwner } } } }
           ... on DisconnectedEvent { createdAt subject { __typename ... on PullRequest { number repository { nameWithOwner } } } }
           ... on CrossReferencedEvent { source { __typename } }
+          ... on ReferencedEvent { commit { oid } }
         }
       }
     }
@@ -74,8 +75,8 @@ def _number(node, repo: str):
 def joined(transport, repo: str, number: int, updated_at: str, began: str) -> dict:
     """The issue's GraphQL read: `refs`, the numbers referenced; `links`, each link and unlinking by hand, by number;
     `closers`, when each pull request closed the issue, its first close in the life begun at `began` or else its first;
-    `commits`, when each commit did in that life; `crossed`, whether anything but an issue cross-references it; and
-    `whole`. The read must name the issue's `updated_at`."""
+    `commits`, when each commit did in that life; `crossed`, whether anything but an issue cross-references it, or a
+    commit references it, as a commit's closing keyword does; and `whole`. The read must name the issue's `updated_at`."""
     field, (owner, name) = issues._field, repo.split("/")
     answer = transport.send(request("POST", "/graphql", body={
         "query": QUERY, "variables": {"owner": owner, "name": name, "number": number}}))
@@ -100,7 +101,17 @@ def joined(transport, repo: str, number: int, updated_at: str, began: str) -> di
         kind = field(node, "__typename")
         if kind == "CrossReferencedEvent":
             source = field(node, "source")
+            if source is not None:
+                field(source, "__typename")    # held to its type whatever was read before it
             out["crossed"] = out["crossed"] or source is None or field(source, "__typename") != "Issue"
+            continue
+        if kind == "ReferencedEvent":
+            # A commit's closing keyword leaves this, not a cross-reference; one whose commit cannot be read names it too.
+            commit = field(node, "commit")
+            oid = None if commit is None else field(commit, "oid")
+            if commit is not None and not (isinstance(oid, str) and timeline.SHA.match(oid)):
+                raise Unanswered("a commit's reference with no id")
+            out["crossed"] = True
             continue
         at = timeline._time(field(node, "createdAt"))
         if kind in LINKS:

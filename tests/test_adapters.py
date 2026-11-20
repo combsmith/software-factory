@@ -2884,8 +2884,8 @@ def thread_text(ident: str, body="It reads the head before the push.", opened=No
 class FindingTexts(unittest.TestCase):
     PULL = {"number": 26, "base": {"ref": "main", "repo": {"full_name": "o/r", "default_branch": "main"}}}
 
-    def read(self, threads, *found, lens="pr-review", pull=None):
-        router = Router(github.Replay(list(found)), {"don-petry": "admin"})
+    def read(self, threads, *found, lens="pr-review", pull=None, permissions=None):
+        self.router = router = Router(github.Replay(list(found)), permissions or {"don-petry": "admin"})
         accounts = timeline.Accounts(router, "o/r", MACHINE, {LENS[1:]: "pr-review", (5, "Bot"): "qa-lead"})
         self.sent = sent = []
 
@@ -2942,11 +2942,29 @@ class FindingTexts(unittest.TestCase):
                            ("a number that is no whole number", thread_text("PRRT_7", number=26.0)),
                            ("a repository that is no object", thread_text("PRRT_7", pullRequest={"number": 26, "repository": "o/r"})),
                            ("a comment that is no object", thread_text("PRRT_7", comments={"nodes": [None]})),
-                           ("a reply", first(replyTo={"id": "PRRC_1"})), ("a reply GitHub does not say it is not", first(replyTo=...)),
+                           ("a reply", first(replyTo={"id": "PRRC_1"})),
+                           ("a reply to a legacy id", first(replyTo={"id": "MDE3OlB1bGxSZXF1ZXN0UmV2aWV3Q29tbWVudDE="})), ("a reply GitHub does not say it is not", first(replyTo=...)),
                            ("a reply to no comment", first(replyTo="PRRC_1")), ("a reply to nought", first(replyTo=0)),
+                           # A reply or an edit GitHub gives in no form of its own is a read that failed (issue 974).
+                           ("a reply to a comment of no id", first(replyTo={})), ("a reply to a null id", first(replyTo={"id": None})),
+                           ("a reply to an empty id", first(replyTo={"id": ""})), ("a reply to a list", first(replyTo=[])),
+                           ("a reply to an id that is a number", first(replyTo={"id": 17})),
+                           ("a reply to an id of blanks", first(replyTo={"id": " "})),
+                           ("a reply that hides an edit of no form", first(replyTo={"id": "PRRC_1"}, lastEditedAt=False)),
+                           ("a reply that hides an author that cannot be read", first(replyTo={"id": "PRRC_1"}, author=None)),
+                           ("an edit that hides a reply of no form", first(replyTo={}, lastEditedAt="2026-11-14T08:00:00Z")),
+                           ("a reply to an id with more after it", first(replyTo={"id": "PRRC_1!"})),
+                           ("an edit that hides a login GitHub never gives", first(lastEditedAt="2026-11-14T08:00:00Z", author={
+                               "__typename": "User", "login": "pr-review[bot]", "databaseId": 4242})),
                            ("an edited comment", first(lastEditedAt="2026-11-14T08:00:00Z")),
                            ("an edit GitHub does not say never was", first(lastEditedAt=...)),
                            ("an edit at no time", first(lastEditedAt=0)), ("an edit that is a flag", first(lastEditedAt=False)),
+                           ("an edit at an empty time", first(lastEditedAt="")), ("an edit at no time GitHub gives", first(lastEditedAt="never")),
+                           ("an edit that is a list", first(lastEditedAt=[])),
+                           ("an edit time with more after it", first(lastEditedAt="2026-11-14T08:00:00Zjunk")),
+                           ("an edit on no day of the calendar", first(lastEditedAt="2026-02-30T08:00:00Z")),
+                           ("an edit at no hour", first(lastEditedAt="2026-11-14T99:00:00Z")),
+                           ("an edit time not written out whole", first(lastEditedAt="2026-1-5T8:0:0Z")),
                            # An author GitHub gives as none, a deleted account's, is refused as the facts' read of the
                            # same thread refuses it, before any text is asked for: a read that failed, as it was.
                            ("an author that is none", first(author=None)), ("no author", first(author=...)),
@@ -2957,8 +2975,14 @@ class FindingTexts(unittest.TestCase):
                            ("no pull request", thread_text("PRRT_7", pullRequest=None)),
                            ("no comment", thread_text("PRRT_7", comments={"nodes": []})),
                            ("comments that are no list", thread_text("PRRT_7", comments=None)),
+                           ("comment nodes that are no list", thread_text("PRRT_7", comments={"nodes": 3})),
+                           ("a number that is a flag", thread_text("PRRT_7", number=True)),
                            ("a person's", thread_text("PRRT_7", opened=PERSON)),
                            ("another App's", thread_text("PRRT_7", opened=APP)),
+                           # The Lens's name is no proof: a person, or an App no configuration holds, may show it.
+                           ("a person's under the Lens's name", thread_text("PRRT_7", opened=("pr-review", 4242, "User"))),
+                           ("an App's under the Lens's name", thread_text("PRRT_7", opened=("pr-review", 4343, "Bot"))),
+                           ("a person's under the Lens App's number", thread_text("PRRT_7", opened=("don-petry", LENS[1], "User"))),
                            ("another Lens's", thread_text("PRRT_7", opened=("qa-lead", 5, "Bot"))),
                            ("a body that is none", thread_text("PRRT_7", None)),
                            ("a body of nothing", thread_text("PRRT_7", "")),
@@ -2967,8 +2991,30 @@ class FindingTexts(unittest.TestCase):
                 self.read(["PRRT_7"], found)
             # What GitHub says, and is not the Lens's own unedited first comment, is the thread's own state, told
             # apart from a read that failed: anyone who can write can make it, and it must not pass for the Factory's.
-            own_state = why in ("a reply", "an edited comment", "a person's", "another App's", "another Lens's")
+            own_state = why in ("a reply", "a reply to a legacy id", "an edited comment", "a person's", "another App's", "another Lens's",
+                                "a person's under the Lens's name", "an App's under the Lens's name",
+                                "a person's under the Lens App's number")
             self.assertIs(type(raised.exception), texts.NotOwn if own_state else github.Unanswered, why)
+            # Whose words they are is told by the account alone: no one's write access is asked for it (issue 974).
+            self.assertEqual(self.router.asked, [], why)
+        # A pull request numbered 1 is not the one a number given as a flag names.
+        with self.assertRaises(github.Unanswered):
+            self.read(["PRRT_7"], thread_text("PRRT_7", number=True), pull=dict(self.PULL, number=1))
+        # Words are read as a Lens's only where a Lens is named: with none, nothing is asked of GitHub.
+        for lens in (None, "", 7):
+            with self.subTest(lens=lens):
+                with self.assertRaises(github.Unanswered) as raised:
+                    self.read(["PRRT_7"], lens=lens)
+                self.assertIs(type(raised.exception), github.Unanswered)
+                self.assertEqual(self.sent, [])
+        # A User's login GitHub never gives is a read that was wrong, as the facts' reader takes it.
+        with self.assertRaises(github.Unanswered) as raised:
+            self.read(["PRRT_7"], thread_text("PRRT_7", opened=("pr-review[bot]", 4242, "User")))
+        self.assertIs(type(raised.exception), github.Unanswered)
+        # A person's comment is refused as the thread's own state though their write access could not be read.
+        with self.assertRaises(texts.NotOwn):
+            self.read(["PRRT_7"], thread_text("PRRT_7", opened=PERSON), permissions={"don-petry": "missing"})
+        self.assertEqual(self.router.asked, [])
         self.assertTrue(issubclass(texts.NotOwn, github.Unanswered))
         # The Lens asked for is the one whose words they must be: its own thread is another's to any other Lens.
         with self.assertRaises(github.Unanswered):
@@ -6229,6 +6275,11 @@ def crossed(source: str = "PullRequest") -> dict:
     return {"__typename": "CrossReferencedEvent", "source": {"__typename": source}}
 
 
+def referenced(oid="c" * 40) -> dict:
+    """A reference on the issue's timeline by a commit, as a commit's closing keyword leaves one, or by one not read."""
+    return {"__typename": "ReferencedEvent", "commit": None if oid is None else {"oid": oid}}
+
+
 IDENTITIES = {"agent": {CONTROLLER_APP[1:]}, "maintainer": {(MAINTAINER, "User")}, "dependency": set()}
 
 
@@ -6812,12 +6863,24 @@ class Linked(unittest.TestCase):
             self.assertEqual(self.read(named), ([], False))
         self.assertEqual(self.read([linked_read((), total=1)]), ([], False))
         self.assertEqual(self.read([linked_read(more=True)]), ([], False))
-        self.assertIn("itemTypes: [CLOSED_EVENT, CONNECTED_EVENT, DISCONNECTED_EVENT, CROSS_REFERENCED_EVENT]", linked.QUERY)
+        self.assertIn("itemTypes: [CLOSED_EVENT, CONNECTED_EVENT, DISCONNECTED_EVENT, CROSS_REFERENCED_EVENT, REFERENCED_EVENT]",
+                      linked.QUERY)
         self.assertIn("... on CrossReferencedEvent { source { __typename } }", linked.QUERY)
         self.assertEqual(self.read([linked_read((), [{"__typename": "CrossReferencedEvent", "source": None}])]), ([], False))
         self.assertEqual(self.read([linked_read(ref(7)), pull_read(7), pull_timeline(7)]), ([(7, True, [])], False))
         # Pass records that break the chain of spans leave the list not whole, whatever names the issue.
         self.assertEqual(self.read([linked_read()], [seen_by(3, issues=[], alerts=["issue_apps_unreadable"])]), ([], False))
+
+    def test_a_commits_reference_names_the_issue_and_the_timeline_is_read_on_past_it(self):  # issue 990
+        # A commit's closing keyword leaves a reference by the commit, not a cross-reference: it names the issue, and so
+        # does one whose commit cannot be read. The timeline is read on past it: a link by hand after it is listed.
+        named = ()
+        self.assertIn("CROSS_REFERENCED_EVENT, REFERENCED_EVENT]", linked.QUERY)
+        self.assertIn("... on ReferencedEvent { commit { oid } }", linked.QUERY)
+        for events in ([referenced()], [referenced(None)], [crossed("Issue"), referenced()]):
+            self.assertEqual(self.read([linked_read((), events)], named), ([], False), events)
+        self.assertEqual(self.read([linked_read((), [referenced(), link("ConnectedEvent", 1, 7)]), pull_read(7), pull_timeline(7)], named),
+                         ([(7, False, [])], False))
 
     def test_a_merge_beside_a_rival_keyword_link_is_never_read_with_no_spans(self):  # decision 0186
         # The Controller's App's 5 merged and closed the issue; the Maintainer's 6 named it too. Read whole with no spans,
@@ -6872,7 +6935,12 @@ class Linked(unittest.TestCase):
                    answer(("timelineItems", "nodes")), answer(refs=[("7", "o/r")]),
                    answer(events=[link("ConnectedEvent", 1, 41, repo="a/fork", typed="Issue")]), answer(refs=[(0, "a/fork")]),
                    answer(events=[{"__typename": "LabeledEvent", "createdAt": minute(1)}]),
-                   answer(events=[{"__typename": "ConnectedEvent", "createdAt": minute(1)}])]
+                   answer(events=[{"__typename": "ConnectedEvent", "createdAt": minute(1)}]),
+                   answer(events=[referenced("x")]), answer(events=[{"__typename": "ReferencedEvent", "commit": "c" * 40}]),
+                   answer(events=[{"__typename": "ReferencedEvent", "commit": {}}]), answer(events=[{"__typename": "ReferencedEvent"}]),
+                   answer(events=[referenced(int("1" * 40))]),
+                   answer(events=[referenced(), {"__typename": "CrossReferencedEvent", "source": {}}]),
+                   answer(events=[crossed(), {"__typename": "CrossReferencedEvent", "source": {}}])]
         for at, found in enumerate(refused):
             with self.assertRaises(github.Unanswered, msg=at):
                 self.listed([found])
@@ -6974,6 +7042,32 @@ class KeywordSpans(unittest.TestCase):
         # With every record at hand passed over, no base is left: the chain is broken, never first sight.
         self.assertEqual(self.spans(seen_by(3, issues=[], left_out=[unread]), seen_by(6, issues=[], left_out=[unread])),
                          ({}, None))
+        # A record that holds an issue is read as any other, the entry among what it left out: this issue's facts make it
+        # the base, and another issue's leave the chain broken by the itemless entry.
+        self.assertEqual(self.spans(older, seen_by(6, [(7, True, [span(3)]), (8, True, [])], left_out=[unread])),
+                         ({7: [span(3)], 8: [span(6)]}, True))
+        self.assertEqual(self.spans(older, seen_by(6, number=42, left_out=[unread])), ({7: [span(3)]}, None))
+        # So is one that leaves out anything beside the one entry, even the same again, or raised that its issues' Apps
+        # could not be told; and one whose issues cannot be read is no pass record.
+        for left in ([unread, dict(unread, code="not_facts")], [dict(unread, code="not_facts"), unread], [unread, dict(unread)],
+                     [unread, {"item": self.ITEM, "code": "facts_unanswered"}], [dict(unread, item=self.ITEM)],
+                     [unread, {"item": dict(self.ITEM, number=42), "code": "facts_unanswered"}]):
+            self.assertEqual(self.spans(older, seen_by(6, issues=[], left_out=left)), ({7: [span(3)]}, None), left)
+        self.assertEqual(self.spans(older, seen_by(6, issues=[], left_out=[unread], alerts=["issue_apps_unreadable"])),
+                         ({7: [span(3)]}, None))
+        self.assertEqual(self.spans(older, seen_by(6, issues=None, left_out=[unread])), ({}, False))
+        for bad in ({"alerts": "x"}, {"alerts": None}, {"left_out": dict(unread)}, {"left_out": [{"item": None}]}):
+            self.assertEqual(self.spans(older, dict(seen_by(6, issues=[], left_out=[unread]), **bad)), ({}, False), bad)
+        # One that holds the issue whole is the base, and what it left out or raised itself breaks nothing.
+        for more in ({}, {"alerts": ["issue_apps_unreadable"]}):
+            self.assertEqual(self.spans(older, seen_by(6, [(7, True, [span(3)])], left_out=[unread], **more)), ({7: [span(3)]}, True))
+            self.assertEqual(self.spans(seen_by(6, [(7, True, [])], left_out=[unread], **more)), ({7: [span(6)]}, True))
+        # A record read after one passed over is read as if that were not at hand; one that holds and leaves out nothing
+        # is not passed over, and alone is first sight.
+        self.assertEqual(self.spans(seen_by(3, issues=[], left_out=[unread]), seen_by(6, [(7, True, [])])), ({7: [span(6)]}, True))
+        self.assertEqual(self.spans(seen_by(3, issues=[], left_out=[unread]), seen_by(6, issues=[], left_out=[dict(unread, code="not_facts")])),
+                         ({}, None))
+        self.assertEqual(self.spans(seen_by(6, issues=[])), ({}, True))
         self.assertEqual(keyword_spans.UNLISTED, "issue_list_unreadable")
 
     def test_pass_records_that_could_not_be_read_give_no_time_and_are_not_whole(self):
@@ -6981,7 +7075,8 @@ class KeywordSpans(unittest.TestCase):
         # The newest at hand, where it is no pass record, gives no time either, whatever the one before it holds.
         good = seen_by(3, [(7, True, [])])
         for bad in ({"schema": "pass/1"}, dict(good, issues=[{"facts": {"item": self.ITEM}}]), dict(good, issues=None), "p",
-                    seen_by(6, [(7, True, ["x"])])):
+                    seen_by(6, [(7, True, ["x"])]), seen_by(6, [(7, True, [[], span(3)])]), seen_by(6, [(7, False, ["", span(3)])]),
+                    seen_by(6, [(7, True, {})]), seen_by(6, [(7, True, [span(0, 1), [["seen_at", minute(2)], ["gone_at", None]]])])):
             self.assertEqual(self.spans(good, bad), ({}, False), bad)
 
 
