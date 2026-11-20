@@ -11,10 +11,11 @@ Effect (I-33)", issue 306, with the Maintainer's answers).
 - `before`: the pass records before this one, whose Decisions say whether a merge had an approval standing;
 - `accounts`: the configuration's accounts, by which each identity is told.
 
-It returns `{"unmatched": [...], "override": [...], "short": bool}`. A write with no matching Effect is unmatched,
+It returns `{"unmatched": [...], "override": [...], "hand": [...], "short": bool}`. A write with no matching Effect is unmatched,
 whatever it was: the machine user's approvals with no `approve` Effect among them, the Maintainer's own in the browser
 included ("Alarm on all of them", the Maintainer, 2026-10-22). A merge whose item no pass before read as converged or
-queued in the last pass before it is an Override, reported as information. Reconciliation is short, never silent, when
+queued in the last pass before it is an Override, reported as information, as is a hand approval (decision 0241).
+Reconciliation is short, never silent, when
 what was seen or what was recorded cannot be read whole, or when an identity's account is not known, since its writes
 cannot be told.
 """
@@ -42,6 +43,9 @@ DISPATCHES = ("dispatch_run", "dispatch_approval", "dispatch_queue")
 # A Decision that says the item had what a merge needs: an approval of its content standing, read by the Kernel.
 MERGEABLE = ("converged", "queued")
 LANDED = ("applied", "already_applied")
+# The waits for a person alone (decisions 0052, 0200, 0207), under which an unmatched approval may be a hand's (0241).
+HAND = ("model_lens_input_needs_person", "path_needs_person")
+COMMIT = re.compile(r"[0-9a-f]{40}")
 STAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 LATE = 60 * 60          # how much later than its record's own making a pass's or a Run's write can be: the job's limits
 
@@ -200,6 +204,30 @@ def _readable(effects) -> bool:
             and not any(errors(w, "written") for w in effects["written"]))
 
 
+def decided(before, item, at):
+    """`(reason, head)` of `item` in the last pass record before `at`, or None (decision 0241)."""
+    if not isinstance(before, list) or moment(at) is None:
+        return None
+    last = [r for r in before if isinstance(r, dict) and moment(r.get("now")) is not None and r["now"] < at]
+    if not last:
+        return None
+    for e in last[-1].get("pull_requests", []):
+        if key(e["facts"]["item"]) == key(item):
+            return e["decision"].get("reason"), e.get("head")
+    return None
+
+
+def hand_approved(w: dict, before, heads: dict) -> bool:
+    """Whether unmatched approval `w` is a hand approval: its pull request decided under `HAND` by the last pass record
+    before it, at the commit it approved, and no other approval's key holding its head in `heads`; what cannot be read
+    is none (decision 0241)."""
+    commit = w.get("commit")      # read as a commit of a pull request before it is asked here
+    found = decided(before, w["item"], w.get("at"))
+    if found is None or found[0] not in HAND or found[1] != commit:
+        return False
+    return not heads.get((key(w["item"]), commit), set()) - {w["key"]}
+
+
 def reconcile(seen, effects, runs, before, accounts) -> dict:
     identities, known = _identities(accounts)
     readable = seen is not None and not errors(seen, "seen")
@@ -210,7 +238,7 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
     running = {key(r["item"]) for r in runs if r.get("status") != "completed"} if isinstance(runs, list) else set()
     since = seen["since"] if readable else None
     keys, items = _keys(effects, before, since) if recorded else _keys({"applied": [], "written": []}, before, since)
-    unmatched, override = [], []
+    unmatched, override, hand, approvals = [], [], [], []
     for w in seen["writes"] if readable else []:
         kind = identities.get(w["by"])
         if w["by"] == "unattributed":
@@ -224,10 +252,47 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
             items[slot] = items.get(slot, 0) - 1
         else:
             landed = where is not None and w["key"] is not None and w["key"] in keys.get(where, set())
+        entry = None
         if not landed and kind != "controller" and w["item"] and key(w["item"]) in running:
             short = True
         elif not landed:
-            unmatched.append({"by": w["by"], "kind": w["kind"], "item": w["item"], "key": w["key"]})
+            entry = {"by": w["by"], "kind": w["kind"], "item": w["item"], "key": w["key"]}
+            unmatched.append(entry)
+        if w["kind"] == "approval":
+            # Every approval takes its head; the machine user's, unmatched, may be judged a hand approval below.
+            approvals.append((w, entry if kind == "approver" else None))
+    # A carried hand approval stands; any other is judged in the order given, one to a head (decision 0241).
+    carried_hand = {e["key"]: e for e in _last(before).get("hand", [])}
+    # Each head an approval took, a hand one or an unmatched one, by the keys that took it, until its pull request leaves.
+    heads, seconds = {}, []
+    for e in list(carried_hand.values()) + _last(before).get("taken", []):
+        heads.setdefault((e["item"], e["head"]), set()).add(e["key"])
+    of_head = [(w, entry) for w, entry in approvals if isinstance(w.get("commit"), str) and COMMIT.fullmatch(w["commit"])
+               and isinstance(w["item"], dict) and w["item"].get("type") == "pull_request"]
+    # Two approvals of a head in the same second cannot be told first and second: neither is a hand approval.
+    ties = {}
+    for w, _ in of_head:
+        ties[(key(w["item"]), w["commit"], w["at"])] = ties.get((key(w["item"]), w["commit"], w["at"]), 0) + 1
+    taken = []
+    # Read only from a whole read, every source of a short one counted: what cannot be read is never information.
+    whole = not short
+    for w, entry in sorted(of_head, key=lambda a: (a[0]["at"] if isinstance(a[0]["at"], str) else "", a[0]["key"] or "")):
+        held = carried_hand.get(w["key"]) if w["key"] is not None else None
+        alone = whole and entry is not None and ties[(key(w["item"]), w["commit"], w["at"])] == 1
+        if alone and held is not None and held["item"] == key(w["item"]) \
+                and (held["head"], held["at"]) == (w["commit"], w["at"]):
+            hand.append({"item": w["item"], "key": w["key"], "head": held["head"], "at": held["at"]})
+            taken.append(entry)
+        elif alone and held is None and w["key"] is not None and hand_approved(w, before, heads):
+            heads.setdefault((key(w["item"]), w["commit"]), set()).add(w["key"])
+            hand.append({"item": w["item"], "key": w["key"], "head": w["commit"], "at": w["at"]})
+            taken.append(entry)
+        else:
+            # Matched, unmatched or keyless, it takes its head: an approval of that head after it is a second (0241).
+            heads.setdefault((key(w["item"]), w["commit"]), set()).add(w["key"])
+            if w["key"] is not None:
+                seconds.append({"item": w["item"], "key": w["key"], "head": w["commit"]})
+    unmatched = [u for u in unmatched if not any(u is t for t in taken)]
     # The pass job's token is an identity once its account is set; until then no dispatch is reconciled (ruling 2).
     token = isinstance(accounts, dict) and isinstance(accounts.get("workflow_token"), dict)
     if token and readable:
@@ -256,24 +321,26 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
                         state = e["decision"]["state"]
         if state is not None and state not in MERGEABLE:
             override.append({"item": m["item"]})
-    return {"unmatched": unmatched, "override": override, "short": short}
+    return {"unmatched": unmatched, "override": override, "hand": hand, "taken": seconds, "short": short}
 
 
 def alerts(found: dict) -> list:
     """The alerts of a reconciliation: one for every unmatched write however many (L-48), one for a reconciliation that
-    was short. An Override is information, never an alert."""
+    was short. An Override and a hand approval are information, never an alert."""
     return sorted(({"write_unmatched"} if found["unmatched"] else set())
                   | ({"reconciliation_unreadable"} if found["short"] else set()))
 
 
 def entries(found: dict) -> list:
-    """What the view says of a reconciliation, ids and codes alone: each unmatched write, and each Override, once each,
-    since two writes GitHub gives no key for read the same."""
+    """What the view says of a reconciliation, ids and codes alone: each unmatched write, each Override and each hand
+    approval, once each, since two writes GitHub gives no key for read the same."""
     out = []
     for e in [{"alert": "write_unmatched", "by": u["by"], "write": u["kind"],
                "item": key(u["item"]) if u["item"] is not None else None, "key": u["key"]} for u in found["unmatched"]] \
             + [{"alert": "merged_by_override", "by": None, "write": "merge", "item": key(o["item"]), "key": None}
-               for o in found["override"]]:
+               for o in found["override"]] \
+            + [{"alert": "hand_approval", "by": "approver", "write": "approval", "item": key(h["item"]), "key": h["key"]}
+               for h in found.get("hand", [])]:
         if e not in out:
             out.append(e)
     return out
