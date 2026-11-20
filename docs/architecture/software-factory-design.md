@@ -1581,9 +1581,10 @@ an edit added to a once-merged linked pull request can bring that Hold nearer, n
 can the facts tell such an edit from issue 227's contradiction on a closed issue: a merge that
 landed while the issue stood closed reads `merged_while_declined`, and a person is asked. P-33's closer came from a
 merge commit a person made with the ruleset off; the Factory merges through the queue by squash,
-and trial P-67 (`trials/P-67.json`) showed that the queue's squash names the pull request the
-closer, of this repository, with the squash commit as its `mergeCommit`, never a `Commit`, its
-close timed 2 seconds after the merge. Untried, and owed by a trial before the port relies on it:
+and in trial P-67 (`trials/P-67.json`) the queue's squash named the pull request the closer, of
+this repository, with the squash commit as its `mergeCommit`, not a `Commit`, its close timed 2
+seconds after the merge, as `test_the_queues_squash_and_a_link_by_hand_are_read_as_their_trials_recorded_them`
+reads it; the port still matches a `Commit` closer to a listed pull request's merge should one come. Untried, and owed by a trial before the port relies on it:
 whether an edit that takes out a reference that stood at the merge changes the close already
 recorded. The port
 reads each close in the timeline read it makes for `closed_first_at`, and names a pull request
