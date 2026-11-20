@@ -45,7 +45,7 @@ BINARY_FILE = re.compile(r"^index ([0-9a-f]{7,64})\.\.([0-9a-f]{7,64})((?: [0-7]
 # A deleted file's mode line. Only a part that says it, and whose binary line names /dev/null after, is a deletion: a
 # blob ground to as many leading zeros as GitHub abbreviates is all zeros too (the security read of issue 1016).
 DELETED = re.compile(r"^deleted file mode [0-7]{6}$", re.MULTILINE)
-BLOB = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+BLOB = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 # The account type each class needs: the Factory's Apps and a dependency bot are Bots, the Maintainer a person.
 KINDS = {"agent": "Bot", "maintainer": "User", "dependency": "Bot"}
 
@@ -233,7 +233,8 @@ def canonical(text: str, blobs=()) -> str:
     pass as the content approved. An id shorter than 7, or longer than 64, is left as it is.
 
     A binary file's part that ends as git ends it, its index line and then `Binary files ... differ`, is cut too where
-    `blobs`, the full blob ids of the compare's files, holds exactly one id that its head's id begins: that id is
+    `blobs`, the compare's files each by its path and its full blob id, holds exactly one id, of a row of the path
+    its binary line names after `b/`, that its head's id begins, the whole of GitHub's abbreviation: that id is
     written whole, and its base's cut to 7, as the result is the head's blob whatever the base held, and the base's is
     of the base branch's history, which no author writes. A deleted binary file, whose part says so by its mode line
     and by /dev/null, and whose head is no blob, all zeros, has both cut. Any other binary file keeps its index line as
@@ -262,7 +263,7 @@ def _binary(part: str, blobs) -> str:
     if set(head) == {"0"} and DELETED.search(part) and files.endswith(" and /dev/null"):
         whole = head[:7]
     else:
-        named = {blob for blob in blobs if blob.startswith(head)}
+        named = {blob for name, blob in blobs if blob.startswith(head) and files.endswith(" b/" + name)}
         if len(named) != 1:
             return part
         whole = named.pop()
@@ -270,8 +271,8 @@ def _binary(part: str, blobs) -> str:
 
 
 def blobs(transport, path: str, text: str) -> tuple:
-    """The full blob id of each file the compare at `path` lists, its head's, read only where `text`, that compare's
-    diff, holds a binary file's part: what `canonical` writes such a file's index line from (issue 1016). A compare
+    """Each file the compare at `path` lists, by its path and its head's full blob id, read only where `text`, that
+    compare's diff, holds a binary file's part: what `canonical` writes such a file's index line from (issue 1016). A compare
     whose files cannot be read gives none, and a binary file's index line is then kept as GitHub sent it, a content
     that may move, never one taken for another."""
     starts = [found.start() for found in FILE.finditer(text)]
@@ -281,8 +282,9 @@ def blobs(transport, path: str, text: str) -> tuple:
     rows = answer["body"].get("files") if answer["status"] == 200 and isinstance(answer["body"], dict) else None
     if not isinstance(rows, list):
         return ()
-    return tuple(row["sha"] for row in rows if isinstance(row, dict) and isinstance(row.get("sha"), str)
-                 and BLOB.match(row["sha"]))
+    return tuple((row["filename"], row["sha"]) for row in rows if isinstance(row, dict)
+                 and isinstance(row.get("filename"), str) and isinstance(row.get("sha"), str) and BLOB.fullmatch(row["sha"])
+                 and set(row["sha"]) != {"0"})
 
 
 def _empty(part: str) -> bool:

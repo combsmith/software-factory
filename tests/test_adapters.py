@@ -977,8 +977,8 @@ class Diff(unittest.TestCase):
     def test_a_binary_files_change_is_bound_to_its_full_blob_id(self):  # issue 1016
         # A binary file's change has no hunks, so its index line is all that tells it. GitHub abbreviates its ids to 8
         # characters at one read and 9 at the next; cut to 7, a blob ground to share an approved one's first 7 would
-        # pass for it. So its head's id is written whole, from the compare's files, and its base's, of the base
-        # branch's history, cut to 7: one content at every read, and no other blob's.
+        # pass for it. So its head's id is written whole, from the compare's row for its own path, and its base's, of
+        # the base branch's history, cut to 7: one content at every read, and no other blob's.
         head = "9f114f5d8" + "a" * 31
         ground = "9f114f5d8" + "b" * 31
         other = "77da7d97f" + "c" * 31
@@ -986,16 +986,34 @@ class Diff(unittest.TestCase):
         def binary(ids: str, mode: str = " 100644", name: str = "img.png") -> str:
             return ("diff --git a/%s b/%s\nindex %s%s\nBinary files a/%s and b/%s differ\n"
                     % (name, name, ids, mode, name, name))
+
+        def at(*shas, name: str = "img.png") -> tuple:
+            return tuple((name, sha) for sha in shas)
         bound = binary("0e91505..%s" % head)
         for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8", "0e91505..9f114f5", "0e91505d0" + "1" * 31 + ".." + head):
-            self.assertEqual(pull.canonical(binary(ids), (other, head)), bound, ids)
-        # A blob ground to share the approved one's prefix is another content, and so is another base's blob only where
-        # its first 7 differ.
-        self.assertNotEqual(pull.canonical(binary("0e91505d..9f114f5d"), (ground,)), bound)
-        # Without a mode, added, and deleted: a deleted file's head is no blob, so both its ids are cut, files or none.
-        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d", ""), (head,)), binary("0e91505..%s" % head, ""))
+            self.assertEqual(pull.canonical(binary(ids), at(other, head)), bound, ids)
+        # A blob ground to share the approved one's prefix is another content.
+        self.assertNotEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(ground)), bound)
+        # GitHub's whole abbreviation is matched, not its first 7: a blob it contradicts at its eighth digit is none.
+        near = "9f114f5e" + "d" * 32
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(head, near)), bound)
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(near)), binary("0e91505d..9f114f5d"))
+        # Only the row of the file's own path, its name after the move for a rename, binds it: a blob another path's row
+        # names, though the abbreviation begins it, is none (Astra's read).
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(head, name="other.png")), binary("0e91505d..9f114f5d"))
+        moved = ("diff --git a/old.png b/new.png\nsimilarity index 50%%\nrename from old.png\nrename to new.png\n"
+                 "index %s 100644\nBinary files a/old.png and b/new.png differ\n")
+        self.assertEqual(pull.canonical(moved % "0e91505d..9f114f5d", at(head, name="new.png") + at(ground, name="old.png")),
+                         moved % ("0e91505..%s" % head))
+        # Without a mode, of another mode, of SHA-256, last in the diff with no newline after, and added.
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d", ""), at(head)), binary("0e91505..%s" % head, ""))
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d", " 100755"), at(head)), binary("0e91505..%s" % head, " 100755"))
+        wide = "9f114f5d8" + "e" * 55
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(wide)), binary("0e91505..%s" % wide))
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d")[:-1], at(head)), bound[:-1])
         added = "diff --git a/n.png b/n.png\nnew file mode 100644\nindex %s\nBinary files /dev/null and b/n.png differ\n"
-        self.assertEqual(pull.canonical(added % "00000000..9f114f5d", (head,)), added % ("0000000..%s" % head))
+        self.assertEqual(pull.canonical(added % "00000000..9f114f5d", at(head, name="n.png")), added % ("0000000..%s" % head))
+        # A deleted file's head is no blob, so both its ids are cut, files or none.
         gone = "diff --git a/g.png b/g.png\ndeleted file mode 100644\nindex %s\nBinary files a/g.png and /dev/null differ\n"
         for ids in ("0e91505d..00000000", "0e91505d0..000000000"):
             self.assertEqual(pull.canonical(gone % ids), gone % "0e91505..0000000", ids)
@@ -1004,57 +1022,77 @@ class Diff(unittest.TestCase):
         # its own full id, and two such blobs are two contents.
         zeros, more = "0" * 9 + "a" * 31, "0" * 9 + "b" * 31
         for ids in ("0e91505d..00000000", "0e91505d0..000000000"):
-            self.assertEqual(pull.canonical(binary(ids), (zeros,)), binary("0e91505..%s" % zeros), ids)
-            self.assertNotEqual(pull.canonical(binary(ids), (zeros,)), pull.canonical(binary(ids), (more,)), ids)
+            self.assertEqual(pull.canonical(binary(ids), at(zeros)), binary("0e91505..%s" % zeros), ids)
+            self.assertNotEqual(pull.canonical(binary(ids), at(zeros)), pull.canonical(binary(ids), at(more)), ids)
             self.assertEqual(pull.canonical(binary(ids)), binary(ids), ids)
             for half in (gone.replace("deleted file mode 100644\n", ""), gone.replace(" and /dev/null", " and b/g.png")):
                 self.assertEqual(pull.canonical(half % ids), half % ids, half)
         # Where the files name no blob the head's id begins, or more than one, or none at all, the line is kept as
         # GitHub sent it: a content that may move, never one taken for another.
-        for given in ((), (other,), (head, ground[:8] + "9" + ground[9:]), ("9f114f5d" + "e" * 32, head[:9] + "f" * 31)):
+        for given in ((), at(other), at(head, ground[:8] + "9" + ground[9:]), at("9f114f5d" + "e" * 32, head[:9] + "f" * 31)):
             self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), given), binary("0e91505d..9f114f5d"), given)
-        # A part that ends otherwise, or says more after its binary line, is kept, files or none.
-        # A binary file last in the diff, with no newline after, is bound as well.
-        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d")[:-1], (head,)), bound[:-1])
+        # A part that ends otherwise, says more after its binary line, or carries an id longer than git gives, is kept.
         for kept in (binary("0e91505d..9f114f5d").replace(" differ\n", " differ\nmore\n"),
                      binary("0e91505d..9f114f5d").replace("Binary files", "Binary Files"),
-                     binary("0e91505d..9f114f5d").replace("100644", "100644 and more")):
-            self.assertEqual(pull.canonical(kept, (head,)), kept, kept)
-        # Through the port: the content id, the bytes a Run is given and a review's content are one at either read; the
-        # compare's files are asked only for a diff that holds a binary file, and a row whose sha is no blob id is none.
+                     binary("0e91505d..9f114f5d").replace("100644", "100644 and more"),
+                     binary("0e91505d.." + "9" * 65)):
+            self.assertEqual(pull.canonical(kept, at(head, "9" * 64)), kept, kept)
+        # Through the port: the content id, the bytes a Run is given and a review's content are one at either read,
+        # whichever file the binary one is; the compare's files are asked of the same pinned compare as the diff, and
+        # only for a diff that holds a binary file; a row whose sha is no blob id, of the wrong length or shape, a
+        # newline after it among them, is none.
         data = body("P-29.base", 1)
         data.update(changed_files=2, additions=1, deletions=1)
         commit = data["head"]["sha"]
         text = "diff --git a/f.py b/f.py\nindex %s\n--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
         files = {"files": [{"filename": "f.py", "sha": "x" * 40}, {"filename": "img.png", "sha": head},
-                           {"filename": "f.py", "sha": other.upper()}, {"filename": "h.png", "sha": head[:9] + "Z" * 31},
-                           {"filename": "i.png", "sha": head[:39]}, {"filename": "j.png", "sha": head + "0"}]}
+                           {"filename": "img.png", "sha": other.upper()}, {"filename": "img.png", "sha": head[:9] + "Z" * 31},
+                           {"filename": "img.png", "sha": head[:39]}, {"filename": "img.png", "sha": head + "0"},
+                           {"filename": "img.png", "sha": head[:9] + "f" * 31 + "\n"}, {"filename": 7, "sha": ground},
+                           {"sha": ground}, {"filename": "img.png"}]}
 
         class Sent:
             def __init__(self, diff: str, compared):
                 self.answers, self.asked = {github.DIFF: diff, github.JSON: compared}, []
 
             def send(self, req):
-                self.asked.append(req["accept"])
+                self.asked.append((req["method"], req["path"], req["accept"]))
                 found = self.answers[req["accept"]]
                 return found if isinstance(found, dict) and "status" in found else {"status": 200, "headers": {}, "body": found}
         seen = set()
+        pinned = "/repos/%s/compare/%s...%s" % (data["base"]["repo"]["full_name"], PINNED_BASE, commit)
+        reviewed = "/repos/%s/compare/%s...%s" % (canary(), BASE_HEAD, commit)
         for ids, short in (("0e91505d..9f114f5d", "1aab6ce4..2bbc7df5"), ("0e91505d0..9f114f5d8", "1aab6ce4a..2bbc7df5b")):
-            sent = binary(ids) + text % short
-            got = pull.diff(Sent(sent, files), data, PINNED_BASE)
-            given = pull.change(Sent(sent, files), data, PINNED_BASE)
-            review = timeline._content(Sent(sent, files), canary(), BASE_HEAD, commit)
-            seen.add((got["content_id"], "sha256:" + hashlib.sha256(given).hexdigest(), review))
-        whole = (bound + text % "1aab6ce..2bbc7df").encode()
-        self.assertEqual(seen, {("sha256:" + hashlib.sha256(whole).hexdigest(),) * 3})
+            for sent in (binary(ids) + text % short, text % short + binary(ids)):
+                read, given_, review_ = Sent(sent, files), Sent(sent, files), Sent(sent, files)
+                got = pull.diff(read, data, PINNED_BASE)
+                given = pull.change(given_, data, PINNED_BASE)
+                review = timeline._content(review_, canary(), BASE_HEAD, commit)
+                first = sent.startswith("diff --git a/img.png")
+                seen.add((first, got["content_id"], "sha256:" + hashlib.sha256(given).hexdigest(), review))
+                for asked, path in ((read, pinned), (given_, pinned), (review_, reviewed)):
+                    self.assertEqual(asked.asked, [("GET", path, github.DIFF), ("GET", path, github.JSON)])
+        tail = text % "1aab6ce..2bbc7df"
+        self.assertEqual(seen, {(True,) + ("sha256:" + hashlib.sha256((bound + tail).encode()).hexdigest(),) * 3,
+                                (False,) + ("sha256:" + hashlib.sha256((tail + bound).encode()).hexdigest(),) * 3})
         asked = Sent(text % "1aab6ce4..2bbc7df5", files)
         pull.diff(asked, data, PINNED_BASE)
-        self.assertEqual(asked.asked, [github.DIFF])
+        self.assertEqual(asked.asked, [("GET", pinned, github.DIFF)])
         # A compare whose files cannot be read gives none: the binary file's line is GitHub's, at each read its own.
         for unread in ({"status": 500, "headers": {}, "body": files}, {"files": "x"}, ["x"], {"files": [None, {"sha": 1}]}):
             got = {pull.diff(Sent(binary(ids) + text % "1aab6ce4..2bbc7df5", unread), data, PINNED_BASE)["content_id"]
                    for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8")}
             self.assertEqual(len(got), 2, unread)
+        # A row of no blob, all zeros, names none: a ground binary whose own row is not listed is kept, never bound to
+        # zeros (the security read).
+        # A row of SHA-256's whole id binds as SHA-1's does.
+        got = {pull.diff(Sent(binary(ids) + text % "1aab6ce4..2bbc7df5", {"files": [{"filename": "img.png", "sha": wide}]}),
+                         data, PINNED_BASE)["content_id"] for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8")}
+        self.assertEqual(len(got), 1)
+        nulls = {"files": [{"filename": "img.png", "sha": "0" * 40}]}
+        got = {pull.diff(Sent(binary(ids) + text % "1aab6ce4..2bbc7df5", nulls), data, PINNED_BASE)["content_id"]
+               for ids in ("0e91505d..00000000", "0e91505d0..000000000")}
+        self.assertEqual(len(got), 2)
 
     def test_a_diff_github_will_not_serve_is_truncated_and_new_content_at_every_push(self):
         # trials/P-29.truncated.json: 3,001 files, a 406 too_large. Read whole, so the Kernel holds it as too large;
