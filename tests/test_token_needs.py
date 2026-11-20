@@ -47,6 +47,7 @@ RAW = {
     # FACTORY_PAUSED, the repo's and the org's through the repo.
     "adapters.pause._org_value": {"actions_variables": R}, "adapters.pause._value": {"actions_variables": R},
     "adapters.pull.read": {"pull_requests": R}, "adapters.pull.base": {"contents": R},
+    "adapters.pull.blobs": {"contents": R},                            # a compare's files, a binary file's blob ids
     "adapters.pull.change": {"contents": R}, "adapters.pull.changed_paths": {"contents": R},
     "adapters.pull.diff": {"contents": R},
     "adapters.pull.last_push": {"contents": R},                        # a branch's activity (decision 0048, P-47)
@@ -98,6 +99,7 @@ SITES = {
     "adapters.pause._org_value": 1,
     "adapters.pause._value": 1,
     "adapters.pull.base": 1,
+    "adapters.pull.blobs": 1,
     "adapters.pull.change": 1,
     "adapters.pull.changed_paths": 1,
     "adapters.pull.diff": 1,
@@ -141,6 +143,7 @@ APPROVING = [
     "adapters.pause._org_value",
     "adapters.pause._value",
     "adapters.pull.base",
+    "adapters.pull.blobs",
     "adapters.pull.changed_paths",
     "adapters.pull.diff",
     "adapters.pull.last_push",
