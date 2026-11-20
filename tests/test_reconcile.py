@@ -288,7 +288,7 @@ class Hand(unittest.TestCase):
         self.assertEqual(reconcile.alerts(both), ["hand_unmatched", "write_unmatched"])
         self.assertEqual(reconcile.alerts(check(seen(wrote("approver", "approval", "PRR_a")), before=[passed()])),
                          ["write_unmatched"])
-        # A Role named as a hand's writes are could not be told from a person: no identity is known, and it is short.
+        # A Role named `hand` could not be told from a person: no identity is known, and it is short.
         named = dict(KNOWN, roles=dict(KNOWN["roles"], hand=KNOWN["roles"]["pr-review"]))
         self.assertTrue(check(seen(), before=[passed()], accounts=named)["short"])
         # A Lens whose account is not its Role's, by its id or its type, or that has no Role, is a thread the facts read as
@@ -378,8 +378,9 @@ class Hand(unittest.TestCase):
         # With no hand's resolution seen, such a record leaves nothing short, and the next record carries none.
         self.assertFalse(check(seen(), before=[passed(hands=None)])["short"])
         self.assertEqual(reconcile.carried([passed(hands=None)], effects, seen(), NOW)["hands"], [])
-        # Nor does a pass that could not read what was seen, or the next would judge every thread.
+        # Nor does a pass that could not read what was seen, or read it short, or the next would judge threads it never read.
         self.assertNotIn("hands", reconcile.carried([passed(hands=None)], effects, None, NOW))
+        self.assertNotIn("hands", reconcile.carried([passed(hands=None)], effects, seen(HAND, whole=False), NOW))
 
 
 class Short(unittest.TestCase):
