@@ -45,7 +45,7 @@ from adapters.github import Live, Unanswered
 from controller import configuration
 from harness import apply, approve, head as head_, shared, steps, task
 from harness.steps import Stop
-from kernel import terms as t
+from kernel import derive, terms as t
 from release import current, cut
 
 APP = "reader"
@@ -185,7 +185,9 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
     raised = []
     with reading("finding_texts"):
         try:
-            shown = apply.shown(facts, role, config["kernel"])
+            # The facts as the Kernel reads them, marked by the Runs it is given: a thread its Lens's later review
+            # superseded is closed to the Kernel, and no review is shown it (issue 968).
+            shown = apply.shown(derive.as_read(facts, listed["runs"], config["kernel"]), role, config["kernel"])
         except (AttributeError, KeyError, TypeError):
             # A thread in a shape the Kernel's own reading does not take, one resolved by an account the port cannot
             # type among them: the item's own state, made since the Run was admitted. No Finding is listed, as before

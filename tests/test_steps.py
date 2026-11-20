@@ -196,7 +196,7 @@ class Reader(unittest.TestCase):
     """The reader's step, its ports stood in for: what it reads, what it holds them to, and its token."""
 
     def go(self, record=RECORD, head=HEAD, first=HEAD, change=DIFF, revoked=True, argv=None, environ=None, complete=True,
-           refs=TAGS, commit=CHECKED_OUT, tarred=None, tree=None, raising=None, threads=(), said=None):
+           refs=TAGS, commit=CHECKED_OUT, tarred=None, tree=None, raising=None, threads=(), said=None, runs=()):
         """`commit` is what `steps.commit()` gives, or a function that stands in for it; `tarred` what the head's
         tarball read gives for a commit, or raises; `tree` what the read of the commit's tree gives, or raises: by default
         the tree of the one file `support.tarball` holds. `raising`, where given, is `(module, name, error)`: that read
@@ -226,7 +226,7 @@ class Reader(unittest.TestCase):
             return "the reader's transport", revoke
         facts = support.facts(item=dict(support.ITEM, number=42), content_id=CONTENT, threads=list(threads))
         pulled = {"head": {"sha": first}, "number": 42}
-        listed = {"runs": [], "unidentified": [], "complete": complete, "reads": [], "github_ids": {}}
+        listed = {"runs": list(runs), "unidentified": [], "complete": complete, "reads": [], "github_ids": {}}
         calls["recorded"], calls["listed"], calls["asked"], calls["opener"] = [], [], [], []
         calls["opened"], calls["opened_role"] = [], []
         made = {"named": {26: [("r_01JA7Q", 36)]}, "unreadable": set(), "whole": True}
@@ -346,6 +346,17 @@ class Reader(unittest.TestCase):
         self.assertEqual(json.loads(kept["texts.json"]), [
             {"id": "finding:" + fid("PRRT_kw7"), "by": LENS, "body": "What it said on PRRT_kw7."},
             {"id": "finding:" + fid("PRRT_kw14"), "by": LENS, "body": "What it said on PRRT_kw14."}, ISSUE_TEXT])
+        # A thread the Kernel reads as closed is shown no review: one its Lens's later review dropped, resolved by the
+        # queue App with no ruling, is superseded once that review succeeded on this content after the push (issue 968).
+        dropped = support.thread("PRRT_kw15", resolved=True, ruling=None, dropped=True, at="2026-10-11T11:00:00Z")
+        later = support.run(content=CONTENT, at="2026-10-11T12:30:00Z")
+        later["item"] = dict(later["item"], number=42)
+        code, printed, files, kept, calls = self.go(threads=threads + [dropped], runs=[later])
+        self.assertEqual((code, json.loads(kept["findings.json"])), (0, [fid("PRRT_kw7"), fid("PRRT_kw14")]), printed)
+        # Without that review the Kernel reads it open, and it is shown.
+        code, printed, files, kept, calls = self.go(threads=threads + [dropped])
+        self.assertEqual((code, json.loads(kept["findings.json"])), (0, [fid("PRRT_kw7"), fid("PRRT_kw14"), fid("PRRT_kw15")]),
+                         printed)
         # With none to show, nothing is asked of the texts port for it.
         self.assertNotIn("findings", self.go(threads=threads[1:3])[4])
         # A thread whose words are not its Lens's own, an edited comment's among them, is the item's own state, which

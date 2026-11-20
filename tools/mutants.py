@@ -11209,6 +11209,13 @@ MUTANTS = ISSUE + [
     ('the reader asks for a Finding\'s text by accounts that know no Lens', 'harness/read.py',
      'said = texts.findings(transport, first, who, role["name"], [thread])',
      'said = texts.findings(transport, first, timeline.Accounts(transport, home, approver, {}), role["name"], [thread])', ('tests.test_steps.Reader.test_the_reader_hands_a_review_its_lenss_open_findings_and_what_it_said',)),
+    # Issue 968: a review is shown the threads the Kernel reads open, by the facts marked as it marks them.
+    ('a review is shown a thread the Kernel reads as superseded', 'harness/read.py',
+     'shown = apply.shown(derive.as_read(facts, listed["runs"], config["kernel"]), role, config["kernel"])',
+     'shown = apply.shown(facts, role, config["kernel"])', ('tests.test_steps.Reader.test_the_reader_hands_a_review_its_lenss_open_findings_and_what_it_said',)),
+    ('the facts are marked by no Run the reader read', 'harness/read.py',
+     'shown = apply.shown(derive.as_read(facts, listed["runs"], config["kernel"]), role, config["kernel"])',
+     'shown = apply.shown(derive.as_read(facts, [], config["kernel"]), role, config["kernel"])', ('tests.test_steps.Reader.test_the_reader_hands_a_review_its_lenss_open_findings_and_what_it_said',)),
     ('a thread missing a field the Kernel reads ends the reader by no code', 'harness/read.py',
      '        except (AttributeError, KeyError, TypeError):\n            # A thread in a shape',
      '        except (AttributeError, TypeError):\n            # A thread in a shape', ('tests.test_steps.Reader.test_the_reader_hands_a_review_its_lenss_open_findings_and_what_it_said',)),
