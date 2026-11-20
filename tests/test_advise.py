@@ -55,15 +55,24 @@ class Azure:
     function of the request. `during` is called at each send; `takes` says how long a send takes, from the wait it was
     given."""
 
-    def __init__(self, answers, during=None, clock=None, takes=None):
+    def __init__(self, answers, during=None, clock=None, takes=None, deletes=None):
         self.answers, self.made, self.sent = answers if callable(answers) else list(answers), [], []
         self.during, self.clock, self.takes = during, clock, takes
+        # A delete of a stored response is kept apart, with the wait it was given, and answered by `deletes`, 200 unless
+        # it says otherwise: so what the reads were sent and answered is as it was before deletes were sent.
+        self.deleted, self.deletes = [], deletes or (lambda request: {"status": 200, "headers": {}, "body": {"deleted": True}})
 
     def __call__(self, host, key, seconds):
         self.made.append((host, key, seconds))
         return self
 
     def send(self, request: dict) -> dict:
+        if request.get("act") == "delete":
+            self.deleted.append((request, self.made.pop()[2]))
+            answer = self.deletes(request)
+            if isinstance(answer, BaseException):
+                raise answer
+            return answer
         self.sent.append(request)
         if self.during:
             self.during()
@@ -130,14 +139,14 @@ def cost_in(base: pathlib.Path) -> dict:
 
 
 def advised(answers, env=None, first: bool = False, readers=None, mid: bool = False, takes=None, hooks: bool = True,
-            start: float = 0.0, noise=None, **made) -> tuple:
+            start: float = 0.0, noise=None, deletes=None, **made) -> tuple:
     """`({lens: Result}, the stand-in, the clock)` of one run of the step, each Result held to advice/1 and its digest.
     With `first`, `harness.unasked` runs before it, as in the workflow; with `mid`, the cost file is read at each send."""
     with tempfile.TemporaryDirectory() as where:
         base = pathlib.Path(where)
         folder(base, **made)
         clock = Clock(start)
-        stand_in = Azure(answers, (lambda: stand_in.seen.append(cost_in(base))) if mid else None, clock, takes)
+        stand_in = Azure(answers, (lambda: stand_in.seen.append(cost_in(base))) if mid else None, clock, takes, deletes)
         stand_in.seen = []
         if first:
             unasked.job([NAME, "advice"], {}, base=base, release=lambda: "factory/v0.3.1")
@@ -440,6 +449,40 @@ class Advise(unittest.TestCase):
         for state in ("failed", "cancelled", "incomplete"):
             _, azure_, _ = advised([response(state, ""), completion()])
             self.assertEqual([sent["act"] for sent in azure_.sent], ["create", "chat"], state)
+
+    def test_each_response_a_reader_made_is_deleted_once_it_is_read_whatever_came_of_it(self):  # issue 1051, trial P-76
+        # Azure keeps a stored response 30 days unless it is deleted: each reader's one response, by the id its own create
+        # answered, is deleted once the read is done, completed or not, and a delete that fails is counted, never more.
+        results, azure_, _ = advised([response(), completion()])
+        self.assertEqual([(r["act"], r["id"]) for r, _ in azure_.deleted], [("delete", "resp_1")])
+        self.assertEqual((results["astra"]["status"], results["astra"]["usage"]["undeleted"]), ("completed", 0))
+        self.assertNotIn("undeleted", results["kimi"]["usage"])         # a chat completion is stored by no one
+        chat = completion()
+        chat["body"] = dict(chat["body"], id="chatcmpl-1")       # a chat completion's id is no response's to delete
+        results, azure_, _ = advised([response(), chat])
+        self.assertEqual(([r["id"] for r, _ in azure_.deleted], "undeleted" in results["kimi"]["usage"]), (["resp_1"], False))
+        for refused in ({"status": 404, "headers": {}, "body": None}, {"status": 500, "headers": {}, "body": None},
+                        {"status": 403, "headers": {}, "body": None}, azure.Unanswered("down"), RuntimeError("no")):
+            results, azure_, _ = advised([response(), completion()], deletes=lambda request, refused=refused: refused)
+            self.assertEqual((codes(results)["astra"], results["astra"]["usage"]["undeleted"], len(azure_.deleted)),
+                             (("completed", None, 1, 1), 1, 1), refused)
+        # A read cut off and cancelled, or one whose read failed, is deleted all the same, after the cancel.
+        polls = advise.WHOLE // 2 // advise.POLL - 1
+        results, azure_, _ = advised([response("queued", "")] + [response("in_progress", "")] * polls
+                                     + [response("cancelled", ""), completion()])
+        self.assertEqual((codes(results)["astra"][:2], [r["id"] for r, _ in azure_.deleted]), (("incomplete", "timed_out"), ["resp_1"]))
+        results, azure_, _ = advised([response("queued", ""), DOWN, response("cancelled", ""), completion()])
+        self.assertEqual((codes(results)["astra"][:2], [r["id"] for r, _ in azure_.deleted]), (("failed", "transport"), ["resp_1"]))
+        # No response made, none deleted: a create refused twice, or one not answered.
+        results, azure_, _ = advised([LIMITED, LIMITED, completion()])
+        self.assertEqual((azure_.deleted, "undeleted" in results["astra"]["usage"]), ([], False))
+        results, azure_, _ = advised([azure.Unanswered("down"), completion()])
+        self.assertEqual(azure_.deleted, [])
+        # Only the id its own create answered: a later read naming another is not deleted.
+        other = response()
+        other["body"] = dict(other["body"], id="resp_2")
+        results, azure_, _ = advised([response("queued", ""), other, completion()])
+        self.assertEqual([r["id"] for r, _ in azure_.deleted], ["resp_1"])
 
     def test_a_reader_with_no_time_left_is_not_asked(self):
         # A reader with POLL or less of the step left is not asked; with a second more, it is, and waits no longer.

@@ -145,7 +145,7 @@ ALSO_AT_JOB = ("tests.test_evals.EvalJob.test_a_pass_at_an_alternate_place_alone
 CLEAN_CASE = ("tests.test_evals.Scoring.test_a_gating_finding_fails_a_clean_case",)
 APART = ("tests.test_evals.EvalJob.test_each_head_is_unpacked_apart_from_the_cases",)
 AZURE = "adapters/azure.py"
-AZURE_ASKS = ("tests.test_advisory.Transport.test_the_azure_transport_asks_four_requests_and_no_other",)
+AZURE_ASKS = ("tests.test_advisory.Transport.test_the_azure_transport_asks_five_requests_and_no_other",)
 AZURE_ONE = ("tests.test_advisory.Transport.test_the_azure_transport_reaches_one_host_and_two_apis",)
 AZURE_KEY = ("tests.test_advisory.Transport.test_the_azure_transport_takes_its_key_from_its_caller_and_sends_it_nowhere_else",)
 AZURE_BOUND = ("tests.test_advisory.Transport.test_the_azure_transport_bounds_every_answer_in_size_and_time",)
@@ -4374,7 +4374,7 @@ MUTANTS = ISSUE + [
      '        found = [i for i, (a, _) in enumerate(self._left) if a == want]\n        if found:\n            asked, answer = self._left.pop(found[0])\n', ('tests.test_adapters',)),
     # Decision 0224: the second transport, what an advisory Lens's reader is asked through.
     ('the Azure transport sends whatever it is asked', AZURE,
-     '    if not (made or named):\n        raise Unanswered("the transport sends a response\'s create, read and cancel and a chat completion\'s create alone")\n',
+     '    if not (made or named):\n        raise Unanswered("the transport sends a response\'s create, read, cancel and delete and a chat\'s create alone")\n',
      '', AZURE_ASKS),
     ('the Azure transport creates with no body', AZURE,
      ' and type(body) is dict and len(body) > 0\n',
@@ -4591,6 +4591,27 @@ MUTANTS = ISSUE + [
     ('a Result that names a model in capitals is no advice/1', 'schemas/advice.schema.json',
      '"pattern": "^[A-Za-z0-9][A-Za-z0-9.-]{0,127}$"\n        },\n        "answering_model"',
      '"pattern": "^[a-z0-9][a-z0-9.-]{0,127}$"\n        },\n        "answering_model"', ('tests.test_advisory.Parser.test_an_answer_is_a_read_only_when_it_completed_whole_from_the_pinned_model_and_parses',)),
+    ("a reader's response is never deleted", 'harness/advise.py',
+     '        undeleted = sum(not forgotten(reader, key, ident, until, sent, transport, clock) for ident in made)\n',
+     '        undeleted = 0\n', ('tests.test_advise.Advise.test_each_response_a_reader_made_is_deleted_once_it_is_read_whatever_came_of_it',)),
+    ('a delete that fails is counted as made', 'harness/advise.py',
+     '        return isinstance(answer, dict) and answer.get("status") in (200, 204)\n',
+     '        return True\n', ('tests.test_advise.Advise.test_each_response_a_reader_made_is_deleted_once_it_is_read_whatever_came_of_it',)),
+    ('a delete that raises is counted as made', 'harness/advise.py',
+     '    except Exception:       # NOSONAR a delete not made is counted, and changes no Result\n        return False\n',
+     '    except Exception:       # NOSONAR a delete not made is counted, and changes no Result\n        return True\n', ('tests.test_advise.Advise.test_each_response_a_reader_made_is_deleted_once_it_is_read_whatever_came_of_it',)),
+    ('a chat completion is deleted as a response', 'harness/advise.py',
+     '        if request["act"] == "create" and not made and',
+     '        if not made and', ('tests.test_advise.Advise.test_each_response_a_reader_made_is_deleted_once_it_is_read_whatever_came_of_it',)),
+    ('how many responses were left stored is not said', 'harness/advise.py',
+     '    if made:\n        result["usage"]["undeleted"] = undeleted\n',
+     '', ('tests.test_advise.Advise.test_each_response_a_reader_made_is_deleted_once_it_is_read_whatever_came_of_it',)),
+    ('the transport deletes by another verb', 'adapters/azure.py',
+     '        return "DELETE", "%s/%s" % (RESPONSES, req["id"]), None\n',
+     '        return "POST", "%s/%s" % (RESPONSES, req["id"]), None\n', ('tests.test_advisory.Transport.test_the_azure_transport_asks_five_requests_and_no_other',)),
+    ('the transport sends no delete', 'adapters/azure.py',
+     'act in ("read", "cancel", "delete")',
+     'act in ("read", "cancel")', ('tests.test_advisory.Transport.test_the_azure_transport_asks_five_requests_and_no_other',)),
     ("the Azure transport verifies by the process's default context", AZURE,
      'urllib.request.HTTPSHandler(context=_context())', 'urllib.request.HTTPSHandler', AZURE_KEY),
     ("the Azure transport's context writes session keys where SSLKEYLOGFILE says", AZURE,
