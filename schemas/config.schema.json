@@ -173,6 +173,7 @@
       "additionalProperties": false,
       "required": [
         "max_attempts",
+        "max_implementing_rounds",
         "max_rounds",
         "max_runs_per_item",
         "max_environment_runs_per_item",
@@ -188,6 +189,11 @@
       ],
       "properties": {
         "max_attempts": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_implementing_rounds": {
+          "description": "An issue's implementing rounds since a writer acted: every implementing Run that completed, whatever it concluded, is one; at this many the issue is held. Read by kernel/brakes.py's implementing_rounds alone, never in place of max_attempts, and at or below max_runs_per_item (issue 1038)",
           "type": "integer",
           "minimum": 1
         },
