@@ -818,6 +818,9 @@ MOVES = [
     # between (trial P-40, `trials/P-40.at-once.json`).
     Move("the base moves and GitHub works out at once that it conflicts", "platform",
          lambda pr: set_fact(mergeable=False, queue=False)(pr) if pr["facts"]["mergeable"] is True else None),
+    # The base moving again clears a conflict as fast: false and then true, with no unknown between (P-40, issue 962).
+    Move("the base moves and GitHub works out at once that it merges", "platform",
+         lambda pr: set_fact(mergeable=True)(pr) if pr["facts"]["mergeable"] is False else None),
     Move("GitHub retargets it at the default branch", "platform", set_fact(targets_protected=True)),
     Move("a dependency bot rebases it", "platform", rebase),
     Move("a dependency bot rebases it onto a workflow's pin", "platform", pins),
@@ -1115,6 +1118,29 @@ class Transitions(unittest.TestCase):
         self.assertEqual((queued["facts"]["queue"], queued["facts"]["mergeable"]), (True, True))
         after = moves[at_once[0]].make(queued)["facts"]
         self.assertEqual((after["mergeable"], after["queue"]), (False, False))
+
+    def test_a_conflict_that_clears_at_once_is_explored(self):  # issue 962
+        # A conflict the base's next move clears at once is one move too. A ceiling Hold is derived only while a Run is
+        # wanted: when the conflict clears on its own, no Run is wanted and no Hold arises, so the platform takes a held
+        # item on to converged or adjudicating, which the Lifecycle declares. Through unknown it is four moves, past the
+        # explorer's depth, so only the move finds it.
+        moves = {m.name: m for m in MOVES}
+        clears = "the base moves and GitHub works out at once that it merges"
+        made = {}
+        for base in ("approved at the bound apart", "resolve_due at the bound apart"):
+            start = {base: BASES[base]}
+            made[base] = (set(explore(start, MOVES)[0]), set(explore(start, [m for m in MOVES if m.name != clears])[0]))
+        found = {key for with_, _ in made.values() for key in with_}
+        without = {key for _, without in made.values() for key in without}
+        for key in ((t.HELD, t.CONVERGED, "platform"), (t.HELD, t.ADJUDICATING, "platform")):
+            self.assertIn(key, found)
+            self.assertNotIn(key, without)
+            self.assertIn(key, check_lifecycle.declared(LIFECYCLE))
+        # From a merge state not worked out, or one that merges, the move is not made.
+        for mergeable in (None, True):
+            self.assertIsNone(moves[clears].make(dict(BASES["conflict"], facts=dict(BASES["conflict"]["facts"],
+                                                                                   mergeable=mergeable))))
+        self.assertTrue(moves[clears].make(BASES["conflict"])["facts"]["mergeable"])
 
     def test_a_push_that_leaves_the_diff_as_it_was_asks_a_gating_lens_again(self):  # issue 855, decision 0212
         # A head pushed with the diff as it was keeps its content id, and its checks start again. While a Lens's own thread
