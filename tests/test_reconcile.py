@@ -998,6 +998,9 @@ class Carried(unittest.TestCase):
         # The next pass keeps the stamp inside the window and pays the debt it read; past the window the stamp is dropped.
         again = reconcile.carried(before, self.effects(), seen(), self.NEXT)
         self.assertEqual((again["left_issues"], "owed_issues" in again), ([{"number": 41, "at": self.NOW}], False))
+        # One that leaves again is stamped anew, once (Muse).
+        anew = reconcile.carried(before, self.effects(), seen(), self.NEXT, gone_issues=[41])
+        self.assertEqual(anew["left_issues"], [{"number": 41, "at": self.NEXT}])
         late = reconcile.carried(before, self.effects(), dict(seen(), since="2026-10-11T14:00:00Z"), self.NEXT)
         self.assertNotIn("left_issues", late)
         self.assertEqual(reconcile.left_issues(before, "2026-10-11T14:00:00Z"), [])
