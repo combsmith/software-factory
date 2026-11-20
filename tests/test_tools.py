@@ -30,6 +30,7 @@ import urllib.parse
 import zlib
 from unittest import mock
 
+from controller import pass_
 from harness import engine, shared
 from kernel import decide as decide_module, derive, issue, terms
 from kernel.decide import decide
@@ -265,6 +266,32 @@ class Validator(unittest.TestCase):
         for schema in ({"type": "array"}, {"type": "array", "uniqueItems": False}):
             self.assertEqual(validate(["AC-1", "AC-1"], schema), [])
 
+    def test_a_number_that_is_not_finite_is_an_error_whatever_the_bounds(self):  # issue 922
+        # json.loads reads NaN and Infinity from a file. NaN is below no minimum and above no maximum, and an infinity
+        # passes where no bound stands, so each is refused by itself, under a number's type, an integer's, or none.
+        nan, inf = float("nan"), float("inf")
+        for schema in ({"type": "number"}, {"type": "number", "minimum": 0}, {"type": "number", "maximum": 30},
+                       {"type": "number", "minimum": 0, "maximum": 30}, {"type": ["number", "null"]}, {}):
+            for value in (nan, inf, -inf, json.loads("NaN"), json.loads("-Infinity")):
+                self.assertTrue(caught(validate(value, schema), "is no finite number"), (schema, value))
+        self.assertEqual(validate({"cost": nan}, {"type": "object", "properties": {"cost": {"type": "number"}}}),
+                         ["$.cost: nan is no finite number"])
+        self.assertEqual(validate(nan, {"type": "integer"}), ["$: expected integer"])
+        # Nor where no schema describes the value: items with no `items`, a property no schema names, at any depth.
+        for value, schema, where in ((json.loads("[1, NaN]"), {"type": "array"}, "$[1]"),
+                                     ({"x": inf}, {}, "$.x"), ({"a": {"b": [-inf]}}, {"type": "object"}, "$.a.b[0]"),
+                                     ({"a": 1, "x": [nan]}, {"type": "object", "properties": {"a": {"type": "number"}}}, "$.x[0]")):
+            self.assertEqual(validate(value, schema), ["%s: no finite number" % where], value)
+        self.assertEqual(validate({"x": [1, 2.5]}, {"type": "object"}), [])
+        # However deep, by a list of what is left and no recursion (cubic's read).
+        deep = [nan]
+        for _ in range(5000):
+            deep = [deep]
+        self.assertEqual(validate(deep, {"type": "array"}), ["$%s: no finite number" % ("[0]" * 5001)])
+        # The other side: a finite number, a float or an int however large, is read as it was.
+        for value in (0, 0.0, -0.0, 1.5, 1e308, -1e308, 10 ** 400):
+            self.assertEqual(validate(value, {"type": "number"}), [], value)
+
     def test_a_text_longer_than_the_most_is_an_error(self):  # issue 880
         # Counted in characters, as `minLength` is, never in bytes.
         most = {"type": "string", "maxLength": 3}
@@ -451,6 +478,70 @@ class Examples(unittest.TestCase):
         for loose in ("^fixed$|b$", "^[a-z]+\\$", "^a|b$", "a$", "^a", "^(a|b)$|^c$", None, 3):
             self.assertFalse(check_examples._anchored(loose), loose)
 
+    def test_a_reference_out_of_the_codes_and_a_pattern_that_admits_a_sentence_are_caught(self):  # issue 913
+        schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
+                   for p in (ROOT / "schemas").glob("*.schema.json")}
+        free = lambda kind, schema: check_examples._free(schema, schemas, schema, kind, "$", set())
+        # A reference out of a kind of codes reaches only a record RECORDS names, whose own rules hold it; any other
+        # kind, a model's answer whole for one, is refused, however it is referred to.
+        for ref in ("apps.schema.json", "trial.schema.json", "trial.schema.json#/$defs/headers"):
+            applied = copy.deepcopy(schemas["applied"])
+            applied["properties"]["extra"] = {"$ref": ref}
+            self.assertTrue(caught(free("applied", applied), "schema applied refers at $.extra to %s, which is neither"
+                                   % ref.split(".")[0]), ref)
+        self.assertEqual(sorted(check_examples.RECORDS), [("applied", "finding"), ("pass", "decision"), ("pass", "facts"),
+                                                          ("pass", "issue-decision"), ("pass", "issue-facts")])
+        for kind, record in check_examples.RECORDS:
+            referrer = copy.deepcopy(schemas[kind])
+            referrer["properties"]["extra"] = {"$ref": "%s.schema.json" % record}
+            self.assertEqual(free(kind, referrer), [], (kind, record))
+        # Only by the kind RECORDS names it for, and whole: another kind's, or a fragment into a record, is refused.
+        disposition = copy.deepcopy(schemas["disposition"])
+        disposition["properties"]["extra"] = {"type": "array", "items": {"$ref": "finding.schema.json"}}
+        self.assertTrue(caught(free("disposition", disposition), "schema disposition refers at $.extra[] to finding"))
+        # Nor through another kind of codes that may: a fragment of it lends none of its records (Astra's read).
+        lender = copy.deepcopy(schemas["applied"])
+        lender.setdefault("$defs", {})["lent"] = {"$ref": "finding.schema.json"}
+        borrower = copy.deepcopy(schemas["disposition"])
+        borrower["properties"]["extra"] = {"$ref": "applied.schema.json#/$defs/lent"}
+        self.assertTrue(caught(check_examples._free(borrower, dict(schemas, applied=lender), borrower, "disposition", "$", set()),
+                               "refers at $.extra to finding"))
+        # SPACES is every character Python's \s matches, none missed and none more.
+        self.assertEqual(set(check_examples.SPACES), {chr(c) for c in range(0x110000) if re.fullmatch(r"\s", chr(c))})
+        for ref in ("facts.schema.json#/$defs/changed_path", "finding.schema.json#/$defs/surface"):
+            applied = copy.deepcopy(schemas["applied"])
+            applied["properties"]["extra"] = {"$ref": ref}
+            self.assertTrue(caught(free("applied", applied), "schema applied refers at $.extra to %s" % ref.split(".")[0]), ref)
+        # Anchored is not a code: a pattern holds one only where no class of it, no `.` and no escape admits whitespace.
+        for held in ("^[a-z_]+$", "^[^\\s]+$", "^[^/\\s]+/[^/\\s]+$", "^\\S+$", "^[\\w-]+$", "^sf [a-z]+ r_[0-9]+$",
+                     "^[]a]+$", "^sha256:[0-9a-f]{64}$", "^a\\.b$", "^\\x41\\u0042+$", "^[^]\\s]+$", "^[\\]a]+$",
+                     "^\\U00000041+$"):
+            self.assertTrue(check_examples._coded(held), held)
+        for loose in (("^[^\\^@]*$", "^[^/]+/[^/]+$", "^.+$", "^[a .]+$", "^[\\s\\S]+$", "^[^\\S]+$", "^\\s$", "^\\W+$",
+                      "^\\D+$", "^[a\\x20]+$", "^[a\\u3000]+$", "^[a\\t]+$", "^(?x)a b$", "^(?s).$", "^[a-z]+$|b", None, "^[a-$",
+                      # A space a group may repeat, an octal one, and every character \\s matches, U+2001 to U+2009 too.
+                      "^[a-z]+( [a-z]+)*$", "^(?:[a-z]+ ){1,50}$", "^([a-z]+\\040)+$", "^[a-z]\\040[a-z]$", "^(\\w| )+$",
+                      "^\\S+( \\S+)*$", "^(?#[).+(?#])$", "^sf +r_[0-9]+$", "^[a-z]+ {1,9}[a-z]+$", "^a ?b$", "^(?z)a$", "^(a$", "^a\tb$", "^a\nb$", "^a\u3000b$")
+                     + tuple("^[a-z%s]+$" % c for c in "\u2001\u2005\u2009\x1c\x85")):
+            self.assertFalse(check_examples._coded(loose), loose)
+        # The repo of a run record, a pass record, the writes and what was written is a repo's name alone.
+        for kind in ("run-record", "pass", "writes", "written"):
+            found = set()
+            def gather(node):
+                if isinstance(node, dict):
+                    if isinstance(node.get("properties"), dict) and isinstance(node["properties"].get("repo"), dict):
+                        found.add(node["properties"]["repo"].get("pattern"))
+                    for value in node.values():
+                        gather(value)
+                elif isinstance(node, list):
+                    for value in node:
+                        gather(value)
+            gather(schemas[kind])
+            self.assertEqual(found, {"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"}, kind)
+        disposition = copy.deepcopy(schemas["disposition"])
+        disposition["properties"]["note"] = {"type": "string", "pattern": "^[^\\^@]*$"}
+        self.assertTrue(caught(free("disposition", disposition), "schema disposition admits text at $.note"))
+
     def test_a_schema_without_its_envelope_is_caught(self):  # decision 0039
         schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
                    for p in (ROOT / "schemas").glob("*.schema.json")}
@@ -542,11 +633,13 @@ class Examples(unittest.TestCase):
         issues = dict(support.CONFIG, lifecycle=json.loads((ROOT / "lifecycle" / "issue.json").read_text()))
         self.assertTrue(record["pull_requests"] and record["issues"])
         for entry in record["pull_requests"]:
-            self.assertEqual(decide(entry["facts"], record["runs"], record["context"], support.CONFIG, record["now"]),
-                             entry["decision"])
+            self.assertEqual(decide(entry["facts"], record["runs"], pass_.given(record, entry), support.CONFIG,
+                                    record["now"]), entry["decision"])
         for entry in record["issues"]:
-            self.assertEqual(issue.decide(entry["facts"], record["runs"], record["context"], issues, record["now"]),
+            self.assertEqual(issue.decide(entry["facts"], record["runs"], pass_.given(record, entry), issues, record["now"]),
                              entry["decision"])
+        # Each entry holds the count of active Runs it was asked with: the context's, and an admission's those before it.
+        self.assertEqual([e["active_runs"] for e in record["pull_requests"] + record["issues"]], [0, 0])
         # A Run id stands beside an admission or an approval, which is a Run, and is null anywhere else.
         for entry in record["pull_requests"] + record["issues"]:
             minted = entry["decision"]["outcome"] == "admit" or entry["decision"].get("action") == "issue_approval"
@@ -2072,6 +2165,21 @@ class Purity(unittest.TestCase):
         root = tree({"kernel/x.py": "import os\n\ndef f():\n    return open('x')\n"})
         problems = check_purity.run(root)
         self.assertTrue(caught(problems, "imports os") and caught(problems, "uses open"))
+
+    def test_the_kernel_is_read_as_python_runs_it_utf_8_alone(self):  # issue 992
+        # Python decodes a file by the encoding it declares, so a file declaring another one could run code its text,
+        # which the check and every reader parse, does not show; and bytes that are not UTF-8 would be replaced.
+        def read(data: bytes) -> list:
+            root = tree({"kernel/__init__.py": "", "kernel/x.py": ""})
+            (root / "kernel" / "x.py").write_bytes(data)
+            return check_purity.run(root)
+        for data in (b"# -*- coding: utf-7 -*-\nA = 'a'\n", b"#!/usr/bin/env python\n# vim: set fileencoding=latin-1 :\nA = 'a'\n",
+                     b"  # coding: latin-1\nA = 'a'\n", b"\x0c\x0c# coding: utf-7\n#+AAo-A = 1\n", b"\xef\xbb\xbf# coding: latin-1\nA = 'a'\n"):
+            self.assertTrue(caught(read(data), "x.py cannot be read as Python: it declares the encoding"), data)
+        self.assertTrue(caught(read(b"A = '\xff'\n"), "x.py cannot be read as Python: its bytes are not UTF-8"))
+        for data in (b"# coding: utf-8\nA = 'a'\n", b"# coding=UTF_8\nA = 'a'\n", b"\xef\xbb\xbfA = 'a'\n", b"# coding: utf8\n# caf\xc3\xa9\nA = 'a'\n",
+                     b"A = 'a'\n\n# coding: latin-1\n"):
+            self.assertEqual(read(data), [], data)
 
     def test_io_in_a_package_below_the_kernel_is_caught(self):
         root = tree({"kernel/a.py": "from kernel.extra import clock\n", "kernel/extra/clock.py": "import time\n"})
@@ -6174,6 +6282,94 @@ class Trials(unittest.TestCase):
         problems = check_trials.run(clone({"trials/P-39.reach.json": json.dumps(reach)}))
         self.assertTrue(caught(problems, "trials/P-39.reach.json: $.exchanges[0].request.as: expected object"))
 
+    def test_a_read_of_the_storage_asks_the_address_a_download_was_redirected_to_alone(self):  # issue 920
+        # Nothing else in a fixture names the storage's host, so this holds where such a read went: a GET, right after
+        # an artifact's download answered 302, of exactly the address that redirect gave, with no query.
+        data = json.loads((ROOT / "trials" / "P-68.json").read_text())
+        self.assertEqual(check_trials._stored(data), [])
+        address = data["exchanges"][1]["request"]["call"].split(" ")[1]
+
+        def found(change):
+            copy = json.loads(json.dumps(data))
+            change(copy["exchanges"])
+            return check_trials.fixture_problems(copy)
+
+        def call(exchanges, text):
+            exchanges[1]["request"]["call"] = text
+        for why, change, words in (
+                ("another host", lambda e: call(e, "GET https://elsewhere.example/a.zip (curl)"), "is not of the address"),
+                ("a longer path", lambda e: call(e, "GET %s/x (curl)" % address), "is not of the address"),
+                ("a query kept", lambda e: call(e, "GET %s?a=1 (curl)" % address), "keeps a query"),
+                ("a fragment", lambda e: call(e, "GET %s#a (curl)" % address), "keeps a query"),
+                ("an empty query", lambda e: call(e, "GET %s? (curl)" % address), "keeps a query"),
+                ("a query in the words after it", lambda e: call(e, "GET %s (its query: ?sv=1)" % address), "keeps a query"),
+                ("a parameter in the words after it", lambda e: call(e, "GET %s sig=QUJD" % address), "keeps a query"),
+                ("a parameter in the address", lambda e: call(e, "GET %s;sig (curl)" % address), "keeps a query"),
+                ("a shorter path", lambda e: call(e, "GET %s (curl)" % address[:-4]), "is not of the address"),
+                ("another host, the redirect's too", lambda e: (e[0]["response"]["headers"].update(location="https://elsewhere.example/a.zip"),
+                                                                call(e, "GET https://elsewhere.example/a.zip (curl)")),
+                 "is of an address off GitHub's artifact storage"),
+                ("the redirect given twice", lambda e: e[0]["response"]["headers"].update(Location=address + "x"),
+                 "follows no artifact download's redirect with one address"),
+                ("an empty redirect", lambda e: (e[0]["response"]["headers"].update(location=""), call(e, "GET  (curl)")),
+                 "is of an address off GitHub's artifact storage"),
+                ("a download answered 301", lambda e: e[0]["response"].update(status=301), "follows no artifact download's redirect"),
+                ("a download asked by another method", lambda e: e[0]["request"].update(
+                    call=e[0]["request"]["call"].replace("GET ", "POST ", 1)), "follows no artifact download's redirect"),
+                ("a download of no repo's path", lambda e: e[0]["request"].update(
+                    call="GET /orgs/combsmith/actions/artifacts/1/zip"), "follows no artifact download's redirect"),
+                ("a download's path run on", lambda e: e[0]["request"].update(
+                    call="GET /repos/combsmith/%s/actions/artifacts/1/zipx" % check_trials.CANARY), "follows no artifact download's redirect"),
+                ("the download after it, last in the fixture", lambda e: e.append(e.pop(0)), "follows no artifact download's redirect"),
+                ("another method", lambda e: call(e, "PUT %s (curl)" % address), "is no GET"),
+                ("no download before it", lambda e: e.pop(0), "follows no artifact download's redirect"),
+                ("a download answered 200", lambda e: e[0]["response"].update(status=200), "follows no artifact download's redirect"),
+                ("another call before it", lambda e: e[0]["request"].update(
+                    call="GET /repos/combsmith/%s/actions/runs/1/logs" % check_trials.CANARY), "follows no artifact download's redirect"),
+                ("a redirect with no address", lambda e: e[0]["response"]["headers"].pop("location"), "follows no artifact download's redirect"),
+                ("a download asked another way", lambda e: e[0]["request"].update(via="cli"), "follows no artifact download's redirect")):
+            where = "exchanges[0]" if why in ("no download before it", "the download after it, last in the fixture") else "exchanges[1]"
+            self.assertTrue(caught(found(change), where + ".request.call " + words), why)
+        # A download is one the port's replay follows: by REST, of an artifact's path its rule admits; and the storage's
+        # answer is no redirect, which the replay would not follow again. A read of the storage asked any other way is
+        # refused.
+        self.assertTrue(caught(found(lambda e: e[0]["request"].update(via="workflow", call=e[0]["request"]["call"].split(" (")[0])),
+                               "exchanges[1].request.call follows no artifact download's redirect"))
+        self.assertTrue(caught(found(lambda e: e[0]["request"].update(call=e[0]["request"]["call"].replace("/artifacts/14482759842/", "/artifacts/0/"))),
+                               "exchanges[1].request.call follows no artifact download's redirect"))
+        for status in (302, "302", "success", True):
+            self.assertTrue(caught(found(lambda e: e[1]["response"].update(status=status)), "exchanges[1].request.call is answered with a redirect"), status)
+        self.assertTrue(caught(found(lambda e: e[1]["request"].update(via="cli", call="curl -s '%s'" % address)),
+                               "exchanges[1].request.call reads the artifact storage other than as a read `via: storage`"))
+        # The header is read in any case, as HTTP does; and a storage read later in the fixture is held the same way.
+        def capital(e):
+            e[0]["response"]["headers"]["Location"] = e[0]["response"]["headers"].pop("location")
+        self.assertEqual(found(capital), [])
+        self.assertTrue(caught(found(lambda e: e.append(json.loads(json.dumps(e[1])))), "exchanges[7].request.call follows no"))
+
+    def test_a_workflows_call_is_a_rest_call_or_a_report_that_names_no_address(self):  # issue 920
+        data = json.loads((ROOT / "trials" / "P-9.json").read_text())
+        self.assertEqual(check_trials.fixture_problems(data), [])
+        for call, words in (("POST /repos/outside/x/actions/workflows/p9-chain.yml/dispatches", "names the owner outside"),
+                            ("GET /repos/combsmith/../outside/x", "climbs out of its repo"),
+                            ("GET /orgs/outside/actions/runners", "names the owner outside"),
+                            ("What the run read from https://elsewhere.example/x", "is a workflow's report that may name an address"),
+                            ("What the run read of repos/outside/x", "is a workflow's report that may name an address"),
+                            ("gh workflow run p9-chain -R outside/x", "is a workflow's report that may name an address"),
+                            ("What it read of uploads.github.com", "is a workflow's report that may name an address"),
+                            ("What it pushed to git@github", "is a workflow's report that may name an address"),
+                            ("What it read of repos%2Foutside", "is a workflow's report that may name an address"),
+                            ("What it read at C:\\outside", "is a workflow's report that may name an address"),
+                            ("What the run read from //elsewhere", "is a workflow's report that may name an address"),
+                            ("What the run read from /orgs/outside/repos", "is a workflow's report that may name an address"),
+                            ("What the run read from localhost:8080", "is a workflow's report that may name an address"),
+                            ("What it read from ::1", "is a workflow's report that may name an address"),
+                            ("GET /repos/combsmith/%s/actions/runs/1 (then curl it)" % check_trials.CANARY,
+                             "is a workflow's call with words after its path")):
+            copy = json.loads(json.dumps(data))
+            copy["exchanges"][9]["request"]["call"] = call
+            self.assertTrue(caught(check_trials.fixture_problems(copy), "exchanges[9].request.call " + words), call)
+
     def test_an_asker_named_by_an_address_is_caught(self):
         # Decision 0033: a fixture names who asked in words, never by an address that ties it to an account.
         vendor = json.loads((ROOT / "examples" / "trial.a-vendors-cli.json").read_text())
@@ -6669,6 +6865,10 @@ class Trials(unittest.TestCase):
             "a-write-in-another-field-of-a-graphql-body": "carries a GraphQL write that is not one of WRITES",
             "a-write-the-check-does-not-hold": "a write one of WRITES on one node by `id`",
             "a-second-write-behind-the-first": "a write one of WRITES on one node by `id`",
+            # A read of the artifact storage asks the address the download before it was redirected to, and a call a
+            # workflow's token made is held as a REST call (issue 920).
+            "a-storage-read-of-another-address": "is not of the address the download just before it was redirected to",
+            "a-workflows-call-of-another-repo": "names the owner outside",
         }
         for name, words in refused.items():
             data = json.loads((ROOT / "examples" / "invalid" / ("trial.%s.json" % name)).read_text())

@@ -200,7 +200,7 @@ def written(argv: list, environ: dict, base, clock, connect, kept=None) -> tuple
         held = {}
 
         def read():
-            facts, head, runs, context = reread.item(reading, config, parts["item"]["number"], utc(), utc)
+            facts, head, runs, context = reread.item(reading, config, parts["item"]["number"], utc(), utc, record=record)
             # The diff is read when `apply` asks, once every check that needs no diff let the Result through (decision
             # 0146).
             diff = lambda: change_at(reading, config["controller"]["home"]["repo"], parts["item"]["number"], head)
