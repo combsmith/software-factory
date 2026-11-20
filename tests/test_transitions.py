@@ -1122,25 +1122,27 @@ class Transitions(unittest.TestCase):
     def test_a_conflict_that_clears_at_once_is_explored(self):  # issue 962
         # A conflict the base's next move clears at once is one move too. A ceiling Hold is derived only while a Run is
         # wanted: when the conflict clears on its own, no Run is wanted and no Hold arises, so the platform takes a held
-        # item on to converged or adjudicating, which the Lifecycle declares. Through unknown it is four moves, past the
-        # explorer's depth, so only the move finds it.
+        # item on, the approved one to converged and the one whose thread is due to adjudicating, as the Lifecycle
+        # declares. From these Holds at the bound apart, the way through unknown is four moves, past the explorer's
+        # depth, so only the move finds them.
         moves = {m.name: m for m in MOVES}
         clears = "the base moves and GitHub works out at once that it merges"
-        made = {}
-        for base in ("approved at the bound apart", "resolve_due at the bound apart"):
+        for base, key in (("approved at the bound apart", (t.HELD, t.CONVERGED, "platform")),
+                          ("resolve_due at the bound apart", (t.HELD, t.ADJUDICATING, "platform"))):
             start = {base: BASES[base]}
-            made[base] = (set(explore(start, MOVES)[0]), set(explore(start, [m for m in MOVES if m.name != clears])[0]))
-        found = {key for with_, _ in made.values() for key in with_}
-        without = {key for _, without in made.values() for key in without}
-        for key in ((t.HELD, t.CONVERGED, "platform"), (t.HELD, t.ADJUDICATING, "platform")):
-            self.assertIn(key, found)
-            self.assertNotIn(key, without)
+            found = set(explore(start, MOVES)[0])
+            without = set(explore(start, [m for m in MOVES if m.name != clears])[0])
+            self.assertEqual(sorted(k for k in found - without if k[0] == t.HELD), [key], base)
             self.assertIn(key, check_lifecycle.declared(LIFECYCLE))
-        # From a merge state not worked out, or one that merges, the move is not made.
+        # From a merge state not worked out, or one that merges, the move is not made; from a conflict it changes the
+        # merge state alone, as every move takes a minute.
         for mergeable in (None, True):
             self.assertIsNone(moves[clears].make(dict(BASES["conflict"], facts=dict(BASES["conflict"]["facts"],
                                                                                    mergeable=mergeable))))
-        self.assertTrue(moves[clears].make(BASES["conflict"])["facts"]["mergeable"])
+        after = moves[clears].make(BASES["conflict"])
+        self.assertEqual(after["facts"], dict(BASES["conflict"]["facts"], mergeable=True))
+        self.assertEqual({k: v for k, v in after.items() if k not in ("facts", "minute")},
+                         {k: v for k, v in BASES["conflict"].items() if k not in ("facts", "minute")})
 
     def test_a_push_that_leaves_the_diff_as_it_was_asks_a_gating_lens_again(self):  # issue 855, decision 0212
         # A head pushed with the diff as it was keeps its content id, and its checks start again. While a Lens's own thread
