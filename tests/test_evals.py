@@ -3075,6 +3075,22 @@ class EvalJob(unittest.TestCase):
         marks = {c["id"]: (c.get("at_alternate"), c.get("surplus_gating")) for c in ledger["preflight"]}
         self.assertEqual(marks, {first[0]: (True, None), first[1]: (None, 2), first[2]: (None, None)})
 
+    def test_the_eval_job_writes_no_number_that_is_not_finite(self):  # issue 922
+        # A number that is not finite is no JSON. A step's file, the report among them, and a gate set's ledger refuse
+        # one at the write, before a file is opened, so that no reader is left a file it cannot parse, or an empty one.
+        from harness import eval as job
+        for odd in (float("nan"), float("inf"), float("-inf")):
+            with self.assertRaisesRegex(ValueError, "not JSON compliant"):
+                job._write(self.work, "odd.json", {"usage": {"cost_usd": odd}})
+            self.assertFalse((self.work / "odd.json").exists())
+        self.set(self.cases, gate=True, natural=[])
+        self.step(job.plan)
+        self.step(the_fetch(), self.home(self.cases, gate=True))
+        with mock.patch.object(job, "ledger_of", lambda *a, **k: {"usage": {"cost_usd": float("nan")}}):
+            with self.assertRaisesRegex(ValueError, "not JSON compliant"):
+                self.step(job.score, lambda case: example_result())
+        self.assertFalse((self.temp / "heldout" / job.LEDGER).exists())
+
     def test_a_gate_sets_faults_are_the_codes_of_cases_not_read_alone(self):  # Muse's read of #628
         # A case the reviewer failed is counted under its kind, never as a fault: only a case not read says its code,
         # by how many (decision 0164).
