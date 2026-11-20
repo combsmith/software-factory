@@ -76,9 +76,12 @@ ENDED = (404, 410)
 
 
 def _pages(transport, path: str) -> tuple:
-    """Every item of a list GitHub gives page by page, and whether it was read whole; nothing, not whole, if not."""
+    """Every item of a list GitHub gives page by page, to `timeline.BOUND` pages, and whether it was read whole;
+    nothing, not whole, if not. Anyone can comment, so a list past the bound is not whole, and what was seen of it is
+    short, never silent (issue 1009, decision 0234)."""
     try:
-        return timeline._pages(transport, path)
+        items, whole, _ = timeline._paged(transport, path, timeline.BOUND)
+        return items, whole
     except (Unanswered, KeyError, TypeError):
         return [], False
 

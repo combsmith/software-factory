@@ -15816,6 +15816,9 @@ MUTANTS = ISSUE + OUTSIDE + [
      '    return found, whole, cut\n', '    return found, whole, False\n', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
     ('the reviews are not told the timeline was read short', 'adapters/facts.py',
      ', raw,\n                                                           timeline_whole)', ', raw)', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
+    # Issue 1009: the seen port reads each list to ten pages (decision 0234).
+    ('the seen port reads the comments past ten pages', 'adapters/seen.py',
+     'timeline._paged(transport, path, timeline.BOUND)', 'timeline._paged(transport, path, None)', ('tests.test_reconcile.SeenPort.test_a_list_is_read_to_ten_pages_and_past_them_what_was_seen_is_short',)),
     # Issue 986: the issue a pull request closes is read to the same ten pages of timeline, and a cut is said.
     ("the acceptance port reads a bound issue's timeline past ten pages", 'adapters/acceptance.py',
      'events, whole, cut = timeline.bounded(transport, {"number": number, "base": {"repo": {"full_name": repo}}})',
