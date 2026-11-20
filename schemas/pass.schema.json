@@ -104,7 +104,7 @@
             "pattern": "^r_[0-9A-Z]{6,26}$"
           },
           "active_runs": {
-            "description": "The count of active Runs this item's Decision was made with: the context's, and each Run this pass minted before it, so no pass admits more Runs than the org's concurrency leaves room for (decision 0238). Absent on a record written before, whose every entry was asked with the context's.",
+            "description": "The count of active Runs this item's Decision was made with: the context's, and for an admission the Runs this pass mints for approvals and queue acts and the admissions before it, so no pass admits more Runs than the org's concurrency leaves room for (decision 0238). Absent on a record written before, whose every entry was asked with the context's.",
             "type": [
               "integer",
               "null"
@@ -144,7 +144,7 @@
             "pattern": "^r_[0-9A-Z]{6,26}$"
           },
           "active_runs": {
-            "description": "The count of active Runs this item's Decision was made with: the context's, and each Run this pass minted before it, so no pass admits more Runs than the org's concurrency leaves room for (decision 0238). Absent on a record written before, whose every entry was asked with the context's.",
+            "description": "The count of active Runs this item's Decision was made with: the context's, and for an admission the Runs this pass mints for approvals and queue acts and the admissions before it, so no pass admits more Runs than the org's concurrency leaves room for (decision 0238). Absent on a record written before, whose every entry was asked with the context's.",
             "type": [
               "integer",
               "null"

@@ -223,8 +223,8 @@ def context_of(records, pause_read, repos, rules: dict, now: str, before=(), pre
 
 
 def counted(active, minted: int):
-    """The count of active Runs an item is asked with: the context's, and each Run this pass minted before it; a count
-    that is not whole stays as read, and the Kernel defers on it (decision 0238)."""
+    """The count of active Runs an admission is asked again with: the context's, and `minted` Runs the pass counts before
+    it; a count that is not whole stays as read, and the Kernel defers on it (decision 0238)."""
     return active + minted if type(active) is int else active
 
 
@@ -332,10 +332,11 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     listed, whole, runs, pause, automatic, capacity, context = context_of(records, reads.get("pause"), repos, rules,
                                                                            now, before, previous)
 
-    # Each Run this pass mints is active once it is dispatched, so each item after it is asked with it counted: a pass
-    # admits no more Runs than `org_max_active_runs` leaves room for, as each of them, asked again at its apply, finds
-    # (decision 0238).
-    minted_here = []
+    def minting(d: dict) -> bool:
+        """Whether the pass mints a Run for Decision `d`: an admission, an approval, or a queue act once its workflow is
+        named, each a dispatch the records port counts active."""
+        return d["outcome"] == t.ADMIT or d.get("action") == "issue_approval" \
+            or (queue_named and d["outcome"] == t.ACT and d.get("action") in writes_.QUEUE_INTENTS)
 
     def asked(entries: list, decide, lifecycle: dict, given: dict) -> list:
         kernel = dict(given, lifecycle=lifecycle)
@@ -345,19 +346,27 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
             facts["complete"] = dict(facts["complete"])
             # The facts port reads no run: the records port's list says whether the Runs were read whole.
             facts["complete"]["runs"] = facts["complete"].get("runs") is True and whole
-            active = counted(context["active_runs"], len(minted_here))
-            d = decide(facts, runs, dict(context, active_runs=active), kernel, now)
-            minted = d["outcome"] == t.ADMIT or d.get("action") == "issue_approval" \
-                or (queue_named and d["outcome"] == t.ACT and d.get("action") in writes_.QUEUE_INTENTS)
-            run_id = mint("r") if minted else None
-            minted_here.extend([run_id] if minted else [])
-            out.append(dict({"facts": facts, "decision": d, "run": run_id, "active_runs": active},
-                            **status_head(entry, kernel)))
+            out.append({"entry": entry, "facts": facts, "decide": decide, "kernel": kernel,
+                        "active_runs": context["active_runs"],
+                        "decision": decide(facts, runs, context, kernel, now)})
         return out
 
+    asked_ = asked(pulls, pull_request.decide, config["lifecycles"]["pull_request"], config["kernel"]) \
+        + asked(issues, issue.decide, config["lifecycles"]["issue"], issue_config(config["kernel"]))
+    # Each Run this pass mints is active once dispatched, so the pass admits no more Runs than `org_max_active_runs`
+    # leaves room for, as each of them, asked again at its `apply`, finds (decision 0238). The count moves only an
+    # admission, to a deferral: the Runs an approval or a queue act mints are counted first, whatever their place, and
+    # each admission, in the record's order, is asked again with them and the admissions before it.
+    taken = sum(1 for a in asked_ if minting(a["decision"]) and a["decision"]["outcome"] != t.ADMIT)
+    for a in asked_:
+        if a["decision"]["outcome"] == t.ADMIT:
+            a["active_runs"] = counted(context["active_runs"], taken)
+            a["decision"] = a["decide"](a["facts"], runs, dict(context, active_runs=a["active_runs"]), a["kernel"], now)
+            taken += a["decision"]["outcome"] == t.ADMIT
     pass_id = mint("p")     # minted before any Run id, as it always was
-    pull_requests = asked(pulls, pull_request.decide, config["lifecycles"]["pull_request"], config["kernel"])
-    issues_ = asked(issues, issue.decide, config["lifecycles"]["issue"], issue_config(config["kernel"]))
+    made = [dict({"facts": a["facts"], "decision": a["decision"], "run": mint("r") if minting(a["decision"]) else None,
+                  "active_runs": a["active_runs"]}, **status_head(a["entry"], a["kernel"])) for a in asked_]
+    pull_requests, issues_ = made[:len(pulls)], made[len(pulls):]
 
     # Every write a Factory identity made, matched to an Effect the Factory recorded; one alert for any that is not, and
     # one for a reconciliation that is short (I-33, decision 0061). What it found is in the record before it is checked.
