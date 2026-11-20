@@ -42,6 +42,7 @@ PAGE = 100          # the activity is read once: a list as long as a page may be
 AT = re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z")
 KEY = re.compile(r"[A-Za-z0-9_=:-]{1,100}")
 COMMIT = re.compile(r"[0-9a-f]{40}")
+NO_COMMIT = object()    # a write that is no approval carries no commit; any value GitHub gives is an approval's
 PARTS = ("events", "reviews", "threads", "check_runs")
 # The timeline's events that are writes, and what each is: those a Factory write makes, and those that change a pull
 # request's state, which none makes yet.
@@ -167,9 +168,9 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         whole &= any(_object(e).get("event") in ("closed", "merged")
                      and (kept == GONE or _at(_object(e).get("created_at"), since)) for e in parts["events"])
 
-    def add(by, kind, key, at, commit=False):
+    def add(by, kind, key, at, commit=NO_COMMIT):
         write = {"by": by, "kind": kind, "item": dict(item), "key": key, "at": at}
-        if commit is not False:
+        if commit is not NO_COMMIT:
             # An approval carries the commit it approved, null where GitHub gave none that can be read, so that
             # reconciliation never takes it for a hand approval by its item alone (issue 1026).
             write["commit"] = commit if isinstance(commit, str) and COMMIT.fullmatch(commit) else None
