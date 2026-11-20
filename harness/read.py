@@ -184,10 +184,15 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
     # the item's own (`findings_not_shown`), never as a read that failed. A read GitHub did not answer still stops here.
     raised = []
     with reading("finding_texts"):
+        # The facts as the Kernel reads them, marked by the Runs it is given: a thread its Lens's later review
+        # superseded is closed to the Kernel, and no review is shown it (issue 968). Marks that cannot be made are
+        # none: the facts are read as they came, so a review is shown more, never less.
         try:
-            # The facts as the Kernel reads them, marked by the Runs it is given: a thread its Lens's later review
-            # superseded is closed to the Kernel, and no review is shown it (issue 968).
-            shown = apply.shown(derive.as_read(facts, listed["runs"], config["kernel"]), role, config["kernel"])
+            marked = derive.as_read(facts, listed["runs"], config["kernel"])
+        except (AttributeError, KeyError, TypeError):
+            marked = facts
+        try:
+            shown = apply.shown(marked, role, config["kernel"])
         except (AttributeError, KeyError, TypeError):
             # A thread in a shape the Kernel's own reading does not take, one resolved by an account the port cannot
             # type among them: the item's own state, made since the Run was admitted. No Finding is listed, as before

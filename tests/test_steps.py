@@ -351,8 +351,16 @@ class Reader(unittest.TestCase):
         dropped = support.thread("PRRT_kw15", resolved=True, ruling=None, dropped=True, at="2026-10-11T11:00:00Z")
         later = support.run(content=CONTENT, at="2026-10-11T12:30:00Z")
         later["item"] = dict(later["item"], number=42)
-        code, printed, files, kept, calls = self.go(threads=threads + [dropped], runs=[later])
-        self.assertEqual((code, json.loads(kept["findings.json"])), (0, [fid("PRRT_kw7"), fid("PRRT_kw14")]), printed)
+        earlier = dict(support.run(content="sha256:0ld", at="2026-10-11T12:20:00Z", name="r0"), item=later["item"])
+        for runs in ([later], [earlier, later]):
+            code, printed, files, kept, calls = self.go(threads=threads + [dropped], runs=runs)
+            self.assertEqual((code, json.loads(kept["findings.json"])), (0, [fid("PRRT_kw7"), fid("PRRT_kw14")]), printed)
+            self.assertNotIn("PRRT_kw15", [key for call in calls["findings"] for key in call[4]])
+        # Marks that cannot be made are none: the facts are read as they came, and the review is shown more, never less.
+        with unittest.mock.patch.object(read.derive, "as_read", side_effect=KeyError("item")):
+            code, printed, files, kept, calls = self.go(threads=threads + [dropped], runs=[later])
+        self.assertEqual((code, json.loads(kept["findings.json"])), (0, [fid("PRRT_kw7"), fid("PRRT_kw14"), fid("PRRT_kw15")]),
+                         printed)
         # Without that review the Kernel reads it open, and it is shown.
         code, printed, files, kept, calls = self.go(threads=threads + [dropped])
         self.assertEqual((code, json.loads(kept["findings.json"])), (0, [fid("PRRT_kw7"), fid("PRRT_kw14"), fid("PRRT_kw15")]),
