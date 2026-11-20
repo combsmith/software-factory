@@ -8,9 +8,9 @@ present life is listed only while its base is the default branch, as REST names 
 reference (trials/P-33.json), and a closer of this life to another base is not whole. A closer is listed whatever its
 references now say (trials/P-46.json): a pull request by repository and number, as a merge commit's close (P-33) and the
 queue's squash (P-67) named one, or a commit that is one listed pull request's merge commit; a pull request's first
-close in the present life is its own. Any other commit closer of this life, one with no id, a closer of another kind, or
-a pull request of another repo, is not whole; one of these in a life before is passed over, though it names the issue,
-and a closer of no type is refused.
+close in the present life is its own. Any other commit closer of this life, a closer of another kind, or a pull request
+of another repo, is not whole, and a commit closer of this life with no id refuses the read; each of these in a life
+before is passed over, though it names the issue, and a closer of no type is refused in any life.
 
 Each one's own facts are read as a pull request's (`adapters/pull.py`, `adapters/timeline.py`): its draft changes, the
 later ones undone from its flag now, give its flag at a time (`draft_at`, decision 0141); an act an App made with a
@@ -126,7 +126,7 @@ def joined(transport, repo: str, number: int, updated_at: str, began: str) -> di
             # A person's close names no closer; a closer that names no type is a read that failed.
             closer = field(node, "closer")
             typed = field(closer, "__typename") if closer is not None else None
-            if closer is not None and typed is None:
+            if closer is not None and not (isinstance(typed, str) and typed):
                 raise Unanswered("a closer of no type")
             if typed == "PullRequest":
                 closed = _number(closer, repo)
@@ -141,7 +141,7 @@ def joined(transport, repo: str, number: int, updated_at: str, began: str) -> di
                 continue
             if typed == "Commit":
                 oid = field(closer, "oid")
-                if not timeline.SHA.match(str(oid)):
+                if not (isinstance(oid, str) and timeline.SHA.match(oid)):
                     raise Unanswered("a commit closer with no id")
                 out["commits"].setdefault(oid, at)
             else:

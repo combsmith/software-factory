@@ -6883,18 +6883,31 @@ class Linked(unittest.TestCase):
         found, short = self.listed([linked_read(ref(14), [closed_by(30, oid="d" * 40)]),
                                     pull_read(14, merged=29, closed=29, sha="b" * 40), pull_timeline(14)], began)
         self.assertEqual(([p["closed_issue_at"] for p in found], short), ([None], False))
-        # A closer that names no type is a read that failed, in any life, never a person's close.
+        # Nor where the two merges share only a short prefix: the whole id is compared.
+        found, short = self.listed([linked_read(ref(14), [closed_by(30, oid="abcdef0" + "1" * 33)]),
+                                    pull_read(14, merged=29, closed=29, sha="abcdef0" + "2" * 33), pull_timeline(14)], began)
+        self.assertEqual(([p["closed_issue_at"] for p in found], short), ([None], False))
+        # A closer that names no type, or a type that is no name, is a read that failed, in any life, never a person's
+        # close; so is a commit closer whose id is no string, even one whose digits would spell one.
         for m in (20, 5):
-            untyped = {"__typename": "ClosedEvent", "createdAt": minute(m), "closer": {"__typename": None}}
-            with self.assertRaises(github.Unanswered):
-                self.listed([linked_read((), [untyped])], began)
+            for typed in (None, False, 0, ""):
+                untyped = {"__typename": "ClosedEvent", "createdAt": minute(m), "closer": {"__typename": typed}}
+                with self.assertRaises(github.Unanswered):
+                    self.listed([linked_read((), [untyped])], began)
+        numeric = {"__typename": "ClosedEvent", "createdAt": minute(30), "closer": {"__typename": "Commit", "oid": int("1" * 40)}}
+        with self.assertRaises(github.Unanswered):
+            self.listed([linked_read((), [numeric])], began)
         # One that cannot be listed, of a life before, is passed over, however often the timeline is read: a closer of
         # another repo or another kind, a commit's that no listed pull request merged or that has no id. In the second
         # the life began, it is of it.
         kind = lambda m: {"__typename": "ClosedEvent", "createdAt": minute(m), "closer": {"__typename": "ProjectV2"}}
         no_oid = lambda m: {"__typename": "ClosedEvent", "createdAt": minute(m), "closer": {"__typename": "Commit", "oid": None}}
-        for past in (closed_by(5, 12, repo="a/fork"), kind(5), closed_by(5, oid="d" * 40), no_oid(5)):
+        absent = {"__typename": "ClosedEvent", "createdAt": minute(5), "closer": {"__typename": "Commit"}}
+        for past in (closed_by(5, 12, repo="a/fork"), kind(5), closed_by(5, oid="d" * 40), no_oid(5), absent):
             self.assertEqual(self.listed([linked_read(ref(7), [past]), pull_read(7), pull_timeline(7)], began)[1], True, past)
+            # Passed over, it leaves a list read short as short.
+            self.assertEqual(self.listed([linked_read(ref(7), [past], total=2), pull_read(7), pull_timeline(7)], began)[1],
+                             False, past)
         for now in (closed_by(10, 12, repo="a/fork"), kind(10)):
             self.assertEqual(self.listed([linked_read((), [now])], began), ([], False), now)
         with self.assertRaises(github.Unanswered):
@@ -7095,6 +7108,8 @@ class Linked(unittest.TestCase):
                       [linked_read((), [{"__typename": "ClosedEvent", "createdAt": minute(-70), "closer": {"__typename": "ProjectV2"}}])],
                       [linked_read((), [{"__typename": "ClosedEvent", "createdAt": minute(-70), "closer": {"__typename": "Commit", "oid": None}}])]):
             self.assertEqual((self.read(named, broken), self.read(named)), (([], False), ([], True)), named)
+        # A person's close names no closer, and so names nothing.
+        self.assertEqual(self.read([linked_read((), [closed_by(-65)])], broken), ([], True))
         # Read on past a commit's reference.
         self.assertEqual(self.read([linked_read((), [referenced(), link("ConnectedEvent", 1, 7)]), pull_read(7), pull_timeline(7)], broken),
                          ([(7, False, [])], False))
