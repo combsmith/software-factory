@@ -1077,7 +1077,8 @@ class World:
             pushed_past = all(r["started_at"] <= self.last_push for r in done) and any(
                 th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"] and not th["resolved"]
                 and (th["severity"] in ("blocking", "major") or th["category"] == "security")
-                and th["ruling"] != "accepted" and not self.dropped_since_the_push(th) for th in self.threads)
+                and (th["ruling"] != "accepted" or th["category"] == "security") and not self.dropped_since_the_push(th)
+                for th in self.threads)
             self.check(not done or pushed_past, "I-11 a second review of unchanged content")
 
     def finish_run(self):
@@ -1120,9 +1121,14 @@ class World:
         run["conclusion"] = "success"
         if run["intent"] == "review-change":
             # The port says a Lens's thread dropped where this later review of its Lens, which succeeded on the current
-            # content, records nothing on its Finding (decision 0212): now and then, of a thread opened before it began.
+            # content, records nothing on its Finding (decision 0212): now and then, of an open thread opened before it
+            # began. A resolved one is in the read too, and nothing records it, so the port says it of each, as the
+            # Lenses' records port does: a push cleared the word, and a thread the queue App resolved on it stays closed.
             for th in self.threads:
-                if th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"] and not th["resolved"] \
+                if th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"] and th["resolved"] \
+                        and run["content_id"] == self.cid() and th["opened_at"] < run["started_at"]:
+                    th["dropped"] = True
+                elif th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"] and not th["resolved"] \
                         and not th.get("dropped") and run["content_id"] == self.cid() \
                         and th["opened_at"] < run["started_at"] and self.keeps.random() < 0.5:
                     th["dropped"] = True
