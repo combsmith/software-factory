@@ -6275,6 +6275,11 @@ def crossed(source: str = "PullRequest") -> dict:
     return {"__typename": "CrossReferencedEvent", "source": {"__typename": source}}
 
 
+def referenced(oid="c" * 40) -> dict:
+    """A reference on the issue's timeline by a commit, as a commit's closing keyword leaves one, or by one not read."""
+    return {"__typename": "ReferencedEvent", "commit": None if oid is None else {"oid": oid}}
+
+
 IDENTITIES = {"agent": {CONTROLLER_APP[1:]}, "maintainer": {(MAINTAINER, "User")}, "dependency": set()}
 
 
@@ -6858,12 +6863,24 @@ class Linked(unittest.TestCase):
             self.assertEqual(self.read(named), ([], False))
         self.assertEqual(self.read([linked_read((), total=1)]), ([], False))
         self.assertEqual(self.read([linked_read(more=True)]), ([], False))
-        self.assertIn("itemTypes: [CLOSED_EVENT, CONNECTED_EVENT, DISCONNECTED_EVENT, CROSS_REFERENCED_EVENT]", linked.QUERY)
+        self.assertIn("itemTypes: [CLOSED_EVENT, CONNECTED_EVENT, DISCONNECTED_EVENT, CROSS_REFERENCED_EVENT, REFERENCED_EVENT]",
+                      linked.QUERY)
         self.assertIn("... on CrossReferencedEvent { source { __typename } }", linked.QUERY)
         self.assertEqual(self.read([linked_read((), [{"__typename": "CrossReferencedEvent", "source": None}])]), ([], False))
         self.assertEqual(self.read([linked_read(ref(7)), pull_read(7), pull_timeline(7)]), ([(7, True, [])], False))
         # Pass records that break the chain of spans leave the list not whole, whatever names the issue.
         self.assertEqual(self.read([linked_read()], [seen_by(3, issues=[], alerts=["issue_apps_unreadable"])]), ([], False))
+
+    def test_a_commits_reference_names_the_issue_and_the_timeline_is_read_on_past_it(self):  # issue 990
+        # A commit's closing keyword leaves a reference by the commit, not a cross-reference: it names the issue, and so
+        # does one whose commit cannot be read. The timeline is read on past it: a link by hand after it is listed.
+        named = ()
+        self.assertIn("CROSS_REFERENCED_EVENT, REFERENCED_EVENT]", linked.QUERY)
+        self.assertIn("... on ReferencedEvent { commit { oid } }", linked.QUERY)
+        for events in ([referenced()], [referenced(None)], [crossed("Issue"), referenced()]):
+            self.assertEqual(self.read([linked_read((), events)], named), ([], False), events)
+        self.assertEqual(self.read([linked_read((), [referenced(), link("ConnectedEvent", 1, 7)]), pull_read(7), pull_timeline(7)], named),
+                         ([(7, False, [])], False))
 
     def test_a_merge_beside_a_rival_keyword_link_is_never_read_with_no_spans(self):  # decision 0186
         # The Controller's App's 5 merged and closed the issue; the Maintainer's 6 named it too. Read whole with no spans,
@@ -6918,7 +6935,12 @@ class Linked(unittest.TestCase):
                    answer(("timelineItems", "nodes")), answer(refs=[("7", "o/r")]),
                    answer(events=[link("ConnectedEvent", 1, 41, repo="a/fork", typed="Issue")]), answer(refs=[(0, "a/fork")]),
                    answer(events=[{"__typename": "LabeledEvent", "createdAt": minute(1)}]),
-                   answer(events=[{"__typename": "ConnectedEvent", "createdAt": minute(1)}])]
+                   answer(events=[{"__typename": "ConnectedEvent", "createdAt": minute(1)}]),
+                   answer(events=[referenced("x")]), answer(events=[{"__typename": "ReferencedEvent", "commit": "c" * 40}]),
+                   answer(events=[{"__typename": "ReferencedEvent", "commit": {}}]), answer(events=[{"__typename": "ReferencedEvent"}]),
+                   answer(events=[referenced(int("1" * 40))]),
+                   answer(events=[referenced(), {"__typename": "CrossReferencedEvent", "source": {}}]),
+                   answer(events=[crossed(), {"__typename": "CrossReferencedEvent", "source": {}}])]
         for at, found in enumerate(refused):
             with self.assertRaises(github.Unanswered, msg=at):
                 self.listed([found])
@@ -7020,6 +7042,32 @@ class KeywordSpans(unittest.TestCase):
         # With every record at hand passed over, no base is left: the chain is broken, never first sight.
         self.assertEqual(self.spans(seen_by(3, issues=[], left_out=[unread]), seen_by(6, issues=[], left_out=[unread])),
                          ({}, None))
+        # A record that holds an issue is read as any other, the entry among what it left out: this issue's facts make it
+        # the base, and another issue's leave the chain broken by the itemless entry.
+        self.assertEqual(self.spans(older, seen_by(6, [(7, True, [span(3)]), (8, True, [])], left_out=[unread])),
+                         ({7: [span(3)], 8: [span(6)]}, True))
+        self.assertEqual(self.spans(older, seen_by(6, number=42, left_out=[unread])), ({7: [span(3)]}, None))
+        # So is one that leaves out anything beside the one entry, even the same again, or raised that its issues' Apps
+        # could not be told; and one whose issues cannot be read is no pass record.
+        for left in ([unread, dict(unread, code="not_facts")], [dict(unread, code="not_facts"), unread], [unread, dict(unread)],
+                     [unread, {"item": self.ITEM, "code": "facts_unanswered"}], [dict(unread, item=self.ITEM)],
+                     [unread, {"item": dict(self.ITEM, number=42), "code": "facts_unanswered"}]):
+            self.assertEqual(self.spans(older, seen_by(6, issues=[], left_out=left)), ({7: [span(3)]}, None), left)
+        self.assertEqual(self.spans(older, seen_by(6, issues=[], left_out=[unread], alerts=["issue_apps_unreadable"])),
+                         ({7: [span(3)]}, None))
+        self.assertEqual(self.spans(older, seen_by(6, issues=None, left_out=[unread])), ({}, False))
+        for bad in ({"alerts": "x"}, {"alerts": None}, {"left_out": dict(unread)}, {"left_out": [{"item": None}]}):
+            self.assertEqual(self.spans(older, dict(seen_by(6, issues=[], left_out=[unread]), **bad)), ({}, False), bad)
+        # One that holds the issue whole is the base, and what it left out or raised itself breaks nothing.
+        for more in ({}, {"alerts": ["issue_apps_unreadable"]}):
+            self.assertEqual(self.spans(older, seen_by(6, [(7, True, [span(3)])], left_out=[unread], **more)), ({7: [span(3)]}, True))
+            self.assertEqual(self.spans(seen_by(6, [(7, True, [])], left_out=[unread], **more)), ({7: [span(6)]}, True))
+        # A record read after one passed over is read as if that were not at hand; one that holds and leaves out nothing
+        # is not passed over, and alone is first sight.
+        self.assertEqual(self.spans(seen_by(3, issues=[], left_out=[unread]), seen_by(6, [(7, True, [])])), ({7: [span(6)]}, True))
+        self.assertEqual(self.spans(seen_by(3, issues=[], left_out=[unread]), seen_by(6, issues=[], left_out=[dict(unread, code="not_facts")])),
+                         ({}, None))
+        self.assertEqual(self.spans(seen_by(6, issues=[])), ({}, True))
         self.assertEqual(keyword_spans.UNLISTED, "issue_list_unreadable")
 
     def test_pass_records_that_could_not_be_read_give_no_time_and_are_not_whole(self):
@@ -7027,7 +7075,8 @@ class KeywordSpans(unittest.TestCase):
         # The newest at hand, where it is no pass record, gives no time either, whatever the one before it holds.
         good = seen_by(3, [(7, True, [])])
         for bad in ({"schema": "pass/1"}, dict(good, issues=[{"facts": {"item": self.ITEM}}]), dict(good, issues=None), "p",
-                    seen_by(6, [(7, True, ["x"])])):
+                    seen_by(6, [(7, True, ["x"])]), seen_by(6, [(7, True, [[], span(3)])]), seen_by(6, [(7, False, ["", span(3)])]),
+                    seen_by(6, [(7, True, {})]), seen_by(6, [(7, True, [span(0, 1), [["seen_at", minute(2)], ["gone_at", None]]])])):
             self.assertEqual(self.spans(good, bad), ({}, False), bad)
 
 
