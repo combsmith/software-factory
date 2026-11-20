@@ -1993,6 +1993,24 @@ def credential_problems(root: pathlib.Path, live: list) -> list:
     return problems
 
 
+def _pushed_to_main(text: str, entries: list) -> bool:
+    """Whether a workflow that runs on push runs on a push to main alone: its `push:` holds `branches:` and nothing
+    else, a block list of the one item `main`. Any other form, a value, a pattern, tags, paths or more branches, is
+    not read as that (issue 907)."""
+    under = [e for e in entries if e["path"][:2] == ["on", "push"]]
+    if [(e["key"], e["value"], e["path"]) for e in under] != [("branches", "", ["on", "push"])]:
+        return False
+    items = []
+    for raw in text.split("\n")[under[0]["line"]:]:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if len(raw) - len(raw.lstrip(" ")) <= under[0]["indent"]:
+            break
+        items.append(line.split(" #")[0].strip())
+    return items == ["- main"]
+
+
 def head_problems(root: pathlib.Path, live: list) -> list:
     """Why a workflow in `live` could run a secret beside settings a Role's push wrote (decision 0225, issue 845).
 
@@ -2003,7 +2021,7 @@ def head_problems(root: pathlib.Path, live: list) -> list:
     head's own code beside the secret, and its text is the one its row's hash holds. One not listed gives every
     checkout a `ref:` in BASES, and runs on no event but those BASED names, on any other of which that ref is empty and
     the checkout takes the pushed or dispatched commit. Neither has a line read() could not read, nor calls another workflow, whose steps are
-    not read here. A workflow on `push` is not read: a limit decision 0225 names.
+    not read here. A workflow on `push` beside a secret runs on a push to main alone (issue 907).
     A row for a workflow that is not exposed, or not there, is stale. What cannot be read checks nothing, and says so."""
     try:
         protected = [entry["path"] for entry in json.loads((root / "config" / "hooks.json").read_text())["protected"]]
@@ -2018,7 +2036,12 @@ def head_problems(root: pathlib.Path, live: list) -> list:
             e["value"] for e in entries if e["key"] == "on" and not e["path"] and e["value"]}
         spared = not bad and bool(events) and events <= EVENTS and not events & JUDGED
         called = [e for e in entries if e["key"] == "uses" and len(e["path"]) == 2 and e["path"][0] == "jobs"]
-        if spared or not (bad or called or ANY_SECRET.search(_uncommented(text))):
+        secret = bool(bad or called or ANY_SECRET.search(_uncommented(text)))
+        if secret and "push" in events and not _pushed_to_main(text, entries):
+            problems.append("%s runs on a push beside a secret, and is not read as filtered to main alone: a Role's "
+                            "push to a branch of this repo would run it on the Role's commit beside the secret; give "
+                            "`push:` `branches:` with `- main` alone, or run on no push (issue 907)" % path.relative_to(root))
+        if spared or not secret:
             continue
         exposed.add(path.name)
         where = path.relative_to(root)
