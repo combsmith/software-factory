@@ -620,7 +620,7 @@ def _alone(root: pathlib.Path, read: set, trees: dict, package: str) -> list:
       and no two imports bind it to two modules.
     - A limit: a module's name is resolved file-wide, not by scope, so a name a guard imports in one function and reads
       in another, where Python reads it as a builtin, passes. No builtin's plain attribute reaches a frame, globals or
-      builtins, and issue 851 resolves names by scope for the Kernel and the guards alike.
+      builtins, for the Kernel and the guards alike.
     """
     problems, guest = [], package != "kernel"
     if (root / package).is_symlink():

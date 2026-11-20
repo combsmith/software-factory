@@ -2410,8 +2410,10 @@ class Purity(unittest.TestCase):
                           ("kernel/x.py", "def f(n):\n    HOURS_PER_DAY = n\n    return HOURS_PER_DAY\n")):
             self.assertTrue(caught(check_purity.run(planted({"kernel/terms.py": again, rel: text})), "a unit of the calendar"),
                             (rel, text))
-        self.assertFalse(caught(check_purity.run(planted({"kernel/terms.py": again, "kernel/x.py": "def f(t):\n"
-                                                       "    return t.SECONDS_PER_MINUTE\n"})), "a unit of the calendar"))
+        # Read off a value, it is that, and that alone: not a unit of the calendar written again (Astra's read).
+        read = check_purity.run(planted({"kernel/terms.py": again, "kernel/x.py": "def f(t):\n    return t.SECONDS_PER_MINUTE\n"}))
+        self.assertEqual(len(read), 1, read)
+        self.assertTrue(caught(read, "x.py:2 reads SECONDS_PER_MINUTE off a value"), read)
 
     def test_state_kept_between_calls_is_caught(self):
         root = planted({"kernel/x.py": "SEEN = {}\nKIND = 'held'\nNAMES = frozenset({'a'})\n"})
