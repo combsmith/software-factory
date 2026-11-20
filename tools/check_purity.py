@@ -169,11 +169,12 @@ def _scopes(tree, held: frozenset) -> dict:
 
 def _inert(node, held: frozenset) -> bool:
     """Whether `node`, in a constant's argument, evaluates to a value that cannot change: it calls nothing but a
-    constant's own call, binds nothing, iterates nothing, and names only `held`, read once each."""
+    constant's own call, binds nothing, iterates nothing, an unpacking among it, and names only `held`, read once
+    each."""
     if isinstance(node, ast.Call):
         return _constant(node, held)
     if isinstance(node, (ast.GeneratorExp, ast.ListComp, ast.SetComp, ast.DictComp, ast.NamedExpr, ast.Yield,
-                         ast.YieldFrom)):
+                         ast.YieldFrom, ast.Starred)):
         return False
     if isinstance(node, ast.Name):
         return node.id in held
