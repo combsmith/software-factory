@@ -394,6 +394,7 @@ class SeenPort(unittest.TestCase):
                    {"user": APPROVER, "state": "APPROVED", "node_id": "PRR_c", "submitted_at": AT},
                    {"user": APPROVER, "state": "APPROVED", "node_id": "PRR_g", "submitted_at": AT, "commit_id": "g" * 40},
                    {"user": APPROVER, "state": "APPROVED", "node_id": "PRR_h", "submitted_at": AT, "commit_id": False},
+                   {"user": APPROVER, "state": "APPROVED", "node_id": "PRR_i", "submitted_at": AT, "commit_id": HEAD + "x"},
                    {"user": APPROVER, "state": "DISMISSED", "node_id": "PRR_d", "id": 4, "submitted_at": AT,
                     "commit_id": OTHER_HEAD},
                    {"user": ROLE, "state": "COMMENTED", "node_id": "PRR_e", "submitted_at": AT, "commit_id": HEAD},
@@ -407,12 +408,16 @@ class SeenPort(unittest.TestCase):
         self.assertFalse(whole)
         said = [(w["key"], w["kind"], w.get("commit", "absent")) for w in writes if w["key"] and w["key"].startswith("PRR")]
         self.assertEqual(said, [("PRR_a", "approval", HEAD), ("PRR_b", "approval", None), ("PRR_c", "approval", None),
-                                ("PRR_g", "approval", None), ("PRR_h", "approval", None),
+                                ("PRR_g", "approval", None), ("PRR_h", "approval", None), ("PRR_i", "approval", None),
                                 ("PRR_d", "approval", OTHER_HEAD), ("PRR_e", "review", "absent"),
                                 ("PRR_f", "approval", None)])
         out = seen_.seen([(writes, [], whole)], SINCE)
         self.assertEqual(validate(out, SCHEMAS["seen"], schemas=SCHEMAS), [])
-        self.assertEqual([w.get("commit", "absent") for w in out["writes"] if w["key"] in ("PRR_a", "PRR_e")], [HEAD, "absent"])
+        # The seen message carries each as read, nulls among them, and the schema refuses a commit that is no commit.
+        self.assertEqual([(w["key"], w["kind"], w.get("commit", "absent")) for w in out["writes"]
+                          if w["key"] and w["key"].startswith("PRR")], said)
+        bad = dict(out, writes=[dict(out["writes"][0], commit="abc")])
+        self.assertTrue(validate(bad, SCHEMAS["seen"], schemas=SCHEMAS))
 
     def test_no_read_the_facts_port_made_is_made_twice(self):  # ruling 3
         github = GitHub()
