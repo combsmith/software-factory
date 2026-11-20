@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from kernel import brakes
 from kernel import terms as t
-from kernel.derive import (acted_since_writer, derive, hands_off, in_progress, incomplete, moved_at, overdue, run_deferral, runs_on, since_writer,
-                           unnamed_past, unnamed_within, unreadable_labels)
+from kernel.derive import (acted_since_writer, derive, hands_off, in_progress, incomplete, moved_at, opened_for_an_issue, overdue, run_deferral, runs_on,
+                           since_writer, unnamed_past, unnamed_within, unreadable_labels)
 
 SCHEMA = "decision/1"
 
@@ -65,13 +65,6 @@ def _decision(facts, state, reason, evidence, outcome, working=False, **extra) -
     return d
 
 
-def _opened_by_the_factory(facts: dict) -> bool:
-    """Whether the facts name the issue the Factory opened this pull request for: a whole number from 1, never a
-    truth value. A fact that is not there, or is anything else, is no number, and nothing says the Factory opened it."""
-    issue = facts.get("opened_for")
-    return type(issue) is int and issue >= 1
-
-
 def _wanted_run(facts: dict, state: str, reason: str, config: dict, evidence: list):
     """The Run this State calls for, as (role, intent), or None. A review is the one of the Lens the evidence names, which
     derive takes from the model Lenses the configuration requires: with two, the second once the first has reviewed
@@ -82,7 +75,7 @@ def _wanted_run(facts: dict, state: str, reason: str, config: dict, evidence: li
         return (evidence[0], "review-change")
     if state == t.ADDRESSING and reason in ("check_failed", "findings_open", "human_finding", "conflict",
                                               "acceptance_failed"):
-        if config["author_role"] is None or not _opened_by_the_factory(facts):
+        if config["author_role"] is None or not opened_for_an_issue(facts):
             return None
         return (config["author_role"], "fix-findings")
     if state == t.ADJUDICATING and reason != "resolve_due":
