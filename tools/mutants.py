@@ -15632,6 +15632,8 @@ MUTANTS = ISSUE + [
      'whole, cut = whole and read_whole, cut or bounded', 'whole, cut = whole and read_whole, cut', F849_LINKED),
     ("any count of pull requests is read", 'adapters/linked.py',
      '    past = len(candidates) > CANDIDATES\n', '    past = False\n', F849_LINKED),
+    ("links by hand count nothing toward the bound on pull requests", 'adapters/linked.py',
+     '    past = len(candidates) > CANDIDATES\n', '    past = len(join["refs"] | set(spans)) > CANDIDATES\n', F849_LINKED),
     ("only references count toward the bound on pull requests", 'adapters/linked.py',
      '    past = len(candidates) > CANDIDATES\n', '    past = len(join["refs"]) > CANDIDATES\n', F849_LINKED),
     ("the read stops at a pull request's cut timeline", 'adapters/linked.py',
