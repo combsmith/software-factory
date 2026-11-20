@@ -145,7 +145,7 @@ ALSO_AT_JOB = ("tests.test_evals.EvalJob.test_a_pass_at_an_alternate_place_alone
 CLEAN_CASE = ("tests.test_evals.Scoring.test_a_gating_finding_fails_a_clean_case",)
 APART = ("tests.test_evals.EvalJob.test_each_head_is_unpacked_apart_from_the_cases",)
 AZURE = "adapters/azure.py"
-AZURE_ASKS = ("tests.test_advisory.Transport.test_the_azure_transport_asks_four_requests_and_no_other",)
+AZURE_ASKS = ("tests.test_advisory.Transport.test_the_azure_transport_asks_five_requests_and_no_other",)
 AZURE_ONE = ("tests.test_advisory.Transport.test_the_azure_transport_reaches_one_host_and_two_apis",)
 AZURE_KEY = ("tests.test_advisory.Transport.test_the_azure_transport_takes_its_key_from_its_caller_and_sends_it_nowhere_else",)
 AZURE_BOUND = ("tests.test_advisory.Transport.test_the_azure_transport_bounds_every_answer_in_size_and_time",)
@@ -4608,10 +4608,10 @@ MUTANTS = ISSUE + [
      '', ('tests.test_advise.Advise.test_each_response_a_reader_made_is_deleted_once_it_is_read_whatever_came_of_it',)),
     ('the transport deletes by another verb', 'adapters/azure.py',
      '        return "DELETE", "%s/%s" % (RESPONSES, req["id"]), None\n',
-     '        return "POST", "%s/%s" % (RESPONSES, req["id"]), None\n', ('tests.test_advisory.Transport.test_the_azure_transport_asks_four_requests_and_no_other',)),
+     '        return "POST", "%s/%s" % (RESPONSES, req["id"]), None\n', ('tests.test_advisory.Transport.test_the_azure_transport_asks_five_requests_and_no_other',)),
     ('the transport sends no delete', 'adapters/azure.py',
      'act in ("read", "cancel", "delete")',
-     'act in ("read", "cancel")', ('tests.test_advisory.Transport.test_the_azure_transport_asks_four_requests_and_no_other',)),
+     'act in ("read", "cancel")', ('tests.test_advisory.Transport.test_the_azure_transport_asks_five_requests_and_no_other',)),
     ("the Azure transport verifies by the process's default context", AZURE,
      'urllib.request.HTTPSHandler(context=_context())', 'urllib.request.HTTPSHandler', AZURE_KEY),
     ("the Azure transport's context writes session keys where SSLKEYLOGFILE says", AZURE,
