@@ -789,6 +789,42 @@ class Examples(unittest.TestCase):
         self.assertIs(refused(bundle=bundle, patch={"body": text + "x" * (200000 - len(text))}), False)
         self.assertIs(refused(bundle=bundle, patch={"body": text + "x" * (200001 - len(text))}), True)
 
+    def test_a_draft_is_the_models_title_and_body_alone_within_githubs_bounds(self):  # issue 838
+        # The opening Run's draft is the model's title and body, each text under a body, and names nothing of where it
+        # opens: its branches and its closing line are apply's. One to a Result, after a push or alone: a Run admitted
+        # on a work branch already pushed pushes nothing and opens the draft from what is there.
+        effect = json.loads((ROOT / "schemas" / "effect.schema.json").read_text())
+        opening = effect["properties"]["open_pull_request"]["items"]
+        self.assertEqual((sorted(opening["properties"]), sorted(opening["required"])), (["body", "id", "title"],) * 2)
+        title = opening["properties"]["title"]
+        self.assertEqual((sorted(title["properties"]), title["required"]), (["body"], ["body"]))
+        refused = lambda effects: validate(effects, effect) != []
+        gone = object()
+        draft = lambda **item: {k: v for k, v in dict({"id": "e2", "title": {"body": "A title"}, "body": "A body."},
+                                                      **item).items() if v is not gone}
+        push = {"id": "e1", "bundle": {"artifact": "result", "digest": "sha256:" + "5d" * 32}}
+        self.assertIs(refused({"open_pull_request": [draft()]}), False)
+        self.assertIs(refused({"push_commits": [push], "open_pull_request": [draft()]}), False)
+        self.assertIs(refused({"open_pull_request": []}), False)
+        self.assertIs(refused({"open_pull_request": [draft(), draft(id="e3")]}), True)
+        for name, item in (("no title", draft(title=gone)), ("no body", draft(body=gone)),
+                           ("a title as a bare string", draft(title="A title")),
+                           ("a title of nothing", draft(title={"body": ""})),
+                           ("a title with no body", draft(title={})), ("a title that is no text", draft(title={"body": 7})),
+                           ("a title that names more", draft(title={"body": "A title", "lang": "en"})),
+                           ("a body of nothing", draft(body="")), ("a body that is none", draft(body=None)),
+                           ("its branch", draft(head="factory-work/issue-12-1")), ("its base", draft(base="main")),
+                           ("its issue", draft(issue=12)), ("ready, not a draft", draft(draft=False))):
+            self.assertIs(refused({"open_pull_request": [item]}), True, name)
+        # The bounds are GitHub's, stated here and nowhere else: a title of at most 256 characters, the model's alone,
+        # and a body of at most 65,536, of which apply's closing line takes the last; so the model's is held to 65,000.
+        # One character more is no draft.
+        self.assertEqual(title["properties"]["body"], {"type": "string", "minLength": 1, "maxLength": 256})
+        self.assertEqual(opening["properties"]["body"], {"type": "string", "minLength": 1, "maxLength": 65000})
+        self.assertIs(refused({"open_pull_request": [draft(title={"body": "t" * 256}, body="b" * 65000)]}), False)
+        self.assertIs(refused({"open_pull_request": [draft(title={"body": "t" * 257})]}), True)
+        self.assertIs(refused({"open_pull_request": [draft(body="b" * 65001)]}), True)
+
     def test_only_success_can_pass_a_check(self):  # I-27, L-07
         # The configuration may say what a conclusion means, but never that one with no verdict has passed.
         schema = json.loads((ROOT / "schemas" / "config.schema.json").read_text())
