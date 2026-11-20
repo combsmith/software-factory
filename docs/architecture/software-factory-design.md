@@ -1580,10 +1580,14 @@ It is still a close of a linked pull request without `done`, and counts toward
 repository to close none, opens at most that many more before a person is asked; and a reference
 an edit added to a once-merged linked pull request can bring that Hold nearer, never `done`. Nor
 can the facts tell such an edit from issue 227's contradiction on a closed issue: a merge that
-landed while the issue stood closed reads `merged_while_declined`, and a person is asked. Untried, and owed by a trial before the port relies on it: P-33's closer came from a
-merge commit a person made with the ruleset off, and the Factory merges through the queue by
-squash, which may name the commit the closer rather than the pull request; and whether an edit
-that takes out a reference that stood at the merge changes the close already recorded. The port
+landed while the issue stood closed reads `merged_while_declined`, and a person is asked. P-33's closer came from a
+merge commit a person made with the ruleset off; the Factory merges through the queue by squash,
+and in trial P-67 (`trials/P-67.json`) the queue's squash named the pull request the closer, of
+this repository, with the squash commit as its `mergeCommit`, not a `Commit`, its close timed 2
+seconds after the merge, as `test_the_queues_squash_and_a_link_by_hand_are_read_as_their_trials_recorded_them`
+reads it; the port still matches a `Commit` closer to a listed pull request's merge should one come. Untried, and owed by a trial before the port relies on it:
+whether an edit that takes out a reference that stood at the merge changes the close already
+recorded. The port
 reads each close in the timeline read it makes for `closed_first_at`, and names a pull request
 its closer where the closer is that pull request, by repository and number, or that pull
 request's merge commit; it lists as linked each pull request the timeline names the closer of in
