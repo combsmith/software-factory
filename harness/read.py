@@ -43,7 +43,7 @@ import time
 from adapters import applied, facts as facts_, identity, passes, pull, records, tags, texts, timeline
 from adapters.github import Live, Unanswered
 from controller import configuration
-from harness import apply, approve, head as head_, shared, steps, task
+from harness import apply, approve, head as head_, reread, shared, steps, task
 from harness.steps import Stop
 from kernel import derive, terms as t
 from release import current, cut
@@ -150,7 +150,8 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
     number = parts["item"]["number"]
     # The threads are held to what the item's Lenses recorded, read from their Runs (adapters/applied.py, issue 338).
     with reading("run_records"):
-        listed = records.runs(transport, home, branch, facts_.run_files_of(controller), facts_.dispatcher_of(controller))
+        listed = records.runs(transport, home, branch, facts_.run_files_of(controller), facts_.dispatcher_of(controller),
+                              **reread.held(record))
     with reading("lens_records"):
         found = applied.recorded(transport, home, listed, [number], set(config["kernel"]["required_lenses"]["model"]),
                                  config["authority"])
