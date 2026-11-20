@@ -5015,10 +5015,11 @@ class Contract(unittest.TestCase):
         short_events = timeline.events(github.Replay([per_hundred(p43[13]), second_page(per_hundred(p43[13]), {})]),
                                        {"number": 48, "base": {"repo": {"full_name": canary()}}})
         files = pull.changed_paths(github.Replay([as_compare(p43[10], body("P-43", 8))]), body("P-43", 8), PINNED_BASE)
-        # P-34: issue 42 edited, renamed, commented on, labelled, closed and reopened by the Maintainer, then closed; its
-        # timeline and the issue read by REST as the port reads them, its lastEditedAt as P-34's GraphQL read gave it.
-        # Not through read(): no trial has recorded the port's own GraphQL read, and P-34's, asked at another time,
-        # names another updatedAt (decision 0218). That trial is owed, issue 831.
+        # P-72: canary issue 130 edited, renamed, typed, closed and reopened by the Maintainer, read after the reopening
+        # through read() as the port reads it (issue 831); P-34's GraphQL read, of issue 42, gave lastEditedAt the
+        # body's edit alone, before its rename.
+        p72, p72_rec = p72_read()[0], exchanges("P-72")
+        # P-34.rest: issue 42's timeline by REST, as the port reads it, whose close follows its writer's reopening.
         p34 = issues.own(replay("P-34.rest", 1), canary(), 42)
         p34_events, p34_whole = timeline.events(replay("P-34.rest", 0), {"number": 42, "base": {"repo": {"full_name": canary()}}})
         p34_accounts = timeline.Accounts(Router(github.Replay([]), {"don-petry": "admin"}), canary(), MACHINE, {})
@@ -5050,14 +5051,19 @@ class Contract(unittest.TestCase):
             "a_push_is_new_content": ({"P-29.base"}, before != after),
             "a_push_can_leave_the_diff_as_it_was": ({"P-29.base"}, before == moved != after),
             # The title's rename, not the body's earlier edit nor updatedAt.
-            "an_issues_content_time_is_read_apart": ({"P-34", "P-34.rest"},
-                issues.content_changed_at(p34["created_at"], p34_edited, p34_events) == renamed > p34_edited
-                and renamed != p34["updated_at"]),
-            "a_reopening_names_its_actor": ({"P-34.rest"}, [p34_accounts.acted(ev) for ev in p34_events
-                                                            if ev["event"] == "reopened"] == [P41_WRITER]),
-            # The Maintainer's reopening began a life, whose first close is the trial's last.
-            "an_issues_close_and_reopening_say_when": ({"P-34.rest"}, p34_whole and p34["state"] == "closed"
-                and issues.life(p34["created_at"], p34_events, p34_accounts)
+            "an_issues_content_time_is_read_apart": ({"P-34", "P-72"}, p34_edited < renamed
+                and p72["content_changed_at"] == "2026-11-20T16:25:38Z"
+                > p72_rec[14]["response"]["body"]["data"]["repository"]["issue"]["lastEditedAt"]
+                and p72["content_changed_at"] != p72_rec[12]["response"]["body"]["updated_at"]),
+            # The Maintainer's reopening, read as a writer's, began the present life, which no close has ended yet.
+            "a_reopening_names_its_actor": ({"P-72"}, p72["reopened_last_by"] == "writer"
+                and [ev["actor"]["login"] for ev in p72_rec[13]["response"]["body"] if ev["event"] == "reopened"]
+                == ["don-petry"]),
+            # Each reopening began a life: P-72's has had no close yet; P-34's first close is the trial's last.
+            "an_issues_close_and_reopening_say_when": ({"P-34.rest", "P-72"}, p72["complete"]["timeline"]
+                and [p72[k] for k in ("life_started_at", "reopened_last_at", "closed_first_at")]
+                == ["2026-11-20T16:26:01Z", "2026-11-20T16:26:01Z", None]
+                and p34_whole and issues.life(p34["created_at"], p34_events, p34_accounts)
                 == {"life_started_at": "2026-10-20T21:21:54Z", "reopened_last_by": "writer",
                     "reopened_last_at": "2026-10-20T21:21:54Z", "closed_first_at": "2026-10-20T21:31:23Z"}),
             "a_check_names_its_run_and_suite": ({"P-65"}, self.run_and_suite_read()),
@@ -6421,9 +6427,18 @@ def referenced(oid="c" * 40) -> dict:
 IDENTITIES = {"agent": {CONTROLLER_APP[1:]}, "maintainer": {(MAINTAINER, "User")}, "dependency": set()}
 
 
+def p72_read() -> tuple:
+    """`(facts, title, the transport)`: trials/P-72.json's read after the reopening, through `adapters/issues.py`'s
+    read() as the port sends it, the Maintainer's permission answered as P-53 records it."""
+    router = Router(github.Replay(exchanges("P-72")[12:]), {"don-petry": "admin"})
+    found, title = issues.read(router, canary(), 130, timeline.Accounts(router, canary(), MACHINE, {}),
+                               lambda: "2026-11-20T16:26:04Z", identities=IDENTITIES, earlier=[])
+    return found, title, router
+
+
 def issue_read(events=(), more=False, last=None, types=(), edits=None, closing=None, **change) -> list:
-    """The issues port's reads of issue 41 of o/r: the issue and its timeline by REST, its edits by GraphQL, which no
-    trial has recorded in the port's query yet (decision 0218), and its linked pull requests' reads, `closing`, by
+    """The issues port's reads of issue 41 of o/r: the issue and its timeline by REST, its edits by GraphQL, in the
+    port's query as trials/P-72.json recorded it (decision 0218), and its linked pull requests' reads, `closing`, by
     default none."""
     issue = dict({"number": 41, "state": "open", "title": "A title", "body": "A body", "created_at": CREATED,
                   "updated_at": UPDATED, "user": {"login": "don-petry", "id": MAINTAINER, "type": "User"},
@@ -6583,6 +6598,69 @@ class Issues(unittest.TestCase):
         # A comment, a label, a close and updatedAt move nothing.
         self.assertEqual(changed([issue_event("commented", 0), issue_event("labeled", 1, label={"name": "bug"}),
                                   issue_event("closed", 2)], state="closed"), CREATED)
+
+    def test_the_ports_own_read_names_one_time_and_is_read_whole_as_trial_p72_recorded_it(self):  # P-72, issue 831
+        # trials/P-72.json: canary issue 130 edited, renamed, typed Task, Bug and none, closed and reopened by the
+        # Maintainer; after each act but the last, the port's REST read and its own query back to back (decision 0218),
+        # and after the reopening the read as read() sends it. Each read's state, type and time are its act's.
+        recorded, at = exchanges("P-72"), "2026-11-20T16:2%sZ"
+        acts = [("open", None, "5:33"), ("open", None, "5:38"), ("open", "Task", "5:42"), ("open", "Bug", "5:47"),
+                ("open", None, "5:51"), ("closed", None, "5:56"), ("open", None, "6:01")]
+        for (rest, asked), (state, kind, when) in zip([(n, n + 1) for n in range(0, 12, 2)] + [(12, 14)], acts):
+            issue = recorded[rest]["response"]["body"]
+            self.assertEqual((issue["state"], (issue["type"] or {}).get("name"), issue["updated_at"]),
+                             (state, kind, at % when), rest)
+            self.assertEqual(recorded[asked]["request"]["body"]["query"], issues.QUERY)
+            self.assertNotIn("errors", recorded[asked]["response"]["body"])
+            self.assertEqual(issues.edits(github.Replay([recorded[asked]]), canary(), 130)["updated_at"],
+                             recorded[rest]["response"]["body"]["updated_at"], rest)
+        # The read after the reopening, through read(), every exchange asked; the Maintainer's permission, unrecorded,
+        # answered as P-53 recorded it.
+        found, title, router = p72_read()
+        self.assertEqual((title, router.asked, router.replay._left),
+                         (recorded[12]["response"]["body"]["title"], ["don-petry"], []))
+        self.assertEqual(found["type_events"], [{"from": None, "to": "Task", "at": at % "5:44"},
+                                                {"from": "Task", "to": "Bug", "at": at % "5:49"},
+                                                {"from": "Bug", "to": None, "at": at % "5:54"}])
+        self.assertIsNone(found["type"])
+        # an_issues_content_time_is_read_apart: the rename, after the body's edit, before the last update.
+        last_edited = recorded[14]["response"]["body"]["data"]["repository"]["issue"]["lastEditedAt"]
+        self.assertEqual((found["content_changed_at"], last_edited), (at % "5:38", at % "5:33"))
+        # a_reopening_names_its_actor and an_issues_close_and_reopening_say_when: the Maintainer's began a life.
+        self.assertEqual([found[k] for k in ("life_started_at", "reopened_last_by", "reopened_last_at", "closed_first_at")],
+                         [at % "6:01", "writer", at % "6:01", None])
+        self.assertEqual((found["state"], found["author"]["kind"], found["complete"]),
+                         ("open", "human", {"timeline": True, "linked": True, "runs": True}))
+
+    def test_an_issue_whose_type_is_not_its_last_changes_is_refused_as_moved(self):  # P-72, issue 831
+        # A change of type is timed seconds after the update it made, so a read between gives REST's type changed with
+        # no change listed for it, under one updatedAt (trials/P-72.json): changed, Bug with only the first change;
+        # removed, none with the first two. Each such read is refused as moved, and every other passes; set, Task with
+        # no change yet, is read, REST's type standing (the Factory Builder's ruling, decision 0218).
+        recorded, refused = exchanges("P-72"), []
+        for rest, asked in [(n, n + 1) for n in range(0, 12, 2)] + [(12, 14)]:
+            issue = issues.own(github.Replay([recorded[rest]]), canary(), 130)
+            try:
+                issues.typed(issue, issues.edits(github.Replay([recorded[asked]]), canary(), 130))
+            except facts.Moved:
+                refused.append(rest)
+        self.assertEqual(refused, [6, 8])
+        # Through read(): the type is the last change's, never an earlier one's; with none, REST's, a type among them.
+        added = {"__typename": "IssueTypeAddedEvent", "createdAt": minute(-50), "issueType": {"name": "Bug"}}
+        moved = {"__typename": "IssueTypeChangedEvent", "createdAt": minute(-40), "prevIssueType": {"name": "Bug"},
+                 "issueType": {"name": "Task"}}
+        for types, kind in (([], None), ([], {"name": "Task"}), ([added], {"name": "Bug"}), ([added, moved], {"name": "Task"})):
+            self.assertEqual(self.read(issue_read(types=types, type=kind))["type"], kind and kind["name"])
+        for types, kind in (([added], {"name": "Task"}), ([added], None), ([added, moved], {"name": "Bug"})):
+            with self.assertRaises(facts.Moved):
+                self.read(issue_read(types=types, type=kind))
+        # A type with no change logged, as examples/issue-facts.json holds one, is read whole, never deferred for good.
+        stable = self.read(issue_read(types=[], type={"name": "Task"}))
+        self.assertEqual((stable["type"], stable["type_events"], stable["complete"]["timeline"]), ("Task", [], True))
+        # The changes read short end on no known change: the timeline is not whole, and the issue defers on that.
+        short = self.read(issue_read(type={"name": "Task"}, edits={"timelineItems": {"pageInfo": {"hasNextPage": True},
+                                                                                       "nodes": [added]}}))
+        self.assertEqual((short["type"], short["complete"]["timeline"]), ("Task", False))
 
     def test_a_reopening_by_a_writer_begins_a_life_and_anyone_elses_does_not(self):
         from kernel import issue
