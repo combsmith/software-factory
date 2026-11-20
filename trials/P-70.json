@@ -2,7 +2,7 @@
   "schema": "trial/1",
   "trial": "P-70",
   "question": "When a pull request's description says `Fixes #I` and is then edited to take the keyword and the mention out, does issue I's timeline still list a CrossReferencedEvent whose source is that pull request, and what does `closedByPullRequestsReferences` say before and after? When a pull request's commit message alone says `Fixes #I`, does I's timeline list a ReferencedEvent with that commit, and does it stay after a force-push drops the commit? What does a pull request by a hidden or spammy author, and its cross-reference, show the reading token?",
-  "pass": "Written before the run, in the gates lane's plan at 2026-11-20T00:15Z for issue 990, nothing having run: pass: (1) after step 1's edit, a CrossReferencedEvent whose source is pull request A is still listed on I's timeline, read whole; and (2) after step 2's force-push, a ReferencedEvent with B's dropped commit is still listed, read whole. Recorded, deciding nothing: closedByPullRequestsReferences at each read, and step 3's answer, either way; a gap that step 3 shows is filed as its own issue. fail otherwise: (1) failing means #734's fallback is not safe as ruled, and the Factory Builder rules again before turn-on; (2) failing means the ReferencedEvent rule of #734's last pull request is not grounded. Passed. Run on 2026-11-20 in the canary through the Maintainer's own gh login, from the desk that acts for him (trial P-68's option A, as the Factory Builder ruled for this trial): issue 127, pull request A 128 and B 129. The plan's steps are reads 2 and 3 (step 1) and reads 4 to 6 (step 2); read 1 came first. (1) Pull request 128's CrossReferencedEvent, at 00:03:07Z, stands after its description was edited to name no issue, its willCloseTarget true before the edit and false after, and closedByPullRequestsReferences lists 128 before the edit and nothing after. (2) Pushing the commit whose message says Fixes #127 to a branch, before any pull request, left a ReferencedEvent at 00:02:43Z naming commit 1a3fb67e of the canary; it stands after the force-push dropped that commit from pull request 129, and a minute on. Recorded, deciding nothing: pull request 129, whose commit alone named the issue, was never among closedByPullRequestsReferences. Step 3, a hidden or spammy author, was not staged: no such author can be staged on purpose, and what one shows the App's token waits on the Maintainer running tools/trial_as_app.sh (issue 990). The writes (the issue, the branches, the commits, the pull requests, the edit, the force-push, and the undo) are not recorded here. Undone after the run: pull requests 128 and 129 closed unmerged, issue 127 closed as not planned, both branches deleted; nothing was minted. ran_at is the first read; the issue, branches and commits were made just before it. Each timeline's totalCount counts only the types the query filters to here. Of each answer's headers only the date and the request id are kept; the redaction also removed the OAuth client id and scopes, which are no credentials.",
+  "pass": "Written before the run, in the gates lane's plan at 2026-11-19T23:51Z for issue 990, nothing having run: pass: (1) after step 1's edit, a CrossReferencedEvent whose source is pull request A is still listed on I's timeline, read whole; and (2) after step 2's force-push, a ReferencedEvent with B's dropped commit is still listed, read whole. Recorded, deciding nothing: closedByPullRequestsReferences at each read, and step 3's answer, either way; a gap that step 3 shows is filed as its own issue. fail otherwise: (1) failing means #734's fallback is not safe as ruled, and the Factory Builder rules again before turn-on; (2) failing means the ReferencedEvent rule of #734's last pull request is not grounded. Passed. Run on 2026-11-20 in the canary through the Maintainer's own gh login, from the desk that acts for him (trial P-68's option A, as the Factory Builder ruled for this trial): issue 127, pull request A 128 and B 129. The plan's steps are reads 2 and 3 (step 1) and reads 4 to 6 (step 2); read 1 came first. (1) Pull request 128's CrossReferencedEvent, at 00:03:07Z, stands after its description was edited to name no issue, its willCloseTarget true before the edit and false after, and closedByPullRequestsReferences lists 128 before the edit and nothing after. (2) Pushing the commit whose message says Fixes #127 to a branch, before any pull request, left a ReferencedEvent at 00:02:43Z naming commit 1a3fb67e of the canary; it stands after the force-push dropped that commit from pull request 129, and a minute on; pull request 129's own HeadRefForcePushedEvent at 00:03:59Z goes from 1a3fb67e to ebc8e072, its head now, whose one commit's parent is main's tip e9a2da21. The ReferencedEvent names the commit and its repository, not a pull request: it tells the reader that something names the issue, not which pull request. Recorded, deciding nothing: pull request 129, whose commit alone named the issue, was never among closedByPullRequestsReferences and left no CrossReferencedEvent of its own on the issue; the ReferencedEvent came from the push to a branch of the canary, so a pull request from a fork, whose commit is pushed to the fork, is not covered here. Step 3, a hidden or spammy author, was not staged: no such author can be staged on purpose, and what one shows the App's token waits on the Maintainer running tools/trial_as_app.sh (issue 990); what GitHub documents for a viewer of a hidden author's content waits with it, since no source was read here. The writes (the issue, the branches, the commits, the pull requests, the edit, the force-push, and the undo) are not recorded here. Undone after the run: pull requests 128 and 129 closed unmerged, issue 127 closed as not planned, both branches deleted; nothing was minted. ran_at is the first read; the issue, branches and commits were made just before it. The issue's timeline totalCount equals its filtered nodes here; pull request 129's, in read 7, counts every item of its timeline, not only the types filtered to. Of each answer's headers only the date and the request id are kept; the redaction also removed the OAuth client id and scopes, which are no credentials.",
   "repo": "combsmith/software-factory-canary",
   "ran_at": "2026-11-20T00:02:59Z",
   "removed": [
@@ -11,7 +11,9 @@
     "exchanges[2].request.headers.authorization",
     "exchanges[3].request.headers.authorization",
     "exchanges[4].request.headers.authorization",
-    "exchanges[5].request.headers.authorization"
+    "exchanges[5].request.headers.authorization",
+    "exchanges[6].request.headers.authorization",
+    "exchanges[7].request.headers.authorization"
   ],
   "verdict": "pass",
   "exchanges": [
@@ -383,7 +385,7 @@
           "name": "don-petry"
         },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql --include): issue 127's timeline of cross-references, references, links, unlinkings and closes, with its closedByPullRequestsReferences, at read 6, a minute after step 5, nothing changed; the answer kept whole, of its headers the date and x-github-request-id alone",
+        "call": "POST /graphql (gh api graphql --include): issue 127's timeline of cross-references, references, links, unlinkings and closes, with its closedByPullRequestsReferences, at read 6, a minute after read 5, nothing changed; the answer kept whole, of its headers the date and x-github-request-id alone",
         "headers": {},
         "body": {
           "query": "query($owner:String!,$name:String!,$issue:Int!){repository(owner:$owner,name:$name){issue(number:$issue){state closedByPullRequestsReferences(first:10,includeClosedPrs:true){totalCount nodes{number}} timelineItems(first:100,itemTypes:[CROSS_REFERENCED_EVENT,REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT]){totalCount pageInfo{hasNextPage} nodes{__typename ... on CrossReferencedEvent{createdAt actor{__typename login} willCloseTarget source{__typename ... on PullRequest{number} ... on Issue{number}}} ... on ReferencedEvent{createdAt actor{__typename login} commit{oid} commitRepository{nameWithOwner}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ClosedEvent{createdAt closer{__typename}}}}}}}",
@@ -440,6 +442,116 @@
                       "source": {
                         "__typename": "PullRequest",
                         "number": 128
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql --include): pull request 129's state, head and timeline of force-pushes, references and cross-references, at read 7, after the undo; pull request 129's own timeline of force-pushes and references, the proof of step 2's force-push; the answer kept whole, of its headers the date and x-github-request-id alone",
+        "headers": {},
+        "body": {
+          "query": "query($owner:String!,$name:String!,$pr:Int!){repository(owner:$owner,name:$name){pullRequest(number:$pr){state headRefOid timelineItems(first:100,itemTypes:[HEAD_REF_FORCE_PUSHED_EVENT,CROSS_REFERENCED_EVENT,REFERENCED_EVENT]){totalCount pageInfo{hasNextPage} nodes{__typename ... on HeadRefForcePushedEvent{createdAt actor{__typename login} beforeCommit{oid} afterCommit{oid}} ... on ReferencedEvent{createdAt commit{oid}} ... on CrossReferencedEvent{createdAt source{__typename}}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "pr": 129
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 00:08:27 GMT",
+          "x-github-request-id": "F2E2:111B4C:1E77C27:5FA3812:6AFF8F7B"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "state": "CLOSED",
+                "headRefOid": "ebc8e072b3ffd4691d13b1baef69ed8072c762b9",
+                "timelineItems": {
+                  "totalCount": 13,
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": [
+                    {
+                      "__typename": "HeadRefForcePushedEvent",
+                      "createdAt": "2026-11-20T00:03:59Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "beforeCommit": {
+                        "oid": "1a3fb67ed635123e0b87a4413e79bc2788497741"
+                      },
+                      "afterCommit": {
+                        "oid": "ebc8e072b3ffd4691d13b1baef69ed8072c762b9"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql --include): pull request 129's head and commits with their parents, at read 8, after the undo; pull request 129's commits and their parents: one commit, on main's tip, the keyword's commit gone; the answer kept whole, of its headers the date and x-github-request-id alone",
+        "headers": {},
+        "body": {
+          "query": "query($owner:String!,$name:String!,$pr:Int!){repository(owner:$owner,name:$name){pullRequest(number:$pr){headRefOid commits(first:10){totalCount nodes{commit{oid parents(first:2){nodes{oid}}}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "pr": 129
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 00:09:33 GMT",
+          "x-github-request-id": "F2EB:1EE381:1ED7BC9:60D8F12:6AFF8FBD"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "headRefOid": "ebc8e072b3ffd4691d13b1baef69ed8072c762b9",
+                "commits": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "commit": {
+                        "oid": "ebc8e072b3ffd4691d13b1baef69ed8072c762b9",
+                        "parents": {
+                          "nodes": [
+                            {
+                              "oid": "e9a2da218c5e15d5f19107c72f03e2ed87e48c60"
+                            }
+                          ]
+                        }
                       }
                     }
                   ]
