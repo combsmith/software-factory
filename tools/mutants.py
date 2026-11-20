@@ -99,6 +99,8 @@ WIRE_RUNNING = ("tests.test_adapters.EffectsRecorded.test_a_pass_still_running_i
 WIRE_UNMATCHED = ("tests.test_adapters.EffectsRecorded.test_a_write_by_a_pass_that_failed_and_recorded_nothing_is_unmatched_not_short",)
 WIRE_CARRY = ("tests.test_reconcile.Carried",)
 WIRE_ENTRY = ("tests.test_controller.Entry.test_the_entry_gathers_what_reconciliation_reads",)
+# The push port's tests (issue 838).
+PUSH_TOKEN = ('tests.test_adapters.Push.test_a_pushs_token_sends_a_pushs_alone',)
 # The issues port's tests (decision 0218).
 ISSUE_WHOLE = ("tests.test_adapters.Issues.test_an_issues_timeline_is_whole_only_when_its_last_page_names_no_next",)
 ISSUE_CONTENT = ("tests.test_adapters.Issues.test_an_issues_content_time_is_the_newer_of_its_edit_and_its_rename",)
@@ -16660,6 +16662,47 @@ MUTANTS = ISSUE + [
     ('a tag outside factory/ is read', 'adapters/tags.py',
      '        if not ref["ref"].startswith(PREFIX):\n            continue\n',
      '', ('tests.test_release.Tags.test_a_move_reads_refs_and_nothing_at_any_tag',)),
+    # The push port's token (issue 838, P-71): what a push may send, narrowed to its repo's git data and its one work
+    # branch, and nothing for a repo or a branch told wrongly.
+    ("a name of any letters and length is a commit's", 'adapters/push.py', 'SHA = re.compile(r"[0-9a-f]{40}")', 'SHA = re.compile(r"[0-9A-Za-z]{1,40}")', PUSH_TOKEN),
+    ("a name with more after it is a commit's", 'adapters/push.py', 'SHA.fullmatch(said)', 'SHA.match(said)', PUSH_TOKEN),
+    ("a repo named . or .. is a push's", 'adapters/push.py', ' and repo.split("/")[1] not in (".", "..")', '', PUSH_TOKEN),
+    ("a branch that begins as a work branch's is one", 'adapters/push.py', 'WORK.fullmatch(branch) is not None', 'WORK.match(branch) is not None', PUSH_TOKEN),
+    ("the token for a repo or a branch told wrongly sends", 'adapters/push.py', '    if not (_repo(repo) and _work(branch)):\n        return {}, []\n', '', PUSH_TOKEN),
+    ("the token reads with a body", 'adapters/push.py', '        return body is None\n', '        return True\n', PUSH_TOKEN),
+    ("the token makes a blob with a key more", 'adapters/push.py', 'set(body) == {"content", "encoding"}', 'True', PUSH_TOKEN),
+    ("the token makes a blob of content that is no text", 'adapters/push.py', '    if not isinstance(text, str):\n        return None\n    try:', '    try:', PUSH_TOKEN),
+    ("the token makes a blob of text that is no base64", 'adapters/push.py', '_decoded(body["content"]) is not None', 'True', PUSH_TOKEN),
+    ("the token makes a blob in another encoding", 'adapters/push.py', 'and body["encoding"] == "base64"', 'and True', PUSH_TOKEN),
+    ("the token makes a blob in an encoding that is no text", 'adapters/push.py', 'type(body["encoding"]) is str and ', '', PUSH_TOKEN),
+    ("the token makes a tree of a symlink", 'adapters/push.py', 'item["mode"] in FILE_MODES', 'True', PUSH_TOKEN),
+    ("the token makes a tree of a submodule", 'adapters/push.py', 'item["type"] == "blob"', 'True', PUSH_TOKEN),
+    ("the token makes a tree of a name that is none", 'adapters/push.py', '(item["sha"] is None or _sha(item["sha"]))', 'True', PUSH_TOKEN),
+    ("the token makes a tree of an entry with a key more", 'adapters/push.py', 'set(item) == {"path", "mode", "type", "sha"}', 'True', PUSH_TOKEN),
+    ("the token makes a tree of a path that names no file", 'adapters/push.py', '_file(item["path"])', 'True', PUSH_TOKEN),
+    ("the token makes a tree of a path that is no text", 'adapters/push.py', 'isinstance(path, str) and all(', 'all(', PUSH_TOKEN),
+    ("the token makes a tree of a path with a part empty", 'adapters/push.py', '("", ".", "..")', '(".", "..")', PUSH_TOKEN),
+    ("the token makes a tree of a path with a part .", 'adapters/push.py', '("", ".", "..")', '("", "..")', PUSH_TOKEN),
+    ("the token makes a tree of a path with a part ..", 'adapters/push.py', '("", ".", "..")', '("", ".")', PUSH_TOKEN),
+    ("the token makes a tree of any entries", 'adapters/push.py', 'all(entry(item) for item in body["tree"])', 'True', PUSH_TOKEN),
+    ("the token makes a tree of its first entry's kind", 'adapters/push.py', 'all(entry(item) for item in body["tree"])', 'all(entry(item) for item in body["tree"][:1])', PUSH_TOKEN),
+    ("the token makes a tree with a key more", 'adapters/push.py', 'set(body) == {"base_tree", "tree"}', 'True', PUSH_TOKEN),
+    ("the token makes a tree of entries that are no list", 'adapters/push.py', 'type(body["tree"]) is list', 'True', PUSH_TOKEN),
+    ("the token makes a tree upon a name that is none", 'adapters/push.py', ' and _sha(body["base_tree"])', '', PUSH_TOKEN),
+    ("the token makes a commit with a key more", 'adapters/push.py', 'set(body) == {"message", "tree", "parents"}', 'True', PUSH_TOKEN),
+    ("the token makes a commit of a message that is no text", 'adapters/push.py', 'isinstance(body["message"], str)', 'True', PUSH_TOKEN),
+    ("the token makes a commit of two parents", 'adapters/push.py', 'len(body["parents"]) == 1', 'len(body["parents"]) >= 1', PUSH_TOKEN),
+    ("the token makes a commit of parents that are no list", 'adapters/push.py', 'type(body["parents"]) is list', 'True', PUSH_TOKEN),
+    ("the token makes a commit on a parent that is no name", 'adapters/push.py', '_sha(body["parents"][0])', 'True', PUSH_TOKEN),
+    ("the token makes a commit of a tree that is no name", 'adapters/push.py', '\n            and _sha(body["tree"]) and', '\n            and', PUSH_TOKEN),
+    ("the token makes another branch", 'adapters/push.py', 'body["ref"] == HEADS + branch', 'body["ref"].startswith(HEADS)', PUSH_TOKEN),
+    ("the token makes a branch with a key more", 'adapters/push.py', 'set(body) == {"ref", "sha"}', 'True', PUSH_TOKEN),
+    ("the token makes the branch at a name that is none", 'adapters/push.py', 'HEADS + branch and _sha(body["sha"])', 'HEADS + branch', PUSH_TOKEN),
+    ("the token moves the branch to a name that is none", 'adapters/push.py', '_sha(body["sha"]) and body["force"]', 'body["force"]', PUSH_TOKEN),
+    ("the token moves the branch by a force told as a number", 'adapters/push.py', 'body["force"] is False', 'body["force"] == False', PUSH_TOKEN),
+    ("the token moves the branch by force", 'adapters/push.py', ' and body["force"] is False', '', PUSH_TOKEN),
+    ("the token moves another work branch", 'adapters/push.py', '    patterns = [', '    patterns = [("PATCH", re.compile(re.escape(git + "refs/heads/") + WORK.pattern), moved), ', PUSH_TOKEN),
+    ("the token reads a tree's top alone", 'adapters/push.py', ' + SHA.pattern + re.escape("?recursive=1")', ' + SHA.pattern', PUSH_TOKEN),
     # Issue 596: a namespace package, sys's modules, an attribute set on a class from outside, and gh or git run.
     ("a namespace package is no module of the repo's", 'tools/check_writes.py',
      '    return name in mods or any(m.startswith(name + ".") for m in mods)\n', '    return name in mods\n',

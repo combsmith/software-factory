@@ -21,7 +21,7 @@ import zipfile
 from unittest import mock
 
 from adapters import acceptance, applied, artifacts, checks, draft_checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
-    passes, pull, records, pause, rules, texts, threads, timeline
+    passes, pull, push, records, pause, rules, texts, threads, timeline
 from controller import shared
 from harness import task
 from kernel import brakes
@@ -7441,6 +7441,132 @@ class DraftChecks(unittest.TestCase):
             got = issues.read(transport, "o/r", 41, timeline.Accounts(transport, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]}),
                               lambda: Issues.NOW, identities=IDENTITIES, earlier=[], kernel=given)[0]
             self.assertEqual([p.get("checks") for p in got["linked"]], ["failing", None])
+
+
+PUSHED = json.loads((ROOT / "trials" / "P-71.json").read_text())["repo"]       # P-71's repo, and its work branch
+WORK = "factory-work/issue-9971-1"
+NAMED = "a" * 40
+
+
+def calmly(send, *args):
+    """What `send` gives, or the error it raised in its place."""
+    try:
+        return send(*args)
+    except Exception as raised:
+        return raised
+
+
+class Posing:
+    """No text, though it answers as text would: as base64, as a file's path, and as equal to any."""
+
+    def replace(self, old, new):
+        return "eA=="
+
+    def split(self, sep):
+        return ["a.md"]
+
+    def __eq__(self, other):
+        return True
+
+
+class Push(unittest.TestCase):
+    """The push port (issue 838): what a push's token may send by the git data API, deciding nothing."""
+
+    class Recording:
+        """A transport that answers every request, so only the push's token can refuse one."""
+        def __init__(self):
+            self.sent = []
+
+        def send(self, req):
+            self.sent.append(req)
+            return {"status": 200, "headers": {}, "body": None}
+
+    def test_a_pushs_token_sends_a_pushs_alone(self):
+        entry = {"path": "a.md", "mode": "100644", "type": "blob", "sha": NAMED}
+        recording = self.Recording()
+        sending = effects.Allowed(recording, *push.allowed(PUSHED, WORK))
+        git, other = "/repos/%s/git/" % PUSHED, "/repos/%sx/git/" % PUSHED[:-1]     # another repo, its name as long
+        tree = {"base_tree": NAMED, "tree": [entry]}
+        commit = {"message": "m", "tree": NAMED, "parents": [NAMED]}
+        blob = {"content": "eA==", "encoding": "base64"}
+        good = [github.request(method, path, body=body) for method, path, body in (
+            ("GET", git + "commits/" + NAMED, None), ("GET", git + "trees/" + NAMED + "?recursive=1", None),
+            ("GET", git + "blobs/" + NAMED, None), ("GET", git + "ref/heads/" + WORK, None),
+            ("POST", git + "blobs", blob), ("POST", git + "blobs", dict(blob, content="eHh4\neA==\n")),
+            ("POST", git + "blobs", dict(blob, content="")),
+            ("POST", git + "trees", dict(tree, tree=[entry, dict(entry, path="bin/b.sh", mode="100755"),
+                                                     dict(entry, path="docs/c..d", sha=None)])),
+            ("POST", git + "commits", commit), ("POST", git + "refs", {"ref": "refs/heads/" + WORK, "sha": NAMED}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": False}))]
+        for req in good:
+            self.assertEqual(calmly(sending.send, req), {"status": 200, "headers": {}, "body": None}, req)
+        self.assertEqual(recording.sent, good)
+        refused = [
+            # A read off the repo's git data, another repo's, of no name, of a tree's top alone, or with a body.
+            ("GET", "/repos/%s/contents/a.md" % PUSHED, None), ("GET", other + "commits/" + NAMED, None),
+            ("GET", git + "commits/main", None), ("GET", git + "trees/" + NAMED, None),
+            ("GET", git + "ref/heads/main", None), ("GET", git + "ref/heads/factory-work/issue-9971-2", None),
+            ("GET", git + "commits/" + NAMED, {}), ("GET", git + "ref/heads/" + WORK, {"sha": NAMED}),
+            # A blob of another repo's, another encoding or one that is no text, a key more, no text, or no base64:
+            # alphabet, padding, length.
+            ("POST", other + "blobs", blob), ("POST", git + "blobs", dict(blob, encoding="utf-8")),
+            ("POST", git + "blobs", dict(blob, encoding=Posing())),
+            ("POST", git + "blobs", dict(blob, size=1)), ("POST", git + "blobs", dict(blob, content=Posing())),
+            ("POST", git + "blobs", dict(blob, content=b"eA==")),
+            ("POST", git + "blobs", dict(blob, content="not base64!")), ("POST", git + "blobs", dict(blob, content="e!A==")),
+            ("POST", git + "blobs", dict(blob, content="eA=")), ("POST", git + "blobs", dict(blob, content="eHh4e")),
+            # A tree of a symlink, a submodule, an entry with a key more or no name; with a key more, of no list, or of
+            # a good entry and then a bad one; of a path that is no text, or names no file; upon a name with more after it.
+            ("POST", git + "trees", dict(tree, base_tree="main")), ("POST", other + "trees", tree),
+            ("POST", git + "trees", dict(tree, mode="100644")), ("POST", git + "trees", dict(tree, tree={})),
+            ("POST", git + "trees", dict(tree, tree=[entry, dict(entry, mode="120000")])),
+            ("POST", git + "trees", dict(tree, tree=[entry, dict(entry, path=b"b.md")])),
+            ("POST", git + "trees", dict(tree, base_tree=NAMED + "\n"))] + [
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, **bad)]))
+            for bad in ({"mode": "120000"}, {"type": "commit"}, {"size": 1}, {"sha": "x"}, {"path": b"a.md"},
+                        {"path": Posing()})] + [
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path=path)]))
+            for path in ("", "/a.md", "docs/", "docs//a.md", "./a.md", "docs/./a.md", "../a.md", "docs/../a.md",
+                         ".", "..")] + [
+            # A commit of no parent or two, a tree of no name, another repo's; with a key more; of a message no text,
+            # parents no list, or a parent of no name.
+            ("POST", git + "commits", dict(commit, parents=[])), ("POST", git + "commits", dict(commit, parents=[NAMED] * 2)),
+            ("POST", git + "commits", dict(commit, tree="main")), ("POST", other + "commits", commit),
+            ("POST", git + "commits", dict(commit, author={"name": "a"})),
+            ("POST", git + "commits", dict(commit, committer={"name": "a"})),
+            ("POST", git + "commits", dict(commit, signature="s")),
+            ("POST", git + "commits", dict(commit, message=1)), ("POST", git + "commits", dict(commit, parents={0: NAMED})),
+            ("POST", git + "commits", dict(commit, parents=["main"])),
+            # Another ref made: the default branch, a tag, another work branch, by its own path, a key more; or at no name.
+            ("POST", git + "refs", {"ref": "refs/heads/main", "sha": NAMED}),
+            ("POST", git + "refs", {"ref": "refs/tags/factory/v1.0.0", "sha": NAMED}),
+            ("POST", git + "refs", {"ref": "refs/heads/factory-work/issue-9971-2", "sha": NAMED}),
+            ("POST", git + "refs", {"ref": "refs/heads/" + WORK, "sha": NAMED, "force": True}),
+            ("POST", git + "refs/heads/" + WORK, {"sha": NAMED, "force": False}),
+            ("POST", other + "refs", {"ref": "refs/heads/" + WORK, "sha": NAMED}),
+            ("POST", git + "refs", {"ref": "refs/heads/" + WORK, "sha": "main"}),
+            ("POST", git + "refs", {"ref": "refs/heads/" + WORK, "sha": None}),
+            # A force told any way, or none; another branch moved; by the read's path or another repo's; to no name.
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": True}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": 0}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": "false"}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED}),
+            ("PATCH", git + "refs/heads/main", {"sha": NAMED, "force": False}),
+            ("PATCH", git + "refs/heads/factory-work/issue-9971-2", {"sha": NAMED, "force": False}),
+            ("PATCH", git + "ref/heads/" + WORK, {"sha": NAMED, "force": False}),
+            ("PATCH", other + "refs/heads/" + WORK, {"sha": NAMED, "force": False}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": "main", "force": False}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": None, "force": False}),
+            # Never a delete, and never a put.
+            ("DELETE", git + "refs/heads/" + WORK, None), ("PUT", git + "refs/heads/" + WORK, {"sha": NAMED, "force": False})]
+        for method, path, body in refused:
+            self.assertIsInstance(calmly(sending.send, github.request(method, path, body=body)), github.Unanswered,
+                                  (method, path, body))
+        self.assertEqual(recording.sent, good)
+        # A token for a repo or a branch told wrongly, a work branch's name with more after it among them, sends
+        # nothing at all.
+        for repo, branch in (("o/..", WORK), (PUSHED, "main"), (PUSHED, None), (PUSHED, WORK + "/../main")):
+            self.assertEqual(push.allowed(repo, branch), ({}, []), (repo, branch))
 
 
 if __name__ == "__main__":
