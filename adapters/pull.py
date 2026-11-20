@@ -23,12 +23,13 @@ MOVED = {"renamed", "copied"}
 SHA = re.compile(r"^[0-9a-f]{40}$")
 HUNK = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@")
 # A file's index line, its two blob ids, each at most 64 characters, and the mode it kept, if any. GitHub gives the two
-# ids of one compare 8 characters long at one read and 9 at the next (2026-11-19), so each is cut to git's least, 7.
+# ids of one compare 8 characters long at one read and 9 at the next (2026-11-19), so each is cut to the least
+# GitHub gives, 7.
 INDEX = re.compile(r"^(index [0-9a-f]{7})[0-9a-f]{0,57}(\.\.[0-9a-f]{7})[0-9a-f]{0,57}((?: [0-7]{6})?)$", re.MULTILINE)
 # Where a file's part of a diff begins, and where its header ends at its first hunk. No line of a hunk begins with
 # either: each begins ` `, `+`, `-` or `\`.
 FILE = re.compile(r"^diff --git ", re.MULTILINE)
-FIRST_HUNK = re.compile(r"^@@ ", re.MULTILINE)
+FIRST_HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@", re.MULTILINE)
 # All an empty file's part of a diff says: its header, whether it was added or deleted, and its index line, which names
 # no blob, all zeros, and the empty blob's id, by SHA-1 or SHA-256, which git works out and no one can choose; git gives
 # no other blob an abbreviation of that id while the empty blob is in the repo.

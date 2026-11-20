@@ -889,12 +889,14 @@ class Diff(unittest.TestCase):
         # read and 9 at the next, and every Run that read it twice ended content_moved. Each id is cut to git's least,
         # 7, so the content id, its count, the bytes a Run is given and a review's content are one whatever the read gave.
         def sent(world: str, gate: str, empty: str, gone: str) -> str:
-            # The second file's name holds `@@ `, which begins no hunk but at the start of a line.
-            return ("diff --git a/sim/world.py b/sim/world.py\nindex %s\n--- a/sim/world.py\n+++ b/sim/world.py\n"
+            # The first file's name holds `diff --git `, and the second's `@@ `: neither begins a file or a hunk but at
+            # the start of a line.
+            return ("diff --git a/sim/diff --git w.py b/sim/diff --git w.py\nindex %s\n--- a/sim/diff --git w.py\n"
+                    "+++ b/sim/diff --git w.py\n"
                     "@@ -15,2 +15,3 @@\n from controller import configuration\n+from kernel.gate import closed\n"
-                    " from kernel import terms as t\ndiff --git a/kernel/gate@@ x.py b/kernel/gate@@ x.py\nindex %s\n"
-                    "--- a/kernel/gate@@ x.py\n+++ b/kernel/gate@@ x.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
-                    "diff --git a/kernel/__init__.py b/kernel/__init__.py\nnew file mode 100644\nindex %s\n"
+                    " from kernel import terms as t\ndiff --git a/kernel/gate@@ -1 +1 @@ x.py b/kernel/gate@@ -1 +1 @@ x.py\nindex %s\n"
+                    "--- a/kernel/gate@@ -1 +1 @@ x.py\n+++ b/kernel/gate@@ -1 +1 @@ x.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
+                    "diff --git a/kernel/__init__.py b/kernel/__init__.py\nnew file mode 100755\nindex %s\n"
                     "diff --git a/old/__init__.py b/old/__init__.py\ndeleted file mode 100644\nindex %s\n"
                     % (world, gate, empty, gone))
         eight = sent("0e91505d..9f114f5d 100644", "77da7d97..7227c4f0 100755", "00000000..e69de29b", "e69de29b..00000000")
@@ -954,6 +956,11 @@ class Diff(unittest.TestCase):
             "diff --git a/x.bin b/x.bin\nnew file mode 100644\nindex 00000000..e69de29c\n",
             "diff --git a/y.bin b/y.bin\nnew file mode 100644\nindex 11aab6ce..e69de29b\n",
             "diff --git a/z.bin b/z.bin\nnew file mode 100644\nindex 00000000..000000000\n",
+            "diff --git a/u.bin b/u.bin\nnew file mode 100644\nindex 00000001..e69de29b\n",
+            "diff --git a/v.bin b/v.bin\nnew file mode 100644\nindex 000000000..e69de29b0\n",
+            # A line that begins `@@ ` but is no hunk's header tells nothing of a binary file.
+            "diff --git a/t.bin b/t.bin\nindex 11aab6ce..11aab6c4 100644\nBinary files a/t.bin and b/t.bin differ\n"
+            "@@ incomplete\n",
             # A line that says more than an index line, and an id longer than any git gives, are not index lines.
             "diff --git a/a b/a\nindex 0e91505d0..9f114f5d8 100644 and more\nindex %s..9f114f5d8\n@@ -1 +1 @@\n-a\n+b\n"
             % ("0" * 65),
