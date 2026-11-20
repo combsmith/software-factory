@@ -299,6 +299,10 @@ class Reader(unittest.TestCase):
         # that could not be read would refuse a Task for nothing (decision 0199).
         # The outcomes the pass record read are kept, not read again.
         self.assertEqual(calls["listed"], [(["run.yml", "approve.yml"], reread.held(RECORD))])
+        failed = dict(tc.run(status="completed", conclusion="failure", outcome="environment"), engine_started=False)
+        key = (failed["run"], failed["started_at"])
+        self.assertEqual(self.go(record=dict(RECORD, runs=[failed]))[4]["listed"],
+                         [(["run.yml", "approve.yml"], {"kept": {key: "environment"}, "engines": {key: False}})])
         self.assertEqual(calls["asked"], [{"repo": HOME, "numbers": [42], "lenses": {"pr-review"}, "authority": AUTHORITY}])
         # A list read short holds them to nothing recorded, not whole: the Task is refused rather than built on it.
         self.assertEqual(self.go(complete=False)[4]["recorded"], [({}, False, [])])
