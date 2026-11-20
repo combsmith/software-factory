@@ -182,6 +182,24 @@ class Kept(unittest.TestCase):
         broken = exchanges.Recording(Answering("not an answer"))
         self.assertEqual(broken.send(github.request("GET", "/repos/%s" % REPO)), "not an answer")
         self.assertEqual((broken.kept()["exchanges"], broken.kept()["unkept"]), ([], 1))
+        # A number that is not finite drops its exchange, counted, and the file of the rest is still written (issue 922).
+        nan = exchanges.Recording(Answering({"status": 200, "headers": None, "body": {"id": float("nan")}}))
+        nan.send(github.request("GET", "/repos/%s" % REPO))
+        self.assertEqual((nan.kept()["exchanges"], nan.kept()["unkept"]), ([], 1))
+        folder = pathlib.Path(tempfile.mkdtemp())
+        self.assertTrue(nan.write(str(folder)))
+        self.assertEqual(json.loads((folder / exchanges.NAME).read_text())["unkept"], 1)
+        # And a request the transport raised on is held the same way (cubic's read).
+        raised = exchanges.Recording(Answering(ValueError("refused")))
+        with self.assertRaises(ValueError):
+            raised.send(github.request("POST", "/repos/%s/git/refs" % REPO, body={"sha": float("nan")}))
+        self.assertEqual((raised.kept()["exchanges"], raised.kept()["unkept"]), ([], 1))
+        # And what is kept is written with no number that is not finite, or not at all.
+        kept = exchanges.Recording(Answering())
+        kept.kept = lambda: {"cost": float("inf")}
+        folder = pathlib.Path(tempfile.mkdtemp())
+        self.assertFalse(kept.write(str(folder)))
+        self.assertEqual(list(folder.iterdir()), [])
 
     def test_it_writes_only_the_one_file_in_the_folder_the_workflow_names(self):
         folder = pathlib.Path(tempfile.mkdtemp())
