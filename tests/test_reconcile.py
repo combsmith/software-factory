@@ -292,6 +292,16 @@ class Hand(unittest.TestCase):
         # A Role named as a hand's writes are could not be told from a person: no identity is known, and it is short.
         named = dict(KNOWN, roles=dict(KNOWN["roles"], hand=KNOWN["roles"]["pr-review"]))
         self.assertTrue(check(seen(), before=[passed()], accounts=named)["short"])
+        # And controller/1 refuses the name, so that no such configuration reaches a pass (issue 887).
+        config = json.loads((ROOT / "config" / "controller.json").read_text())
+        self.assertEqual(validate(config, SCHEMAS["controller"], schemas=SCHEMAS), [])
+        config["accounts"]["roles"]["hand"] = config["accounts"]["roles"]["pr-review"]
+        self.assertEqual(len(validate(config, SCHEMAS["controller"], schemas=SCHEMAS)), 1)
+        # A resolution an identity made is no hand's, whatever it resolved: it is never judged as one (issue 887).
+        role = wrote("pr-review", "resolution", "PRRT_t", at=None)
+        self.assertEqual([check(seen(role), before=[passed(hands=None)])[k] for k in ("unjudged", "short")], [[], False])
+        self.assertEqual(reconcile.carried([passed()], dict(recorded(), read={"runs": [], "passes": []}, at={}),
+                                           seen(role), NOW)["hands"], [])
 
     def test_a_hands_resolution_once_matched_is_carried_while_it_is_seen(self):  # issue 854
         # A resolution has no time and is seen at every pass, long after the pass that named its thread: once matched, its
@@ -316,6 +326,11 @@ class Hand(unittest.TestCase):
         # What is carried is what `pass/1` holds.
         record = dict(passed(), reconciled=held, alerts=["hand_unmatched"])
         self.assertEqual(validate(record, SCHEMAS["pass"], schemas=SCHEMAS), [])
+        # And no other: a key that is no thread's, a time that is none, and anything beside the two (issue 887).
+        for odd in ({"key": "PRRT t", "at": NOW}, {"key": "PRRT_t", "at": "2026-13-11T12:00:00Z"}, {"key": "PRRT_t"},
+                    {"key": "PRRT_t", "at": NOW, "by": "hand"}, "PRRT_t"):
+            bad = dict(record, reconciled=dict(held, hands=[odd]))
+            self.assertEqual(len(validate(bad, SCHEMAS["pass"], schemas=SCHEMAS)), 1, odd)
 
     def test_a_hands_resolution_no_record_can_judge_is_short_once_carried_and_named(self):  # issue 854
         # Where no record before can say whether an act named the thread, reconciliation is short for that pass, never
@@ -324,7 +339,11 @@ class Hand(unittest.TestCase):
         # long as its pull request is open; and with none that decided the item, which two passes could not read.
         effects = dict(recorded(), read={"runs": [], "passes": []}, at={})
         waved = [{"alert": "hand_unjudged", "by": "hand", "write": "resolution", "item": URL, "key": "PRRT_t"}]
-        for before in ([], [passed(hands=None)], [passed([], hands=None)], [passed(item=OTHER), passed(item=OTHER)]):
+        review = dict(state="verifying", reason="awaiting_review", outcome="admit", action=None)
+        # The rule starts for an item where the record that decided it starts it, not where the last record does: one
+        # written before it decided the item, and a later one that carries hands did not (issue 887).
+        for before in ([], [passed(hands=None)], [passed([], hands=None)], [passed(item=OTHER), passed(item=OTHER)],
+                       [passed(hands=None, **review), passed([], item=OTHER)]):
             found = check(seen(HAND), before=before)
             self.assertEqual((found["unmatched"], found["short"]), ([], True), before)
             self.assertEqual((reconcile.alerts(found), reconcile.entries(found)), (["reconciliation_unreadable"], waved))
@@ -543,6 +562,13 @@ class SeenPort(unittest.TestCase):
                          ("an account whose id is no number", thread("PRRT_h", author={"__typename": "Bot", "databaseId": True}))):
             writes, _, whole = port(kept(threads=[odd]))
             self.assertEqual((writes, whole), ([], False), why)
+        # The opener is the first comment's author, however many follow it (issue 887).
+        role_first, person_next = (thread("PRRT_h")["comments"]["nodes"][0],
+                                   dict(thread("PRRT_h", opened=PERSON)["comments"]["nodes"][0], replyTo={"id": "PRRC_1"}))
+        for nodes, read_ in (([role_first, person_next], [("hand", "PRRT_h")]), ([dict(person_next, replyTo=None),
+                                                                                  dict(role_first, replyTo={"id": "PRRC_1"})], [])):
+            writes, _, whole = port(kept(threads=[dict(thread("PRRT_h"), comments={"nodes": nodes})]))
+            self.assertEqual(([(w["by"], w["key"]) for w in writes], whole), (read_, True), nodes)
         # Only a person's resolution asks who opened the thread: an identity's is read whoever did, as before.
         writes, _, whole = port(kept(threads=[dict(thread("PRRT_r", by=ROLE), comments=None)]))
         self.assertEqual(([(w["by"], w["key"]) for w in writes], whole), ([("pr-review", "PRRT_r")], True))

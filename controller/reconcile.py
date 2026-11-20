@@ -113,10 +113,13 @@ def left(before, since=None) -> list:
 def _named(before, item: str):
     """The threads that the last pass before which decided `item` named in its act `resolve_thread`: none if its
     Decision was any other. A pass that did not decide the item, which it could not read, says nothing of it, and where
-    no record before decided it, None: nothing can judge."""
+    no record before decided it, None: nothing can judge. Nor can that record if it was written before a hand's
+    resolutions were carried: the rule starts for an item where the record that decided it starts it (issue 887)."""
     for record in reversed(before if isinstance(before, list) else []):
         for e in record["pull_requests"]:
             if key(e["facts"]["item"]) == item:
+                if "hands" not in (record.get("reconciled") if isinstance(record.get("reconciled"), dict) else {}):
+                    return None
                 d = e["decision"]
                 return set(d["evidence"]) if d["outcome"] == "act" and d.get("action") == "resolve_thread" else set()
     return None
@@ -135,7 +138,7 @@ def _hands(seen: dict, before) -> tuple:
     carried_ = {e["key"] for e in held or () if _within(e["at"], seen["since"])}
     matched, unjudged = set(), set()
     for w in filter(_is_hands, seen["writes"]):
-        named = _named(before, key(w["item"])) if held is not None else None
+        named = _named(before, key(w["item"]))
         if w["key"] in carried_ or (named is not None and w["key"] in named):
             matched.add(w["key"])
         elif named is None:
