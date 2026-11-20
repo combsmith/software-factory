@@ -2170,10 +2170,11 @@ class Purity(unittest.TestCase):
             root = tree({"kernel/__init__.py": "", "kernel/x.py": ""})
             (root / "kernel" / "x.py").write_bytes(data)
             return check_purity.run(root)
-        for data in (b"# -*- coding: utf-7 -*-\nA = 'a'\n", b"#!/usr/bin/env python\n# vim: set fileencoding=latin-1 :\nA = 'a'\n"):
+        for data in (b"# -*- coding: utf-7 -*-\nA = 'a'\n", b"#!/usr/bin/env python\n# vim: set fileencoding=latin-1 :\nA = 'a'\n",
+                     b"  # coding: latin-1\nA = 'a'\n", b"\x0c\x0c# coding: utf-7\n#+AAo-A = 1\n", b"\xef\xbb\xbf# coding: latin-1\nA = 'a'\n"):
             self.assertTrue(caught(read(data), "x.py cannot be read as Python: it declares the encoding"), data)
         self.assertTrue(caught(read(b"A = '\xff'\n"), "x.py cannot be read as Python: its bytes are not UTF-8"))
-        for data in (b"# coding: utf-8\nA = 'a'\n", b"# coding=UTF_8\nA = 'a'\n", b"\xef\xbb\xbfA = 'a'\n",
+        for data in (b"# coding: utf-8\nA = 'a'\n", b"# coding=UTF_8\nA = 'a'\n", b"\xef\xbb\xbfA = 'a'\n", b"# coding: utf8\n# caf\xc3\xa9\nA = 'a'\n",
                      b"A = 'a'\n\n# coding: latin-1\n"):
             self.assertEqual(read(data), [], data)
 

@@ -516,14 +516,18 @@ def _packages(trees: dict, tops: dict) -> list:
 # A source encoding declaration, as PEP 263 writes it, which Python reads on either of a file's first two lines.
 CODING = re.compile(rb"^[ \t\f]*#.*?coding[:=][ \t]*([-\w.]+)")
 UTF8 = ("utf-8", "utf8")
+BOM = b"\xef\xbb\xbf"
 
 
 def _source(path: pathlib.Path) -> str:
     """The text of a Kernel file, as Python and every reader of the text read it alike: UTF-8, strictly, and declared so
     or not at all. A file declaring another encoding would run code its text does not show, so it is refused, as are
-    bytes that are not UTF-8 (issue 992). Raises ValueError for either."""
+    bytes that are not UTF-8 (issue 992). Read after a byte order mark, as Python reads it, each of the first two lines
+    is held to that whatever the first holds, and only the names utf-8 and utf8 are UTF-8's: stricter than Python, which
+    reads the second only after a comment or a blank line and knows other names, so that it can refuse, never miss.
+    Raises ValueError for either."""
     data = path.read_bytes()
-    for line in data.splitlines()[:2]:
+    for line in data[len(BOM):].splitlines()[:2] if data.startswith(BOM) else data.splitlines()[:2]:
         declared = CODING.match(line)
         if declared and declared.group(1).decode("ascii", "replace").lower().replace("_", "-") not in UTF8:
             raise ValueError("it declares the encoding %s, and Python would run what its text does not show"
