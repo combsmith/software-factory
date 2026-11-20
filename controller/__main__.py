@@ -260,8 +260,10 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     if not listed_whole:
         raise Stop("issue_list_unreadable")
     # Each issue's own facts, read and dated as a pull request's are; its title beside them. While the tracking
-    # issue's number is not read, none is: each is left out as unread, so that one is never served as a Work item.
-    issues = []
+    # issue's number is not read, none is: each is left out as unread, so that one is never served as a Work item. One
+    # no record numbers is told at its own read, by its opener and its body, and is no Work item, nor left out: it was
+    # never one, as one the listing left out was not (decision 0233).
+    issues, own_app = [], controller["accounts"]["controller"]
     for number in listed:
         through = Dated(transport)
         try:
@@ -269,12 +271,14 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
                 raise Unanswered("the tracking issue's number was not read")
             # No pass record is handed on yet, so no span is read, while an issue a pull request names defers (issue 734).
             facts, title = issues_.read(through, home, number, who, lambda: utc(clock), identities=identities,
-                                        earlier=[])
+                                        earlier=[], controller=(own_app["id"], own_app["type"]) if own_app else None)
             issues.append({"facts": facts, "title": title})
             facts_reads += dated(through.first)
         except Unanswered as err:
             issues.append({"facts": {"item": {"repo": home, "type": "issue", "number": number}}, "title": None,
                            "unread": reads_.MOVED if isinstance(err, facts_.Moved) else reads_.UNANSWERED})
+        except issues_.Tracking:
+            continue
     return {"started": started, "pause": pause_.read(transport, home.split("/")[0], [home]),
             "records": runs, "pull_requests": pulls, "issues": issues, pass_.ISSUE_APPS: refused,
             "facts_reads": facts_reads, "usage": {}, "seen": seen, "unread": unread, "gone": gone, "effects": effects}

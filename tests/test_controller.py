@@ -17,7 +17,7 @@ import tempfile
 import unittest
 import unittest.mock
 
-from adapters import acceptance, github, records
+from adapters import acceptance, effects, github, records
 import controller.__main__ as entry
 from controller import configuration, pass_, shared
 from controller import credentials as credentials_
@@ -1742,7 +1742,7 @@ class Entry(unittest.TestCase):
     def test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is(self):  # S3
         # Listed from `issues.served_from`, each issue is read with the pull requests' account reader and dated as they
         # are; one not read is left out by its code, and a list read short stops the pass.
-        since, spied = "2026-10-01T00:00:00Z", {"listed": [], "read": [], "who": [], "identities": []}
+        since, spied = "2026-10-01T00:00:00Z", {"listed": [], "read": [], "who": [], "identities": [], "controller": []}
         real = entry.configuration
 
         def served(root, release):
@@ -1774,9 +1774,13 @@ class Entry(unittest.TestCase):
                     return listed_by_the_port(transport, repo, after, apart=apart)
             return open_issues
 
-        def read(transport, repo, number, accounts, clock, *, identities, earlier):
+        def read(transport, repo, number, accounts, clock, *, identities, earlier, controller):
             spied["read"].append((repo, number, accounts))
             spied["identities"].append((identities, earlier))
+            spied["controller"].append(controller)
+            # Issue 3 is the Controller's tracking issue, as the port tells it by the App it is handed (decision 0233).
+            if number == 3 and controller == (CONTROLLER["accounts"]["controller"]["id"], "Bot"):
+                raise entry.issues_.Tracking("ours")
             if number == 6:
                 raise entry.facts_.Moved("moved")
             if number == 9:
@@ -1795,8 +1799,9 @@ class Entry(unittest.TestCase):
                        "read": [{"id": 41, "attempt": 1}], "at": {}, "whole": recorded}
             held = entry.passes.records if previous is None else (lambda *a: previous)
             table = self.table(numbers=[7])
-            table[("GET", "/repos/%s/issues/5" % self.HOME)] = {
-                "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}, "body": {}}
+            for number in (3, 5):
+                table[("GET", "/repos/%s/issues/%d" % (self.HOME, number))] = {
+                    "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}, "body": {}}
             hub = Hub(table)
             with unittest.mock.patch.object(entry, "configuration", configured), \
                     unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
@@ -1858,6 +1863,22 @@ class Entry(unittest.TestCase):
         code, _, files = entry_with([8, 5], tracked=False, previous=[last])
         self.assertEqual((code, spied["listed"], [n for _, n, _ in spied["read"]]), (0, [(self.HOME, since, [8])], [5]))
         self.assertEqual([e["decision"]["item"] for e in files["pass.json"]["issues"]], [item(5)])
+        # No record numbers the tracking issue, 3, as when its write left the records' window or its opening went
+        # unanswered: it is listed, told at its own read by the App the entry hands the port, and is neither decided nor
+        # left out; the others are read on (decision 0233).
+        code, _, files = entry_with([3, 5, 9], tracked=False)
+        self.assertEqual((code, [n for _, n, _ in spied["read"]]), (0, [3, 5, 9]))
+        self.assertEqual(spied["controller"], [(CONTROLLER["accounts"]["controller"]["id"], "Bot")] * 3)
+        self.assertEqual(([e["decision"]["item"] for e in files["pass.json"]["issues"]], files["pass.json"]["left_out"]),
+                         ([item(5)], [{"item": item(9), "code": "facts_unanswered"}]))
+        # With no Controller App named the port is handed none, and nothing is told as its tracking issue.
+        def unnamed(root, release):
+            found = served(root, release)
+            found["controller"]["accounts"]["controller"] = None
+            return found
+        code, _, files = entry_with([3, 5], tracked=False, configured=unnamed)
+        self.assertEqual((code, spied["controller"], [e["decision"]["item"] for e in files["pass.json"]["issues"]]),
+                         (0, [None, None], [item(3), item(5)]))
         # No date: nothing is listed, asked or read; the one GraphQL read is the pull requests' list.
         code, _, files = entry_with(None, configured=real)
         self.assertEqual((code, spied["listed"], spied["read"], files["pass.json"]["issues"]), (0, [(self.HOME, None, [8])], [], []))
@@ -1984,6 +2005,21 @@ class Entry(unittest.TestCase):
             code, _, files, _ = self.run_entry(hub)
         (decided,) = files["pass.json"]["issues"]
         self.assertEqual((code, decided["decision"]["outcome"], decided["decision"].get("action")), (0, "act", "accept"))
+        # No record in the window numbers it, as for a tracking issue open longer than the window: the real port reads
+        # issue 8 once, sees the Controller's App opened it with the body the write step writes, and asks nothing more
+        # of it. It is neither decided nor left out, and the issue beside it is (decision 0233).
+        app = CONTROLLER["accounts"]["controller"]
+        body = effects.rendered({"pass": "p_01JA7Q", "now": "2026-10-12T11:00:00Z", "release": "factory/v0.3.1"},
+                                 ["write_failed"])
+        hub.table[("GET", "/repos/%s/issues/8" % self.HOME)] = dict(own, body=dict(
+            own["body"], number=8, body=body, user={"login": app["login"], "id": app["id"], "type": app["type"]}))
+        hub.sent.clear()
+        with unittest.mock.patch.object(entry, "configuration", served), \
+                unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: dict(written, written=[])):
+            code, _, files, _ = self.run_entry(hub)
+        self.assertEqual((code, files["pass.json"]["left_out"], [d["decision"]["item"]["number"] for d in files["pass.json"]["issues"]]),
+                         (0, [], [41]))
+        self.assertEqual([r["path"] for _, r in hub.sent if "/issues/8" in r["path"]], ["/repos/%s/issues/8" % self.HOME])
 
     def test_what_the_entry_cannot_read_writes_nothing(self):
         for environ, want in (({"RELEASE": None}, "release_untagged"), ({"RELEASE": "v1"}, "release_untagged"),

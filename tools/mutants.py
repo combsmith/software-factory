@@ -135,6 +135,7 @@ F901_ROLE = ("tests.test_adapters.Issues.test_a_role_apps_comment_is_its_roles_a
 F901_NAMES = ("tests.test_controller.Entry.test_a_queues_or_a_lenss_name_declared_as_an_issues_app_refuses_the_issues_alone_and_the_pull_requests_are_decided",)
 F901_PASS = ("tests.test_controller.Issues.test_issues_whose_apps_cannot_be_told_are_not_decided_and_the_pull_requests_are",)
 F901_TRACKED = ("tests.test_reconcile.Tracking.test_the_tracking_issues_number_is_what_the_passes_recorded_and_none_while_their_records_are_not_whole",)
+F931_PORT = ("tests.test_adapters.Issues.test_the_controllers_tracking_issue_is_told_at_its_first_read_by_its_opener_and_its_body",)
 S3_ROW10 = ("tests.test_controller.Issues.test_with_no_app_declared_for_factory_triage_an_accepted_served_issue_gets_no_acceptance_act",)
 COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers",)
 ALSO_AT = ("tests.test_evals.Scoring.test_a_finding_at_any_place_the_case_gives_is_at_the_place",)
@@ -14170,6 +14171,33 @@ MUTANTS = ISSUE + [
      '            if apart is None:\n', '            if not apart:\n', S3_ENTRY),
     ("the listing is handed the tracking issue's number unread", 'controller/__main__.py',
      'apart=apart or ())', 'apart=apart)', S3_ENTRY),
+    # Decision 0233: the tracking issue no record numbers is told at its own read, by its opener and its body.
+    ("the tracking issue no record numbers is read as a Work item", 'adapters/issues.py',
+     '    if tracking(issue, controller):\n        raise Tracking(', '    if False:\n        raise Tracking(', F931_PORT),
+    ("an issue the Controller's App opened is its tracking issue whatever its body", 'adapters/issues.py',
+     ' and effects.causes_of(_field(issue, "body")) is not None\n', '\n', F931_PORT),
+    ("a tracking body that lists no cause is no tracking issue's", 'adapters/issues.py',
+     'effects.causes_of(_field(issue, "body")) is not None', 'bool(effects.causes_of(_field(issue, "body")))', F931_PORT),
+    ("a body left out of the App's issue reads as none", 'adapters/issues.py',
+     'effects.causes_of(_field(issue, "body"))', 'effects.causes_of(issue.get("body"))', F931_PORT),
+    ("an issue with the tracking issue's body is it whoever opened it", 'adapters/issues.py',
+     'return (ident, kind) == tuple(controller) and ', 'return ', F931_PORT),
+    ("the Controller's App is told by its id alone", 'adapters/issues.py',
+     'return (ident, kind) == tuple(controller) and ', 'return ident == controller[0] and ', F931_PORT),
+    ("with no Controller App named, every issue with its body is its tracking issue", 'adapters/issues.py',
+     '        return False\n    _, ident', '        return effects.causes_of(_field(issue, "body")) is not None\n    _, ident',
+     F931_PORT),
+    ("an opener that cannot be read is no tracking issue's", 'adapters/issues.py',
+     '    _, ident, kind = timeline.Accounts.account(issue.get("user"))\n',
+     '    user = issue.get("user") if isinstance(issue.get("user"), dict) else {}\n    ident, kind = user.get("id"), user.get("type")\n',
+     F931_PORT),
+    ("the port is handed no Controller App", 'controller/__main__.py',
+     'controller=(own_app["id"], own_app["type"]) if own_app else None)', 'controller=None)', S3_ENTRY + S3_LINKED),
+    ("the port is handed the Controller App's id as a User's", 'controller/__main__.py',
+     'controller=(own_app["id"], own_app["type"]) if own_app else None)',
+     'controller=(own_app["id"], "User") if own_app else None)', S3_ENTRY + S3_LINKED),
+    ("the tracking issue told at its read stops the pass", 'controller/__main__.py',
+     '        except issues_.Tracking:\n            continue\n', '', S3_ENTRY + S3_LINKED),
     ("the account reader reserves no Intent's App", 'controller/__main__.py',
      ' \\\n        + [intent["app"] for intent in declared["intents"].values() if isinstance(intent, dict)]\n',
      '\n', S3_ENTRY),
@@ -14646,8 +14674,8 @@ MUTANTS = ISSUE + [
      '                by = "other"',
      '                pass', ISSUE_LIFE),
     ("an issue's body left out is read as none", 'adapters/issues.py',
-     '_field(issue, "body")',
-     'issue.get("body")', ISSUE_REFUSED),
+     ', _field(issue, "body"), ',
+     ', issue.get("body"), ', ISSUE_REFUSED),
     ('a change of type named by no string is read', 'adapters/issues.py',
      ' if isinstance(kind, str) else (0, 0)',
      '', ISSUE_REFUSED),
