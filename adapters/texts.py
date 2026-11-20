@@ -9,7 +9,7 @@ Task is built short of one.
 
 A Lens's later review can rule on a Finding only if it is shown what it said. `findings` reads the first comment of each
 thread asked for, by the thread's id, and holds it: a review thread of this pull request, whose first comment replies to
-none, was written by that Lens's own account, as `adapters/timeline.Accounts` types it, and was never edited. GitHub's
+none, was made by that Lens's own App, among the Lenses' Apps `adapters/timeline.Accounts` holds, and was never edited. GitHub's
 author is who made a comment, not who wrote the words it holds now, which anyone with write access can change (the
 design's 3.3): an edited one is nobody's words that can be told, and is refused, the Lens's own edit with it. GitHub says
 each with an explicit null, and a field it does not give proves nothing. No trial has recorded a review comment's
@@ -29,6 +29,8 @@ from adapters.github import Unanswered, request
 THREADS = 50      # the most threads one call reads the texts of: a longer list raises, and none of it is read
 # A review thread's id as GitHub gives one, and as a text's id carries it.
 THREAD_ID = re.compile(r"[A-Za-z0-9_-]{1,100}")
+# The time of an edit as GitHub gives one; anything else in its place is no form GitHub gives (issue 974).
+EDITED = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 THREAD = """query TextsThread($id: ID!) {
   node(id: $id) {
     __typename
@@ -101,16 +103,20 @@ def findings(transport, pull: dict, accounts, lens: str, threads: list) -> list:
         first = _held(node.get("comments")).get("nodes")
         said = first[0] if isinstance(first, list) and first and isinstance(first[0], dict) else {}
         # What GitHub does not say, or says in no form it gives, is a read that failed; what it says, a comment replied
-        # to or the time of an edit, and is not the Lens's own unedited first comment, is the thread's own state.
-        if said.get("replyTo", 0) is not None:
-            raise (NotOwn if isinstance(said.get("replyTo"), dict) else Unanswered)(
+        # to by its id or the time of an edit, and is not the Lens's own unedited first comment, is the thread's own state.
+        reply, edited = said.get("replyTo", 0), said.get("lastEditedAt", 0)
+        if reply is not None:
+            raise (NotOwn if isinstance(reply, dict) and isinstance(reply.get("id"), str) and reply["id"] else Unanswered)(
                 "a thread's first comment cannot be read as its opener's")
-        if said.get("lastEditedAt", 0) is not None:
-            raise (NotOwn if isinstance(said.get("lastEditedAt"), str) else Unanswered)(
+        if edited is not None:
+            raise (NotOwn if isinstance(edited, str) and EDITED.fullmatch(edited) else Unanswered)(
                 "a thread's first comment was edited, or GitHub does not say it never was")
-        by, body = accounts.actor(threads_._account(said.get("author"))), said.get("body")
-        if by != {"kind": "lens", "name": lens, "can_write": False}:
+        # Whose words they are is told by the account alone, the Lens's own App: anyone else's are refused before their
+        # write access is asked, a read that could fail and pass for one that failed (issue 974).
+        _, account, kind = accounts.account(threads_._account(said.get("author")))
+        if accounts.lenses.get((account, kind)) != lens:
             raise NotOwn("a thread's first comment is not the Lens's own")
+        by, body = {"kind": "lens", "name": lens, "can_write": False}, said.get("body")
         if not isinstance(body, str) or body == "":
             raise Unanswered("a thread's first comment has no text")
         found.append({"id": "thread:%s" % ident, "by": by, "body": body})
