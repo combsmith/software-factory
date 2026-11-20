@@ -987,8 +987,8 @@ class Diff(unittest.TestCase):
             return ("diff --git a/%s b/%s\nindex %s%s\nBinary files a/%s and b/%s differ\n"
                     % (name, name, ids, mode, name, name))
 
-        def at(*shas, name: str = "img.png") -> tuple:
-            return tuple((name, sha) for sha in shas)
+        def at(*shas, name: str = "img.png", before: str = None) -> tuple:
+            return tuple((before or name, name, sha) for sha in shas)
         bound = binary("0e91505..%s" % head)
         for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8", "0e91505..9f114f5", "0e91505d0" + "1" * 31 + ".." + head):
             self.assertEqual(pull.canonical(binary(ids), at(other, head)), bound, ids)
@@ -998,12 +998,17 @@ class Diff(unittest.TestCase):
         near = "9f114f5e" + "d" * 32
         self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(head, near)), bound)
         self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(near)), binary("0e91505d..9f114f5d"))
-        # Only the row of the file's own path, its name after the move for a rename, binds it: a blob another path's row
-        # names, though the abbreviation begins it, is none (Astra's read).
+        # Only the row whose paths are the part's own header, word for word, binds it: a blob another path's row names,
+        # though the abbreviation begins it, is none (Astra's read), nor one of a path the header only ends with, as a
+        # space is not quoted (the security read).
         self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(head, name="other.png")), binary("0e91505d..9f114f5d"))
+        crafted = binary("0e91505d..9f114f5d", name="foo b/img.png")
+        self.assertEqual(pull.canonical(crafted, at(head)), crafted)
+        self.assertEqual(pull.canonical(crafted, at(head, name="foo b/img.png")), binary("0e91505..%s" % head, name="foo b/img.png"))
         moved = ("diff --git a/old.png b/new.png\nsimilarity index 50%%\nrename from old.png\nrename to new.png\n"
                  "index %s 100644\nBinary files a/old.png and b/new.png differ\n")
-        self.assertEqual(pull.canonical(moved % "0e91505d..9f114f5d", at(head, name="new.png") + at(ground, name="old.png")),
+        self.assertEqual(pull.canonical(moved % "0e91505d..9f114f5d", at(head, name="new.png", before="old.png") + at(ground, name="new.png")
+                                        + at(ground, name="old.png", before="old.png")),
                          moved % ("0e91505..%s" % head))
         # Without a mode, of another mode, of SHA-256, last in the diff with no newline after, and added.
         self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d", ""), at(head)), binary("0e91505..%s" % head, ""))
@@ -1085,6 +1090,11 @@ class Diff(unittest.TestCase):
             self.assertEqual(len(got), 2, unread)
         # A row of no blob, all zeros, names none: a ground binary whose own row is not listed is kept, never bound to
         # zeros (the security read).
+        # A renamed file's row binds it by the path it had and the path it has.
+        renamed = {"files": [{"filename": "new.png", "previous_filename": "old.png", "status": "renamed", "sha": head}]}
+        got = {pull.diff(Sent(moved % ids + text % "1aab6ce4..2bbc7df5", renamed), data, PINNED_BASE)["content_id"]
+               for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8")}
+        self.assertEqual(len(got), 1)
         # A row of SHA-256's whole id binds as SHA-1's does.
         got = {pull.diff(Sent(binary(ids) + text % "1aab6ce4..2bbc7df5", {"files": [{"filename": "img.png", "sha": wide}]}),
                          data, PINNED_BASE)["content_id"] for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8")}
