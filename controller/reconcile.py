@@ -170,7 +170,9 @@ def _keys(effects: dict, before=None, since=None) -> tuple:
                 keys.setdefault((APPLIED, "create_check_run"), set()).add(a["key"])
     for done in effects["written"]:
         for w in done["writes"]:
-            if w["state"] not in LANDED:
+            # The tracking issue written, open, with its assignee dropped is recorded as failed under its number: the
+            # issue is there, and its number is kept, which matches no write of any identity (issue 901).
+            if w["state"] not in LANDED and (w["type"], w["reason"]) != ("tracking_issue", "assignee_dropped"):
                 continue
             if w["type"] in BY_ITEM:
                 if w["item"]:
@@ -178,6 +180,18 @@ def _keys(effects: dict, before=None, since=None) -> tuple:
             elif w["key"] is not None:
                 keys.setdefault((WRITTEN, w["type"]), set()).add(w["key"])
     return keys, items
+
+
+def tracking(written, before):
+    """The numbers the passes recorded landing a write of the tracking issue under, as `written/1` keys one, or writing
+    it open with its assignee dropped: those this pass read, `written` as `adapters/passes.written` gives them, and
+    those the last record carried. A key of anything but ASCII digits is no number: `'²'.isdigit()` holds, and `int`
+    refuses it. None where the passes' records were not read whole: the number may be one not read, and the caller
+    serves no issue (issue 901)."""
+    if not isinstance(written, dict) or written.get("whole") is not True:
+        return None
+    keys, _ = _keys({"applied": [], "written": written["written"]}, before)
+    return sorted(int(k) for k in keys.get((WRITTEN, "tracking_issue"), ()) if k.isascii() and k.isdecimal())
 
 
 def _dispatched(effects: dict) -> set:
