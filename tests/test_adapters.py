@@ -6874,6 +6874,10 @@ class Linked(unittest.TestCase):
         got = linked.listing(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), {})
         self.assertEqual((got[0], got[1], got[3]), ([], False, True))
         self.assertEqual(linked.CANDIDATES, 25)
+        # Pull requests linked by hand count toward the bound as referenced ones do (Muse).
+        router = Router(github.Replay([linked_read((), [link("ConnectedEvent", 1, n) for n in range(1, 27)])]), {})
+        got = linked.listing(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), {})
+        self.assertEqual((got[0], got[1], got[3]), ([], False, True))
         # A pull request a pass saw with its keyword counts toward the bound as a referenced one does (Astra).
         router = Router(github.Replay([linked_read(ref(*range(1, 26)))]), {})
         got = linked.listing(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router),
