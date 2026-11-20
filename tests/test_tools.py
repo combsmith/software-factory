@@ -12217,6 +12217,10 @@ class Verify(unittest.TestCase):
                                      timeout=60, env=env)
                 self.assertEqual((ran.returncode, ran.stdout), (0, "-m tools.verify\n"), (goal, ran.stderr))
                 self.assertEqual((where / "Makefile").read_text(), (ROOT / "Makefile").read_text())
+                # And verify's failure is make's (Astra's read).
+                failed = subprocess.run(["make", "-s"] + goal + ["PY=false"], cwd=where, capture_output=True, text=True,
+                                        timeout=60, env=env)
+                self.assertNotEqual(failed.returncode, 0, goal)
 
     def test_every_test_file_is_discovered(self):
         found = set()

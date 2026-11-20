@@ -1247,7 +1247,7 @@ class Push(unittest.TestCase):
                 self.assertEqual(apply.push_refusal([path], [None], own_list()), "push_protected", path)
         # And the compiled modules Python caches beside them, which an unchecked one is loaded in place of the source
         # (Kimi, Muse and Astra).
-        for path in ("tools/__pycache__/verify.cpython-312.pyc", "tools/__pycache__/__init__.cpython-39.pyc",
+        for path in ("tools/__pycache__", "tools/__pycache__/verify.cpython-312.pyc", "tools/__pycache__/__init__.cpython-39.pyc",
                      "tools/__pycache__/check_repo.cpython-312.opt-1.pyc"):
             self.assertEqual(apply.push_refusal([path], [None], own_list()), "push_protected", path)
         for name in seven:
@@ -1259,7 +1259,8 @@ class Push(unittest.TestCase):
             self.assertEqual(apply.push_refusal([path], [None], own_list()), "push_protected", path)
         for path in ("tools/check_authority.py", "tools/check_workflows_x.py", "sub/tools/check_writes.py",
                      "adapters/github.py", "sub/tools/walk.py", "tools/walker.py", "tools/verify_x/a.py",
-                     "tools/x/verify.py", "Makefile.md", "docs/Makefile", "kernel/__init__.py"):
+                     "tools/x/verify.py", "Makefile.md", "docs/Makefile", "kernel/__init__.py",
+                     "tools/verify.notes/x.py"):
             self.assertIsNone(apply.push_refusal([path], [None], own_list()), path)
         # And no other file under tools/ is protected: the list holds these, the hooks aside, in any case (Astra's read).
         listed = {entry["path"] for entry in json.loads((ROOT / "config" / "hooks.json").read_text())["protected"]}
@@ -1272,8 +1273,10 @@ class Push(unittest.TestCase):
         # a push is refused for these alone, whatever pattern an entry is written as (Astra's read of issue 1048's change).
         def held(path):
             path = path.casefold()
-            module, dot, _ = path.partition(".")
-            return (dot and module in seven + ("tools/__init__",)) or path.startswith("tools/__pycache__/") \
+            folder, _, name = path.rpartition("/")
+            module, dot, _ = name.partition(".")
+            return (dot and folder + "/" + module in seven + ("tools/__init__",)) \
+                or path == "tools/__pycache__" or path.startswith("tools/__pycache__/") \
                 or any(path == name or path.startswith(name + "/") for name in seven)
         every = sorted(rel for rel in (path.relative_to(ROOT).as_posix() for path in walk.files(ROOT))
                        if rel.startswith("tools/"))
