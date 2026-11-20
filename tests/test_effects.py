@@ -10,6 +10,7 @@ import pathlib
 import re
 import tempfile
 import unittest
+import unittest.mock
 
 from adapters import advice, effects, github, pause
 from controller import pass_, writes as writes_
@@ -1469,6 +1470,37 @@ class Advisory(unittest.TestCase):
         over = dict(req, output=dict(self.OUTPUT, annotations=[self.NOTE] * 51), annotations=[{"finding": "f"}] * 51)
         self.assertEqual(effects.role_write(Hub(), self.ITEM, "create_check_run", over, self.LOGIN)["reason"],
                          "too_many_annotations")
+
+    def test_a_check_run_read_back_as_404_at_once_is_read_once_more_after_a_wait(self):  # trial P-73
+        # GitHub answered 404 to a read of a check run made a second before, and 200 a moment on: one read again after
+        # LAG, never more, before the write is called one not read back.
+        def hub(misses):
+            sent, waited, made = [], [], []
+
+            class Hub:
+                def send(self, req):
+                    sent.append((req["method"], req["path"]))
+                    if req["method"] == "POST":
+                        body = req["body"]
+                        made.append(dict({k: body[k] for k in ("name", "head_sha", "external_id", "status")},
+                                         id=7, node_id="CR_7", app={"slug": "combsmith-sf-pr-review"},
+                                         conclusion="neutral", output={"annotations_count": len(body["output"]["annotations"])}))
+                        return {"status": 201, "headers": {}, "body": made[-1]}
+                    if "/commits/" in req["path"]:
+                        return {"status": 200, "headers": {}, "body": {"total_count": 0, "check_runs": []}}
+                    if len([s for s in sent if s[1].endswith("/check-runs/7")]) <= misses:
+                        return {"status": 404, "headers": {}, "body": {"message": "Not Found"}}
+                    return {"status": 200, "headers": {}, "body": made[-1]}
+            return Hub(), sent, waited
+        req = {"commit": self.HEAD, "name": "advisory-astra", "conclusion": "neutral", "external_id": self.RUN + ":astra",
+               "output": self.OUTPUT, "annotations": [{"finding": "astra:" + "0" * 32}]}
+        for misses, state, reads in ((0, "applied", 1), (1, "applied", 2), (2, "sent", 2)):
+            transport, sent, waited = hub(misses)
+            with unittest.mock.patch.object(effects.time, "sleep", waited.append):
+                back = effects.advisory_write(transport, self.ITEM, self.HEAD, ["astra"], self.RUN, req, self.LOGIN)
+            self.assertEqual((back["state"], len([s for s in sent if s[1].endswith("/check-runs/7")]), waited),
+                             (state, reads, [effects.LAG] * (reads - 1)), misses)
+        self.assertEqual(effects.LAG, 2)
 
     def test_the_one_write_the_advisory_step_reaches_sends_a_check_run_of_its_lens_on_its_head_and_nothing_else(self):
         class Hub:

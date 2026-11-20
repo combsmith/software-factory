@@ -563,6 +563,9 @@ def refused_all(writes, record, reason: str) -> dict:
 ROLE_WRITES = ("submit_review", "create_check_run", "comment")
 # GitHub takes at most fifty annotations in one request: more would need a second write, which nothing sends yet.
 ANNOTATIONS = 50
+# The seconds before the one read again of a check run whose read-back answered 404: P-73 saw that answer within a
+# second of the write, and 200 a moment later.
+LAG = 2
 ADVISORY = re.compile(advice.CHECK % advice.LENS.pattern)      # the name of an advisory Lens's check run
 LEVEL = {"minor": "warning", "info": "notice"}
 SHA = re.compile(r"[0-9a-f]{40}")
@@ -810,8 +813,13 @@ def _check(transport, item: dict, req: dict, login: str) -> dict:
         if not isinstance(made, dict):
             return _fault(answer)
     cid = made.get("id")
-    back = _body(_sent(transport, request("GET", "/repos/%s/check-runs/%d" % (repo, cid))), 200) \
-        if type(cid) is int else None
+    answer = _sent(transport, request("GET", "/repos/%s/check-runs/%d" % (repo, cid))) if type(cid) is int else None
+    if isinstance(answer, dict) and answer.get("status") == 404:
+        # GitHub answered 404 to a read of a check run made a second before, and 200 to the same read a moment on
+        # (trial P-73): it is read once more after LAG, and only then is it one not read back.
+        time.sleep(LAG)
+        answer = _sent(transport, request("GET", "/repos/%s/check-runs/%d" % (repo, cid)))
+    back = _body(answer, 200)
     if not (isinstance(back, dict) and back.get("id") == cid and back.get("external_id") == req["external_id"]
             and back.get("name") == req["name"] and back.get("status") == "completed"
             and back.get("conclusion") == req["conclusion"]
