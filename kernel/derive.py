@@ -1234,9 +1234,14 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     # acceptance however whole that read claims to be.
     if facts.get("acceptance_bounded") is True:
         return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}
+    # Its own timeline cut at the port's bound does the same: anyone can comment on a pull request (issue 1009).
+    if facts.get("timeline_bounded") is True:
+        return {"state": None, "reason": "timeline_bounded", "evidence": ["timeline"]}
     gaps = incomplete(facts)
     if facts.get("acceptance_bounded", False) is not False and "acceptance" not in gaps:
         gaps = ["acceptance"] + gaps
+    if facts.get("timeline_bounded", False) is not False and "timeline" not in gaps:
+        gaps = gaps + ["timeline"]
     if gaps:
         return {"state": None, "reason": "facts_incomplete", "evidence": gaps}
     if not readable_expired(facts):

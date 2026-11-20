@@ -128,6 +128,48 @@ class Readability(unittest.TestCase):
                 self.assertEqual((d["outcome"], d["reason"], d["state"], d["evidence"]),
                                  ("defer", "facts_incomplete", None, [part]), part)
 
+    def test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person(self):  # issue 1009, record 0234
+        # Anyone can comment on a pull request, so its timeline is read to the port's bound; past it more comments never
+        # bring it back. The pull request defers on its own code, before any list read short and whatever
+        # `complete.timeline` claims, and calls a person; queued, it is taken out, as for any read short.
+        cut = dict(facts()["complete"], timeline=False)
+        for reviews in ([], [review()]):
+            for short in ((), ("threads",), ("reviews",)):
+                d = go(facts(timeline_bounded=True, reviews=reviews, complete=dict(cut, **{s: False for s in short})),
+                       REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                                 (None, "timeline_bounded", ["timeline"], "defer", "needs_you"), (reviews, short))
+        self.assertEqual(go(facts(timeline_bounded=True), REVIEWED)["reason"], "timeline_bounded")
+        d = go(facts(timeline_bounded=True, queue=True, reviews=[review()], complete=cut), REVIEWED)
+        self.assertEqual((d["reason"], d["outcome"], d.get("action"), d["attention"]),
+                         ("timeline_bounded", "act", "dequeue", "needs_you"))
+        # An acceptance read short beside it, not cut, is any read short: the cut timeline is said (Astra).
+        d = go(facts(timeline_bounded=True, acceptance_bounded=False, complete=dict(cut, acceptance=False)), REVIEWED)
+        self.assertEqual((d["reason"], d["evidence"]), ("timeline_bounded", ["timeline"]))
+        # A cut acceptance read beside it is said first: the issue it names is what a person can mend.
+        both = go(facts(timeline_bounded=True, acceptance_bounded=True, complete=dict(cut, acceptance=False)), REVIEWED)
+        self.assertEqual(both["reason"], "acceptance_bounded")
+        # The other side: not cut, its read short defers as facts_incomplete, needing no person, and read whole it
+        # converges; absent, as in facts read before the field, it is not cut.
+        self.assertEqual(go(facts(timeline_bounded=False, complete=cut), REVIEWED)["reason"], "facts_incomplete")
+        self.assertEqual(go(facts(timeline_bounded=False), REVIEWED)["reason"], "approval_due")
+        for complete, reason in ((facts()["complete"], "approval_due"), (cut, "facts_incomplete")):
+            f = facts(complete=complete)
+            del f["timeline_bounded"]
+            self.assertEqual(go(f, REVIEWED)["reason"], reason, complete)
+        # Present but no truth value, it cannot be read: a gap in the timeline, never a convergence.
+        for bounded in (None, "true", 1, 0, [], {}):
+            for complete in (facts()["complete"], cut):
+                d = go(facts(timeline_bounded=bounded, complete=complete, reviews=[review()]), REVIEWED)
+                self.assertEqual((d["reason"], d["attention"]), ("facts_incomplete", "none"), (bounded, complete))
+                self.assertIn("timeline", d["evidence"], (bounded, complete))
+        # Beside another list read short, the gap is added to it, in the lists' order (Astra).
+        d = go(facts(timeline_bounded=None, complete=dict(facts()["complete"], reviews=False)), REVIEWED)
+        self.assertEqual(d["evidence"], ["reviews", "timeline"])
+        # A merged or closed pull request is what it is, cut or not.
+        for state in ("merged", "closed"):
+            self.assertEqual(go(facts(timeline_bounded=True, complete=cut, state=state), REVIEWED)["reason"], state)
+
     def test_a_flag_that_is_not_exactly_true_is_incomplete(self):  # I-13, I-20
         # A fact read from outside is never given a default: a missing or malformed flag is not a whole list.
         approved = [review()]

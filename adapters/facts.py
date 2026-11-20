@@ -135,6 +135,8 @@ def _snapshot(transport, repo, number, identities, accounts, runs_whole, clock, 
         "acceptance": contract,
         "opened_for": acceptance.opened_for(first, opener, opened),
         "acceptance_bounded": contract_cut,
+        # The pull request's own timeline and reviews are read whole, never cut at a bound, as yet (issue 1009).
+        "timeline_bounded": False,
         "complete": {"acceptance": contract_whole, "reviews": reviews_whole, "threads": threads_whole,
                      "checks": read["complete"], "diff": content["complete"],
                      "changed_paths": paths["complete"], "runs": runs_whole is True, "timeline": timeline_whole},
