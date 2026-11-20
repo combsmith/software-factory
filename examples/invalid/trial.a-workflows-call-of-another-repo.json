@@ -1,0 +1,38 @@
+{
+  "schema": "trial/1",
+  "trial": "P-9",
+  "question": "Can a pass start the next one with the default workflow token?",
+  "pass": "Yes",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-10-20T23:53:07Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "workflow",
+          "name": "p9-chain at depth 1, run 39532278207, with its own GITHUB_TOKEN and permissions actions: write alone"
+        },
+        "via": "workflow",
+        "call": "POST /repos/outside/x/actions/workflows/p9-chain.yml/dispatches",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "ref": "main",
+          "inputs": {
+            "depth": "2"
+          }
+        }
+      },
+      "response": {
+        "status": 204,
+        "headers": {
+          "x-accepted-github-permissions": "actions=write"
+        },
+        "body": null
+      }
+    }
+  ],
+  "removed": [],
+  "verdict": "pass"
+}
