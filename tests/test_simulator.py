@@ -1445,7 +1445,7 @@ class Simulation(unittest.TestCase):
         for change in ({"category": "security"}, {"ruling": "rejected"}, {"opened_at": w.at(22)}, {"dropped": False},
                        {"opened_by": dict(th["opened_by"], name="another-lens")}, {"opened_at": w.at(20)},
                        {"category": None}, {"category": "bogus"}, {"opened_by": dict(th["opened_by"], kind="human")},
-                       {"opened_by": dict(th["opened_by"], kind="app")}, {"dropped": "false"},
+                       {"opened_by": dict(th["opened_by"], kind="app")}, {"dropped": "false"}, {"dropped": 1},
                        {"dropped": False, "opened_by": {}}):
             self.assertFalse(w.dropped_since_the_push(dict(th, **change)), change)
         # A review that began at the push itself is no review after it, and one still running has succeeded at nothing.
@@ -1456,8 +1456,8 @@ class Simulation(unittest.TestCase):
             self.assertFalse(w.dropped_since_the_push(th), change)
         # Through the act, the Kernel asked again saying the same: the queue App's resolution of a dropped thread is
         # taken, and one of a security Finding's breaks the world, as the Kernel never asks it (the reader audit).
-        def resolving(thread):
-            w.runs = [dict(review)]
+        def resolving(thread, runs=(review,)):
+            w.runs = [dict(r) for r in runs]
             w.threads = [dict(thread)]
             d = {"outcome": "act", "action": "resolve_thread", "evidence": [thread["id"]], "content_id": w.cid()}
             with mock.patch.object(world, "decide", lambda *a: dict(d)):
@@ -1467,9 +1467,11 @@ class Simulation(unittest.TestCase):
         # A security Finding's thread breaks it whether dropped or accepted, and a dropped thread with no review after
         # the push does too: the act is held to the same reading as the helper (Astra).
         for broken in (dict(th, category="security"), dict(th, category="security", ruling="accepted"),
-                       dict(th, opened_at=w.last_push)):
+                       dict(th, category="security", ruling="accepted", dropped=False), dict(th, opened_at=w.last_push)):
             with self.assertRaises(world.Broken):
                 resolving(broken)
+        with self.assertRaises(world.Broken):
+            resolving(th, runs=())
 
     def test_a_thread_the_queue_app_resolved_stays_closed_past_a_push_and_i11_allows_an_accepted_security_thread(self):
         # Issue 950, items 5 and 6. A push of new content takes the port's word "dropped" off every thread, resolved or
@@ -1489,7 +1491,17 @@ class Simulation(unittest.TestCase):
                   "content_id": w.cid(), "status": "in_progress", "conclusion": None, "started_at": w.at(w.minute - 1)}
         w.runs.append(review)
         w.ending(review)
-        self.assertEqual((review["conclusion"], resolved.get("dropped")), ("success", True))
+        self.assertEqual((review["conclusion"], resolved.get("dropped"), resolved["resolved"]), ("success", True, True))
+        # A resolved thread opened at the review's start, or after it, is no older thread: it is not said dropped.
+        for opened in (review["started_at"], w.at(w.minute)):
+            later = dict(resolved, id="T2", opened_at=opened)
+            later.pop("dropped", None)
+            w.threads = [resolved, later]
+            run = dict(review, run="r" + str(len(w.runs)), status="in_progress", conclusion=None)
+            w.runs.append(run)
+            w.ending(run)
+            self.assertNotIn("dropped", later, opened)
+        w.threads = [resolved]
         # Another Lens's review says nothing of it, nor does one on content that is not the head's, which apply refuses.
         for other in ({"role": "another-lens"}, {"content_id": "sha256:other"}):
             resolved.pop("dropped", None)
@@ -1518,6 +1530,23 @@ class Simulation(unittest.TestCase):
         self.assertEqual(started("security", "minor"), "in_progress")
         with self.assertRaises(world.Broken):
             started("functional", "major")
+        # A thread the queue App resolved on a drop stands again once the head is pushed past every review, as
+        # kernel/gate.py reads it: the review asked again to refresh it is allowed (the readers of df7b1b1).
+        w = World(2)
+        w.faults, w.minute = [], 40
+        w.last_push = w.at(30)
+        done = {"run": "r0", "item": dict(world.ITEM), "role": "pr-review", "intent": "review-change",
+                "content_id": w.cid(), "status": "completed", "conclusion": "success", "started_at": w.at(25)}
+        queued = dict(done, run="r1", status="queued", conclusion=None, started_at=w.at(35))
+        w.runs = [done, queued]
+        w.threads = [{"id": "T1", "resolved": True, "opened_by": dict(lens), "category": "functional",
+                      "severity": "major", "resolved_by": dict(world.QUEUE_APP), "opened_at": w.at(10), "ruling": None,
+                      "dropped": True}]
+        admitted = {"outcome": "admit", "state": "verifying", "reason": "review_due", "evidence": [],
+                    "admit": {"role": "pr-review", "intent": "review-change", "content_id": w.cid()}}
+        with mock.patch.object(world, "decide", lambda *a: admitted), mock.patch.object(w, "passed", lambda k: True):
+            w.start_next()
+        self.assertEqual(queued["status"], "in_progress")
 
     def test_every_invariant_not_yet_held_names_a_pending_test(self):
         # When a rule is built and its test loses @pending, its invariant here must start to raise too.

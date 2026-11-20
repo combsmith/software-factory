@@ -1073,9 +1073,11 @@ class World:
             done = [r for r in self.runs if r["intent"] == "review-change" and r["conclusion"] == "success"
                     and r["content_id"] == run["content_id"]]
             # Unless the head was pushed past every such review while a thread of the Lens still stands that asks for it:
-            # not one the Kernel is to resolve, accepted or dropped since the push (decision 0212, issue 855).
+            # not one the Kernel is to resolve, accepted or dropped since the push (decision 0212, issue 855). One the
+            # queue App resolved on a drop stands again once a push leaves no review after it, as kernel/gate.py reads it.
             pushed_past = all(r["started_at"] <= self.last_push for r in done) and any(
-                th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"] and not th["resolved"]
+                th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"]
+                and (not th["resolved"] or th["resolved_by"] == QUEUE_APP and th["ruling"] != "accepted")
                 and (th["severity"] in ("blocking", "major") or th["category"] == "security")
                 and (th["ruling"] != "accepted" or th["category"] == "security") and not self.dropped_since_the_push(th)
                 for th in self.threads)
@@ -1126,7 +1128,7 @@ class World:
             # Lenses' records port does: a push cleared the word, and a thread the queue App resolved on it stays closed.
             for th in self.threads:
                 if th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"] and th["resolved"] \
-                        and run["content_id"] == self.cid() and th["opened_at"] < run["started_at"]:
+                        and th["opened_at"] < run["started_at"]:
                     th["dropped"] = True
                 elif th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"] and not th["resolved"] \
                         and not th.get("dropped") and run["content_id"] == self.cid() \
