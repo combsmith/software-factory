@@ -252,9 +252,7 @@ class Hand(unittest.TestCase):
     """A person's resolution of a thread a Role opened, matched to the Kernel's act that named the thread (decision 0223)."""
 
     def test_a_hands_resolution_of_a_roles_thread_is_matched_to_the_act_the_last_pass_named(self):  # issue 854
-        # Until the queue App exists a session carries out the Kernel's `resolve_thread` by hand, as a person's account
-        # (decision 0212). The pass that first sees the resolution matches it to the act of the last pass that decided
-        # the item: that act named the thread, or the resolution is one nobody recorded, an alert of its own.
+        # A hand's resolution matches the act of the last pass that decided the item, or is unmatched (decision 0223).
         found = check(seen(HAND), before=[passed()])
         self.assertEqual((found["unmatched"], found["unjudged"], found["short"], reconcile.alerts(found)), ([], [], False, []))
         review = dict(state="verifying", reason="awaiting_review", outcome="admit", action=None)
@@ -294,8 +292,7 @@ class Hand(unittest.TestCase):
         self.assertTrue(check(seen(), before=[passed()], accounts=named)["short"])
 
     def test_a_hands_resolution_once_matched_is_carried_while_it_is_seen(self):  # issue 854
-        # A resolution has no time and is seen at every pass, long after the pass that named its thread: once matched, its
-        # thread is carried, stamped again each pass it is seen, and matches from then on.
+        # Once matched, a thread is carried, stamped again at each pass that sees it, and matches from then on.
         effects = dict(recorded(), read={"runs": [], "passes": []}, at={})
         held = reconcile.carried([passed()], effects, seen(HAND), NOW)
         self.assertEqual(held["hands"], [{"key": "PRRT_t", "at": NOW}])
@@ -318,10 +315,8 @@ class Hand(unittest.TestCase):
         self.assertEqual(validate(record, SCHEMAS["pass"], schemas=SCHEMAS), [])
 
     def test_a_hands_resolution_no_record_can_judge_is_short_once_carried_and_named(self):  # issue 854
-        # Where no record before can say whether an act named the thread, reconciliation is short for that pass, never
-        # silent, the thread is carried, and the view names it as information: with no record before; with one written
-        # before a hand's resolutions were carried, so that a thread resolved before the rule does not alarm for as
-        # long as its pull request is open; and with none that decided the item, which two passes could not read.
+        # Where no record can say whether an act named the thread, the pass is short, carries it and names it: with no
+        # record before, one that carried no `hands`, or none that decided the item.
         effects = dict(recorded(), read={"runs": [], "passes": []}, at={})
         waved = [{"alert": "hand_unjudged", "by": "hand", "write": "resolution", "item": URL, "key": "PRRT_t"}]
         for before in ([], [passed(hands=None)], [passed([], hands=None)], [passed(item=OTHER), passed(item=OTHER)]):
@@ -506,9 +501,7 @@ class SeenPort(unittest.TestCase):
         self.assertEqual(validate(out, SCHEMAS["seen"], schemas=SCHEMAS), [])
 
     def test_a_persons_resolution_of_a_thread_a_role_opened_is_read_as_a_hands(self):  # issue 854
-        # The Kernel takes a person's resolution as closing a Lens's Finding, so it is a write to reconcile: read as a
-        # hand's, of a thread a Role's own account opened, by the first comment's author. A person's resolution of any
-        # other thread is nobody's here, and a Factory identity's is its own, whoever opened the thread.
+        # A person's resolution of a thread a Role opened is a hand's write; of any other, none; an identity's is its own.
         def thread(ident, by=PERSON, opened=ROLE, **first):
             comment = dict({"replyTo": None, "author": opened and {
                 "__typename": opened["type"], "login": opened["login"], "databaseId": opened["id"]}}, **first)
