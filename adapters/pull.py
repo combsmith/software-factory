@@ -25,11 +25,15 @@ HUNK = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@")
 # A file's index line, its two blob ids, each at most 64 characters, and the mode it kept, if any. GitHub gives the two
 # ids of one compare 8 characters long at one read and 9 at the next (2026-11-19), so each is cut to git's least, 7.
 INDEX = re.compile(r"^(index [0-9a-f]{7})[0-9a-f]{0,57}(\.\.[0-9a-f]{7})[0-9a-f]{0,57}((?: [0-7]{6})?)$", re.MULTILINE)
-# Where a file's part of a diff begins, where its header ends at its first hunk, and the line git writes in place of
-# a binary file's hunks. No line of a hunk begins with any of them: each begins ` `, `+`, `-` or `\`.
+# Where a file's part of a diff begins, and where its header ends at its first hunk. No line of a hunk begins with
+# either: each begins ` `, `+`, `-` or `\`.
 FILE = re.compile(r"^diff --git ", re.MULTILINE)
 FIRST_HUNK = re.compile(r"^@@ ", re.MULTILINE)
-BINARY = re.compile(r"^Binary files ", re.MULTILINE)
+# A file's index line read for its two ids whole, and the ids an empty file's line can name: none, and the empty blob's,
+# by SHA-1 and by SHA-256, which git works out and no one can choose.
+IDS = re.compile(r"^index ([0-9a-f]+)\.\.([0-9a-f]+)(?: [0-7]{6})?$", re.MULTILINE)
+EMPTY = ("0" * 64, "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+         "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813")
 # The account type each class needs: the Factory's Apps and a dependency bot are Bots, the Maintainer a person.
 KINDS = {"agent": "Bot", "maintainer": "User", "dependency": "Bot"}
 
@@ -210,19 +214,26 @@ def canonical(text: str) -> str:
     """A diff as GitHub sent it, but for each file's index line, in its header before its first hunk, whose blob ids are
     cut to their first 7 characters: the one form every reader hashes and hands on, `diff`, `change` and a review's
     content (`adapters/timeline.py`), so that the content id is the same at each read of one compare (decision 0064).
-    A binary file's index line is kept as GitHub sent it: no hunk tells its content, and git never gives two blobs one
-    abbreviation, so cut it would let a blob made to share another's first 7 characters pass as the content approved.
-    An id shorter than 7, or longer than 64, is left as it is."""
+
+    Only a file whose hunks tell its content is cut, or an empty one, whose ids say nothing of it. Any other file's
+    index line, a binary file's among them, is kept as GitHub sent it: it is all that tells that file's content, and
+    git never gives two blobs one abbreviation, so cut it would let a blob made to share another's first 7 characters
+    pass as the content approved. An id shorter than 7, or longer than 64, is left as it is."""
     starts = [found.start() for found in FILE.finditer(text)]
     parts = [text[:starts[0]] if starts else text]
     for start, end in zip(starts, starts[1:] + [len(text)]):
         part = text[start:end]
         hunk = FIRST_HUNK.search(part)
         header, hunks = (part[:hunk.start()], part[hunk.start():]) if hunk else (part, "")
-        if not BINARY.search(header):
+        if hunk or _empty(header):
             header = INDEX.sub(r"\1\2\3", header)
         parts.append(header + hunks)
     return "".join(parts)
+
+
+def _empty(header: str) -> bool:
+    """Whether every id a file's header names on its index line is none or the empty blob's, as GitHub abbreviated it."""
+    return all(any(known.startswith(said) for known in EMPTY) for pair in IDS.findall(header) for said in pair)
 
 
 def _compare(pull: dict, base_head: str) -> str:

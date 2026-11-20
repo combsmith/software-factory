@@ -888,20 +888,29 @@ class Diff(unittest.TestCase):
         # 2026-11-19: GitHub sent pull request 903's compare with each index line's blob ids 8 characters long at one
         # read and 9 at the next, and every Run that read it twice ended content_moved. Each id is cut to git's least,
         # 7, so the content id, its count, the bytes a Run is given and a review's content are one whatever the read gave.
-        def sent(world: str, gate: str) -> str:
+        def sent(world: str, gate: str, empty: str) -> str:
             return ("diff --git a/sim/world.py b/sim/world.py\nindex %s\n--- a/sim/world.py\n+++ b/sim/world.py\n"
                     "@@ -15,2 +15,3 @@\n from controller import configuration\n+from kernel.gate import closed\n"
                     " from kernel import terms as t\ndiff --git a/kernel/gate.py b/kernel/gate.py\nindex %s\n"
-                    "--- a/kernel/gate.py\n+++ b/kernel/gate.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n" % (world, gate))
-        eight = sent("0e91505d..9f114f5d 100644", "77da7d97..7227c4f0 100755")
-        nine = sent("0e91505d0..9f114f5d8 100644", "77da7d97f..7227c4f06 100755")
-        whole = sent("0e91505d0b..9f114f5d8a7c 100644", "77da7d97f" + "0" * 31 + "..7227c4f06" + "1" * 29 + " 100755")
-        seven = sent("0e91505..9f114f5 100644", "77da7d9..7227c4f 100755")
+                    "--- a/kernel/gate.py\n+++ b/kernel/gate.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
+                    "diff --git a/kernel/__init__.py b/kernel/__init__.py\nnew file mode 100644\nindex %s\n"
+                    % (world, gate, empty))
+        eight = sent("0e91505d..9f114f5d 100644", "77da7d97..7227c4f0 100755", "00000000..e69de29b")
+        nine = sent("0e91505d0..9f114f5d8 100644", "77da7d97f..7227c4f06 100755", "000000000..e69de29bb")
+        # Ids of 7 beside longer ones, of 64, and of 40, as a full index gives them: an empty file's ids are none and
+        # the empty blob's.
+        whole = sent("0e91505..9f114f5d8a7c 100644", "77da7d9" + "0" * 57 + "..7227c4f" + "1" * 33 + " 100755",
+                     "0" * 40 + "..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")
+        seven = sent("0e91505..9f114f5 100644", "77da7d9..7227c4f 100755", "0000000..e69de29")
         self.assertEqual([pull.canonical(text) for text in (eight, nine, whole, seven)], [seven] * 4)
-        # An index line without a mode is cut as well; an id already shorter than 7 is left as it is.
-        self.assertEqual(pull.canonical(sent("0e91505d0..9f114f5d8", "1..2")), sent("0e91505..9f114f5", "1..2"))
+        # An index line without a mode is cut as well, and an empty file's in a repo of SHA-256; an id already shorter
+        # than 7 is left as it is.
+        self.assertEqual(pull.canonical(sent("0e91505d0..9f114f5", "1..2", "0" * 64 + ".." + pull.EMPTY[2])),
+                         sent("0e91505..9f114f5", "1..2", "0000000..473a0f4"))
+        self.assertEqual(pull.EMPTY, ("0" * 64, hashlib.sha1(b"blob 0\x00").hexdigest(),
+                                      hashlib.sha256(b"blob 0\x00").hexdigest()))
         data = body("P-29.base", 1)
-        data.update(changed_files=2, additions=2, deletions=1)
+        data.update(changed_files=3, additions=2, deletions=1)
         commit = data["head"]["sha"]
         seen = set()
         for text in (eight, nine, whole):
@@ -929,15 +938,26 @@ class Diff(unittest.TestCase):
             "--- a/index 0e91505d0..9f114f5d8\n+++ b/index 0e91505d0..9f114f5d8\n@@ -1,2 +1,2 @@\n"
             " index 0e91505d0..9f114f5d8 100644\n-index 77da7d97f..7227c4f06\n+index 77da7d97f..7227c4f06 100644\n"
             "index 0e91505d0..9f114f5d8 100644\n",
-            # A binary file's index line is all that tells its content: git never gives two blobs one abbreviation, and
-            # two blobs made to share their first 7 characters must stay two contents.
+            # A file no hunk tells, a binary one among them, keeps its index line, though another file has hunks: it is
+            # all that tells its content, git never gives two blobs one abbreviation, and two blobs made to share their
+            # first 7 characters must stay two contents. So does a file whose ids only begin as an empty file's, or
+            # name the empty blob beside another, as a read cut short before its binary mark would.
             "diff --git a/logo.png b/logo.png\nindex 11aab6ce..11aab6c4 100644\nBinary files a/logo.png and b/logo.png "
             "differ\n",
+            "diff --git a/x.bin b/x.bin\nnew file mode 100644\nindex 00000000..e69de29c\n",
+            "diff --git a/y.bin b/y.bin\nindex 11aab6ce..e69de29b 100644\n",
             # A line that says more than an index line, and an id longer than any git gives, are not index lines.
-            "diff --git a/a b/a\nindex 0e91505d0..9f114f5d8 100644 and more\nindex %s..9f114f5d8\n" % ("0" * 65),
-            "diff --git a/b b/b\nindex 0e91505d0..%s 100644\n" % ("9" * 65),
+            "diff --git a/a b/a\nindex 0e91505d0..9f114f5d8 100644 and more\nindex %s..9f114f5d8\n@@ -1 +1 @@\n-a\n+b\n"
+            % ("0" * 65),
+            "diff --git a/b b/b\nindex 0e91505d0..%s 100644\n@@ -1 +1 @@\n-a\n+b\n" % ("9" * 65),
         ))
         self.assertEqual(pull.canonical(kept), kept)
+        # In one diff a binary file is kept and a file of text cut, each by its own hunks.
+        text = "diff --git a/f.py b/f.py\nindex %s\n--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
+        binary = ("diff --git a/logo.png b/logo.png\nindex 11aab6ce..11aab6c4 100644\n"
+                  "Binary files a/logo.png and b/logo.png differ\n")
+        self.assertEqual(pull.canonical(binary + text % "0e91505d0..9f114f5d8 100644"),
+                         binary + text % "0e91505..9f114f5 100644")
 
     def test_a_diff_github_will_not_serve_is_truncated_and_new_content_at_every_push(self):
         # trials/P-29.truncated.json: 3,001 files, a 406 too_large. Read whole, so the Kernel holds it as too large;
