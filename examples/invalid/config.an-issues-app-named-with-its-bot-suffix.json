@@ -70,7 +70,8 @@
     "max_path_length": 255,
     "max_close_lag_seconds": 300,
     "max_unnamed_run_seconds": 60,
-    "max_unnamed_runs": 1
+    "max_unnamed_runs": 1,
+    "max_implementing_rounds": 3
   },
   "issues": {
     "served_from": null,
