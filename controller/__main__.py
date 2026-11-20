@@ -94,6 +94,7 @@ class Stages:
 
     # What the carry's line counts of it, by these names alone.
     CARRIED = ("runs", "passes", "keys", "items", "dispatched", "owed", "left")
+    FARTHEST = 1e300      # a reading no clock gives: two inside it differ by a finite number
 
     def __init__(self, timer=None, out=None):
         self.timer, self.out = timer, out
@@ -103,9 +104,11 @@ class Stages:
             return None
         try:
             value = self.timer()
+            value = float(value) if type(value) in (int, float) else None
         except Exception:
             return None
-        return float(value) if type(value) in (int, float) else None
+        # A reading past any clock's, infinite or no number at all, is none: NaN compares false with every bound.
+        return value if value is not None and -self.FARTHEST < value < self.FARTHEST else None
 
     def since(self, began):
         ended = self.now()
@@ -215,7 +218,7 @@ def writes_seen(transport, config: dict, numbers: list, kept: dict, before, sinc
     held = set(reconcile.left(before))
     newly = ({e["facts"]["item"]["number"] for e in last} - set(numbers)) | (set(reconcile.owed(before)) - set(numbers) - held)
     gone = set(reconcile.left(before, since)) - set(numbers) - newly
-    parts, unread, tally = [], [], {}
+    parts, unread, tally, served = [], [], {}, set(numbers)
     for number, held in ([(n, kept.get(n)) for n in numbers] + [(n, seen_.LEFT) for n in sorted(newly)]
                          + [(n, seen_.GONE) for n in sorted(gone)]):
         if number in owed:
@@ -227,7 +230,7 @@ def writes_seen(transport, config: dict, numbers: list, kept: dict, before, sinc
                               since)
         except Unanswered:
             part = ([], [], False)
-        stages.add(tally, "seen_open" if number in numbers else "seen_left" if number in newly else "seen_gone", began)
+        stages.add(tally, "seen_open" if number in served else "seen_left" if number in newly else "seen_gone", began)
         parts.append(part)
         if part[-1] is not True:
             unread.append(number)
@@ -247,15 +250,18 @@ def recorded_effects(transport, config: dict, runs, own: int, before, since: str
     """The Effects the Factory recorded and no record before this pass read: each Run's `applied/1` and each pass's
     `written/1`, read once, and all of them again where the last record holds none (decision 0112). `sleep` is the
     entry's, for each port's one wait before its second look (issue 709). `stages` times the Runs' reads and the
-    passes', each list apart from its artifacts (issue 1025)."""
+    passes', each whole, its one wait included, and each list's requests apart from its artifacts' (issue 1025)."""
     controller = config["controller"]
     home = controller["home"]["repo"]
     known_runs, known_passes = reconcile.known(before)
+    timed = stages.timer is not None
     of_runs, of_passes = Timed(transport, stages, poller_kind), Timed(transport, stages, poller_kind)
-    from_runs = applied.effects(of_runs if stages.timer else transport, home, runs, since, known_runs, sleep=sleep)
-    from_passes = passes.written(of_passes if stages.timer else transport, home, controller["home"]["branch"],
-                                 controller["workflows"]["poller"], own, since, known_passes, sleep=sleep)
+    with stages.stage("applied"):
+        from_runs = applied.effects(of_runs if timed else transport, home, runs, since, known_runs, sleep=sleep)
     stages.tell({"applied_" + kind: held for kind, held in of_runs.tally.items()})
+    with stages.stage("poller"):
+        from_passes = passes.written(of_passes if timed else transport, home, controller["home"]["branch"],
+                                     controller["workflows"]["poller"], own, since, known_passes, sleep=sleep)
     stages.tell({"poller_" + kind: held for kind, held in of_passes.tally.items()})
     return {"applied": from_runs["applied"], "written": from_passes["written"],
             "tracking": reconcile.tracking(from_passes, before),
@@ -305,7 +311,8 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     entry's (issue 709). `stages` times each stage of it (issue 1025)."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
-    identities, who, refused = reader(transport, config)
+    with stages.stage("accounts"):
+        identities, who, refused = reader(transport, config)
     # The open pull requests are listed first: the records port asks when a Run began only of theirs (decision 0196).
     with stages.stage("pull_request_list") as counts:
         try:
