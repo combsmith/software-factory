@@ -29,6 +29,7 @@ import pathlib
 import re
 import sys
 
+from adapters import github
 from tools import walk
 from tools.check_examples import _load
 from tools.jsonschema_lite import validate
@@ -49,6 +50,17 @@ FIXTURE = re.compile(r"^(P-[1-9][0-9]*)(\.[a-z0-9-]+)?\.json$")
 # resource path under these keys; and an App's read names, and is answered with, only repos its installation reaches.
 REST_READ = re.compile(r"^[A-Z]+ /(?:repos/([^/?\s]+)/([^/?\s]+)|orgs/([^/?\s]+)(?:[/?]|$)|app/|apps/|installation/)")
 ANY_REPO = re.compile(r"\brepos/([^/?\s]+)/([^/?\s]+)")
+# A read of the artifact storage follows the redirect of an artifact's download, the exchange just before it, and asks the
+# address that redirect gave, with no query (issue 920): its signature is a credential, and kept it would be the asked.
+DOWNLOAD = re.compile(r"^GET (%s)(?:\s|$)" % github.ARTIFACT.pattern)      # the port's own rule for the path
+# A workflow's call is a REST call its token made, by its method and path, or a report of what a run wrote of itself,
+# which names no address (issue 920).
+METHOD_PATH = re.compile(r"^[A-Z]+ /")
+LINK = re.compile(r"https?://[^\s'\"<>]+", re.I)
+# A report is words: nothing in it can be read as an address, a path, a repo or a host. It fails closed: a slash, a
+# backslash, an @, a percent sign, a dotted name or a colon before a digit or another colon (a port, an IPv6 address)
+# is refused, whatever it would name.
+ADDRESS = re.compile(r"[/\\@%]|\w\.\w|:[0-9:]")
 # A star of a repo, by the account that asks, names that repo in its path (P-20).
 STARRED = re.compile(r"^[A-Z]+ /user/starred/([^/?,\s]+)/([^/?,\s]+)(?:[?,\s]|$)")
 # Decision 0035: a trial whose question is a read beyond the org's repos the App reaches is named here with what it may
@@ -504,6 +516,16 @@ def _asked(request: dict) -> tuple:
                 repos.add(owner + "/" + name)
             if found and found.group(3):
                 owners.add(found.group(3))
+    elif via == "workflow" and isinstance(call, str):
+        if METHOD_PATH.match(call):
+            if not re.fullmatch(r"[A-Z]+ /\S*", call):
+                return owners, repos, ["is a workflow's call with words after its path; it is written as its method and "
+                                       "path alone, so that nothing after them names what the check does not read"]
+            return _asked(dict(request, via="rest"))
+        if ADDRESS.search(call):
+            wrong.append("is a workflow's report that may name an address, by a slash, a backslash, an @, a percent sign, "
+                         "a dotted name or a port; a call a workflow's token made is written as its method and path, and is "
+                         "held as a REST call")
     elif via in ("cli", "git") and isinstance(call, str):
         for m in CLI_REPO.finditer(call):
             owner, name = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
@@ -673,12 +695,69 @@ def _of_the_factory(data: dict) -> list:
 def fixture_problems(data: dict, root: pathlib.Path = ROOT) -> list:
     """Every problem with one fixture beyond its schema, as the check finds them: who asked, the repos it reads and is
     answered with, credentials and headers. A counter-example under examples/invalid is held to this."""
-    out = ["%s %s" % (where, what) for where, what in _askers(data) + _of_the_factory(data)]
+    out = ["%s %s" % (where, what) for where, what in _askers(data) + _of_the_factory(data) + _stored(data)]
     if not out and data.get("repo") in ("%s/%s" % (ORG, CANARY), FACTORY):
         out += ["%s %s" % (where, what) for where, what in _repos(data, _installed(root))]
     out += ["%s %s" % (where, what) for where, what in _credentials(data, "") + _headers(data)]
     # A message names what the data holds, a repo or a kind among them, so none carries a credential (issue 247).
     return [hidden(message) for message in out]
+
+
+def _stored(data: dict) -> list:
+    """(path, what is wrong) for each read of the artifact storage that is not a GET of exactly the address the artifact
+    download just before it was redirected to, with no query (issue 920). Nothing else in a fixture names the storage's
+    host, so this is what holds where such a read went."""
+    out, exchanges = [], data.get("exchanges") if isinstance(data.get("exchanges"), list) else []
+    for i, exchange in enumerate(exchanges):
+        request = exchange.get("request") if isinstance(exchange, dict) else None
+        if isinstance(request, dict) and request.get("via") != "storage" and isinstance(request.get("call"), str):
+            for url in LINK.findall(request["call"]):
+                try:        # an address of the storage, asked any other way, is held to none of the rules below
+                    github.storage(url.rstrip(".,;:)'\""))
+                except github.Unanswered:
+                    continue
+                out.append(("exchanges[%d].request.call" % i, "reads the artifact storage other than as a read `via: "
+                                                              "storage`, which alone is held to the download's redirect"))
+                break
+        if not isinstance(request, dict) or request.get("via") != "storage":
+            continue
+        where = "exchanges[%d].request.call" % i
+        call = request.get("call") if isinstance(request.get("call"), str) else ""
+        method, _, rest = call.partition(" ")
+        address = rest.split(" ", 1)[0]
+        if method != "GET":
+            out.append((where, "is no GET; a read of the artifact storage is a GET of the address a download was "
+                               "redirected to"))
+        # Anywhere in the call, not in the address alone: a query, a fragment or a parameter kept in the words after
+        # it would keep the signature as well.
+        if any(c in call for c in "?#=") or ";" in address:
+            out.append((where, "keeps a query, a fragment or a parameter; the storage's address is kept without them, "
+                               "since its signature is a credential"))
+        before = exchanges[i - 1] if i > 0 and isinstance(exchanges[i - 1], dict) else {}
+        asked = before.get("request") if isinstance(before.get("request"), dict) else {}
+        answer = before.get("response") if isinstance(before.get("response"), dict) else {}
+        headers = answer.get("headers") if isinstance(answer.get("headers"), dict) else {}
+        # The replay keeps the last of headers that differ in case alone, and this would read the first: two are refused.
+        locations = [value for key, value in headers.items() if str(key).lower() == "location"]
+        location = locations[0] if len(locations) == 1 else None
+        stored = exchange.get("response") if isinstance(exchange.get("response"), dict) else {}
+        if type(stored.get("status")) is not int or 300 <= stored["status"] < 400:
+            out.append((where, "is answered with a redirect, or with no HTTP status, which the port's replay does not "
+                               "follow; a read of the storage is answered with a status that is a number"))
+        # By REST alone: the port's replay follows a download recorded so, and no other (cubic's read).
+        if not (asked.get("via") == "rest" and DOWNLOAD.match(str(asked.get("call", "")))
+                and answer.get("status") == 302
+                and isinstance(location, str)):
+            out.append((where, "follows no artifact download's redirect with one address; a read of the artifact storage "
+                               "is asked right after one"))
+        elif address != location:
+            out.append((where, "is not of the address the download just before it was redirected to"))
+        else:
+            try:        # where the replay would go: the port's own rule for the storage, which names its host alone
+                github.storage(location)
+            except github.Unanswered:
+                out.append((where, "is of an address off GitHub's artifact storage, which the port would refuse"))
+    return out
 
 
 def _of_org(request) -> bool:
