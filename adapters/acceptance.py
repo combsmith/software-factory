@@ -13,9 +13,9 @@ whole.
 A pull request to a base other than the repo's default branch carries no closing reference at all (P-33), so whether
 its issue asks cannot be read: it is not whole. The closing references are read in one GraphQL read, `totalCount` and
 each issue's number as P-33 and P-46 recorded them, with each issue's repo and labels, which no trial has recorded yet;
-each closing issue's label events from its REST timeline, whole by its `link` header, as `adapters/timeline.py` reads a
-pull request's. The list is whole only when it holds every reference it counts, once each, every one an issue of the
-pull request's own repo.
+each closing issue's label events from its REST timeline, whole by its `link` header and to ten pages at most, as
+`adapters/timeline.py` bounds an issue's (decision 0234). The list is whole only when it holds every reference it
+counts, once each, every one an issue of the pull request's own repo.
 
 Where no issue asks, `acceptance` is null and read whole. Where one asks, the contract is to be read, which
 `adapters/contract.py`, not built, holds: until then the read is not whole, and the Kernel defers.
@@ -126,11 +126,13 @@ def placed(events: list, accounts: timeline.Accounts):
 
 
 def asks(transport, repo: str, number: int, listed: bool, accounts: timeline.Accounts) -> tuple:
-    """Whether the issue asks for a contract by its label, a person's placement that stands; and whether that was read
-    whole: its timeline read whole, and agreeing with whether GitHub lists the label on it."""
-    events, whole = timeline.events(transport, {"number": number, "base": {"repo": {"full_name": repo}}})
+    """`(asked, whole, cut)`: whether the issue asks for a contract by its label, a person's placement that stands;
+    whether that was read whole: its timeline read whole, and agreeing with whether GitHub lists the label on it; and
+    whether the timeline was cut. Anyone can comment, so the timeline is read to `timeline.BOUND` pages, as the issues
+    port reads an issue's: one past them is not whole, and cut (issue 986, decision 0234)."""
+    events, whole, cut = timeline.bounded(transport, {"number": number, "base": {"repo": {"full_name": repo}}})
     standing = placed(events, accounts)
-    return standing is True, whole and (standing is not None) == listed
+    return standing is True, whole and (standing is not None) == listed, cut
 
 
 def labelled(transport, repo: str, number: int) -> bool:
@@ -227,12 +229,20 @@ def read(transport, pull: dict, accounts: timeline.Accounts, opener=None, opened
     whole where one asks, where the issues cannot be read whole, or where the base is not the default branch, whose
     pull requests carry no closing reference to read. The issue it serves is the one its branch binds it to, where the
     opener's App opened it, and else the issues it closes."""
+    contract, whole, _ = bounded(transport, pull, accounts, opener, opened)
+    return contract, whole
+
+
+def bounded(transport, pull: dict, accounts: timeline.Accounts, opener=None, opened=None) -> tuple:
+    """`(acceptance, whole, cut)`: as `read`, and whether an issue's timeline was cut at its bound, the fact
+    `acceptance_bounded`, which the Kernel defers on its own code (decision 0234). Every issue is read, so that a cut
+    one is said to be whatever another one gave: one that asks, or one read short (Astra, Muse)."""
     found, issue, whole = _serving(transport, pull, opener, opened)
     repo = pull["base"]["repo"]["full_name"] if issue is not None or found else None
     if issue is not None:
         found = {issue: found[issue] if issue in found else labelled(transport, repo, issue)}
+    ended, cut = False, False
     for number, listed in found.items():
-        asked, read_whole = asks(transport, repo, number, listed, accounts)
-        if asked or not read_whole:
-            return None, False
-    return None, whole
+        asked, read_whole, past = asks(transport, repo, number, listed, accounts)
+        ended, cut = ended or asked or not read_whole, cut or past
+    return None, whole and not ended, cut
