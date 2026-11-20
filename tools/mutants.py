@@ -20975,6 +20975,10 @@ MUTANTS = ISSUE + [
      '    if decided["outcome"] != t.ACT or decided.get("action") not in QUEUE_INTENTS:',
      '    if decided["outcome"] != t.ACT:', ('tests.test_queue.Job.test_no_decision_a_pause_or_no_head_sends_nothing',)),
     # Issue 711: the queue App's token reads the pull request it writes.
+    ("the queue App's grant need not hold the threads read", 'harness/queue_step.py',
+     'READS = ("read:facts.state", "read:facts.threads")', 'READS = ("read:facts.state",)', ('tests.test_queue.Step.test_a_grant_short_of_any_read_the_port_makes_mints_nothing',)),
+    ("the queue App's grant need not hold the state read", 'harness/queue_step.py',
+     'READS = ("read:facts.state", "read:facts.threads")', 'READS = ("read:facts.threads",)', ('tests.test_queue.Step.test_a_grant_short_of_any_read_the_port_makes_mints_nothing',)),
     ("the queue App's token holds no read of the pull request", 'harness/queue_step.py',
      '        wanted = dict(identity.granted(app, apps["needs"], READS, "read"),\n                      **identity.granted(app, apps["needs"], NEEDS, "write"))', '        wanted = identity.granted(app, apps["needs"], NEEDS, "write")', ('tests.test_queue.Step.test_the_step_reads_with_the_jobs_token_and_writes_with_the_queue_apps',)),
     ('a token is minted under a Pause', 'harness/queue_step.py',

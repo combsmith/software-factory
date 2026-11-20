@@ -3,6 +3,7 @@ step through its two credentials."""
 from __future__ import annotations
 
 import copy
+import shutil
 import json
 import pathlib
 import tempfile
@@ -360,6 +361,25 @@ class Step(unittest.TestCase):
                 del env["FACTORY_PAUSED"]
             (done, ended), _, wanted, asked = self.written(env, answers=())
             self.assertEqual((ended["reason"], asked.sent, wanted), ("paused", [], []), paused)
+
+    def test_a_grant_short_of_any_read_the_port_makes_mints_nothing(self):  # issue 711
+        # The port reads the pull request's state and its threads before it writes, each a need of the queue App's
+        # pull_requests grant: a grant that lists either alone is short, and nothing is minted or written (Astra's read).
+        environ = {"GITHUB_TOKEN": "g", "QUEUE_APP_KEY": "k", "FACTORY_PAUSED": ""}
+        real = json.loads((steps.ROOT / "config" / "apps.json").read_text())
+        for kept in (["read:facts.state"], ["read:facts.threads"]):
+            apps = copy.deepcopy(real)
+            apps["apps"]["queue"]["permissions"]["pull_requests"]["needs"] = kept
+            with tempfile.TemporaryDirectory() as folder:
+                for entry in steps.ROOT.iterdir():
+                    if entry.name != "config" and not entry.name.startswith("."):
+                        (pathlib.Path(folder) / entry.name).symlink_to(entry)
+                shutil.copytree(steps.ROOT / "config", pathlib.Path(folder) / "config")
+                (pathlib.Path(folder) / "config" / "apps.json").write_text(json.dumps(apps))
+                with unittest.mock.patch.object(queue_step.steps, "ROOT", pathlib.Path(folder)):
+                    (done, ended), _, wanted, asked = self.written(environ, answers=())
+            self.assertEqual((ended["outcome"], ended["reason"], wanted, asked.sent),
+                             ("environment", "read_not_granted", [], []), kept)
 
     def test_a_record_a_decision_or_a_key_that_cannot_serve_writes_nothing(self):
         environ = {"GITHUB_TOKEN": "g", "QUEUE_APP_KEY": "k", "FACTORY_PAUSED": ""}
