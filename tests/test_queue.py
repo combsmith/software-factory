@@ -349,8 +349,9 @@ class Step(unittest.TestCase):
         # The record is found through the job's own token, held to the item's repo and reads.
         self.assertEqual([type(t).__name__ for t in reads_through], ["Approving"])
         self.assertEqual((self.found_with[0], self.found_with[-1]), (ITEM["repo"], self.argv[2]))
-        # The queue App's token is minted with the grants its three acts take, and nothing more.
-        self.assertEqual(wanted, [("combsmith-sf-queue", ITEM["repo"], {"contents": "write"}, "k")])
+        # The queue App's token is minted with the grants its three acts and its reads of the pull request take, and
+        # nothing more (issue 711).
+        self.assertEqual(wanted, [("combsmith-sf-queue", ITEM["repo"], {"contents": "write", "pull_requests": "read"}, "k")])
         self.assertEqual(len(asked.sent), 3)
         # Paused as the job's vars give it, or with no Pause given at all: nothing is written.
         for paused in ({"FACTORY_PAUSED": "true"}, {}):

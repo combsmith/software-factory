@@ -6,7 +6,7 @@ decision 0130). `harness/queue.py` decides; this step reads and writes for it.
 NAME, ITEM and PASS are the Run's three inputs, OUT a new folder. Two credentials, each for its own part: the job's own
 `GITHUB_TOKEN` finds the pass record by PASS among the poller's runs, narrowed by the effects port's `Approving` to
 the item's repo and reads, with no write; and the queue App's token, minted from `QUEUE_APP_KEY` with the grants its
-three acts take and revoked when the act ends, makes the one write, narrowed to the item by `adapters.queue.Queuing`.
+three acts and its reads of the pull request take and revoked when the act ends, makes the one write, narrowed to the item by `adapters.queue.Queuing`.
 `FACTORY_PAUSED` is the Pause as the job's `vars` context gives it. OUT holds `applied.json` and `outcome.json`. A Run
 whose outcome names a fault fails the step, by its code, after both are written, so that the run concludes as it ended
 and the pass reads its outcome."""
@@ -29,6 +29,9 @@ KEY = "QUEUE_APP_KEY"
 PAUSE = "FACTORY_PAUSED"
 # The needs of the queue App's three acts, which its grant must hold (config/apps.json).
 NEEDS = ("effect:enqueue_merge", "effect:dequeue_merge", "effect:resolve_thread")
+# And what its port reads of the pull request before each write, its state and threads and its place in the queue, each
+# a read of the pull request, which takes pull_requests: read (issue 711).
+READS = ("read:facts.state", "read:facts.threads")
 
 
 def written(argv: list, environ: dict, clock, connect) -> tuple:
@@ -64,7 +67,8 @@ def written(argv: list, environ: dict, clock, connect) -> tuple:
     try:
         apps = json.loads((steps.ROOT / "config" / "apps.json").read_text())
         app = apps["apps"]["queue"]
-        wanted = identity.granted(app, apps["needs"], NEEDS, "write")
+        wanted = dict(identity.granted(app, apps["needs"], READS, "read"),
+                      **identity.granted(app, apps["needs"], NEEDS, "write"))
         transport, revoke = identity.from_key(app, home, wanted, environ.get(KEY), int(clock()), connect)
     except identity.Refused as refused:
         return queue._records(run, release, kind, [], ("environment", str(refused)))

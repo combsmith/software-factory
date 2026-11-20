@@ -284,7 +284,8 @@ STEPS = {
                                           "adapters.effects._threads"),
                                          "each Effect's own token, minted from that Effect's need (harness/apply.py)")),
     "the queue App's act": (("harness.queue_step", "written"),
-                            lambda: identity.granted(APPS["apps"]["queue"], APPS["needs"], queue_step.NEEDS, "write"),
+                            lambda: dict(identity.granted(APPS["apps"]["queue"], APPS["needs"], queue_step.READS, "read"),
+                                         **identity.granted(APPS["apps"]["queue"], APPS["needs"], queue_step.NEEDS, "write")),
                             dict.fromkeys(("adapters.passes.find", "adapters.artifacts._listed", "adapters.artifacts.read"),
                                           "the pass record, read through the job's own token, `GITHUB_TOKEN`, before any "
                                           "is minted")),
@@ -293,11 +294,9 @@ STEPS = {
     "the pass's writes": (("adapters.effects", "main"), effects_minted,
                           {"adapters.effects._dispatch": "the pass job's own token, `WORKFLOW_TOKEN`, with actions: write"}),
 }
-# What a step is owed, by the issue that holds it, while that step is not live: the queue App's act reads the pull
-# request with no pull_requests grant, "queue_step mints no pull_requests read, and the queue App holds none" (#711).
-# It is no exception once the Controller names the queue App's account: then the step is live, and held as any other.
-OWED = {"the queue App's act": {("adapters.queue.pull", "pull_requests"), ("adapters.queue.queued", "pull_requests"),
-                                ("adapters.queue.threads", "pull_requests")}}
+# What a step is owed, by the issue that holds it, while that step is not live. None is owed now: the queue App's act
+# mints the pull_requests read its port takes (#711).
+OWED = {}
 
 
 def short(held: dict, leaf: str) -> set:
