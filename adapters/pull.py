@@ -29,10 +29,12 @@ INDEX = re.compile(r"^(index [0-9a-f]{7})[0-9a-f]{0,57}(\.\.[0-9a-f]{7})[0-9a-f]
 # either: each begins ` `, `+`, `-` or `\`.
 FILE = re.compile(r"^diff --git ", re.MULTILINE)
 FIRST_HUNK = re.compile(r"^@@ ", re.MULTILINE)
-# A file's index line read for its two ids whole, and the ids an empty file's line can name: none, and the empty blob's,
-# by SHA-1 and by SHA-256, which git works out and no one can choose.
-IDS = re.compile(r"^index ([0-9a-f]+)\.\.([0-9a-f]+)(?: [0-7]{6})?$", re.MULTILINE)
-EMPTY = ("0" * 64, "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+# All an empty file's part of a diff says: its header, whether it was added or deleted, and its index line, which names
+# no blob, all zeros, and the empty blob's id, by SHA-1 or SHA-256, which git works out and no one can choose; git gives
+# no other blob an abbreviation of that id while the empty blob is in the repo.
+EMPTY_FILE = re.compile(r"diff --git [^\n]*\n(new|deleted) file mode [0-7]{6}\n"
+                        r"index ([0-9a-f]{7,64})\.\.([0-9a-f]{7,64})\n\Z")
+EMPTY = ("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
          "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813")
 # The account type each class needs: the Factory's Apps and a dependency bot are Bots, the Maintainer a person.
 KINDS = {"agent": "Bot", "maintainer": "User", "dependency": "Bot"}
@@ -215,7 +217,7 @@ def canonical(text: str) -> str:
     cut to their first 7 characters: the one form every reader hashes and hands on, `diff`, `change` and a review's
     content (`adapters/timeline.py`), so that the content id is the same at each read of one compare (decision 0064).
 
-    Only a file whose hunks tell its content is cut, or an empty one, whose ids say nothing of it. Any other file's
+    Only a file whose hunks tell its content is cut, or an empty one, whose part says nothing else. Any other file's
     index line, a binary file's among them, is kept as GitHub sent it: it is all that tells that file's content, and
     git never gives two blobs one abbreviation, so cut it would let a blob made to share another's first 7 characters
     pass as the content approved. An id shorter than 7, or longer than 64, is left as it is."""
@@ -225,15 +227,20 @@ def canonical(text: str) -> str:
         part = text[start:end]
         hunk = FIRST_HUNK.search(part)
         header, hunks = (part[:hunk.start()], part[hunk.start():]) if hunk else (part, "")
-        if hunk or _empty(header):
+        if hunk or _empty(part):
             header = INDEX.sub(r"\1\2\3", header)
         parts.append(header + hunks)
     return "".join(parts)
 
 
-def _empty(header: str) -> bool:
-    """Whether every id a file's header names on its index line is none or the empty blob's, as GitHub abbreviated it."""
-    return all(any(known.startswith(said) for known in EMPTY) for pair in IDS.findall(header) for said in pair)
+def _empty(part: str) -> bool:
+    """Whether a file's part of a diff is all an added or a deleted empty file's says, its index line naming no blob
+    and the empty blob, in that order for an added file and the other for a deleted one, as GitHub abbreviated them."""
+    found = EMPTY_FILE.match(part)
+    if not found:
+        return False
+    none, blob = found.group(2, 3) if found.group(1) == "new" else found.group(3, 2)
+    return set(none) == {"0"} and any(known.startswith(blob) for known in EMPTY)
 
 
 def _compare(pull: dict, base_head: str) -> str:
