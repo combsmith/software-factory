@@ -2392,6 +2392,41 @@ class EvalJob(unittest.TestCase):
         self.assertFalse([k for k in asked["env"] if k.startswith("HELDOUT")])
         self.assertNotIn("a-stand-in-held-out-token", json.dumps(cli.calls))
 
+    def test_a_replays_case_is_handed_its_recorded_reads_and_no_other_case_is(self):  # issue 948
+        # A private replay's case carries what each reader said of its head, as recorded for another Run: the eval path
+        # stamps each with the case's Run and Release and hands them to the Task under a copy of the configuration that
+        # switches the hand-over on, so the review is told how to take them. A case with none is handed none, and the
+        # committed configuration switches nothing on. No reader is asked.
+        from harness import engine, task
+        from harness.eval import run as step
+        from tests import test_harness as th
+        case, live = self.reviewed()
+        said = json.loads(th.advised(run="r_0000000000000OLD")[0])
+        said["release"] = "factory/v0.0.9"
+        replayed = dict(case, advisory={"astra": said})
+        self.assertEqual(validate(replayed, eval_result.schemas()["eval-case"], schemas=eval_result.schemas()), [])
+        handed = (ROOT / "roles" / "pr-review" / "advisory-handed.md").read_text(encoding="utf-8").split("\n")[0]
+
+        def asked_with(one):
+            cli = live.CLI(said=live.answer(live.judged(findings=[], effects={})))
+            env = dict(live.JOB, HELDOUT_TOKEN="a-stand-in-held-out-token", HELDOUT_OWNER="o")
+            with mock.patch.object(step, "run_id", lambda: live.RUN):
+                reviewed(env, "factory/v0.1.0", 0, cli, live.Clock(0.0, 1.0, 2.0))(one)
+            asked, = cli.asked()
+            return json.loads(asked["args"][2].split(engine.TASK, 1)[1]), json.dumps(asked["args"])
+        given, args = asked_with(replayed)
+        self.assertEqual(given["advisory"], [{"lens": "astra", "status": "completed", "reason": None},
+                                             {"lens": "kimi", "status": "unread", "reason": "advice_missing"}])
+        self.assertEqual([(t["trust"], t["source"]) for t in given["texts"] if t["id"] == th.FOUND], [("advisory", "astra")])
+        self.assertIn(json.dumps(handed)[1:-1], args)
+        plain, plain_args = asked_with(case)
+        self.assertNotIn("advisory", plain)
+        self.assertNotIn(json.dumps(handed)[1:-1], plain_args)
+        self.assertNotIn(task.HAND_OVER, json.loads((ROOT / "config" / "harness.json").read_text()))
+        # A recorded read that does not hold is unread, and says why; the case is still reviewed.
+        bad = dict(case, advisory={"astra": dict(said, lens="kimi")})
+        self.assertEqual(asked_with(bad)[0]["advisory"][0], {"lens": "astra", "status": "unread", "reason": "advice_not_the_lens"})
+
     def test_every_code_the_scorer_gives_is_one_the_report_may_carry(self):  # decision 0120
         # A code the enum lacks would make the whole report unreadable, and the run would say so and nothing else.
         from harness import eval as job

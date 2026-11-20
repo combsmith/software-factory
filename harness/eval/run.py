@@ -19,6 +19,7 @@ that it timed out (decision 0131). A case the vendor or the network failed, as `
 RETRIES more times and RETRY_WAIT apart, while the time left allows, and marked as retried (issue 615)."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -45,6 +46,23 @@ CALL_FAILED = ("engine_failed", "engine_timeout", "no_answer")
 # again (V and C). Anything more was asked for more Results than one, whether each made its call or failed before it.
 ONE_ASK = ("V", "VCV")
 ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+
+
+def recorded(case: dict, run: str, config: dict) -> tuple:
+    """`(advised, config)` for a case: where a private replay's case carries what each advisory reader said of its head,
+    as recorded, each Result stamped with the case's Run and Release, with its digest, and a copy of the configuration
+    that switches the hand-over on, so the case's Task is handed those reads as a live Run's would be (issue 948);
+    else none, and the configuration as it is, which hands none. Nothing here asks a reader: a held-out case carries
+    no reads, and a replay's come from its own set."""
+    said = case.get("advisory")
+    if said is None:
+        return None, config
+    advised = {}
+    for lens, result in said.items():
+        data = (json.dumps(dict(result, run=run, release=config["release"]), indent=2, sort_keys=True, allow_nan=False)
+                + "\n").encode()
+        advised[lens] = (data, ("sha256:%s\n" % hashlib.sha256(data).hexdigest()).encode())
+    return advised, dict(config, harness=dict(config["harness"], **{tasks.HAND_OVER: True}))
 
 
 def run_id() -> str:
@@ -118,9 +136,11 @@ def reviewer(env: dict, release: str, began: int, call=None, clock=time.time, he
         # The issue a change serves, as a live Run reads it (adapters/texts.py), where the case holds one (decision 0110).
         texts = [{"id": "issue:%d" % case["issue"]["number"], "by": case["issue"]["by"], "body": case["issue"]["body"]}] \
             if "issue" in case else []
+        run_ = run_id()
+        advised, told = recorded(case, run_, config)
         try:
-            the_task = tasks.from_admission(admit, facts.get("item"), run_id(), facts, texts, manifest, [], config,
-                                      case["diff"].encode("utf-8"))
+            the_task = tasks.from_admission(admit, facts.get("item"), run_, facts, texts, manifest, [], told,
+                                      case["diff"].encode("utf-8"), advised)
         except (tasks.Refused, KeyError, UnicodeEncodeError):
             raise Stop("not_this_set") from None
         # A diff over the Kernel's bound is cut in the Task, and a review is never of part of one: `live.answer` would

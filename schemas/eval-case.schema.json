@@ -86,6 +86,11 @@
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
     },
+    "advisory": {
+      "description": "A private replay's case alone: what each advisory reader said of the case's head, as recorded, by Lens; the eval path stamps each with the case's Run and Release and hands them to the Task under a copy of the configuration that switches the hand-over on (decision 0224, issue 948). Only a Lens the configuration asks a reader for is read; a held-out case carries none, and no reader is asked.",
+      "type": "object",
+      "additionalProperties": { "$ref": "advice.schema.json" }
+    },
     "issue": {
       "description": "The issue the change serves, as a live Run's Task holds it (decision 0110): optional, so a case without one is reviewed on its diff alone.",
       "type": "object",
