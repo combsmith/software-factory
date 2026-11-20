@@ -6680,6 +6680,12 @@ class Linked(unittest.TestCase):
         found, whole = self.listed([linked_read(ref(7, 9), [link("ConnectedEvent", 1, 9)]), pull_read(7), pull_timeline(7),
                                     pull_read(9, base="trial")])
         self.assertEqual(([p["number"] for p in found], whole), ([7], False))
+        # Merged or closed on another base, as a stacked pull request is, it still leaves the list not whole until it is
+        # unlinked, as record 0236's cost row says (Muse).
+        for done in (dict(merged=20, closed=20), dict(closed=20)):
+            found, whole = self.listed([linked_read(ref(7), [link("ConnectedEvent", 1, 9)]), pull_read(7), pull_timeline(7),
+                                        pull_read(9, base="trial", **done)])
+            self.assertEqual(([p["number"] for p in found], whole), ([7], False), done)
         # In the same second, the timeline's order says which came last, never the time (Astra).
         self.assertEqual(listing(link("DisconnectedEvent", 2, 9), link("ConnectedEvent", 2, 9))[1], False)
         self.assertEqual(listing(link("ConnectedEvent", 2, 9), link("DisconnectedEvent", 2, 9))[1], True)
