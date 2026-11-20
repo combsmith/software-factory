@@ -240,7 +240,8 @@ class Record(unittest.TestCase):
                          [("defer", None), ("act", "enqueue")])
         self.assertEqual([(d["outcome"], d.get("action")) for d in decisions(passed(enqueue))],
                          [("admit", None), ("act", "enqueue")])
-        # A count that is not whole is given to the Kernel as read, and every item defers on it.
+        # A count that is not whole is given to the Kernel as read, and every item defers on it; one below zero too.
+        self.assertEqual([pass_.counted(c, 2) for c in (0, 3, -1, None, True)], [2, 5, -1, None, True])
         told = []
         real = pass_.pull_request.decide
         with unittest.mock.patch.object(pass_.pull_request, "decide",

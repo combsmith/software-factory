@@ -225,7 +225,7 @@ def context_of(records, pause_read, repos, rules: dict, now: str, before=(), pre
 def counted(active, minted: int):
     """The count of active Runs an admission is asked again with: the context's, and `minted` Runs the pass counts before
     it; a count that is not whole stays as read, and the Kernel defers on it (decision 0003)."""
-    return active + minted if type(active) is int else active
+    return active + minted if type(active) is int and active >= 0 else active
 
 
 def given(record: dict, entry: dict) -> dict:
