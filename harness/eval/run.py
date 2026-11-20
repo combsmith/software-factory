@@ -49,20 +49,28 @@ ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 
 def recorded(case: dict, run: str, config: dict) -> tuple:
-    """`(advised, config)` for a case: where a private replay's case carries what each advisory reader said of its head,
-    as recorded, each Result stamped with the case's Run and Release, with its digest, and a copy of the configuration
-    that switches the hand-over on, so the case's Task is handed those reads as a live Run's would be (issue 948);
-    else none, and the configuration as it is, which hands none. Nothing here asks a reader: a held-out case carries
-    no reads, and a replay's come from its own set."""
+    """`(advised, config)` for a case: where a private replay's case carries what an advisory reader the configuration
+    asks said of its head, as recorded, each such Result stamped with the case's Run and Release, with its digest, and a
+    copy of the configuration that switches the hand-over on, so the case's Task is handed those reads as a live Run's
+    would be (issue 948); else none, and the configuration as it is, which hands none. Only the Lenses the configuration
+    asks a reader for are looked up, so a case naming others costs nothing, and one that carries none of theirs is a
+    plain case. Each Result is held where the Task is built (`advice.held`): one that does not hold is unread, alone. A
+    gate set's case never gets here with one (`harness/eval.score`). Nothing here asks a reader."""
     said = case.get("advisory")
-    if said is None:
+    harness = config["harness"]
+    names = [lens for lens in harness.get("advisory", []) if lens in harness.get("readers", {})]
+    present = [lens for lens in names if isinstance(said, dict) and lens in said]
+    if not present:
         return None, config
     advised = {}
-    for lens, result in said.items():
-        data = (json.dumps(dict(result, run=run, release=config["release"]), indent=2, sort_keys=True, allow_nan=False)
-                + "\n").encode()
+    for lens in present:
+        try:
+            data = (json.dumps(dict(said[lens], run=run, release=config["release"]), indent=2, sort_keys=True,
+                               allow_nan=False) + "\n").encode()
+        except (TypeError, ValueError):
+            continue        # no Result: the Lens is unread, `advice_missing`, and the case is still reviewed
         advised[lens] = (data, ("sha256:%s\n" % hashlib.sha256(data).hexdigest()).encode())
-    return advised, dict(config, harness=dict(config["harness"], **{tasks.HAND_OVER: True}))
+    return advised, dict(config, harness=dict(harness, **{tasks.HAND_OVER: True}))
 
 
 def run_id() -> str:

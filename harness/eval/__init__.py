@@ -1107,6 +1107,7 @@ def score(env: dict, root: pathlib.Path, workspace: pathlib.Path, review) -> str
     causes = dict(causes) if isinstance(causes, dict) else {}
     alternates, surplus, usages = set(), {}, {}
     if gate_set(found):
+        review = unhanded(review)
         return written_out(workspace, found,
                            *gate_scored(kept, found, place, review, causes, alternates, surplus, usages))
     assessed = assess(found, _read(place, "fetched.json"), place, review, causes, alternates, surplus, usages)
@@ -1114,6 +1115,18 @@ def score(env: dict, root: pathlib.Path, workspace: pathlib.Path, review) -> str
                      blocking_pass(found, place, assessed), causes, alternates, surplus, usages,
                      identity(root, found["role"]), getattr(review, "retried", None))
     return written_out(workspace, found, assessed, written)
+
+
+def unhanded(review):
+    """`review` for a gate set: a case that carries a reader's recorded reads is not its case, and is not asked, since the
+    hand-over of reads is a private replay's alone and a gate set measures `pr-review` as a live Run with the hand-over
+    off (issue 948)."""
+    def gated(case):
+        if isinstance(case, dict) and "advisory" in case:
+            raise Stop("not_this_set")
+        return review(case)
+    gated.seen, gated.retried = getattr(review, "seen", None), getattr(review, "retried", None)
+    return gated
 
 
 def written_out(workspace: pathlib.Path, found: dict, assessed: dict, written: dict) -> str:

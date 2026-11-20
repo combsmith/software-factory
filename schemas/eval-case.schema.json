@@ -87,7 +87,7 @@
       "pattern": "^[0-9a-f]{40}$"
     },
     "advisory": {
-      "description": "A private replay's case alone: what each advisory reader said of the case's head, as recorded, by Lens; the eval path stamps each with the case's Run and Release and hands them to the Task under a copy of the configuration that switches the hand-over on (decision 0224, issue 948). Only a Lens the configuration asks a reader for is read; a held-out case carries none, and no reader is asked.",
+      "description": "A private replay's case alone: what each advisory reader said of the case's head, as recorded, by Lens; the eval path stamps each with the case's Run and Release and hands them to the Task under a copy of the configuration that switches the hand-over on (decision 0224, issue 948). Only a Lens the configuration asks a reader for is read, each Result held to advice/1 by this schema and to the case where the Task is built, where one that does not hold is unread; a gate set's case that carries any is not asked, and no reader is asked.",
       "type": "object",
       "additionalProperties": { "$ref": "advice.schema.json" }
     },
