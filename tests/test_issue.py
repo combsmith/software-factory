@@ -1725,6 +1725,14 @@ class Outcomes(unittest.TestCase):
         mixed = [dict(rounds(1)[0], conclusion="failure", outcome="item"), rounds(2)[1]]
         d = decide(failing, mixed, cfg=cfg)
         self.assertEqual((what(d)[:2], d["evidence"]), (("hold", "attempts_exhausted"), ["m0", "m1"]))
+        # So is one that spent no model, its Engine never started, which counts apart from the Run ceiling.
+        idle = dict(rounds(1)[0], conclusion="failure", outcome="environment", engine_started=False)
+        d = decide(failing, [idle, rounds(2)[1]], cfg=cfg)
+        self.assertEqual((what(d)[:2], d["evidence"]), (("hold", "attempts_exhausted"), ["m0", "m1"]))
+        # Where both bounds are reached, the rounds' Hold is the one given, naming every round, not the attempts' alone.
+        both = [rounds(1)[0], dict(rounds(2)[1], conclusion="failure", outcome="item")]
+        d = decide(failing, both, cfg=named(max_implementing_rounds=2, max_attempts=1))
+        self.assertEqual((what(d)[:2], d["evidence"]), (("hold", "attempts_exhausted"), ["m0", "m1"]))
         # A key missing, null, or no whole number of at least one, holds the issue for a person, limits_unreadable,
         # naming no Run though rounds were spent, and with a Run in flight too: never a round admitted by another key's
         # number, nor a deferral.
@@ -1740,7 +1748,11 @@ class Outcomes(unittest.TestCase):
                 self.assertEqual((d["state"], what(d), d["attention"], d["evidence"]),
                                  ("held", ("hold", "limits_unreadable", None), "needs_you", []), (bad, spent))
             flying = run(intent=issue.IMPLEMENT, status="in_progress", role="dev-lead", name="m9", minute=30)
-            self.assertEqual(what(decide(failing, [flying], cfg=cfg))[:2], ("hold", "limits_unreadable"), bad)
+            d = decide(failing, [flying], cfg=cfg)
+            self.assertEqual((d["state"], what(d), d["attention"], d["evidence"]),
+                             ("held", ("hold", "limits_unreadable", None), "needs_you", []), bad)
+            # Another Intent's loop never reads the rounds' key, readable or not.
+            self.assertEqual(what(decide(TRIAGED, cfg=cfg)), ("admit", "triage", INVESTIGATE), bad)
         # The implementing Run's attempts, Runs that failed by a fault of the item, are still held at max_attempts by the
         # brakes, as every Intent's are, whatever the rounds' key says; and so is another Intent's loop, held at
         # max_attempts and not at the lower of the two keys.

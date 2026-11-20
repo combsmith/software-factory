@@ -11,13 +11,11 @@ SCHEMA = ROOT / "schemas" / "lifecycle.schema.json"
 # The limits the Kernel counts for one Work item, and so the only ones that can bound its cycles.
 # A limit on size or on the whole org is not among them. A new counter in the Kernel is added here.
 PER_ITEM = ("max_runs_per_item", "max_environment_runs_per_item", "max_attempts", "max_rounds", "max_acts_per_item",
-            "max_unmerged_closes", "max_implementing_rounds")
+            "max_unmerged_closes")
 # The counts whose every unit is a Run, each held at or below the Run ceiling, which would hold the item first and leave
-# a bound past it never reached: an issue's implementing rounds (decision 0242, issue 1038).
+# a bound past it never reached: an issue's implementing rounds (decision 0242, issue 1038). They bound a loop inside
+# `in_progress`, which no transition makes, so no transition may name them as its bound, and they are not in PER_ITEM.
 UNDER_THE_CEILING = ("max_implementing_rounds",)
-# The counts the Kernel keeps on one type of Work item alone, by that type: only its own Lifecycle may name one as a
-# bound. An issue's implementing rounds count nothing on a pull request.
-ONLY_ON = {"max_implementing_rounds": "issue"}
 # The bound that is no counter: only a person ends what the transition starts. A Hold a label holds stands until a
 # person removes it, whoever placed it, so a transition into `held` that no person makes may name it, and so may a
 # stranger's change, below; nothing else.
@@ -109,9 +107,6 @@ def check(lc: dict, limits: dict = None, schema: dict = None) -> list:
         elif tr["bound"] is not None and tr["bound"] not in PER_ITEM:
             problems.append("the bound %s is not a limit the Kernel counts for each item; a bound is one of %s"
                             % (tr["bound"], ", ".join(PER_ITEM)))
-        elif tr["bound"] in ONLY_ON and lc["work_item"] != ONLY_ON[tr["bound"]]:
-            problems.append("the bound %s is counted on an %s alone, and bounds nothing on this Work item"
-                            % (tr["bound"], ONLY_ON[tr["bound"]]))
         elif limits is not None and tr["bound"] is not None and tr["bound"] not in limits:
             problems.append("the bound %s is not a limit in config/defaults.json; add its number there"
                             % tr["bound"])
