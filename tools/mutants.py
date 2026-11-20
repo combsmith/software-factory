@@ -104,7 +104,7 @@ ISSUE_WHOLE = ("tests.test_adapters.Issues.test_an_issues_timeline_is_whole_only
 ISSUE_CONTENT = ("tests.test_adapters.Issues.test_an_issues_content_time_is_the_newer_of_its_edit_and_its_rename",)
 ISSUE_LIFE = ("tests.test_adapters.Issues.test_a_reopening_by_a_writer_begins_a_life_and_anyone_elses_does_not",)
 ISSUE_REFUSED = ("tests.test_adapters.Issues.test_an_issue_github_did_not_answer_whole_is_refused",)
-INDEX_ONE = ("tests.test_adapters.Diff.test_reads_of_one_compare_whose_index_ids_differ_in_length_are_one_content",)
+INDEX_ONE = ("tests.test_adapters.Diff.test_index_ids_of_any_length_are_one_content",)
 INDEX_OWN = ("tests.test_adapters.Diff.test_only_a_files_own_index_line_is_cut",)
 ISSUE_OWN = ("tests.test_adapters.Issues.test_the_issues_own_facts_hold_to_the_schema_with_its_linked_pull_requests",)
 # S3, the issues pass: the tests that kill its mutants.
@@ -4330,12 +4330,27 @@ MUTANTS = ISSUE + [
      'r"^(index [0-9a-f]{7})', 'r"^(index [0-9a-f]{8})', INDEX_ONE),
     ('a new blob id is cut to 8 characters', 'adapters/pull.py',
      r'(\.\.[0-9a-f]{7})', r'(\.\.[0-9a-f]{8})', INDEX_ONE),
+    ('an old blob id of any length is cut', 'adapters/pull.py',
+     r'[0-9a-f]{7})[0-9a-f]{0,57}(\.\.', r'[0-9a-f]{7})[0-9a-f]*(\.\.', INDEX_OWN),
+    ('a new blob id of any length is cut', 'adapters/pull.py',
+     '[0-9a-f]{7})[0-9a-f]{0,57}((?:', '[0-9a-f]{7})[0-9a-f]*((?:', INDEX_OWN),
+    ("a binary file's index line is cut", 'adapters/pull.py',
+     '        if not BINARY.search(header):\n', '        if True:\n', INDEX_OWN),
+    ("an index line after a file's first hunk is cut", 'adapters/pull.py',
+     '(part[:hunk.start()], part[hunk.start():]) if hunk else (part, "")', '(part, "")', INDEX_OWN),
+    ('what comes before the first file is cut', 'adapters/pull.py',
+     '    parts = [text[:starts[0]] if starts else text]\n', '    parts = [INDEX.sub(r"\\1\\2\\3", text[:starts[0]]) if starts else text]\n',
+     INDEX_OWN),
+    ('only the first file of a diff is read', 'adapters/pull.py',
+     'zip(starts, starts[1:] + [len(text)])', 'zip(starts[:1], [len(text)])', INDEX_ONE),
     ('an index line without a mode is kept', 'adapters/pull.py',
      '((?: [0-7]{6})?)$"', '( [0-7]{6})$"', INDEX_ONE),
     ('only the first line of a diff is read for an index line', 'adapters/pull.py',
      '[0-7]{6})?)$", re.MULTILINE)', '[0-7]{6})?)$", 0)', INDEX_ONE),
     ('a line of a hunk that reads as an index line is cut', 'adapters/pull.py',
      'INDEX = re.compile(r"^(index ', 'INDEX = re.compile(r"(index ', INDEX_OWN),
+    ('an index line with a mode is kept unless it is 100644', 'adapters/pull.py',
+     '((?: [0-7]{6})?)$"', '((?: 100644)?)$"', INDEX_ONE),
     ('a line that says more than an index line is cut', 'adapters/pull.py',
      '[0-7]{6})?)$", re.MULTILINE)', '[0-7]{6})?)", re.MULTILINE)', INDEX_OWN),
     ("a branch's name goes in the path as it is", 'adapters/pull.py',

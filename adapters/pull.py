@@ -22,10 +22,14 @@ STATUSES = {"added", "removed", "modified", "renamed", "copied", "changed", "unc
 MOVED = {"renamed", "copied"}
 SHA = re.compile(r"^[0-9a-f]{40}$")
 HUNK = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@")
-# A file's index line, its two blob ids and the mode it kept, if any. No line of a hunk begins `index `: each begins
-# ` `, `+`, `-` or `\`. GitHub gives the two ids of one compare 8 characters long at one read and 9 at the next
-# (2026-11-19), so each is cut to git's least, 7, and every read of one compare gives the same bytes.
-INDEX = re.compile(r"^(index [0-9a-f]{7})[0-9a-f]*(\.\.[0-9a-f]{7})[0-9a-f]*((?: [0-7]{6})?)$", re.MULTILINE)
+# A file's index line, its two blob ids, each at most 64 characters, and the mode it kept, if any. GitHub gives the two
+# ids of one compare 8 characters long at one read and 9 at the next (2026-11-19), so each is cut to git's least, 7.
+INDEX = re.compile(r"^(index [0-9a-f]{7})[0-9a-f]{0,57}(\.\.[0-9a-f]{7})[0-9a-f]{0,57}((?: [0-7]{6})?)$", re.MULTILINE)
+# Where a file's part of a diff begins, where its header ends at its first hunk, and the line git writes in place of
+# a binary file's hunks. No line of a hunk begins with any of them: each begins ` `, `+`, `-` or `\`.
+FILE = re.compile(r"^diff --git ", re.MULTILINE)
+FIRST_HUNK = re.compile(r"^@@ ", re.MULTILINE)
+BINARY = re.compile(r"^Binary files ", re.MULTILINE)
 # The account type each class needs: the Factory's Apps and a dependency bot are Bots, the Maintainer a person.
 KINDS = {"agent": "Bot", "maintainer": "User", "dependency": "Bot"}
 
@@ -203,10 +207,22 @@ def _counts(text: str):
 
 
 def canonical(text: str) -> str:
-    """A diff as GitHub sent it, but for each file's index line, whose blob ids are cut to their first 7 characters: the
-    one form every reader hashes and hands on, `diff`, `change` and a review's content (`adapters/timeline.py`), so that
-    the content id is the same at each read of one compare (decision 0064). An id shorter than 7 is left as it is."""
-    return INDEX.sub(r"\1\2\3", text)
+    """A diff as GitHub sent it, but for each file's index line, in its header before its first hunk, whose blob ids are
+    cut to their first 7 characters: the one form every reader hashes and hands on, `diff`, `change` and a review's
+    content (`adapters/timeline.py`), so that the content id is the same at each read of one compare (decision 0064).
+    A binary file's index line is kept as GitHub sent it: no hunk tells its content, and git never gives two blobs one
+    abbreviation, so cut it would let a blob made to share another's first 7 characters pass as the content approved.
+    An id shorter than 7, or longer than 64, is left as it is."""
+    starts = [found.start() for found in FILE.finditer(text)]
+    parts = [text[:starts[0]] if starts else text]
+    for start, end in zip(starts, starts[1:] + [len(text)]):
+        part = text[start:end]
+        hunk = FIRST_HUNK.search(part)
+        header, hunks = (part[:hunk.start()], part[hunk.start():]) if hunk else (part, "")
+        if not BINARY.search(header):
+            header = INDEX.sub(r"\1\2\3", header)
+        parts.append(header + hunks)
+    return "".join(parts)
 
 
 def _compare(pull: dict, base_head: str) -> str:
