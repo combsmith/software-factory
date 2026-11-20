@@ -222,6 +222,18 @@ def context_of(records, pause_read, repos, rules: dict, now: str, before=(), pre
     return listed, whole, runs, pause, automatic, capacity, context
 
 
+def counted(active, minted: int):
+    """The count of active Runs an item is asked with: the context's, and each Run this pass minted before it; a count
+    that is not whole stays as read, and the Kernel defers on it (decision 0238)."""
+    return active + minted if type(active) is int else active
+
+
+def given(record: dict, entry: dict) -> dict:
+    """The context `entry`'s Decision was made with: the record's, with the count of active Runs the entry holds. A
+    record written before the pass counted its own Runs holds none, and every entry was asked with the context's."""
+    return dict(record["context"], active_runs=entry.get("active_runs", record["context"]["active_runs"]))
+
+
 def wait_before_reading(previous, now: str, config: dict, started=None) -> int:
     """Seconds to wait before this pass reads: none sooner than the gap after the last pass's read began, whatever
     started it (decision 0043). If the records cannot be read, the whole gap. A pass its own token started waits at
@@ -320,6 +332,11 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     listed, whole, runs, pause, automatic, capacity, context = context_of(records, reads.get("pause"), repos, rules,
                                                                            now, before, previous)
 
+    # Each Run this pass mints is active once it is dispatched, so each item after it is asked with it counted: a pass
+    # admits no more Runs than `org_max_active_runs` leaves room for, as each of them, asked again at its apply, finds
+    # (decision 0238).
+    minted_here = []
+
     def asked(entries: list, decide, lifecycle: dict, given: dict) -> list:
         kernel = dict(given, lifecycle=lifecycle)
         out = []
@@ -328,23 +345,29 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
             facts["complete"] = dict(facts["complete"])
             # The facts port reads no run: the records port's list says whether the Runs were read whole.
             facts["complete"]["runs"] = facts["complete"].get("runs") is True and whole
-            d = decide(facts, runs, context, kernel, now)
+            active = counted(context["active_runs"], len(minted_here))
+            d = decide(facts, runs, dict(context, active_runs=active), kernel, now)
             minted = d["outcome"] == t.ADMIT or d.get("action") == "issue_approval" \
                 or (queue_named and d["outcome"] == t.ACT and d.get("action") in writes_.QUEUE_INTENTS)
-            out.append(dict({"facts": facts, "decision": d, "run": mint("r") if minted else None},
+            run_id = mint("r") if minted else None
+            minted_here.extend([run_id] if minted else [])
+            out.append(dict({"facts": facts, "decision": d, "run": run_id, "active_runs": active},
                             **status_head(entry, kernel)))
         return out
+
+    pass_id = mint("p")     # minted before any Run id, as it always was
+    pull_requests = asked(pulls, pull_request.decide, config["lifecycles"]["pull_request"], config["kernel"])
+    issues_ = asked(issues, issue.decide, config["lifecycles"]["issue"], issue_config(config["kernel"]))
 
     # Every write a Factory identity made, matched to an Effect the Factory recorded; one alert for any that is not, and
     # one for a reconciliation that is short (I-33, decision 0061). What it found is in the record before it is checked.
     found = reconcile_.reconcile(reads.get("seen"), reads.get("effects"), runs if listed and whole else None, before,
                                  rules["accounts"])
-    record = {"schema": "pass/1", "pass": mint("p"), "release": config["release"], "now": now,
+    record = {"schema": "pass/1", "pass": pass_id, "release": config["release"], "now": now,
               "started_by": started_by(reads.get("started"), rules["accounts"]), "context": context, "runs": runs,
               "reads": (copy.deepcopy(records["reads"]) if listed else [])
               + [dict(r, read="facts") if isinstance(r, dict) else r for r in reads.get("facts_reads") or []],
-              "pull_requests": asked(pulls, pull_request.decide, config["lifecycles"]["pull_request"], config["kernel"]),
-              "issues": asked(issues, issue.decide, config["lifecycles"]["issue"], issue_config(config["kernel"])),
+              "pull_requests": pull_requests, "issues": issues_,
               "left_out": [{"item": reads_.item(i), "code": code} for i, code in zip(left_out, why)],
               "reconciliation": reconcile_.entries(found),
               "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or (),

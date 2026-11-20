@@ -165,9 +165,48 @@ class Record(unittest.TestCase):
         self.assertEqual(got, [("admit", None, "r_000002A"), ("act", "issue_approval", "r_000003A")])
         kernel = dict(config()["kernel"], lifecycle=config()["lifecycles"]["pull_request"])
         for entry in record["pull_requests"]:
-            self.assertEqual(decide(entry["facts"], record["runs"], record["context"], kernel, record["now"]),
+            self.assertEqual(decide(entry["facts"], record["runs"], pass_.given(record, entry), kernel, record["now"]),
                              entry["decision"])
         self.assertNotIn("A title", json.dumps(record))
+
+    def test_a_pass_admits_no_more_runs_than_the_orgs_concurrency_leaves_room_for(self):  # decision 0238
+        # Each Run the pass mints is counted active for every item asked after it, the issues after the pull requests:
+        # with one Run in flight, three are admitted and the rest wait, so no Run, asked again at its apply, finds as
+        # many others beside it as the limit. Each entry holds the count it was asked with, and replays by it.
+        from kernel import issue
+        limit = config()["kernel"]["limits"]["org_max_active_runs"]
+        triaged = an_issue(7, label_events=[test_issue.labelled(test_issue.TRIAGE, by=test_issue.CONTROLLER)])
+        out = passed(reads(pulls=[pr(n) for n in range(1, limit + 1)], issues=[triaged],
+                           runs=[run(number=90, status="in_progress")]))
+        record = out["record"]
+        self.assertEqual(shared.errors(record, "pass"), [])
+        entries = record["pull_requests"] + record["issues"]
+        got = [(e["decision"]["outcome"], e["decision"]["reason"], e["active_runs"]) for e in entries]
+        admitted = [("admit", "awaiting_review", n) for n in range(1, limit)]
+        self.assertEqual(got, admitted + [("defer", "concurrency", limit)] * 2)
+        self.assertEqual((record["context"]["active_runs"], len(out["dispatch"])), (1, limit - 1))
+        self.assertEqual([d["run"] for d in out["dispatch"]], [e["run"] for e in entries if e["run"] is not None])
+        kernel = dict(config()["kernel"], lifecycle=config()["lifecycles"]["pull_request"])
+        for entry in record["pull_requests"]:
+            self.assertEqual(decide(entry["facts"], record["runs"], pass_.given(record, entry), kernel, record["now"]),
+                             entry["decision"])
+        issues = dict(pass_.issue_config(config()["kernel"]), lifecycle=config()["lifecycles"]["issue"])
+        (last,) = record["issues"]
+        self.assertEqual(issue.decide(last["facts"], record["runs"], pass_.given(record, last), issues, record["now"]),
+                         last["decision"])
+        # One Run short of the limit, the first is admitted and every item after it waits.
+        full = passed(reads(pulls=[pr(1), pr(2)], runs=[run(number=90 + n, status="in_progress")
+                                                         for n in range(limit - 1)]))
+        self.assertEqual([(d["outcome"], d["reason"]) for d in decisions(full)],
+                         [("admit", "awaiting_review"), ("defer", "concurrency")])
+        # A count that is not whole stays as read, and every item defers on it.
+        short = passed(reads(pulls=[pr(1), pr(2)], complete=False))
+        self.assertEqual([e["active_runs"] for e in short["record"]["pull_requests"]], [None, None])
+        # A record written before an entry held its count replays by the context's.
+        before = dict(record, pull_requests=[{k: v for k, v in e.items() if k != "active_runs"}
+                                             for e in record["pull_requests"]])
+        self.assertEqual(shared.errors(before, "pass"), [])
+        self.assertEqual(pass_.given(before, before["pull_requests"][2]), record["context"])
 
     def test_an_issue_decision_replays_through_the_issues_kernel_configuration(self):  # decisions 0002, 0218
         # Replayed through `pass_.issue_config`, as the pass asked it, the Controller's factory:triage counts.
@@ -177,7 +216,7 @@ class Record(unittest.TestCase):
         (entry,) = record["issues"]
         self.assertEqual((entry["decision"]["state"], entry["decision"]["admit"]["intent"]), ("triage", "investigate-issue"))
         kernel = dict(pass_.issue_config(config()["kernel"]), lifecycle=config()["lifecycles"]["issue"])
-        self.assertEqual(issue.decide(entry["facts"], record["runs"], record["context"], kernel, record["now"]),
+        self.assertEqual(issue.decide(entry["facts"], record["runs"], pass_.given(record, entry), kernel, record["now"]),
                          entry["decision"])
         # As written, without the suffix, the App's label would not count.
         written_ = dict(config()["kernel"], lifecycle=config()["lifecycles"]["issue"])
