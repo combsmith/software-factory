@@ -19,6 +19,14 @@ def incomplete(facts: dict) -> list:
     return [name for name in t.READ_IN_FULL if flags.get(name) is not True]
 
 
+def opened_for_an_issue(facts: dict) -> bool:
+    """Whether the facts name the issue the Factory opened this pull request for: a whole number from 1, never a truth
+    value. A fact that is not there, or is anything else, names none, and nothing says the Factory opened it. The
+    one reading for the author Role's fix (decision 0216), for any rule that asks the same."""
+    issue = facts.get("opened_for")
+    return type(issue) is int and issue >= 1
+
+
 def runs_on(runs: list, facts: dict) -> list:
     """Run records for this item, oldest first."""
     mine = [r for r in runs if r["item"] == facts["item"]]

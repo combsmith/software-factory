@@ -21,7 +21,7 @@ import unittest.mock
 from adapters import advice, effects, github, identity
 from adapters.facts import Moved
 from harness import advised as advised_
-from harness import apply, bundle, engine, shared
+from harness import apply, bundle, engine, run, shared
 from harness import task as task_
 from tests import support
 from tests.test_advisory import advised as an_advice, filed
@@ -1152,6 +1152,18 @@ class Push(unittest.TestCase):
         # The Kernel's own code is verify's input alone: pushed, and held at convergence (decision 0020).
         self.assertIsNone(apply.push_refusal(["kernel/derive.py"], [None], own_list()))
 
+    def test_the_repos_own_list_holds_the_settings_a_scan_reads_beside_its_token(self):  # issue 845
+        # sonarcloud.yml checks out a pull request's head and runs the scan with SONAR_TOKEN beside it, and the scan
+        # takes its settings, the host it sends to among them, from the head's sonar-project.properties. A Role's push
+        # that changes the file, in any case, or renames or copies it away, is refused.
+        for paths, previous in ((["sonar-project.properties"], [None]), (["SONAR-PROJECT.PROPERTIES"], [None]),
+                                (["docs/kept.properties"], ["sonar-project.properties"]),
+                                (["docs/a.md", "sonar-project.properties"], [None, None])):
+            self.assertEqual(apply.push_refusal(paths, previous, own_list()), "push_protected", (paths, previous))
+        # The scan reads the one at the top of the repo alone: the name elsewhere, or a longer one, is no setting of it.
+        for path in ("docs/sonar-project.properties", "sonar-project.properties.md"):
+            self.assertIsNone(apply.push_refusal([path], [None], own_list()), path)
+
 
 def own_list() -> list:
     """What a push may not touch, as this checkout holds it: config/hooks.json read with config/defaults.json's model
@@ -1194,6 +1206,24 @@ class Bundle(unittest.TestCase):
             said = bundle.held({"push_commits": [push_effect(data)]}, self.BASE, "the read token", REPO,
                                fetch or (lambda artifact, digest: data))
         return said, asked
+
+    def test_what_run_hands_over_is_what_the_hold_reads(self):  # issue 880: the seam, from both sides
+        # The bundle the Harness fills and the bytes `run` writes beside the Result are what the hold takes: a fetch that
+        # reads that file passes a clean patch, and one byte changed is not the digest the push names.
+        answered = {"effects": {"push_commits": [{"id": "e9", "patch": {"body": changed("docs/café.md")}}]}}
+        result, data = run.handed_over(engine.bundled(answered))
+        self.assertEqual(result["effects"], {"push_commits": [{"id": "e9", "bundle": {
+            "artifact": shared.BUNDLE_ARTIFACT, "digest": "sha256:" + hashlib.sha256(data).hexdigest()}}]})
+        asked = []
+
+        def fetch(artifact, digest, handed=data):
+            asked.append((artifact, digest))
+            return handed
+        with unittest.mock.patch.object(bundle.rules, "listed_at", lambda *a: (own_list(), None)):
+            self.assertIsNone(bundle.held(result["effects"], self.BASE, "the read token", REPO, fetch))
+            self.assertEqual(asked, [("result", result["effects"]["push_commits"][0]["bundle"]["digest"])])
+            self.assertEqual(bundle.held(result["effects"], self.BASE, "the read token", REPO,
+                                         lambda a, d: fetch(a, d, data[:-2] + b"d\n")), ("item", "bundle_digest_differs"))
 
     def test_every_name_a_patch_writes_or_reads_is_read_from_it(self):
         self.assertEqual(bundle.names(a_bundle(changed("docs/a.md"))), (["docs/a.md"], []))

@@ -19,6 +19,7 @@ trusted with a real one. A repo that reads nothing from another can be verified 
 | Boundary | Check |
 |---|---|
 | No module under `kernel/` opens a file, a process, a socket or the environment, or reads a clock | `tools/check_purity.py` |
+| A module under `kernel/` is UTF-8 and declares no other encoding, so that the text the check and every reader parse is what Python runs; one that declares another, or whose bytes are not UTF-8, is refused (issue 992) | `tools/check_purity.py`, `tests/test_tools.py::test_the_kernel_is_read_as_python_runs_it_utf_8_alone`, mutant: "a declared encoding is read as UTF-8", mutant: "bytes that are not UTF-8 are replaced" |
 | Nothing here is installed: no dependency manifest, and every import is the standard library or this repo | `tools/check_repo.py` |
 | No code or data file names the proof-of-concept repo; nothing is fetched from it | `tools/check_repo.py` |
 | A `run:` block in a workflow is at most ten lines and holds no decision | `tools/check_workflows.py` |
