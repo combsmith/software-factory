@@ -17595,7 +17595,9 @@ MUTANTS = ISSUE + [
      '    own = _alone(root, read, trees, package)\n',
      '    own = []\n', ('tests.test_tools.Purity.test_the_guards_are_held_as_the_kernel_is_and_import_themselves_alone',)),
     # Issue 909: six older ways past the Kernel's rules.
-    ("a set's elements are unpacked at the top in the hash seed's order", "tools/check_purity.py",
+    ("a walrus in a constant's argument binds a module's name again", "tools/check_purity.py",
+     'ast.DictComp, ast.NamedExpr, ast.Yield,', 'ast.DictComp, ast.Yield,', ("tests.test_tools.Purity.test_six_older_ways_past_the_kernels_rules_are_caught",)),
+    ("a tuple of another length is unpacked at the top", "tools/check_purity.py",
      '            and len(target.elts) == len(value.elts) and all(_shaped(t, v) for t, v in zip(target.elts, value.elts)))',
      '            and all(_shaped(t, v) for t, v in zip(target.elts, value.elts)))', ("tests.test_tools.Purity.test_six_older_ways_past_the_kernels_rules_are_caught",)),
     ("a nested target unpacks a text at the top", "tools/check_purity.py",

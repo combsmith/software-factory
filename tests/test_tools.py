@@ -2203,7 +2203,7 @@ class Purity(unittest.TestCase):
         for kept in ("frozenset((x for x in ()))", "frozenset([y := 1])", "frozenset(iterable=[next(_box())])",
                      "frozenset([x for x in ()])", "frozenset({x for x in ()})", "frozenset({x: 1 for x in ()})",
                      "frozenset([frozenset([next(_box())])])", "frozenset([B for B in (B,)])", "frozenset([(B for B in (B,))])",
-                     "frozenset({B for B in (B,)})", "frozenset({B: B for B in (B,)})"):
+                     "frozenset({B for B in (B,)})", "frozenset({B: B for B in (B,)})", "frozenset([B := 'b'])"):
             self.assertTrue(caught(run({"kernel/x.py": box + "B = 'b'\n_KEPT = %s\n" % kept}), "x.py:6 holds a value that can change"), kept)
         self.assertEqual(run({"kernel/terms.py": "A = 'a'\n", "kernel/x.py": "from kernel import terms\n\nB = 'b'\n"
                               "HELD = frozenset({B, terms.A, ('c', 'd')})\nNONE = frozenset()\nNESTED = frozenset([frozenset()])\n"}), [])
