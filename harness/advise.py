@@ -37,7 +37,8 @@ step is to, by a change still to come, and until then a reader is told that none
 Time. Every request is given its own wait, the reader's seconds or the time left of its share where that is less, and
 never under LEAST; no reader is asked with POLL or less left, none is asked again unless POLL is left after the wait,
 and no response is read again with less than POLL left. So where each request is answered or given up within the wait
-it is given, the last request and the last wait end within LATEST_END seconds of the step's start. The workflow that
+it is given, the last request and the last wait, the delete of a response among them, end within LATEST_END seconds
+of the step's start. The workflow that
 runs the step is still to come, and is to give it a limit past that. What is not bounded here: a wait is the
 transport's limit on each wait on the connection, not on a request whole, so a name that resolves slowly, or an answer
 that trickles in under the limit, can outlast it, and only a limit set outside this file ends the step then, with the
@@ -66,8 +67,9 @@ POLL = 10               # seconds between two reads of a response still running
 LONGEST_WAIT = 90       # the longest wait a rate limit may name and be waited for; a longer one is not
 LEAST = 1               # the least seconds a request may wait: the transport takes no less
 # The latest a request or a wait of this step's ends, in seconds from its start: a read begun just inside a reader's
-# share may run LEAST past it, and the cancel that follows LEAST more. The limit the workflow gives the step is to be past it.
-LATEST_END = WHOLE + 2 * LEAST
+# share may run LEAST past it, the cancel that follows LEAST more, and the delete of its response LEAST more again. The
+# limit the workflow gives the step is to be past it.
+LATEST_END = WHOLE + 3 * LEAST
 RUNNING = ("queued", "in_progress")
 ENDED = ("completed", "incomplete", "failed", "cancelled")      # a response in any other state may still be billed
 # Where a change is read at the highest effort, "the Kernel, security or a critical path" (decision 0224, Spend): every
@@ -217,24 +219,26 @@ def one(reader: dict, told: dict, prompt: str, admitted: bool, key, until: float
         return answer
     try:
         answer, asks = asked(send, reader, body_of(reader, told["effort"], prompt), until, clock, sleep)
-    finally:
-        # Whatever came of the read, its response is deleted, so that the diff it was asked about is not kept in Azure's
-        # store for its 30 days (trial P-76). A delete that fails is counted, and changes nothing else.
-        undeleted = sum(not forgotten(reader, key, ident, until, sent, transport, clock) for ident in made)
-    result = advice.read(told, answer, asks, lasted(began, clock), shared.SCHEMAS)
+        result = advice.read(told, answer, asks, lasted(began, clock), shared.SCHEMAS)
+    except Exception:       # NOSONAR what the read raises is its Result, `transport`; its response is still deleted
+        result = advice.unasked(told, "transport", asks_of(sent), lasted(began, clock), shared.SCHEMAS)
+    # Whatever came of the read, its response is deleted, so that the diff it was asked about is not kept in Azure's
+    # store for its 30 days (trial P-76). A delete that fails is counted, and changes nothing else.
+    undeleted = sum(not forgotten(reader, key, ident, until, sent, transport, clock) for ident in made)
     if made:
         result["usage"]["undeleted"] = undeleted
     return result
 
 
 def forgotten(reader: dict, key, ident: str, until: float, sent: list, transport, clock) -> bool:
-    """Whether Azure deleted the stored response `ident` when asked to: a delete that is refused, fails, raises or is not
-    answered is one not deleted, and is never more than that."""
+    """Whether Azure deleted the stored response `ident` when asked to, as it says it did, `deleted` true in a 200: a
+    delete that is refused, fails, raises, is not answered or does not say so is one not deleted, and is never more."""
     try:
         request = azure.delete(ident)
         sent.append(request["act"])
         answer = transport(reader["host"], key, wait_of(reader, until, clock)).send(request)
-        return isinstance(answer, dict) and answer.get("status") in (200, 204)
+        body = answer.get("body") if isinstance(answer, dict) and answer.get("status") == 200 else None
+        return isinstance(body, dict) and body.get("deleted") is True
     except Exception:       # NOSONAR a delete not made is counted, and changes no Result
         return False
 

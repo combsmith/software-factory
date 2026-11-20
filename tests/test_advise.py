@@ -13,6 +13,7 @@ import shutil
 import tempfile
 import unicodedata
 import unittest
+from unittest import mock
 
 from adapters import azure
 from harness import advise, shared, steps, unasked
@@ -60,7 +61,7 @@ class Azure:
         self.during, self.clock, self.takes = during, clock, takes
         # A delete of a stored response is kept apart, with the wait it was given, and answered by `deletes`, 200 unless
         # it says otherwise: so what the reads were sent and answered is as it was before deletes were sent.
-        self.deleted, self.deletes = [], deletes or (lambda request: {"status": 200, "headers": {}, "body": {"deleted": True}})
+        self.deleted, self.deletes = [], deletes or (lambda request: {"status": 200, "headers": {}, "body": {"id": request["id"], "deleted": True}})
 
     def __call__(self, host, key, seconds):
         self.made.append((host, key, seconds))
@@ -68,7 +69,9 @@ class Azure:
 
     def send(self, request: dict) -> dict:
         if request.get("act") == "delete":
-            self.deleted.append((request, self.made.pop()[2]))
+            self.deleted.append((request, self.made[-1][2]))
+            if self.takes:
+                self.clock.now += self.takes(self.made[-1][2])
             answer = self.deletes(request)
             if isinstance(answer, BaseException):
                 raise answer
@@ -188,8 +191,8 @@ class Advise(unittest.TestCase):
         self.assertEqual(codes(results), BOTH)
         readers = config()["readers"]
         # Each request is made for its own host with the step's one key, and a wait no longer than its reader's seconds.
-        self.assertEqual(azure_.made, [(readers["astra"]["host"], "k" * 32, readers["astra"]["seconds"])] * 3
-                         + [(readers["kimi"]["host"], "k" * 32, readers["kimi"]["seconds"])])
+        self.assertEqual(azure_.made, [(readers["astra"]["host"], "k" * 32, readers["astra"]["seconds"])] * 4
+                         + [(readers["kimi"]["host"], "k" * 32, readers["kimi"]["seconds"])])     # its delete among them
         create, first, second, chat = azure_.sent       # and a response that ended is not cancelled
         self.assertEqual((create["act"], first, second, chat["act"]),
                          ("create", azure.read("resp_1"), azure.read("resp_1"), "chat"))
@@ -414,8 +417,8 @@ class Advise(unittest.TestCase):
         self.assertLessEqual(clock.now, advise.WHOLE)
         self.assertEqual((results["astra"]["usage"]["seconds"], results["astra"]["usage"]["cost_usd"]), (530.0, None))
         # Each request waits the time left of its reader's share where that is less than the reader's own seconds: the
-        # last two reads, the cancel, and the second reader's one ask.
-        self.assertEqual([seconds for _, _, seconds in azure_.made[-4:]], [20, 10, 10, advise.WHOLE - 530])
+        # last two reads, the cancel, the delete of its response, and the second reader's one ask.
+        self.assertEqual([seconds for _, _, seconds in azure_.made[-5:]], [20, 10, 10, 10, advise.WHOLE - 530])
         # What Azure does not answer, or this step did not foresee of it, is a code, and the next reader is still asked.
         results, azure_, _ = advised([azure.Unanswered("down"), completion()])
         self.assertEqual(codes(results), {"astra": ("failed", "transport", 0, 1), "kimi": ("completed", None, 0, 1)})
@@ -473,6 +476,17 @@ class Advise(unittest.TestCase):
         self.assertEqual((codes(results)["astra"][:2], [r["id"] for r, _ in azure_.deleted]), (("incomplete", "timed_out"), ["resp_1"]))
         results, azure_, _ = advised([response("queued", ""), DOWN, response("cancelled", ""), completion()])
         self.assertEqual((codes(results)["astra"][:2], [r["id"] for r, _ in azure_.deleted]), (("failed", "transport"), ["resp_1"]))
+        # A read that raises is the Result `transport` and still says what of its response was deleted; an id the
+        # transport may not send, or a 200 that does not say it deleted, is a response not deleted.
+        results, azure_, _ = advised([response("queued", ""), azure.Unanswered("timed out"), response("cancelled", ""), completion()],
+                                     deletes=lambda request: azure.Unanswered("down"))
+        self.assertEqual((codes(results)["astra"][:2], results["astra"]["usage"]["undeleted"]), (("failed", "transport"), 1))
+        odd = response()
+        odd["body"] = dict(odd["body"], id="resp.1")
+        results, azure_, _ = advised([odd, completion()])
+        self.assertEqual((results["astra"]["usage"]["undeleted"], azure_.deleted), (1, []))
+        results, _, _ = advised([response(), completion()], deletes=lambda request: {"status": 200, "headers": {}, "body": {"deleted": False}})
+        self.assertEqual(results["astra"]["usage"]["undeleted"], 1)
         # No response made, none deleted: a create refused twice, or one not answered.
         results, azure_, _ = advised([LIMITED, LIMITED, completion()])
         self.assertEqual((azure_.deleted, "undeleted" in results["astra"]["usage"]), ([], False))
@@ -487,15 +501,15 @@ class Advise(unittest.TestCase):
     def test_a_reader_with_no_time_left_is_not_asked(self):
         # A reader with POLL or less of the step left is not asked; with a second more, it is, and waits no longer.
         slow = advise.WHOLE - advise.POLL
-        results, azure_, _ = advised([response()], takes=lambda wait: slow)
+        results, azure_, _ = advised([response()], takes=lambda wait, took=iter((slow, 0)): next(took))   # its delete takes none
         self.assertEqual(codes(results), {"astra": ("completed", None, 1, 1), "kimi": ("incomplete", "timed_out", 0, 0)})
-        self.assertEqual(len(azure_.made), 1)
-        took = iter((slow - 1, 0))
+        self.assertEqual(len(azure_.made), 2)       # its one ask, and the delete of its response
+        took = iter((slow - 1, 0, 0))
         results, azure_, _ = advised([response(), completion()], takes=lambda wait: next(took))
-        self.assertEqual((codes(results), azure_.made[1][2]), (BOTH, advise.POLL + 1))
+        self.assertEqual((codes(results), azure_.made[2][2]), (BOTH, advise.POLL + 1))   # after the first's delete
 
     def test_every_request_and_wait_ends_by_the_bound_the_step_names(self):
-        self.assertEqual(advise.LATEST_END, 1082)       # under the 20 minutes the step is to be given (decision 0224)
+        self.assertEqual(advise.LATEST_END, 1083)       # under the 20 minutes the step is to be given (decision 0224)
         # The worst this step foresees: every request takes the whole wait it was given, a rate limit names the longest
         # wait, a response never ends, and its cancel is not answered. The clock starts off the second.
 
@@ -598,7 +612,12 @@ class Advise(unittest.TestCase):
             self.assertEqual((cost_in(base)["asks"], len(os.listdir(base / "advice"))), (2, 5))
 
     def test_a_fault_in_one_reader_is_that_readers_alone(self):
-        # A fault no one foresaw in one reader is that reader's Result, and the other is still asked.
+        # A fault no one foresaw in one reader is that reader's Result, and the other is still asked: one in its read,
+        # and one around it, as in the reader's own Result's making.
+        real = advise.one
+        with mock.patch.object(advise, "one", lambda reader, told, *a: real(reader, told, *a) if told["lens"] == "kimi" else 1 / 0):
+            results, _, _ = advised([completion()])
+        self.assertEqual(codes(results), {"astra": ("failed", "transport", 0, 0), "kimi": ("completed", None, 0, 1)})
         results, azure_, _ = advised([RuntimeError("boom"), completion()])
         self.assertEqual(codes(results), {"astra": ("failed", "transport", 0, 1), "kimi": ("completed", None, 0, 1)})
         # A reader for whom not even that can be said has no Result; the other has.
