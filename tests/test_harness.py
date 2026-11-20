@@ -849,6 +849,32 @@ class Engine(unittest.TestCase):
             self.assertEqual([c for c in plain.calls if "head" in c], [])
             self.assertNotIn(engine.BASE, plain.asked()[0]["args"][2])
 
+    def test_no_run_is_given_a_tool_that_runs_code_or_writes(self):  # decision 0239, issue 952
+        # No phase of any Role holds a tool that runs code or writes. The Engine alone names a Run's tools, by its Task:
+        # nothing in config/harness.json or a Role's manifest names one, a review and a Run that writes code have the read
+        # tools alone, and any other Run none (decisions 0138 and 0219). The read tools are named here, not read from
+        # READ_TOOLS, so that a tool added there is refused.
+        reads = {"Read", "Grep", "Glob"}
+
+        def keys(value):
+            if isinstance(value, dict):
+                return [k for k, v in value.items() for k in [k] + keys(v)]
+            return [k for v in value for k in keys(v)] if isinstance(value, list) else []
+        for path in [ROOT / "config" / "harness.json"] + sorted((ROOT / "roles").glob("*.json")):
+            self.assertEqual([k for k in keys(json.loads(path.read_text())) if "tool" in k.lower()], [], path)
+        settings = dict(run.configuration(), release=writing()["release"])
+        with tempfile.TemporaryDirectory() as d:
+            for the_task, said in ((built(), answer()), (writing(), answer(result=pushed())),
+                                   (dict(writing(), permitted_effects=["comment"]),
+                                    answer(result=judged(findings=[], effects={})))):
+                cli = CLI(said=said)
+                self.assertEqual(run.answer(the_task, JOB, settings, cli, Clock(), SESSION, d)["status"], "completed")
+                args = cli.asked()[0]["args"]
+                given = [a.split("=", 1)[1] if "=" in a else args[i + 1] for i, a in enumerate(args)
+                         if a.split("=", 1)[0] in ("--tools", "--allowedTools", "--allowed-tools")]
+                self.assertTrue(given, the_task["permitted_effects"])
+                self.assertLessEqual({t for value in given for t in value.split(",") if t}, reads, args)
+
     def test_a_writing_run_with_no_commit_is_never_asked(self):  # issue 880
         # As a review with no head: the Factory's fault, read before the CLI starts, and no model call spent.
         the_task = writing()

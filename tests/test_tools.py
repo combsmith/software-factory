@@ -4779,6 +4779,56 @@ class Workflows(unittest.TestCase):
             # No step before it holds a secret, and it names its Release before it reads one (tests/test_steps.py).
             self.assertFalse([e for step in these[:factory[0]] for e in step if "secrets." in e["value"]], job)
 
+    def test_no_job_of_a_run_runs_the_items_code(self):  # decision 0239, issue 952
+        # Every job of a Run's workflow can reach ACTIONS_RUNTIME_TOKEN, and the run job the model's credential, so none
+        # runs the item's code (decision 0219): each checks out the Release's own commit alone, and each step runs a module
+        # of the Release's harness, the CLI's install from the vendor, or the wake's one call. Named here, not read from
+        # tools/check_workflows.py, so that a step added there and here alike is still refused.
+        release = {"${{ job.workflow_sha }}", "${{ needs.run.outputs.commit }}"}
+        install = re.compile(r"(url=\"https://downloads\.claude\.ai/|curl -sSfL --proto '=https' |echo \"\$\{CLI_CHECKSUM\}"
+                             r"  /tmp/claude\" \| sha256sum -c$|chmod 0755 /tmp/claude$|sudo mv /tmp/claude /usr/local/bin/"
+                             r"claude$|printf '%s\\n' 'deb |sudo RES_OPTIONS='timeout:5 attempts:2' apt-get (update|install) )")
+        wake = ('timeout 60 gh api -X POST "repos/$REPO/actions/workflows/poller.yml/dispatches" -f ref=main || '
+                'echo "the next pass waits for the backstop"')
+
+        def runs_the_items_code(text):
+            entries, bad = check_workflows.read(text)
+            named = {(e["path"][1], e["step"]): e["value"] for e in entries
+                     if e["key"] == "name" and len(e["path"]) == 3 and e["path"][2] == "steps"}
+            found = []
+            for e in entries:
+                job = e["path"][1] if len(e["path"]) > 1 else None
+                if e["key"] == "ref" and e["value"] not in release or e["key"] == "uses" and not re.fullmatch(
+                        r"actions/(checkout|upload-artifact|download-artifact)@[0-9a-f]{40}", e["value"]):
+                    found.append(e["value"])
+                elif e["key"] == "run" and e["body"]:
+                    if named.get((job, e["step"])) != "Install the CLI at the Engine's pin" or \
+                            not all(install.match(line) for line in e["body"]):
+                        found.append(e["body"])
+                elif e["key"] == "run" and e["path"][2:] == ["steps"] and \
+                        not re.fullmatch(r"python3 -m harness\.\w+", e["value"]) and (job, e["value"]) != ("wake", wake):
+                    found.append(e["value"])
+            return bad + found
+
+        for name in ("run-jobs.yml", "approve-job.yml", "queue-job.yml"):
+            self.assertEqual(runs_the_items_code((self.LIVE / name).read_text()), [], name)
+        good = (self.LIVE / "run-jobs.yml").read_text()
+        for why, text in (
+                ("the item's tests beside the model", good.replace(
+                    "        run: python3 -m harness.run\n",
+                    "        run: python3 -m harness.run\n      - name: Test\n        run: python3 -m unittest\n")),
+                ("the item's build in verify", good.replace("        run: python3 -m harness.verify\n", "        run: make\n")),
+                ("the item checked out", good.replace("          ref: ${{ job.workflow_sha }}\n",
+                                                      "          ref: ${{ inputs.item }}\n")),
+                ("the install runs a script", good.replace("          chmod 0755 /tmp/claude\n",
+                                                           "          chmod 0755 /tmp/claude\n          sh ./setup.sh\n")),
+                ("a local action", good.replace("        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
+                                                " # v7.0.2\n        with:\n          name: result\n",
+                                                "        uses: ./\n        with:\n          name: result\n")),
+                ("the wake runs more", good.replace('-f ref=main || echo', '-f ref=main; make || echo'))):
+            self.assertNotEqual(text, good, why)
+            self.assertNotEqual(runs_the_items_code(text), [], why)
+
     def test_the_pass_uploads_its_record_before_it_dispatches(self):  # design section 2.3, steps 5 and 6
         good = (self.LIVE / "pass.yml").read_text()
         self.assertEqual(check_workflows.pass_problems(good), [])

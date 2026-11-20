@@ -21361,6 +21361,20 @@ MUTANTS = ISSUE + [
     ('the calls go unread', 'tools/check_purity.py',
      '        problems += _calls(name, tree, trees, takers, tops)\n',
      '', ('tests.test_tools.Purity.test_the_kernel_calls_nothing_it_is_given', 'tests.test_tools.Purity.test_what_fills_a_decision_maker_is_a_kernel_function')),
+    # Decision 0239 (issue 952): no Run is given a tool that runs code or writes, and no job of a Run runs the item's code.
+    ("a Run that reads is given a shell beside the read tools", 'harness/engine.py',
+     'READ_TOOLS = "Read,Grep,Glob"\n', 'READ_TOOLS = "Read,Grep,Glob,Bash"\n',
+     ('tests.test_harness.Engine.test_no_run_is_given_a_tool_that_runs_code_or_writes',)),
+    ("a Run that neither reviews nor writes code is given a tool that writes", 'harness/engine.py',
+     '(READ if read is True else ["--tools", ""]))', '(READ if read is True else ["--tools", "Write"]))',
+     ('tests.test_harness.Engine.test_no_run_is_given_a_tool_that_runs_code_or_writes',)),
+    ("the run job runs the item's tests beside the model's credential", '.github/workflows/run-jobs.yml',
+     '        run: python3 -m harness.run\n',
+     '        run: python3 -m harness.run\n      - name: Test\n        run: python3 -m unittest\n',
+     ('tests.test_tools.Workflows.test_no_job_of_a_run_runs_the_items_code',)),
+    ("the Run's first job checks out the item", '.github/workflows/run-jobs.yml',
+     '          ref: ${{ job.workflow_sha }}\n', '          ref: ${{ inputs.item }}\n',
+     ('tests.test_tools.Workflows.test_no_job_of_a_run_runs_the_items_code',)),
     # Issue 589: the advisory check of a changed line of Python that no test notices.
 ] + [(name, rel, old, new, tuple("tests.test_untested." + test for test in tests)) for name, rel, old, new, tests in (
     ("a revert a crash alone notices is a kill", "tools/untested.py",
