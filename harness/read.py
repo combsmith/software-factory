@@ -23,10 +23,10 @@ Run whose own Release is not its pass record's builds no Task: OUT holds its `ou
 writes nothing; the pass record's Release is never taken for it; a checkout `steps.commit()` cannot read stops
 `release_unreadable`, before any key is read. Of the texts, the issues the change serves are read (`adapters/texts.py`),
 and what the Run's own Lens said on each Finding the review is shown, `apply.shown` of the facts as the Kernel reads
-them, marked by the Runs read: its open threads that gate. Each is the Task's text `finding:` and the Finding's id,
-and the ids are the Task's Findings, so that the review rules on each (issue 856). One whose words are not the Lens's own, an edited comment among them, is listed and given
-no text: `run` then asks nothing and ends as the item's own, `findings_not_shown`, and the thread gates on. A read
-GitHub did not answer stops the step, `finding_texts_unreadable`.
+them, marked by the Runs read: its open threads that gate. Each is the Task's text `finding:` and the Finding's id, and
+the ids are the Task's Findings, so that the review rules on each (issue 856). One whose words are not the Lens's own,
+an edited comment among them, is listed and given no text: `run` then asks nothing and ends as the item's own,
+`findings_not_shown`, and the thread gates on. A read GitHub did not answer stops the step, `finding_texts_unreadable`.
 Not read yet, by the stories that hold them: any other thread's text; the Finding records a Decision names
 (`harness/apply.py` writes them, and `adapters/applied.py` reads them for the threads alone); an issue's Run, whose
 reads are the issue Lifecycle's."""
