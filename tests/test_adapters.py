@@ -884,6 +884,47 @@ class Diff(unittest.TestCase):
         data["changed_files"] += 1
         self.assertIs(pull.diff(compared("P-29.base", 2, data), data, PINNED_BASE)["complete"], False)
 
+    def test_reads_of_one_compare_whose_index_ids_differ_in_length_are_one_content(self):
+        # 2026-11-19: GitHub sent pull request 903's compare with each index line's blob ids 8 characters long at one
+        # read and 9 at the next, and every Run that read it twice ended content_moved. Each id is cut to git's least,
+        # 7, so the content id, the bytes a Run is given and a review's content are one whatever the read gave.
+        def sent(world: str, gate: str) -> str:
+            return ("diff --git a/sim/world.py b/sim/world.py\nindex %s\n--- a/sim/world.py\n+++ b/sim/world.py\n"
+                    "@@ -15,2 +15,3 @@\n from controller import configuration\n+from kernel.gate import closed\n"
+                    " from kernel import terms as t\ndiff --git a/kernel/gate.py b/kernel/gate.py\nindex %s\n"
+                    "--- a/kernel/gate.py\n+++ b/kernel/gate.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n" % (world, gate))
+        eight = sent("0e91505d..9f114f5d 100644", "77da7d97..7227c4f0")
+        nine = sent("0e91505d0..9f114f5d8 100644", "77da7d97f..7227c4f06")
+        seven = sent("0e91505..9f114f5 100644", "77da7d9..7227c4f")
+        self.assertEqual((pull.canonical(eight), pull.canonical(nine), pull.canonical(seven)), (seven, seven, seven))
+        # An id already shorter than 7 is left as it is.
+        self.assertEqual(pull.canonical(sent("1..2 100644", "1..2")), sent("1..2 100644", "1..2"))
+        data = body("P-29.base", 1)
+        data.update(changed_files=2, additions=2, deletions=1)
+        commit = data["head"]["sha"]
+        seen = set()
+        for text in (eight, nine):
+            answer = github._answer(200, {"Content-Type": github.DIFF}, text.encode())
+            exchange = dict(exchanges("P-29.base")[2], response=dict(exchanges("P-29.base")[2]["response"],
+                                                                     body=answer["body"]))
+            got = pull.diff(github.Replay([as_compare(exchange, data)]), data, PINNED_BASE)
+            self.assertIs(got["complete"], True)
+            given = pull.change(github.Replay([as_compare(exchange, data)]), data, PINNED_BASE)
+            review = copy.deepcopy(exchange)
+            review["request"]["call"] = "GET /repos/%s/compare/%s...%s" % (canary(), BASE_HEAD, commit)
+            seen.add((got["content_id"], "sha256:" + hashlib.sha256(given).hexdigest(), given,
+                      timeline._content(github.Replay([review]), canary(), BASE_HEAD, commit)))
+        content = "sha256:" + hashlib.sha256(seven.encode()).hexdigest()
+        self.assertEqual(seen, {(content, content, seven.encode(), content)})
+
+    def test_only_a_files_own_index_line_is_cut(self):
+        # A line of a hunk begins with a space, `+`, `-` or `\`, so one that reads as an index line is content, kept as
+        # it was; so is a line that says more than an index line does.
+        kept = ("diff --git a/notes.txt b/notes.txt\nindex 0e91505..9f114f5 100644\n--- a/notes.txt\n+++ b/notes.txt\n"
+                "@@ -1,2 +1,2 @@\n index 0e91505d0..9f114f5d8 100644\n-index 77da7d97f..7227c4f06\n"
+                "+index 77da7d97f..7227c4f06 100644\nindex 0e91505d0..9f114f5d8 100644 and more\n")
+        self.assertEqual(pull.canonical(kept), kept)
+
     def test_a_diff_github_will_not_serve_is_truncated_and_new_content_at_every_push(self):
         # trials/P-29.truncated.json: 3,001 files, a 406 too_large. Read whole, so the Kernel holds it as too large;
         # its content is the head commit's, so a push is never read as unchanged.

@@ -22,6 +22,10 @@ STATUSES = {"added", "removed", "modified", "renamed", "copied", "changed", "unc
 MOVED = {"renamed", "copied"}
 SHA = re.compile(r"^[0-9a-f]{40}$")
 HUNK = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@")
+# A file's index line, its two blob ids and the mode it kept, if any. No line of a hunk begins `index `: each begins
+# ` `, `+`, `-` or `\`. GitHub gives the two ids of one compare 8 characters long at one read and 9 at the next
+# (2026-11-19), so each is cut to git's least, 7, and every read of one compare gives the same bytes.
+INDEX = re.compile(r"^(index [0-9a-f]{7})[0-9a-f]*(\.\.[0-9a-f]{7})[0-9a-f]*((?: [0-7]{6})?)$", re.MULTILINE)
 # The account type each class needs: the Factory's Apps and a dependency bot are Bots, the Maintainer a person.
 KINDS = {"agent": "Bot", "maintainer": "User", "dependency": "Bot"}
 
@@ -198,6 +202,13 @@ def _counts(text: str):
     return files, added, deleted
 
 
+def canonical(text: str) -> str:
+    """A diff as GitHub sent it, but for each file's index line, whose blob ids are cut to their first 7 characters: the
+    one form every reader hashes and hands on, `diff`, `change` and a review's content (`adapters/timeline.py`), so that
+    the content id is the same at each read of one compare (decision 0064). An id shorter than 7 is left as it is."""
+    return INDEX.sub(r"\1\2\3", text)
+
+
 def _compare(pull: dict, base_head: str) -> str:
     """The compare of the base branch's head with the pull request's head commit, as its first read gave it: the one
     read the diff and the files are taken from, so both are of that commit, whatever is pushed while the snapshot is
@@ -217,9 +228,9 @@ def diff(transport, pull: dict, base_head: str) -> dict:
     the one `adapters/timeline.py` gives a review's commit.
 
     The diff is checked against the counts of the same pull request's read, its files, added and deleted lines: a
-    difference is a short read, `complete.diff` false. The content id is the sha256 of the bytes GitHub sent, and
-    `characters` their length as a Task carries them, numbered and escaped as JSON, so the Kernel holds what no Task can carry whole
-    (issue 327); bytes that are no UTF-8 have none, as no Task carries them. A 406
+    difference is a short read, `complete.diff` false. The content id is the sha256 of the bytes GitHub sent, each
+    index line's ids cut to 7 characters (`canonical`), and `characters` their length as a Task carries them, numbered
+    and escaped as JSON, so the Kernel holds what no Task can carry whole (issue 327); bytes that are no UTF-8 have none, as no Task carries them. A 406
     `too_large` is GitHub's whole answer that it will not serve the diff: `truncated`, read whole, which holds the pull
     request as too large; its `content_id` is the head commit's, so any push is new content and nothing is read as
     unchanged (decision 0002). P-29 grounds that answer for a pull request's diff; compare's is read the same,
@@ -241,6 +252,7 @@ def diff(transport, pull: dict, base_head: str) -> dict:
     text = _ok(answer, "the diff")
     if not isinstance(text, str):
         raise Unanswered("the diff is not text")
+    text = canonical(text)
     whole = _counts(text) == (files, added, deleted)
     # Counted as harness/task.py counts the Task's diff, numbered (decision 0137) and escaped as JSON, so the Kernel's
     # bound and the Harness's are one (issue 327). Bytes that are no UTF-8 are no Task at all: their length is not
@@ -256,13 +268,13 @@ def diff(transport, pull: dict, base_head: str) -> dict:
 
 def change(transport, pull: dict, base_head: str) -> bytes:
     """The bytes of the diff `diff` reads, by the same compare pinned to the head of the pull request's read, as GitHub
-    sent them, so that their sha256 is the content id; refused for a diff GitHub would not serve, or one that is not
-    text. A Run is given these bytes, and only once they hash to the content its Decision admitted (`harness/task.py`)."""
+    sent them but for the index lines `diff` cuts, so that their sha256 is the content id; refused for a diff GitHub
+    would not serve, or one that is not text. A Run is given these bytes, and only once they hash to the content its Decision admitted (`harness/task.py`)."""
     answer = transport.send(request("GET", _compare(pull, base_head), accept=DIFF))
     text = _ok(answer, "the diff")
     if not isinstance(text, str) or not text:
         raise Unanswered("the diff is not text")
-    return raw(text)
+    return raw(canonical(text))
 
 
 def changed_paths(transport, pull: dict, base_head: str) -> dict:

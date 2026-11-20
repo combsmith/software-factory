@@ -27,6 +27,7 @@ import re
 import urllib.parse
 
 from adapters.github import DIFF, Unanswered, raw, request
+from adapters.pull import canonical
 
 PAGE = 100
 WRITE = {"admin", "maintain", "write"}
@@ -243,8 +244,9 @@ def label_events(timeline: list, accounts: Accounts) -> list:
 
 def _content(transport, repo: str, base_head: str, commit: str) -> str:
     """The content id of a commit, as the pull request's own is: the sha256 of the bytes of its diff against its merge
-    base. A diff GitHub will not serve, `too_large`, or one of a commit no longer there, is the commit's own id hashed,
-    as `adapters/pull.py` does for the head: never the same as a served diff's, so never read as unchanged."""
+    base, each index line cut as `adapters/pull.py` cuts it. A diff GitHub will not serve, `too_large`, or one of a
+    commit no longer there, is the commit's own id hashed, as `adapters/pull.py` does for the head: never the same as a
+    served diff's, so never read as unchanged."""
     if not SHA.match(str(commit)) or not SHA.match(str(base_head)):
         raise Unanswered("a review's commit or the base's head cannot be read")
     answer = transport.send(request("GET", "/repos/%s/compare/%s...%s" % (repo, base_head, commit), accept=DIFF))
@@ -253,7 +255,7 @@ def _content(transport, repo: str, base_head: str, commit: str) -> str:
         return "sha256:" + hashlib.sha256(commit.encode()).hexdigest()
     if answer["status"] != 200 or not isinstance(answer["body"], str):
         raise Unanswered("the content of %s answered %d" % (commit, answer["status"]))
-    return "sha256:" + hashlib.sha256(raw(answer["body"])).hexdigest()
+    return "sha256:" + hashlib.sha256(raw(canonical(answer["body"]))).hexdigest()
 
 
 def _dismissals(timeline: list) -> dict:

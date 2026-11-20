@@ -104,6 +104,8 @@ ISSUE_WHOLE = ("tests.test_adapters.Issues.test_an_issues_timeline_is_whole_only
 ISSUE_CONTENT = ("tests.test_adapters.Issues.test_an_issues_content_time_is_the_newer_of_its_edit_and_its_rename",)
 ISSUE_LIFE = ("tests.test_adapters.Issues.test_a_reopening_by_a_writer_begins_a_life_and_anyone_elses_does_not",)
 ISSUE_REFUSED = ("tests.test_adapters.Issues.test_an_issue_github_did_not_answer_whole_is_refused",)
+INDEX_ONE = ("tests.test_adapters.Diff.test_reads_of_one_compare_whose_index_ids_differ_in_length_are_one_content",)
+INDEX_OWN = ("tests.test_adapters.Diff.test_only_a_files_own_index_line_is_cut",)
 ISSUE_OWN = ("tests.test_adapters.Issues.test_the_issues_own_facts_hold_to_the_schema_with_its_linked_pull_requests",)
 # S3, the issues pass: the tests that kill its mutants.
 S3_PORT = ("tests.test_adapters.Issues.test_a_factory_app_is_named_by_the_id_the_configuration_holds_and_a_person_never_is",)
@@ -4317,6 +4319,25 @@ MUTANTS = ISSUE + [
     ('a hunk that runs short is whole', 'adapters/pull.py',
      '    if old or new:\n        return None\n    return files, added, deleted\n',
      '    return files, added, deleted\n', ('tests.test_adapters',)),
+    # GitHub's index lines of one compare, 8 characters long at one read and 9 at the next, are one content (2026-11-19).
+    ('the content id is hashed from the index lines as GitHub sent them', 'adapters/pull.py',
+     '    text = canonical(text)\n    whole', '    whole', INDEX_ONE),
+    ('the bytes a Run is given keep the index lines as GitHub sent them', 'adapters/pull.py',
+     '    return raw(canonical(text))\n', '    return raw(text)\n', INDEX_ONE),
+    ("a review's content is hashed from the index lines as GitHub sent them", 'adapters/timeline.py',
+     'hashlib.sha256(raw(canonical(answer["body"])))', 'hashlib.sha256(raw(answer["body"]))', INDEX_ONE),
+    ('an old blob id is cut to 8 characters', 'adapters/pull.py',
+     'r"^(index [0-9a-f]{7})', 'r"^(index [0-9a-f]{8})', INDEX_ONE),
+    ('a new blob id is cut to 8 characters', 'adapters/pull.py',
+     r'(\.\.[0-9a-f]{7})', r'(\.\.[0-9a-f]{8})', INDEX_ONE),
+    ('an index line without a mode is kept', 'adapters/pull.py',
+     '((?: [0-7]{6})?)$"', '( [0-7]{6})$"', INDEX_ONE),
+    ('only the first line of a diff is read for an index line', 'adapters/pull.py',
+     '[0-7]{6})?)$", re.MULTILINE)', '[0-7]{6})?)$", 0)', INDEX_ONE),
+    ('a line of a hunk that reads as an index line is cut', 'adapters/pull.py',
+     'INDEX = re.compile(r"^(index ', 'INDEX = re.compile(r"(index ', INDEX_OWN),
+    ('a line that says more than an index line is cut', 'adapters/pull.py',
+     '[0-7]{6})?)$", re.MULTILINE)', '[0-7]{6})?)", re.MULTILINE)', INDEX_OWN),
     ("a branch's name goes in the path as it is", 'adapters/pull.py',
      '    return urllib.parse.quote(name, safe="/")\n',
      '    return name\n', ('tests.test_adapters',)),
@@ -14898,8 +14919,8 @@ MUTANTS = ISSUE + [
      'listed.get("complete") is True, clock,',
      'True, clock,', ('tests.test_steps.Reread.test_the_item_is_read_again',)),
     ('a diff of no text is given', 'adapters/pull.py',
-     '    if not isinstance(text, str) or not text:\n        raise Unanswered("the diff is not text")\n    return raw(text)',
-     "    return raw(text or '')", ('tests.test_steps.Diff.test_the_diff_is_the_bytes_github_sent',)),
+     '    if not isinstance(text, str) or not text:\n        raise Unanswered("the diff is not text")\n    return raw(canonical(text))',
+     "    return raw(canonical(text or ''))", ('tests.test_steps.Diff.test_the_diff_is_the_bytes_github_sent',)),
     ('a token is minted from no key', 'adapters/identity.py',
      '    if not isinstance(key, str) or not key:\n        raise Refused("key_unreadable")\n    try:\n        as_app',
      '    try:\n        as_app', ('tests.test_steps.Keys.test_a_token_is_minted_from_a_key_alone',)),
