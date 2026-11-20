@@ -9,7 +9,7 @@ Task is built short of one.
 
 A Lens's later review can rule on a Finding only if it is shown what it said. `findings` reads the first comment of each
 thread asked for, by the thread's id, and holds it: a review thread of this pull request, whose first comment replies to
-none, was made by that Lens's own App, among the Lenses' Apps `adapters/timeline.Accounts` holds, and was never edited. GitHub's
+none, was made by that Lens's own App, as `adapters/timeline.Accounts` holds the Lenses', and was never edited. GitHub's
 author is who made a comment, not who wrote the words it holds now, which anyone with write access can change (the
 design's 3.3): an edited one is nobody's words that can be told, and is refused, the Lens's own edit with it. GitHub says
 each with an explicit null, and a field it does not give proves nothing. No trial has recorded a review comment's
@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import re
 
-from adapters import acceptance, threads as threads_
+from adapters import acceptance, threads as threads_, timeline
 from adapters.github import Unanswered, request
 
 THREADS = 50      # the most threads one call reads the texts of: a longer list raises, and none of it is read
@@ -112,9 +112,12 @@ def findings(transport, pull: dict, accounts, lens: str, threads: list) -> list:
             raise (NotOwn if isinstance(edited, str) and EDITED.fullmatch(edited) else Unanswered)(
                 "a thread's first comment was edited, or GitHub does not say it never was")
         # Whose words they are is told by the account alone, the Lens's own App: anyone else's are refused before their
-        # write access is asked, a read that could fail and pass for one that failed (issue 974).
-        _, account, kind = accounts.account(threads_._account(said.get("author")))
-        if accounts.lenses.get((account, kind)) != lens:
+        # write access is asked, a read that could fail and pass for one that failed (issue 974). A User's login GitHub
+        # never gives is still a read that was wrong, as `timeline.Accounts` reads one.
+        login, account_id, kind = accounts.account(threads_._account(said.get("author")))
+        if kind == "User":
+            timeline._user(login)
+        if (account_id, kind) not in accounts.lenses or accounts.lenses[(account_id, kind)] != lens:
             raise NotOwn("a thread's first comment is not the Lens's own")
         by, body = {"kind": "lens", "name": lens, "can_write": False}, said.get("body")
         if not isinstance(body, str) or body == "":

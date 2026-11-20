@@ -2895,6 +2895,14 @@ class FindingTexts(unittest.TestCase):
         # A pull request numbered 1 is not the one a number given as a flag names.
         with self.assertRaises(github.Unanswered):
             self.read(["PRRT_7"], thread_text("PRRT_7", number=True), pull=dict(self.PULL, number=1))
+        # A Lens no App is held for reads no one's words as its own, a person's, another App's or a Lens's.
+        for opened in (PERSON, APP, LENS):
+            with self.subTest(lens=None, opened=opened), self.assertRaises(texts.NotOwn):
+                self.read(["PRRT_7"], thread_text("PRRT_7", opened=opened), lens=None)
+        # A User's login GitHub never gives is a read that was wrong, as the facts' reader takes it.
+        with self.assertRaises(github.Unanswered) as raised:
+            self.read(["PRRT_7"], thread_text("PRRT_7", opened=("pr-review[bot]", 4242, "User")))
+        self.assertIs(type(raised.exception), github.Unanswered)
         # A person's comment is refused as the thread's own state though their write access could not be read.
         with self.assertRaises(texts.NotOwn):
             self.read(["PRRT_7"], thread_text("PRRT_7", opened=PERSON), permissions={"don-petry": "missing"})
