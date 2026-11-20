@@ -2163,6 +2163,21 @@ class Purity(unittest.TestCase):
         problems = check_purity.run(root)
         self.assertTrue(caught(problems, "imports os") and caught(problems, "uses open"))
 
+    def test_the_kernel_is_read_as_python_runs_it_utf_8_alone(self):  # issue 992
+        # Python decodes a file by the encoding it declares, so a file declaring another one could run code its text,
+        # which the check and every reader parse, does not show; and bytes that are not UTF-8 would be replaced.
+        def read(data: bytes) -> list:
+            root = tree({"kernel/__init__.py": "", "kernel/x.py": ""})
+            (root / "kernel" / "x.py").write_bytes(data)
+            return check_purity.run(root)
+        for data in (b"# -*- coding: utf-7 -*-\nA = 'a'\n", b"#!/usr/bin/env python\n# vim: set fileencoding=latin-1 :\nA = 'a'\n",
+                     b"  # coding: latin-1\nA = 'a'\n", b"\x0c\x0c# coding: utf-7\n#+AAo-A = 1\n", b"\xef\xbb\xbf# coding: latin-1\nA = 'a'\n"):
+            self.assertTrue(caught(read(data), "x.py cannot be read as Python: it declares the encoding"), data)
+        self.assertTrue(caught(read(b"A = '\xff'\n"), "x.py cannot be read as Python: its bytes are not UTF-8"))
+        for data in (b"# coding: utf-8\nA = 'a'\n", b"# coding=UTF_8\nA = 'a'\n", b"\xef\xbb\xbfA = 'a'\n", b"# coding: utf8\n# caf\xc3\xa9\nA = 'a'\n",
+                     b"A = 'a'\n\n# coding: latin-1\n"):
+            self.assertEqual(read(data), [], data)
+
     def test_io_in_a_package_below_the_kernel_is_caught(self):
         root = tree({"kernel/a.py": "from kernel.extra import clock\n", "kernel/extra/clock.py": "import time\n"})
         self.assertTrue(caught(check_purity.run(root), "extra/clock.py:1 imports time"))
