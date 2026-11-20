@@ -888,6 +888,9 @@ JUDGED = {"pull_request", "merge_group"}
 # no row here checks out the base alone (decision 0225, issue 845).
 HEAD_SETTINGS = {"sonarcloud.yml": (("sonar-project.properties",), "813af1f7166818949cca35fb26cb18e4a634fda80f433449321562af166309e8")}
 BASES = (BASE, SCAN_BASE)      # a checkout's `ref:` that is the base's commit, on pull_request and merge_group
+# The events on which that ref is the base's, or the default branch's own commit: on push or a dispatch it is empty, and
+# the checkout takes the commit pushed or dispatched, a Role's branch among them (the Claude read of #1012).
+BASED = JUDGED | {"schedule"}
 ANY_SECRET = re.compile(r"\bsecrets\b", re.I)      # named one by one, inherited or indexed: GitHub reads any case
 JOB = re.compile(r"^[A-Za-z_][\w-]*$")
 
@@ -1997,7 +2000,8 @@ def head_problems(root: pathlib.Path, live: list) -> list:
     which may hold an environment's secrets with none named, or a line of it cannot be read, which may hide either. One listed in HEAD_SETTINGS reads those files of the
     head, each a path of `config/hooks.json`'s protected list, word for word; it has no `run:`, which would run the
     head's own code beside the secret, and its text is the one its row's hash holds. One not listed gives every
-    checkout a `ref:` in BASES. Neither has a line read() could not read, nor calls another workflow, whose steps are
+    checkout a `ref:` in BASES, and runs on no event but those BASED names, on any other of which that ref is empty and
+    the checkout takes the pushed or dispatched commit. Neither has a line read() could not read, nor calls another workflow, whose steps are
     not read here. A workflow on `push` is not read: a limit decision 0225 names.
     A row for a workflow that is not exposed, or not there, is stale. What cannot be read checks nothing, and says so."""
     try:
@@ -2036,9 +2040,10 @@ def head_problems(root: pathlib.Path, live: list) -> list:
                                 "base" % where)
             continue
         refs = [_with(entries, e).get("ref") for e in entries if e["key"] == "uses" and CHECKOUT_USE.match(e["value"])]
-        if bad or called or any(ref not in BASES for ref in refs):
+        if bad or called or any(ref not in BASES for ref in refs) or events - BASED:
             problems.append("%s runs on a pull request or a merge group beside a secret, and is not read as checking out the base alone, "
-                            "`ref: %s`, in every checkout, with no workflow called: it may read a head a Role pushed "
+                            "`ref: %s`, in every checkout, with no workflow called, on no event but a pull request, a merge group or a "
+                            "schedule: it may read a head a Role pushed "
                             "beside the secret; check out the base, or list it in HEAD_SETTINGS with the files of the "
                             "head it takes its settings from" % (where, BASE))
     for name in sorted(set(HEAD_SETTINGS) - exposed):

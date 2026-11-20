@@ -3088,6 +3088,8 @@ class Workflows(unittest.TestCase):
         steps = top + secret + "    steps:\n"
         for held in (steps + base, steps + base + base, steps + checkout + "          ref: %s\n" % check_workflows.SCAN_BASE,
                      steps + "      - run: make checks\n",
+                     # On a schedule the base's ref is empty, and the checkout takes the default branch's own commit.
+                     steps.replace("  pull_request:\n", "  pull_request:\n  schedule:\n    - cron: '0 3 * * *'\n") + base,
                      # No secret, or one a whole-line comment names; and no pull request's run.
                      top + "    steps:\n" + head, top + "    # secrets.SONAR_TOKEN\n    steps:\n" + head,
                      steps.replace("  pull_request:\n  merge_group:\n", "  push:\n") + head,
@@ -3120,7 +3122,11 @@ class Workflows(unittest.TestCase):
                 "the events as a list": steps.replace("  pull_request:\n  merge_group:\n", "  - pull_request\n") + head,
                 "an event that is none": steps.replace("  pull_request:\n  merge_group:\n", "  pull_request_target:\n") + head,
                 "every secret at once": steps.replace("secrets.SONAR_TOKEN", "toJSON(secrets)") + head,
-                "no events": steps.replace("on:\n  pull_request:\n  merge_group:\n", "") + head}.items():
+                "no events": steps.replace("on:\n  pull_request:\n  merge_group:\n", "") + head,
+                # The Claude read of #1012: on a push or a dispatch the base's ref is empty, and the checkout takes the
+                # commit pushed or dispatched, a Role's branch among them.
+                "a push beside, by the base's ref": steps.replace("  pull_request:\n", "  push:\n  pull_request:\n") + base,
+                "a dispatch beside, by the base's ref": steps.replace("  pull_request:\n", "  workflow_dispatch:\n  pull_request:\n") + base}.items():
             self.assertTrue(caught(problems(wrong)[1], not_base), why)
         # The listed workflow checks out the head, so nothing of it is run beside the secret: no command, and no
         # workflow called, whose steps are not read here.
