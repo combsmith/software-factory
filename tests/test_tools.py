@@ -12200,6 +12200,20 @@ class Verify(unittest.TestCase):
         self.assertIn("\nfast:\n\t$(PY) -m tools.verify --fast\n", makefile)
         self.assertIn("\nchecks:\n\t$(PY) -m tools.verify --checks\n", makefile)
 
+    def test_make_reads_the_makefile_as_committed_and_remakes_it_from_nothing(self):  # issue 1048, decision 0240
+        # make tries to remake the makefile it read before it looks up a target, by an implicit rule from a file beside
+        # it: a newer Makefile.sh is copied over the Makefile, and its verify runs in place of the committed one (Astra's
+        # read). The Makefile's explicit rule with no recipe stops that.
+        with tempfile.TemporaryDirectory() as where:
+            where = pathlib.Path(where)
+            shutil.copy(ROOT / "Makefile", where / "Makefile")
+            os.utime(where / "Makefile", (1, 1))
+            (where / "Makefile.sh").write_text("verify:\n\t@echo not the committed verify\n")
+            ran = subprocess.run(["make", "-s", "verify", "PY=echo"], cwd=where, capture_output=True, text=True,
+                                 timeout=60)
+            self.assertEqual((ran.returncode, ran.stdout), (0, "-m tools.verify\n"), ran.stderr)
+            self.assertEqual((where / "Makefile").read_text(), (ROOT / "Makefile").read_text())
+
     def test_every_test_file_is_discovered(self):
         found = set()
 

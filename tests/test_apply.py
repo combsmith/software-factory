@@ -20,6 +20,7 @@ from adapters.facts import Moved
 from harness import apply, bundle, engine, run, shared
 from harness import task as task_
 from tests import support
+from tools import walk
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 APPS = json.loads((ROOT / "config" / "apps.json").read_text())
@@ -1236,36 +1237,43 @@ class Push(unittest.TestCase):
         # checks, and the transport the commits' check reads through, stay verify's inputs, pushed and read by every Lens.
         seven = ("tools/check_workflows", "tools/commits_are_the_maintainers", "tools/check_writes", "tools/check_repo",
                  "tools/verify", "tools/walk", "tools/needs_passed")
+        # A module Python would import at the name, whatever its suffix: an extension module is found ahead of the
+        # source, so it is the same path (Astra's read). And a package at the name is too, the name itself among it, a
+        # link to a directory: Python imports it in place of the module, and python3 -m runs its __main__ (the Claude
+        # review and the security read of issue 1048's change).
+        suffixes = (".py", ".abi3.so", ".so", ".cpython-312-x86_64-linux-gnu.so", ".pyc")
+        for name in seven + ("tools/__init__",):
+            for path in [name + suffix for suffix in suffixes]:
+                self.assertEqual(apply.push_refusal([path], [None], own_list()), "push_protected", path)
         for name in seven:
-            self.assertEqual(apply.push_refusal([name + ".py"], [None], own_list()), "push_protected", name)
-            # A package at the same name is the same path: Python imports it in place of the module, and python3 -m
-            # runs its __main__ (the Claude review and the security read of issue 1048's change).
-            for inside in ("/__init__.py", "/__main__.py", "/x/y.py"):
-                self.assertEqual(apply.push_refusal([name + inside], [None], own_list()), "push_protected", name + inside)
-        # So is the package they are imported from, which runs before each, and what decides whether verify runs at all:
-        # the Makefile, and the GNUmakefile make reads before it, in any case.
-        for path in ("tools/__init__.py", "Makefile", "GNUmakefile", "makefile", "gnumakefile"):
+            for path in (name, name + "/__init__.py", name + "/__main__.py", name + "/x/y.py"):
+                self.assertEqual(apply.push_refusal([path], [None], own_list()), "push_protected", path)
+        # So is what decides whether verify runs at all: the Makefile, and the GNUmakefile make reads before it, in any
+        # case.
+        for path in ("Makefile", "GNUmakefile", "makefile", "gnumakefile"):
             self.assertEqual(apply.push_refusal([path], [None], own_list()), "push_protected", path)
-        for path in ("tools/check_authority.py", "tools/check_workflows.py.orig", "sub/tools/check_writes.py",
-                     "adapters/github.py", "tools/verify.md", "sub/tools/walk.py", "tools/walker.py", "tools/verify_x/a.py",
-                     "Makefile.md", "docs/Makefile", "kernel/__init__.py"):
+        for path in ("tools/check_authority.py", "tools/check_workflows_x.py", "sub/tools/check_writes.py",
+                     "adapters/github.py", "sub/tools/walk.py", "tools/walker.py", "tools/verify_x/a.py",
+                     "tools/x/verify.py", "Makefile.md", "docs/Makefile", "kernel/__init__.py"):
             self.assertIsNone(apply.push_refusal([path], [None], own_list()), path)
-        # And no other file under tools/ is protected: the list holds these, the hooks aside (Astra's read).
+        # And no other file under tools/ is protected: the list holds these, the hooks aside, in any case (Astra's read).
         listed = {entry["path"] for entry in json.loads((ROOT / "config" / "hooks.json").read_text())["protected"]}
-        self.assertEqual({path for path in listed if path.startswith("tools/") and not path.startswith("tools/hooks/")},
-                         {name + ".py" for name in seven} | {name + "/" for name in seven} | {"tools/__init__.py"})
+        self.assertEqual({path for path in listed
+                          if path.casefold().startswith("tools/") and not path.casefold().startswith("tools/hooks/")},
+                         {name + ".*" for name in seven} | {name + "/" for name in seven} | {"tools/__init__.*"})
         self.assertLessEqual({"Makefile", "GNUmakefile"}, listed)
         # And what the list refuses, not only how it is spelt: of every file under tools/ in this tree, the hooks aside,
-        # a push is refused for these seven and the package's own file alone, whatever pattern an entry is written as
-        # (Astra's read of issue 1048's change).
-        held = {name + ".py" for name in seven} | {"tools/__init__.py"}
-        every = sorted(path.relative_to(ROOT).as_posix() for path in (ROOT / "tools").rglob("*") if path.is_file()
-                       and "__pycache__" not in path.parts)
-        self.assertLessEqual(held, set(every))
+        # a push is refused for these alone, whatever pattern an entry is written as (Astra's read of issue 1048's change).
+        def held(path):
+            stem = path.split(".")[0]
+            return stem in seven + ("tools/__init__",) or any(path.startswith(name + "/") for name in seven)
+        every = sorted(rel for rel in (path.relative_to(ROOT).as_posix() for path in walk.files(ROOT))
+                       if rel.startswith("tools/"))
+        self.assertLessEqual({name + ".py" for name in seven} | {"tools/__init__.py"}, set(every))
         for path in every:
             if not path.startswith("tools/hooks/"):
                 self.assertEqual(apply.push_refusal([path], [None], own_list()),
-                                 "push_protected" if path in held else None, path)
+                                 "push_protected" if held(path) else None, path)
 
 
 def own_list() -> list:
