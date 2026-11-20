@@ -41,7 +41,8 @@
     {"path": "release/decision-points.json", "is": "the Maintainer's continue or stop, which he alone decides"},
     {"path": "tools/check_workflows.py", "is": "the check that holds each workflow, and what a workflow beside a secret reads of a head"},
     {"path": "tools/commits_are_the_maintainers.py", "is": "the check that every commit a pull request carries names the Maintainer"},
-    {"path": "tools/check_writes.py", "is": "the check that only the callers it lists reach a GitHub write"}
+    {"path": "tools/check_writes.py", "is": "the check that only the callers it lists reach a GitHub write"},
+    {"path": "tools/check_repo.py", "is": "the check that nothing is installed or fetched and no secret is written down"}
   ],
   "reported": [
     {"path": "docs/decisions/", "is": "a decision record, which is never edited, only replaced"},

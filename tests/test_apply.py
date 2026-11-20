@@ -1228,17 +1228,20 @@ class Push(unittest.TestCase):
             self.assertIsNone(apply.push_refusal([path], [None], own_list()), path)
 
     def test_the_checks_that_hold_a_trust_boundary_are_on_the_repos_own_list(self):  # issue 907, decision 0240
-        # The check that holds the workflows, the one that holds whose commits a pull request carries, and the one that
-        # holds who reaches a GitHub write: a Role's push of any of them could blind it to a later change, so each is
-        # refused, at its own path alone. The other checks stay verify's inputs, pushed and read by every Lens.
-        for path in ("tools/check_workflows.py", "tools/commits_are_the_maintainers.py", "tools/check_writes.py"):
+        # The check that holds the workflows, the one that holds whose commits a pull request carries, the one that
+        # holds who reaches a GitHub write, and the one that holds that nothing is fetched and no secret written down: a
+        # Role's push of any of them could blind it to a later change, so each is refused, at its own path alone. The
+        # other checks stay verify's inputs, pushed and read by every Lens.
+        for path in ("tools/check_workflows.py", "tools/commits_are_the_maintainers.py", "tools/check_writes.py",
+                     "tools/check_repo.py"):
             self.assertEqual(apply.push_refusal([path], [None], own_list()), "push_protected", path)
-        for path in ("tools/check_repo.py", "tools/check_workflows.py.orig", "sub/tools/check_writes.py"):
+        for path in ("tools/check_authority.py", "tools/check_workflows.py.orig", "sub/tools/check_writes.py"):
             self.assertIsNone(apply.push_refusal([path], [None], own_list()), path)
-        # And no other check is protected: the checks on the list are these three, the hooks aside (Astra's read).
+        # And no other check is protected: the checks on the list are these four, the hooks aside (Astra's read).
         listed = {entry["path"] for entry in json.loads((ROOT / "config" / "hooks.json").read_text())["protected"]}
         self.assertEqual({path for path in listed if path.startswith("tools/") and not path.startswith("tools/hooks/")},
-                         {"tools/check_workflows.py", "tools/commits_are_the_maintainers.py", "tools/check_writes.py"})
+                         {"tools/check_workflows.py", "tools/commits_are_the_maintainers.py", "tools/check_writes.py",
+                          "tools/check_repo.py"})
 
 
 def own_list() -> list:
