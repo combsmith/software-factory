@@ -192,6 +192,12 @@
           "type": "number",
           "minimum": 0,
           "maximum": 86400
+        },
+        "undeleted": {
+          "description": "For a reader of the Responses API that made a response: how many responses it made are still in Azure's store because their delete failed, was refused or was not answered, 0 or 1; absent where none was made (trial P-76: Azure keeps a stored response 30 days unless it is deleted).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
         }
       }
     }

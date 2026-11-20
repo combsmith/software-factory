@@ -1,12 +1,13 @@
 """The second transport: what an advisory Lens's reader is asked through, and nothing else (decision 0224). With
 `adapters/github.py` it is one of the two files in this repo that reach the network, and it may not name GitHub's host
-(tools/check_repo.py). A request is one of four acts, built by `create`, `read`, `cancel` or `chat`, and names no
-method and no path: the transport alone writes those, so a caller cannot ask for another, and no request of this
+(tools/check_repo.py). A request is one of five acts, built by `create`, `read`, `cancel`, `delete` or `chat`, and
+names no method and no path: the transport alone writes those, so a caller cannot ask for another, and no request of this
 file's is one `adapters/github.py` would send. An answer is `{status, headers, body}`.
 
 `Live` sends HTTPS to the one host its caller names, which is the configuration's, held to the forms Azure serves a
-model's API under, on its own port. It sends the paths of two APIs alone: Responses, to create a response, read it and
-cancel it, and Chat Completions, to create one. It takes its key from its caller and never from the environment, and
+model's API under, on its own port. It sends the paths of two APIs alone: Responses, to create a response, read it,
+cancel it and delete it, and Chat Completions, to create one. It takes its key from its caller and never from the
+environment, and
 sends it under Azure's own header to that host and no other: it follows no redirect, refused before its Location is
 read, and uses no proxy. Each wait on
 the connection has its caller's limit in seconds, which bounds neither the finding of the host's address nor an answer
@@ -68,15 +69,16 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def request(act: str, ident, body) -> dict:
-    """One of the four requests, or a refusal: `create` or `chat` with a JSON object that is not empty and no id, or
-    `read` or `cancel` with a response's id and no body."""
+    """One of the five requests, or a refusal: `create` or `chat` with a JSON object that is not empty and no id, or
+    `read`, `cancel` or `delete` with a response's id and no body."""
     # The act's type is held before it is compared, and the body is a dict itself, never a kind of one that says
     # otherwise of its own length or truth.
     made = type(act) is str and act in ("create", "chat") and ident is None and type(body) is dict and len(body) > 0
-    named = type(act) is str and act in ("read", "cancel") and type(ident) is str and IDENT.fullmatch(ident) is not None \
+    named = type(act) is str and act in ("read", "cancel", "delete") \
+        and type(ident) is str and IDENT.fullmatch(ident) is not None \
         and body is None
     if not (made or named):
-        raise Unanswered("the transport sends a response's create, read and cancel and a chat completion's create alone")
+        raise Unanswered("the transport sends a response's create, read, cancel and delete and a chat's create alone")
     return {"act": act, "id": ident, "body": body}
 
 
@@ -93,6 +95,12 @@ def read(ident: str) -> dict:
 def cancel(ident: str) -> dict:
     """The request that cancels a response still running, so that it is not left to run on and be billed."""
     return request("cancel", ident, None)
+
+
+def delete(ident: str) -> dict:
+    """The request that deletes a stored response by its id, so that what it was asked is not kept: Azure keeps one 30
+    days unless it is deleted (trial P-76)."""
+    return request("delete", ident, None)
 
 
 def chat(body: dict) -> dict:
@@ -112,6 +120,8 @@ def wire(req) -> tuple:
         return "POST", CHAT, req["body"]
     if req["act"] == "read":
         return "GET", "%s/%s" % (RESPONSES, req["id"]), None
+    if req["act"] == "delete":
+        return "DELETE", "%s/%s" % (RESPONSES, req["id"]), None
     return "POST", "%s/%s/cancel" % (RESPONSES, req["id"]), {}
 
 
