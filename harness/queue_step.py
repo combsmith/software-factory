@@ -29,9 +29,9 @@ KEY = "QUEUE_APP_KEY"
 PAUSE = "FACTORY_PAUSED"
 # The needs of the queue App's three acts, which its grant must hold (config/apps.json).
 NEEDS = ("effect:enqueue_merge", "effect:dequeue_merge", "effect:resolve_thread")
-# And what its port reads of the pull request before each write, its state and threads and its place in the queue, each
-# a read of the pull request, which takes pull_requests: read (issue 711).
-READS = ("read:facts.state", "read:facts.threads")
+# And what its port reads of the pull request before each write, its state and threads, each a read of the pull request,
+# which takes pull_requests: read (issue 711), and its place in the queue, which its grant holds under metadata.
+READS = ("read:facts.state", "read:facts.threads", "read:facts.queue")
 
 
 def written(argv: list, environ: dict, clock, connect) -> tuple:
