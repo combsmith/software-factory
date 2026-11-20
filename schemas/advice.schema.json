@@ -290,7 +290,8 @@
           "type": "null"
         },
         "content_id": {
-          "$ref": "finding.schema.json#/$defs/content_id"
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{4,64}$"
         }
       }
     }

@@ -345,7 +345,7 @@ permissions: {}
 jobs:
   run:
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
+    timeout-minutes: 53
     environment: factory-run
     permissions:
       contents: read
@@ -393,7 +393,7 @@ jobs:
           ITEM: ${{ inputs.item }}
           PASS: ${{ inputs.pass }}
           READER_APP_KEY: ${{ secrets.READER_APP_KEY }}
-        timeout-minutes: 3
+        timeout-minutes: 6
         run: python3 -m harness.read
       - name: Ask the advisory readers, which never fails the Run
         env:
