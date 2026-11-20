@@ -204,39 +204,12 @@ def one(reader: dict, told: dict, prompt: str, admitted: bool, key, until: float
     if why is not None:
         return advice.unasked(told, why, 0, 0, shared.SCHEMAS)
 
-    made = []
-
     def send(request: dict) -> dict:
         live = transport(reader["host"], key, wait_of(reader, until, clock))
         sent.append(request["act"])
-        answer = live.send(request)
-        # The one response this reader made, by the id its own create answered: the only one it may delete.
-        body = answer.get("body") if isinstance(answer, dict) and answer.get("status") == 200 else None
-        if request["act"] == "create" and not made and isinstance(body, dict) and isinstance(body.get("id"), str):
-            made.append(body["id"])
-        return answer
-    try:
-        answer, asks = asked(send, reader, body_of(reader, told["effort"], prompt), until, clock, sleep)
-    finally:
-        # Whatever came of the read, its response is deleted, so that the diff it was asked about is not kept in Azure's
-        # store for its 30 days (trial P-76). A delete that fails is counted, and changes nothing else.
-        undeleted = sum(not forgotten(reader, key, ident, until, sent, transport, clock) for ident in made)
-    result = advice.read(told, answer, asks, lasted(began, clock), shared.SCHEMAS)
-    if made:
-        result["usage"]["undeleted"] = undeleted
-    return result
-
-
-def forgotten(reader: dict, key, ident: str, until: float, sent: list, transport, clock) -> bool:
-    """Whether Azure deleted the stored response `ident` when asked to: a delete that is refused, fails, raises or is not
-    answered is one not deleted, and is never more than that."""
-    try:
-        request = azure.delete(ident)
-        sent.append(request["act"])
-        answer = transport(reader["host"], key, wait_of(reader, until, clock)).send(request)
-        return isinstance(answer, dict) and answer.get("status") in (200, 204)
-    except Exception:       # NOSONAR a delete not made is counted, and changes no Result
-        return False
+        return live.send(request)
+    answer, asks = asked(send, reader, body_of(reader, told["effort"], prompt), until, clock, sleep)
+    return advice.read(told, answer, asks, lasted(began, clock), shared.SCHEMAS)
 
 
 JOINER = "\u200c"        # a zero-width non-joiner: it splits a pair and changes nothing a reader sees

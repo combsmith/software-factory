@@ -92,21 +92,19 @@ def live(opener=None, host: str = HOST, key: str = KEY, seconds: int = 30) -> az
 
 
 class Transport(unittest.TestCase):
-    def test_the_azure_transport_asks_five_requests_and_no_other(self):
-        # The five requests of the two APIs, and no other. A caller names an act, never a method or a path: the
-        # transport alone writes those. A stored response is deleted by its id (trial P-76: Azure keeps one 30 days).
-        self.assertEqual([azure.wire(r) for r in (azure.create(ASKED), azure.chat(ASKED), azure.read(ID), azure.cancel(ID),
-                                                  azure.delete(ID))],
+    def test_the_azure_transport_asks_four_requests_and_no_other(self):
+        # The four requests of the two APIs, and no other. A caller names an act, never a method or a path: the
+        # transport alone writes those.
+        self.assertEqual([azure.wire(r) for r in (azure.create(ASKED), azure.chat(ASKED), azure.read(ID), azure.cancel(ID))],
                          [("POST", "/openai/v1/responses", ASKED), ("POST", "/openai/v1/chat/completions", ASKED),
-                          ("GET", "/openai/v1/responses/" + ID, None), ("POST", "/openai/v1/responses/%s/cancel" % ID, {}),
-                          ("DELETE", "/openai/v1/responses/" + ID, None)])
+                          ("GET", "/openai/v1/responses/" + ID, None), ("POST", "/openai/v1/responses/%s/cancel" % ID, {})])
         self.assertEqual(azure.read(ID), {"act": "read", "id": ID, "body": None})
-        refused = [("delete", ID, {}), ("delete", None, None), ("list", None, None), ("create", None, None), ("create", None, {}),
+        refused = [("delete", ID, None), ("list", None, None), ("create", None, None), ("create", None, {}),
                    ("create", None, []), ("chat", None, "text"), ("create", ID, ASKED), ("chat", ID, ASKED),
                    ("read", ID, {}), ("read", ID, ASKED), ("cancel", ID, {}), ("read", None, None), ("cancel", None, None),
                    (None, None, ASKED), (["create"], None, ASKED), ("POST", None, ASKED)]
         for ident in ("", "..", "a/b", "a b", "a?b", "a#b", "a%2Fb", ID + "\n", ID + "/cancel", "a" * 201, 7, b"resp_1"):
-            refused += [("read", ident, None), ("cancel", ident, None), ("delete", ident, None)]
+            refused += [("read", ident, None), ("cancel", ident, None)]
         for act, ident, body in refused:
             with self.assertRaises(azure.Unanswered, msg=(act, ident, body)):
                 azure.request(act, ident, body)
