@@ -1962,12 +1962,6 @@ class Purity(unittest.TestCase):
         io = held({"guards/x.py": "import os\n\ndef f():\n    return open('x')\n"})
         self.assertTrue(caught(io, "imports os") and caught(io, "uses open"))
         self.assertTrue(caught(held({"guards/x.py": "def f(n):\n    return n > 3\n"}), "writes the number"))
-        # A guard makes no Decision, so it takes no parameter the Kernel may call, in any place a parameter stands.
-        for text, line in (("def f(_decision):\n    return _decision()\n", 1), ("def f(*, _decision):\n    return _decision()\n", 1),
-                           ("def f(_decision, /):\n    return _decision()\n", 1), ("def f(*_decision):\n    return 0\n", 1),
-                           ("def f(**_decision):\n    return 0\n", 1), ("def f():\n    return lambda _decision: _decision()\n", 2)):
-            self.assertIn("x.py:%d takes _decision, which the Kernel alone may call; guards/ makes no Decision and calls "
-                          "no function it is given" % line, held({"guards/x.py": text}), text)
         # Only its imports of itself are read as its own: any other package's are refused as the Kernel refuses them.
         for text, said in (("from os import environ\n", "x.py:1 imports os"), ("import guardsx as g\n", "x.py:1 imports guardsx"),
                            ("from guardsx import y\n", "x.py:1 imports guardsx"), ("import kernelx\n", "x.py:1 imports kernelx")):
@@ -1992,6 +1986,13 @@ class Purity(unittest.TestCase):
                            ("from ..kernel import terms\n", 1), ("def f():\n    from . import b\n    return b.g()\n", 2)):
             found = held(dict(terms, **dict(other, **{"guards/x.py": text})))
             self.assertTrue(caught(found, "x.py:%d imports ." % line) and caught(found, "imports itself alone, by its name"), text)
+        # A guard makes no Decision, so it takes no parameter the Kernel may call, in any place a parameter stands.
+        for text, line in (("def f(_decision):\n    return _decision()\n", 1), ("def f(*, _decision):\n    return _decision()\n", 1),
+                           ("def f(_decision, /):\n    return _decision()\n", 1), ("def f(*_decision):\n    return 0\n", 1),
+                           ("def f(**_decision):\n    return 0\n", 1), ("def f():\n    return lambda _decision: _decision()\n", 2),
+                           ("async def f(_decision):\n    return _decision()\n", 1)):
+            self.assertIn("x.py:%d takes _decision, which the Kernel alone may call; guards/ makes no Decision and calls "
+                          "no function it is given" % line, held({"guards/x.py": text}), text)
         fine = dict(other, **{"guards/a.py": "from guards import b\nfrom guards.b import g\nimport guards.b as other\n\n\n"
                                              "def f():\n    return b.g() or g() or other.g()\n"})
         self.assertEqual(held(fine), [])
