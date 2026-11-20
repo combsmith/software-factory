@@ -103,6 +103,14 @@
             ],
             "pattern": "^r_[0-9A-Z]{6,26}$"
           },
+          "active_runs": {
+            "description": "The count of active Runs this item's Decision was made with: the context's, and for an admission the Runs this pass mints for approvals and queue acts and the admissions before it, so no pass admits more Runs than the org's concurrency leaves room for (decision 0003). Absent on a record written before, whose every entry was asked with the context's.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
           "head": {
             "description": "The head commit read beside the facts, which the status on the item is posted on, so it describes the content the Decision was made on (#193's ruling 6). Present only where a status goes: absent on an item ended, not served or left hands-off, or whose label events cannot be read.",
             "type": "string",
@@ -134,6 +142,14 @@
               "null"
             ],
             "pattern": "^r_[0-9A-Z]{6,26}$"
+          },
+          "active_runs": {
+            "description": "The count of active Runs this item's Decision was made with: the context's, and for an admission the Runs this pass mints for approvals and queue acts and the admissions before it, so no pass admits more Runs than the org's concurrency leaves room for (decision 0003). Absent on a record written before, whose every entry was asked with the context's.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
           }
         }
       }
@@ -162,7 +178,8 @@
           "hand_unmatched",
           "reconciliation_unreadable",
           "credential_due",
-          "runs_never_started"
+          "runs_never_started",
+          "issue_apps_unreadable"
         ]
       }
     },
@@ -189,7 +206,7 @@
             "additionalProperties": false,
             "required": ["repo", "type", "number"],
             "properties": {
-              "repo": {"type": "string", "pattern": "^[^/]+/[^/]+$"},
+              "repo": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
               "type": {"enum": ["pull_request", "issue"]},
               "number": {"type": "integer", "minimum": 1}
             }

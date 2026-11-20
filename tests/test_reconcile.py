@@ -397,6 +397,7 @@ class Override(unittest.TestCase):
                          [{"alert": "merged_by_override", "by": None, "write": "merge", "item": URL, "key": None}])
 
 
+HEAD, OTHER_HEAD = "a" * 40, "b" * 40
 APPROVER = {"id": 281750570, "type": "User", "login": "donpetry-bot"}
 CONTROLLER = {"id": 5000001, "type": "Bot", "login": "combsmith-sf-controller[bot]"}
 ROLE = {"id": 5000002, "type": "Bot", "login": "combsmith-sf-pr-review[bot]"}
@@ -546,6 +547,37 @@ class SeenPort(unittest.TestCase):
         # Only a person's resolution asks who opened the thread: an identity's is read whoever did, as before.
         writes, _, whole = port(kept(threads=[dict(thread("PRRT_r", by=ROLE), comments=None)]))
         self.assertEqual(([(w["by"], w["key"]) for w in writes], whole), ([("pr-review", "PRRT_r")], True))
+
+    def test_an_approval_carries_the_commit_it_approved_and_null_where_none_can_be_read(self):  # issue 1026
+        reviews = [{"user": APPROVER, "state": "APPROVED", "node_id": "PRR_a", "submitted_at": AT, "commit_id": HEAD},
+                   {"user": APPROVER, "state": "APPROVED", "node_id": "PRR_b", "submitted_at": AT, "commit_id": "abc"},
+                   {"user": APPROVER, "state": "APPROVED", "node_id": "PRR_c", "submitted_at": AT},
+                   {"user": APPROVER, "state": "APPROVED", "node_id": "PRR_g", "submitted_at": AT, "commit_id": "g" * 40},
+                   {"user": APPROVER, "state": "APPROVED", "node_id": "PRR_h", "submitted_at": AT, "commit_id": False},
+                   {"user": APPROVER, "state": "APPROVED", "node_id": "PRR_i", "submitted_at": AT, "commit_id": HEAD + "x"},
+                   {"user": APPROVER, "state": "DISMISSED", "node_id": "PRR_d", "id": 4, "submitted_at": AT,
+                    "commit_id": OTHER_HEAD},
+                   {"user": ROLE, "state": "COMMENTED", "node_id": "PRR_e", "submitted_at": AT, "commit_id": HEAD},
+                   {"user": APPROVER, "state": "DISMISSED", "node_id": "PRR_f", "id": 6, "submitted_at": AT,
+                    "commit_id": HEAD}]
+        events = [{"event": "review_dismissed", "actor": APPROVER, "created_at": AT,
+                   "dismissed_review": {"review_id": 4, "state": "approved"}}]
+        writes, _, whole = port(kept(reviews=reviews, events=events))
+        # A dismissed review whose state before cannot be read is read as an approval, leaves what was seen short, and
+        # carries no commit: what cannot be read is never a hand approval (issue 1026).
+        self.assertFalse(whole)
+        said = [(w["key"], w["kind"], w.get("commit", "absent")) for w in writes if w["key"] and w["key"].startswith("PRR")]
+        self.assertEqual(said, [("PRR_a", "approval", HEAD), ("PRR_b", "approval", None), ("PRR_c", "approval", None),
+                                ("PRR_g", "approval", None), ("PRR_h", "approval", None), ("PRR_i", "approval", None),
+                                ("PRR_d", "approval", OTHER_HEAD), ("PRR_e", "review", "absent"),
+                                ("PRR_f", "approval", None)])
+        out = seen_.seen([(writes, [], whole)], SINCE)
+        self.assertEqual(validate(out, SCHEMAS["seen"], schemas=SCHEMAS), [])
+        # The seen message carries each as read, nulls among them, and the schema refuses a commit that is no commit.
+        self.assertEqual([(w["key"], w["kind"], w.get("commit", "absent")) for w in out["writes"]
+                          if w["key"] and w["key"].startswith("PRR")], said)
+        bad = dict(out, writes=[dict(out["writes"][0], commit="abc")])
+        self.assertTrue(validate(bad, SCHEMAS["seen"], schemas=SCHEMAS))
 
     def test_no_read_the_facts_port_made_is_made_twice(self):  # ruling 3
         github = GitHub()
@@ -818,6 +850,35 @@ class SeenPort(unittest.TestCase):
                                      schemas=SCHEMAS), [])
 
 
+class Tracking(unittest.TestCase):
+    def test_the_tracking_issues_number_is_what_the_passes_recorded_and_none_while_their_records_are_not_whole(self):  # issue 901
+        # Each landed write of the tracking issue is keyed by its number: those read this pass, and those the last
+        # record carried. A write that did not land, and another type's key, name no tracking issue.
+        done = written(("tracking_issue", None, None, "8", "already_applied"), ("tracking_issue", None, None, "9", "failed"),
+                       ("status_on_item", ITEM, None, "77", "applied"), ("tracking_issue", None, None, "4", "failed"),
+                       ("status_on_item", ITEM, None, "78", "failed"))
+        # But one written open with its assignee dropped is there, under its number, 4: it is left out too, and carried.
+        done["writes"][3]["reason"] = done["writes"][4]["reason"] = "assignee_dropped"
+        read = {"written": [done], "whole": True}
+        self.assertEqual(reconcile.tracking(read, []), [4, 8])
+        kept = reconcile.carried([], dict(read, applied=[], read={}, at={}), seen(), Carried.NOW)["keys"]
+        self.assertEqual(sorted((k["type"], k["key"]) for k in kept),
+                         [("status_on_item", "77"), ("tracking_issue", "4"), ("tracking_issue", "8")])
+        done["writes"][3]["reason"] = None
+        held = dict(Carried.NONE, keys=[{"where": "written", "type": "tracking_issue", "key": "6", "at": Carried.NOW},
+                                        {"where": "applied", "type": "tracking_issue", "key": "5", "at": Carried.NOW}])
+        before = [{"now": Carried.NOW, "pull_requests": [], "reconciled": held}]
+        self.assertEqual(reconcile.tracking(read, before), [6, 8])
+        self.assertEqual((reconcile.tracking(read, None), reconcile.tracking(dict(read, written=[]), [])), ([8], []))
+        # A key of anything but ASCII digits names no tracking issue, and is no crash: '²' is a digit `int` refuses, and
+        # '٣' one it reads as 3 (Carbon).
+        odd = written(*[("tracking_issue", None, None, k, "applied") for k in ("8", "I_kw8", "²", "٣")])
+        self.assertEqual(reconcile.tracking({"written": [odd], "whole": True}, []), [8])
+        # Not read whole, or not read: the number may be one not read, and there is none to give.
+        for unread in (dict(read, whole=False), None):
+            self.assertIsNone(reconcile.tracking(unread, before))
+
+
 class Carried(unittest.TestCase):
     """What a pass carries of what it read, so that the next reads only what is new (decisions 0061, 0112)."""
     NOW = "2026-10-11T13:00:00Z"
@@ -970,8 +1031,9 @@ class Carried(unittest.TestCase):
             self.assertNotEqual(validate(dict(record, reconciled=odd), SCHEMAS["pass"], schemas=SCHEMAS), [], odd)
 
     def test_a_record_too_wide_for_the_pass_record_leaves_it_short_and_never_refuses_a_pass(self):
-        # applied/1 and written/1 are wider than what a pass record carries. One record's key or repo that does not fit is
-        # not carried, so it never refuses a pass; it can match nothing GitHub says, and reconciliation says so.
+        # applied/1's key is wider than what a pass record carries, and written/1 refuses a repo a pass record cannot keep
+        # (issue 913). One record's key or repo that does not fit is not carried, so it never refuses a pass; it can match
+        # nothing GitHub says, and reconciliation says so.
         wide = "K" * 101
         for effects in (self.effects(applied(("comment", wide, "applied")), runs=[self.RUN]),
                         self.effects(written_=[written(("dequeue", dict(ITEM, repo="o/r x"), None, None, "applied"))])):

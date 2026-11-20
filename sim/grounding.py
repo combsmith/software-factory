@@ -28,6 +28,11 @@ RULES = (
      "after it opens among them", ("P-58",),
      ("trials/P-58.json", "trials/P-58.reader.json", "trials/P-58.deleted.json"), None),
     ("a_push_is_new_content", "A push gives the pull request new content", ("P-29",), "trials/P-29.base.json", None),
+    ("a_push_can_leave_the_diff_as_it_was", "A push that changes none of the pull request's own diff, as a merge of the "
+     "base that touches none of its files, leaves its content as it was. P-29 pushed no such head; it stands for one "
+     "because it shows the content is the hash of that diff alone, the same while the head's commits stood against a "
+     "moved base and another once a push changed a file, as pull request 847 later did of a merge of the base",
+     ("P-29",), "trials/P-29.base.json", None),
     ("the_pusher_is_the_last_pusher", "The account that pushed the head is read as its last pusher, from the newest "
      "entry of the head branch's activity, a person's push and an App's alike: the entry names the App's bot login, "
      "with actor.type Bot", ("P-28",), ("trials/P-28.json", "trials/P-28.app.json"), None),
@@ -347,14 +352,16 @@ RULES = (
      "closing references name, and the issue's timeline names the pull request the closer; an edit to its description "
      "after the merge can add an issue to its references, and closes nothing", ("P-33", "P-46", "P-67"),
      ("trials/P-46.json", "trials/P-67.json"), None),
-    # trials/P-34.json: lastEditedAt moves for the body alone; the title's change is the timeline's RenamedTitleEvent,
-    # so the content's time is the newer of the two, which the port computes; updatedAt moves for anything.
+    # trials/P-34.json: lastEditedAt moves for the body alone; the title's change is the timeline's rename, which
+    # trials/P-34.rest.json read again by REST, so the content's time is the newer of the two, which the port computes;
+    # updatedAt moves for anything. The REST read names each reopening's actor and App (decision 0218).
     ("an_issues_content_time_is_read_apart", "When an issue's title or body last changed is read apart from when "
-     "anything on it changed", ("P-34",), "trials/P-34.json", None),
+     "anything on it changed", ("P-34",), ("trials/P-34.json", "trials/P-34.rest.json"), None),
     ("a_reopening_names_its_actor", "Each reopening of an issue is on its timeline, with who did it",
-     ("P-34",), "trials/P-34.json", None),
+     ("P-34",), "trials/P-34.rest.json", None),
     ("an_issues_close_and_reopening_say_when", "Each close and each reopening of an issue is on its timeline with its "
-     "time, so the first close of its present life is read across a reopening", ("P-34",), "trials/P-34.json", None),
+     "time, so the first close of its present life is read across a reopening", ("P-34",), "trials/P-34.rest.json",
+     None),
     ("an_issues_run_record_expires", "A run record is gone from the list once it is past the retention",
      ("P-16",), None, None),
     # Contradicted by the fake's issues world, where a person merges a stranger's draft; P-2 (trials/P-2.queue.json) saw
@@ -378,6 +385,7 @@ RULES = (
 # rule; so does a quote of a trial the rule does not name.
 ASKS = {
     "a_push_is_new_content": {"P-29": "Is the hash of a pull request's own diff stable"},
+    "a_push_can_leave_the_diff_as_it_was": {"P-29": "Is the hash of a pull request's own diff stable"},
     "the_pusher_is_the_last_pusher": {
         "P-28": "Can the actor who last pushed a pull request's head be read as a fact?",
     },
