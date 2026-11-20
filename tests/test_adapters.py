@@ -20,7 +20,7 @@ import urllib.parse
 import zipfile
 from unittest import mock
 
-from adapters import acceptance, applied, artifacts, checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
+from adapters import acceptance, applied, artifacts, checks, draft_checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
     passes, pull, records, pause, rules, texts, threads, timeline
 from controller import shared
 from harness import task
@@ -7321,6 +7321,126 @@ class Rules(unittest.TestCase):
                 protected.load(path)
             with self.assertRaises(protected.Unreadable):
                 protected.load(pathlib.Path(d) / "nowhere.json")
+
+
+class DraftChecks(unittest.TestCase):
+    """A linked draft the Factory opened carries its head's required checks, where the issue rule would act on them
+    (decision 0217, issue 878: the Factory Builder's rulings Q1 to Q5, option A each)."""
+
+    @staticmethod
+    def kernel(author="dev-lead"):
+        from tests.support import CONFIG
+        return dict(CONFIG, author_role=author)
+
+    @staticmethod
+    def check(name, conclusion="success", app=15368, workflow=None, suite="success", run=7):
+        return {"name": name, "app_id": app, "workflow": workflow, "conclusion": conclusion,
+                "completed_at": "2026-10-20T00:51:22Z", "run_id": run, "suite_conclusion": suite}
+
+    def passing(self):
+        return [self.check("verify", workflow=".github/workflows/verify.yml", run=1),
+                self.check("Secret scan (gitleaks)", workflow=".github/workflows/ci.yml", run=2),
+                self.check("CodeQL", app=57789, run=None, suite=None)]
+
+    def test_a_drafts_checks_are_read_as_the_pull_requests_kernel_reads_each_required_lens(self):
+        kernel, ok = self.kernel(), self.passing()
+        self.assertEqual([lens["check"] for lens in kernel["required_lenses"]["deterministic"]],
+                         ["verify", "Secret scan (gitleaks)", "CodeQL"])
+        self.assertEqual(draft_checks.verdict(ok, kernel), "passing")
+        failed = [dict(ok[0], conclusion="failure")] + ok[1:]
+        self.assertEqual(draft_checks.verdict(failed, kernel), "failing")
+        # A failing Lens is failing beside one pending, not yet listed or concluding (Astra).
+        self.assertEqual(draft_checks.verdict(failed[:2], kernel), "failing")
+        self.assertEqual(draft_checks.verdict(failed[:2] + [dict(ok[2], conclusion="in_progress", completed_at=None)], kernel),
+                         "failing")
+        # A Lens not yet listed, as for a few seconds after a push (P-42), or still running, is pending, never failing.
+        self.assertEqual(draft_checks.verdict(ok[:2], kernel), "pending")
+        self.assertEqual(draft_checks.verdict([dict(ok[0], conclusion="in_progress", suite_conclusion=None)] + ok[1:], kernel), "pending")
+        # A failing check whose suite has not concluded is concluding: pending, since its run may yet be stopped (Q5).
+        self.assertEqual(draft_checks.verdict([dict(ok[0], conclusion="failure", suite_conclusion=None)] + ok[1:], kernel),
+                         "pending")
+        # A Lens with no verdict, or a check under a Lens's name from another App, leaves the checks unread, even beside
+        # a failing Lens: an unreadable fact defers (Q5).
+        for bad in ([dict(ok[0], conclusion="neutral")] + ok[1:],
+                    ok + [self.check("verify", app=99, workflow=".github/workflows/verify.yml")],
+                    [dict(ok[0], conclusion="neutral"), dict(ok[1], conclusion="failure"), ok[2]],
+                    [dict(ok[0], conclusion="failure"), dict(ok[1], conclusion="neutral"), ok[2]],
+                    [dict(ok[0], conclusion="failure")] + ok[1:] + [self.check("CodeQL", app=99)]):
+            self.assertIsNone(draft_checks.verdict(bad, kernel), bad)
+        # Read through the checks port: one it refuses, or reads short, leaves them unread (Q3).
+        with mock.patch.object(draft_checks.checks, "read", lambda t, p: {"checks": failed, "complete": True, "queue": False}):
+            self.assertEqual(draft_checks.read(None, {}, kernel), "failing")
+        with mock.patch.object(draft_checks.checks, "read", lambda t, p: {"checks": failed, "complete": False, "queue": False}):
+            self.assertIsNone(draft_checks.read(None, {}, kernel))
+
+        def moved(t, p):
+            raise github.Unanswered("the pull request's head moved while its checks were read")
+        with mock.patch.object(draft_checks.checks, "read", moved):
+            self.assertIsNone(draft_checks.read(None, {}, kernel))
+        # Through the real checks port, of REST's read of the draft: its rollup asked by owner, name and number, read of
+        # its head; one of another head is null.
+        def run(name, workflow, conclusion, n, app=15368):
+            return {"__typename": "CheckRun", "id": "c%d" % n, "name": name, "status": "COMPLETED", "conclusion": conclusion,
+                    "completedAt": "2026-10-20T00:51:22Z", "databaseId": n,
+                    "detailsUrl": "https://github.com/o/r/actions/runs/%d/job/%d" % (100 + n, n) if workflow else None,
+                    "checkSuite": {"app": {"databaseId": app}, "conclusion": conclusion,
+                                   "workflowRun": {"databaseId": 100 + n, "file": {"path": workflow}} if workflow else None}}
+
+        def answer(head, nodes):
+            asked = {"query": checks.QUERY, "variables": {"owner": "o", "name": "r", "number": 5, "after": None}}
+            node = {"headRefOid": head, "mergeQueueEntry": None, "commits": {"nodes": [{"commit": {"oid": head,
+                    "statusCheckRollup": {"contexts": {"totalCount": len(nodes), "pageInfo": {"hasNextPage": False,
+                                                                                            "endCursor": None},
+                                                       "nodes": nodes}}}}]}}
+            return {"request": {"via": "graphql", "call": "POST /graphql", "headers": {}, "body": asked},
+                    "response": {"status": 200, "headers": {}, "body": {"data": {"repository": {"pullRequest": node}}}}}
+        nodes = [run("verify", ".github/workflows/verify.yml", "FAILURE", 1),
+                 run("Secret scan (gitleaks)", ".github/workflows/ci.yml", "SUCCESS", 2),
+                 run("CodeQL", None, "SUCCESS", 3, app=57789)]
+        draft = pull_read(5, user=CONTROLLER_APP, draft=True)["response"]["body"]
+        self.assertEqual(draft_checks.read(github.Replay([answer("a" * 40, nodes)]), draft, kernel), "failing")
+        self.assertIsNone(draft_checks.read(github.Replay([answer("b" * 40, nodes)]), draft, kernel))
+        # A configuration that cannot be read leaves the checks unread, never raising out of the port.
+        self.assertIsNone(draft_checks.read(github.Replay([answer("a" * 40, nodes)]), draft, {}))
+
+    def test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read(self):  # Q2
+        mine = {"class": "agent", "state": "open", "is_draft": True}
+        self.assertTrue(draft_checks.asked(self.kernel(), mine))
+        for kernel, own in ((self.kernel(None), mine), (None, mine), (self.kernel(), dict(mine, **{"class": "maintainer"})),
+                            (self.kernel(), dict(mine, state="closed")), (self.kernel(), dict(mine, is_draft=False))):
+            self.assertFalse(draft_checks.asked(kernel, own), (kernel and kernel["author_role"], own))
+        # Through the linked read: the Factory's draft carries `checks`, read of its own head, and with no author Role
+        # named, or another's draft, none is read and none carried.
+        asked = []
+
+        def read(transport, got, kernel):
+            asked.append((got["number"], got["head"]["sha"]))
+            self.assertIs(kernel, given)
+            return "failing"
+        given = self.kernel()
+        router = lambda: Router(github.Replay([linked_read(ref(5, 6)), pull_read(5, user=CONTROLLER_APP, draft=True),
+                                               pull_timeline(5), pull_read(6, draft=True), pull_timeline(6)]),
+                                {"don-petry": "admin"})
+        with mock.patch.object(draft_checks, "read", read):
+            transport = router()
+            found = linked.listing(transport, "o/r", 41, UPDATED, CREATED, IDENTITIES, Linked().accounts(transport), {},
+                                   given)[0]
+            self.assertEqual([(p["number"], p.get("checks")) for p in found], [(5, "failing"), (6, None)])
+            self.assertEqual(("checks" in found[1], asked), (False, [(5, "a" * 40)]))
+            transport = router()
+            found = linked.listing(transport, "o/r", 41, UPDATED, CREATED, IDENTITIES, Linked().accounts(transport), {},
+                                   self.kernel(None))[0]
+            self.assertEqual([("checks" in p) for p in found], [False, False])
+            self.assertEqual(len(asked), 1)
+            # The issues port hands the linked read the configuration it is given.
+            transport = router()
+            accounts = Linked().accounts(transport)
+            exchanges_ = issue_read(closing=[linked_read(ref(5, 6)), pull_read(5, user=CONTROLLER_APP, draft=True),
+                                             pull_timeline(5), pull_read(6, draft=True), pull_timeline(6)])
+            transport = Router(github.Replay(exchanges_), {"don-petry": "admin"})
+            got = issues.read(transport, "o/r", 41, timeline.Accounts(transport, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]}),
+                              lambda: Issues.NOW, identities=IDENTITIES, earlier=[], kernel=given)[0]
+            self.assertEqual([p.get("checks") for p in got["linked"]], ["failing", None])
 
 
 if __name__ == "__main__":

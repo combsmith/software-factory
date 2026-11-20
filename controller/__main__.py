@@ -269,7 +269,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
                 raise Unanswered("the tracking issue's number was not read")
             # No pass record is handed on yet, so no span is read, while an issue a pull request names defers (issue 734).
             facts, title = issues_.read(through, home, number, who, lambda: utc(clock), identities=identities,
-                                        earlier=[])
+                                        earlier=[], kernel=config["kernel"])
             issues.append({"facts": facts, "title": title})
             facts_reads += dated(through.first)
         except Unanswered as err:
