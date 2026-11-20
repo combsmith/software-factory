@@ -214,7 +214,8 @@ class IssueWorld:
             "last_writer_action_at": self.last_writer, "last_writer_comment_at": self.last_writer_comment,
             # GitHub: the_timeline_shows_each_act
             "acts_since_writer": self.acts, "branch_head": self.branch_head,
-            "complete": {"timeline": True, "linked": True, "runs": True}, "read_at": self.now(),
+            "complete": {"timeline": True, "linked": True, "runs": True}, "timeline_bounded": False,
+            "read_at": self.now(),
         })
 
     def records(self) -> list:
@@ -312,7 +313,11 @@ class IssueWorld:
             current = exact = False
         elif fault < 0.14:
             # GitHub: a_short_list_says_so
-            facts["complete"][self.pick(sorted(facts["complete"]))] = False
+            short = self.pick(sorted(facts["complete"]))
+            facts["complete"][short] = False
+            # The port's bound on a read the facts depend on, the timeline or the linked pull requests, in the draws below
+            # 0.11 that read one of them short, by the draw already made: so no other draw moves (decision 0234).
+            facts["timeline_bounded"] = short in ("linked", "timeline") and fault < 0.11
         elif fault < 0.20 and runs:
             # GitHub: a_new_run_is_listed_late
             runs = runs[:-1]

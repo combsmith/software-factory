@@ -315,6 +315,13 @@
       ]
     },
     {
+      "reason": "timeline_bounded",
+      "question": "timeline_bounded",
+      "choices": [
+        "close"
+      ]
+    },
+    {
       "reason": "intents_unreadable",
       "question": "fact_unreadable",
       "choices": [
