@@ -65,6 +65,14 @@ def _identities(accounts) -> tuple:
     found.update({name: "role" for name in (roles if isinstance(roles, dict) else {})})
     # A Role named as a hand's writes are could not be told from a person: no identity is known then.
     known = known and HAND not in found
+    # A Lens's thread is the facts' by the Lens's account, and a hand's by its Role's (`adapters/seen.py`): where the
+    # two are not one account, a person's resolution of that Lens's thread is read as no write, so none is known.
+    lenses = accounts.get("lenses")
+    for lens in lenses if isinstance(lenses, list) else ():
+        name = lens.get("lens") if isinstance(lens, dict) else None
+        role = roles.get(name) if isinstance(roles, dict) and isinstance(name, str) else None
+        if not isinstance(role, dict) or role.get("type") != "Bot" or role.get("id") != lens.get("id"):
+            known = False
     # The queue App is an identity once its account is set (issue 381); until then nothing is its, and nothing short.
     if isinstance(accounts.get("queue"), dict):
         found["queue"] = "queue"

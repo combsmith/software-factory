@@ -293,11 +293,27 @@ class Hand(unittest.TestCase):
         # A Role named as a hand's writes are could not be told from a person: no identity is known, and it is short.
         named = dict(KNOWN, roles=dict(KNOWN["roles"], hand=KNOWN["roles"]["pr-review"]))
         self.assertTrue(check(seen(), before=[passed()], accounts=named)["short"])
+        # A Lens whose account is not its Role's, by its id or its type, or that has no Role, is a thread the facts read as
+        # that Lens's and the seen port as no Role's: a person's resolution of it is no write, so it is short (issue 887).
+        lens = KNOWN["lenses"][0]
+        qa = {"id": 6000001, "type": "Bot", "login": "combsmith-sf-qa-lead[bot]"}
+        for why, accounts in (("another id", dict(KNOWN, lenses=[dict(lens, id=999000111)])),
+                              ("a Role of another type", dict(KNOWN, roles={"pr-review": dict(KNOWN["roles"]["pr-review"], type="User")})),
+                              ("no Role", dict(KNOWN, lenses=[dict(lens, lens="qa-lead")])),
+                              ("a second Lens", dict(KNOWN, roles=dict(KNOWN["roles"], **{"qa-lead": qa}),
+                                                     lenses=[lens, {"lens": "qa-lead", "login": qa["login"], "id": 6000002}])),
+                              ("a Lens of no name", dict(KNOWN, lenses=[dict(lens, lens=[])])), ("a Lens that is none", dict(KNOWN, lenses=[None]))):
+            self.assertTrue(check(seen(), before=[passed()], accounts=accounts)["short"], why)
+        self.assertFalse(check(seen(), before=[passed()], accounts=dict(KNOWN, lenses=[]))["short"])
+        self.assertFalse(check(seen(), before=[passed()],
+                               accounts=dict(KNOWN, roles=dict(KNOWN["roles"], **{"qa-lead": qa}),
+                                             lenses=[lens, {"lens": "qa-lead", "login": qa["login"], "id": 6000001}]))["short"])
         # And controller/1 refuses the name, so that no such configuration reaches a pass (issue 887).
         config = json.loads((ROOT / "config" / "controller.json").read_text())
         self.assertEqual(validate(config, SCHEMAS["controller"], schemas=SCHEMAS), [])
-        config["accounts"]["roles"]["hand"] = config["accounts"]["roles"]["pr-review"]
-        self.assertEqual(len(validate(config, SCHEMAS["controller"], schemas=SCHEMAS)), 1)
+        for account in (config["accounts"]["roles"]["pr-review"], None):
+            config["accounts"]["roles"]["hand"] = account
+            self.assertEqual(len(validate(config, SCHEMAS["controller"], schemas=SCHEMAS)), 1, account)
         # A resolution an identity made is no hand's, whatever it resolved: it is never judged as one (issue 887).
         role = wrote("pr-review", "resolution", "PRRT_t", at=None)
         self.assertEqual([check(seen(role), before=[passed(hands=None)])[k] for k in ("unjudged", "short")], [[], False])
@@ -329,9 +345,11 @@ class Hand(unittest.TestCase):
         self.assertEqual(validate(record, SCHEMAS["pass"], schemas=SCHEMAS), [])
         # And no other: a key that is no thread's, a time that is none, and anything beside the two (issue 887).
         for odd in ({"key": "PRRT t", "at": NOW}, {"key": "PRRT_t", "at": "2026-13-11T12:00:00Z"}, {"key": "PRRT_t"},
-                    {"key": "PRRT_t", "at": NOW, "by": "hand"}, "PRRT_t"):
+                    {"at": NOW}, {"key": "A" * 101, "at": NOW}, {"key": "PRRT_t", "at": NOW, "by": "hand"}, "PRRT_t"):
             bad = dict(record, reconciled=dict(held, hands=[odd]))
             self.assertEqual(len(validate(bad, SCHEMAS["pass"], schemas=SCHEMAS)), 1, odd)
+        longest = dict(record, reconciled=dict(held, hands=[{"key": "A" * 100, "at": NOW}]))
+        self.assertEqual(validate(longest, SCHEMAS["pass"], schemas=SCHEMAS), [])
 
     def test_a_hands_resolution_no_record_can_judge_is_short_once_carried_and_named(self):  # issue 854
         # Where no record before can say whether an act named the thread, reconciliation is short for that pass, never
@@ -346,7 +364,9 @@ class Hand(unittest.TestCase):
         for before in ([], [passed(hands=None)], [passed([], hands=None)], [passed(item=OTHER), passed(item=OTHER)],
                        [passed(hands=None, **review), passed([], item=OTHER)],
                        # Nor does a last record that carried none, though it did not decide the item and an earlier did.
-                       [passed(hands=["PRRT_t"], **review), passed([], item=OTHER, hands=None)]):
+                       [passed(hands=["PRRT_t"], **review), passed([], item=OTHER, hands=None)],
+                       # The record that decided the item is the one read, though an earlier one named the thread.
+                       [passed(), passed(hands=None, **review), passed([], item=OTHER)]):
             found = check(seen(HAND), before=before)
             self.assertEqual((found["unmatched"], found["short"]), ([], True), before)
             self.assertEqual((reconcile.alerts(found), reconcile.entries(found)), (["reconciliation_unreadable"], waved))
@@ -829,11 +849,6 @@ class SeenPort(unittest.TestCase):
         answered = json.loads((ROOT / "trials" / "P-39.accounts.json").read_text())["exchanges"]
         self.assertEqual([{k: e["response"]["body"][k] for k in ("login", "id", "type")} for e in answered],
                          [ACCOUNTS["controller"], ACCOUNTS["roles"]["pr-review"]])
-        # A Lens whose account is not its Role's, or that has no Role, is a thread the facts read as that Lens's and this
-        # port as no Role's: a person's resolution of it would be no write, so no identity is known (issue 887).
-        for lenses in ([{"lens": "pr-review", "login": "x[bot]", "id": 999000111}], [{"lens": "qa-lead", "login": "x[bot]", "id": 5000002}]):
-            self.assertIs(seen_.identities(dict(KNOWN, lenses=lenses))[1], False, lenses)
-        self.assertIs(seen_.identities(dict(KNOWN, lenses=[]))[1], True)
         # Two identities of one account cannot be told apart: neither is known (issue 328).
         twice = dict(KNOWN, roles={"pr-review": dict(KNOWN["controller"])})
         self.assertEqual(seen_.identities(twice), ({(281750570, "User"): "approver"}, False))
