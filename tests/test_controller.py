@@ -1304,7 +1304,7 @@ class Issues(unittest.TestCase):
 
     def test_p34s_issue_read_by_the_port_is_deferred_on_its_linked_pull_requests(self):  # P-34, S3
         # The canary's issue through the port and the pass defers on its linked pull requests, read short. Its GraphQL
-        # answer is P-34's lastEditedAt in the port's own query, which no trial has recorded (issue 831).
+        # answer is P-34's lastEditedAt in the port's own query, as trials/P-72.json recorded that query (issue 831).
         from adapters import issues
         from tests.test_adapters import body, canary, exchanges as recorded, linked_read
         repo = canary()
