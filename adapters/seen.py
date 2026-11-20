@@ -41,6 +41,7 @@ MARGIN = 1 / 24     # a day's hour: a period is asked only if it covers the wind
 PAGE = 100          # the activity is read once: a list as long as a page may be cut short
 AT = re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z")
 KEY = re.compile(r"[A-Za-z0-9_=:-]{1,100}")
+COMMIT = re.compile(r"[0-9a-f]{40}")
 PARTS = ("events", "reviews", "threads", "check_runs")
 # The timeline's events that are writes, and what each is: those a Factory write makes, and those that change a pull
 # request's state, which none makes yet.
@@ -166,8 +167,13 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         whole &= any(_object(e).get("event") in ("closed", "merged")
                      and (kept == GONE or _at(_object(e).get("created_at"), since)) for e in parts["events"])
 
-    def add(by, kind, key, at):
-        writes.append({"by": by, "kind": kind, "item": dict(item), "key": key, "at": at})
+    def add(by, kind, key, at, commit=False):
+        write = {"by": by, "kind": kind, "item": dict(item), "key": key, "at": at}
+        if commit is not False:
+            # An approval carries the commit it approved, null where GitHub gave none that can be read, so that
+            # reconciliation never takes it for a hand approval by its item alone (issue 1026).
+            write["commit"] = commit if isinstance(commit, str) and COMMIT.fullmatch(commit) else None
+        writes.append(write)
 
     # What each dismissed review was before, from the timeline's dismissals, by the review's id.
     before = {}
@@ -191,7 +197,11 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
             state = DISMISSED.get(before.get(r.get("id"))) if _positive(r.get("id")) else None
             whole &= state is not None
         whole &= at is not False and _key(r.get("node_id")) is not None
-        add(by, "approval" if state in ("APPROVED", None) else "review", _key(r.get("node_id")), at or None)
+        if state in ("APPROVED", None):
+            # Its commit only where its state read as approved: one whose state before cannot be read has none.
+            add(by, "approval", _key(r.get("node_id")), at or None, r.get("commit_id") if state == "APPROVED" else None)
+        else:
+            add(by, "review", _key(r.get("node_id")), at or None)
     for c in map(_object, parts["comments"]):
         whole &= _readable(c.get("user"))
         by, at = _who(c.get("user"), identities), _at(c.get("created_at"), since)

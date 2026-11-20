@@ -282,6 +282,7 @@ class Override(unittest.TestCase):
                          [{"alert": "merged_by_override", "by": None, "write": "merge", "item": URL, "key": None}])
 
 
+HEAD, OTHER_HEAD = "a" * 40, "b" * 40
 APPROVER = {"id": 281750570, "type": "User", "login": "donpetry-bot"}
 CONTROLLER = {"id": 5000001, "type": "Bot", "login": "combsmith-sf-controller[bot]"}
 ROLE = {"id": 5000002, "type": "Bot", "login": "combsmith-sf-pr-review[bot]"}
@@ -386,6 +387,27 @@ class SeenPort(unittest.TestCase):
         self.assertEqual(merged, [{"item": ITEM, "at": AT}])
         out = seen_.seen([(writes, merged, whole)], SINCE)
         self.assertEqual(validate(out, SCHEMAS["seen"], schemas=SCHEMAS), [])
+
+    def test_an_approval_carries_the_commit_it_approved_and_null_where_none_can_be_read(self):  # issue 1026
+        reviews = [{"user": APPROVER, "state": "APPROVED", "node_id": "PRR_a", "submitted_at": AT, "commit_id": HEAD},
+                   {"user": APPROVER, "state": "APPROVED", "node_id": "PRR_b", "submitted_at": AT, "commit_id": "abc"},
+                   {"user": APPROVER, "state": "APPROVED", "node_id": "PRR_c", "submitted_at": AT},
+                   {"user": APPROVER, "state": "DISMISSED", "node_id": "PRR_d", "id": 4, "submitted_at": AT,
+                    "commit_id": OTHER_HEAD},
+                   {"user": ROLE, "state": "COMMENTED", "node_id": "PRR_e", "submitted_at": AT, "commit_id": HEAD},
+                   {"user": APPROVER, "state": "DISMISSED", "node_id": "PRR_f", "id": 6, "submitted_at": AT,
+                    "commit_id": HEAD}]
+        events = [{"event": "review_dismissed", "actor": APPROVER, "created_at": AT,
+                   "dismissed_review": {"review_id": 4, "state": "approved"}}]
+        writes, _, whole = port(kept(reviews=reviews, events=events))
+        # A dismissed review whose state before cannot be read is read as an approval, leaves what was seen short, and
+        # carries no commit: what cannot be read is never a hand approval (issue 1026).
+        self.assertFalse(whole)
+        said = [(w["key"], w["kind"], w.get("commit", "absent")) for w in writes if w["key"] and w["key"].startswith("PRR")]
+        self.assertEqual(said, [("PRR_a", "approval", HEAD), ("PRR_b", "approval", None), ("PRR_c", "approval", None),
+                                ("PRR_d", "approval", OTHER_HEAD), ("PRR_e", "review", "absent"),
+                                ("PRR_f", "approval", None)])
+        self.assertEqual(validate(seen_.seen([(writes, [], whole)], SINCE), SCHEMAS["seen"], schemas=SCHEMAS), [])
 
     def test_no_read_the_facts_port_made_is_made_twice(self):  # ruling 3
         github = GitHub()

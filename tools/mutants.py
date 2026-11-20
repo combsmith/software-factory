@@ -161,6 +161,7 @@ POINT_RULE = ("tests.test_release.Points.test_a_point_is_decided_by_the_maintain
 POINT_TREE = ("tests.test_release.Points.test_the_check_reads_the_points_and_the_maintainer_of_the_tree_it_is_given",)
 POINT_FIRST = ("tests.test_release.Points.test_the_first_decision_point_is_of_slice_1s_event_and_its_count_is_read_against_the_designs_figure",)
 POINT_EACH = ("tests.test_release.Points.test_each_counter_example_is_wrong_in_its_one_way",)
+SEEN_COMMIT = ('tests.test_reconcile.SeenPort.test_an_approval_carries_the_commit_it_approved_and_null_where_none_can_be_read',)
 CANNOT_APPROVE = ("tests.test_release.Skill.test_when_the_factory_cannot_approve_the_skill_leaves_the_approval_to_the_maintainers_hand_and_runs_nothing",)
 PERSON_KERNEL = ("tests.test_decide.TheFactorysOwnRules.test_a_change_to_a_path_only_a_person_decides_waits_for_a_person",)
 PERSON_READ = ("tests.test_hooks.RulesChanged.test_a_path_only_a_person_decides_is_read_with_the_lists_and_given_after_a_model_lenss_inputs",)
@@ -2047,8 +2048,8 @@ MUTANTS = ISSUE + [
      '            if _readable(e.get("actor")) and _who(e.get("actor"), identities) is None:',
      '            if _who(e.get("actor"), identities) is None:', ("tests.test_reconcile",)),
     ('a dismissed approval is a review', 'adapters/seen.py',
-     'add(by, "approval" if state in ("APPROVED", None) else "review"',
-     'add(by, "review"', ("tests.test_reconcile",)),
+     '        if state in ("APPROVED", None):\n            # Its commit',
+     '        if False:\n            # Its commit', ("tests.test_reconcile",)),
     ('a dismissed review whose state before is not read is whole', 'adapters/seen.py',
      '            whole &= state is not None\n',
      '', ("tests.test_reconcile",)),
@@ -2307,8 +2308,8 @@ MUTANTS = ISSUE + [
      '        whole &= isinstance(got, tuple) and len(got) == 2 and isinstance(got[0], list) and got[1] is True\n',
      '', ("tests.test_reconcile",)),
     ('a review of a time that cannot be read is whole', 'adapters/seen.py',
-     '        whole &= at is not False and _key(r.get("node_id")) is not None\n        add(by, "approval"',
-     '        whole &= _key(r.get("node_id")) is not None\n        add(by, "approval"', ("tests.test_reconcile",)),
+     '        whole &= at is not False and _key(r.get("node_id")) is not None\n        if state in ("APPROVED", None):',
+     '        whole &= _key(r.get("node_id")) is not None\n        if state in ("APPROVED", None):', ("tests.test_reconcile",)),
     ('a review not yet submitted is read', 'adapters/seen.py',
      ' or r.get("state") == "PENDING":',
      ':', ("tests.test_reconcile",)),
@@ -2369,6 +2370,17 @@ MUTANTS = ISSUE + [
     ('reconciliation raises no alert', 'controller/health.py',
      '    causes |= set(reconciled)\n',
      '', ("tests.test_controller",)),
+    ('an approval carries no commit', 'adapters/seen.py',
+     '            write["commit"] = commit if isinstance(commit, str) and COMMIT.fullmatch(commit) else None',
+     '            write["commit"] = None', SEEN_COMMIT),
+    ('an approval carries a commit that cannot be read', 'adapters/seen.py',
+     '            write["commit"] = commit if isinstance(commit, str) and COMMIT.fullmatch(commit) else None',
+     '            write["commit"] = commit', SEEN_COMMIT),
+    ('a review carries a commit as an approval does', 'adapters/seen.py',
+     '            add(by, "review", _key(r.get("node_id")), at or None)',
+     '            add(by, "review", _key(r.get("node_id")), at or None, r.get("commit_id"))', SEEN_COMMIT),
+    ("a dismissed approval whose state before cannot be read carries its commit", 'adapters/seen.py',
+     'r.get("commit_id") if state == "APPROVED" else None)', 'r.get("commit_id"))', SEEN_COMMIT),
     ('the pass record keeps no reconciliation', 'controller/pass_.py',
      '              "reconciliation": reconcile_.entries(found),\n',
      '              "reconciliation": [],\n', ("tests.test_controller",)),
