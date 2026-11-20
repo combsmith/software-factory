@@ -3,6 +3,8 @@ port's list, each item's facts and the Controller's configuration. What cannot b
 the records before it are None, the list is not listed, an item is left out, and a configuration is refused."""
 from __future__ import annotations
 
+import re
+
 from controller.shared import Refused, errors, key, moment
 
 DIGITS = frozenset("0123456789")
@@ -68,11 +70,15 @@ MOVED, UNANSWERED, NOT_FACTS, TWICE = "pull_moved", "facts_unanswered", "not_fac
 UNREAD = (MOVED, UNANSWERED)
 
 
+# A repo's name as a pass record keeps one, which admits no space (issue 913).
+REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+
+
 def item(found):
-    """`found` if it is an item as `facts/1` spells one, which a pass record can keep; None otherwise."""
+    """`found` if it is an item as a pass record keeps one, a repo by its name; None otherwise."""
     return found if (isinstance(found, dict) and set(found) == {"repo", "type", "number"}
-                     and isinstance(found["repo"], str) and found["repo"].count("/") == 1
-                     and "" not in found["repo"].split("/") and found["type"] in ("pull_request", "issue")
+                     and isinstance(found["repo"], str) and REPO.fullmatch(found["repo"])
+                     and found["type"] in ("pull_request", "issue")
                      and type(found["number"]) is int and found["number"] >= 1) else None
 
 
