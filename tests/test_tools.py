@@ -3760,15 +3760,22 @@ class Workflows(unittest.TestCase):
         JSON = {"Content-Type": "application/json; charset=utf-8"}
 
         class Answer(io.BytesIO):
+            # Read a part at a time, as the transport's bound needs: an unbounded read is no answer (Astra's read).
             def __init__(self, raw, status=200, headers=None):
                 super().__init__(raw)
                 self.status, self.headers = status, JSON if headers is None else headers
 
-        class Cut(Answer):      # the connection closes while the body is read
             def read(self, size=-1):
-                if self.tell():
+                if size is None or not 0 < size <= github.CHUNK:
+                    raise AssertionError("an unbounded read of %r" % (size,))
+                return super().read(size)
+
+        class Cut(Answer):      # the whole pull request arrives, then the connection closes before the body ends
+            def read(self, size=-1):
+                part = super().read(size)
+                if not part:
                     raise github.http.client.IncompleteRead(b"")
-                return super().read(1)
+                return part
 
         class Socket:
             def __init__(self, answer):
@@ -3830,6 +3837,12 @@ class Workflows(unittest.TestCase):
         for number in (True, 1.0):
             refused(Answer(json.dumps(dict(pull, number=number)).encode()))
         self.assertEqual(read(Answer(json.dumps(dict(pull, number=1)).encode()))[0], [])
+        named(44)
+        # A base of another shape refuses with the code, and an opener's id is read as GitHub gave it (Astra's read).
+        for base in (["main"], "main", None):
+            refused(Answer(json.dumps(dict(pull, base=base)).encode()))
+        found = read(Answer(json.dumps(dict(pull, user={"login": "ada", "id": "1"})).encode()))[0]
+        self.assertTrue(found and "opened by ada (id 1)" in found[0], found)
 
     def test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds(self):
         # Issue 409: main reads both, neither in place of the other, so the commits job is not weakened by the opener.
