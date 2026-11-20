@@ -4748,6 +4748,9 @@ REFUSALS = {
     ("P-2.queue", 20): None, ("P-2.queue", 26): None, ("P-2.queue", 27): None,
     # The tree of a commit the canary does not hold, 422: the head port reads it as no tree, so no head (decision 0142).
     ("P-60.tree", 1): None,
+    # Azure's answers to the advisory reader, a key it does not know, 401, and a burst's 429: no port asks Azure; the
+    # advisory parser reads them (P-76, decision 0224).
+    ("P-76", 0): None, ("P-76", 6): None,
 }
 
 
