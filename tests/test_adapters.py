@@ -4392,7 +4392,9 @@ class Snapshot(unittest.TestCase):
         kept = {}
         facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                        lambda: self.NOW, kept, recorded=NOTHING, opened=NOT_OPENED)
-        self.assertEqual(sorted(kept), ["check_runs", "events", "reviews", "threads"])
+        self.assertEqual(sorted(kept), ["check_runs", "cut", "events", "reviews", "threads"])
+        # What was cut at its bound is kept too, for the seen port to read again from its end (issue 1009).
+        self.assertEqual(kept.pop("cut"), {"events": False, "reviews": False})
         self.assertTrue(all(isinstance(v[0], list) and v[1] is True for v in kept.values()))
         self.assertEqual(kept["events"][0], exchanges("P-28")[4]["response"]["body"])
         self.assertEqual(len(kept["check_runs"][0]), len([n for n in p26_checks_nodes(self.sequence(1)[7])]))
@@ -4487,8 +4489,11 @@ class Snapshot(unittest.TestCase):
         seq.append(eleventh)
         replay = github.Replay(seq)
         router = Router(replay, {"don-petry": "admin"})
+        kept = {}
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
-                                lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
+                                lambda: self.NOW, kept, recorded=NOTHING, opened=NOT_OPENED)
+        # The cut is kept for the seen port, which reads that timeline again from its end (issue 1009).
+        self.assertEqual(kept["cut"], {"events": True, "reviews": False})
         self.assertIs(got["complete"]["timeline"], False)
         self.assertIs(got["timeline_bounded"], True)
         self.assertEqual([asked[1] for asked, _ in replay._left], [eleventh["request"]["call"].split(" ", 1)[1]])
@@ -4524,6 +4529,14 @@ class Snapshot(unittest.TestCase):
         paged(seq, 6, "/repos/%s/pulls/26/reviews?per_page=100" % canary())
         paged(seq, 5, "/repos/%s/issues/26/timeline?per_page=100" % canary())
         self.assertIs(snap(seq)["timeline_bounded"], True)
+        # A reviews list cut is kept as cut for the seen port too (Astra).
+        seq = self.sequence(1)
+        paged(seq, 6, "/repos/%s/pulls/26/reviews?per_page=100" % canary())
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        kept = {}
+        facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                       lambda: self.NOW, kept, recorded=NOTHING, opened=NOT_OPENED)
+        self.assertEqual(kept["cut"], {"events": False, "reviews": True})
         # A timeline read short within the bound and a review dismissed past what it read: the reviews are short too,
         # never the snapshot refused, and nothing is said cut (Astra).
         seq = self.sequence(1)
