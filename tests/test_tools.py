@@ -4781,9 +4781,11 @@ class Workflows(unittest.TestCase):
 
     def test_no_job_of_a_run_runs_the_items_code(self):  # decision 0239, issue 952
         # Every job of a Run's workflow can reach ACTIONS_RUNTIME_TOKEN, and the run job the model's credential, so none
-        # runs the item's code (decision 0219): each checks out the Release's own commit alone, by a pinned action; each
-        # step runs a module of the Release's harness from the folder the job starts in, the CLI's install from the vendor
-        # word for word, or the wake's one call; and no key moves where or how a step runs, or hands it more environment:
+        # runs the item's code (decision 0219): each checkout names its ref, the Release's own commit, and a later job's is
+        # the one the run job's `commit` step handed on; each `run:` runs a module of the Release's harness from the folder
+        # the job starts in, the CLI's install from the vendor word for word, or the wake's one call; the other steps are
+        # the pinned checkout, upload and download actions, each with its own inputs and the data folders below; the CLI is
+        # the one installed, on the runner named; and no key moves where or how a step runs, or hands it more environment:
         # no `working-directory:`, `shell:`, `defaults:`, `container:`, and no name of `env:` outside the set below. Each
         # is named here, not read from tools/check_workflows.py, so that a step added there and here alike is still refused.
         release = {"${{ job.workflow_sha }}", "${{ needs.run.outputs.commit }}"}
@@ -4793,7 +4795,12 @@ class Workflows(unittest.TestCase):
                 ("env",): {"CLAUDE_CLI", "CLAUDE_CODE_OAUTH_TOKEN", "CLI_CHECKSUM", "CLI_VERSION", "GH_TOKEN", "ITEM", "NAME",
                            "NEEDS", "PASS", "PR_REVIEW_APP_KEY", "READER_APP_KEY", "REPO", "RUN_DIGEST", "APPROVER_TOKEN",
                            "FACTORY_PAUSED", "GITHUB_TOKEN", "QUEUE_APP_KEY"},
-                ("with",): {"artifact-ids", "fetch-tags", "if-no-files-found", "name", "path", "persist-credentials", "ref"}}
+                "actions/checkout": {"ref", "fetch-tags", "persist-credentials"},
+                "actions/upload-artifact": {"name", "path", "if-no-files-found"},
+                "actions/download-artifact": {"artifact-ids", "path"}}
+        fixed = {"runs-on": "ubuntu-24.04", "CLAUDE_CLI": "/usr/local/bin/claude", "commit": "${{ steps.commit.outputs.commit }}"}
+        paths = {"result/", "result", "task/outcome.json", "verdict/", "reader-outcome", "applied/applied.json",
+                 "outcome/outcome.json"}
         shapes = {"CLI_VERSION": r"[0-9]+\.[0-9]+\.[0-9]+", "CLI_CHECKSUM": r"[0-9a-f]{64}"}
         debs = " ".join("'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://%s/ubuntu %s main'" % (host, suite)
                         for host in ("azure.archive.ubuntu.com", "mirrors.edge.kernel.org")
@@ -4810,15 +4817,30 @@ class Workflows(unittest.TestCase):
 
         def runs_the_items_code(text):
             entries, bad = check_workflows.read(text)
-            named = {(e["path"][1], e["step"]): e["value"] for e in entries
-                     if e["key"] == "name" and len(e["path"]) == 3 and e["path"][2] == "steps"}
-            found = []
+
+            def of_step(key):
+                return {(e["path"][1], e["step"]): e["value"] for e in entries
+                        if e["key"] == key and len(e["path"]) == 3 and e["path"][2] == "steps"}
+            named, actions = of_step("name"), {k: v.split("@")[0] for k, v in of_step("uses").items()}
+            refs = {(e["path"][1], e["step"]) for e in entries if e["key"] == "ref" and e["path"][2:] == ["steps", "with"]}
+            found = [step for step, action in actions.items() if action == "actions/checkout" and step not in refs]
+            if any(e["value"] == "${{ needs.run.outputs.commit }}" for e in entries) and not (
+                    [e["value"] for e in entries if e["path"] == ["jobs", "run", "outputs"] and e["key"] == "commit"]
+                    == [fixed["commit"]] and of_step("id").get(("run", 2)) == "commit"
+                    and of_step("run").get(("run", 2)) == "python3 -m harness.steps"):
+                found.append("the run job's commit is not the Release's")
             for e in entries:
                 path, job = e["path"], e["path"][1] if len(e["path"]) > 1 else None
                 where = (() if path == [] else ("job",) if len(path) == 2 and path[0] == "jobs" else
-                         ("step",) if path[2:] == ["steps"] else (path[-1],) if path[-1] in ("env", "with") else None)
-                if where is not None and e["key"] not in keys[where]:
+                         ("step",) if path[2:] == ["steps"] else ("env",) if path[-1] == "env" else
+                         actions.get((job, e["step"])) if path[2:] == ["steps", "with"] else None)
+                if where is not None and e["key"] not in keys.get(where, ()):
                     found.append(e["key"])
+                elif e["key"] in fixed and (where in (("job",), ("env",)) or path == ["jobs", job, "outputs"]) and \
+                        e["value"] != fixed[e["key"]]:
+                    found.append(e["value"])
+                elif e["key"] == "path" and path[2:] == ["steps", "with"] and e["value"] not in paths:
+                    found.append(e["value"])
                 elif where == ("env",) and e["key"] in shapes and not re.fullmatch(shapes[e["key"]], e["value"]):
                     found.append(e["value"])
                 elif e["key"] == "ref" and e["value"] not in release or e["key"] == "uses" and not re.fullmatch(
@@ -4857,7 +4879,16 @@ class Workflows(unittest.TestCase):
                 ("more environment for the Engine", good.replace("          CLAUDE_CLI: /usr/local/bin/claude\n",
                                                                  "          CLAUDE_CLI: /usr/local/bin/claude\n          PYTHONPATH: task/head\n")),
                 ("a checkout into the head's folder", good.replace("          persist-credentials: false\n",
-                                                                   "          persist-credentials: false\n          sparse-checkout: x\n", 1)),
+                                                                   "          persist-credentials: false\n          path: task/head\n", 1)),
+                ("a checkout with no ref", good.replace("          ref: ${{ job.workflow_sha }}\n", "")),
+                ("the CLI from the head's folder", good.replace("CLAUDE_CLI: /usr/local/bin/claude", "CLAUDE_CLI: task/head/claude")),
+                ("the item handed on as the commit", good.replace("      commit: ${{ steps.commit.outputs.commit }}\n",
+                                                                  "      commit: ${{ inputs.item }}\n")),
+                ("the commit handed on by another step", good.replace("        id: commit\n", "        id: other\n")),
+                ("a runner of its own", good.replace("    runs-on: ubuntu-24.04\n    timeout-minutes: 33\n",
+                                                     "    runs-on: self-hosted\n    timeout-minutes: 33\n")),
+                ("the Result uploaded from the harness", good.replace("          path: result/\n", "          path: harness/\n")),
+                ("the Result downloaded into the harness", good.replace("          path: result\n", "          path: harness\n", 1)),
                 ("the wake runs more", good.replace('-f ref=main || echo', '-f ref=main; make || echo'))):
             self.assertNotEqual(text, good, why)
             self.assertNotEqual(runs_the_items_code(text), [], why)
