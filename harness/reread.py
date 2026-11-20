@@ -61,7 +61,8 @@ def item(transport, config: dict, number: int, now: str, clock, name_pause: bool
         facts, _, head = facts_.snapshot(transport, home, number, identities, who, listed.get("complete") is True, clock,
                                          with_head=True, opener=facts_.opener_of(controller, config["kernel"], config["apps"]),
                                          recorded=found[number], opened=opened)
-    facts = issue_stood(transport, config, home, facts, who)
+    with shared.staged("issue_stood"):    # one not answered gives null; a fault of its own code is named (0187)
+        facts = issue_stood(transport, config, home, facts, who)
     unread = []
     with shared.staged("pause"):
         if name_pause:
