@@ -1615,8 +1615,9 @@ class Outcomes(unittest.TestCase):
 
     def test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted(self):  # issue 825
         # Slice 2's S9 (rulings-422, section 3): while the draft the Factory opened for the issue fails its required checks,
-        # the issue admits another implementing Run, the author Role's, for that draft; bounded by max_attempts, every
-        # implementing Run that completed counted as a round, and by the Run ceiling. Dormant while no author Role is named.
+        # the issue admits another implementing Run, the author Role's, for that draft; bounded by max_implementing_rounds
+        # (decision 0242), every implementing Run that completed counted as a round, and by the Run ceiling. Dormant while
+        # no author Role is named.
         named = dict(config(), author_role="dev-lead")
         failing = facts(linked=[agents(draft=True, checks="failing")])
         d = decide(failing, cfg=named)
@@ -1659,9 +1660,10 @@ class Outcomes(unittest.TestCase):
         for draft in (agents(draft=True, checks="pending"), dict(agents(draft=True), checks=None)):
             d = decide(facts(linked=[draft]), [flying], cfg=named)
             self.assertEqual((what(d), d["attention"]), (("nothing", "linked_draft", None), "working"), draft["checks"])
-        # max_attempts implementing Runs completed, each of which left the checks failing: held, the issue calls a person.
+        # max_implementing_rounds implementing Runs completed, each of which left the checks failing: held, the issue
+        # calls a person.
         rounds = [run(intent=issue.IMPLEMENT, role="dev-lead", name="m%d" % n, minute=7 + n)
-                  for n in range(LIMITS["max_attempts"])]
+                  for n in range(LIMITS["max_implementing_rounds"])]
         self.assertEqual(what(decide(failing, rounds[:-1], cfg=named)), ("admit", "linked_draft", issue.IMPLEMENT))
         held = ("held", "hold", "attempts_exhausted", "needs_you", [r["run"] for r in rounds])
         d = decide(failing, rounds, cfg=named)
@@ -1688,11 +1690,54 @@ class Outcomes(unittest.TestCase):
         d = decide(failing, rounds[:-1] + [flying], cfg=named)
         self.assertEqual((what(d), d["attention"]), (("nothing", "linked_draft", None), "working"))
         # A writer's action renews the rounds, as it renews every count.
-        renewed = dict(failing, last_writer_action_at=at(7 + LIMITS["max_attempts"]))
+        renewed = dict(failing, last_writer_action_at=at(7 + LIMITS["max_implementing_rounds"]))
         self.assertEqual(what(decide(renewed, rounds, cfg=named)), ("admit", "linked_draft", issue.IMPLEMENT))
         # The Run ceiling bounds it too, whatever Runs spent it.
         spent = [run(intent="judge-readiness", name="j%d" % n, minute=7 + n) for n in range(LIMITS["max_runs_per_item"])]
         self.assertEqual(what(decide(failing, spent, cfg=named))[:2], ("hold", "run_ceiling"))
+
+    def test_the_implementing_rounds_have_a_limit_of_their_own_read_from_no_other_key(self):  # issue 1038, decision 0242
+        # The rounds are held at max_implementing_rounds, which the brakes' implementing_rounds alone reads: max_attempts,
+        # one number for every Intent's attempts, moves neither way with it. One short admits; at the bound the issue is
+        # held, attempts_exhausted, its rounds as evidence, as decision 0217 has it.
+        failing = facts(linked=[agents(draft=True, checks="failing")])
+
+        def rounds(n: int) -> list:
+            return [run(intent=issue.IMPLEMENT, role="dev-lead", name="m%d" % i, minute=7 + i) for i in range(n)]
+
+        def named(**limits) -> dict:
+            c = dict(config(), author_role="dev-lead")
+            c["limits"] = dict(c["limits"], **limits)
+            return c
+
+        for top, attempts in ((2, 5), (4, 1), (1, 3)):
+            cfg = named(max_implementing_rounds=top, max_attempts=attempts)
+            self.assertEqual(what(decide(failing, rounds(top - 1), cfg=cfg)), ("admit", "linked_draft", issue.IMPLEMENT),
+                             (top, attempts))
+            d = decide(failing, rounds(top), cfg=cfg)
+            self.assertEqual((d["state"], what(d)[:2], d["attention"], d["evidence"]),
+                             ("held", ("hold", "attempts_exhausted"), "needs_you", [r["run"] for r in rounds(top)]),
+                             (top, attempts))
+        # A key missing, or no whole number of at least one, holds the issue for a person, limits_unreadable, with no
+        # round spent and with a Run in flight too: never a round admitted by another key's number, nor a deferral.
+        for bad in (None, 0, -1, True, 3.0, "3", [3]):
+            cfg = named()
+            if bad is None:
+                del cfg["limits"]["max_implementing_rounds"]
+            else:
+                cfg["limits"]["max_implementing_rounds"] = bad
+            d = decide(failing, cfg=cfg)
+            self.assertEqual((d["state"], what(d), d["attention"]), ("held", ("hold", "limits_unreadable", None),
+                                                                     "needs_you"), bad)
+            flying = run(intent=issue.IMPLEMENT, status="in_progress", role="dev-lead", name="m9", minute=30)
+            self.assertEqual(what(decide(failing, [flying], cfg=cfg))[:2], ("hold", "limits_unreadable"), bad)
+        # The implementing Run's attempts, Runs that failed by a fault of the item, are still held at max_attempts by the
+        # brakes, as every Intent's are, whatever the rounds' key says; and so is another Intent's loop.
+        cfg = named(max_implementing_rounds=3, max_attempts=1)
+        broke = dict(rounds(1)[0], conclusion="failure", outcome="item")
+        self.assertEqual(what(decide(failing, [broke], cfg=cfg))[:2], ("hold", "attempts_exhausted"))
+        self.assertEqual(what(decide(failing, rounds(1), cfg=cfg)), ("admit", "linked_draft", issue.IMPLEMENT))
+        self.assertEqual(what(decide(TRIAGED, [failed(INVESTIGATE, 1, "f0")], cfg=cfg))[:2], ("hold", "attempts_exhausted"))
 
     def test_no_author_role_is_named_while_the_implementing_rule_is_owed_its_reads(self):  # issue 825, decision 0217
         # The implementing rule is dormant until the author Role is named, and four things are owed before it is: the

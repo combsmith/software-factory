@@ -939,6 +939,29 @@ class Lifecycle(unittest.TestCase):
         self.assertTrue(caught(problems, "lifecycle/issue.json: the bound max_unmerged_closes is not a limit"),
                         problems)
 
+    def test_the_implementing_rounds_are_a_count_held_at_or_below_the_run_ceiling(self):  # issue 1038, decision 0242
+        # The rounds are a count the Kernel keeps for each item, so a bound a transition may name; and each round is a
+        # Run, so a limit past the Run ceiling would never be reached: the configuration holds it at or below.
+        self.assertIn("max_implementing_rounds", check_lifecycle.PER_ITEM)
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        ceiling = config["limits"]["max_runs_per_item"]
+        self.assertLessEqual(config["limits"]["max_implementing_rounds"], ceiling)
+        self.assertEqual(check_lifecycle.run(), [])
+        words = "config/defaults.json: max_implementing_rounds is not a whole number at or below max_runs_per_item"
+        for value, wrong in ((ceiling, False), (1, False), (ceiling + 1, True), (0, True), (True, True),
+                             (3.0, True), ("3", True), (None, True)):
+            cfg = copy.deepcopy(config)
+            if value is None:
+                del cfg["limits"]["max_implementing_rounds"]
+            else:
+                cfg["limits"]["max_implementing_rounds"] = value
+            problems = check_lifecycle.run(clone({"config/defaults.json": json.dumps(cfg)}))
+            self.assertEqual(caught(problems, words), wrong, (value, problems))
+        # A Run ceiling that cannot be read holds nothing under it.
+        cfg = copy.deepcopy(config)
+        cfg["limits"]["max_runs_per_item"] = "10"
+        self.assertTrue(caught(check_lifecycle.run(clone({"config/defaults.json": json.dumps(cfg)})), words))
+
     def test_the_act_ceiling_can_bound_a_transition(self):
         # An enqueue is an act, not a Run; a cycle through the merge queue is bounded by the act ceiling.
         lc = copy.deepcopy(check_lifecycle.load())
