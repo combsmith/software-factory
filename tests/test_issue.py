@@ -1706,8 +1706,9 @@ class Outcomes(unittest.TestCase):
             return [run(intent=issue.IMPLEMENT, role="dev-lead", name="m%d" % i, minute=7 + i) for i in range(n)]
 
         def named(**limits) -> dict:
+            # The Run ceiling is set above every count here, so that no Hold below is the ceiling's.
             c = dict(config(), author_role="dev-lead")
-            c["limits"] = dict(c["limits"], **limits)
+            c["limits"] = dict(c["limits"], max_runs_per_item=20, **limits)
             return c
 
         for top, attempts in ((2, 5), (4, 1), (1, 3)):
@@ -1718,26 +1719,38 @@ class Outcomes(unittest.TestCase):
             self.assertEqual((d["state"], what(d)[:2], d["attention"], d["evidence"]),
                              ("held", ("hold", "attempts_exhausted"), "needs_you", [r["run"] for r in rounds(top)]),
                              (top, attempts))
-        # A key missing, or no whole number of at least one, holds the issue for a person, limits_unreadable, with no
-        # round spent and with a Run in flight too: never a round admitted by another key's number, nor a deferral.
-        for bad in (None, 0, -1, True, 3.0, "3", [3]):
+        # A round is any implementing Run that completed, whatever it concluded: one that failed by the item counts as a
+        # round too, below the attempts' bound, and is named among the rounds.
+        cfg = named(max_implementing_rounds=2, max_attempts=5)
+        mixed = [dict(rounds(1)[0], conclusion="failure", outcome="item"), rounds(2)[1]]
+        d = decide(failing, mixed, cfg=cfg)
+        self.assertEqual((what(d)[:2], d["evidence"]), (("hold", "attempts_exhausted"), ["m0", "m1"]))
+        # A key missing, null, or no whole number of at least one, holds the issue for a person, limits_unreadable,
+        # naming no Run though rounds were spent, and with a Run in flight too: never a round admitted by another key's
+        # number, nor a deferral.
+        missing = object()
+        for bad in (missing, None, 0, -1, True, 3.0, "3", [3]):
             cfg = named()
-            if bad is None:
+            if bad is missing:
                 del cfg["limits"]["max_implementing_rounds"]
             else:
                 cfg["limits"]["max_implementing_rounds"] = bad
-            d = decide(failing, cfg=cfg)
-            self.assertEqual((d["state"], what(d), d["attention"]), ("held", ("hold", "limits_unreadable", None),
-                                                                     "needs_you"), bad)
+            for spent in ([], rounds(1)):
+                d = decide(failing, spent, cfg=cfg)
+                self.assertEqual((d["state"], what(d), d["attention"], d["evidence"]),
+                                 ("held", ("hold", "limits_unreadable", None), "needs_you", []), (bad, spent))
             flying = run(intent=issue.IMPLEMENT, status="in_progress", role="dev-lead", name="m9", minute=30)
             self.assertEqual(what(decide(failing, [flying], cfg=cfg))[:2], ("hold", "limits_unreadable"), bad)
         # The implementing Run's attempts, Runs that failed by a fault of the item, are still held at max_attempts by the
-        # brakes, as every Intent's are, whatever the rounds' key says; and so is another Intent's loop.
+        # brakes, as every Intent's are, whatever the rounds' key says; and so is another Intent's loop, held at
+        # max_attempts and not at the lower of the two keys.
         cfg = named(max_implementing_rounds=3, max_attempts=1)
         broke = dict(rounds(1)[0], conclusion="failure", outcome="item")
         self.assertEqual(what(decide(failing, [broke], cfg=cfg))[:2], ("hold", "attempts_exhausted"))
         self.assertEqual(what(decide(failing, rounds(1), cfg=cfg)), ("admit", "linked_draft", issue.IMPLEMENT))
         self.assertEqual(what(decide(TRIAGED, [failed(INVESTIGATE, 1, "f0")], cfg=cfg))[:2], ("hold", "attempts_exhausted"))
+        cfg = named(max_implementing_rounds=1, max_attempts=3)
+        self.assertEqual(what(decide(TRIAGED, [failed(INVESTIGATE, 1, "f0")], cfg=cfg)), ("admit", "triage", INVESTIGATE))
 
     def test_no_author_role_is_named_while_the_implementing_rule_is_owed_its_reads(self):  # issue 825, decision 0217
         # The implementing rule is dormant until the author Role is named, and four things are owed before it is: the

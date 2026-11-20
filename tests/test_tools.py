@@ -948,19 +948,30 @@ class Lifecycle(unittest.TestCase):
         self.assertLessEqual(config["limits"]["max_implementing_rounds"], ceiling)
         self.assertEqual(check_lifecycle.run(), [])
         words = "config/defaults.json: max_implementing_rounds is not a whole number at or below max_runs_per_item"
+        missing = object()
         for value, wrong in ((ceiling, False), (1, False), (ceiling + 1, True), (0, True), (True, True),
-                             (3.0, True), ("3", True), (None, True)):
+                             (3.0, True), ("3", True), (None, True), (missing, True)):
             cfg = copy.deepcopy(config)
-            if value is None:
+            if value is missing:
                 del cfg["limits"]["max_implementing_rounds"]
             else:
                 cfg["limits"]["max_implementing_rounds"] = value
             problems = check_lifecycle.run(clone({"config/defaults.json": json.dumps(cfg)}))
             self.assertEqual(caught(problems, words), wrong, (value, problems))
-        # A Run ceiling that cannot be read holds nothing under it.
-        cfg = copy.deepcopy(config)
-        cfg["limits"]["max_runs_per_item"] = "10"
-        self.assertTrue(caught(check_lifecycle.run(clone({"config/defaults.json": json.dumps(cfg)})), words))
+        # A Run ceiling that cannot be read, a bool among them, holds nothing under it.
+        for ceiling in ("10", True, None):
+            cfg = copy.deepcopy(config)
+            cfg["limits"].update(max_runs_per_item=ceiling, max_implementing_rounds=1)
+            self.assertTrue(caught(check_lifecycle.run(clone({"config/defaults.json": json.dumps(cfg)})), words),
+                            ceiling)
+        # The rounds are an issue's count alone: the issue's Lifecycle may name them as a bound, the pull request's not.
+        words = "the bound max_implementing_rounds is counted on an issue alone"
+        for name in ("issue", "pull_request"):
+            lc = copy.deepcopy(check_lifecycle.load(name))
+            tr = next(tr for tr in lc["transitions"] if tr["bound"] is not None and tr["bound"] != check_lifecycle.PERSON)
+            tr["bound"] = "max_implementing_rounds"
+            problems = check_lifecycle.check(lc, config["limits"])
+            self.assertEqual(caught(problems, words), name == "pull_request", (name, problems))
 
     def test_the_act_ceiling_can_bound_a_transition(self):
         # An enqueue is an act, not a Run; a cycle through the merge queue is bounded by the act ceiling.
