@@ -4850,7 +4850,7 @@ REFUSALS = {
     # A push by the git data API (P-71, issue 838): the work branch absent, 404, which the push guard reads as the branch
     # the Decision admitted none of; the branch made again where it stands, 422; and two moves without force that are no
     # fast-forward, 422. No port pushes until the push port is built.
-    ("P-71", 4): None, ("P-71", 12): None,
+    ("P-71", 4): None, ("P-71", 12): None, ("P-71.moved", 6): None, ("P-71.moved", 8): None,
     ("P-12", 16): None,                # an output past GitHub's limit, 422: no port writes the status until it is built
     ("P-41", 26): None,                # the controller's label on 64 at issues: write and pull_requests: read, 403
     ("P-41", 27): None,                # its removal, 403 too: no port writes a label until the label act is built
