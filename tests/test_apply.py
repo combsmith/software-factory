@@ -1234,17 +1234,38 @@ class Push(unittest.TestCase):
         # each file whose only job is to decide whether one of them runs, what it reads, or its verdict: verify's list
         # of checks, the walk of the tree, and the required check's verdict (issue 1048). One hop, no further: the other
         # checks, and the transport the commits' check reads through, stay verify's inputs, pushed and read by every Lens.
-        for path in ("tools/check_workflows.py", "tools/commits_are_the_maintainers.py", "tools/check_writes.py",
-                     "tools/check_repo.py", "tools/verify.py", "tools/walk.py", "tools/needs_passed.py"):
+        seven = ("tools/check_workflows", "tools/commits_are_the_maintainers", "tools/check_writes", "tools/check_repo",
+                 "tools/verify", "tools/walk", "tools/needs_passed")
+        for name in seven:
+            self.assertEqual(apply.push_refusal([name + ".py"], [None], own_list()), "push_protected", name)
+            # A package at the same name is the same path: Python imports it in place of the module, and python3 -m
+            # runs its __main__ (the Claude review and the security read of issue 1048's change).
+            for inside in ("/__init__.py", "/__main__.py", "/x/y.py"):
+                self.assertEqual(apply.push_refusal([name + inside], [None], own_list()), "push_protected", name + inside)
+        # So is the package they are imported from, which runs before each, and what decides whether verify runs at all:
+        # the Makefile, and the GNUmakefile make reads before it, in any case.
+        for path in ("tools/__init__.py", "Makefile", "GNUmakefile", "makefile", "gnumakefile"):
             self.assertEqual(apply.push_refusal([path], [None], own_list()), "push_protected", path)
         for path in ("tools/check_authority.py", "tools/check_workflows.py.orig", "sub/tools/check_writes.py",
-                     "adapters/github.py", "tools/verify.md", "sub/tools/walk.py"):
+                     "adapters/github.py", "tools/verify.md", "sub/tools/walk.py", "tools/walker.py", "tools/verify_x/a.py",
+                     "Makefile.md", "docs/Makefile", "kernel/__init__.py"):
             self.assertIsNone(apply.push_refusal([path], [None], own_list()), path)
-        # And no other file under tools/ is protected: the list holds these seven, the hooks aside (Astra's read).
+        # And no other file under tools/ is protected: the list holds these, the hooks aside (Astra's read).
         listed = {entry["path"] for entry in json.loads((ROOT / "config" / "hooks.json").read_text())["protected"]}
         self.assertEqual({path for path in listed if path.startswith("tools/") and not path.startswith("tools/hooks/")},
-                         {"tools/check_workflows.py", "tools/commits_are_the_maintainers.py", "tools/check_writes.py",
-                          "tools/check_repo.py", "tools/verify.py", "tools/walk.py", "tools/needs_passed.py"})
+                         {name + ".py" for name in seven} | {name + "/" for name in seven} | {"tools/__init__.py"})
+        self.assertLessEqual({"Makefile", "GNUmakefile"}, listed)
+        # And what the list refuses, not only how it is spelt: of every file under tools/ in this tree, the hooks aside,
+        # a push is refused for these seven and the package's own file alone, whatever pattern an entry is written as
+        # (Astra's read of issue 1048's change).
+        held = {name + ".py" for name in seven} | {"tools/__init__.py"}
+        every = sorted(path.relative_to(ROOT).as_posix() for path in (ROOT / "tools").rglob("*") if path.is_file()
+                       and "__pycache__" not in path.parts)
+        self.assertLessEqual(held, set(every))
+        for path in every:
+            if not path.startswith("tools/hooks/"):
+                self.assertEqual(apply.push_refusal([path], [None], own_list()),
+                                 "push_protected" if path in held else None, path)
 
 
 def own_list() -> list:
@@ -1426,9 +1447,9 @@ class Bundle(unittest.TestCase):
                    "lifecycle/pull_request.json", "config/authority.json", "kernel/gate.py", "kernel/brakes.py",
                    "config/hooks.json", "roles/pr-review.json", "roles/pr-review/prompt.md", "harness/apply.py",
                    "config/rubric-pr-review.json", "config/harness.json", "tools/hooks/protected.py", "guards/patch.py",
-                   "guards/sub/data.json")
+                   "guards/sub/data.json", "Makefile")
         pushed = ("kernel/derive.py", "tests/test_apply.py", "tools/check_context.py", "README.md", ".gitleaks.toml",
-                  "schemas/effect.schema.json", "Makefile", "docs/a.md", "docs/decisions/x.md")
+                  "schemas/effect.schema.json", "docs/Makefile", "docs/a.md", "docs/decisions/x.md")
         for path in refused:
             for data in (a_bundle(changed(path)), a_bundle(moved(path, "docs/moved.md")),
                          a_bundle(moved("docs/moved.md", path)), a_bundle(changed("docs/a.md"), changed(path))):

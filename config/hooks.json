@@ -45,7 +45,17 @@
     {"path": "tools/check_repo.py", "is": "the check that nothing is installed or fetched and no secret is written down"},
     {"path": "tools/verify.py", "is": "the list of checks verify runs, which decides whether a protected check runs at all"},
     {"path": "tools/walk.py", "is": "the files of the tree, which decide what the checks of writes and of fetches read"},
-    {"path": "tools/needs_passed.py", "is": "the required check's verdict on the jobs it needs"}
+    {"path": "tools/needs_passed.py", "is": "the required check's verdict on the jobs it needs"},
+    {"path": "tools/check_workflows/", "is": "a package that Python would import in place of the check that holds each workflow"},
+    {"path": "tools/commits_are_the_maintainers/", "is": "a package that Python would import in place of the check of the commits"},
+    {"path": "tools/check_writes/", "is": "a package that Python would import in place of the check of who reaches a GitHub write"},
+    {"path": "tools/check_repo/", "is": "a package that Python would import in place of the check that nothing is fetched"},
+    {"path": "tools/verify/", "is": "a package that Python would import in place of verify's list of checks"},
+    {"path": "tools/walk/", "is": "a package that Python would import in place of the walk of the tree"},
+    {"path": "tools/needs_passed/", "is": "a package that Python would import in place of the required check's verdict"},
+    {"path": "tools/__init__.py", "is": "the package the checks are imported from, which runs before every one of them"},
+    {"path": "Makefile", "is": "how make verify runs the checks, which decides whether they run at all"},
+    {"path": "GNUmakefile", "is": "the file make reads before the Makefile, which decides whether the checks run at all"}
   ],
   "reported": [
     {"path": "docs/decisions/", "is": "a decision record, which is never edited, only replaced"},
