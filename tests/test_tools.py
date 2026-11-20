@@ -35,6 +35,7 @@ from harness import engine, shared
 from kernel import decide as decide_module, derive, issue, terms
 from kernel.decide import decide
 from sim import world
+from adapters import github
 from tests import support
 from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_gate_sets, check_lifecycle, context_eval,
                    check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, redact_trial,
@@ -3733,6 +3734,79 @@ class Workflows(unittest.TestCase):
         schema = json.loads((ROOT / "schemas" / "hooks.schema.json").read_text())
         app = {"login": "sf-dev[bot]", "id": 2, "is": "the App"}
         self.assertEqual(check_examples.validate(dict(hooks, openers=hooks["openers"] + [app]), schema), [])
+
+    def test_the_merge_groups_read_refuses_when_the_live_transport_fails_or_answers_another_shape(self):
+        # Issue 1048: adapters/github.py is no protected path, though a merge group's opener is read through its Live and
+        # request (decision 0240's limit). So this guards the behaviour instead: the check builds the transport's own Live
+        # from the job's token, and every way its read can fail or answer in another shape refuses, with the code. Only
+        # the socket is stood in for; the request, its headers, the status and the body are read by the transport itself.
+        self.assertIs(commits_are_the_maintainers.Live, github.Live)
+        self.assertIs(commits_are_the_maintainers.request, github.request)
+        root = tree({"config/hooks.json": json.dumps({"openers": [{"login": "ada", "id": 1, "is": "the Maintainer"}]})})
+        where = root / "event.json"
+        sha = "a" * 40
+        where.write_text(json.dumps({"merge_group": {"head_ref": "refs/heads/gh-readonly-queue/main/pr-44-" + sha,
+                                                     "base_ref": "refs/heads/main", "head_sha": "b" * 40, "base_sha": sha},
+                                     "repository": {"full_name": "o/r"}}))
+        environ = {"EVENT": "merge_group", "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"}
+        pull = {"number": 44, "state": "open", "user": {"login": "ada", "id": 1},
+                "base": {"ref": "main", "repo": {"full_name": "o/r"}}, "head": {"repo": {"full_name": "o/r"}}}
+        whole = json.dumps(pull).encode()
+        JSON = {"Content-Type": "application/json; charset=utf-8"}
+
+        class Answer(io.BytesIO):
+            def __init__(self, raw, status=200, headers=None):
+                super().__init__(raw)
+                self.status, self.headers = status, JSON if headers is None else headers
+
+        class Socket:
+            def __init__(self, answer):
+                self.answer, self.sent = answer, []
+
+            def open(self, sent, timeout=None):
+                self.sent.append(sent)
+                if isinstance(self.answer, Exception):
+                    raise self.answer
+                return self.answer
+
+        def read(answer):
+            socket, made = Socket(answer), []
+
+            class Wired(github.Live):
+                def __init__(self, token, *args, **kwargs):
+                    super().__init__(token, *args, **kwargs)
+                    made.append(token)
+                    self.opener = socket
+            with mock.patch.object(commits_are_the_maintainers, "Live", Wired):
+                return commits_are_the_maintainers.opener_problems(root, environ), socket.sent, made
+
+        # Answered whole, it passes: the transport's own Live, made from the job's token, sends one GET of the pull
+        # request to GitHub's API with the token, and the body it reads is the pull request's.
+        found, sent, made = read(Answer(whole))
+        self.assertEqual((found, made), ([], ["t"]))
+        self.assertEqual([(s.get_method(), s.full_url, s.get_header("Authorization")) for s in sent],
+                         [("GET", "https://api.github.com/repos/o/r/pulls/44", "Bearer t")])
+
+        def refused(answer):
+            found = read(answer)[0]
+            self.assertTrue(found and all(f.startswith("merge_group_pull_unreadable") for f in found), (answer, found))
+        # A read that fails refuses: no connection, an answer cut short, a redirect, one over the transport's bound.
+        refused(github.urllib.error.URLError("down"))
+        refused(ConnectionResetError())
+        refused(github.Redirected(302, "https://api.github.com/repositories/1/pulls/44"))
+        refused(github.urllib.error.HTTPError("https://api.github.com/x", 301, "x", {"Location": "/x"}, io.BytesIO()))
+        refused(Answer(b" " * (github.LARGEST + 1)))
+        # And so does an answer in another shape: an error whose body is the pull request itself, not JSON, JSON that
+        # cannot be read, or JSON that is no pull request, another one, or none.
+        for code in (404, 403, 500, 304):
+            refused(github.urllib.error.HTTPError("https://api.github.com/x", code, "x", JSON, io.BytesIO(whole)))
+        refused(Answer(whole, 201))
+        refused(Answer(whole, headers={"Content-Type": "text/html"}))
+        refused(Answer(whole, headers={}))
+        refused(Answer(whole[:-1]))
+        for body in ([pull], "x", None, dict(pull, number="44"), dict(pull, number=45)):
+            refused(Answer(json.dumps(body).encode()))
+        refused(Answer(b""))
 
     def test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds(self):
         # Issue 409: main reads both, neither in place of the other, so the commits job is not weakened by the opener.

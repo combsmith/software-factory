@@ -8724,6 +8724,13 @@ MUTANTS = ISSUE + [
     ("the read asks for no run id", "adapters/checks.py", 'workflowRun { databaseId file { path } }', 'workflowRun { file { path } }', JOB_PORT),
     ("the read asks for no check id", "adapters/checks.py", 'id databaseId name conclusion', 'id name conclusion', JOB_PORT),
     ("the release's verify is not held to its job", "adapters/candidate.py", '        and runs[0].get("check_suite_id") == suite \\\n        and own_job(ours[0].get("details_url"), ours[0].get("id"), runs[0].get("id"))\n', '        and runs[0].get("check_suite_id") == suite\n', ("tests.test_release_step",)),
+    # Issue 1048: the transport the merge group's read goes through is no protected path, so its behaviour is held instead.
+    ("Live reads an error GitHub answers as a success", "adapters/github.py",
+     "return _answer(err.code, err.headers, _bounded(err, largest)), None",
+     "return _answer(200, err.headers, _bounded(err, largest)), None", ('tests.test_tools.Workflows.test_the_merge_groups_read_refuses_when_the_live_transport_fails_or_answers_another_shape',)),
+    ("Live reads any status GitHub answers as a success", "adapters/github.py",
+     "return _answer(got.status, got.headers, _bounded(got, largest)), None",
+     "return _answer(200, got.headers, _bounded(got, largest)), None", ('tests.test_tools.Workflows.test_the_merge_groups_read_refuses_when_the_live_transport_fails_or_answers_another_shape',)),
     # Issue 409: a pull request is opened from this repo by an account the configuration lists (decision 0102).
     ("the job does not read the opener", "tools/commits_are_the_maintainers.py", "found = problems(root, environ) + opened", "found = problems(root, environ)", OPENER_JOB),
     ("the job does not read the commits", "tools/commits_are_the_maintainers.py", "found = problems(root, environ) + opened", "found = opened", OPENER_JOB),
