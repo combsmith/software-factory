@@ -272,7 +272,18 @@ class Hand(unittest.TestCase):
                                                              "item": URL, "key": "PRRT_t"}])
         # A pass that did not decide the item, one it could not read, says nothing of it: the one before it is read.
         self.assertEqual(check(seen(HAND), before=[passed([]), passed()])["unmatched"], [])
-        self.assertEqual(check(seen(HAND), before=[passed(), passed([], item=OTHER)])["unmatched"], [])
+        found = check(seen(HAND), before=[passed(), passed([], item=OTHER)])
+        self.assertEqual((found["unmatched"], found["unjudged"], found["short"]), ([], [], False))
+        self.assertEqual(kinds(check(seen(HAND), before=[passed([]), passed(item=OTHER)])), [("hand", "resolution")])
+        # Each thread an act names is matched (Astra, issue 887).
+        self.assertEqual(check(seen(HAND), before=[passed(["PRRT_a", "PRRT_t"])])["unmatched"], [])
+        # A pass that read the item's writes short could not see a resolution older than its Decision: the act before it
+        # matches, and no pass before it that read the item whole.
+        blind = passed([], action=None, outcome="admit", state="verifying", reason="awaiting_review")
+        blind["reconciled"]["owed"] = [42]
+        for before, found_ in (([passed(), blind], []), ([passed(), passed([]), blind], [("hand", "resolution")]),
+                               ([passed(hands=None), blind], [])):
+            self.assertEqual(kinds(check(seen(HAND), before=before)), found_, before)
         # The item's Decision is read wherever it stands in its record.
         second = passed(item=OTHER)
         second["pull_requests"].append(passed([])["pull_requests"][0])

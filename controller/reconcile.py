@@ -122,14 +122,20 @@ def _named(before, item: str):
     """The threads that the last pass before which decided `item` named in its act `resolve_thread`: none if its
     Decision was any other. A pass that did not decide the item, which it could not read, says nothing of it, and where
     no record before decided it, None: nothing can judge. Nor can that record if it was written before a hand's
-    resolutions were carried: the rule starts for an item where the record that decided it starts it (issue 887)."""
+    resolutions were carried: the rule starts for an item where the record that decided it starts it (issue 887). A pass
+    that read the item's writes short could not see a resolution made before it: the one before it names threads too."""
+    named = set()
     for record in reversed(before if isinstance(before, list) else []):
         for e in record["pull_requests"]:
             if key(e["facts"]["item"]) == item:
-                if "hands" not in (record.get("reconciled") if isinstance(record.get("reconciled"), dict) else {}):
+                reconciled = record.get("reconciled") if isinstance(record.get("reconciled"), dict) else {}
+                if "hands" not in reconciled:
                     return None
                 d = e["decision"]
-                return set(d["evidence"]) if d["outcome"] == "act" and d.get("action") == "resolve_thread" else set()
+                named |= set(d["evidence"]) if d["outcome"] == "act" and d.get("action") == "resolve_thread" else set()
+                if e["facts"]["item"]["number"] not in reconciled.get("owed", ()):
+                    return named
+                break
     return None
 
 
