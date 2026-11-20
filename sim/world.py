@@ -430,6 +430,7 @@ class World:
             "acceptance": self.acceptance(),
             "opened_for": self.opened_for,
             "acceptance_bounded": False,
+            "timeline_bounded": False,
             "complete": {"acceptance": True, "reviews": True, "threads": True, "checks": True, "diff": True,
                          "changed_paths": True, "runs": True, "timeline": True},
             "read_at": self.now(),

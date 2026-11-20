@@ -228,6 +228,7 @@
   },
   "opened_for": null,
   "acceptance_bounded": false,
+  "timeline_bounded": false,
   "complete": {
     "acceptance": true,
     "reviews": true,

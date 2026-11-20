@@ -4438,6 +4438,7 @@ class Snapshot(unittest.TestCase):
                                 lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
         self.assertIs(got["complete"]["acceptance"], True)
         self.assertIs(got["acceptance_bounded"], False)
+        self.assertIs(got["timeline_bounded"], False)
         nxt = '<https://x>; rel="next"'
         at = len(seq) - 4
         seq[at:at + 1] = [closing_answer(canary(), 26, [36]), issue_timeline(canary(), 36, [], more=True)] + [
