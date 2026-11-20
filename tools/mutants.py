@@ -11445,7 +11445,7 @@ MUTANTS = ISSUE + [
      '        if kind == "User":\n            timeline._user(login)\n            try:\n                accounts.actor(threads_._account(said.get("author")))\n            except Unanswered:\n                pass\n', ('tests.test_adapters.FindingTexts.test_a_threads_text_that_is_not_its_lenss_own_on_this_pull_request_builds_no_task',)),
     ("an account that shows the Lens's name is the Lens's own", 'adapters/texts.py',
      'if (account_id, kind) not in accounts.lenses or accounts.lenses[(account_id, kind)] != lens:',
-     'if login != lens:', ('tests.test_adapters.FindingTexts.test_a_threads_text_that_is_not_its_lenss_own_on_this_pull_request_builds_no_task',)),
+     'if ((account_id, kind) not in accounts.lenses or accounts.lenses[(account_id, kind)] != lens) and login != lens:', ('tests.test_adapters.FindingTexts.test_a_threads_text_that_is_not_its_lenss_own_on_this_pull_request_builds_no_task',)),
     ("a person's write access is asked before their comment is refused", 'adapters/texts.py',
      '        login, account_id, kind = accounts.account(threads_._account(said.get("author")))\n',
      '        login, account_id, kind = accounts.account(threads_._account(said.get("author")))\n        accounts.actor(threads_._account(said.get("author")))\n', ('tests.test_adapters.FindingTexts.test_a_threads_text_that_is_not_its_lenss_own_on_this_pull_request_builds_no_task',)),
