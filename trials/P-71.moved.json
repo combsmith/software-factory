@@ -1,0 +1,616 @@
+{
+  "schema": "trial/1",
+  "trial": "P-71",
+  "question": "What does GitHub answer to each request of a push by the git data API, in the order `guards/push.py` permits them: the read of a commit (`GET /repos/{repo}/git/commits/{sha}`), of its tree whole (`GET /repos/{repo}/git/trees/{sha}?recursive=1`), of a blob it names (`GET /repos/{repo}/git/blobs/{sha}`) and of a work branch that is absent (`GET /repos/{repo}/git/ref/heads/{branch}`); the making of a blob (`POST /repos/{repo}/git/blobs`), of a tree upon the commit's that writes a file, writes an executable file and removes one (`POST /repos/{repo}/git/trees`), of a commit of it on one parent (`POST /repos/{repo}/git/commits`), and of the branch (`POST /repos/{repo}/git/refs`), each read back; a move of the branch to a child commit without force (`PATCH /repos/{repo}/git/refs/heads/{branch}`), read back; and what does it answer to the branch made again where it stands, and moved without force to a commit that is not a descendant of its head?",
+  "pass": "Written before the run, in the design's row for P-71 at commit 789b740 of the Factory's repo, committed 2026-11-20T16:17:14Z, before the trial's first request (16:18:06Z): Each answer is the one `guards/push.py` assumes, so its `seen`, given the recorded exchanges in order with each status as text, takes every one and leaves the push landed, once where the branch is made and once where it is moved (issue 838): a read answers 200, a blob, a tree, a commit or a branch made 201, a move 200; a commit gives its `sha`, `tree.sha`, its one parent's `sha` and `message` as sent; a tree's listing gives its `sha`, `truncated` as the JSON false and each entry's `path`, `mode`, `type` and `sha`, a directory as `040000` of type `tree`, an executable file as `100755` and a symlink as `120000`, each of type `blob`; a blob gives its `sha`, `content` and `encoding` as `base64`; the absent branch answers 404; a branch made, moved or read gives `ref` as `refs/heads/` and the branch, and `object.sha` its commit; the tree made reads back as the commit's listing with exactly the changes in it; and the branch made again and the move that is not a fast-forward are each refused with a status that is no success, the branch left where it stood. Any other answer is recorded as the difference it is, and the trial fails. Asked as the Maintainer, through his `gh` login, as P-68 was: the answers' shape does not depend on who asks This file holds push B, which moves the branch, and the two moves refused; `trials/P-71.json` holds push A and the reads push B stands on.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-11-20T16:18:06Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "POST /repos/combsmith/software-factory-canary/git/blobs (gh api): push B, the branch at C1 and C1 the admitted commit, whose reads are exchanges 10, 8 and 13 of `trials/P-71.json` (C1, its tree T1 whole, and the branch at C1): the blob of `docs/notes.md` changed; client time 2026-11-20T16:18:14Z",
+        "headers": {},
+        "body": {
+          "content": "Tm90ZXMgdGhlIHNlY29uZCBwdXNoIGNoYW5nZWQuCg==",
+          "encoding": "base64"
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "172",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Fri, 20 Nov 2026 16:18:15 GMT",
+          "etag": "\"24d7259694534f71140195179022e514eb6631923ecac40e4ad1a2cdebdc4b2d\"",
+          "location": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/53cf29258d87dd3d04780a42f367095ed4f39c93",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D451:32E412:8BAFA7:1B99F50:6B0072C6",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4982",
+          "x-ratelimit-reset": "1795194749",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "18"
+        },
+        "body": {
+          "sha": "53cf29258d87dd3d04780a42f367095ed4f39c93",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/53cf29258d87dd3d04780a42f367095ed4f39c93"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "POST /repos/combsmith/software-factory-canary/git/trees (gh api): push B: one tree upon T1 writing `docs/notes.md` by that blob; client time 2026-11-20T16:18:15Z",
+        "headers": {},
+        "body": {
+          "base_tree": "8d648a0fe8dcc9f438f1f52924e98d812d53c2da",
+          "tree": [
+            {
+              "path": "docs/notes.md",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "53cf29258d87dd3d04780a42f367095ed4f39c93"
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "864",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Fri, 20 Nov 2026 16:18:15 GMT",
+          "etag": "\"f74951964e7ee6fed48b01e799dd7f463a71f2c6fc24ca782dc2e3400fb4c746\"",
+          "location": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/a1c1bcf1ec4cd1b5747e86879d812e3b73864f2b",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D452:27FA77:9396EE:1D2681F:6B0072C7",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4981",
+          "x-ratelimit-reset": "1795194749",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "19"
+        },
+        "body": {
+          "sha": "a1c1bcf1ec4cd1b5747e86879d812e3b73864f2b",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/a1c1bcf1ec4cd1b5747e86879d812e3b73864f2b",
+          "tree": [
+            {
+              "path": "README.md",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "1fc4c88702451d3dde15096549c95d0969ca6b64",
+              "size": 44,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/1fc4c88702451d3dde15096549c95d0969ca6b64"
+            },
+            {
+              "path": "bin",
+              "mode": "040000",
+              "type": "tree",
+              "sha": "89505211c757d445bc3325ccc1d0e1aa12f625c7",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/89505211c757d445bc3325ccc1d0e1aa12f625c7"
+            },
+            {
+              "path": "docs",
+              "mode": "040000",
+              "type": "tree",
+              "sha": "cbbf267b4fad9d9850f4f75ab9fb70534afcdefc",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/cbbf267b4fad9d9850f4f75ab9fb70534afcdefc"
+            }
+          ],
+          "truncated": false
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/git/trees/a1c1bcf1ec4cd1b5747e86879d812e3b73864f2b?recursive=1 (gh api): push B: the tree made, T2, read back whole; client time 2026-11-20T16:18:15Z",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=86400, s-maxage=86400",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Fri, 20 Nov 2026 16:18:16 GMT",
+          "etag": "W/\"fc7959aac4c5e32ef942a0e39a8f07521db6ff718a725231178bbcb7f28c0655\"",
+          "last-modified": "Mon, 09 Nov 2026 13:48:49 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D453:2F2EB:99E5CA:1E933B5:6B0072C7",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4980",
+          "x-ratelimit-reset": "1795194749",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "20"
+        },
+        "body": {
+          "sha": "a1c1bcf1ec4cd1b5747e86879d812e3b73864f2b",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/a1c1bcf1ec4cd1b5747e86879d812e3b73864f2b",
+          "tree": [
+            {
+              "path": "README.md",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "1fc4c88702451d3dde15096549c95d0969ca6b64",
+              "size": 44,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/1fc4c88702451d3dde15096549c95d0969ca6b64"
+            },
+            {
+              "path": "bin",
+              "mode": "040000",
+              "type": "tree",
+              "sha": "89505211c757d445bc3325ccc1d0e1aa12f625c7",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/89505211c757d445bc3325ccc1d0e1aa12f625c7"
+            },
+            {
+              "path": "bin/link",
+              "mode": "120000",
+              "type": "blob",
+              "sha": "e0e63473c2593040d7d1c67637864821b28cef4b",
+              "size": 6,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/e0e63473c2593040d7d1c67637864821b28cef4b"
+            },
+            {
+              "path": "bin/run.sh",
+              "mode": "100755",
+              "type": "blob",
+              "sha": "85ba14df52f8c72688537de6e7555fb402217b1e",
+              "size": 19,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/85ba14df52f8c72688537de6e7555fb402217b1e"
+            },
+            {
+              "path": "bin/tool.sh",
+              "mode": "100755",
+              "type": "blob",
+              "sha": "848826977c9851ef3630008b1c8ed87c9594c360",
+              "size": 20,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/848826977c9851ef3630008b1c8ed87c9594c360"
+            },
+            {
+              "path": "docs",
+              "mode": "040000",
+              "type": "tree",
+              "sha": "cbbf267b4fad9d9850f4f75ab9fb70534afcdefc",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/cbbf267b4fad9d9850f4f75ab9fb70534afcdefc"
+            },
+            {
+              "path": "docs/notes.md",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "53cf29258d87dd3d04780a42f367095ed4f39c93",
+              "size": 31,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/53cf29258d87dd3d04780a42f367095ed4f39c93"
+            },
+            {
+              "path": "docs/written.md",
+              "mode": "100644",
+              "type": "blob",
+              "sha": "8b488c290130383c97c8dc4e1738ca5168f72e8b",
+              "size": 30,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/8b488c290130383c97c8dc4e1738ca5168f72e8b"
+            }
+          ],
+          "truncated": false
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "POST /repos/combsmith/software-factory-canary/git/commits (gh api): push B: one commit of T2 on C1, C2; client time 2026-11-20T16:18:16Z",
+        "headers": {},
+        "body": {
+          "message": "Trial P-71: a second push moves the branch forward",
+          "tree": "a1c1bcf1ec4cd1b5747e86879d812e3b73864f2b",
+          "parents": [
+            "c899df16fb83c1c39537892490a66a930943f607"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "1250",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Fri, 20 Nov 2026 16:18:16 GMT",
+          "etag": "\"a10c15112b11411a946164017e30217aad56a9a34597857b687972f1e853dca1\"",
+          "location": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/ac04f42a15eac81a0d4a9fd74209ad405d16ce70",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D454:22485B:88F9FE:1B1BB91:6B0072C8",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4979",
+          "x-ratelimit-reset": "1795194749",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "21"
+        },
+        "body": {
+          "sha": "ac04f42a15eac81a0d4a9fd74209ad405d16ce70",
+          "node_id": "C_kwDOVFD679oAKGFjMDRmNDJhMTVlYWM4MWEwZDRhOWZkNzQyMDlhZDQwNWQxNmNlNzA",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/ac04f42a15eac81a0d4a9fd74209ad405d16ce70",
+          "html_url": "https://github.com/combsmith/software-factory-canary/commit/ac04f42a15eac81a0d4a9fd74209ad405d16ce70",
+          "author": {
+            "name": "Don Petry",
+            "email": "36422719+don-petry@users.noreply.github.com",
+            "date": "2026-11-20T16:18:16Z"
+          },
+          "committer": {
+            "name": "Don Petry",
+            "email": "36422719+don-petry@users.noreply.github.com",
+            "date": "2026-11-20T16:18:16Z"
+          },
+          "tree": {
+            "sha": "a1c1bcf1ec4cd1b5747e86879d812e3b73864f2b",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/a1c1bcf1ec4cd1b5747e86879d812e3b73864f2b"
+          },
+          "message": "Trial P-71: a second push moves the branch forward",
+          "parents": [
+            {
+              "sha": "c899df16fb83c1c39537892490a66a930943f607",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/c899df16fb83c1c39537892490a66a930943f607",
+              "html_url": "https://github.com/combsmith/software-factory-canary/commit/c899df16fb83c1c39537892490a66a930943f607"
+            }
+          ],
+          "verification": {
+            "verified": false,
+            "reason": "unsigned",
+            "signature": null,
+            "payload": null,
+            "verified_at": null
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/git/commits/ac04f42a15eac81a0d4a9fd74209ad405d16ce70 (gh api): push B: C2 read back; client time 2026-11-20T16:18:16Z",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Fri, 20 Nov 2026 16:18:16 GMT",
+          "etag": "W/\"a10c15112b11411a946164017e30217aad56a9a34597857b687972f1e853dca1\"",
+          "last-modified": "Fri, 20 Nov 2026 16:18:16 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D455:7B7E2:9A4165:1EC5041:6B0072C8",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4978",
+          "x-ratelimit-reset": "1795194749",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "22"
+        },
+        "body": {
+          "sha": "ac04f42a15eac81a0d4a9fd74209ad405d16ce70",
+          "node_id": "C_kwDOVFD679oAKGFjMDRmNDJhMTVlYWM4MWEwZDRhOWZkNzQyMDlhZDQwNWQxNmNlNzA",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/ac04f42a15eac81a0d4a9fd74209ad405d16ce70",
+          "html_url": "https://github.com/combsmith/software-factory-canary/commit/ac04f42a15eac81a0d4a9fd74209ad405d16ce70",
+          "author": {
+            "name": "Don Petry",
+            "email": "36422719+don-petry@users.noreply.github.com",
+            "date": "2026-11-20T16:18:16Z"
+          },
+          "committer": {
+            "name": "Don Petry",
+            "email": "36422719+don-petry@users.noreply.github.com",
+            "date": "2026-11-20T16:18:16Z"
+          },
+          "tree": {
+            "sha": "a1c1bcf1ec4cd1b5747e86879d812e3b73864f2b",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/a1c1bcf1ec4cd1b5747e86879d812e3b73864f2b"
+          },
+          "message": "Trial P-71: a second push moves the branch forward",
+          "parents": [
+            {
+              "sha": "c899df16fb83c1c39537892490a66a930943f607",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/c899df16fb83c1c39537892490a66a930943f607",
+              "html_url": "https://github.com/combsmith/software-factory-canary/commit/c899df16fb83c1c39537892490a66a930943f607"
+            }
+          ],
+          "verification": {
+            "verified": false,
+            "reason": "unsigned",
+            "signature": null,
+            "payload": null,
+            "verified_at": null
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PATCH /repos/combsmith/software-factory-canary/git/refs/heads/factory-work/issue-9971-1 (gh api): push B: the branch moved from C1 to C2, its child, without force; client time 2026-11-20T16:18:16Z",
+        "headers": {},
+        "body": {
+          "sha": "ac04f42a15eac81a0d4a9fd74209ad405d16ce70",
+          "force": false
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Fri, 20 Nov 2026 16:18:17 GMT",
+          "etag": "W/\"0f7529b4ba5a91e55364caa351ec598afc62259d9c6edd874e4e690755cad196\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D456:215748:992233:1E98784:6B0072C8",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4977",
+          "x-ratelimit-reset": "1795194749",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "23"
+        },
+        "body": {
+          "ref": "refs/heads/factory-work/issue-9971-1",
+          "node_id": "REF_kwDOVFD679oAJHJlZnMvaGVhZHMvZmFjdG9yeS13b3JrL2lzc3VlLTk5NzEtMQ",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs/heads/factory-work/issue-9971-1",
+          "object": {
+            "sha": "ac04f42a15eac81a0d4a9fd74209ad405d16ce70",
+            "type": "commit",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/ac04f42a15eac81a0d4a9fd74209ad405d16ce70"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PATCH /repos/combsmith/software-factory-canary/git/refs/heads/factory-work/issue-9971-1 (gh api): the branch, at C2, moved without force back to C1, its parent: a rewind; client time 2026-11-20T16:18:17Z",
+        "headers": {},
+        "body": {
+          "sha": "c899df16fb83c1c39537892490a66a930943f607",
+          "force": false
+        }
+      },
+      "response": {
+        "status": 422,
+        "headers": {
+          "content-length": "136",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Fri, 20 Nov 2026 16:18:17 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D457:1D4A79:8B2B20:1B986B4:6B0072C9",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4976",
+          "x-ratelimit-reset": "1795194749",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "24"
+        },
+        "body": {
+          "message": "Update is not a fast forward",
+          "documentation_url": "https://docs.github.com/rest/git/refs#update-a-reference",
+          "status": "422"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "POST /repos/combsmith/software-factory-canary/git/commits (gh api): a commit of T1 on C1, CX, beside C2 and on no branch, made to be moved to; client time 2026-11-20T16:18:17Z",
+        "headers": {},
+        "body": {
+          "message": "Trial P-71: a commit beside the head, never on the branch",
+          "tree": "8d648a0fe8dcc9f438f1f52924e98d812d53c2da",
+          "parents": [
+            "c899df16fb83c1c39537892490a66a930943f607"
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "1257",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Fri, 20 Nov 2026 16:18:18 GMT",
+          "etag": "\"0ce391fda77e0479bbac291542803c0ca2c4bca0c8e4eff13510477902dd153d\"",
+          "location": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/3d72d785ef84eea6c173c89e96276641a53c82b4",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D458:213F6A:9ADA7D:1E96C47:6B0072C9",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4975",
+          "x-ratelimit-reset": "1795194749",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "25"
+        },
+        "body": {
+          "sha": "3d72d785ef84eea6c173c89e96276641a53c82b4",
+          "node_id": "C_kwDOVFD679oAKDNkNzJkNzg1ZWY4NGVlYTZjMTczYzg5ZTk2Mjc2NjQxYTUzYzgyYjQ",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/3d72d785ef84eea6c173c89e96276641a53c82b4",
+          "html_url": "https://github.com/combsmith/software-factory-canary/commit/3d72d785ef84eea6c173c89e96276641a53c82b4",
+          "author": {
+            "name": "Don Petry",
+            "email": "36422719+don-petry@users.noreply.github.com",
+            "date": "2026-11-20T16:18:18Z"
+          },
+          "committer": {
+            "name": "Don Petry",
+            "email": "36422719+don-petry@users.noreply.github.com",
+            "date": "2026-11-20T16:18:18Z"
+          },
+          "tree": {
+            "sha": "8d648a0fe8dcc9f438f1f52924e98d812d53c2da",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/8d648a0fe8dcc9f438f1f52924e98d812d53c2da"
+          },
+          "message": "Trial P-71: a commit beside the head, never on the branch",
+          "parents": [
+            {
+              "sha": "c899df16fb83c1c39537892490a66a930943f607",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/c899df16fb83c1c39537892490a66a930943f607",
+              "html_url": "https://github.com/combsmith/software-factory-canary/commit/c899df16fb83c1c39537892490a66a930943f607"
+            }
+          ],
+          "verification": {
+            "verified": false,
+            "reason": "unsigned",
+            "signature": null,
+            "payload": null,
+            "verified_at": null
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PATCH /repos/combsmith/software-factory-canary/git/refs/heads/factory-work/issue-9971-1 (gh api): the branch, at C2, moved without force to CX, which is no descendant of C2; client time 2026-11-20T16:18:18Z",
+        "headers": {},
+        "body": {
+          "sha": "3d72d785ef84eea6c173c89e96276641a53c82b4",
+          "force": false
+        }
+      },
+      "response": {
+        "status": 422,
+        "headers": {
+          "content-length": "136",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Fri, 20 Nov 2026 16:18:18 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D459:10885E:960C34:1DF9105:6B0072CA",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4974",
+          "x-ratelimit-reset": "1795194749",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "26"
+        },
+        "body": {
+          "message": "Update is not a fast forward",
+          "documentation_url": "https://docs.github.com/rest/git/refs#update-a-reference",
+          "status": "422"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/git/ref/heads/factory-work/issue-9971-1 (gh api): push B's landing read, after both refusals; client time 2026-11-20T16:18:18Z",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Fri, 20 Nov 2026 16:18:18 GMT",
+          "etag": "W/\"0f7529b4ba5a91e55364caa351ec598afc62259d9c6edd874e4e690755cad196\"",
+          "last-modified": "Mon, 09 Nov 2026 13:48:49 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D45A:237CE5:96A8B2:1DD7F31:6B0072CA",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4973",
+          "x-ratelimit-reset": "1795194749",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "27"
+        },
+        "body": {
+          "ref": "refs/heads/factory-work/issue-9971-1",
+          "node_id": "REF_kwDOVFD679oAJHJlZnMvaGVhZHMvZmFjdG9yeS13b3JrL2lzc3VlLTk5NzEtMQ",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs/heads/factory-work/issue-9971-1",
+          "object": {
+            "sha": "ac04f42a15eac81a0d4a9fd74209ad405d16ce70",
+            "type": "commit",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/ac04f42a15eac81a0d4a9fd74209ad405d16ce70"
+          }
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
+    "exchanges[6].request.headers.authorization",
+    "exchanges[7].request.headers.authorization",
+    "exchanges[8].request.headers.authorization",
+    "exchanges[9].request.headers.authorization",
+    "exchanges[0] to [9].response.headers: every header a fixture may not keep",
+    "after the trial: the Maintainer's DELETE of the branch, answered 204, made and not kept as an exchange; `trials/P-71.json` says so",
+    "left in the canary and not removed: the blobs, trees and commits the trial made (C0, C1, C2, CX and their trees and blobs), which no ref holds once the branch is deleted and which GitHub collects as garbage; they are not deleted by any request, and their names here are no capability"
+  ],
+  "verdict": "pass"
+}
