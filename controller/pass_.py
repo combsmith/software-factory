@@ -224,7 +224,7 @@ def context_of(records, pause_read, repos, rules: dict, now: str, before=(), pre
 
 def counted(active, minted: int):
     """The count of active Runs an admission is asked again with: the context's, and `minted` Runs the pass counts before
-    it; a count that is not whole stays as read, and the Kernel defers on it (decision 0238)."""
+    it; a count that is not whole stays as read, and the Kernel defers on it (decision 0003)."""
     return active + minted if type(active) is int else active
 
 
@@ -354,7 +354,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     asked_ = asked(pulls, pull_request.decide, config["lifecycles"]["pull_request"], config["kernel"]) \
         + asked(issues, issue.decide, config["lifecycles"]["issue"], issue_config(config["kernel"]))
     # Each Run this pass mints is active once dispatched, so the pass admits no more Runs than `org_max_active_runs`
-    # leaves room for, as each of them, asked again at its `apply`, finds (decision 0238). The count moves only an
+    # leaves room for, as each of them, asked again at its `apply`, finds (decision 0003). The count moves only an
     # admission, to a deferral: the Runs an approval or a queue act mints are counted first, whatever their place, and
     # each admission, in the record's order, is asked again with them and the admissions before it.
     taken = sum(1 for a in asked_ if minting(a["decision"]) and a["decision"]["outcome"] != t.ADMIT)

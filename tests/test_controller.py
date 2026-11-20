@@ -169,7 +169,7 @@ class Record(unittest.TestCase):
                              entry["decision"])
         self.assertNotIn("A title", json.dumps(record))
 
-    def test_a_pass_admits_no_more_runs_than_the_orgs_concurrency_leaves_room_for(self):  # decision 0238
+    def test_a_pass_admits_no_more_runs_than_the_orgs_concurrency_leaves_room_for(self):  # decision 0003
         # Each Run the pass mints is counted active for every admission asked after it, so no Run, asked again at its
         # apply, finds as many others beside it as the limit. Each entry holds the count it was asked with, and
         # replays by it.

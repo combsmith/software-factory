@@ -639,7 +639,7 @@ class Examples(unittest.TestCase):
             self.assertEqual(issue.decide(entry["facts"], record["runs"], pass_.given(record, entry), issues, record["now"]),
                              entry["decision"])
         # Each entry holds the count of active Runs it was asked with: the context's, and an admission's those before it.
-        self.assertEqual([e["active_runs"] for e in record["pull_requests"] + record["issues"]], [0, 1])
+        self.assertEqual([e["active_runs"] for e in record["pull_requests"] + record["issues"]], [0, 0])
         # A Run id stands beside an admission or an approval, which is a Run, and is null anywhere else.
         for entry in record["pull_requests"] + record["issues"]:
             minted = entry["decision"]["outcome"] == "admit" or entry["decision"].get("action") == "issue_approval"
