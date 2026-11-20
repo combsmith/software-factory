@@ -23,7 +23,8 @@ it, and as that trial hardened it:
   (decision 0219);
 - with `result/1` as the CLI is handed it: references resolved, the fields the Harness fills removed, `status` narrowed
   to what the Engine may write, `reason` to the model's codes (decision 0146), and `effects` to the Task's
-  `permitted_effects` (decision 0038); and of a push, the patch to write and no bundle, which the Harness fills from
+  `permitted_effects` (decision 0038), and without `shown`, which the Harness fills from the Task with the Findings it
+  showed and the digests of their texts (`shown`, issue 856); and of a push, the patch to write and no bundle, which the Harness fills from
   the patch's text, the artifact `run` hands it over in and the digest of its bytes (`bundled`, issue 880).
 Of the CLI's answer only `structured_output` and the counts `usage` needs are read, by name; the model's prose is
 never kept, returned or logged. An answer that does not validate is no Result: the Harness writes the whole Result
@@ -63,7 +64,7 @@ MODEL_REASONS = {"incomplete": ("change_not_reviewed_whole",), "refused": ("task
 HARNESS_REASONS = ("credential_missing", "engine_version", "engine_model", "task_too_large", "engine_failed",
                    "engine_timeout", "no_answer", "result_invalid", "diff_not_whole", "head_unreadable", "rubric_unreadable")
 REASONS = dict(MODEL_REASONS, failed=HARNESS_REASONS)
-FILLED = ("release", "usage")
+FILLED = ("release", "usage", "shown")
 PUSH = "push_commits"       # the Effect whose bundle the Harness fills, and whose Task's Run reads the commit it writes on
 COUNTS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
 MODEL_ID = re.compile(r"[a-z0-9.-]+")      # a model's id as result/1 holds it; any other the CLI names is none
@@ -146,6 +147,20 @@ def handed(task: dict) -> dict:
         push["properties"].pop("bundle")
         push["required"] = [f for f in push["required"] if f != "bundle"] + ["patch"]
     return schema
+
+
+def shown(task: dict) -> list:
+    """What a Task showed of the Findings it lists, `result/1`'s `shown`: each one whose text the Task kept, in the
+    Task's order, by its id and the digest of that text. It is read from the Task alone, never from what the model
+    answered, and the Result's digest binds it, so `apply` can hold a Disposition to the Findings a review was shown
+    and to the words it was shown (issue 856). A Finding listed with no text kept was not shown, and neither was one
+    whose id two kept texts share: the review read both, and one digest names one text. A lone surrogate, which JSON
+    can carry and UTF-8 cannot, is digested as its own three bytes, so that no text a Task keeps ends the step."""
+    ids = [t["id"] for t in task["texts"]]
+    kept = {t["id"]: t["body"] for t in task["texts"] if ids.count(t["id"]) == 1}
+    return [{"finding": f, "text": "sha256:" + hashlib.sha256(
+        kept[shared.FINDING_TEXT + f].encode("utf-8", "surrogatepass")).hexdigest()}
+        for f in task["findings"] if shared.FINDING_TEXT + f in kept]
 
 
 def writes(task: dict) -> bool:
@@ -351,6 +366,7 @@ def run(task: dict, cli: str, job_env: dict, config: dict, call, clock, session:
     if usage["answering_model"] != engine["model"]:
         return failed(task, "engine_model", usage)
     result = dict(found, release=task["release"], usage=usage)
+    result["shown"] = shown(task)
     # The Harness fills a push's bundle before the Result is held to result/1, which requires it; what the model
     # answered is held as it answered it, with no bundle (issue 880).
     result = bundled(result)
