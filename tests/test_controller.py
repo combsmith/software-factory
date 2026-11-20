@@ -208,9 +208,10 @@ class Record(unittest.TestCase):
         with unittest.mock.patch.object(pass_.issue, "decide",
                                         lambda f, r, c, k, n: seen.append(r) or real_issue(f, r, c, k, n)):
             mixed = passed(reads(pulls=[pr(1)], issues=[triaged(7), triaged(8), triaged(9)],
-                                 runs=[run(number=90 + n, status="in_progress") for n in range(limit - 3)]))
+                                 runs=[run(number=80)] + [run(number=90 + n, status="in_progress")
+                                                          for n in range(limit - 3)]))
         # Each ask, the first and the second, is given the run records the record holds.
-        self.assertTrue(seen and all(r == mixed["record"]["runs"] for r in seen))
+        self.assertTrue(seen and mixed["record"]["runs"] and all(r == mixed["record"]["runs"] for r in seen))
         self.assertEqual([(o, n) for o, _, n in got(mixed)],
                          [("admit", limit - 3), ("admit", limit - 2), ("admit", limit - 1), ("defer", limit)])
         replays(mixed["record"])
