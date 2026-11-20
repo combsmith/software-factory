@@ -31,6 +31,8 @@ THREADS = 50      # the most threads one call reads the texts of: a longer list 
 # A review thread's id as GitHub gives one, and as a text's id carries it.
 THREAD_ID = re.compile(r"[A-Za-z0-9_-]{1,100}")
 # The time of an edit as GitHub gives one; anything else in its place is no form GitHub gives (issue 974).
+# A comment's id as GitHub gives one, a legacy one in padded Base64 among them; anything else in its place is none.
+COMMENT_ID = re.compile(r"[A-Za-z0-9_+/=-]{1,200}")
 EDITED = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 THREAD = """query TextsThread($id: ID!) {
   node(id: $id) {
@@ -119,20 +121,20 @@ def findings(transport, pull: dict, accounts, lens: str, threads: list) -> list:
         # Both are read before either is told: a reply by an id GitHub gives does not hide an edit time it gives in no
         # form of its own (issue 974).
         reply, edited = said.get("replyTo", 0), said.get("lastEditedAt", 0)
-        replied = isinstance(reply, dict) and isinstance(reply.get("id"), str) and THREAD_ID.fullmatch(reply["id"]) is not None
+        replied = isinstance(reply, dict) and isinstance(reply.get("id"), str) and COMMENT_ID.fullmatch(reply["id"]) is not None
         stamped = _edit_time(edited)
         if (reply is not None and not replied) or (edited is not None and not stamped):
             raise Unanswered("a thread's first comment says what it replies to, or when it was edited, in no form GitHub gives")
+        # Whose words they are is told by the account alone, the Lens's own App: anyone else's are refused before their
+        # write access is asked, a read that could fail and pass for one that failed (issue 974). A User's login GitHub
+        # never gives is still a read that was wrong, as `timeline.Accounts` reads one, and is told before any state.
+        login, account_id, kind = accounts.account(threads_._account(said.get("author")))
+        if kind == "User":
+            timeline._user(login)
         if replied:
             raise NotOwn("a thread's first comment replies to another")
         if stamped:
             raise NotOwn("a thread's first comment was edited")
-        # Whose words they are is told by the account alone, the Lens's own App: anyone else's are refused before their
-        # write access is asked, a read that could fail and pass for one that failed (issue 974). A User's login GitHub
-        # never gives is still a read that was wrong, as `timeline.Accounts` reads one.
-        login, account_id, kind = accounts.account(threads_._account(said.get("author")))
-        if kind == "User":
-            timeline._user(login)
         if (account_id, kind) not in accounts.lenses or accounts.lenses[(account_id, kind)] != lens:
             raise NotOwn("a thread's first comment is not the Lens's own")
         by, body = {"kind": "lens", "name": lens, "can_write": False}, said.get("body")

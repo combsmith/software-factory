@@ -2852,7 +2852,8 @@ class FindingTexts(unittest.TestCase):
                            ("a number that is no whole number", thread_text("PRRT_7", number=26.0)),
                            ("a repository that is no object", thread_text("PRRT_7", pullRequest={"number": 26, "repository": "o/r"})),
                            ("a comment that is no object", thread_text("PRRT_7", comments={"nodes": [None]})),
-                           ("a reply", first(replyTo={"id": "PRRC_1"})), ("a reply GitHub does not say it is not", first(replyTo=...)),
+                           ("a reply", first(replyTo={"id": "PRRC_1"})),
+                           ("a reply to a legacy id", first(replyTo={"id": "MDE3OlB1bGxSZXF1ZXN0UmV2aWV3Q29tbWVudDE="})), ("a reply GitHub does not say it is not", first(replyTo=...)),
                            ("a reply to no comment", first(replyTo="PRRC_1")), ("a reply to nought", first(replyTo=0)),
                            # A reply or an edit GitHub gives in no form of its own is a read that failed (issue 974).
                            ("a reply to a comment of no id", first(replyTo={})), ("a reply to a null id", first(replyTo={"id": None})),
@@ -2860,6 +2861,10 @@ class FindingTexts(unittest.TestCase):
                            ("a reply to an id that is a number", first(replyTo={"id": 17})),
                            ("a reply to an id of blanks", first(replyTo={"id": " "})),
                            ("a reply that hides an edit of no form", first(replyTo={"id": "PRRC_1"}, lastEditedAt=False)),
+                           ("an edit that hides a reply of no form", first(replyTo={}, lastEditedAt="2026-11-14T08:00:00Z")),
+                           ("a reply to an id with more after it", first(replyTo={"id": "PRRC_1!"})),
+                           ("an edit that hides a login GitHub never gives", first(lastEditedAt="2026-11-14T08:00:00Z", author={
+                               "__typename": "User", "login": "pr-review[bot]", "databaseId": 4242})),
                            ("an edited comment", first(lastEditedAt="2026-11-14T08:00:00Z")),
                            ("an edit GitHub does not say never was", first(lastEditedAt=...)),
                            ("an edit at no time", first(lastEditedAt=0)), ("an edit that is a flag", first(lastEditedAt=False)),
@@ -2895,7 +2900,7 @@ class FindingTexts(unittest.TestCase):
                 self.read(["PRRT_7"], found)
             # What GitHub says, and is not the Lens's own unedited first comment, is the thread's own state, told
             # apart from a read that failed: anyone who can write can make it, and it must not pass for the Factory's.
-            own_state = why in ("a reply", "an edited comment", "a person's", "another App's", "another Lens's",
+            own_state = why in ("a reply", "a reply to a legacy id", "an edited comment", "a person's", "another App's", "another Lens's",
                                 "a person's under the Lens's name", "an App's under the Lens's name",
                                 "a person's under the Lens App's number")
             self.assertIs(type(raised.exception), texts.NotOwn if own_state else github.Unanswered, why)
