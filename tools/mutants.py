@@ -7978,6 +7978,12 @@ MUTANTS = ISSUE + [
      '    {"path": "GNUmakefile", "is"', '    {"path": "GNUmakefile.unused", "is"', ('tests.test_apply.Push.test_the_checks_that_hold_a_trust_boundary_are_on_the_repos_own_list',)),
     ("make remakes the Makefile verify runs by from a file beside it", "Makefile", "Makefile: ;\n", "",
      ("tests.test_tools.Verify.test_make_reads_the_makefile_as_committed_and_remakes_it_from_nothing",)),
+    ("the checks' compiled modules are pushed by a Role", "config/hooks.json",
+     '    {"path": "tools/__pycache__/", "is"', '    {"path": "tools/__pycache__/unused", "is"',
+     ('tests.test_apply.Push.test_the_checks_that_hold_a_trust_boundary_are_on_the_repos_own_list',)),
+    ("the Makefile's own rule is a bare make's goal", "Makefile", ".PHONY: verify fast checks\nverify:\n",
+     ".PHONY: verify fast checks\nMakefile: ;\nverify:\n",
+     ("tests.test_tools.Verify.test_make_reads_the_makefile_as_committed_and_remakes_it_from_nothing",)),
     ('every check under tools/ is protected', 'config/hooks.json',
      '    {"path": "tools/check_writes.*", "is"', '    {"path": "tools/", "is"', ('tests.test_apply.Push.test_the_checks_that_hold_a_trust_boundary_are_on_the_repos_own_list',)),
     # Issue 845: the scan's settings are read from a pull request's head beside SONAR_TOKEN.

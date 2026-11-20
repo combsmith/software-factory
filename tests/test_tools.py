@@ -12209,10 +12209,14 @@ class Verify(unittest.TestCase):
             shutil.copy(ROOT / "Makefile", where / "Makefile")
             os.utime(where / "Makefile", (1, 1))
             (where / "Makefile.sh").write_text("verify:\n\t@echo not the committed verify\n")
-            ran = subprocess.run(["make", "-s", "verify", "PY=echo"], cwd=where, capture_output=True, text=True,
-                                 timeout=60)
-            self.assertEqual((ran.returncode, ran.stdout), (0, "-m tools.verify\n"), ran.stderr)
-            self.assertEqual((where / "Makefile").read_text(), (ROOT / "Makefile").read_text())
+            # make's built-in rules on, whatever flags the run was given (Astra's read), and verify the goal of a bare
+            # make too.
+            env = {k: v for k, v in os.environ.items() if k not in ("MAKEFLAGS", "MFLAGS", "MAKEFILES", "GNUMAKEFLAGS")}
+            for goal in (["verify"], []):
+                ran = subprocess.run(["make", "-s"] + goal + ["PY=echo"], cwd=where, capture_output=True, text=True,
+                                     timeout=60, env=env)
+                self.assertEqual((ran.returncode, ran.stdout), (0, "-m tools.verify\n"), (goal, ran.stderr))
+                self.assertEqual((where / "Makefile").read_text(), (ROOT / "Makefile").read_text())
 
     def test_every_test_file_is_discovered(self):
         found = set()

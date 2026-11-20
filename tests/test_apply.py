@@ -1245,6 +1245,11 @@ class Push(unittest.TestCase):
         for name in seven + ("tools/__init__",):
             for path in [name + suffix for suffix in suffixes]:
                 self.assertEqual(apply.push_refusal([path], [None], own_list()), "push_protected", path)
+        # And the compiled modules Python caches beside them, which an unchecked one is loaded in place of the source
+        # (Kimi, Muse and Astra).
+        for path in ("tools/__pycache__/verify.cpython-312.pyc", "tools/__pycache__/__init__.cpython-39.pyc",
+                     "tools/__pycache__/check_repo.cpython-312.opt-1.pyc"):
+            self.assertEqual(apply.push_refusal([path], [None], own_list()), "push_protected", path)
         for name in seven:
             for path in (name, name + "/__init__.py", name + "/__main__.py", name + "/x/y.py"):
                 self.assertEqual(apply.push_refusal([path], [None], own_list()), "push_protected", path)
@@ -1260,13 +1265,16 @@ class Push(unittest.TestCase):
         listed = {entry["path"] for entry in json.loads((ROOT / "config" / "hooks.json").read_text())["protected"]}
         self.assertEqual({path for path in listed
                           if path.casefold().startswith("tools/") and not path.casefold().startswith("tools/hooks/")},
-                         {name + ".*" for name in seven} | {name + "/" for name in seven} | {"tools/__init__.*"})
+                         {name + ".*" for name in seven} | {name + "/" for name in seven} | {"tools/__init__.*",
+                                                                                              "tools/__pycache__/"})
         self.assertLessEqual({"Makefile", "GNUmakefile"}, listed)
         # And what the list refuses, not only how it is spelt: of every file under tools/ in this tree, the hooks aside,
         # a push is refused for these alone, whatever pattern an entry is written as (Astra's read of issue 1048's change).
         def held(path):
-            stem = path.split(".")[0]
-            return stem in seven + ("tools/__init__",) or any(path.startswith(name + "/") for name in seven)
+            path = path.casefold()
+            module, dot, _ = path.partition(".")
+            return (dot and module in seven + ("tools/__init__",)) or path.startswith("tools/__pycache__/") \
+                or any(path == name or path.startswith(name + "/") for name in seven)
         every = sorted(rel for rel in (path.relative_to(ROOT).as_posix() for path in walk.files(ROOT))
                        if rel.startswith("tools/"))
         self.assertLessEqual({name + ".py" for name in seven} | {"tools/__init__.py"}, set(every))
