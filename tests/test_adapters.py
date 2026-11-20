@@ -7644,6 +7644,78 @@ class Push(unittest.TestCase):
         most = github.request("POST", git + "trees", body=dict(tree, tree=[entry] * (push.MOST // 5 - 1)))
         self.assertEqual(sending.send(most)["status"], 200)
 
+    def test_a_pushs_token_holds_a_path_base64_and_each_bound_at_its_edge(self):
+        recording = self.Recording()
+        sending = effects.Allowed(recording, *push.allowed(PUSHED, WORK))
+        git = "/repos/%s/git/" % PUSHED
+        entry = {"path": "a.md", "mode": "100644", "type": "blob", "sha": NAMED}
+        tree, blob = {"base_tree": NAMED, "tree": [entry]}, {"content": "eA==", "encoding": "base64"}
+
+        class Equal(int):
+            """A whole number of another kind, equal to any mode."""
+            __hash__ = int.__hash__
+
+            def __eq__(self, other):
+                return True
+        good = [("POST", git + "blobs", dict(blob, content=told)) for told in ("eA==", "YWI=", "YWJj")] + [
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path=path)]))
+            for path in ("docs/a\xa0b.md", "caf\xe9.md", "git", ".gitignore", "docs/.github/a.yml")] + [
+            # A file removed where one is written beneath it, names that begin alike, and 20 files.
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="docs", sha=None),
+                                                     dict(entry, path="docs/a.md")])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="docs/a"), dict(entry, path="docs/a.md")])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="f%d.md" % n) for n in range(20)]))]
+        refused = [
+            # Base64 padded past a four, by three, with = in its midst, of another alphabet, or longer than GitHub takes.
+            ("POST", git + "blobs", dict(blob, content=told))
+            for told in ("YWJj====", "YWJj=", "eA=", "eA===", "eA==eA==", "eHh4!!!!", "A" * 134217732)] + [
+            # A path with a C1 control, through git's own directory in any form, or with a backslash.
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path=path)]))
+            for path in ("docs/a\x80b", "docs/a\x9fb", ".git/config", ".GIT/config", ".Git/HEAD", "docs/.git/a",
+                         ".git", ".git./config", ".git:x/config", "GIT~1/config", "docs\\a.md")] + [
+            # A file written where another needs a directory, at the top or below it.
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="docs"), dict(entry, path="docs/a.md")])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="docs/a/b.md"), dict(entry, path="docs/a")])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, mode=Equal(0))])),
+            # A blob's or a tree's read with a body; 40 characters of no hex, read or built upon.
+            ("GET", git + "blobs/" + NAMED, {}), ("GET", git + "trees/" + NAMED + "?recursive=1", {}),
+            ("GET", git + "blobs/" + "g" * 40, None), ("POST", git + "trees", dict(tree, base_tree="g" * 40))]
+        answered = {"status": 200, "headers": {}, "body": None}
+        for method, path, body in good:
+            self.assertEqual(calmly(sending.send, github.request(method, path, body=body)), answered, path)
+        for method, path, body in refused:
+            self.assertIsInstance(calmly(sending.send, github.request(method, path, body=body)), github.Unanswered,
+                                  (method, path))
+        self.assertEqual(len(recording.sent), len(good))
+        # The longest base64 is sent, newlines counted, and no longer.
+        with mock.patch.object(push, "MOST_BASE64", 8):
+            edge = github.request("POST", git + "blobs", body=dict(blob, content="eHh4eHh4"))
+            self.assertEqual(calmly(sending.send, edge), answered)
+            for told in ("eHh4eHh4eA==", "eHh4\neHh4"):
+                self.assertIsInstance(calmly(sending.send, github.request("POST", git + "blobs", body=dict(
+                    blob, content=told))), github.Unanswered, told)
+        # The most a body may hold, counted as `_plain` counts.
+        self.assertTrue(push._plain([None] * 99999))
+        self.assertFalse(push._plain([None] * 100000))
+        # A retry's token sends its own branch's requests, not the first attempt's.
+        retry = "factory-work/issue-9971-2"
+        again = effects.Allowed(recording, *push.allowed(PUSHED, retry))
+        for method, path, body in (("GET", git + "ref/heads/" + retry, None),
+                                   ("POST", git + "refs", {"ref": "refs/heads/" + retry, "sha": NAMED}),
+                                   ("PATCH", git + "refs/heads/" + retry, {"sha": NAMED, "force": False})):
+            self.assertEqual(calmly(again.send, github.request(method, path, body=body)), answered, method)
+        self.assertIsInstance(calmly(again.send, github.request("GET", git + "ref/heads/" + WORK)), github.Unanswered)
+        # An owner of 39 characters, a name of 100, an issue or attempt of 19 digits; none of one more, nor a repo `.`.
+        long_ = "9" * 19
+        for repo, branch in (("a" * 39 + "/r", WORK), ("o/" + "r" * 100, WORK),
+                             (PUSHED, "factory-work/issue-%s-1" % long_), (PUSHED, "factory-work/issue-1-%s" % long_)):
+            read = github.request("GET", "/repos/%s/git/ref/heads/%s" % (repo, branch))
+            self.assertEqual(calmly(effects.Allowed(recording, *push.allowed(repo, branch)).send, read), answered, repo)
+        for repo, branch in (("a" * 40 + "/r", WORK), ("o/" + "r" * 101, WORK), ("o/.", WORK),
+                             (PUSHED, "factory-work/issue-%s9-1" % long_),
+                             (PUSHED, "factory-work/issue-1-%s9" % long_)):
+            self.assertEqual(push.allowed(repo, branch), ({}, []), (repo, branch))
+
 
 if __name__ == "__main__":
     unittest.main()

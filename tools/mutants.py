@@ -102,6 +102,8 @@ WIRE_ENTRY = ("tests.test_controller.Entry.test_the_entry_gathers_what_reconcili
 # The push port's tests (issue 838).
 PUSH_TOKEN = ('tests.test_adapters.Push.test_a_pushs_token_sends_a_pushs_alone',)
 PUSH_KIND = ('tests.test_adapters.Push.test_a_pushs_token_holds_each_thing_it_is_told_to_its_exact_kind',)
+PUSH_PY = 'adapters/push.py'
+PUSH_EDGE = ('tests.test_adapters.Push.test_a_pushs_token_holds_a_path_base64_and_each_bound_at_its_edge',)
 # The issues port's tests (decision 0218).
 ISSUE_WHOLE = ("tests.test_adapters.Issues.test_an_issues_timeline_is_whole_only_when_its_last_page_names_no_next",)
 ISSUE_CONTENT = ("tests.test_adapters.Issues.test_an_issues_content_time_is_the_newer_of_its_edit_and_its_rename",)
@@ -16685,8 +16687,8 @@ MUTANTS = ISSUE + [
     ("the token for a repo or a branch told wrongly sends", 'adapters/push.py', '    if not (_repo(repo) and _work(branch)):\n        return {}, []\n', '', PUSH_TOKEN),
     ("the token reads with a body", 'adapters/push.py', '        return body is None\n', '        return True\n', PUSH_TOKEN),
     ("the token makes a blob with a key more", 'adapters/push.py', 'set(body) == {"content", "encoding"}', 'True', PUSH_TOKEN),
-    ("the token makes a blob of content that is no text", 'adapters/push.py', '    if type(text) is not str:\n        return None\n    joined', '    joined', PUSH_TOKEN),
-    ("the token makes a blob of base64 of a length that is no multiple of four", 'adapters/push.py', '    if len(joined) % 4:\n        return None\n', '', PUSH_TOKEN),
+    ("the token makes a blob of content that is no text", 'adapters/push.py', 'if type(text) is not str or len(text)', 'if len(text)', PUSH_TOKEN),
+    ("the token makes a blob of base64 of a length that is no multiple of four", 'adapters/push.py', 'if len(joined) % 4 or ', 'if ', PUSH_TOKEN),
     ("the token makes a blob of text that is no base64", 'adapters/push.py', '_decoded(body["content"]) is not None', 'True', PUSH_TOKEN),
     ("the token makes a blob in another encoding", 'adapters/push.py', 'and body["encoding"] == "base64"', 'and True', PUSH_TOKEN),
     ("the token makes a tree of a symlink", 'adapters/push.py', 'item["mode"] in FILE_MODES', 'True', PUSH_TOKEN),
@@ -16695,8 +16697,8 @@ MUTANTS = ISSUE + [
     ("the token makes a tree of an entry with a key more", 'adapters/push.py', 'set(item) == {"path", "mode", "type", "sha"}', 'True', PUSH_TOKEN),
     ("the token makes a tree of a path that names no file", 'adapters/push.py', '_file(item["path"])', 'True', PUSH_TOKEN),
     ("the token makes a tree of a path that is no text", 'adapters/push.py', 'type(path) is str and all(', 'all(', PUSH_TOKEN),
-    ("the token makes a tree of a path with a character below a space", 'adapters/push.py', 'c < " " or c == "\\x7f"', 'c == "\\x7f"', PUSH_TOKEN),
-    ("the token makes a tree of a path with a DEL", 'adapters/push.py', 'c < " " or c == "\\x7f"', 'c < " "', PUSH_TOKEN),
+    ("the token makes a tree of a path with a character below a space", 'adapters/push.py', 'c < " " or "\\x7f" <= c', '"\\x7f" <= c', PUSH_TOKEN),
+    ("the token makes a tree of a path with a DEL", 'adapters/push.py', '"\\x7f" <= c <= "\\x9f"', '"\\x80" <= c <= "\\x9f"', PUSH_TOKEN),
     ("the token makes a tree of a path with a part empty", 'adapters/push.py', '("", ".", "..")', '(".", "..")', PUSH_TOKEN),
     ("the token makes a tree of a path with a part .", 'adapters/push.py', '("", ".", "..")', '("", "..")', PUSH_TOKEN),
     ("the token makes a tree of a path with a part ..", 'adapters/push.py', '("", ".", "..")', '("", ".")', PUSH_TOKEN),
@@ -16723,6 +16725,37 @@ MUTANTS = ISSUE + [
     ("the token reads a commit of a repo named as this one but for a dot", 'adapters/push.py', 're.escape(git + "commits/")', 'git + "commits/"', PUSH_TOKEN),
     ("the token reads a tree of a repo named as this one but for a dot", 'adapters/push.py', 're.escape(git + "trees/")', 'git + "trees/"', PUSH_TOKEN),
     ("the token reads a blob of a repo named as this one but for a dot", 'adapters/push.py', 're.escape(git + "blobs/")', 'git + "blobs/"', PUSH_TOKEN),
+    ("a path with a C1 control is a file's", PUSH_PY, '"\\x7f" <= c <= "\\x9f"', 'c == "\\x7f"', PUSH_EDGE),
+    ("a path with the last C1 control is a file's", PUSH_PY, 'c <= "\\x9f"', 'c < "\\x9f"', PUSH_EDGE),
+    ("a path with a backslash is a file's", PUSH_PY, ' or c == "\\\\"', '', PUSH_EDGE),
+    ("a path through git's own directory is a file's", PUSH_PY, ' and not _gits(part)', '', PUSH_EDGE),
+    ("a path through .git is a file's", PUSH_PY, 'head == GIT_OWN or ', '', PUSH_EDGE),
+    ("a path through .GIT is a file's", PUSH_PY, '.casefold()', '', PUSH_EDGE),
+    ("a path through .git: is a file's", PUSH_PY, '.partition(":")[0]', '', PUSH_EDGE),
+    ("a path through .git. is a file's", PUSH_PY, '.rstrip(".")', '', PUSH_EDGE),
+    ("a path through git~1 is a file's", PUSH_PY, ' or head.startswith(GIT_SHORT)', '', PUSH_EDGE),
+    ("a tree's file may be a directory", PUSH_PY, 'and _apart({', 'and ({', PUSH_EDGE),
+    ("a tree's file removed may not be a directory", PUSH_PY, ' if item["sha"] is not None}', '}', PUSH_EDGE),
+    ("a tree's file below the top may be a directory", PUSH_PY, 'range(1, len(parts))', 'range(1, min(2, len(parts)))', PUSH_EDGE),
+    ("base64 padded by three is a blob's", PUSH_PY, ' or len(joined) - len(told) > 2', '', PUSH_EDGE),
+    ("base64 with = in its midst is a blob's", PUSH_PY, '0-9+/]*', '0-9+/=]*', PUSH_EDGE),
+    ("base64 of another alphabet is a blob's", PUSH_PY, ' or ALPHABET.fullmatch(told) is None', '', PUSH_EDGE),
+    ("base64 of any length is a blob's", PUSH_PY, ' or len(text) > MOST_BASE64', '', PUSH_EDGE),
+    ("the longest base64 is no blob's", PUSH_PY, '> MOST_BASE64', '>= MOST_BASE64', PUSH_EDGE),
+    ("base64 longer than GitHub takes is a blob's", PUSH_PY, '= 134217728', '= 268435456', PUSH_EDGE),
+    ("a whole number of another kind is plain", PUSH_PY, 'type(value) is not int', 'not isinstance(value, int)', PUSH_EDGE),
+    ("a body of the most things is not plain", PUSH_PY, 'if held > MOST:', 'if held >= MOST:', PUSH_EDGE),
+    ("a body is counted without itself", PUSH_PY, '[value], 1', '[value], 0', PUSH_EDGE),
+    ("a body holds fewer things than 20 files", PUSH_PY, 'MOST = 100000', 'MOST = 100', PUSH_EDGE),
+    ("the token reads a blob with a body", PUSH_PY, 'blobs/") + SHA.pattern), nothing)', 'blobs/") + SHA.pattern), lambda b: True)', PUSH_EDGE),
+    ("the token reads a tree with a body", PUSH_PY, '=1")), nothing)', '=1")), lambda b: True)', PUSH_EDGE),
+    ("a name of any letter is a commit's", PUSH_PY, '[0-9a-f]{40}', '[0-9a-z]{40}', PUSH_EDGE),
+    ("a repo named . is a push's", PUSH_PY, '(".", "..")', '("..",)', PUSH_EDGE),
+    ("an owner of 40 characters is a repo's", PUSH_PY, '{0,37}', '{0,38}', PUSH_EDGE),
+    ("a name of 101 characters is a repo's", PUSH_PY, '{1,100}', '{1,101}', PUSH_EDGE),
+    ("an issue of 20 digits is a work branch's", PUSH_PY, '{0,18}-', '{0,19}-', PUSH_EDGE),
+    ("an attempt of 20 digits is a work branch's", PUSH_PY, '{0,18}")', '{0,19}")', PUSH_EDGE),
+    ("a retry's branch is no work branch", PUSH_PY, '-[1-9][0-9]{0,18}")', '-1")', PUSH_EDGE),
     # Issue 596: a namespace package, sys's modules, an attribute set on a class from outside, and gh or git run.
     ("a namespace package is no module of the repo's", 'tools/check_writes.py',
      '    return name in mods or any(m.startswith(name + ".") for m in mods)\n', '    return name in mods\n',

@@ -2,10 +2,10 @@
 
 `allowed(repo, branch)` is what a push's token may send, as `adapters/effects.py`'s `Allowed` takes it: a commit's,
 a tree's (every level) or a blob's read by its name, and the read of the work branch, `factory-work/issue-<N>-<k>`
-(decision 0068); a blob in base64; a tree upon another, of files written or removed, each by a path that names a file;
-a commit of one parent; the work branch made, or moved with `force` false. Never a DELETE, a force, or another ref;
-never a body that holds anything but JSON, each thing of its exact kind; and nothing at all for a repo or a branch told
-wrongly, or told as text of another kind.
+(decision 0068); a blob in base64; a tree upon another, of files written or removed, each by a path that names a file,
+and none written where another written needs a directory; a commit of one parent; the work branch made, or moved with
+`force` false. Never a DELETE, a force, or another ref; never a body that holds anything but JSON, each thing of its
+exact kind; and nothing at all for a repo or a branch told wrongly, or told as text of another kind.
 
 The builders of each request, the push's own sender on this token, and `send` and `content`, which hand GitHub's
 answers on, come next (issue 838).
@@ -24,6 +24,14 @@ FILE_MODES = ("100644", "100755")
 # The most things a body may hold: a tree's entry is five, so no push the Factory makes comes near it, and a value that
 # holds itself reaches it.
 MOST = 100000
+# The longest base64 a blob's content may be, newlines and all, read before it is decoded. GitHub's blob API takes no
+# file over 100 MB, 133,333,336 characters of base64, so a text past 2 ** 27 is no blob it takes.
+MOST_BASE64 = 134217728
+# Base64's alphabet, without its padding.
+ALPHABET = re.compile(r"[A-Za-z0-9+/]*")
+# git's own directory, and the head of the short name another file system gives it (`git~1`), as `guards/patch.py`.
+GIT_OWN = ".git"
+GIT_SHORT = "git~"
 
 
 def _plain(value) -> bool:
@@ -61,23 +69,37 @@ def _work(branch) -> bool:
 
 def _decoded(text):
     """The bytes of base64 as GitHub reads it, its alphabet padded to fours past the newlines it wraps it with; None
-    for anything else. Python reads padding past a whole four, `YWJj=`, as none; it is held to fours here."""
-    if type(text) is not str:
+    for anything else, or for a text longer than `MOST_BASE64`. Its `=` are at its end, at most two, so what is before
+    them leaves 2 or 3 over a four: held here, not by Python's decoder, which takes `YWJj=`, and `YWJj====` on some
+    versions."""
+    if type(text) is not str or len(text) > MOST_BASE64:
         return None
     joined = text.replace("\n", "")
-    if len(joined) % 4:
+    told = joined.rstrip("=")
+    if len(joined) % 4 or len(joined) - len(told) > 2 or ALPHABET.fullmatch(told) is None:
         return None
-    try:
-        return base64.b64decode(joined, validate=True)
-    except ValueError:
-        return None
+    return base64.b64decode(joined)
+
+
+def _gits(name: str) -> bool:
+    """Whether a name is git's own directory to git on some file system, as `guards/patch.py` reads it: `.git` under
+    any case, with dots after it, or with a colon and anything after that; and its short name, `git~` and anything."""
+    head = name.casefold().partition(":")[0].rstrip(".")
+    return head == GIT_OWN or head.startswith(GIT_SHORT)
 
 
 def _file(path) -> bool:
-    """Whether `path` names a file in a tree: text of parts each named, none of them `.` or `..`, and no control
-    character in it."""
-    return type(path) is str and all(part not in ("", ".", "..") for part in path.split("/")) \
-        and not any(c < " " or c == "\x7f" for c in path)
+    """Whether `path` names a file in a tree: text of parts each named, none of them `.`, `..` or git's own directory
+    (`_gits`), and no control character in it, C0, DEL or C1, nor a backslash, which another file system reads as /."""
+    return type(path) is str and all(part not in ("", ".", "..") and not _gits(part) for part in path.split("/")) \
+        and not any(c < " " or "\x7f" <= c <= "\x9f" or c == "\\" for c in path)
+
+
+def _apart(paths: set) -> bool:
+    """Whether no path among `paths` is a directory above another: `docs` and `docs/readme.md` both written put a
+    file where a directory must be."""
+    return not any("/".join(parts[:i]) in paths for parts in (path.split("/") for path in paths)
+                   for i in range(1, len(parts)))
 
 
 def _git(repo: str) -> str:
@@ -104,7 +126,8 @@ def allowed(repo, branch) -> tuple:
 
     def tree(body) -> bool:
         return type(body) is dict and set(body) == {"base_tree", "tree"} and _sha(body["base_tree"]) \
-            and type(body["tree"]) is list and all(entry(item) for item in body["tree"])
+            and type(body["tree"]) is list and all(entry(item) for item in body["tree"]) \
+            and _apart({item["path"] for item in body["tree"] if item["sha"] is not None})
 
     def commit(body) -> bool:
         return type(body) is dict and set(body) == {"message", "tree", "parents"} and type(body["message"]) is str \
