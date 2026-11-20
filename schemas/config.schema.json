@@ -193,7 +193,7 @@
           "minimum": 1
         },
         "max_implementing_rounds": {
-          "description": "An issue's implementing rounds since a writer acted: every implementing Run that completed, whatever it concluded, is one; at this many the issue is held. Read by kernel/brakes.py's implementing_rounds alone, never in place of max_attempts, and at or below max_runs_per_item (issue 1038)",
+          "description": "The most implementing rounds an issue may spend since a writer acted, a round being an implementing Run that completed, whatever it concluded: a limit of their own, apart from max_attempts (issue 1038)",
           "type": "integer",
           "minimum": 1
         },
