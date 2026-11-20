@@ -3706,7 +3706,7 @@ class Workflows(unittest.TestCase):
             refused(group(token=token), "merge_group_pull_unreadable")
         refused(group(token="two words", transport=False), "merge_group_pull_unreadable")
         # An answer with no opener in it cannot be read either, and neither can a repository the payload does not name.
-        for body in ({"number": 44, "state": "open", "base": {"ref": "main"}},):
+        for body in ({"number": 44, "state": "open", "base": {"ref": "main", "repo": {"full_name": "o/r"}}},):
             refused(group(Asked(body=body)), "cannot be read")
         refused(group(payload={"merge_group": {"head_ref": ref, "base_ref": "refs/heads/main"}}), "cannot be read")
         # The payload must be a merge group's: an event that says so of a pull request's refuses, as the other way about.
@@ -3763,12 +3763,14 @@ class Workflows(unittest.TestCase):
             # Read a part at a time, as the transport's bound needs: an unbounded read is no answer (Astra's read).
             def __init__(self, raw, status=200, headers=None):
                 super().__init__(raw)
-                self.status, self.headers = status, JSON if headers is None else headers
+                self.status, self.headers, self.taken = status, JSON if headers is None else headers, 0
 
             def read(self, size=-1):
                 if size is None or not 0 < size <= github.CHUNK:
                     raise AssertionError("an unbounded read of %r" % (size,))
-                return super().read(size)
+                part = super().read(size)
+                self.taken += len(part)
+                return part
 
         class Cut(Answer):      # the whole pull request arrives, then the connection closes before the body ends
             def read(self, size=-1):
@@ -3812,20 +3814,24 @@ class Workflows(unittest.TestCase):
         refused(github.urllib.error.URLError("down"))
         refused(ConnectionResetError())
         refused(github.Redirected(302, "https://api.github.com/repositories/1/pulls/44"))
-        refused(github.urllib.error.HTTPError("https://api.github.com/x", 301, "x", {"Location": "/x"}, io.BytesIO()))
+        refused(github.urllib.error.HTTPError("https://api.github.com/x", 301, "x", {"Location": "/x"}, Answer(b"")))
         refused(Cut(whole))
         # The bound is the transport's: the pull request padded past it is refused, not cut short and read, and padded to
         # it exactly passes (Astra, Kimi, Muse and the Claude review).
+        over = Answer(whole + b" " * (github.LARGEST + 3 * github.CHUNK))
+        refused(over)
+        self.assertLess(over.taken, github.LARGEST + 2 * github.CHUNK)      # read no further than the bound's part
         refused(Answer(whole + b" " * (github.LARGEST + 1 - len(whole))))
         self.assertEqual(read(Answer(whole + b" " * (github.LARGEST - len(whole))))[0], [])
         # And so does an answer in another shape: an error whose body is the pull request itself, not JSON, JSON that
         # cannot be read, or JSON that is no pull request, another one, or none.
         for code in (404, 403, 500, 304):
-            refused(github.urllib.error.HTTPError("https://api.github.com/x", code, "x", JSON, io.BytesIO(whole)))
+            refused(github.urllib.error.HTTPError("https://api.github.com/x", code, "x", JSON, Answer(whole)))
         refused(Answer(whole, 201))
         refused(Answer(whole, headers={"Content-Type": "text/html"}))
         refused(Answer(whole, headers={}))
         refused(Answer(whole[:-1]))
+        refused(Answer(whole + b"{}"))      # one document, read whole
         for body in ([pull], "x", None, dict(pull, number="44"), dict(pull, number=45)):
             refused(Answer(json.dumps(body).encode()))
         refused(Answer(b""))
@@ -3841,8 +3847,12 @@ class Workflows(unittest.TestCase):
         # A base of another shape refuses with the code, and an opener's id is read as GitHub gave it (Astra's read).
         for base in (["main"], "main", None):
             refused(Answer(json.dumps(dict(pull, base=base)).encode()))
-        found = read(Answer(json.dumps(dict(pull, user={"login": "ada", "id": "1"})).encode()))[0]
-        self.assertTrue(found and "opened by ada (id 1)" in found[0], found)
+        for ident in ("1", True, 1.0):
+            found = read(Answer(json.dumps(dict(pull, user={"login": "ada", "id": ident})).encode()))[0]
+            self.assertTrue(found and "opened by ada" in found[0], (ident, found))
+        # And the answer is this repo's pull request: the same number on another repo's base refuses with the code.
+        refused(Answer(json.dumps(dict(pull, base={"ref": "main", "repo": {"full_name": "other/r"}})).encode()))
+        refused(Answer(json.dumps(dict(pull, base={"ref": "main", "repo": None})).encode()))
 
     def test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds(self):
         # Issue 409: main reads both, neither in place of the other, so the commits job is not weakened by the opener.

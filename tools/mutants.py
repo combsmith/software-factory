@@ -8736,6 +8736,10 @@ MUTANTS = ISSUE + [
      ' or type(pull.get("number")) is not int or pull["number"] != number:', ' or pull.get("number") != number:', ('tests.test_tools.Workflows.test_the_merge_groups_read_refuses_when_the_live_transport_fails_or_answers_another_shape',)),
     ("a merge group's pull request with a base of another shape is read", "tools/commits_are_the_maintainers.py",
      ' or not isinstance(base, dict) or base.get("ref")', ' or (base or {}).get("ref")', ('tests.test_tools.Workflows.test_the_merge_groups_read_refuses_when_the_live_transport_fails_or_answers_another_shape',)),
+    ("a merge group's pull request is read off another repo's base", "tools/commits_are_the_maintainers.py",
+     ' or base["repo"].get("full_name") != payload["repository"]["full_name"]:', ':', ('tests.test_tools.Workflows.test_the_merge_groups_read_refuses_when_the_live_transport_fails_or_answers_another_shape',)),
+    ("an opener's id of another type is read as a number", "tools/commits_are_the_maintainers.py",
+     ' if type(user["id"]) is int else None\n', '\n', ('tests.test_tools.Workflows.test_the_merge_groups_read_refuses_when_the_live_transport_fails_or_answers_another_shape',)),
     # Issue 409: a pull request is opened from this repo by an account the configuration lists (decision 0102).
     ("the job does not read the opener", "tools/commits_are_the_maintainers.py", "found = problems(root, environ) + opened", "found = problems(root, environ)", OPENER_JOB),
     ("the job does not read the commits", "tools/commits_are_the_maintainers.py", "found = problems(root, environ) + opened", "found = opened", OPENER_JOB),
