@@ -15,6 +15,8 @@ is refused whole, so that nothing is dispatched from a pass that cannot be repla
   scope missing is one that was not read;
 - `records`: what `adapters.records.runs` returned, or None if it raised;
 - `pull_requests` and `issues`: `[{"facts", "title"}]`, the title beside the facts and never in them;
+- `issue_apps_unreadable`: true where the issues' configuration names the queue App or a Lens's App as an issue's App
+  (`controller/__main__.py`'s `reader`): no issue is decided, and the pass raises it as an alert (issue 901);
 - `facts_reads`: each facts read's `{"date", "age"}`;
 - `usage`: what was read of the window's job-minutes and GraphQL points, by `factory_job_minutes`, `org_job_minutes`
   and `graphql_points_peak_hour`, each missing until a port reads it;
@@ -55,6 +57,7 @@ PAUSED, NOT_PAUSED = "true", "false"
 CAPACITY, ENVIRONMENT = health_.CAPACITY, health_.ENVIRONMENT
 NOT_RUN = "not_run"
 NEVER_STARTED = "runs_never_started"
+ISSUE_APPS = "issue_apps_unreadable"
 __all__ = ["Refused", "run", "rebuild", "wait_before_reading", "context_of", "issue_config"]
 
 
@@ -224,6 +227,18 @@ def context_of(records, pause_read, repos, rules: dict, now: str, before=(), pre
     return listed, whole, runs, pause, automatic, capacity, context
 
 
+def counted(active, minted: int):
+    """The count of active Runs an admission is asked again with: the context's, and `minted` Runs the pass counts before
+    it; a count that is not whole stays as read, and the Kernel defers on it (decision 0003)."""
+    return active + minted if type(active) is int and active >= 0 else active
+
+
+def given(record: dict, entry: dict) -> dict:
+    """The context `entry`'s Decision was made with: the record's, with the count of active Runs the entry holds. A
+    record written before the pass counted its own Runs holds none, and every entry was asked with the context's."""
+    return dict(record["context"], active_runs=entry.get("active_runs", record["context"]["active_runs"]))
+
+
 def wait_before_reading(previous, now: str, config: dict, started=None) -> int:
     """Seconds to wait before this pass reads: none sooner than the gap after the last pass's read began, whatever
     started it (decision 0043). If the records cannot be read, the whole gap. A pass its own token started waits at
@@ -309,7 +324,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     # Facts that are not facts, and an item listed twice, never reach the Kernel and no record could hold them: the
     # item is left out of this pass, as one alert, and every other item is decided as it would be without it.
     pulls, left_out, why = reads_.items(copy.deepcopy(reads.get("pull_requests")), "facts")
-    issues, also, why_also = reads_.items(copy.deepcopy(reads.get("issues")), "issue-facts")
+    refused = reads.get(ISSUE_APPS) is True     # the issues alone are refused: the pull requests are decided as ever
+    issues, also, why_also = reads_.items(copy.deepcopy([] if refused else reads.get("issues")), "issue-facts")
     left_out, why = left_out + also, why + why_also
     # A pull request that moved while it was read, and had not in the last pass, is deferred with no alert: the pass its
     # change starts reads it again. Any other left out, or one that moved twice in a row, is the alert (#658).
@@ -321,36 +337,59 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     listed, whole, runs, pause, automatic, capacity, context = context_of(records, reads.get("pause"), repos, rules,
                                                                            now, before, previous)
 
+    def minting(d: dict) -> bool:
+        """Whether the pass mints a Run for Decision `d`: an admission, an approval, or a queue act once its workflow is
+        named, each a dispatch the records port counts active."""
+        return d["outcome"] == t.ADMIT or d.get("action") == "issue_approval" \
+            or (queue_named and d["outcome"] == t.ACT and d.get("action") in writes_.QUEUE_INTENTS)
+
     def asked(entries: list, decide, lifecycle: dict, given: dict) -> list:
         kernel = dict(given, lifecycle=lifecycle)
-        out, asking = [], []
+        out = []
         for entry in entries:
             facts = entry["facts"]
             facts["complete"] = dict(facts["complete"])
             # The facts port reads no run: the records port's list says whether the Runs were read whole.
             facts["complete"]["runs"] = facts["complete"].get("runs") is True and whole
-            d = decide(facts, runs, context, kernel, now)
-            minted = d["outcome"] == t.ADMIT or d.get("action") == "issue_approval" \
-                or (queue_named and d["outcome"] == t.ACT and d.get("action") in writes_.QUEUE_INTENTS)
-            out.append(dict({"facts": facts, "decision": d, "run": mint("r") if minted else None},
-                            **status_head(entry, kernel)))
-            if d["outcome"] == t.ADMIT and d["admit"]["intent"] == advisory_.REVIEWING:
-                # Beside the Decision, never in it: whether the day's ceiling admits this Run's advisory reads
-                # (decision 0224). Each review this pass admits counts the ones admitted before it at the worst case.
-                out[-1]["advisory_ask"] = advisory_.admits(runs + asking, whole, now, config.get("harness") or {})
-                asking.append({"intent": advisory_.REVIEWING, "started_at": now})
+            out.append({"entry": entry, "facts": facts, "decide": decide, "kernel": kernel,
+                        "active_runs": context["active_runs"],
+                        "decision": decide(facts, runs, context, kernel, now)})
         return out
+
+    asked_ = asked(pulls, pull_request.decide, config["lifecycles"]["pull_request"], config["kernel"]) \
+        + asked(issues, issue.decide, config["lifecycles"]["issue"], issue_config(config["kernel"]))
+    # Each Run this pass mints is active once dispatched, so the pass admits no more Runs than `org_max_active_runs`
+    # leaves room for, as each of them, asked again at its `apply`, finds (decision 0003). The count moves only an
+    # admission, to a deferral: the Runs an approval or a queue act mints are counted first, whatever their place, and
+    # each admission, in the record's order, is asked again with them and the admissions before it.
+    taken = sum(1 for a in asked_ if minting(a["decision"]) and a["decision"]["outcome"] != t.ADMIT)
+    for a in asked_:
+        if a["decision"]["outcome"] == t.ADMIT:
+            a["active_runs"] = counted(context["active_runs"], taken)
+            a["decision"] = a["decide"](a["facts"], runs, dict(context, active_runs=a["active_runs"]), a["kernel"], now)
+            taken += a["decision"]["outcome"] == t.ADMIT
+    pass_id = mint("p")     # minted before any Run id, as it always was
+    made = [dict({"facts": a["facts"], "decision": a["decision"], "run": mint("r") if minting(a["decision"]) else None,
+                  "active_runs": a["active_runs"]}, **status_head(a["entry"], a["kernel"])) for a in asked_]
+    pull_requests, issues_ = made[:len(pulls)], made[len(pulls):]
+    # Beside the Decision, never in it: whether the day's ceiling admits each admitted review's advisory reads (decision
+    # 0224). Each review this pass admits counts the ones admitted before it, in the record's order, at the worst case.
+    asking = []
+    for e in made:
+        d = e["decision"]
+        if d["outcome"] == t.ADMIT and d["admit"]["intent"] == advisory_.REVIEWING:
+            e["advisory_ask"] = advisory_.admits(runs + asking, whole, now, config.get("harness") or {})
+            asking.append({"intent": advisory_.REVIEWING, "started_at": now})
 
     # Every write a Factory identity made, matched to an Effect the Factory recorded; one alert for any that is not, and
     # one for a reconciliation that is short (I-33, decision 0061). What it found is in the record before it is checked.
     found = reconcile_.reconcile(reads.get("seen"), reads.get("effects"), runs if listed and whole else None, before,
                                  rules["accounts"])
-    record = {"schema": "pass/1", "pass": mint("p"), "release": config["release"], "now": now,
+    record = {"schema": "pass/1", "pass": pass_id, "release": config["release"], "now": now,
               "started_by": started_by(reads.get("started"), rules["accounts"]), "context": context, "runs": runs,
               "reads": (copy.deepcopy(records["reads"]) if listed else [])
               + [dict(r, read="facts") if isinstance(r, dict) else r for r in reads.get("facts_reads") or []],
-              "pull_requests": asked(pulls, pull_request.decide, config["lifecycles"]["pull_request"], config["kernel"]),
-              "issues": asked(issues, issue.decide, config["lifecycles"]["issue"], issue_config(config["kernel"])),
+              "pull_requests": pull_requests, "issues": issues_,
               "left_out": [{"item": reads_.item(i), "code": code} for i, code in zip(left_out, why)],
               "reconciliation": reconcile_.entries(found),
               "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or (),
@@ -409,6 +448,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
                             bool(alarmed), raised, unnamed, reconcile_.alerts(found), due,
                             whole and never_started(runs, now, rules["automatic_pause"]),
                             bool(record["advisory_unrevoked"]))
+    alerts = sorted(alerts + [ISSUE_APPS]) if refused else alerts
     decided = [e["facts"]["item"] for e in entries]
     titles = {key(e["facts"]["item"]): e.get("title") if isinstance(e.get("title"), str) else ""
               for e in pulls + issues if e["facts"]["item"] in decided}

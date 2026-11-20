@@ -165,9 +165,108 @@ class Record(unittest.TestCase):
         self.assertEqual(got, [("admit", None, "r_000002A"), ("act", "issue_approval", "r_000003A")])
         kernel = dict(config()["kernel"], lifecycle=config()["lifecycles"]["pull_request"])
         for entry in record["pull_requests"]:
-            self.assertEqual(decide(entry["facts"], record["runs"], record["context"], kernel, record["now"]),
+            self.assertEqual(decide(entry["facts"], record["runs"], pass_.given(record, entry), kernel, record["now"]),
                              entry["decision"])
         self.assertNotIn("A title", json.dumps(record))
+
+    def test_a_pass_admits_no_more_runs_than_the_orgs_concurrency_leaves_room_for(self):  # decision 0003
+        # Each Run the pass mints is counted active for every admission asked after it, so no Run, asked again at its
+        # apply, finds as many others beside it as the limit. Each entry holds the count it was asked with, and
+        # replays by it.
+        from kernel import issue
+        limit = config()["kernel"]["limits"]["org_max_active_runs"]
+        self.assertGreaterEqual(limit, 3)       # the mixed case below has three issues to admit
+        kernel = dict(config()["kernel"], lifecycle=config()["lifecycles"]["pull_request"])
+        issues_kernel = dict(pass_.issue_config(config()["kernel"]), lifecycle=config()["lifecycles"]["issue"])
+
+        def triaged(n):
+            return an_issue(n, label_events=[test_issue.labelled(test_issue.TRIAGE, by=test_issue.CONTROLLER)])
+
+        def replays(record):
+            for entry in record["pull_requests"]:
+                self.assertEqual(decide(entry["facts"], record["runs"], pass_.given(record, entry), kernel,
+                                        record["now"]), entry["decision"])
+            for entry in record["issues"]:
+                self.assertEqual(issue.decide(entry["facts"], record["runs"], pass_.given(record, entry), issues_kernel,
+                                              record["now"]), entry["decision"])
+
+        def got(out):
+            return [(e["decision"]["outcome"], e["decision"]["reason"], e["active_runs"])
+                    for e in out["record"]["pull_requests"] + out["record"]["issues"]]
+        # From no Run in flight: the limit's worth admitted, each at the count before it, and every one after deferred
+        # at it, a deferral taking no slot.
+        idle = passed(reads(pulls=[pr(n) for n in range(1, limit + 3)], runs=[]))
+        self.assertEqual(shared.errors(idle["record"], "pass"), [])
+        self.assertEqual(got(idle), [("admit", "awaiting_review", n) for n in range(limit)]
+                         + [("defer", "concurrency", limit)] * 2)
+        self.assertEqual([d["run"] for d in idle["dispatch"]],
+                         [e["run"] for e in idle["record"]["pull_requests"] if e["run"] is not None])
+        replays(idle["record"])
+        # The issues are counted after the pull requests, and each issue admitted takes a slot too.
+        seen = []
+        real_issue = pass_.issue.decide
+        with unittest.mock.patch.object(pass_.issue, "decide",
+                                        lambda f, r, c, k, n: seen.append(r) or real_issue(f, r, c, k, n)):
+            mixed = passed(reads(pulls=[pr(1)], issues=[triaged(7), triaged(8), triaged(9)],
+                                 runs=[run(number=80)] + [run(number=90 + n, status="in_progress")
+                                                          for n in range(limit - 3)]))
+        # Each ask, the first and the second, is given the run records the record holds.
+        self.assertTrue(seen and mixed["record"]["runs"] and all(r == mixed["record"]["runs"] for r in seen))
+        self.assertEqual([(o, n) for o, _, n in got(mixed)],
+                         [("admit", limit - 3), ("admit", limit - 2), ("admit", limit - 1), ("defer", limit)])
+        replays(mixed["record"])
+        # An approval's Run takes its slot whatever its place: it is counted before every admission, which the count
+        # can defer and it cannot.
+        approving = passed(reads(pulls=[pr(n) for n in range(1, limit)] + [pr(42)],
+                                 runs=[run(number=42), run(number=90, status="in_progress")]))
+        decided = [(e["decision"]["outcome"], e["decision"].get("action"), e["active_runs"])
+                   for e in approving["record"]["pull_requests"]]
+        self.assertEqual(decided, [("admit", None, n) for n in range(2, limit)] + [("defer", None, limit),
+                                                                                 ("act", "issue_approval", 1)])
+        self.assertEqual(len(approving["dispatch"]), limit - 1)
+        replays(approving["record"])
+        # Two approvals take two slots.
+        two = passed(reads(pulls=[pr(1), pr(42), pr(43)],
+                           runs=[run(number=42), run(name="r_01JA6Y", number=43)]
+                           + [run(number=90 + n, status="in_progress") for n in range(limit - 2)]))
+        self.assertEqual([(d["outcome"], d.get("action")) for d in decisions(two)],
+                         [("defer", None), ("act", "issue_approval"), ("act", "issue_approval")])
+        # At the limit and past it an approval still acts, and its Run is dispatched: the count bounds admissions alone.
+        over = passed(reads(pulls=[pr(42)], runs=[run(number=42)] + [run(number=90 + n, status="in_progress")
+                                                                       for n in range(limit + 1)]))
+        self.assertEqual(([(d["outcome"], d.get("action")) for d in decisions(over)], len(over["dispatch"])),
+                         ([("act", "issue_approval")], 1))
+        # A queue act's Run, once its workflow is named, takes its slot so too; unnamed, it is an act and takes none.
+        account = {"id": 349593770, "type": "Bot", "login": "combsmith-sf-queue[bot]"}
+        queued = config(workflows=dict(CONTROLLER["workflows"], queue="queue.yml"))
+        queued["controller"]["accounts"] = dict(queued["controller"]["accounts"], queue=account)
+        busy = [run(number=2)] + [run(number=90 + n, status="in_progress") for n in range(limit - 1)]
+        enqueue = reads(pulls=[pr(1), pr(2, reviews=[support.review()])], runs=busy)
+        self.assertEqual([(d["outcome"], d.get("action")) for d in decisions(passed(enqueue, cfg=queued))],
+                         [("defer", None), ("act", "enqueue")])
+        self.assertEqual([(d["outcome"], d.get("action")) for d in decisions(passed(enqueue))],
+                         [("admit", None), ("act", "enqueue")])
+        # A count that is not whole is given to the Kernel as read, and every item defers on it; one below zero too.
+        self.assertEqual([pass_.counted(c, 2) for c in (0, 3, -1, None, True)], [2, 5, -1, None, True])
+        told = []
+        real = pass_.pull_request.decide
+        with unittest.mock.patch.object(pass_.pull_request, "decide",
+                                        lambda f, r, c, k, n: told.append(c["active_runs"]) or real(f, r, c, k, n)):
+            short = passed(reads(pulls=[pr(1), pr(2)], complete=False))
+        self.assertEqual((told, [e["active_runs"] for e in short["record"]["pull_requests"]], short["dispatch"]),
+                         ([None, None], [None, None], []))
+        # A record written before an entry held its count, of either kind, is valid, and replays by the context's.
+        old = passed(reads(pulls=[pr(1)], issues=[triaged(7)], runs=[]))["record"]
+        for kind in ("pull_requests", "issues"):
+            old[kind] = [{k: v for k, v in e.items() if k != "active_runs"} for e in old[kind]]
+        self.assertEqual(shared.errors(old, "pass"), [])
+        self.assertEqual([pass_.given(old, e) for e in old["pull_requests"] + old["issues"]], [old["context"]] * 2)
+        replays(old)
+        # One whose context's count stood at the limit replays its deferral by that count.
+        full = passed(reads(pulls=[pr(1)], runs=[run(number=90 + n, status="in_progress") for n in range(limit)]))["record"]
+        full["pull_requests"] = [{k: v for k, v in e.items() if k != "active_runs"} for e in full["pull_requests"]]
+        self.assertEqual(decisions({"record": full})[0]["reason"], "concurrency")
+        replays(full)
 
     def test_an_issue_decision_replays_through_the_issues_kernel_configuration(self):  # decisions 0002, 0218
         # Replayed through `pass_.issue_config`, as the pass asked it, the Controller's factory:triage counts.
@@ -177,7 +276,7 @@ class Record(unittest.TestCase):
         (entry,) = record["issues"]
         self.assertEqual((entry["decision"]["state"], entry["decision"]["admit"]["intent"]), ("triage", "investigate-issue"))
         kernel = dict(pass_.issue_config(config()["kernel"]), lifecycle=config()["lifecycles"]["issue"])
-        self.assertEqual(issue.decide(entry["facts"], record["runs"], record["context"], kernel, record["now"]),
+        self.assertEqual(issue.decide(entry["facts"], record["runs"], pass_.given(record, entry), kernel, record["now"]),
                          entry["decision"])
         # As written, without the suffix, the App's label would not count.
         written_ = dict(config()["kernel"], lifecycle=config()["lifecycles"]["issue"])
@@ -397,6 +496,11 @@ class Record(unittest.TestCase):
         self.assertEqual((out["alerts"], alone["alerts"]), (["facts_unreadable"], []))
         self.assertEqual(passed(reads(pulls=[{"facts": None, "title": "x"}]))["left_out"], [None])
         self.assertEqual(passed(reads(pulls=[{"facts": {}}, "x"]))["left_out"], [None, None])
+        # An item whose repo is no repo's name is recorded as no item, and the pass record is still one (issue 913).
+        for repo in ("o/r x", "o/r\u200b", "\u00f6/r", "o/r/s", "o/", "/r"):
+            odd = passed(reads(pulls=[{"facts": {"item": dict(support.ITEM, repo=repo)}, "title": "x"}]))
+            self.assertEqual([e["item"] for e in odd["record"]["left_out"]], [None], repo)
+            self.assertEqual(shared.errors(odd["record"], "pass"), [], repo)
         # A good copy and a bad copy of one item: neither is decided (Argon's read of the merged pass).
         copies = passed(reads(pulls=[pr(42), {"facts": {"item": dict(support.ITEM, number=42)}, "title": "x"}]))
         self.assertEqual((decisions(copies), copies["dispatch"]), ([], []))
@@ -1178,20 +1282,29 @@ TRIAGE_BOT = ("an-old-login[bot]", 41, "Bot")
 ANALYST_BOT = ("another-old-login[bot]", 42, "Bot")
 
 
-def issue_through_the_port(events=(), repo="o/r", exchanges=None, users=None, linked=True) -> dict:
-    """An issue's pass entry as the issues port reads it, its linked pull requests read whole as `adapters/linked.py`
-    will read them unless `linked` is None, which keeps the port's own word: by default issue 41 of `issue_read` in
-    tests/test_adapters.py, with `events` on its timeline."""
-    from adapters import issues, timeline
-    from tests.test_adapters import MACHINE, Router, issue_read
+def held_roles(**roles) -> dict:
+    """The entry's configuration with the Controller's account TRIAGE_BOT's and the investigating Role's, ANALYST_BOT's,
+    held under `roles` alone, as controller/1 holds a Role's App that is no Lens's; `roles` holds more, or other."""
+    cfg = config()
+    held = dict({"business-analyst": {"id": ANALYST_BOT[1], "type": "Bot", "login": "combsmith-sf-business-analyst[bot]"}}, **roles)
+    cfg["controller"]["accounts"].update(controller=dict(APP_ACCOUNT, id=TRIAGE_BOT[1]),
+                                         roles=dict(cfg["controller"]["accounts"]["roles"], **held))
+    apps = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
+    return dict(cfg, apps=dict(apps, **{"business-analyst": {"name": test_issue.ANALYST["name"][:-len("[bot]")]}}))
+
+
+def issue_through_the_port(events=(), repo="o/r", exchanges=None, users=None) -> dict:
+    """An issue's pass entry as the issues port reads it, its linked pull requests read by `adapters/linked.py`: by
+    default issue 41 of `issue_read` in tests/test_adapters.py, with `events` on its timeline and no pull request."""
+    from adapters import issues
+    from tests.test_adapters import IDENTITIES, Router, issue_read
     found = issue_read(list(events)) if exchanges is None else exchanges
     router = Router(github.Replay(found), dict({"don-petry": "admin"}, **(users or {})))
-    names = {TRIAGE_BOT[1:]: test_issue.CONTROLLER["name"], ANALYST_BOT[1:]: test_issue.ANALYST["name"]}
-    accounts = timeline.Accounts(router, repo, MACHINE, {}, factory=set(names), apps=names)
+    # The account reader is the entry's own, from the configuration: no set of accounts is built here (issue 901).
+    _, accounts, _ = entry.reader(router, held_roles())
+    accounts.repo = repo
     number = found[0]["response"]["body"]["number"]
-    facts, title = issues.read(router, repo, number, accounts, lambda: "2026-10-11T12:00:00Z")
-    if linked is not None:
-        facts["complete"]["linked"] = linked
+    facts, title = issues.read(router, repo, number, accounts, lambda: "2026-10-11T12:00:00Z", identities=IDENTITIES, earlier=[])
     return {"facts": facts, "title": title}
 
 
@@ -1223,6 +1336,8 @@ class Issues(unittest.TestCase):
 
     def test_an_app_is_named_by_the_id_the_configuration_holds_so_its_label_and_comment_count(self):  # ruling A
         # The Controller's label and the investigating App's comment count by the App's id: the verdict is wanted next.
+        # The investigating Role's App is held under `roles` alone, and its comment is still that Role's (issue 901).
+        self.assertNotIn(ANALYST_BOT[1:], entry.accounts(held_roles()["controller"])[3])
         from tests.test_adapters import issue_event
         labelled = issue_event("labeled", 1, actor=TRIAGE_BOT, label={"name": "factory:triage"})
         said = issue_event("commented", 2, actor=ANALYST_BOT)
@@ -1231,6 +1346,19 @@ class Issues(unittest.TestCase):
         # With no comment, the investigation is wanted: the label counted on its own.
         alone = issue_passed(issue_through_the_port([labelled]))
         self.assertEqual((alone["state"], alone["admit"]["intent"]), ("triage", "investigate-issue"))
+
+    def test_issues_whose_apps_cannot_be_told_are_not_decided_and_the_pull_requests_are(self):  # issue 901
+        # The entry's word that the issues' Apps cannot be told: no issue is decided, whatever was read, one alert says
+        # so, and the pull request is decided as it is without the word.
+        told = dict(reads(issues=[an_issue(7)]), issue_apps_unreadable=True)
+        out, plain = passed(told), passed(reads(issues=[an_issue(7)]))
+        self.assertEqual(([d["item"]["type"] for d in decisions(out)], out["record"]["left_out"]), (["pull_request"], []))
+        self.assertEqual(out["record"]["pull_requests"], plain["record"]["pull_requests"])
+        self.assertEqual(set(out["alerts"]) - set(plain["alerts"]), {"issue_apps_unreadable"})
+        self.assertEqual(out["record"]["alerts"], sorted(out["alerts"]))
+        self.assertEqual([d["item"]["type"] for d in decisions(plain)], ["pull_request", "issue"])
+        # Anything but exact true is no such word.
+        self.assertEqual(len(decisions(passed(dict(told, issue_apps_unreadable="yes")))), 2)
 
     def test_a_person_whose_login_is_an_apps_name_without_its_suffix_is_not_that_app(self):  # ruling A
         # A User named as config/defaults.json writes the Controller's App is not it, with its token or through an App.
@@ -1244,10 +1372,10 @@ class Issues(unittest.TestCase):
                              ("new", "act", "label_not_counted", "factory:triage"), via)
 
     def test_p34s_issue_read_by_the_port_is_deferred_on_its_linked_pull_requests(self):  # P-34, S3
-        # The canary's issue through the port and the pass defers on its linked pull requests, not read yet. Its GraphQL
+        # The canary's issue through the port and the pass defers on its linked pull requests, read short. Its GraphQL
         # answer is P-34's lastEditedAt in the port's own query, which no trial has recorded (issue 831).
         from adapters import issues
-        from tests.test_adapters import body, canary, exchanges as recorded
+        from tests.test_adapters import body, canary, exchanges as recorded, linked_read
         repo = canary()
         rest = recorded("P-34.rest")
         own = rest[1]["response"]["body"]
@@ -1259,14 +1387,16 @@ class Issues(unittest.TestCase):
         graphql = {"request": {"via": "graphql", "call": "POST /graphql", "headers": {}, "body": asked},
                    "response": {"status": 200, "headers": {},
                                 "body": {"data": {"repository": {"nameWithOwner": repo, "issue": edited}}}}}
-        # The port's own word on its linked pull requests, which it does not read yet, reaches the pass (Carbon).
-        entry = issue_through_the_port(repo=repo, exchanges=[rest[1], rest[0], graphql], linked=None)
-        self.assertIs(entry["facts"]["complete"]["linked"], False)
+        # The port's own word on its linked pull requests reaches the pass (Carbon).
+        named = linked_read(total=1, updated=own["updated_at"], repo=repo, number=42)
+        entry = issue_through_the_port(repo=repo, exchanges=[rest[1], rest[0], graphql, named, rest[1]])
+        self.assertEqual((entry["facts"]["linked"], entry["facts"]["complete"]["linked"]), ([], False))
         d = issue_passed(entry, repo=repo, now="2026-11-13T09:00:00Z")
         self.assertEqual((d["state"], d["outcome"], d["reason"], d["evidence"]), (None, "defer", "facts_incomplete", ["linked"]))
         self.assertEqual(entry["title"], own["title"])
         # Read whole, the Maintainer's closed issue is declined, and nothing is done.
-        entry["facts"]["complete"]["linked"] = True
+        none = linked_read(updated=own["updated_at"], repo=repo, number=42)
+        entry = issue_through_the_port(repo=repo, exchanges=[rest[1], rest[0], graphql, none, rest[1]])
         whole = issue_passed(entry, repo=repo, now="2026-11-13T09:00:00Z")
         self.assertEqual((whole["state"], whole["outcome"], whole["reason"]), ("declined", "nothing", "closed"))
 
@@ -1347,6 +1477,25 @@ class Entry(unittest.TestCase):
                      if pathlib.Path(d, "out", n).is_file()}
             self.modes = {n: pathlib.Path(d, "out", n).stat().st_mode & 0o777 for n in files}
         return code, printed.getvalue(), files, slept
+
+    def test_the_entry_writes_no_number_that_is_not_finite(self):  # issue 922
+        # json.dumps writes NaN as the token NaN, which is no JSON: a value that slipped past its schema fails at the
+        # write, and never leaves a file another reader cannot parse.
+        views = {name: {} for name in entry.VIEW}
+        with tempfile.TemporaryDirectory() as d, unittest.mock.patch.object(entry.writes_, "plan", lambda out: {}):
+            os.mkdir(os.path.join(d, "a"))
+            os.mkdir(os.path.join(d, "b"))
+            with self.assertRaises(ValueError):
+                entry.write({"record": {"cost": float("nan")}, "view": views}, os.path.join(d, "a"))
+            self.assertEqual(os.listdir(os.path.join(d, "a")), [])       # no file is made, an empty one least of all
+            # Nor when the number is in a document written after others: every text is made before any file (Astra).
+            os.mkdir(os.path.join(d, "c"))
+            with self.assertRaises(ValueError):
+                entry.write({"record": {"cost": 1.5}, "view": dict(views, **{entry.VIEW[-1]: {"cost": float("inf")}})},
+                            os.path.join(d, "c"))
+            self.assertEqual(os.listdir(os.path.join(d, "c")), [])
+            entry.write({"record": {"cost": 1.5}, "view": views}, os.path.join(d, "b"))
+            self.assertEqual(json.loads(pathlib.Path(d, "b", "pass.json").read_text()), {"cost": 1.5})
 
     def test_the_entry_reads_through_the_ports_and_hands_the_pass_nothing_else(self):  # #193 ruling 10, #196 PR 2
         hub = Hub(self.table(numbers=[7]))
@@ -1814,7 +1963,7 @@ class Entry(unittest.TestCase):
     def test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is(self):  # S3
         # Listed from `issues.served_from`, each issue is read with the pull requests' account reader and dated as they
         # are; one not read is left out by its code, and a list read short stops the pass.
-        since, spied = "2026-10-01T00:00:00Z", {"listed": [], "read": [], "who": []}
+        since, spied = "2026-10-01T00:00:00Z", {"listed": [], "read": [], "who": [], "identities": []}
         real = entry.configuration
 
         def served(root, release):
@@ -1834,17 +1983,21 @@ class Entry(unittest.TestCase):
         listed_by_the_port = entry.items.open_issues
 
         def listing(listed, whole=True):
-            def open_issues(transport, repo, after):
-                spied["listed"].append((repo, after))
+            # What GitHub lists is `listed`; the port itself leaves out what it is handed, so a number it could not be
+            # handed fails as it would (Carbon).
+            def open_issues(transport, repo, after, *, apart):
+                spied["listed"].append((repo, after, apart))
                 if listed is None:
-                    return listed_by_the_port(transport, repo, after)
+                    return listed_by_the_port(transport, repo, after, apart=apart)
                 if whole is None:
                     raise github.Unanswered("no")
-                return list(listed), whole
+                with unittest.mock.patch.object(entry.items, "_listed", lambda *a: (list(listed), whole)):
+                    return listed_by_the_port(transport, repo, after, apart=apart)
             return open_issues
 
-        def read(transport, repo, number, accounts, clock):
+        def read(transport, repo, number, accounts, clock, *, identities, earlier):
             spied["read"].append((repo, number, accounts))
+            spied["identities"].append((identities, earlier))
             if number == 6:
                 raise entry.facts_.Moved("moved")
             if number == 9:
@@ -1852,9 +2005,16 @@ class Entry(unittest.TestCase):
             transport.send({"method": "GET", "path": "/repos/%s/issues/%d" % (repo, number)})
             return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "Issue five"
 
-        def entry_with(listed, whole=True, configured=served):
+        def entry_with(listed, whole=True, configured=served, recorded=True, tracked=True, previous=None):
             for found in spied.values():
                 del found[:]
+            # The passes before recorded their tracking issue's write under its number, 8, unless none is `tracked`.
+            wrote = {"id": "w1", "type": "tracking_issue", "item": None, "run": None, "state": "already_applied", "key": "8",
+                     "reason": None}
+            written = {"written": [{"schema": "written/1", "pass": "p_01JA7Q", "release": "factory/v0.3.1",
+                                    "writes": [wrote] if tracked else []}],
+                       "read": [{"id": 41, "attempt": 1}], "at": {}, "whole": recorded}
+            held = entry.passes.records if previous is None else (lambda *a: previous)
             table = self.table(numbers=[7])
             table[("GET", "/repos/%s/issues/5" % self.HOME)] = {
                 "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}, "body": {}}
@@ -1862,6 +2022,8 @@ class Entry(unittest.TestCase):
             with unittest.mock.patch.object(entry, "configuration", configured), \
                     unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
                     unittest.mock.patch.object(entry.items, "open_issues", listing(listed, whole)), \
+                    unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: written), \
+                    unittest.mock.patch.object(entry.passes, "records", held), \
                     unittest.mock.patch.object(entry.issues_, "read", read):
                 code, printed, files, _ = self.run_entry(hub)
             spied["graphql"] = [r for _, r in hub.sent if r["path"] == "/graphql"]
@@ -1870,9 +2032,12 @@ class Entry(unittest.TestCase):
         code, printed, files = entry_with([5, 6, 9])
         self.assertEqual((code, printed), (0, "passed\n"))
         record = files["pass.json"]
-        self.assertEqual(spied["listed"], [(self.HOME, since)])
+        # The listing is handed the number the passes recorded their tracking issue under, to leave it out (issue 901).
+        self.assertEqual(spied["listed"], [(self.HOME, since, [8])])
         self.assertEqual([n for _, n, _ in spied["read"]], [5, 6, 9])
         self.assertTrue(all(who is spied["who"][0] for _, _, who in spied["read"]))
+        # Each is read with the pull requests' class accounts, and the pass records before this pass, here none.
+        self.assertEqual(spied["identities"], [(entry.facts_.accounts_of(CONTROLLER)[0], [])] * 3)
         # The reader names each App the configuration holds by its account's id, as REST spells its Bot's login.
         catalogue = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
         self.assertEqual(spied["who"][0].apps, {(CONTROLLER["accounts"]["controller"]["id"], "Bot"):
@@ -1893,19 +2058,105 @@ class Entry(unittest.TestCase):
         for whole in (False, None):
             self.assertEqual(entry_with([5], whole), (1, "issue_list_unreadable\n", {}), whole)
             self.assertEqual(spied["read"], [])
+        # The passes' records not read whole: the tracking issue's number may be one not read, so no issue is read, and
+        # each listed is left out as unread; the pull requests are decided as ever (issue 901).
+        code, printed, files = entry_with([5, 8], recorded=False)
+        self.assertEqual((code, spied["read"], files["pass.json"]["issues"]), (0, [], []))
+        self.assertEqual(files["pass.json"]["left_out"], [{"item": item(n), "code": "facts_unanswered"} for n in (5, 8)])
+        self.assertEqual(len(files["pass.json"]["pull_requests"]), 1)
+        # They were handed to the port as none to leave out, never as unread: it cannot take that (Carbon, Kimi).
+        self.assertEqual(spied["listed"], [(self.HOME, since, ())])
+        # Read whole with no tracking issue written: none is known, and each listed is read and decided (Muse, Kimi).
+        code, _, files = entry_with([5], tracked=False)
+        self.assertEqual((code, spied["listed"], [n for _, n, _ in spied["read"]]), (0, [(self.HOME, since, ())], [5]))
+        self.assertEqual(([e["decision"]["item"] for e in files["pass.json"]["issues"]], files["pass.json"]["left_out"]),
+                         ([item(5)], []))
+        # This pass read no write of it, but the last record carried its number, 8: it is left out by that (Astra, Muse).
+        last = json.loads((ROOT / "examples" / "pass.json").read_text())
+        last.update(now="2026-10-12T11:00:00Z", pull_requests=[], reconciled={
+            "runs": [], "passes": [], "items": [], "dispatched": [], "owed": [],
+            "keys": [{"where": "written", "type": "tracking_issue", "key": "8", "at": "2026-10-12T11:00:00Z"}]})
+        code, _, files = entry_with([8, 5], tracked=False, previous=[last])
+        self.assertEqual((code, spied["listed"], [n for _, n, _ in spied["read"]]), (0, [(self.HOME, since, [8])], [5]))
+        self.assertEqual([e["decision"]["item"] for e in files["pass.json"]["issues"]], [item(5)])
         # No date: nothing is listed, asked or read; the one GraphQL read is the pull requests' list.
         code, _, files = entry_with(None, configured=real)
-        self.assertEqual((code, spied["listed"], spied["read"], files["pass.json"]["issues"]), (0, [(self.HOME, None)], [], []))
+        self.assertEqual((code, spied["listed"], spied["read"], files["pass.json"]["issues"]), (0, [(self.HOME, None, [8])], [], []))
         self.assertEqual(len(spied["graphql"]), 1)
 
+    def test_a_queues_or_a_lenss_name_declared_as_an_issues_app_refuses_the_issues_alone_and_the_pull_requests_are_decided(self):
+        # The reader tells the queue App and a Lens's App by their ids, as a queue and a Lens, never as an App by its
+        # name: one named for a label or an Intent could have no act read as that App's. No issue is listed, read or
+        # decided, and the pass says `issue_apps_unreadable`; the pull requests are read and decided as ever (issue 901).
+        real = entry.configuration
+        queue = {"id": 5000009, "type": "Bot", "login": "combsmith-sf-queue[bot]"}
+        renamed = {"lens": "pr-review", "login": "an-old-login[bot]", "id": CONTROLLER["accounts"]["roles"]["pr-review"]["id"]}
+        other = {"lens": "coderabbit", "login": "coderabbitai[bot]", "id": 136622811}
+        intent = lambda app: {"label_apps": {"factory:triage": "combsmith-sf-controller", "factory:ready": None},
+                              "intents": {"investigate-issue": {"role": "business-analyst", "app": app},
+                                          "judge-readiness": None, "open-pull-request": None}}
+        whos = []
+
+        def snapshot(transport, repo, number, identities, who, *a, **k):
+            whos.append(who)
+            return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
+
+        def entry_with(issues, **accounts):
+            def told(root, release):
+                found = real(root, release)
+                found["kernel"]["issues"] = dict(found["kernel"]["issues"], served_from="2026-10-01T00:00:00Z", **issues)
+                found["controller"]["accounts"].update(accounts)
+                return found
+            hub = Hub(self.table(numbers=[7]))
+            with unittest.mock.patch.object(entry, "configuration", told), \
+                    unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                    unittest.mock.patch.object(entry.items, "open_issues", lambda t, repo, since, **k: ([], since is None)):
+                code, printed, files, _ = self.run_entry(hub)
+            record = files.get("pass.json", {})
+            return (code, printed, "issue_apps_unreadable" in record.get("alerts", ()),
+                    [e["decision"]["item"]["number"] for e in record.get("pull_requests", ())], record.get("issues"))
+        ready = lambda name: {"label_apps": {"factory:triage": "combsmith-sf-controller", "factory:ready": name}}
+        # The issues are listed as with no date, so none is; pull request 7 is decided, and nothing is written for an issue.
+        refused = (0, "passed\n", True, [7], [])
+        # The pull requests' reader does not reserve the name that collides, whichever App's it is and wherever it is
+        # declared, so no snapshot is refused for it; a name that does not collide stays reserved.
+        unreserved = lambda issues, **accounts: (entry_with(issues, **accounts), whos[-1].reserved)
+        refused = (refused, {"combsmith-sf-controller[bot]"})
+        self.assertEqual(unreserved(ready("combsmith-sf-pr-review")), refused)
+        self.assertEqual(unreserved(intent("combsmith-sf-pr-review")), refused)
+        self.assertEqual(unreserved(ready("combsmith-sf-queue"), queue=queue), refused)
+        self.assertEqual(unreserved(intent("combsmith-sf-queue"), queue=queue), refused)
+        self.assertEqual(unreserved(ready("bors"), queue=dict(queue, login="bors[bot]")), refused)
+        # A Lens is told by the login the configuration holds for it, and by the name its id is configured under.
+        self.assertEqual(unreserved(ready("coderabbitai"), lenses=[other]), refused)
+        self.assertEqual(unreserved(intent("coderabbitai"), lenses=[other]), refused)
+        self.assertEqual(unreserved(ready("combsmith-sf-pr-review"), lenses=[renamed]), refused)
+        self.assertEqual(unreserved(ready("combsmith-sf-pr-review"), lenses=[dict(renamed, lens="coderabbit")]), refused)
+        # The queue, and a Lens held under no Role, are told too by the name config/apps.json gives their code, though
+        # the login held for each is another.
+        self.assertEqual(unreserved(ready("combsmith-sf-queue"), queue=dict(queue, login="an-old-login[bot]")), refused)
+        self.assertEqual(unreserved(ready("combsmith-sf-pr-review"), lenses=[dict(renamed, id=5000010)]), refused)
+        # The queue's name with no queue App held, and any other App's, are no queue's and no Lens's: the issues are
+        # listed from their date, here by a listing that is whole only with no date, which stops the pass.
+        for issues, accounts in ((ready("combsmith-sf-queue"), {}), (ready("combsmith-sf-readiness"), {"queue": queue}),
+                                 (intent("combsmith-sf-business-analyst"), {})):
+            self.assertEqual(entry_with(issues, **accounts)[:2], (1, "issue_list_unreadable\n"), issues)
+
     def test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry(self):  # S3, Astra
-        # Through the real port: an issue that read whole would be accepted defers on its unread linked pull requests.
-        from tests.test_adapters import issue_read
+        # Through the real port: an issue that read whole would be accepted defers while its linked pull requests are read
+        # short.
+        from tests.test_adapters import issue_read, linked_read
         reads_ = issue_read()
-        own, events, edits = (r["response"] for r in reads_)
+        own, events, edits = (r["response"] for r in reads_[:3])
         edits["body"]["data"]["repository"]["nameWithOwner"] = self.HOME
+        named = [linked_read(total=1, repo=self.HOME)["response"]]
+        # The Controller's tracking issue, 8, is open and updated since `served_from`, so GitHub lists it: it is left out
+        # by the number the pass before recorded writing it under, never read, and the list is still whole (issue 901).
         listed = {"data": {"repository": {"nameWithOwner": self.HOME, "issues": {
-            "totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"number": 41}]}}}}
+            "totalCount": 2, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [{"number": 8}, {"number": 41}]}}}}
+        wrote = {"id": "w1", "type": "tracking_issue", "item": None, "run": None, "state": "applied", "key": "8", "reason": None}
+        written = {"written": [{"schema": "written/1", "pass": "p_01JA7Q", "release": "factory/v0.3.1", "writes": [wrote]}],
+                   "read": [{"id": 41, "attempt": 1}], "at": {}, "whole": True}
         real = entry.configuration
 
         def served(root, release):
@@ -1928,20 +2179,32 @@ class Entry(unittest.TestCase):
             class Routed:
                 def send(self, req):
                     query = (req.get("body") or {}).get("query", "") if req["path"] == "/graphql" else ""
-                    if query.startswith(("query OpenIssues", "query IssueEdits")):
+                    if query.startswith(("query OpenIssues", "query IssueEdits", "query IssueLinked")):
                         hub.sent.append((credential, req))
+                        if "IssueLinked" in query:
+                            return copy.deepcopy(named[0])
                         return copy.deepcopy({"status": 200, "headers": {}, "body": listed} if "OpenIssues" in query else edits)
                     return through.send(req)
             return Routed()
         hub.connect = routed
-        with unittest.mock.patch.object(entry, "configuration", served):
+        with unittest.mock.patch.object(entry, "configuration", served), \
+                unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: written):
             code, printed, files, _ = self.run_entry(hub)
         self.assertEqual((code, printed), (0, "passed\n"))
+        self.assertEqual((files["pass.json"]["left_out"], [r["path"] for _, r in hub.sent if r["path"].endswith("/issues/8")]), ([], []))
         (decided,) = files["pass.json"]["issues"]
         d = decided["decision"]
         self.assertEqual((d["item"]["number"], d["outcome"], d["reason"], d["evidence"]), (41, "defer", "facts_incomplete", ["linked"]))
         # Nothing is written for the issue: the one write is the tracking issue's, which reports the pass's alerts.
         self.assertEqual([w["type"] for w in files["writes.json"]["writes"]], ["tracking_issue"])
+        # Named by none, it is whole, and accepted.
+        named[0] = linked_read(repo=self.HOME)["response"]
+        hub.sent.clear()
+        with unittest.mock.patch.object(entry, "configuration", served), \
+                unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: written):
+            code, _, files, _ = self.run_entry(hub)
+        (decided,) = files["pass.json"]["issues"]
+        self.assertEqual((code, decided["decision"]["outcome"], decided["decision"].get("action")), (0, "act", "accept"))
 
     def test_what_the_entry_cannot_read_writes_nothing(self):
         for environ, want in (({"RELEASE": None}, "release_untagged"), ({"RELEASE": "v1"}, "release_untagged"),
