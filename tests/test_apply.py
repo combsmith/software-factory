@@ -1235,6 +1235,10 @@ class Push(unittest.TestCase):
             self.assertEqual(apply.push_refusal([path], [None], own_list()), "push_protected", path)
         for path in ("tools/check_repo.py", "tools/check_workflows.py.orig", "sub/tools/check_writes.py"):
             self.assertIsNone(apply.push_refusal([path], [None], own_list()), path)
+        # And no other check is protected: the checks on the list are these three, the hooks aside (Astra's read).
+        listed = {entry["path"] for entry in json.loads((ROOT / "config" / "hooks.json").read_text())["protected"]}
+        self.assertEqual({path for path in listed if path.startswith("tools/") and not path.startswith("tools/hooks/")},
+                         {"tools/check_workflows.py", "tools/commits_are_the_maintainers.py", "tools/check_writes.py"})
 
 
 def own_list() -> list:
