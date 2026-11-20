@@ -7934,6 +7934,15 @@ MUTANTS = ISSUE + [
     ("only the review's set's manifest is protected", "config/hooks.json",
      '    {"path": "evals/*/cases.json", "is"', '    {"path": "evals/pr-review/cases.json", "is"',
      ("tests.test_hooks.ProtectedPaths.test_every_protected_path_asks_for_every_edit_tool_in_every_tree",)),
+    # Issue 907, decision 0240: the checks that hold a trust boundary are protected paths.
+    ('the check that holds the workflows is pushed by a Role', 'config/hooks.json',
+     '    {"path": "tools/check_workflows.py", "is": "the check that holds each workflow, and what a workflow beside a secret reads of a head"}', '    {"path": "tools/check_workflows.py.unused", "is": "the check that holds each workflow, and what a workflow beside a secret reads of a head"}', ('tests.test_apply.Push.test_the_checks_that_hold_a_trust_boundary_are_on_the_repos_own_list',)),
+    ('the check of whose commits a pull request carries is pushed by a Role', 'config/hooks.json',
+     '    {"path": "tools/commits_are_the_maintainers.py", "is": "the check that every commit a pull request carries names the Maintainer"}', '    {"path": "tools/commits_are_the_maintainers.py.unused", "is": "the check that every commit a pull request carries names the Maintainer"}', ('tests.test_apply.Push.test_the_checks_that_hold_a_trust_boundary_are_on_the_repos_own_list',)),
+    ('the check of who reaches a GitHub write is pushed by a Role', 'config/hooks.json',
+     '    {"path": "tools/check_writes.py", "is": "the check that only the callers it lists reach a GitHub write"}', '    {"path": "tools/check_writes.py.unused", "is": "the check that only the callers it lists reach a GitHub write"}', ('tests.test_apply.Push.test_the_checks_that_hold_a_trust_boundary_are_on_the_repos_own_list',)),
+    ('every check under tools/ is protected', 'config/hooks.json',
+     '    {"path": "tools/check_writes.py", "is"', '    {"path": "tools/", "is"', ('tests.test_apply.Push.test_the_checks_that_hold_a_trust_boundary_are_on_the_repos_own_list',)),
     # Issue 845: the scan's settings are read from a pull request's head beside SONAR_TOKEN.
     ("the scan's settings are pushed by a Role", "config/hooks.json",
      '    {"path": "sonar-project.properties", "is": "the settings the SonarCloud scan reads from a pull request\'s head beside its token"},\n',

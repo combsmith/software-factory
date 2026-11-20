@@ -38,7 +38,10 @@
     {"path": ".git/packed-refs", "is": "git's packed branches, which a stop compares the branch with"},
     {"path": ".git/info/grafts", "is": "git's grafts, which change the history a stop compares the branch with"},
     {"path": "guards/", "is": "the guards: what a Role's own write may land"},
-    {"path": "release/decision-points.json", "is": "the Maintainer's continue or stop, which he alone decides"}
+    {"path": "release/decision-points.json", "is": "the Maintainer's continue or stop, which he alone decides"},
+    {"path": "tools/check_workflows.py", "is": "the check that holds each workflow, and what a workflow beside a secret reads of a head"},
+    {"path": "tools/commits_are_the_maintainers.py", "is": "the check that every commit a pull request carries names the Maintainer"},
+    {"path": "tools/check_writes.py", "is": "the check that only the callers it lists reach a GitHub write"}
   ],
   "reported": [
     {"path": "docs/decisions/", "is": "a decision record, which is never edited, only replaced"},

@@ -1227,6 +1227,15 @@ class Push(unittest.TestCase):
         for path in ("docs/sonar-project.properties", "sonar-project.properties.md"):
             self.assertIsNone(apply.push_refusal([path], [None], own_list()), path)
 
+    def test_the_checks_that_hold_a_trust_boundary_are_on_the_repos_own_list(self):  # issue 907, decision 0240
+        # The check that holds the workflows, the one that holds whose commits a pull request carries, and the one that
+        # holds who reaches a GitHub write: a Role's push of any of them could blind it to a later change, so each is
+        # refused, at its own path alone. The other checks stay verify's inputs, pushed and read by every Lens.
+        for path in ("tools/check_workflows.py", "tools/commits_are_the_maintainers.py", "tools/check_writes.py"):
+            self.assertEqual(apply.push_refusal([path], [None], own_list()), "push_protected", path)
+        for path in ("tools/check_repo.py", "tools/check_workflows.py.orig", "sub/tools/check_writes.py"):
+            self.assertIsNone(apply.push_refusal([path], [None], own_list()), path)
+
 
 def own_list() -> list:
     """What a push may not touch, as this checkout holds it: config/hooks.json read with config/defaults.json's model
