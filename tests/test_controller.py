@@ -231,6 +231,11 @@ class Record(unittest.TestCase):
                            + [run(number=90 + n, status="in_progress") for n in range(limit - 2)]))
         self.assertEqual([(d["outcome"], d.get("action")) for d in decisions(two)],
                          [("defer", None), ("act", "issue_approval"), ("act", "issue_approval")])
+        # At the limit and past it an approval still acts, and its Run is dispatched: the count bounds admissions alone.
+        over = passed(reads(pulls=[pr(42)], runs=[run(number=42)] + [run(number=90 + n, status="in_progress")
+                                                                       for n in range(limit + 1)]))
+        self.assertEqual(([(d["outcome"], d.get("action")) for d in decisions(over)], len(over["dispatch"])),
+                         ([("act", "issue_approval")], 1))
         # A queue act's Run, once its workflow is named, takes its slot so too; unnamed, it is an act and takes none.
         account = {"id": 349593770, "type": "Bot", "login": "combsmith-sf-queue[bot]"}
         queued = config(workflows=dict(CONTROLLER["workflows"], queue="queue.yml"))
