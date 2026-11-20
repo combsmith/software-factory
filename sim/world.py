@@ -611,11 +611,11 @@ class World:
         """Whether a Lens's thread is one its later review dropped, as the Kernel reads it (decision 0212): a Lens's,
         marked dropped, of a category the Kernel knows that is not security, not ruled rejected, opened before the last
         push, with a review by its Lens that succeeded on this content and began after that push."""
-        return th["opened_by"]["kind"] == "lens" and th.get("dropped") is True and th["ruling"] != "rejected" \
+        return th.get("dropped") is True and th["opened_by"]["kind"] == "lens" and th["ruling"] != "rejected" \
             and th["category"] in DROPPABLE and th["opened_at"] < self.last_push and any(
                 r["role"] == th["opened_by"]["name"] and r["intent"] == "review-change" and r["status"] == "completed"
                 and r["conclusion"] == "success" and r["content_id"] == self.cid() and r["started_at"] > self.last_push
-                for r in self.runs)
+                and r["item"] == ITEM for r in self.runs)
 
     def waits_for_its_author(self, decision: dict) -> bool:
         """Whether the item rests on its author: a pull request the Factory did not open, in addressing for what a fix
@@ -967,7 +967,7 @@ class World:
             # GitHub: an_app_resolves_any_thread
             for th in self.threads:
                 if th["id"] in d["evidence"]:
-                    self.check(th["opened_by"]["kind"] == "lens" and not th["resolved"]
+                    self.check(th["opened_by"]["kind"] == "lens" and not th["resolved"] and th["category"] != "security"
                                and (th["ruling"] == "accepted" or self.dropped_since_the_push(th)),
                                "the queue App resolves a thread no Lens accepted or dropped")
                     th.update(resolved=True, resolved_by=dict(QUEUE_APP))
