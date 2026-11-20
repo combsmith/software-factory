@@ -2795,7 +2795,7 @@ class FindingTexts(unittest.TestCase):
     PULL = {"number": 26, "base": {"ref": "main", "repo": {"full_name": "o/r", "default_branch": "main"}}}
 
     def read(self, threads, *found, lens="pr-review", pull=None, permissions=None):
-        router = Router(github.Replay(list(found)), permissions or {"don-petry": "admin"})
+        self.router = router = Router(github.Replay(list(found)), permissions or {"don-petry": "admin"})
         accounts = timeline.Accounts(router, "o/r", MACHINE, {LENS[1:]: "pr-review", (5, "Bot"): "qa-lead"})
         self.sent = sent = []
 
@@ -2857,11 +2857,18 @@ class FindingTexts(unittest.TestCase):
                            # A reply or an edit GitHub gives in no form of its own is a read that failed (issue 974).
                            ("a reply to a comment of no id", first(replyTo={})), ("a reply to a null id", first(replyTo={"id": None})),
                            ("a reply to an empty id", first(replyTo={"id": ""})), ("a reply to a list", first(replyTo=[])),
+                           ("a reply to an id that is a number", first(replyTo={"id": 17})),
+                           ("a reply to an id of blanks", first(replyTo={"id": " "})),
+                           ("a reply that hides an edit of no form", first(replyTo={"id": "PRRC_1"}, lastEditedAt=False)),
                            ("an edited comment", first(lastEditedAt="2026-11-14T08:00:00Z")),
                            ("an edit GitHub does not say never was", first(lastEditedAt=...)),
                            ("an edit at no time", first(lastEditedAt=0)), ("an edit that is a flag", first(lastEditedAt=False)),
                            ("an edit at an empty time", first(lastEditedAt="")), ("an edit at no time GitHub gives", first(lastEditedAt="never")),
                            ("an edit that is a list", first(lastEditedAt=[])),
+                           ("an edit time with more after it", first(lastEditedAt="2026-11-14T08:00:00Zjunk")),
+                           ("an edit on no day of the calendar", first(lastEditedAt="2026-02-30T08:00:00Z")),
+                           ("an edit at no hour", first(lastEditedAt="2026-11-14T99:00:00Z")),
+                           ("an edit time not written out whole", first(lastEditedAt="2026-1-5T8:0:0Z")),
                            # An author GitHub gives as none, a deleted account's, is refused as the facts' read of the
                            # same thread refuses it, before any text is asked for: a read that failed, as it was.
                            ("an author that is none", first(author=None)), ("no author", first(author=...)),
@@ -2879,6 +2886,7 @@ class FindingTexts(unittest.TestCase):
                            # The Lens's name is no proof: a person, or an App no configuration holds, may show it.
                            ("a person's under the Lens's name", thread_text("PRRT_7", opened=("pr-review", 4242, "User"))),
                            ("an App's under the Lens's name", thread_text("PRRT_7", opened=("pr-review", 4343, "Bot"))),
+                           ("a person's under the Lens App's number", thread_text("PRRT_7", opened=("don-petry", LENS[1], "User"))),
                            ("another Lens's", thread_text("PRRT_7", opened=("qa-lead", 5, "Bot"))),
                            ("a body that is none", thread_text("PRRT_7", None)),
                            ("a body of nothing", thread_text("PRRT_7", "")),
@@ -2888,10 +2896,11 @@ class FindingTexts(unittest.TestCase):
             # What GitHub says, and is not the Lens's own unedited first comment, is the thread's own state, told
             # apart from a read that failed: anyone who can write can make it, and it must not pass for the Factory's.
             own_state = why in ("a reply", "an edited comment", "a person's", "another App's", "another Lens's",
-                                "a person's under the Lens's name", "an App's under the Lens's name")
+                                "a person's under the Lens's name", "an App's under the Lens's name",
+                                "a person's under the Lens App's number")
             self.assertIs(type(raised.exception), texts.NotOwn if own_state else github.Unanswered, why)
             # Whose words they are is told by the account alone: no one's write access is asked for it (issue 974).
-            self.assertEqual([p for p in self.sent if "/collaborators/" in p], [], why)
+            self.assertEqual(self.router.asked, [], why)
         # A pull request numbered 1 is not the one a number given as a flag names.
         with self.assertRaises(github.Unanswered):
             self.read(["PRRT_7"], thread_text("PRRT_7", number=True), pull=dict(self.PULL, number=1))
@@ -2906,6 +2915,7 @@ class FindingTexts(unittest.TestCase):
         # A person's comment is refused as the thread's own state though their write access could not be read.
         with self.assertRaises(texts.NotOwn):
             self.read(["PRRT_7"], thread_text("PRRT_7", opened=PERSON), permissions={"don-petry": "missing"})
+        self.assertEqual(self.router.asked, [])
         self.assertTrue(issubclass(texts.NotOwn, github.Unanswered))
         # The Lens asked for is the one whose words they must be: its own thread is another's to any other Lens.
         with self.assertRaises(github.Unanswered):

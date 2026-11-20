@@ -21,6 +21,7 @@ Lens's own reply would be read as what it first said. No Factory write replies o
 threads it reads, never their length: what a Task keeps of them is `harness/task.py`'s."""
 from __future__ import annotations
 
+import datetime
 import re
 
 from adapters import acceptance, threads as threads_, timeline
@@ -48,6 +49,17 @@ THREAD = """query TextsThread($id: ID!) {
     }
   }
 }"""
+
+
+def _edit_time(value) -> bool:
+    """Whether `value` is the time of an edit as GitHub gives one: its form, and a time of the calendar."""
+    if not isinstance(value, str) or not EDITED.fullmatch(value):
+        return False
+    try:
+        datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return False
+    return True
 
 
 def _held(value) -> dict:
@@ -104,13 +116,17 @@ def findings(transport, pull: dict, accounts, lens: str, threads: list) -> list:
         said = first[0] if isinstance(first, list) and first and isinstance(first[0], dict) else {}
         # What GitHub does not say, or says in no form it gives, is a read that failed; what it says, a comment replied
         # to by its id or the time of an edit, and is not the Lens's own unedited first comment, is the thread's own state.
+        # Both are read before either is told: a reply by an id GitHub gives does not hide an edit time it gives in no
+        # form of its own (issue 974).
         reply, edited = said.get("replyTo", 0), said.get("lastEditedAt", 0)
-        if reply is not None:
-            raise (NotOwn if isinstance(reply, dict) and isinstance(reply.get("id"), str) and reply["id"] else Unanswered)(
-                "a thread's first comment cannot be read as its opener's")
-        if edited is not None:
-            raise (NotOwn if isinstance(edited, str) and EDITED.fullmatch(edited) else Unanswered)(
-                "a thread's first comment was edited, or GitHub does not say it never was")
+        replied = isinstance(reply, dict) and isinstance(reply.get("id"), str) and THREAD_ID.fullmatch(reply["id"]) is not None
+        stamped = _edit_time(edited)
+        if (reply is not None and not replied) or (edited is not None and not stamped):
+            raise Unanswered("a thread's first comment says what it replies to, or when it was edited, in no form GitHub gives")
+        if replied:
+            raise NotOwn("a thread's first comment replies to another")
+        if stamped:
+            raise NotOwn("a thread's first comment was edited")
         # Whose words they are is told by the account alone, the Lens's own App: anyone else's are refused before their
         # write access is asked, a read that could fail and pass for one that failed (issue 974). A User's login GitHub
         # never gives is still a read that was wrong, as `timeline.Accounts` reads one.
