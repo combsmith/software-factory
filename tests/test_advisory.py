@@ -92,7 +92,7 @@ def live(opener=None, host: str = HOST, key: str = KEY, seconds: int = 30) -> az
 
 
 class Transport(unittest.TestCase):
-    def test_the_azure_transport_asks_five_requests_and_no_other(self):
+    def test_the_azure_transport_asks_four_requests_and_no_other(self):
         # The five requests of the two APIs, and no other. A caller names an act, never a method or a path: the
         # transport alone writes those. A stored response is deleted by its id (trial P-76: Azure keeps one 30 days).
         self.assertEqual([azure.wire(r) for r in (azure.create(ASKED), azure.chat(ASKED), azure.read(ID), azure.cancel(ID),
