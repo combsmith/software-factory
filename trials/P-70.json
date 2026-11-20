@@ -1,0 +1,454 @@
+{
+  "schema": "trial/1",
+  "trial": "P-70",
+  "question": "When a pull request's description says `Fixes #I` and is then edited to take the keyword and the mention out, does issue I's timeline still list a CrossReferencedEvent whose source is that pull request, and what does `closedByPullRequestsReferences` say before and after? When a pull request's commit message alone says `Fixes #I`, does I's timeline list a ReferencedEvent with that commit, and does it stay after a force-push drops the commit? What does a pull request by a hidden or spammy author, and its cross-reference, show the reading token?",
+  "pass": "Written before the run, in the gates lane's plan at 2026-11-20T00:15Z for issue 990, nothing having run: pass: (1) after step 1's edit, a CrossReferencedEvent whose source is pull request A is still listed on I's timeline, read whole; and (2) after step 2's force-push, a ReferencedEvent with B's dropped commit is still listed, read whole. Recorded, deciding nothing: closedByPullRequestsReferences at each read, and step 3's answer, either way; a gap that step 3 shows is filed as its own issue. fail otherwise: (1) failing means #734's fallback is not safe as ruled, and the Factory Builder rules again before turn-on; (2) failing means the ReferencedEvent rule of #734's last pull request is not grounded. Passed. Run on 2026-11-20 in the canary through the Maintainer's own gh login, from the desk that acts for him (trial P-68's option A, as the Factory Builder ruled for this trial): issue 127, pull request A 128 and B 129. The plan's steps are reads 2 and 3 (step 1) and reads 4 to 6 (step 2); read 1 came first. (1) Pull request 128's CrossReferencedEvent, at 00:03:07Z, stands after its description was edited to name no issue, its willCloseTarget true before the edit and false after, and closedByPullRequestsReferences lists 128 before the edit and nothing after. (2) Pushing the commit whose message says Fixes #127 to a branch, before any pull request, left a ReferencedEvent at 00:02:43Z naming commit 1a3fb67e of the canary; it stands after the force-push dropped that commit from pull request 129, and a minute on. Recorded, deciding nothing: pull request 129, whose commit alone named the issue, was never among closedByPullRequestsReferences. Step 3, a hidden or spammy author, was not staged: no such author can be staged on purpose, and what one shows the App's token waits on the Maintainer running tools/trial_as_app.sh (issue 990). The writes (the issue, the branches, the commits, the pull requests, the edit, the force-push, and the undo) are not recorded here. Undone after the run: pull requests 128 and 129 closed unmerged, issue 127 closed as not planned, both branches deleted; nothing was minted. ran_at is the first read; the issue, branches and commits were made just before it. Each timeline's totalCount counts only the types the query filters to here. Of each answer's headers only the date and the request id are kept; the redaction also removed the OAuth client id and scopes, which are no credentials.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-11-20T00:02:59Z",
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization"
+  ],
+  "verdict": "pass",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql --include): issue 127's timeline of cross-references, references, links, unlinkings and closes, with its closedByPullRequestsReferences, at read 1, as it is: issue 127 open, branch trial/p70-b holding one commit whose message says Fixes #127, pushed by the Maintainer's gh login at 00:02:43Z, no pull request yet; the answer kept whole, of its headers the date and x-github-request-id alone",
+        "headers": {},
+        "body": {
+          "query": "query($owner:String!,$name:String!,$issue:Int!){repository(owner:$owner,name:$name){issue(number:$issue){state closedByPullRequestsReferences(first:10,includeClosedPrs:true){totalCount nodes{number}} timelineItems(first:100,itemTypes:[CROSS_REFERENCED_EVENT,REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT]){totalCount pageInfo{hasNextPage} nodes{__typename ... on CrossReferencedEvent{createdAt actor{__typename login} willCloseTarget source{__typename ... on PullRequest{number} ... on Issue{number}}} ... on ReferencedEvent{createdAt actor{__typename login} commit{oid} commitRepository{nameWithOwner}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ClosedEvent{createdAt closer{__typename}}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "issue": 127
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 00:02:59 GMT",
+          "x-github-request-id": "F242:30FA62:201B1F9:64BB3CC:6AFF8E33"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "state": "OPEN",
+                "closedByPullRequestsReferences": {
+                  "totalCount": 0,
+                  "nodes": []
+                },
+                "timelineItems": {
+                  "totalCount": 1,
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": [
+                    {
+                      "__typename": "ReferencedEvent",
+                      "createdAt": "2026-11-20T00:02:43Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "commit": {
+                        "oid": "1a3fb67ed635123e0b87a4413e79bc2788497741"
+                      },
+                      "commitRepository": {
+                        "nameWithOwner": "combsmith/software-factory-canary"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql --include): issue 127's timeline of cross-references, references, links, unlinkings and closes, with its closedByPullRequestsReferences, at read 2, after pull request 128 was opened from trial/p70-a to main, its description Fixes #127; the answer kept whole, of its headers the date and x-github-request-id alone",
+        "headers": {},
+        "body": {
+          "query": "query($owner:String!,$name:String!,$issue:Int!){repository(owner:$owner,name:$name){issue(number:$issue){state closedByPullRequestsReferences(first:10,includeClosedPrs:true){totalCount nodes{number}} timelineItems(first:100,itemTypes:[CROSS_REFERENCED_EVENT,REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT]){totalCount pageInfo{hasNextPage} nodes{__typename ... on CrossReferencedEvent{createdAt actor{__typename login} willCloseTarget source{__typename ... on PullRequest{number} ... on Issue{number}}} ... on ReferencedEvent{createdAt actor{__typename login} commit{oid} commitRepository{nameWithOwner}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ClosedEvent{createdAt closer{__typename}}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "issue": 127
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 00:03:16 GMT",
+          "x-github-request-id": "F255:38A30A:1DCCDCD:5DBA361:6AFF8E43"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "state": "OPEN",
+                "closedByPullRequestsReferences": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "number": 128
+                    }
+                  ]
+                },
+                "timelineItems": {
+                  "totalCount": 2,
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": [
+                    {
+                      "__typename": "ReferencedEvent",
+                      "createdAt": "2026-11-20T00:02:43Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "commit": {
+                        "oid": "1a3fb67ed635123e0b87a4413e79bc2788497741"
+                      },
+                      "commitRepository": {
+                        "nameWithOwner": "combsmith/software-factory-canary"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-20T00:03:07Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "willCloseTarget": true,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 128
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql --include): issue 127's timeline of cross-references, references, links, unlinkings and closes, with its closedByPullRequestsReferences, at read 3, after pull request 128's description was edited to name no issue, the keyword and the mention taken out (PATCH /repos/combsmith/software-factory-canary/pulls/128); the answer kept whole, of its headers the date and x-github-request-id alone",
+        "headers": {},
+        "body": {
+          "query": "query($owner:String!,$name:String!,$issue:Int!){repository(owner:$owner,name:$name){issue(number:$issue){state closedByPullRequestsReferences(first:10,includeClosedPrs:true){totalCount nodes{number}} timelineItems(first:100,itemTypes:[CROSS_REFERENCED_EVENT,REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT]){totalCount pageInfo{hasNextPage} nodes{__typename ... on CrossReferencedEvent{createdAt actor{__typename login} willCloseTarget source{__typename ... on PullRequest{number} ... on Issue{number}}} ... on ReferencedEvent{createdAt actor{__typename login} commit{oid} commitRepository{nameWithOwner}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ClosedEvent{createdAt closer{__typename}}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "issue": 127
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 00:03:31 GMT",
+          "x-github-request-id": "F25E:33F2FA:1F18D12:61AD5A8:6AFF8E53"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "state": "OPEN",
+                "closedByPullRequestsReferences": {
+                  "totalCount": 0,
+                  "nodes": []
+                },
+                "timelineItems": {
+                  "totalCount": 2,
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": [
+                    {
+                      "__typename": "ReferencedEvent",
+                      "createdAt": "2026-11-20T00:02:43Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "commit": {
+                        "oid": "1a3fb67ed635123e0b87a4413e79bc2788497741"
+                      },
+                      "commitRepository": {
+                        "nameWithOwner": "combsmith/software-factory-canary"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-20T00:03:07Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 128
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql --include): issue 127's timeline of cross-references, references, links, unlinkings and closes, with its closedByPullRequestsReferences, at read 4, after pull request 129 was opened from trial/p70-b to main, its description naming no issue, its one commit's message Fixes #127; the answer kept whole, of its headers the date and x-github-request-id alone",
+        "headers": {},
+        "body": {
+          "query": "query($owner:String!,$name:String!,$issue:Int!){repository(owner:$owner,name:$name){issue(number:$issue){state closedByPullRequestsReferences(first:10,includeClosedPrs:true){totalCount nodes{number}} timelineItems(first:100,itemTypes:[CROSS_REFERENCED_EVENT,REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT]){totalCount pageInfo{hasNextPage} nodes{__typename ... on CrossReferencedEvent{createdAt actor{__typename login} willCloseTarget source{__typename ... on PullRequest{number} ... on Issue{number}}} ... on ReferencedEvent{createdAt actor{__typename login} commit{oid} commitRepository{nameWithOwner}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ClosedEvent{createdAt closer{__typename}}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "issue": 127
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 00:03:47 GMT",
+          "x-github-request-id": "F265:1F276F:1F5732C:6261685:6AFF8E63"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "state": "OPEN",
+                "closedByPullRequestsReferences": {
+                  "totalCount": 0,
+                  "nodes": []
+                },
+                "timelineItems": {
+                  "totalCount": 2,
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": [
+                    {
+                      "__typename": "ReferencedEvent",
+                      "createdAt": "2026-11-20T00:02:43Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "commit": {
+                        "oid": "1a3fb67ed635123e0b87a4413e79bc2788497741"
+                      },
+                      "commitRepository": {
+                        "nameWithOwner": "combsmith/software-factory-canary"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-20T00:03:07Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 128
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql --include): issue 127's timeline of cross-references, references, links, unlinkings and closes, with its closedByPullRequestsReferences, at read 5, after trial/p70-b was force-pushed to main's tip and one commit with a plain message (PATCH /repos/combsmith/software-factory-canary/git/refs/heads/trial/p70-b, force), the keyword's commit 1a3fb67e dropped from pull request 129; the answer kept whole, of its headers the date and x-github-request-id alone",
+        "headers": {},
+        "body": {
+          "query": "query($owner:String!,$name:String!,$issue:Int!){repository(owner:$owner,name:$name){issue(number:$issue){state closedByPullRequestsReferences(first:10,includeClosedPrs:true){totalCount nodes{number}} timelineItems(first:100,itemTypes:[CROSS_REFERENCED_EVENT,REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT]){totalCount pageInfo{hasNextPage} nodes{__typename ... on CrossReferencedEvent{createdAt actor{__typename login} willCloseTarget source{__typename ... on PullRequest{number} ... on Issue{number}}} ... on ReferencedEvent{createdAt actor{__typename login} commit{oid} commitRepository{nameWithOwner}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ClosedEvent{createdAt closer{__typename}}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "issue": 127
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 00:04:08 GMT",
+          "x-github-request-id": "F26E:E6D1B:1F7D550:62C3567:6AFF8E78"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "state": "OPEN",
+                "closedByPullRequestsReferences": {
+                  "totalCount": 0,
+                  "nodes": []
+                },
+                "timelineItems": {
+                  "totalCount": 2,
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": [
+                    {
+                      "__typename": "ReferencedEvent",
+                      "createdAt": "2026-11-20T00:02:43Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "commit": {
+                        "oid": "1a3fb67ed635123e0b87a4413e79bc2788497741"
+                      },
+                      "commitRepository": {
+                        "nameWithOwner": "combsmith/software-factory-canary"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-20T00:03:07Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 128
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql --include): issue 127's timeline of cross-references, references, links, unlinkings and closes, with its closedByPullRequestsReferences, at read 6, a minute after step 5, nothing changed; the answer kept whole, of its headers the date and x-github-request-id alone",
+        "headers": {},
+        "body": {
+          "query": "query($owner:String!,$name:String!,$issue:Int!){repository(owner:$owner,name:$name){issue(number:$issue){state closedByPullRequestsReferences(first:10,includeClosedPrs:true){totalCount nodes{number}} timelineItems(first:100,itemTypes:[CROSS_REFERENCED_EVENT,REFERENCED_EVENT,CONNECTED_EVENT,DISCONNECTED_EVENT,CLOSED_EVENT]){totalCount pageInfo{hasNextPage} nodes{__typename ... on CrossReferencedEvent{createdAt actor{__typename login} willCloseTarget source{__typename ... on PullRequest{number} ... on Issue{number}}} ... on ReferencedEvent{createdAt actor{__typename login} commit{oid} commitRepository{nameWithOwner}} ... on ConnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on DisconnectedEvent{createdAt subject{__typename ... on PullRequest{number}}} ... on ClosedEvent{createdAt closer{__typename}}}}}}}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "issue": 127
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 00:05:15 GMT",
+          "x-github-request-id": "F285:D4704:21513A9:699B662:6AFF8EBB"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "issue": {
+                "state": "OPEN",
+                "closedByPullRequestsReferences": {
+                  "totalCount": 0,
+                  "nodes": []
+                },
+                "timelineItems": {
+                  "totalCount": 2,
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": [
+                    {
+                      "__typename": "ReferencedEvent",
+                      "createdAt": "2026-11-20T00:02:43Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "commit": {
+                        "oid": "1a3fb67ed635123e0b87a4413e79bc2788497741"
+                      },
+                      "commitRepository": {
+                        "nameWithOwner": "combsmith/software-factory-canary"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-11-20T00:03:07Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry"
+                      },
+                      "willCloseTarget": false,
+                      "source": {
+                        "__typename": "PullRequest",
+                        "number": 128
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
