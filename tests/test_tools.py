@@ -5470,6 +5470,8 @@ class PullTitle(unittest.TestCase):
                           Asked(body=dict(good, created_at="2026-11-22T00:00:00+00:00")),
                           Asked(body=dict(good, base={"repo": {"full_name": "o/other"}})), Asked(body=dict(good, base=None)),
                           Asked(body=dict(good, base={"repo": None})), Asked(body={k: v for k, v in good.items() if k != "base"}),
+                          Asked(body=dict(good, base="o/r")), Asked(body=dict(good, base={"repo": "o/r"})),
+                          Asked(body=dict(good, base={"repo": ["o/r"]})),
                           Asked(body=dict(good, created_at="2026-02-30T00:00:00Z")),
                           Asked(body=dict(good, created_at="2026-13-01T00:00:00Z")),
                           Asked(body=dict(good, created_at="2026-11-22T24:00:00Z")),
