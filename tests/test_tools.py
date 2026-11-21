@@ -11964,7 +11964,7 @@ class Writes(unittest.TestCase):
                  "tools/mutants_of/runs.py": "import subprocess\n\n" + entry,
                  "tools/mutants_of/later.py": entry + "\n\ndef go():\n    import os\n    return os.system('git push')\n",
                  "tools/mutants_of/near.py": "from tools.mutants_ofx import X\n\n" + entry,
-                 "tools/mutants_of/relative.py": "from .common import X\n\n" + entry,
+                 "tools/mutants_of/relative.py": "from .tools.mutants_of import common\n\n" + entry,     # relative, whatever it names
                  "tools/mutants_ofx.py": entry}
         problems = check_writes.run(clone(files))
         self.assertFalse(caught(problems, "tools/mutants_of/data.py"), problems)
