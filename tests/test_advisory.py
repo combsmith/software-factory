@@ -557,11 +557,13 @@ class Transport(unittest.TestCase):
 
         class Items(list):
             pass
-        shared, looped = {"b": 1}, []
+        shared, looped, doubled = {"b": 1}, [], ()
         looped.append(looped)
+        for _ in range(40):         # one tuple held twice at each of 40 depths: 2 ** 40 values, refused by its count
+            doubled = (doubled, doubled)
         for at, body in enumerate(({"a": {1}}, {"a": float("nan")}, deep, {"1": "b", 1: "a"}, {"a": [{"b": {None: 1}}]},
-                                   {"a": ({2: 1},)}, {"a": Keys({1: "a", "1": "b"})}, {"a": Items()}, {"a": [shared, shared]},
-                                   {"a": looped})):
+                                   {"a": ({2: 1},)}, {"a": Keys({1: "a", "1": "b"})}, {"a": Items()}, {"a": looped},
+                                   {"a": list(range(azure.WALK))}, {"a": doubled})):
             opener = Capture()
             with self.assertRaises(azure.Unanswered, msg=at):
                 live(opener).send(azure.create(body))
@@ -569,6 +571,12 @@ class Transport(unittest.TestCase):
         opener = Capture()
         live(opener).send(azure.create({"a": [{"b": 1}, {"b": 1}], "c": [shared, (shared["b"],)]}))
         self.assertEqual(azure.json.loads(opener.sent[0][0].data), {"a": [{"b": 1}, {"b": 1}], "c": [{"b": 1}, [1]]})
+        # A container held twice is sent: CPython shares the empty tuple, and equal constant tuples, between places.
+        for body in ({"a": (), "b": ()}, {"a": (1, 2), "b": (1, 2)}, {"a": [shared, shared]},
+                     {"a": list(range(azure.WALK - 2))}):
+            opener = Capture()
+            live(opener).send(azure.create(body))
+            self.assertEqual(len(opener.sent), 1, body if len(str(body)) < 80 else "the longest body")
         self.assertEqual(len(live(Capture(b"[" * 200000)).send(azure.read(ID))["body"]), 200000)
         self.assertIsNone(live(Capture(b"")).send(azure.read(ID))["body"])
         # A whole number of more digits than any count is text, never read: Python 3.9 reads one of any length, and
