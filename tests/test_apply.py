@@ -375,6 +375,9 @@ class Apply(unittest.TestCase):
                            ({"status": "failed", "reason": "no_answer"}, ("item", "no_answer")),
                            # So is one another model answered: an item's text can call a fallback (decision 0147).
                            ({"status": "failed", "reason": "engine_model"}, ("item", "engine_model")),
+                           # So is a Run never asked because a Finding it lists could not be shown: an edited comment
+                           # is the thread's own state, which anyone who can write may make (issue 856).
+                           ({"status": "failed", "reason": "findings_not_shown"}, ("item", "findings_not_shown")),
                            ({"status": "failed", "reason": "engine_failed"}, ("environment", "engine_failed")),
                            # A timeout cannot tell a slow provider from a slow item (issue 433, until issue 314).
                            ({"status": "failed", "reason": "engine_timeout"}, ("environment", "engine_timeout")),
@@ -690,9 +693,29 @@ class Apply(unittest.TestCase):
                                    "result")
             self.assertEqual(errors == [], ok, (ok, errors))
 
+    def test_a_review_is_shown_its_lenss_open_findings_that_gate(self):  # issue 856
+        # What the reader lists for a review: each open thread of its Role's own that gates, of a category the Role owns
+        # and no security Finding's, in the facts' order. `apply` itself never reads it: it holds a Result to its `shown`.
+        fid = lambda key, lens="pr-review": apply.finding_id(lens, {"type": "thread", "key": key})
+        person = {"kind": "human", "name": "don-petry", "can_write": True}
+        threads = [support.thread("PRRT_kw7"), support.thread("PRRT_kw8", category="security"),
+                   support.thread("PRRT_kw9", kind="human", name="don-petry"), support.thread("PRRT_kw10", severity="minor"),
+                   support.thread("PRRT_kw11", resolved=True, resolved_by=person),
+                   support.thread("PRRT_kw13", name="qa-lead"), support.thread("PRRT_kw14", severity="blocking")]
+        facts = the_facts(threads=threads)
+        both = [(fid("PRRT_kw7"), "PRRT_kw7"), (fid("PRRT_kw14"), "PRRT_kw14")]
+        self.assertEqual(apply.shown(facts, ROLE, support.CONFIG), both)
+        # An expired Run's thread gates, and its category cannot be read: it is none a review is shown.
+        gone = dict(support.thread("PRRT_kw12", category=None, severity=None), expired=True)
+        self.assertEqual(apply.shown(the_facts(threads=threads + [gone]), ROLE, support.CONFIG), both)
+        # Another Role is shown none of them, nor is this one of a category it does not own.
+        self.assertEqual(apply.shown(facts, dict(ROLE, name="qa-lead"), dict(support.CONFIG)), [])
+        self.assertEqual(apply.shown(facts, dict(ROLE, owns=["security"]), support.CONFIG), [])
+        self.assertEqual(apply.shown(facts, {k: v for k, v in ROLE.items() if k != "owns"}, support.CONFIG), [])
+
     def test_each_finding_shown_is_ruled(self):  # issue 856
         # A review that says nothing of a Finding its Lens raised before has not ruled on it. So a Result gives a
-        # Disposition on each Finding its Run was shown, and on no other. No reader shows a review any yet.
+        # Disposition on each Finding its Run was shown, and on no other.
         fid = lambda key, lens="pr-review": apply.finding_id(lens, {"type": "thread", "key": key})
         person = {"kind": "human", "name": "don-petry", "can_write": True}
         threads = [support.thread("PRRT_kw7"), support.thread("PRRT_kw8", category="security"),
@@ -1715,6 +1738,18 @@ class Job(unittest.TestCase):
             self.assertIsNone(apply.taken(given, at))
         record, ended, calls = self.go(None)
         self.assertEqual((ended["outcome"], ended["reason"], calls["mint"]), ("environment", "result_unreadable", []))
+        # What a Run was shown rides on that digest (issue 856): a Result whose `shown` drops a Finding, adds one,
+        # lists them in another order or names another text is other bytes, and is not taken.
+        first, second = showing("f_9c1e", "f_22ab")
+        told = result(shown=[first, second])
+        data = json.dumps(told).encode()
+        digest = "sha256:" + hashlib.sha256(data).hexdigest()
+        self.assertEqual(apply.taken(data, digest), told)
+        for why, forged in (("dropped", [first]), ("added", [first, second] + showing("f_0bad")),
+                            ("reordered", [second, first]), ("an edited text", [first, dict(second, text=first["text"])]),
+                            ("none", [])):
+            self.assertIsNone(apply.taken(json.dumps(result(shown=forged)).encode(), digest), why)
+        self.assertIsNone(apply.taken(json.dumps(result()).encode(), digest))
 
     def test_the_live_path_holds_a_result_to_what_was_admitted_and_the_diff_read_again(self):  # issue 567
         # As the apply step runs it: what the Decision admitted, from the pass record, and no Task built by hand, so the
