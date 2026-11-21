@@ -1332,9 +1332,8 @@ class Stands(unittest.TestCase):
 
     def test_an_issue_stands_open_held_or_closed_from_its_state_and_its_own_labels(self):
         self.assertEqual(self.stands(facts()), "open")
-        # A Hold binds whoever placed it, and only a person releases it; hands-off anyone but a person placed is read as
-        # one. A person's hands-off is no stop: the Factory never acts under it, and a dequeue is an act; a Hold beside
-        # it does not stop the pull request either, as row 1 reads a merge under it. factory:admit stops nothing.
+        # A Hold binds whoever placed it; hands-off anyone but a person placed is one. A person's hands-off, a Hold
+        # beside it too, is no stop. factory:admit stops nothing.
         for by in (WRITER, CONTROLLER, OTHER_APP, OUTSIDER, MACHINE):
             self.assertEqual(self.stands(facts(label_events=[labelled(HOLD, by)])), "held", by)
         for by in (CONTROLLER, OTHER_APP, OUTSIDER, MACHINE):

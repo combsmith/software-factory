@@ -3,7 +3,9 @@
 The issue and its timeline are read by REST, the timeline by `adapters/timeline.py` as a pull request's is: whole only
 when its last page names no next one, and an act an App made with a person's token, the opening among them, the App's
 (decision 0218). One GraphQL read gives what REST does not, `lastEditedAt` and each change of the type: a key left out
-refuses it, never reads as null. Both reads must name one `updatedAt`.
+refuses it, never reads as null. Both reads must name one `updatedAt`, and the changes of type, read whole, must
+end on REST's type where any is read: GitHub times a change seconds after the update it makes (trials/P-72.json), so
+a read between is refused as moved.
 
 `content_id` hashes the title and the body, as the pull request's hashes its diff; neither text is kept.
 
@@ -108,6 +110,20 @@ def edits(transport, repo: str, number: int) -> dict:
             "last_edited_at": None if last is None else timeline._time(last), "type_events": changes, "whole": not more}
 
 
+def typed(issue: dict, edited: dict):
+    """REST's type of the issue, held to its changes as `edits` read them. GitHub times a change of type two or three
+    seconds after the update it makes, on either timeline, so a read between gives the type changed and no change for
+    it under one `updatedAt` (trials/P-72.json): it is refused as moved where the changes, read whole, end on another
+    type. With none read, REST's type stands: an issue with no change logged is read, never deferred for good. Changes
+    read short end on none known, and leave the timeline not whole."""
+    kind, changes = _type(_field(issue, "type")), edited["type_events"]
+    if not edited["whole"]:
+        return kind
+    if changes and changes[-1]["to"] != kind:
+        raise facts.Moved("the issue's type is not its last change's; it is read again at the next pass")
+    return kind
+
+
 def content_changed_at(created: str, last_edited, events: list) -> str:
     """When the title or the body last changed: the newer of `lastEditedAt`, which moves for the body alone, and the
     timeline's last rename, or the creation while neither has moved (trials/P-34.json). No list of the body's edits is
@@ -177,6 +193,7 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
     edited = edits(transport, repo, number)
     if edited["updated_at"] != _field(issue, "updated_at"):
         raise facts.Moved("the issue changed while it was read; it is read again at the next pass")
+    kind = typed(issue, edited)
     title, body, state = _field(issue, "title"), _field(issue, "body"), _field(issue, "state")
     if state not in STATES or not isinstance(title, str) or not isinstance(body, (str, type(None))):
         raise Unanswered("the issue's state or content cannot be read")
@@ -198,7 +215,7 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
         "item": {"repo": repo, "type": "issue", "number": number},
         "state": state,
         "author": author,
-        "type": _type(_field(issue, "type")),
+        "type": kind,
         "type_events": edited["type_events"],
         "label_names": _names(_field(issue, "labels"), "name"),
         "assignees": _names(_field(issue, "assignees"), "login"),
