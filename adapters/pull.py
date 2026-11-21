@@ -37,6 +37,15 @@ EMPTY_FILE = re.compile(r"diff --git [^\n]*\n(new|deleted) file mode [0-7]{6}\n"
                         r"index ([0-9a-f]{7,64})\.\.([0-9a-f]{7,64})\n\Z")
 EMPTY = ("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
          "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813")
+# A binary file's part of a diff, ending as git ends it: its index line, then the line that says the files differ. Its
+# head's blob id, which GitHub abbreviates to 8 characters at one read and 9 at the next, is made whole from the
+# compare's files, so its content is one at every read and no blob ground to share a prefix passes for it (issue 1016).
+BINARY_FILE = re.compile(r"^index ([0-9a-f]{7,64})\.\.([0-9a-f]{7,64})((?: [0-7]{6})?)\nBinary files ([^\n]*) differ\n?\Z",
+                         re.MULTILINE)
+# A deleted file's mode line. Only a part that says it, and whose binary line names /dev/null after, is a deletion: a
+# blob ground to as many leading zeros as GitHub abbreviates is all zeros too (the security read of issue 1016).
+DELETED = re.compile(r"^deleted file mode [0-7]{6}$", re.MULTILINE)
+BLOB = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 # The account type each class needs: the Factory's Apps and a dependency bot are Bots, the Maintainer a person.
 KINDS = {"agent": "Bot", "maintainer": "User", "dependency": "Bot"}
 
@@ -213,7 +222,7 @@ def _counts(text: str):
     return files, added, deleted
 
 
-def canonical(text: str) -> str:
+def canonical(text: str, blobs=()) -> str:
     """A diff as GitHub sent it, but for each file's index line, in its header before its first hunk, whose blob ids are
     cut to their first 7 characters: the one form every reader hashes and hands on, `diff`, `change` and a review's
     content (`adapters/timeline.py`), so that the content id is the same at each read of one compare (decision 0064).
@@ -221,7 +230,16 @@ def canonical(text: str) -> str:
     Only a file whose hunks tell its content is cut, or an empty one, whose part says nothing else. Any other file's
     index line, a binary file's among them, is kept as GitHub sent it: it is all that tells that file's content, and
     git never gives two blobs one abbreviation, so cut it would let a blob made to share another's first 7 characters
-    pass as the content approved. An id shorter than 7, or longer than 64, is left as it is."""
+    pass as the content approved. An id shorter than 7, or longer than 64, is left as it is.
+
+    A binary file's part that ends as git ends it, its index line and then `Binary files ... differ`, is cut too where
+    `blobs`, the compare's files each by the path it had, its path and its full blob id, holds exactly one id, of a
+    row whose paths are the part's own header, word for word, that its head's id begins, the whole of GitHub's
+    abbreviation: that id is
+    written whole, and its base's cut to 7, as the result is the head's blob whatever the base held, and the base's is
+    of the base branch's history, which no author writes. A deleted binary file, whose part says so by its mode line
+    and by /dev/null, and whose head is no blob, all zeros, has both cut. Any other binary file keeps its index line as
+    GitHub sent it (issue 1016)."""
     starts = [found.start() for found in FILE.finditer(text)]
     parts = [text[:starts[0]] if starts else text]
     for start, end in zip(starts, starts[1:] + [len(text)]):
@@ -230,8 +248,50 @@ def canonical(text: str) -> str:
         header, hunks = (part[:hunk.start()], part[hunk.start():]) if hunk else (part, "")
         if hunk or _empty(part):
             header = INDEX.sub(r"\1\2\3", header)
+        else:
+            header = _binary(header, blobs)
         parts.append(header + hunks)
     return "".join(parts)
+
+
+def _binary(part: str, blobs) -> str:
+    """A binary file's part, its head's blob id written whole from `blobs` and its base's cut to 7, as `canonical` says;
+    or the part as it was."""
+    found = BINARY_FILE.search(part)
+    if not found:
+        return part
+    base, head, mode, files = found.groups()
+    if set(head) == {"0"} and DELETED.search(part) and files.endswith(" and /dev/null"):
+        whole = head[:7]
+    else:
+        first = part.split("\n", 1)[0]
+        named = {blob for before, name, blob in blobs
+                 if blob.startswith(head) and first == "diff --git a/%s b/%s" % (before, name)}
+        if len(named) != 1:
+            return part
+        whole = named.pop()
+    return part[:found.start()] + "index %s..%s%s" % (base[:7], whole, mode) + part[found.end(3):]
+
+
+def blobs(transport, path: str, text: str) -> tuple:
+    """Each file the compare at `path` lists, by the path it had, its path and its head's full blob id, read only
+    where `text`, that compare's diff, holds a binary file's part: what `canonical` writes such a file's index line from (issue 1016). A compare
+    whose files cannot be read, its read not answered among them, gives none, and a binary file's index line is then kept as GitHub sent it, a content
+    that may move, never one taken for another."""
+    starts = [found.start() for found in FILE.finditer(text)]
+    if not any(BINARY_FILE.search(text[start:end]) for start, end in zip(starts, starts[1:] + [len(text)])):
+        return ()
+    try:
+        answer = transport.send(request("GET", path))
+    except Unanswered:
+        return ()
+    rows = answer["body"].get("files") if answer["status"] == 200 and isinstance(answer["body"], dict) else None
+    if not isinstance(rows, list):
+        return ()
+    return tuple((row["previous_filename"] if isinstance(row.get("previous_filename"), str) else row["filename"],
+                  row["filename"], row["sha"]) for row in rows if isinstance(row, dict)
+                 and isinstance(row.get("filename"), str) and isinstance(row.get("sha"), str) and BLOB.fullmatch(row["sha"])
+                 and set(row["sha"]) != {"0"})
 
 
 def _empty(part: str) -> bool:
@@ -287,7 +347,7 @@ def diff(transport, pull: dict, base_head: str) -> dict:
     text = _ok(answer, "the diff")
     if not isinstance(text, str):
         raise Unanswered("the diff is not text")
-    text = canonical(text)
+    text = canonical(text, blobs(transport, path, text))
     whole = _counts(text) == (files, added, deleted)
     # Counted as harness/task.py counts the Task's diff, numbered (decision 0137) and escaped as JSON, so the Kernel's
     # bound and the Harness's are one (issue 327). Bytes that are no UTF-8 are no Task at all: their length is not
@@ -305,11 +365,12 @@ def change(transport, pull: dict, base_head: str) -> bytes:
     """The bytes of the diff `diff` reads, by the same compare pinned to the head of the pull request's read, as GitHub
     sent them but for the index lines `diff` cuts, so that their sha256 is the content id; refused for a diff GitHub
     would not serve, or one that is not text. A Run is given these bytes, and only once they hash to the content its Decision admitted (`harness/task.py`)."""
-    answer = transport.send(request("GET", _compare(pull, base_head), accept=DIFF))
+    path = _compare(pull, base_head)
+    answer = transport.send(request("GET", path, accept=DIFF))
     text = _ok(answer, "the diff")
     if not isinstance(text, str) or not text:
         raise Unanswered("the diff is not text")
-    return raw(canonical(text))
+    return raw(canonical(text, blobs(transport, path, text)))
 
 
 def changed_paths(transport, pull: dict, base_head: str) -> dict:

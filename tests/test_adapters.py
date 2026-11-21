@@ -20,7 +20,7 @@ import urllib.parse
 import zipfile
 from unittest import mock
 
-from adapters import acceptance, applied, artifacts, checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
+from adapters import acceptance, applied, artifacts, checks, draft_checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
     passes, pull, records, pause, rules, texts, threads, timeline
 from controller import shared
 from harness import task
@@ -973,6 +973,139 @@ class Diff(unittest.TestCase):
                   "Binary files a/logo.png and b/logo.png differ\n")
         self.assertEqual(pull.canonical(binary + text % "0e91505d0..9f114f5d8 100644"),
                          binary + text % "0e91505..9f114f5 100644")
+
+    def test_a_binary_files_change_is_bound_to_its_full_blob_id(self):  # issue 1016
+        # A binary file's change has no hunks, so its index line is all that tells it. GitHub abbreviates its ids to 8
+        # characters at one read and 9 at the next; cut to 7, a blob ground to share an approved one's first 7 would
+        # pass for it. So its head's id is written whole, from the compare's row for its own path, and its base's, of
+        # the base branch's history, cut to 7: one content at every read, and no other blob's.
+        head = "9f114f5d8" + "a" * 31
+        ground = "9f114f5d8" + "b" * 31
+        other = "77da7d97f" + "c" * 31
+
+        def binary(ids: str, mode: str = " 100644", name: str = "img.png") -> str:
+            return ("diff --git a/%s b/%s\nindex %s%s\nBinary files a/%s and b/%s differ\n"
+                    % (name, name, ids, mode, name, name))
+
+        def at(*shas, name: str = "img.png", before: str = None) -> tuple:
+            return tuple((before or name, name, sha) for sha in shas)
+        bound = binary("0e91505..%s" % head)
+        for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8", "0e91505..9f114f5", "0e91505d0" + "1" * 31 + ".." + head):
+            self.assertEqual(pull.canonical(binary(ids), at(other, head)), bound, ids)
+        # A blob ground to share the approved one's prefix is another content.
+        self.assertNotEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(ground)), bound)
+        # GitHub's whole abbreviation is matched, not its first 7: a blob it contradicts at its eighth digit is none.
+        near = "9f114f5e" + "d" * 32
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(head, near)), bound)
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(near)), binary("0e91505d..9f114f5d"))
+        # Only the row whose paths are the part's own header, word for word, binds it: a blob another path's row names,
+        # though the abbreviation begins it, is none (Astra's read), nor one of a path the header only ends with, as a
+        # space is not quoted (the security read).
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(head, name="other.png")), binary("0e91505d..9f114f5d"))
+        crafted = binary("0e91505d..9f114f5d", name="foo b/img.png")
+        self.assertEqual(pull.canonical(crafted, at(head)), crafted)
+        self.assertEqual(pull.canonical(crafted, at(head, name="foo b/img.png")), binary("0e91505..%s" % head, name="foo b/img.png"))
+        moved = ("diff --git a/old.png b/new.png\nsimilarity index 50%%\nrename from old.png\nrename to new.png\n"
+                 "index %s 100644\nBinary files a/old.png and b/new.png differ\n")
+        self.assertEqual(pull.canonical(moved % "0e91505d..9f114f5d", at(head, name="new.png", before="old.png") + at(ground, name="new.png")
+                                        + at(ground, name="old.png", before="old.png")),
+                         moved % ("0e91505..%s" % head))
+        # Without a mode, of another mode, of SHA-256, last in the diff with no newline after, and added.
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d", ""), at(head)), binary("0e91505..%s" % head, ""))
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d", " 100755"), at(head)), binary("0e91505..%s" % head, " 100755"))
+        wide = "9f114f5d8" + "e" * 55
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(wide)), binary("0e91505..%s" % wide))
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d")[:-1], at(head)), bound[:-1])
+        added = "diff --git a/n.png b/n.png\nnew file mode 100644\nindex %s\nBinary files /dev/null and b/n.png differ\n"
+        self.assertEqual(pull.canonical(added % "00000000..9f114f5d", at(head, name="n.png")), added % ("0000000..%s" % head))
+        # A deleted file's head is no blob, so both its ids are cut, files or none.
+        gone = "diff --git a/g.png b/g.png\ndeleted file mode 100644\nindex %s\nBinary files a/g.png and /dev/null differ\n"
+        for ids in ("0e91505d..00000000", "0e91505d0..000000000"):
+            self.assertEqual(pull.canonical(gone % ids), gone % "0e91505..0000000", ids)
+        # The security read: a blob ground to as many leading zeros as GitHub abbreviates is all zeros too, so only a
+        # part that says it was deleted, by its mode line and by /dev/null, is read as a deletion; any other is bound to
+        # its own full id, and two such blobs are two contents.
+        zeros, more = "0" * 9 + "a" * 31, "0" * 9 + "b" * 31
+        for ids in ("0e91505d..00000000", "0e91505d0..000000000"):
+            self.assertEqual(pull.canonical(binary(ids), at(zeros)), binary("0e91505..%s" % zeros), ids)
+            self.assertNotEqual(pull.canonical(binary(ids), at(zeros)), pull.canonical(binary(ids), at(more)), ids)
+            self.assertEqual(pull.canonical(binary(ids)), binary(ids), ids)
+            for half in (gone.replace("deleted file mode 100644\n", ""), gone.replace(" and /dev/null", " and b/g.png")):
+                self.assertEqual(pull.canonical(half % ids), half % ids, half)
+        # Where the files name no blob the head's id begins, or more than one, or none at all, the line is kept as
+        # GitHub sent it: a content that may move, never one taken for another.
+        for given in ((), at(other), at(head, ground[:8] + "9" + ground[9:]), at("9f114f5d" + "e" * 32, head[:9] + "f" * 31)):
+            self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), given), binary("0e91505d..9f114f5d"), given)
+        # A part that ends otherwise, says more after its binary line, or carries an id longer than git gives, is kept.
+        for kept in (binary("0e91505d..9f114f5d").replace(" differ\n", " differ\nmore\n"),
+                     binary("0e91505d..9f114f5d").replace("Binary files", "Binary Files"),
+                     binary("0e91505d..9f114f5d").replace("100644", "100644 and more"),
+                     binary("0e91505d.." + "9" * 65)):
+            self.assertEqual(pull.canonical(kept, at(head, "9" * 64)), kept, kept)
+        # Through the port: the content id, the bytes a Run is given and a review's content are one at either read,
+        # whichever file the binary one is; the compare's files are asked of the same pinned compare as the diff, and
+        # only for a diff that holds a binary file; a row whose sha is no blob id, of the wrong length or shape, a
+        # newline after it among them, is none.
+        data = body("P-29.base", 1)
+        data.update(changed_files=2, additions=1, deletions=1)
+        commit = data["head"]["sha"]
+        text = "diff --git a/f.py b/f.py\nindex %s\n--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
+        files = {"files": [{"filename": "f.py", "sha": "x" * 40}, {"filename": "img.png", "sha": head},
+                           {"filename": "img.png", "sha": other.upper()}, {"filename": "img.png", "sha": head[:9] + "Z" * 31},
+                           {"filename": "img.png", "sha": head[:39]}, {"filename": "img.png", "sha": head + "0"},
+                           {"filename": "img.png", "sha": head[:9] + "f" * 31 + "\n"}, {"filename": 7, "sha": ground},
+                           {"sha": ground}, {"filename": "img.png"}]}
+
+        class Sent:
+            def __init__(self, diff: str, compared):
+                self.answers, self.asked = {github.DIFF: diff, github.JSON: compared}, []
+
+            def send(self, req):
+                self.asked.append((req["method"], req["path"], req["accept"]))
+                found = self.answers[req["accept"]]
+                if found is github.Unanswered:
+                    raise github.Unanswered("no answer")
+                return found if isinstance(found, dict) and "status" in found else {"status": 200, "headers": {}, "body": found}
+        seen = set()
+        pinned = "/repos/%s/compare/%s...%s" % (data["base"]["repo"]["full_name"], PINNED_BASE, commit)
+        reviewed = "/repos/%s/compare/%s...%s" % (canary(), BASE_HEAD, commit)
+        for ids, short in (("0e91505d..9f114f5d", "1aab6ce4..2bbc7df5"), ("0e91505d0..9f114f5d8", "1aab6ce4a..2bbc7df5b")):
+            for sent in (binary(ids) + text % short, text % short + binary(ids)):
+                read, given_, review_ = Sent(sent, files), Sent(sent, files), Sent(sent, files)
+                got = pull.diff(read, data, PINNED_BASE)
+                given = pull.change(given_, data, PINNED_BASE)
+                review = timeline._content(review_, canary(), BASE_HEAD, commit)
+                first = sent.startswith("diff --git a/img.png")
+                seen.add((first, got["content_id"], "sha256:" + hashlib.sha256(given).hexdigest(), review))
+                for asked, path in ((read, pinned), (given_, pinned), (review_, reviewed)):
+                    self.assertEqual(asked.asked, [("GET", path, github.DIFF), ("GET", path, github.JSON)])
+        tail = text % "1aab6ce..2bbc7df"
+        self.assertEqual(seen, {(True,) + ("sha256:" + hashlib.sha256((bound + tail).encode()).hexdigest(),) * 3,
+                                (False,) + ("sha256:" + hashlib.sha256((tail + bound).encode()).hexdigest(),) * 3})
+        asked = Sent(text % "1aab6ce4..2bbc7df5", files)
+        pull.diff(asked, data, PINNED_BASE)
+        self.assertEqual(asked.asked, [("GET", pinned, github.DIFF)])
+        # A compare whose files cannot be read gives none: the binary file's line is GitHub's, at each read its own.
+        for unread in ({"status": 500, "headers": {}, "body": files}, {"files": "x"}, ["x"], {"files": [None, {"sha": 1}]},
+                       github.Unanswered):
+            got = {pull.diff(Sent(binary(ids) + text % "1aab6ce4..2bbc7df5", unread), data, PINNED_BASE)["content_id"]
+                   for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8")}
+            self.assertEqual(len(got), 2, unread)
+        # A row of no blob, all zeros, names none: a ground binary whose own row is not listed is kept, never bound to
+        # zeros (the security read).
+        # A renamed file's row binds it by the path it had and the path it has.
+        renamed = {"files": [{"filename": "new.png", "previous_filename": "old.png", "status": "renamed", "sha": head}]}
+        got = {pull.diff(Sent(moved % ids + text % "1aab6ce4..2bbc7df5", renamed), data, PINNED_BASE)["content_id"]
+               for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8")}
+        self.assertEqual(len(got), 1)
+        # A row of SHA-256's whole id binds as SHA-1's does.
+        got = {pull.diff(Sent(binary(ids) + text % "1aab6ce4..2bbc7df5", {"files": [{"filename": "img.png", "sha": wide}]}),
+                         data, PINNED_BASE)["content_id"] for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8")}
+        self.assertEqual(len(got), 1)
+        nulls = {"files": [{"filename": "img.png", "sha": "0" * 40}]}
+        got = {pull.diff(Sent(binary(ids) + text % "1aab6ce4..2bbc7df5", nulls), data, PINNED_BASE)["content_id"]
+               for ids in ("0e91505d..00000000", "0e91505d0..000000000")}
+        self.assertEqual(len(got), 2)
 
     def test_a_diff_github_will_not_serve_is_truncated_and_new_content_at_every_push(self):
         # trials/P-29.truncated.json: 3,001 files, a 406 too_large. Read whole, so the Kernel holds it as too large;
@@ -4902,6 +5035,10 @@ WHY = {"controller", "kernel", "issues_port"}
 # as no answer, never as one (FR-56); a refusal recorded later fails here until it is placed.
 REFUSALS = {
     ("P-68", 6): None,                 # the download of an artifact deleted, 404: the port downloads only what a list names
+    # A push by the git data API (P-71, issue 838): the work branch absent, 404, which the push guard reads as the branch
+    # the Decision admitted none of; the branch made again where it stands, 422; and two moves without force that are no
+    # fast-forward, 422. No port pushes until the push port is built.
+    ("P-71", 4): None, ("P-71", 12): None, ("P-71.moved", 6): None, ("P-71.moved", 8): None,
     ("P-12", 16): None,                # an output past GitHub's limit, 422: no port writes the status until it is built
     ("P-41", 26): None,                # the controller's label on 64 at issues: write and pull_requests: read, 403
     ("P-41", 27): None,                # its removal, 403 too: no port writes a label until the label act is built
@@ -7372,6 +7509,126 @@ class Rules(unittest.TestCase):
                 protected.load(path)
             with self.assertRaises(protected.Unreadable):
                 protected.load(pathlib.Path(d) / "nowhere.json")
+
+
+class DraftChecks(unittest.TestCase):
+    """A linked draft the Factory opened carries its head's required checks, where the issue rule would act on them
+    (decision 0217, issue 878: the Factory Builder's rulings Q1 to Q5, option A each)."""
+
+    @staticmethod
+    def kernel(author="dev-lead"):
+        from tests.support import CONFIG
+        return dict(CONFIG, author_role=author)
+
+    @staticmethod
+    def check(name, conclusion="success", app=15368, workflow=None, suite="success", run=7):
+        return {"name": name, "app_id": app, "workflow": workflow, "conclusion": conclusion,
+                "completed_at": "2026-10-20T00:51:22Z", "run_id": run, "suite_conclusion": suite}
+
+    def passing(self):
+        return [self.check("verify", workflow=".github/workflows/verify.yml", run=1),
+                self.check("Secret scan (gitleaks)", workflow=".github/workflows/ci.yml", run=2),
+                self.check("CodeQL", app=57789, run=None, suite=None)]
+
+    def test_a_drafts_checks_are_read_as_the_pull_requests_kernel_reads_each_required_lens(self):
+        kernel, ok = self.kernel(), self.passing()
+        self.assertEqual([lens["check"] for lens in kernel["required_lenses"]["deterministic"]],
+                         ["verify", "Secret scan (gitleaks)", "CodeQL"])
+        self.assertEqual(draft_checks.verdict(ok, kernel), "passing")
+        failed = [dict(ok[0], conclusion="failure")] + ok[1:]
+        self.assertEqual(draft_checks.verdict(failed, kernel), "failing")
+        # A failing Lens is failing beside one pending, not yet listed or concluding (Astra).
+        self.assertEqual(draft_checks.verdict(failed[:2], kernel), "failing")
+        self.assertEqual(draft_checks.verdict(failed[:2] + [dict(ok[2], conclusion="in_progress", completed_at=None)], kernel),
+                         "failing")
+        # A Lens not yet listed, as for a few seconds after a push (P-42), or still running, is pending, never failing.
+        self.assertEqual(draft_checks.verdict(ok[:2], kernel), "pending")
+        self.assertEqual(draft_checks.verdict([dict(ok[0], conclusion="in_progress", suite_conclusion=None)] + ok[1:], kernel), "pending")
+        # A failing check whose suite has not concluded is concluding: pending, since its run may yet be stopped (Q5).
+        self.assertEqual(draft_checks.verdict([dict(ok[0], conclusion="failure", suite_conclusion=None)] + ok[1:], kernel),
+                         "pending")
+        # A Lens with no verdict, or a check under a Lens's name from another App, leaves the checks unread, even beside
+        # a failing Lens: an unreadable fact defers (Q5).
+        for bad in ([dict(ok[0], conclusion="neutral")] + ok[1:],
+                    ok + [self.check("verify", app=99, workflow=".github/workflows/verify.yml")],
+                    [dict(ok[0], conclusion="neutral"), dict(ok[1], conclusion="failure"), ok[2]],
+                    [dict(ok[0], conclusion="failure"), dict(ok[1], conclusion="neutral"), ok[2]],
+                    [dict(ok[0], conclusion="failure")] + ok[1:] + [self.check("CodeQL", app=99)]):
+            self.assertIsNone(draft_checks.verdict(bad, kernel), bad)
+        # Read through the checks port: one it refuses, or reads short, leaves them unread (Q3).
+        with mock.patch.object(draft_checks.checks, "read", lambda t, p: {"checks": failed, "complete": True, "queue": False}):
+            self.assertEqual(draft_checks.read(None, {}, kernel), "failing")
+        with mock.patch.object(draft_checks.checks, "read", lambda t, p: {"checks": failed, "complete": False, "queue": False}):
+            self.assertIsNone(draft_checks.read(None, {}, kernel))
+
+        def moved(t, p):
+            raise github.Unanswered("the pull request's head moved while its checks were read")
+        with mock.patch.object(draft_checks.checks, "read", moved):
+            self.assertIsNone(draft_checks.read(None, {}, kernel))
+        # Through the real checks port, of REST's read of the draft: its rollup asked by owner, name and number, read of
+        # its head; one of another head is null.
+        def run(name, workflow, conclusion, n, app=15368):
+            return {"__typename": "CheckRun", "id": "c%d" % n, "name": name, "status": "COMPLETED", "conclusion": conclusion,
+                    "completedAt": "2026-10-20T00:51:22Z", "databaseId": n,
+                    "detailsUrl": "https://github.com/o/r/actions/runs/%d/job/%d" % (100 + n, n) if workflow else None,
+                    "checkSuite": {"app": {"databaseId": app}, "conclusion": conclusion,
+                                   "workflowRun": {"databaseId": 100 + n, "file": {"path": workflow}} if workflow else None}}
+
+        def answer(head, nodes):
+            asked = {"query": checks.QUERY, "variables": {"owner": "o", "name": "r", "number": 5, "after": None}}
+            node = {"headRefOid": head, "mergeQueueEntry": None, "commits": {"nodes": [{"commit": {"oid": head,
+                    "statusCheckRollup": {"contexts": {"totalCount": len(nodes), "pageInfo": {"hasNextPage": False,
+                                                                                            "endCursor": None},
+                                                       "nodes": nodes}}}}]}}
+            return {"request": {"via": "graphql", "call": "POST /graphql", "headers": {}, "body": asked},
+                    "response": {"status": 200, "headers": {}, "body": {"data": {"repository": {"pullRequest": node}}}}}
+        nodes = [run("verify", ".github/workflows/verify.yml", "FAILURE", 1),
+                 run("Secret scan (gitleaks)", ".github/workflows/ci.yml", "SUCCESS", 2),
+                 run("CodeQL", None, "SUCCESS", 3, app=57789)]
+        draft = pull_read(5, user=CONTROLLER_APP, draft=True)["response"]["body"]
+        self.assertEqual(draft_checks.read(github.Replay([answer("a" * 40, nodes)]), draft, kernel), "failing")
+        self.assertIsNone(draft_checks.read(github.Replay([answer("b" * 40, nodes)]), draft, kernel))
+        # A configuration that cannot be read leaves the checks unread, never raising out of the port.
+        self.assertIsNone(draft_checks.read(github.Replay([answer("a" * 40, nodes)]), draft, {}))
+
+    def test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read(self):  # Q2
+        mine = {"class": "agent", "state": "open", "is_draft": True}
+        self.assertTrue(draft_checks.asked(self.kernel(), mine))
+        for kernel, own in ((self.kernel(None), mine), (None, mine), (self.kernel(), dict(mine, **{"class": "maintainer"})),
+                            (self.kernel(), dict(mine, state="closed")), (self.kernel(), dict(mine, is_draft=False))):
+            self.assertFalse(draft_checks.asked(kernel, own), (kernel and kernel["author_role"], own))
+        # Through the linked read: the Factory's draft carries `checks`, read of its own head, and with no author Role
+        # named, or another's draft, none is read and none carried.
+        asked = []
+
+        def read(transport, got, kernel):
+            asked.append((got["number"], got["head"]["sha"]))
+            self.assertIs(kernel, given)
+            return "failing"
+        given = self.kernel()
+        router = lambda: Router(github.Replay([linked_read(ref(5, 6)), pull_read(5, user=CONTROLLER_APP, draft=True),
+                                               pull_timeline(5), pull_read(6, draft=True), pull_timeline(6)]),
+                                {"don-petry": "admin"})
+        with mock.patch.object(draft_checks, "read", read):
+            transport = router()
+            found = linked.listing(transport, "o/r", 41, UPDATED, CREATED, IDENTITIES, Linked().accounts(transport), {},
+                                   given)[0]
+            self.assertEqual([(p["number"], p.get("checks")) for p in found], [(5, "failing"), (6, None)])
+            self.assertEqual(("checks" in found[1], asked), (False, [(5, "a" * 40)]))
+            transport = router()
+            found = linked.listing(transport, "o/r", 41, UPDATED, CREATED, IDENTITIES, Linked().accounts(transport), {},
+                                   self.kernel(None))[0]
+            self.assertEqual([("checks" in p) for p in found], [False, False])
+            self.assertEqual(len(asked), 1)
+            # The issues port hands the linked read the configuration it is given.
+            transport = router()
+            accounts = Linked().accounts(transport)
+            exchanges_ = issue_read(closing=[linked_read(ref(5, 6)), pull_read(5, user=CONTROLLER_APP, draft=True),
+                                             pull_timeline(5), pull_read(6, draft=True), pull_timeline(6)])
+            transport = Router(github.Replay(exchanges_), {"don-petry": "admin"})
+            got = issues.read(transport, "o/r", 41, timeline.Accounts(transport, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]}),
+                              lambda: Issues.NOW, identities=IDENTITIES, earlier=[], kernel=given)[0]
+            self.assertEqual([p.get("checks") for p in got["linked"]], ["failing", None])
 
 
 if __name__ == "__main__":

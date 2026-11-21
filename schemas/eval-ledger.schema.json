@@ -12,7 +12,8 @@
     "intent",
     "set",
     "cases",
-    "preflight"
+    "preflight",
+    "cells"
   ],
   "properties": {
     "schema": {
@@ -399,6 +400,54 @@
           "result": {
             "description": "The Result the review returned for the case, whole, where it returned one: its Findings' words among it. Sealed, never uploaded in the clear.",
             "$ref": "result.schema.json"
+          }
+        }
+      }
+    },
+    "cells": {
+      "description": "Every cell of the groups the set's report counts: a kind, the criterion the set floors or none, natural or not, how many cases it holds at the width of the set's count, and whether those are a few, 1 or 0. Sealed, told nowhere public, and of a length the manifest alone fixes (decision 0220). Null where a case was not read or its answer is no kind.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "criterion",
+          "natural",
+          "cases",
+          "few"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "finding",
+              "met"
+            ]
+          },
+          "criterion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Z]+-[0-9]+$"
+          },
+          "natural": {
+            "type": "boolean"
+          },
+          "cases": {
+            "type": "string",
+            "pattern": "^[0-9]{1,9}$"
+          },
+          "few": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ]
           }
         }
       }
