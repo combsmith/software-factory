@@ -58,6 +58,7 @@ def ran(step, *given):
 
 
 ISSUE_TEXT = {"id": "issue:7", "by": {"kind": "human", "name": "don-petry", "can_write": True}, "body": "What it asks."}
+LENS = {"kind": "lens", "name": "pr-review", "can_write": False}
 
 class Shared(unittest.TestCase):
     def test_a_steps_files_are_new_and_its_own(self):
@@ -195,7 +196,7 @@ class Reader(unittest.TestCase):
     """The reader's step, its ports stood in for: what it reads, what it holds them to, and its token."""
 
     def go(self, record=RECORD, head=HEAD, first=HEAD, change=DIFF, revoked=True, argv=None, environ=None, complete=True,
-           refs=TAGS, commit=CHECKED_OUT, tarred=None, tree=None, raising=None):
+           refs=TAGS, commit=CHECKED_OUT, tarred=None, tree=None, raising=None, threads=(), said=None, runs=()):
         """`commit` is what `steps.commit()` gives, or a function that stands in for it; `tarred` what the head's
         tarball read gives for a commit, or raises; `tree` what the read of the commit's tree gives, or raises: by default
         the tree of the one file `support.tarball` holds. `raising`, where given, is `(module, name, error)`: that read
@@ -223,9 +224,9 @@ class Reader(unittest.TestCase):
                 calls["revoked"] += 1
                 return revoked
             return "the reader's transport", revoke
-        facts = support.facts(item=dict(support.ITEM, number=42), content_id=CONTENT)
+        facts = support.facts(item=dict(support.ITEM, number=42), content_id=CONTENT, threads=list(threads))
         pulled = {"head": {"sha": first}, "number": 42}
-        listed = {"runs": [], "unidentified": [], "complete": complete, "reads": [], "github_ids": {}}
+        listed = {"runs": list(runs), "unidentified": [], "complete": complete, "reads": [], "github_ids": {}}
         calls["recorded"], calls["listed"], calls["asked"], calls["opener"] = [], [], [], []
         calls["opened"], calls["opened_role"] = [], []
         made = {"named": {26: [("r_01JA7Q", 36)]}, "unreadable": set(), "whole": True}
@@ -238,7 +239,18 @@ class Reader(unittest.TestCase):
 
         def read_issues(transport, pull_read, who, opener, opened):
             calls["issues"] = (pull_read is pulled, opener, opened is made)
+            calls["accounts"] = who
             return [ISSUE_TEXT]
+
+        def read_findings(transport, pull_read, who, lens, asked):
+            # Whose comment is the Lens's own is the port's to tell by the accounts the reader types, the ones it reads
+            # the issues by (issue 856).
+            calls.setdefault("findings", []).append((transport, pull_read is pulled, isinstance(who, read.timeline.Accounts), lens,
+                                                     list(asked)))
+            calls.setdefault("findings_by", []).append(who)
+            if said is not None:
+                return said(asked)
+            return [{"id": "thread:%s" % ident, "by": dict(LENS), "body": "What it said on %s." % ident} for ident in asked]
 
         def read_opened(transport, repo, runs, role):
             calls["opened_role"].append(role)
@@ -259,6 +271,7 @@ class Reader(unittest.TestCase):
                 unittest.mock.patch.object(read.pull, "base", lambda *a: {"head": "b" * 40}), \
                 unittest.mock.patch.object(read.pull, "change", lambda *a: change), \
                 unittest.mock.patch.object(read.texts, "issues", read_issues), \
+                unittest.mock.patch.object(read.texts, "findings", read_findings), \
                 unittest.mock.patch.object(read.head_, "fetch", fetched), \
                 unittest.mock.patch.object(read.head_, "tree", tree_read), \
                 contextlib.ExitStack() as more:
@@ -297,7 +310,12 @@ class Reader(unittest.TestCase):
         # Of the run list of both Role workflows, the model Lenses' Runs on this item, held to the authority table.
         # No job is asked: this read hands the Kernel no run record, so when a Run began is nothing to it, and jobs
         # that could not be read would refuse a Task for nothing (decision 0199).
-        self.assertEqual(calls["listed"], [(["run.yml", "approve.yml"], {})])
+        # The outcomes the pass record read are kept, not read again.
+        self.assertEqual(calls["listed"], [(["run.yml", "approve.yml"], reread.held(RECORD))])
+        failed = dict(tc.run(status="completed", conclusion="failure", outcome="environment"), engine_started=False)
+        key = (failed["run"], failed["started_at"])
+        self.assertEqual(self.go(record=dict(RECORD, runs=[failed]))[4]["listed"],
+                         [(["run.yml", "approve.yml"], {"kept": {key: "environment"}, "engines": {key: False}})])
         self.assertEqual(calls["asked"], [{"repo": HOME, "numbers": [42], "lenses": {"pr-review"}, "authority": AUTHORITY}])
         # A list read short holds them to nothing recorded, not whole: the Task is refused rather than built on it.
         self.assertEqual(self.go(complete=False)[4]["recorded"], [({}, False, [])])
@@ -316,6 +334,77 @@ class Reader(unittest.TestCase):
             pathlib.Path(d, "task", "run").write_text("../../x\n")
             with self.assertRaises(run.task.Refused):
                 run.from_folder("task", "result", d)
+
+    def test_the_reader_hands_a_review_its_lenss_open_findings_and_what_it_said(self):  # issue 856
+        # A review rules on a Finding only if it is shown it. The reader lists each open thread of the Run's own Lens
+        # that gates, `apply.shown` of the facts, as a Finding of the Task, and reads what the Lens said on it, by the
+        # thread's id, as the text `finding:` and the Finding's id, before the issue's.
+        fid = lambda key: read.apply.finding_id("pr-review", {"type": "thread", "key": key})
+        threads = [support.thread("PRRT_kw7"), support.thread("PRRT_kw9", kind="human", name="don-petry"),
+                   support.thread("PRRT_kw8", category="security"), support.thread("PRRT_kw14", severity="blocking")]
+        code, printed, files, kept, calls = self.go(threads=threads)
+        self.assertEqual(code, 0, printed)
+        self.assertEqual(calls["findings"], [("the reader's transport", True, True, "pr-review", [key])
+                                             for key in ("PRRT_kw7", "PRRT_kw14")])
+        self.assertTrue(all(who is calls["accounts"] for who in calls["findings_by"]))
+        self.assertEqual(json.loads(kept["findings.json"]), [fid("PRRT_kw7"), fid("PRRT_kw14")])
+        self.assertEqual(json.loads(kept["texts.json"]), [
+            {"id": "finding:" + fid("PRRT_kw7"), "by": LENS, "body": "What it said on PRRT_kw7."},
+            {"id": "finding:" + fid("PRRT_kw14"), "by": LENS, "body": "What it said on PRRT_kw14."}, ISSUE_TEXT])
+        # A thread the Kernel reads as closed is shown no review: one its Lens's later review dropped, resolved by the
+        # queue App with no ruling, is superseded once that review succeeded on this content after the push (issue 968).
+        dropped = support.thread("PRRT_kw15", resolved=True, ruling=None, dropped=True, at="2026-10-11T11:00:00Z")
+        later = support.run(content=CONTENT, at="2026-10-11T12:30:00Z")
+        later["item"] = dict(later["item"], number=42)
+        earlier = dict(support.run(content="sha256:0ld", at="2026-10-11T12:20:00Z", name="r0"), item=later["item"])
+        for runs in ([later], [earlier, later]):
+            code, printed, files, kept, calls = self.go(threads=threads + [dropped], runs=runs)
+            self.assertEqual((code, json.loads(kept["findings.json"])), (0, [fid("PRRT_kw7"), fid("PRRT_kw14")]), printed)
+            self.assertNotIn("PRRT_kw15", [key for call in calls["findings"] for key in call[4]])
+        # Marks that cannot be made are none: the facts are read as they came, and the review is shown more, never less.
+        with unittest.mock.patch.object(read.derive, "as_read", side_effect=KeyError("item")):
+            code, printed, files, kept, calls = self.go(threads=threads + [dropped], runs=[later])
+        self.assertEqual((code, json.loads(kept["findings.json"])), (0, [fid("PRRT_kw7"), fid("PRRT_kw14"), fid("PRRT_kw15")]),
+                         printed)
+        # Without that review the Kernel reads it open, and it is shown.
+        code, printed, files, kept, calls = self.go(threads=threads + [dropped])
+        self.assertEqual((code, json.loads(kept["findings.json"])), (0, [fid("PRRT_kw7"), fid("PRRT_kw14"), fid("PRRT_kw15")]),
+                         printed)
+        # With none to show, nothing is asked of the texts port for it.
+        self.assertNotIn("findings", self.go(threads=threads[1:3])[4])
+        # A thread whose words are not its Lens's own, an edited comment's among them, is the item's own state, which
+        # anyone who can write may make: the Finding is listed and given no text, so that `run` asks nothing and ends as
+        # the item's; the step does not stop, or an edited comment on two pull requests could pause the Factory.
+        def edited(asked):
+            if asked == ["PRRT_kw7"]:
+                raise read.texts.NotOwn("a thread's first comment is a reply, or was edited")
+            return [{"id": "thread:%s" % ident, "by": dict(LENS), "body": "What it said on %s." % ident} for ident in asked]
+        code, printed, files, kept, calls = self.go(threads=threads, said=edited)
+        self.assertEqual(code, 0, printed)
+        self.assertEqual(json.loads(kept["findings.json"]), [fid("PRRT_kw7"), fid("PRRT_kw14")])
+        self.assertEqual(json.loads(kept["texts.json"]), [
+            {"id": "finding:" + fid("PRRT_kw14"), "by": LENS, "body": "What it said on PRRT_kw14."}, ISSUE_TEXT])
+        # More threads than the port reads: each is listed, none is shown, and nothing is asked of the port.
+        many = [support.thread("PRRT_kw%d" % n) for n in range(100, 100 + read.texts.THREADS + 1)]
+        code, printed, files, kept, calls = self.go(threads=many)
+        self.assertEqual((code, len(json.loads(kept["findings.json"])), json.loads(kept["texts.json"]), "findings" in calls),
+                         (0, read.texts.THREADS + 1, [ISSUE_TEXT], False), printed)
+        self.assertEqual(len(json.loads(self.go(threads=many[1:])[3]["texts.json"])), read.texts.THREADS + 1)
+        # A thread in a shape the Kernel's reading does not take, resolved by an account the port could not type, is the
+        # item's own state: no Finding is listed and the step does not stop; `apply` asks the Kernel again, which defers.
+        for unread in (dict(support.thread("PRRT_kw7"), resolved=True, resolved_by=None),
+                       {k: v for k, v in support.thread("PRRT_kw7").items() if k != "severity"}):
+            code, printed, files, kept, calls = self.go(threads=[unread, support.thread("PRRT_kw14")])
+            self.assertEqual((code, json.loads(kept["findings.json"]), json.loads(kept["texts.json"]), "findings" in calls),
+                             (0, [], [ISSUE_TEXT], False), printed)
+        # A read GitHub did not answer builds no Task: the step stops by its code, the token revoked, and so it does
+        # where the port answers other than one text for the thread.
+        for threads_, raising, said in ((threads, (read.texts, "findings", read.Unanswered("a thread's read answered 502")), None),
+                                        (threads, None, lambda asked: []),
+                                        (threads, None, lambda asked: [{"id": "thread:x", "by": LENS, "body": "x"}] * 2)):
+            code, printed, files, kept, calls = self.go(threads=threads_, raising=raising, said=said)
+            self.assertEqual((code, files, calls["revoked"]), (1, [], 1), printed)
+            self.assertIn("finding_texts_unreadable", printed)
 
     def test_a_head_that_cannot_be_read_or_unpacked_whole_builds_no_task(self):
         # Decision 0138: the review reads the head, so a head the reader cannot read, or an archive it will not write,
@@ -665,14 +754,14 @@ class Apply(unittest.TestCase):
                              (github.Unanswered("no answer"), ("environment", "facts_unreadable")),
                              # Named by the read again's stage and the snapshot's part (pull request 688, the dry run).
                              (staged, ("environment", "snapshot_timeline_unreadable"))):
-            def reading(*a, raised=raised):
+            def reading(*a, raised=raised, **k):
                 raise raised
             with unittest.mock.patch.object(reread, "item", reading):
                 code, _, ended, _ = self.go(a_job=lambda admit, result, read_, *a: read_())
             self.assertEqual((ended["outcome"], ended["reason"]), want, raised)
         # A fault of the read's own code is told its stage (decision 0187), and apply still fails on it as it did: by
         # no read's code, and with no outcome of its own.
-        def faulty(*a):
+        def faulty(*a, **k):
             with shared.staged("context"):
                 raise TypeError("an answer no adapter expected")
         with unittest.mock.patch.object(reread, "item", faulty):
@@ -687,7 +776,8 @@ class Apply(unittest.TestCase):
             raise reread.facts_.Moved("moved")
         with unittest.mock.patch.object(reread, "item", plain):
             self.go(a_job=lambda admit, result, read_, *a: read_())
-        self.assertEqual(asked_for, [{}])
+        # It hands the read again the pass record that admitted the Run, whose outcomes are not read again.
+        self.assertEqual(asked_for, [{"record": RECORD}])
         # A record that cannot be read is the environment's; a Decision of another item, no Decision of this Run's.
         code, _, ended, calls = self.go(record=github.Unanswered)
         self.assertEqual((ended["outcome"], ended["reason"], calls["job"]), ("environment", "record_unreadable", []))
@@ -770,7 +860,7 @@ class Apply(unittest.TestCase):
             revoke()
             return apply_step._ended(admit["run"], admit["release"], (None, None))
 
-        def item(transport, config, number, now, clock):
+        def item(transport, config, number, now, clock, record=None):
             seen["reread"].append((transport, number))
             return facts, HEAD, [], support.context()
 
@@ -857,7 +947,7 @@ class Approve(unittest.TestCase):
         # The item is read again through the approver's token held to its item, too.
         self.assertEqual([type(t) for t in reread_through], [effects.Approving])
         # And asked for the Pause by name, so a Pause the port could not read says which read it was (decision 0192).
-        self.assertEqual(asked_for, [{"name_pause": True}])
+        self.assertEqual(asked_for, [{"name_pause": True, "record": RECORD}])
         self.assertEqual((record, run_, config["approver"], config["github_run"]), (RECORD, RUN, "donpetry-bot", "9"))
         self.assertEqual(done["effects"][0]["state"], "applied")
         with tempfile.TemporaryDirectory() as d:
@@ -1034,6 +1124,38 @@ class ControllerKey(unittest.TestCase):
 
 
 class Reread(unittest.TestCase):
+    def test_a_runs_records_read_keeps_the_outcomes_its_pass_read(self):
+        # A Run reads the run list again, in `read` and in `apply`, and an outcome its pass record already read is kept,
+        # not downloaded again: an outcome is written once, by its attempt's last step. A Run that failed after the
+        # pass, or whose outcome the pass read as none, is read as before; nothing is kept from what is no pass record.
+        done = dict(tc.run(name="r_01JA6Z", status="completed", conclusion="failure", outcome="environment"),
+                    engine_started=True)
+        other = dict(tc.run(name="r_01JA7B", number=43, status="completed", conclusion="failure", outcome="item",
+                            at="2026-10-11T12:30:00Z"), engine_started=False)
+        bare = tc.run(name="r_01JA7A", status="completed", conclusion="failure", outcome=None, at="2026-10-11T12:20:00Z")
+        record = dict(RECORD, runs=[done, bare, other])
+        self.assertEqual(shared.errors(record, "pass"), [])
+        key, key2 = (done["run"], done["started_at"]), (other["run"], other["started_at"])
+        self.assertEqual(reread.held(record), {"kept": {key: "environment", key2: "item"},
+                                               "engines": {key: True, key2: False}})
+        # Nothing is kept from what is no whole pass record, however much like one it holds runs.
+        for nothing in (None, False, {"schema": "pass/1"}, {"schema": "pass/1", "runs": [done]},
+                        dict(record, schema="pass/2")):
+            self.assertEqual(reread.held(nothing), {"kept": {}, "engines": {}}, nothing)
+        # The read again hands the records port what the record holds, and the reader does too.
+        told = []
+        from controller import configuration
+        config = configuration.load(ROOT, RELEASE, "pr-review")
+        with unittest.mock.patch.object(reread.records, "runs", lambda *a, **k: told.append(k) or tc.listed([])), \
+                unittest.mock.patch.object(reread.facts_, "snapshot", lambda *a, **k: (support.facts(), "t", HEAD)), \
+                unittest.mock.patch.object(reread.pause_, "read", lambda *a: {"org": None, "repos": {HOME: None}}):
+            reread.item("t", config, 42, support.NOW, lambda: support.NOW, record=record)
+            reread.item("t", config, 42, support.NOW, lambda: support.NOW)
+        self.assertEqual([(k["kept"], k["engines"]) for k in told],
+                         [({key: "environment", key2: "item"}, {key: True, key2: False}), ({}, {})])
+        # Given a record, the read again still asks no job and only this item's Runs, as without one (decision 0199).
+        self.assertEqual([(k["began"], k["on"]) for k in told], [({}, {"repo": HOME, "type": "pull_request", "number": 42})] * 2)
+
     def test_the_item_is_read_again(self):
         listed = tc.listed([tc.run(status="in_progress")])
         facts = support.facts()
@@ -1142,7 +1264,8 @@ class Reread(unittest.TestCase):
         self.assertEqual(asked[:2], [["run.yml", "approve.yml"], ("combsmith", [HOME])])
         # The read asks the records port when this item's Runs began, with nothing kept, and no other item's, so
         # that the act decides on its item's records as the pass does (decision 0199).
-        self.assertEqual(began[0], {"began": {}, "on": {"repo": HOME, "type": "pull_request", "number": 42}})
+        self.assertEqual(began[0], {"began": {}, "on": {"repo": HOME, "type": "pull_request", "number": 42},
+                                    "kept": {}, "engines": {}})
         # Asked for the Pause by name, a Pause the port could not read is raised as a read of the `pause` stage, its
         # part the port's for the first scope unreadable, the org's before the repo's (decision 0192). Not asked, as
         # apply reads it, the same Pause is the context's and nothing is raised.

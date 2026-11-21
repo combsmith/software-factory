@@ -5,13 +5,15 @@
 
 The second form is the workflow's: TASK is the folder `python3 -m harness.read` wrote, holding each of the first
 form's files by its name, the Run id among them in `run`, and the head it unpacked, `head/`, which a review reads as
-the folder the CLI starts in (decision 0138); a review given no head is never asked.
+the folder the CLI starts in (decision 0138); a review given no head is never asked. A Run that writes code, one
+whose Task permits a push, reads that folder the same way, as the commit its patch is applied to (decision 0219).
 
 RECORD is the pass record the Run was admitted in, RUN its Run id, FACTS the item's facts as the Run reads them, DIFF the
 bytes of the pull request's diff as GitHub served them, empty for an issue, TEXTS
 the texts read for it, each with who wrote it, ROLE the Role's manifest, FINDINGS the Finding ids the Task names, as
 JSON files, and OUT a directory that does not exist yet. The job writes OUT/result.json and OUT/result.sha256, and
-nothing else of the model: the log carries the digest alone, never a field of the Result, since nothing is handed from
+for a Result that pushes OUT/bundle.patch, the patch's text taken out of the Result and handed over beside it by the
+digest the Result names (issue 880), and nothing else of the model: the log carries the digest alone, never a field of the Result, since nothing is handed from
 job to job through the log (section 3.10). The CLI is the one at the path the job's environment names, CLAUDE_CLI, and
 the credential the one under CLAUDE_CODE_OAUTH_TOKEN. A Run whose Task cannot be built writes no Result and fails.
 """
@@ -138,14 +140,33 @@ def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotoni
     with open(diff, "rb") as f:
         change = f.read()
     the_task = task.build(admitted, run, read(facts), read(texts), read(role), read(findings), config, change)
-    result = answer(the_task, job_env, config, call, clock, session or str(uuid.uuid4()), head)
+    result, patch = handed_over(answer(the_task, job_env, config, call, clock, session or str(uuid.uuid4()), head))
     data = (json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
     digest = "sha256:" + hashlib.sha256(data).hexdigest()
     # The Result is its own user's alone to read, as every step's files are (`harness/steps.py`).
     os.makedirs(out, 0o700)
     steps.write(out, "result.json", data)
     steps.write(out, "result.sha256", (digest + "\n").encode())
+    if patch is not None:
+        steps.write(out, shared.BUNDLE_FILE, patch)
     return digest
+
+
+def handed_over(result: dict) -> tuple:
+    """`(result, patch)`: the Result as the job writes it, with no push's patch in it, and the bytes it hands over
+    beside it, the patch's text as UTF-8, or None for a Result that pushes nothing. The job holds only that those bytes
+    are the digest the push's bundle names, in the artifact it names; a push with no text to hand over, or a bundle
+    that is not its text's, writes no Result (issue 880). What the patch says is `apply`'s to hold."""
+    pushes = result["effects"].get(engine.PUSH) or []
+    if not pushes:
+        return result, None
+    if len(pushes) != 1 or not isinstance(pushes[0].get("patch"), dict):
+        raise task.Refused("a push hands over no patch")
+    data = pushes[0]["patch"]["body"].encode("utf-8")
+    if pushes[0]["bundle"] != {"artifact": shared.BUNDLE_ARTIFACT, "digest": "sha256:" + hashlib.sha256(data).hexdigest()}:
+        raise task.Refused("a push's bundle is not its patch's")
+    kept = {k: v for k, v in pushes[0].items() if k != "patch"}
+    return dict(result, effects=dict(result["effects"], **{engine.PUSH: [kept]})), data
 
 
 def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.monotonic, session: str = None,
@@ -157,6 +178,9 @@ def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.mo
     session = session or str(uuid.uuid4())
     fault, told = None, None
     reviewing = the_task["intent"] in REVIEWING
+    # A Run that reviews or writes code reads a commit: the pull request's head, or the one its patch is applied to.
+    # Which is read from what the Task permits, so no writing Intent is named here (issue 880, decision 0219).
+    reads = reviewing or engine.writes(the_task)
     # What a private replay may switch on, one approach at a time, in its own copy of the configuration (issue 581). The
     # committed configuration gives none of it, so a review is asked once, whole, and told what it always was.
     review = passes.settings(config["harness"]) if reviewing else dict(passes.DEFAULTS)
@@ -164,7 +188,16 @@ def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.mo
         # The Kernel holds a pull request whose diff no Task carries whole; one admitted all the same is never reviewed
         # in part (issue 327).
         fault = "diff_not_whole"
-    elif reviewing and not (isinstance(head, str) and os.path.isdir(head)):
+    elif len(engine.shown(the_task)) != len(the_task["findings"]):
+        # A Run rules on a Finding only if it is shown what its Lens said. One listed with no text the Task keeps, its
+        # words not the Lens's own or over the texts' room, is the item's own state: no model call is spent, the
+        # Run ends as the item's, and the thread gates on (issue 856).
+        fault = "findings_not_shown"
+    elif the_task["findings"] and any(o["kind"] == "issue" for o in the_task["omitted"]):
+        # Nor is it asked where the Findings' texts, kept first, left the issue's out: a review that rules Findings
+        # accepted is not one that reads no issue. The item's own too, by the same code.
+        fault = "findings_not_shown"
+    elif reads and not (isinstance(head, str) and os.path.isdir(head)):
         fault = "head_unreadable"
     else:
         try:
@@ -174,17 +207,18 @@ def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.mo
         except RubricUnreadable:
             fault = "rubric_unreadable"
     if fault:
-        # The Factory's fault, read before the CLI is started: a failed Result, and no model call spent (issue 330).
+        # A fault read before the CLI is started, the Factory's or, `findings_not_shown`, the item's own (decision 0227):
+        # a failed Result, and no model call spent (issue 330).
         return engine.failed(the_task, fault, engine.usage_of(the_task, config["harness"], session))
     asked = call or cli_call
 
     def called(args, env, timeout):
-        # The head is the folder the CLI starts in, for a review alone; any other Intent's call is as it always was.
-        return asked(args, env=env, timeout=timeout, head=head) if reviewing else asked(args, env=env, timeout=timeout)
+        # The commit read is the folder the CLI starts in, for a Run that reads one; any other's call is as it always was.
+        return asked(args, env=env, timeout=timeout, head=head) if reads else asked(args, env=env, timeout=timeout)
     # A pass per changed file, or the whole Task more than once, each asked as the one call always was, and joined.
     # Each call after the first is a session of its own, as a CLI is never asked twice under one.
     results = [engine.run(one, job_env.get(CLI, ""), job_env, config["harness"], called, clock,
-                          session if n == 0 else str(uuid.uuid4()), told + note, read=reviewing)
+                          session if n == 0 else str(uuid.uuid4()), told + note, read=reads)
                for n, (one, note) in enumerate(passes.asked(the_task, review))]
     joined = passes.union(results)
     if len(results) > 1 and joined["status"] == "completed" and not engine.held(joined, the_task):

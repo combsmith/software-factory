@@ -3,15 +3,15 @@
 The Controller. `pass_.py` is one pass as a function of what it read, the configuration, `now`, the pass records before it and a mint for ids: it builds the context, asks the Kernel about every item through `kernel.decide` and `kernel.issue.decide`, and
 returns the pass record, the Runs to dispatch by their run-names, the acts, the view's three files, the alerts and whether a successor starts. It reads no clock, writes nothing and decides nothing itself. `reads.py` holds what it reads to the schemas,
 `feed.py` and `health.py` write the view, `writes.py` plans the writes, `configuration.py` reads what a pass is told, `shared.py` the schemas. `__main__.py` is the entry the pass job runs (decision 0060). `reconcile.py` matches writes to Effects.
-Not built yet, by the stories that hold their rules: relay.py, backpressure.py, notify.py, brakes.py, issue_runs.py, issue_holds.py.
+Not built yet, by the stories that hold their rules: relay.py, backpressure.py, notify.py, brakes.py, issue_holds.py, issues_left.py.
 
 | Rule | Held by |
 |---|---|
-| The pass asks the Kernel through its entry points alone, each Lifecycle's `decide` and `unnamed_scope`, and imports no clock and nothing that reaches out | `tests/test_controller.py::test_the_pass_asks_the_kernel_through_its_entry_points_alone` |
+| The pass asks the Kernel only through each Lifecycle's `decide`, `unnamed_scope` and the issues' `stands`, and imports no clock and nothing that reaches out | `tests/test_controller.py::test_the_pass_asks_the_kernel_through_its_entry_points_alone` |
 | The pass record holds what the Kernel was given, and replays every Decision | `tests/test_controller.py::test_the_pass_record_holds_what_the_kernel_was_given_and_replays_it` |
 | A Run id is minted for an admission, an approval, or a queue act once its workflow is named | `tests/test_controller.py::test_a_queue_act_gets_a_run_id_and_a_dispatch_once_its_workflow_is_named` |
 | A Run is dispatched by its run-name; a capacity fault defers model Runs for its window | `tests/test_controller.py::test_the_runs_to_dispatch_are_named_by_their_run_names`, `tests/test_controller.py::test_a_capacity_fault_defers_model_runs_for_its_window` |
-| An item whose facts are not facts, or listed twice, is left out as one alert; a pull request moved once, with none; the rest are decided | `tests/test_controller.py::test_a_pull_request_that_moved_while_read_is_deferred_once_with_no_alert` |
+| An item whose facts are not facts, or listed twice, is left out as one alert; a pull request or an issue moved once, with none; the rest are decided | `tests/test_controller.py::test_a_pull_request_that_moved_while_read_is_deferred_once_with_no_alert` |
 | An issue is asked of the issues' Kernel, under its own Lifecycle, and its repo's Pause is read | `tests/test_controller.py::test_an_issue_is_asked_of_the_issues_kernel_with_its_own_lifecycle` |
 | A record that cannot validate is refused whole, and nothing is dispatched | `tests/test_controller.py::test_a_record_that_cannot_validate_is_refused_and_nothing_is_dispatched` |
 | A Pause on the org or a repo is a Pause; a value but exact `true`, exact `false` or none is unreadable | `tests/test_controller.py::test_a_pause_on_the_org_or_the_repo_is_a_pause_and_any_other_value_is_unreadable` |

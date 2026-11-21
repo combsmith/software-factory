@@ -271,8 +271,9 @@ def _read(directory, name: str):
 
 def _write(directory, name: str, document) -> None:
     path = within(directory, name)
+    text = json.dumps(document, indent=2, sort_keys=True, allow_nan=False) + "\n"    # a raise leaves no empty file behind
     with open(path, "w", encoding="utf-8") as f:
-        f.write(json.dumps(document, indent=2, sort_keys=True) + "\n")
+        f.write(text)
 
 
 def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
@@ -639,17 +640,26 @@ def _expected(found: dict, place: pathlib.Path):
         except Stop:
             return None
         said = case.get("expected") if isinstance(case, dict) else None
-        kind = said.get("verdict") if isinstance(said, dict) else None
-        if not isinstance(kind, str) or kind not in KINDS:
+        kind = kind_of(said.get("verdict")) if isinstance(said, dict) else None
+        if kind is None:
             return None
         expected[entry["id"]] = said
     return expected
 
 
+def kind_of(verdict):
+    """The kind a case counts under, by the verdict it expects, or None where that is none a case may give. A criterion
+    set aside for a Finding that stands, `not_applicable`, is a fault the review must keep held: the recall side, so it
+    counts as `finding` (decision 0228). It expects no Finding, so no floor and no blocking rule reads it."""
+    if not isinstance(verdict, str):
+        return None
+    return verdict if verdict in KINDS else "finding" if verdict == eval_result.ASIDE else None
+
+
 def kinds_of(found: dict, place: pathlib.Path):
     """`{id: kind}` of the set's cases, or None where `_expected` can say nothing."""
     expected = _expected(found, place)
-    return None if expected is None else {case: said["verdict"] for case, said in expected.items()}
+    return None if expected is None else {case: kind_of(said["verdict"]) for case, said in expected.items()}
 
 
 def criteria_of(found: dict, place: pathlib.Path):
@@ -672,8 +682,36 @@ def floor_short(found: dict, place: pathlib.Path) -> bool:
     floored, expected = criteria_of(found, place), _expected(found, place)
     if not floored:
         return False
-    rest = len([s for s in expected.values() if s["verdict"] == "finding"]) - sum(len(c) for c in floored.values())
+    # The rest is of the kind as the report counts it, a case set aside for a standing Finding among them (decision
+    # 0228): the count published is the kind's, so a few of those beside the floors would tell their verdicts too.
+    rest = len([s for s in expected.values() if kind_of(s["verdict"]) == "finding"]) - sum(len(c) for c in floored.values())
     return any(len(cases) < FLOOR_LEAST for cases in floored.values()) or 0 < rest < FLOOR_LEAST
+
+
+def cells_of(found: dict, place: pathlib.Path):
+    """The cells of the groups a gate set's report counts, for its sealed ledger alone: each a kind, for the cases that
+    expect a Finding the criterion the set floors or none of them, natural or not, how many cases it holds, and whether
+    those are a few, some but fewer than ORIGIN_LEAST. Where two groups overlap in a cell of a few cases, their counts'
+    difference tells those few (issue 695). Nothing of it is public: a word that every cell is whole, beside the counts
+    a report gives and the manifest's marks by id, can tell which cases a floored criterion's are (decision 0220). Nor
+    does its length tell anything, since a sealed ledger's size is public: every cell the manifest's shape allows is
+    listed, one of no case among them, each count at the width of the set's own and each flag one digit. It stops
+    nothing. None where `_expected` can say nothing, and for a set that is no gate set's, which counts no group."""
+    expected = _expected(found, place) if gate_set(found) else None
+    if expected is None:
+        return None
+    floors, natural, cells = criterion_bars_of(found), {e["id"] for e in found["cases"] if e.get("natural") is True}, {}
+    for case, said in expected.items():
+        floored = next((name for name in floors if said["verdict"] == "finding" and said.get("criterion") == name), None)
+        cell = (kind_of(said["verdict"]), floored, case in natural)
+        cells[cell] = cells.get(cell, 0) + 1
+    width, listed = len(str(found["count"])), []
+    for kind, floored in [("finding", None)] + [("finding", name) for name in sorted(floors)] + [("met", None)]:
+        for marked in (False, True):
+            many = cells.get((kind, floored, marked), 0)
+            listed.append({"kind": kind, "criterion": floored, "natural": marked, "cases": "%0*d" % (width, many),
+                           "few": int(0 < many < ORIGIN_LEAST)})
+    return listed
 
 
 def split_ok(found: dict, place: pathlib.Path):
@@ -822,12 +860,14 @@ def wilson(passed: int, of: int) -> dict:
 
 
 def ledger_of(kept: dict, found: dict, assessed: dict, causes: dict, alternates: set, results: dict,
-              surplus: dict = None, usages: dict = None, ahead: tuple = None, retried: dict = None) -> dict:
+              surplus: dict = None, usages: dict = None, ahead: tuple = None, retried: dict = None,
+              cells: list = None) -> dict:
     """The `eval-ledger/1` of a gate set's run: each case as `report` would list it, whether it is natural, and the Result
     the review returned for it, under a salt drawn for this run alone, so that its hash in the report tells nothing of
     what it holds; and each case asked first the same way, but for whether it is natural, from `ahead`, `(assessed,
     causes, usages, results, alternates, surplus)` of them (issue 613); each marked where it was asked again, by `retried`
-    (issue 615). It stays in the scratch for `seal`, and is never uploaded but sealed (issue 612)."""
+    (issue 615). And `cells`, what `cells_of` says of the set, which is told here and nowhere public (decision 0220). It
+    stays in the scratch for `seal`, and is never uploaded but sealed (issue 612)."""
     # Each case asked first with its marks, at an alternate place alone or drawing gating Findings away (Muse's read of
     # #646), as the set's are listed.
     asked, told, spent, answers, beside, away = ahead or ({}, {}, {}, {}, set(), {})
@@ -839,7 +879,8 @@ def ledger_of(kept: dict, found: dict, assessed: dict, causes: dict, alternates:
              for case in report(kept, found, assessed, causes=causes, alternates=alternates, surplus=surplus,
                                    usages=usages, retried=retried)["cases"]]
     return {"schema": "eval-ledger/1", "salt": os.urandom(16).hex(), "release": kept["release"], "commit": kept["commit"],
-            "role": found["role"], "intent": found["intent"], "set": dict(kept["set"]), "cases": cases, "preflight": first}
+            "role": found["role"], "intent": found["intent"], "set": dict(kept["set"]), "cases": cases, "preflight": first,
+            "cells": cells}
 
 
 # What a gate set's report sums of its Results' usage: each a count, and the cost in dollars.
@@ -1138,8 +1179,9 @@ def gate_scored(kept: dict, found: dict, place: pathlib.Path, review, causes: di
     why = {e["id"]: "unanswered" for e in found["cases"]} if preflight_stops(ahead) else _read(place, "fetched.json")
     assessed = assess(found, why, place, review, causes, alternates, surplus, usages, results)
     ledger = (json.dumps(ledger_of(kept, found, assessed, causes, alternates, results, surplus, usages,
-                                   (ahead, told, spent, answers, beside, away), getattr(review, "retried", None)),
-                         indent=2, sort_keys=True) + "\n").encode("utf-8")
+                                   (ahead, told, spent, answers, beside, away), getattr(review, "retried", None),
+                                   cells_of(found, place)),
+                         indent=2, sort_keys=True, allow_nan=False) + "\n").encode("utf-8")
     with open(os.open(within(place, LEDGER), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
         out.write(ledger)
     return assessed, aggregate(kept, found, assessed, place, results, ledger, usages, ahead, getattr(review, "retried", None))
