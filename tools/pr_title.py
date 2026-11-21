@@ -96,7 +96,7 @@ def body_problems(body: str) -> list:
         if fence is None and opening:
             fence = opening.group(1)
         elif fence is not None:
-            if opening and opening.group(1)[0] == fence[0] and len(opening.group(1)) >= len(fence) \
+            if opening and len(opening.group(1)) >= len(fence) \
                     and not line.strip().strip(fence[0]):
                 fence = None
         else:

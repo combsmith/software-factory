@@ -9581,7 +9581,6 @@ MUTANTS = ISSUE + [
     ('the body needs no What to look at', 'tools/pr_title.py', 'HEADINGS = ("Why", "What changed", "What to look at", "Record and protected edits")', 'HEADINGS = ("Why", "What changed", "Record and protected edits")', BODY_RULE),
     ('the body needs no Record and protected edits', 'tools/pr_title.py', 'HEADINGS = ("Why", "What changed", "What to look at", "Record and protected edits")', 'HEADINGS = ("Why", "What changed", "What to look at")', BODY_RULE),
     ('a fenced heading counts', 'tools/pr_title.py', '        if fence is None and opening:\n            fence = opening.group(1)\n', '        if False:\n            fence = opening.group(1)\n', BODY_RULE),
-    ('a fence closes on the other kind', 'tools/pr_title.py', 'if opening and opening.group(1)[0] == fence[0] and len(', 'if opening and len(', BODY_RULE),
     ('a fence closes on a shorter one', 'tools/pr_title.py', ' and len(opening.group(1)) >= len(fence) \\\n', ' \\\n', BODY_RULE),
     ('a fence closes with words after it', 'tools/pr_title.py', ' \\\n                    and not line.strip().strip(fence[0]):\n', ':\n', BODY_RULE),
     ('a template comment is text', 'tools/pr_title.py', 'SCAFFOLD = re.compile(r"<!--.*?-->|<details>.*?</details>", re.S)', 'SCAFFOLD = re.compile(r"<details>.*?</details>", re.S)', BODY_RULE),
