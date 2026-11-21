@@ -1907,8 +1907,11 @@ class Entry(unittest.TestCase):
                     return listed_by_the_port(transport, repo, after, apart=apart)
             return open_issues
 
-        def read(transport, repo, number, accounts, clock, *, identities, earlier, default_head, kernel):
+        openers, opens = [], (77, "Bot")
+
+        def read(transport, repo, number, accounts, clock, *, identities, earlier, default_head, kernel, opener):
             spied["read"].append((repo, number, accounts))
+            openers.append(opener)
             spied["identities"].append((identities, earlier))
             spied.setdefault("kernel", []).append(kernel)
             spied["heads"].append(default_head)
@@ -1945,7 +1948,8 @@ class Entry(unittest.TestCase):
                     unittest.mock.patch.object(entry.items, "open_issues", listing(listed, whole)), \
                     unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: written), \
                     unittest.mock.patch.object(entry.passes, "records", held), \
-                    unittest.mock.patch.object(entry.issues_, "read", read):
+                    unittest.mock.patch.object(entry.issues_, "read", read), \
+                    unittest.mock.patch.object(entry, "opener", lambda *a: opens):
                 code, printed, files, _ = self.run_entry(hub)
             spied["graphql"] = [r for _, r in hub.sent if r["path"] == "/graphql"]
             spied["repo"] = [r for _, r in hub.sent if r["path"] == "/repos/%s" % self.HOME]
@@ -1959,6 +1963,8 @@ class Entry(unittest.TestCase):
         self.assertEqual(spied["listed"], [(self.HOME, since, [8])])
         self.assertEqual([n for _, n, _ in spied["read"]], [5, 6, 9])
         self.assertTrue(all(who is spied["who"][0] for _, _, who in spied["read"]))
+        # Each is handed the account of the App that opens the Factory's pull requests, which names its work branch (#1059).
+        self.assertEqual(openers, [opens] * 3)
         # Each is read with the pull requests' class accounts, and the pass records before this pass, here none.
         self.assertEqual(spied["identities"], [(entry.facts_.accounts_of(CONTROLLER)[0], [])] * 3)
         # And the Kernel's configuration, which says whether a draft's checks are read (decision 0217, issue 878).

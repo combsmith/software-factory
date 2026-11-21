@@ -9,9 +9,11 @@ refuses it, never reads as null. Both reads must name one `updatedAt`.
 
 The pull requests that close the issue are read by `adapters/linked.py`, after the rest and before the time is taken:
 `linked` as it lists them, and `complete.linked` true only where it reads them whole and no pull request names the
-issue, while their keyword spans are not read; so an issue any pull request names defers. The issue is read once more
-after them, and refused if it moved. Not read yet, and said so: `branch_head`, which needs the count of pull requests
-the Factory opened for the issue, is null. `default_head`, the default branch's head, is read once for each repo in a
+issue, while their keyword spans are not read; so an issue any pull request names defers. `branch_head`, the head of
+the branch the next opening Run would push to, is read by `adapters/branches.py` after them: a commit, or null where
+that branch does not stand, and `complete.branch` true only where one of the two was told; false, with a null head,
+where it was not, the count of pull requests the Factory opened for the issue among it (decision 0242, issue 1059). The
+issue is read once more after them, and refused if it moved. `default_head`, the default branch's head, is read once for each repo in a
 pass by `default_head` and given to each issue's facts, null where it could not be read (decision 0242). `complete.runs` is true: the pass puts the records port's answer in its place
 (`controller/pass_.py`'s `asked`), and false here would leave every issue unreadable.
 """
@@ -23,7 +25,7 @@ import pathlib
 import re
 import urllib.parse
 
-from adapters import facts, linked, timeline
+from adapters import branches, facts, linked, timeline
 from adapters.github import Unanswered, raw, request
 from kernel import gate
 from tools.jsonschema_lite import validate
@@ -193,13 +195,15 @@ def default_head(transport, repo: str):
 
 
 def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=facts._utc, *, identities: dict,
-         earlier, default_head, kernel=None) -> tuple:
+         earlier, default_head, kernel=None, opener=None) -> tuple:
     """`(facts, title)`: `issue-facts/1` for one issue of `repo`, held to its schema, and its title beside the facts,
     never in them, for the view alone. `accounts` tells who acted, the Factory's Apps among them, `identities` the class's
     accounts of a pull request that closes it (`adapters/pull.own`), `earlier` the pass records before this pass, oldest
     first, or None where they could not be read, `default_head` the default branch's head `default_head` read for the
     pass, or None, and `clock` gives the time after the last read. `kernel`, the Kernel's configuration, says whether
-    the Factory's linked draft's checks are read (`adapters/draft_checks.py`)."""
+    the Factory's linked draft's checks are read (`adapters/draft_checks.py`). `opener` is the account of the App that
+    opens the Factory's pull requests, `adapters/facts.py`'s `opener_of`, which names the work branch; with none, the
+    branch is not told (`adapters/branches.py`)."""
     issue = own(transport, repo, number)
     events, whole = timeline.events(transport, {"number": number, "base": {"repo": {"full_name": repo}}})
     edited = edits(transport, repo, number)
@@ -217,6 +221,7 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
     apps, said = comments(events, accounts)
     closing, closing_whole = linked.read(transport, repo, number, edited["updated_at"], lived["life_started_at"],
                                          identities, accounts, earlier, kernel)
+    branch_head, branch_whole = branches.work_head(transport, repo, number, opener)
     # A merge may have closed it since: read once more, as `adapters/pull.unchanged` does.
     if _field(own(transport, repo, number), "updated_at") != _field(issue, "updated_at"):
         raise facts.Moved("the issue changed while its pull requests were read; it is read again at the next pass")
@@ -238,9 +243,10 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
         "last_writer_action_at": writer["last_writer_action_at"],
         "last_writer_comment_at": said,
         "acts_since_writer": writer["acts_since_writer"],
-        "branch_head": None,
+        "branch_head": branch_head,
         "default_head": default_head,
-        "complete": {"timeline": whole and edited["whole"], "linked": closing_whole, "runs": True},
+        "complete": {"timeline": whole and edited["whole"], "linked": closing_whole, "runs": True,
+                     "branch": branch_whole},
         "read_at": now,
     })
     problems = validate(found, SCHEMA)
