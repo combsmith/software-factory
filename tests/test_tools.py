@@ -5620,6 +5620,8 @@ class PullBody(unittest.TestCase):
         self.assertEqual(len(pr_title.body_problems(fenced)), 4)
         self.assertEqual(self.codes("~~~~\n" + self.body() + "~~~\nstill fenced\n"), ["body_heading_missing"])
         self.assertEqual(self.codes(self.body() + "```md\n## Why\n```\n"), [])
+        self.assertEqual(self.codes("```\n```js\n" + self.body() + "```\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes("```\n``` not a close\n" + self.body() + "```\n"), ["body_heading_missing"])
         self.assertEqual(self.codes(self.body({"Why": "```\n## What changed\n```"})), [])
         # A heading is "## " and its words, up to three spaces in, closing hashes and spaces dropped; nothing else is.
         self.assertEqual(self.codes(self.body().replace("## Why", "   ## Why ##")), [])
