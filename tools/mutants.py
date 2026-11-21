@@ -14944,6 +14944,8 @@ MUTANTS = ISSUE + [
     ("a list read short is whole where the spans were read",
      '    return linked, whole and (read_whole',
      '    return linked, (read_whole', S3_GATE),
+    ("an issue a pull request names is still not whole where the chain is whole",
+     '(read_whole is True or read_whole is None', '(read_whole is True and not named or read_whole is None', S3_GATE),
     ("a list read short is whole where the chain is broken and nothing names the issue",
      '    return linked, whole and (read_whole is True or read_whole is None and not named and not spans)\n',
      '    return linked, whole and read_whole is True or read_whole is None and not named and not spans\n', S3_GATE),

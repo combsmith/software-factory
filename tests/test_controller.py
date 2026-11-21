@@ -1967,7 +1967,7 @@ class Entry(unittest.TestCase):
             "runs": [], "passes": [], "items": [], "dispatched": [], "owed": [],
             "keys": [{"where": "written", "type": "tracking_issue", "key": "8", "at": "2026-10-12T11:00:00Z"}]})
         code, _, files = entry_with([8, 5], tracked=False, previous=[last])
-        # The pass records the entry read are what each issue is read with, all of them, oldest first.
+        # Each issue is read with every record the entry read, oldest first.
         self.assertEqual([earlier for _, earlier in spied["identities"]], [[last]])
         older = dict(last, now="2026-10-12T10:57:00Z")
         entry_with([8, 5], tracked=False, previous=[last, older])
@@ -2092,7 +2092,7 @@ class Entry(unittest.TestCase):
         self.assertEqual((d["item"]["number"], d["outcome"], d["reason"], d["evidence"]), (41, "defer", "facts_incomplete", ["linked"]))
         # Nothing is written for the issue: the one write is the tracking issue's, which reports the pass's alerts.
         self.assertEqual([w["type"] for w in files["writes.json"]["writes"]], ["tracking_issue"])
-        # Read whole, with the pass records before it read and holding nothing of it, it is whole, and accepted.
+        # Read whole, with records holding nothing of it: whole, and accepted.
         named[0] = linked_read(repo=self.HOME)["response"]
         hub.sent.clear()
         with unittest.mock.patch.object(entry, "configuration", served), \
@@ -2100,7 +2100,7 @@ class Entry(unittest.TestCase):
             code, _, files, _ = self.run_entry(hub)
         (decided,) = files["pass.json"]["issues"]
         self.assertEqual((code, decided["decision"]["outcome"], decided["decision"].get("action")), (0, "act", "accept"))
-        # With the pass records not read, the list short of GitHub's count, the same issue defers (issue 734).
+        # With the records not read, the list short, it defers (issue 734).
         hub.table[("GET", passes_listed([])["request"]["call"].split()[1])] = passes_listed([], total=1)["response"]
         with unittest.mock.patch.object(entry, "configuration", served), \
                 unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: written):
