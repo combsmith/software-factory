@@ -16,9 +16,13 @@ It reads a narrower patch than `harness/bundle.py` does, on purpose, and what it
 - a file is a file: a link, a submodule, a path under a file, and a mode other than a file's two are refused;
 - no file is written twice or copied twice, and none is written where the tree holds one the patch does not say it
   changes;
-- a section's extended lines stand in the order git writes them, a change of mode is a file's between its two modes,
-  and no path is in two sections: git writes a change of a file's type as a removed file and a new one at one path,
-  and that is not read.
+- a section's extended lines stand in the order git writes them, and a change of mode is a file's between its two
+  modes;
+- no path is on the new side of two sections: git writes a change of a file's type as a removed file and a new one at
+  one path, and that is not read. A path a section renames or removes is named by no later section, on either side,
+  and a path a section makes, as a new file or a rename's or a copy's, is no later section's old side; a copy's source
+  alone may be named again, as `git diff -C` writes a copy and then a rename of one file. No file made stands where
+  another needs a directory.
 
 An index line's hashes and how alike a rename or a copy says its files are, are read for their form alone, and nothing
 trusts them: what a patch lands is its hunks applied to the bytes it names, and a section whose hashes differ but that
@@ -57,15 +61,17 @@ FILE_MODES = ("100644", "100755")
 TREE_MODES = ("100644", "100755", "120000", "160000")
 DIGITS = b"0123456789"
 HEX = b"0123456789abcdef"
-# A hash of more characters than this, a SHA-256 name in full, is no hash git writes.
+# A hash of more characters than this, a SHA-256 name in full, is no hash git writes; nor is one of fewer than this,
+# git's shortest abbreviation.
 FULL_HASH = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+SHORT_HASH = "0123"
 MOST_DIGITS = b"999999999"      # a count of more digits than this is no count (decision 0188)
 ALL_ALIKE = b"100"              # how alike two files are, in percent, is no more than this
 # The characters a name may hold. git writes a name of these unquoted, and no other reading of one exists: no space,
 # which would leave the header two readings; no quote and no backslash, which git escapes; nothing past ASCII, which
-# git quotes.
+# git quotes; and no colon, which ends a drive's name on Windows, where `C:.git/x` is in git's own directory.
 NAME_CHARS = ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-              "!#$%&'()*+,-./:;<=>?@[]^_`{|}~")
+              "!#$%&'()*+,-./;<=>?@[]^_`{|}~")
 # A name of more parts than this has characters is no name this reads. git has no such bound, and no path of this
 # repo's is near it; it bounds how many directories stand above a name.
 DEEPEST = "0123456789abcdef0123456789abcdef"
@@ -96,8 +102,9 @@ def _number(said):
 
 def _gits(name: str) -> bool:
     """Whether a name is git's own directory to git on some file system (its `is_ntfs_dotgit`, read wider): `.git` under
-    any case, with dots after it, or with a colon and anything after that; and its short name, `git~` and anything."""
-    head = name.casefold().partition(":")[0].rstrip(".")
+    any case or with dots after it, and its short name, `git~` and anything. A name holds no colon (`NAME_CHARS`), so
+    none of the forms of `.git` that run on past one is read here."""
+    head = name.casefold().rstrip(".")
     return head == GIT_OWN or head.startswith(GIT_SHORT)
 
 
@@ -218,25 +225,34 @@ def _section(lines: list, i: int):
                       and said[OLD_MODE] != said[NEW_MODE]):
         return None
     if SIMILARITY in said:
+        # A count of more digits than a percent has is none, and its value is never built: its length is asked first.
         alike = said[SIMILARITY][:-1]
-        if not said[SIMILARITY].endswith(b"%") or _number(alike) is None:
+        if not said[SIMILARITY].endswith(b"%") or len(alike) > len(ALL_ALIKE) or _number(alike) is None:
             return None
-        if len(alike) >= len(ALL_ALIKE) and alike != ALL_ALIKE:
+        if len(alike) == len(ALL_ALIKE) and alike != ALL_ALIKE:
             return None
     index_mode = None
+    # git writes an index line for every new file and every removed one, an empty one's too.
+    if (made or gone) and INDEX not in said:
+        return None
     if INDEX in said:
         hashes, mode_follows, mode = said[INDEX].partition(b" ")
         before, dots, after = hashes.partition(b"..")
-        if not dots or not before or not after or not all(c in HEX for c in before + after):
+        if not dots or not all(c in HEX for c in before + after):
+            return None
+        if len(before) < len(SHORT_HASH) or len(after) < len(SHORT_HASH):
             return None
         if len(before) > len(FULL_HASH) or len(after) > len(FULL_HASH):
             return None
-        # A new file's first hash is all zeros and a removed one's second; no other section has either.
-        if (not before.rstrip(b"0")) != made or (not after.rstrip(b"0")) != gone:
+        # A new file's first hash is all zeros and a removed one's second: the side it has not. A name git abbreviates
+        # may be all zeros too, on a side a file has.
+        if (made and before.rstrip(b"0")) or (gone and after.rstrip(b"0")):
             return None
         index_mode = _mode(mode)
-        # git writes a mode here only where the section has no line of its own for one: so a file is given one mode.
+        # git writes a mode here where the section has no line of its own for one, and only there: a file is given one.
         if mode_follows and (index_mode is None or made or gone or moded):
+            return None
+        if not mode_follows and not (made or gone or moded):
             return None
     modes = {key: _mode(said[key]) for key in (OLD_MODE, NEW_MODE, DELETED, NEW_FILE) if key in said}
     if not all(mode is not None for mode in modes.values()):
@@ -274,30 +290,53 @@ def _section(lines: list, i: int):
             "old_mode": modes.get(DELETED, modes.get(OLD_MODE)), "new_mode": modes.get(NEW_FILE, modes.get(NEW_MODE))}, i
 
 
+def _apart(paths: list) -> bool:
+    """Whether no path among `paths` is a directory above another, as `docs/e` is above `docs/e/x`. They are read in
+    order, a file before what is below it, into one tree of their parts, where a file is None: the work is as long as
+    the paths."""
+    files = {}
+    for path in sorted(paths):
+        node, names = files, path.split("/")
+        for name in names[:-1]:
+            if name not in node:
+                node[name] = {}
+            node = node[name]
+            if node is None:
+                return False
+        node[names[-1]] = None
+    return True
+
+
 def read(patch):
     """The sections of a patch as `git diff` writes it, in its order, or None where it is not one this reads: what is
     not exactly bytes, since a subclass's own methods would be read; bytes that end a line short; a line before its
-    first section, or a line no section holds; a path in two sections; no section at all, or a NUL, which makes a
-    change a binary one written as text (decision 0188). Where a hunk stands is not asked in reading: a hunk at line 0
-    that holds lines, and hunks out of their order, are read; that is a question of the file they are applied to."""
+    first section, or a line no section holds; a path twice, or a file where a directory is, as the module says;
+    no section at all, or a NUL, which makes a change a binary one written as text (decision 0188). Where a hunk
+    stands is not asked in reading: a hunk at line 0 that holds lines, and hunks out of their order, are read; that is
+    a question of the file they are applied to."""
     if type(patch) is not bytes or NUL in patch:
         return None
     lines = patch.split(b"\n")
     if lines.pop() != b"" or not lines:
         return None
-    sections, written, i = [], {}, 0
+    sections, written, gone, made, i = [], {}, {}, {}, 0
     while i < len(lines):
         found = _section(lines, i) if lines[i].startswith(HEADER) else None
         if found is None:
             return None
-        # git names a path on the new side of one section: two that write it, or a file removed and one made at its
-        # path, which is how git writes a change of a file's type, are not read.
-        if found[0]["new"] in written:
+        kind, old, new = found[0]["kind"], found[0]["old"], found[0]["new"]
+        # git names a path on the new side of one section, so a type changed, a file removed and made at its path, is
+        # not read; nor is a path a section renames or removes named after it, nor one it makes read, but a copy's.
+        if new in written or old in gone or new in gone or old in made:
             return None
-        written[found[0]["new"]] = True
+        written[new] = True
+        if kind in ("rename", "deleted"):
+            gone[old] = True
+        if kind in ("new", "rename", "copy"):
+            made[new] = True
         sections.append(found[0])
         i = found[1]
-    return sections
+    return sections if _apart([s["new"] for s in sections if s["kind"] != "deleted"]) else None
 
 
 def sources(patch):
@@ -403,10 +442,11 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
     for path in tree:
         for part in _above(path):
             folders[part] = True
-    written, removed, gone, taken, copied = {}, [], {}, {}, {}
+    written, removed, taken, copied = {}, [], {}, {}
     for section in sections:
         kind, old, new = section["kind"], section["old"], section["new"]
-        if new in gone or (kind == "rename" and (old in written or old in gone)):
+        # A file changed and then moved away is written twice; what is named once it is gone `read` does not read.
+        if kind == "rename" and old in written:
             return None, UNREADABLE
         # A copy writes a file's bytes again: one copy of a file to a patch, so what lands is bounded by what was read.
         if kind == "copy" and old in copied:
@@ -436,7 +476,6 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
             return None, NOT_APPLIED
         if kind in ("deleted", "rename"):
             removed.append(old)
-            gone[old] = True
         if kind == "deleted":
             continue
         if not _placed(new, tree, folders):
@@ -446,6 +485,4 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
             taken[old] = True
         if kind == "copy":
             copied[old] = True
-    if any(part in written for path in written for part in _above(path)):
-        return None, NOT_A_FILE
     return {"written": written, "removed": removed, "read": list(taken)}, None
