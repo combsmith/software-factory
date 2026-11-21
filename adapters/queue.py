@@ -1,7 +1,8 @@
 """The queue App's writes (issue 381, decision 0130): an enqueue bound to a head, a dequeue, and the resolution of a
 Lens's thread, each through the queue App's own token, narrowed to its item by `Queuing`.
 
-The App holds `contents: write` and `metadata: read` alone, and each request here is one a trial recorded it making:
+The App holds `contents: write`, `metadata: read` and `pull_requests: read`, the last for the reads of the pull
+request its port makes before each write (issue 711), and each request here is one a trial recorded it making:
 `GET /repos/{repo}/pulls/{n}` and the three mutations (trials/P-2.queue-app.json), its review threads read and resolved
 (trials/P-5.queue.json), and the enqueue's `expectedHeadOid`, which GitHub refuses once the head moved
 (trials/P-57.json, asked through the Maintainer's login; the App's own token is owed). Whether the pull request is in

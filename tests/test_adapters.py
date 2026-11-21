@@ -20,8 +20,8 @@ import urllib.parse
 import zipfile
 from unittest import mock
 
-from adapters import acceptance, applied, artifacts, checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
-    passes, pull, records, pause, rules, texts, threads, timeline
+from adapters import acceptance, applied, artifacts, checks, draft_checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
+    passes, pull, push, records, pause, rules, texts, threads, timeline
 from controller import shared
 from harness import task
 from kernel import brakes
@@ -973,6 +973,139 @@ class Diff(unittest.TestCase):
                   "Binary files a/logo.png and b/logo.png differ\n")
         self.assertEqual(pull.canonical(binary + text % "0e91505d0..9f114f5d8 100644"),
                          binary + text % "0e91505..9f114f5 100644")
+
+    def test_a_binary_files_change_is_bound_to_its_full_blob_id(self):  # issue 1016
+        # A binary file's change has no hunks, so its index line is all that tells it. GitHub abbreviates its ids to 8
+        # characters at one read and 9 at the next; cut to 7, a blob ground to share an approved one's first 7 would
+        # pass for it. So its head's id is written whole, from the compare's row for its own path, and its base's, of
+        # the base branch's history, cut to 7: one content at every read, and no other blob's.
+        head = "9f114f5d8" + "a" * 31
+        ground = "9f114f5d8" + "b" * 31
+        other = "77da7d97f" + "c" * 31
+
+        def binary(ids: str, mode: str = " 100644", name: str = "img.png") -> str:
+            return ("diff --git a/%s b/%s\nindex %s%s\nBinary files a/%s and b/%s differ\n"
+                    % (name, name, ids, mode, name, name))
+
+        def at(*shas, name: str = "img.png", before: str = None) -> tuple:
+            return tuple((before or name, name, sha) for sha in shas)
+        bound = binary("0e91505..%s" % head)
+        for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8", "0e91505..9f114f5", "0e91505d0" + "1" * 31 + ".." + head):
+            self.assertEqual(pull.canonical(binary(ids), at(other, head)), bound, ids)
+        # A blob ground to share the approved one's prefix is another content.
+        self.assertNotEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(ground)), bound)
+        # GitHub's whole abbreviation is matched, not its first 7: a blob it contradicts at its eighth digit is none.
+        near = "9f114f5e" + "d" * 32
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(head, near)), bound)
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(near)), binary("0e91505d..9f114f5d"))
+        # Only the row whose paths are the part's own header, word for word, binds it: a blob another path's row names,
+        # though the abbreviation begins it, is none (Astra's read), nor one of a path the header only ends with, as a
+        # space is not quoted (the security read).
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(head, name="other.png")), binary("0e91505d..9f114f5d"))
+        crafted = binary("0e91505d..9f114f5d", name="foo b/img.png")
+        self.assertEqual(pull.canonical(crafted, at(head)), crafted)
+        self.assertEqual(pull.canonical(crafted, at(head, name="foo b/img.png")), binary("0e91505..%s" % head, name="foo b/img.png"))
+        moved = ("diff --git a/old.png b/new.png\nsimilarity index 50%%\nrename from old.png\nrename to new.png\n"
+                 "index %s 100644\nBinary files a/old.png and b/new.png differ\n")
+        self.assertEqual(pull.canonical(moved % "0e91505d..9f114f5d", at(head, name="new.png", before="old.png") + at(ground, name="new.png")
+                                        + at(ground, name="old.png", before="old.png")),
+                         moved % ("0e91505..%s" % head))
+        # Without a mode, of another mode, of SHA-256, last in the diff with no newline after, and added.
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d", ""), at(head)), binary("0e91505..%s" % head, ""))
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d", " 100755"), at(head)), binary("0e91505..%s" % head, " 100755"))
+        wide = "9f114f5d8" + "e" * 55
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(wide)), binary("0e91505..%s" % wide))
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d")[:-1], at(head)), bound[:-1])
+        added = "diff --git a/n.png b/n.png\nnew file mode 100644\nindex %s\nBinary files /dev/null and b/n.png differ\n"
+        self.assertEqual(pull.canonical(added % "00000000..9f114f5d", at(head, name="n.png")), added % ("0000000..%s" % head))
+        # A deleted file's head is no blob, so both its ids are cut, files or none.
+        gone = "diff --git a/g.png b/g.png\ndeleted file mode 100644\nindex %s\nBinary files a/g.png and /dev/null differ\n"
+        for ids in ("0e91505d..00000000", "0e91505d0..000000000"):
+            self.assertEqual(pull.canonical(gone % ids), gone % "0e91505..0000000", ids)
+        # The security read: a blob ground to as many leading zeros as GitHub abbreviates is all zeros too, so only a
+        # part that says it was deleted, by its mode line and by /dev/null, is read as a deletion; any other is bound to
+        # its own full id, and two such blobs are two contents.
+        zeros, more = "0" * 9 + "a" * 31, "0" * 9 + "b" * 31
+        for ids in ("0e91505d..00000000", "0e91505d0..000000000"):
+            self.assertEqual(pull.canonical(binary(ids), at(zeros)), binary("0e91505..%s" % zeros), ids)
+            self.assertNotEqual(pull.canonical(binary(ids), at(zeros)), pull.canonical(binary(ids), at(more)), ids)
+            self.assertEqual(pull.canonical(binary(ids)), binary(ids), ids)
+            for half in (gone.replace("deleted file mode 100644\n", ""), gone.replace(" and /dev/null", " and b/g.png")):
+                self.assertEqual(pull.canonical(half % ids), half % ids, half)
+        # Where the files name no blob the head's id begins, or more than one, or none at all, the line is kept as
+        # GitHub sent it: a content that may move, never one taken for another.
+        for given in ((), at(other), at(head, ground[:8] + "9" + ground[9:]), at("9f114f5d" + "e" * 32, head[:9] + "f" * 31)):
+            self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), given), binary("0e91505d..9f114f5d"), given)
+        # A part that ends otherwise, says more after its binary line, or carries an id longer than git gives, is kept.
+        for kept in (binary("0e91505d..9f114f5d").replace(" differ\n", " differ\nmore\n"),
+                     binary("0e91505d..9f114f5d").replace("Binary files", "Binary Files"),
+                     binary("0e91505d..9f114f5d").replace("100644", "100644 and more"),
+                     binary("0e91505d.." + "9" * 65)):
+            self.assertEqual(pull.canonical(kept, at(head, "9" * 64)), kept, kept)
+        # Through the port: the content id, the bytes a Run is given and a review's content are one at either read,
+        # whichever file the binary one is; the compare's files are asked of the same pinned compare as the diff, and
+        # only for a diff that holds a binary file; a row whose sha is no blob id, of the wrong length or shape, a
+        # newline after it among them, is none.
+        data = body("P-29.base", 1)
+        data.update(changed_files=2, additions=1, deletions=1)
+        commit = data["head"]["sha"]
+        text = "diff --git a/f.py b/f.py\nindex %s\n--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
+        files = {"files": [{"filename": "f.py", "sha": "x" * 40}, {"filename": "img.png", "sha": head},
+                           {"filename": "img.png", "sha": other.upper()}, {"filename": "img.png", "sha": head[:9] + "Z" * 31},
+                           {"filename": "img.png", "sha": head[:39]}, {"filename": "img.png", "sha": head + "0"},
+                           {"filename": "img.png", "sha": head[:9] + "f" * 31 + "\n"}, {"filename": 7, "sha": ground},
+                           {"sha": ground}, {"filename": "img.png"}]}
+
+        class Sent:
+            def __init__(self, diff: str, compared):
+                self.answers, self.asked = {github.DIFF: diff, github.JSON: compared}, []
+
+            def send(self, req):
+                self.asked.append((req["method"], req["path"], req["accept"]))
+                found = self.answers[req["accept"]]
+                if found is github.Unanswered:
+                    raise github.Unanswered("no answer")
+                return found if isinstance(found, dict) and "status" in found else {"status": 200, "headers": {}, "body": found}
+        seen = set()
+        pinned = "/repos/%s/compare/%s...%s" % (data["base"]["repo"]["full_name"], PINNED_BASE, commit)
+        reviewed = "/repos/%s/compare/%s...%s" % (canary(), BASE_HEAD, commit)
+        for ids, short in (("0e91505d..9f114f5d", "1aab6ce4..2bbc7df5"), ("0e91505d0..9f114f5d8", "1aab6ce4a..2bbc7df5b")):
+            for sent in (binary(ids) + text % short, text % short + binary(ids)):
+                read, given_, review_ = Sent(sent, files), Sent(sent, files), Sent(sent, files)
+                got = pull.diff(read, data, PINNED_BASE)
+                given = pull.change(given_, data, PINNED_BASE)
+                review = timeline._content(review_, canary(), BASE_HEAD, commit)
+                first = sent.startswith("diff --git a/img.png")
+                seen.add((first, got["content_id"], "sha256:" + hashlib.sha256(given).hexdigest(), review))
+                for asked, path in ((read, pinned), (given_, pinned), (review_, reviewed)):
+                    self.assertEqual(asked.asked, [("GET", path, github.DIFF), ("GET", path, github.JSON)])
+        tail = text % "1aab6ce..2bbc7df"
+        self.assertEqual(seen, {(True,) + ("sha256:" + hashlib.sha256((bound + tail).encode()).hexdigest(),) * 3,
+                                (False,) + ("sha256:" + hashlib.sha256((tail + bound).encode()).hexdigest(),) * 3})
+        asked = Sent(text % "1aab6ce4..2bbc7df5", files)
+        pull.diff(asked, data, PINNED_BASE)
+        self.assertEqual(asked.asked, [("GET", pinned, github.DIFF)])
+        # A compare whose files cannot be read gives none: the binary file's line is GitHub's, at each read its own.
+        for unread in ({"status": 500, "headers": {}, "body": files}, {"files": "x"}, ["x"], {"files": [None, {"sha": 1}]},
+                       github.Unanswered):
+            got = {pull.diff(Sent(binary(ids) + text % "1aab6ce4..2bbc7df5", unread), data, PINNED_BASE)["content_id"]
+                   for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8")}
+            self.assertEqual(len(got), 2, unread)
+        # A row of no blob, all zeros, names none: a ground binary whose own row is not listed is kept, never bound to
+        # zeros (the security read).
+        # A renamed file's row binds it by the path it had and the path it has.
+        renamed = {"files": [{"filename": "new.png", "previous_filename": "old.png", "status": "renamed", "sha": head}]}
+        got = {pull.diff(Sent(moved % ids + text % "1aab6ce4..2bbc7df5", renamed), data, PINNED_BASE)["content_id"]
+               for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8")}
+        self.assertEqual(len(got), 1)
+        # A row of SHA-256's whole id binds as SHA-1's does.
+        got = {pull.diff(Sent(binary(ids) + text % "1aab6ce4..2bbc7df5", {"files": [{"filename": "img.png", "sha": wide}]}),
+                         data, PINNED_BASE)["content_id"] for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8")}
+        self.assertEqual(len(got), 1)
+        nulls = {"files": [{"filename": "img.png", "sha": "0" * 40}]}
+        got = {pull.diff(Sent(binary(ids) + text % "1aab6ce4..2bbc7df5", nulls), data, PINNED_BASE)["content_id"]
+               for ids in ("0e91505d..00000000", "0e91505d0..000000000")}
+        self.assertEqual(len(got), 2)
 
     def test_a_diff_github_will_not_serve_is_truncated_and_new_content_at_every_push(self):
         # trials/P-29.truncated.json: 3,001 files, a 406 too_large. Read whole, so the Kernel holds it as too large;
@@ -4714,6 +4847,10 @@ WHY = {"controller", "kernel", "issues_port"}
 # as no answer, never as one (FR-56); a refusal recorded later fails here until it is placed.
 REFUSALS = {
     ("P-68", 6): None,                 # the download of an artifact deleted, 404: the port downloads only what a list names
+    # A push by the git data API (P-71, issue 838): the work branch absent, 404, which the push guard reads as the branch
+    # the Decision admitted none of; the branch made again where it stands, 422; and two moves without force that are no
+    # fast-forward, 422. No port pushes until the push port is built.
+    ("P-71", 4): None, ("P-71", 12): None, ("P-71.moved", 6): None, ("P-71.moved", 8): None,
     ("P-12", 16): None,                # an output past GitHub's limit, 422: no port writes the status until it is built
     ("P-41", 26): None,                # the controller's label on 64 at issues: write and pull_requests: read, 403
     ("P-41", 27): None,                # its removal, 403 too: no port writes a label until the label act is built
@@ -6211,7 +6348,8 @@ class Items(unittest.TestCase):
         self.assertEqual(read(page([4], total=2))[1], False)
         # With no date no issue is served: none is listed, and nothing is asked. One that is no time lists nothing.
         self.assertEqual(items.open_issues(github.Replay([]), HOME, None, apart=()), ([], True))
-        for unreadable in ("2026-10-01", "0001-01-01T00:00:00Z"):     # no time, or none a second before it (Carbon)
+        # A date that is no text is no time either, never a crash (issue 965).
+        for unreadable in ("2026-10-01", "0001-01-01T00:00:00Z", 20261001, False, 0, ""):  # no time, or none a second before it (Carbon)
             with self.assertRaises(github.Unanswered):
                 items.open_issues(github.Replay([]), HOME, unreadable, apart=())
         # The Controller's tracking issue, 5, open and updated since the date, is one GitHub lists and counts. It is
@@ -6366,6 +6504,10 @@ class Issues(unittest.TestCase):
         self.assertEqual(facts.app_names_of(held, {"controller": catalogue["controller"]}), {(41, "Bot"): names[(41, "Bot")]})
         # One the catalogue names whose account `controller/1` does not hold is named by no id (Carbon).
         self.assertEqual(facts.app_names_of(held, dict(catalogue, **{"dev-lead": {"name": "combsmith-sf-dev-lead"}})), names)
+        # One the catalogue holds with no name, or an empty one, is named by its login, never by the suffix alone (issue 965).
+        for unnamed in ({}, {"name": ""}):
+            self.assertEqual(facts.app_names_of({"accounts": {"controller": {"id": 41}, "roles": {}}}, {"controller": unnamed}),
+                             {}, unnamed)
 
     def test_an_account_showing_a_configured_apps_name_by_another_id_is_refused(self):  # decision 0218, Astra
         # A slug reused after a rename: another Bot under the Controller's name, labelling or commenting. It is not that
@@ -6383,6 +6525,47 @@ class Issues(unittest.TestCase):
         reserved = timeline.Accounts(router, "o/r", MACHINE, {}, apps=names, reserved={"combsmith-sf-dev-lead[bot]"})
         with self.assertRaises(github.Unanswered):
             issues.read(router, "o/r", 41, reserved, lambda: self.NOW, identities=IDENTITIES, earlier=[])
+        # A name reserved refuses only the account that shows it: another Bot is read by its login (issue 965).
+        event = issue_event("labeled", 1, actor=("dependabot[bot]", 99, "Bot"), label={"name": "x"})
+        router = Router(github.Replay(issue_read([event])), {"don-petry": "admin"})
+        reserved = timeline.Accounts(router, "o/r", MACHINE, {}, apps=names, reserved={"combsmith-sf-dev-lead[bot]"})
+        found, _ = issues.read(router, "o/r", 41, reserved, lambda: self.NOW, identities=IDENTITIES, earlier=[])
+        self.assertEqual(found["label_events"][0]["by"]["name"], "dependabot[bot]")
+        # The queue App is read by its id as the queue, but under a name the configuration holds or reserves it is
+        # refused too: renamed onto it, it could be read as that App (issue 965).
+        queued = timeline.Accounts(router, "o/r", MACHINE, {}, queue=(99, "Bot"), apps=names,
+                                   reserved={"combsmith-sf-dev-lead[bot]"})
+        for login in ("combsmith-sf-controller[bot]", "combsmith-sf-dev-lead[bot]"):
+            with self.assertRaises(github.Unanswered, msg=login):
+                queued.actor({"login": login, "id": 99, "type": "Bot"})
+        self.assertEqual(queued.actor({"login": "combsmith-sf-queue[bot]", "id": 99, "type": "Bot"}),
+                         {"kind": "queue", "name": "combsmith-sf-queue[bot]", "can_write": False})
+        # A queue whose id is held among the Apps too is held to the login it shows, and named by it: another App's name
+        # is refused, a name of its own is read, and so is its own App's name, reserved or not (issue 965).
+        own = timeline.Accounts(router, "o/r", MACHINE, {}, queue=(99, "Bot"),
+                                apps={**names, (99, "Bot"): "combsmith-sf-queue[bot]"},
+                                reserved={"combsmith-sf-queue[bot]"})
+        with self.assertRaises(github.Unanswered):
+            own.actor({"login": "combsmith-sf-controller[bot]", "id": 99, "type": "Bot"})
+        for login in ("renamed-queue[bot]", "combsmith-sf-queue[bot]"):
+            self.assertEqual(own.actor({"login": login, "id": 99, "type": "Bot"}),
+                             {"kind": "queue", "name": login, "can_write": False}, login)
+        # A Lens is told by its id and read as its own name whatever login it shows, so no name it shows is read as an
+        # App's (issue 901).
+        lens = timeline.Accounts(router, "o/r", MACHINE, {(77, "Bot"): "verify"}, apps=names)
+        self.assertEqual(lens.actor({"login": "combsmith-sf-controller[bot]", "id": 77, "type": "Bot"}),
+                         {"kind": "lens", "name": "verify", "can_write": False})
+        # A User's login is compared as it is: a person may hold an App's name without its suffix (issue 965).
+        self.assertEqual(queued.named("combsmith-sf-controller", 17, "User"), "combsmith-sf-controller")
+        # GraphQL spells a Bot's login with no suffix, as the threads port passes it on: another account under either
+        # name is refused as REST's is, and the App itself is named by its id (issue 965).
+        for login in ("combsmith-sf-controller", "combsmith-sf-dev-lead"):
+            with self.assertRaises(github.Unanswered, msg=login):
+                queued.actor(threads._account({"__typename": "Bot", "login": login, "databaseId": 98}))
+        self.assertEqual(queued.actor(threads._account({"__typename": "Bot", "login": "combsmith-sf-controller",
+                                                        "databaseId": 41}))["name"], names[(41, "Bot")])
+        self.assertEqual(queued.actor(threads._account({"__typename": "Bot", "login": "dependabot", "databaseId": 98}))["name"],
+                         "dependabot")
         # The App itself, by its id, is read.
         events = [issue_event("labeled", 1, actor=("combsmith-sf-controller[bot]", 41, "Bot"), label={"name": "factory:triage"})]
         router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
@@ -7184,6 +7367,400 @@ class Rules(unittest.TestCase):
                 protected.load(path)
             with self.assertRaises(protected.Unreadable):
                 protected.load(pathlib.Path(d) / "nowhere.json")
+
+
+class DraftChecks(unittest.TestCase):
+    """A linked draft the Factory opened carries its head's required checks, where the issue rule would act on them
+    (decision 0217, issue 878: the Factory Builder's rulings Q1 to Q5, option A each)."""
+
+    @staticmethod
+    def kernel(author="dev-lead"):
+        from tests.support import CONFIG
+        return dict(CONFIG, author_role=author)
+
+    @staticmethod
+    def check(name, conclusion="success", app=15368, workflow=None, suite="success", run=7):
+        return {"name": name, "app_id": app, "workflow": workflow, "conclusion": conclusion,
+                "completed_at": "2026-10-20T00:51:22Z", "run_id": run, "suite_conclusion": suite}
+
+    def passing(self):
+        return [self.check("verify", workflow=".github/workflows/verify.yml", run=1),
+                self.check("Secret scan (gitleaks)", workflow=".github/workflows/ci.yml", run=2),
+                self.check("CodeQL", app=57789, run=None, suite=None)]
+
+    def test_a_drafts_checks_are_read_as_the_pull_requests_kernel_reads_each_required_lens(self):
+        kernel, ok = self.kernel(), self.passing()
+        self.assertEqual([lens["check"] for lens in kernel["required_lenses"]["deterministic"]],
+                         ["verify", "Secret scan (gitleaks)", "CodeQL"])
+        self.assertEqual(draft_checks.verdict(ok, kernel), "passing")
+        failed = [dict(ok[0], conclusion="failure")] + ok[1:]
+        self.assertEqual(draft_checks.verdict(failed, kernel), "failing")
+        # A failing Lens is failing beside one pending, not yet listed or concluding (Astra).
+        self.assertEqual(draft_checks.verdict(failed[:2], kernel), "failing")
+        self.assertEqual(draft_checks.verdict(failed[:2] + [dict(ok[2], conclusion="in_progress", completed_at=None)], kernel),
+                         "failing")
+        # A Lens not yet listed, as for a few seconds after a push (P-42), or still running, is pending, never failing.
+        self.assertEqual(draft_checks.verdict(ok[:2], kernel), "pending")
+        self.assertEqual(draft_checks.verdict([dict(ok[0], conclusion="in_progress", suite_conclusion=None)] + ok[1:], kernel), "pending")
+        # A failing check whose suite has not concluded is concluding: pending, since its run may yet be stopped (Q5).
+        self.assertEqual(draft_checks.verdict([dict(ok[0], conclusion="failure", suite_conclusion=None)] + ok[1:], kernel),
+                         "pending")
+        # A Lens with no verdict, or a check under a Lens's name from another App, leaves the checks unread, even beside
+        # a failing Lens: an unreadable fact defers (Q5).
+        for bad in ([dict(ok[0], conclusion="neutral")] + ok[1:],
+                    ok + [self.check("verify", app=99, workflow=".github/workflows/verify.yml")],
+                    [dict(ok[0], conclusion="neutral"), dict(ok[1], conclusion="failure"), ok[2]],
+                    [dict(ok[0], conclusion="failure"), dict(ok[1], conclusion="neutral"), ok[2]],
+                    [dict(ok[0], conclusion="failure")] + ok[1:] + [self.check("CodeQL", app=99)]):
+            self.assertIsNone(draft_checks.verdict(bad, kernel), bad)
+        # Read through the checks port: one it refuses, or reads short, leaves them unread (Q3).
+        with mock.patch.object(draft_checks.checks, "read", lambda t, p: {"checks": failed, "complete": True, "queue": False}):
+            self.assertEqual(draft_checks.read(None, {}, kernel), "failing")
+        with mock.patch.object(draft_checks.checks, "read", lambda t, p: {"checks": failed, "complete": False, "queue": False}):
+            self.assertIsNone(draft_checks.read(None, {}, kernel))
+
+        def moved(t, p):
+            raise github.Unanswered("the pull request's head moved while its checks were read")
+        with mock.patch.object(draft_checks.checks, "read", moved):
+            self.assertIsNone(draft_checks.read(None, {}, kernel))
+        # Through the real checks port, of REST's read of the draft: its rollup asked by owner, name and number, read of
+        # its head; one of another head is null.
+        def run(name, workflow, conclusion, n, app=15368):
+            return {"__typename": "CheckRun", "id": "c%d" % n, "name": name, "status": "COMPLETED", "conclusion": conclusion,
+                    "completedAt": "2026-10-20T00:51:22Z", "databaseId": n,
+                    "detailsUrl": "https://github.com/o/r/actions/runs/%d/job/%d" % (100 + n, n) if workflow else None,
+                    "checkSuite": {"app": {"databaseId": app}, "conclusion": conclusion,
+                                   "workflowRun": {"databaseId": 100 + n, "file": {"path": workflow}} if workflow else None}}
+
+        def answer(head, nodes):
+            asked = {"query": checks.QUERY, "variables": {"owner": "o", "name": "r", "number": 5, "after": None}}
+            node = {"headRefOid": head, "mergeQueueEntry": None, "commits": {"nodes": [{"commit": {"oid": head,
+                    "statusCheckRollup": {"contexts": {"totalCount": len(nodes), "pageInfo": {"hasNextPage": False,
+                                                                                            "endCursor": None},
+                                                       "nodes": nodes}}}}]}}
+            return {"request": {"via": "graphql", "call": "POST /graphql", "headers": {}, "body": asked},
+                    "response": {"status": 200, "headers": {}, "body": {"data": {"repository": {"pullRequest": node}}}}}
+        nodes = [run("verify", ".github/workflows/verify.yml", "FAILURE", 1),
+                 run("Secret scan (gitleaks)", ".github/workflows/ci.yml", "SUCCESS", 2),
+                 run("CodeQL", None, "SUCCESS", 3, app=57789)]
+        draft = pull_read(5, user=CONTROLLER_APP, draft=True)["response"]["body"]
+        self.assertEqual(draft_checks.read(github.Replay([answer("a" * 40, nodes)]), draft, kernel), "failing")
+        self.assertIsNone(draft_checks.read(github.Replay([answer("b" * 40, nodes)]), draft, kernel))
+        # A configuration that cannot be read leaves the checks unread, never raising out of the port.
+        self.assertIsNone(draft_checks.read(github.Replay([answer("a" * 40, nodes)]), draft, {}))
+
+    def test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read(self):  # Q2
+        mine = {"class": "agent", "state": "open", "is_draft": True}
+        self.assertTrue(draft_checks.asked(self.kernel(), mine))
+        for kernel, own in ((self.kernel(None), mine), (None, mine), (self.kernel(), dict(mine, **{"class": "maintainer"})),
+                            (self.kernel(), dict(mine, state="closed")), (self.kernel(), dict(mine, is_draft=False))):
+            self.assertFalse(draft_checks.asked(kernel, own), (kernel and kernel["author_role"], own))
+        # Through the linked read: the Factory's draft carries `checks`, read of its own head, and with no author Role
+        # named, or another's draft, none is read and none carried.
+        asked = []
+
+        def read(transport, got, kernel):
+            asked.append((got["number"], got["head"]["sha"]))
+            self.assertIs(kernel, given)
+            return "failing"
+        given = self.kernel()
+        router = lambda: Router(github.Replay([linked_read(ref(5, 6)), pull_read(5, user=CONTROLLER_APP, draft=True),
+                                               pull_timeline(5), pull_read(6, draft=True), pull_timeline(6)]),
+                                {"don-petry": "admin"})
+        with mock.patch.object(draft_checks, "read", read):
+            transport = router()
+            found = linked.listing(transport, "o/r", 41, UPDATED, CREATED, IDENTITIES, Linked().accounts(transport), {},
+                                   given)[0]
+            self.assertEqual([(p["number"], p.get("checks")) for p in found], [(5, "failing"), (6, None)])
+            self.assertEqual(("checks" in found[1], asked), (False, [(5, "a" * 40)]))
+            transport = router()
+            found = linked.listing(transport, "o/r", 41, UPDATED, CREATED, IDENTITIES, Linked().accounts(transport), {},
+                                   self.kernel(None))[0]
+            self.assertEqual([("checks" in p) for p in found], [False, False])
+            self.assertEqual(len(asked), 1)
+            # The issues port hands the linked read the configuration it is given.
+            transport = router()
+            accounts = Linked().accounts(transport)
+            exchanges_ = issue_read(closing=[linked_read(ref(5, 6)), pull_read(5, user=CONTROLLER_APP, draft=True),
+                                             pull_timeline(5), pull_read(6, draft=True), pull_timeline(6)])
+            transport = Router(github.Replay(exchanges_), {"don-petry": "admin"})
+            got = issues.read(transport, "o/r", 41, timeline.Accounts(transport, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]}),
+                              lambda: Issues.NOW, identities=IDENTITIES, earlier=[], kernel=given)[0]
+            self.assertEqual([p.get("checks") for p in got["linked"]], ["failing", None])
+
+
+PUSHED = json.loads((ROOT / "trials" / "P-71.json").read_text())["repo"]       # P-71's repo, and its work branch
+WORK = "factory-work/issue-9971-1"
+NAMED = "a" * 40
+MIXED = "0123456789abcdef" * 2 + "01234567"     # a name of digits and letters both
+
+
+def calmly(send, *args):
+    """What `send` gives, or the error it raised in its place."""
+    try:
+        return send(*args)
+    except Exception as raised:
+        return raised
+
+
+class Posing:
+    """No text, though it answers as text would: as base64, as a file's path, and as equal to any."""
+
+    def replace(self, old, new):
+        return "eA=="
+
+    def split(self, sep):
+        return ["a.md"]
+
+    def __eq__(self, other):
+        return True
+
+
+class Lying(str):
+    """Text of another kind: equal to any text and unequal to none, and read as other text by str(), replace and split."""
+    __hash__ = str.__hash__
+
+    def __eq__(self, other):
+        return True
+
+    def __ne__(self, other):
+        return False
+
+    def __str__(self):
+        return "main"
+
+    def replace(self, old, new, count=-1):
+        return "eA=="
+
+    def split(self, sep=None, maxsplit=-1):
+        return ["o", "a.md"]
+
+
+class Push(unittest.TestCase):
+    """The push port (issue 838): what a push's token may send by the git data API, deciding nothing."""
+
+    class Recording:
+        """A transport that answers every request, so only the push's token can refuse one."""
+        def __init__(self):
+            self.sent = []
+
+        def send(self, req):
+            self.sent.append(req)
+            return {"status": 200, "headers": {}, "body": None}
+
+    def test_a_pushs_token_sends_a_pushs_alone(self):
+        entry = {"path": "a.md", "mode": "100644", "type": "blob", "sha": NAMED}
+        recording = self.Recording()
+        sending = effects.Allowed(recording, *push.allowed(PUSHED, WORK))
+        git, other = "/repos/%s/git/" % PUSHED, "/repos/%sx/git/" % PUSHED[:-1]     # another repo, its name as long
+        tree = {"base_tree": NAMED, "tree": [entry]}
+        commit = {"message": "m", "tree": NAMED, "parents": [NAMED]}
+        blob = {"content": "eA==", "encoding": "base64"}
+        good = [github.request(method, path, body=body) for method, path, body in (
+            ("GET", git + "commits/" + NAMED, None), ("GET", git + "trees/" + NAMED + "?recursive=1", None),
+            ("GET", git + "blobs/" + NAMED, None), ("GET", git + "ref/heads/" + WORK, None),
+            ("GET", git + "blobs/" + MIXED, None), ("POST", git + "trees", dict(tree, base_tree=MIXED)),
+            ("POST", git + "blobs", blob), ("POST", git + "blobs", dict(blob, content="eHh4\neA==\n")),
+            ("POST", git + "blobs", dict(blob, content="")),
+            ("POST", git + "trees", dict(tree, tree=[entry, dict(entry, path="bin/b.sh", mode="100755"),
+                                                     dict(entry, path="docs/c..d", sha=None)])),
+            ("POST", git + "commits", commit), ("POST", git + "refs", {"ref": "refs/heads/" + WORK, "sha": NAMED}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": False}))]
+        for req in good:
+            self.assertEqual(calmly(sending.send, req), {"status": 200, "headers": {}, "body": None}, req)
+        self.assertEqual(recording.sent, good)
+        refused = [
+            # A read off the repo's git data, another repo's, of no name, of a tree's top alone, or with a body.
+            ("GET", "/repos/%s/contents/a.md" % PUSHED, None), ("GET", other + "commits/" + NAMED, None),
+            ("GET", git + "commits/main", None), ("GET", git + "trees/" + NAMED, None),
+            ("GET", git + "ref/heads/main", None), ("GET", git + "ref/heads/factory-work/issue-9971-2", None),
+            ("GET", git + "commits/" + NAMED, {}), ("GET", git + "ref/heads/" + WORK, {"sha": NAMED}),
+            # Of a name of 39 hex digits, or of 41.
+            ("GET", git + "blobs/" + NAMED[:-1], None), ("GET", git + "commits/" + NAMED + "a", None),
+            # A blob of another repo's, another encoding or one that is no text, a key more, no text, or no base64:
+            # alphabet, padding, length.
+            ("POST", other + "blobs", blob), ("POST", git + "blobs", dict(blob, encoding="utf-8")),
+            ("POST", git + "blobs", dict(blob, encoding=Posing())),
+            ("POST", git + "blobs", dict(blob, size=1)), ("POST", git + "blobs", dict(blob, content=Posing())),
+            ("POST", git + "blobs", dict(blob, content=b"eA==")), ("POST", git + "blobs", dict(blob, content=1)),
+            ("POST", git + "blobs", dict(blob, content="not base64!")), ("POST", git + "blobs", dict(blob, content="e!A==")),
+            ("POST", git + "blobs", dict(blob, content="eA=")), ("POST", git + "blobs", dict(blob, content="YWJj=")),
+            ("POST", git + "blobs", dict(blob, content="YWJj==")), ("POST", git + "blobs", dict(blob, content="YWJj====")),
+            ("POST", git + "blobs", dict(blob, content="eA==eA==")), ("POST", git + "blobs", dict(blob, content="eHh4e")),
+            # A tree of a symlink, a submodule, an entry of another type, with a key more or no name; with a key more,
+            # of no list, or of a good entry and then a bad one; of a path that is no text, names no file or holds a
+            # control character; upon a name with more after it, or of 39 or 41 hex digits.
+            ("POST", git + "trees", dict(tree, base_tree="main")), ("POST", other + "trees", tree),
+            ("POST", git + "trees", dict(tree, base_tree=NAMED[:-1])),
+            ("POST", git + "trees", dict(tree, base_tree=NAMED + "a")),
+            ("POST", git + "trees", dict(tree, mode="100644")), ("POST", git + "trees", dict(tree, tree={})),
+            ("POST", git + "trees", dict(tree, tree=[entry, dict(entry, mode="120000")])),
+            ("POST", git + "trees", dict(tree, tree=[entry, dict(entry, path=b"b.md")])),
+            ("POST", git + "trees", dict(tree, base_tree=NAMED + "\n"))] + [
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, **bad)]))
+            for bad in ({"mode": "120000"}, {"mode": "160000", "type": "commit"}, {"type": "commit"}, {"size": 1},
+                        {"sha": "x"}, {"path": b"a.md"}, {"path": 1}, {"path": Posing()})] + [
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path=path)]))
+            for path in ("", "/a.md", "docs/", "docs//a.md", "./a.md", "docs/./a.md", "../a.md", "docs/../a.md",
+                         ".", "..", "docs/a\x00b", "docs/a\nb", "\x1fa.md", "docs/a\x7fb")] + [
+            # A commit of no parent or two, a tree of no name, another repo's; with a key more; of a message no text,
+            # parents no list, or a parent of no name.
+            ("POST", git + "commits", dict(commit, parents=[])), ("POST", git + "commits", dict(commit, parents=[NAMED] * 2)),
+            ("POST", git + "commits", dict(commit, tree="main")), ("POST", other + "commits", commit),
+            ("POST", git + "commits", dict(commit, author={"name": "a"})),
+            ("POST", git + "commits", dict(commit, committer={"name": "a"})),
+            ("POST", git + "commits", dict(commit, signature="s")),
+            ("POST", git + "commits", dict(commit, message=1)), ("POST", git + "commits", dict(commit, parents={"0": NAMED})),
+            ("POST", git + "commits", dict(commit, parents=["main"])),
+            # Another ref made: the default branch, a tag, another work branch, by its own path, a key more; or at no name.
+            ("POST", git + "refs", {"ref": "refs/heads/main", "sha": NAMED}),
+            ("POST", git + "refs", {"ref": "refs/tags/factory/v1.0.0", "sha": NAMED}),
+            ("POST", git + "refs", {"ref": "refs/heads/factory-work/issue-9971-2", "sha": NAMED}),
+            ("POST", git + "refs", {"ref": "refs/heads/" + WORK, "sha": NAMED, "force": True}),
+            ("POST", git + "refs/heads/" + WORK, {"sha": NAMED, "force": False}),
+            ("POST", other + "refs", {"ref": "refs/heads/" + WORK, "sha": NAMED}),
+            ("POST", git + "refs", {"ref": "refs/heads/" + WORK, "sha": "main"}),
+            ("POST", git + "refs", {"ref": "refs/heads/" + WORK, "sha": None}),
+            # A force told any way, or none; another branch moved; by the read's path or another repo's; to no name.
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": True}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": 0}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": "false"}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": False, "extra": 1}),
+            ("PATCH", git + "refs/heads/main", {"sha": NAMED, "force": False}),
+            ("PATCH", git + "refs/heads/factory-work/issue-9971-2", {"sha": NAMED, "force": False}),
+            ("PATCH", git + "ref/heads/" + WORK, {"sha": NAMED, "force": False}),
+            ("PATCH", other + "refs/heads/" + WORK, {"sha": NAMED, "force": False}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": "main", "force": False}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": None, "force": False}),
+            # Never a delete, and never a put.
+            ("DELETE", git + "refs/heads/" + WORK, None), ("PUT", git + "refs/heads/" + WORK, {"sha": NAMED, "force": False})]
+        for method, path, body in refused:
+            self.assertIsInstance(calmly(sending.send, github.request(method, path, body=body)), github.Unanswered,
+                                  (method, path, body))
+        self.assertEqual(recording.sent, good)
+        # A read of another repo's whose name differs from this one's where it holds a dot, by any pattern.
+        dotted = effects.Allowed(recording, *push.allowed("o/a.b", WORK))
+        self.assertEqual(dotted.send(github.request("GET", "/repos/o/a.b/git/blobs/" + NAMED))["status"], 200)
+        for rest in ("blobs/" + NAMED, "trees/" + NAMED + "?recursive=1", "commits/" + NAMED):
+            self.assertIsInstance(calmly(dotted.send, github.request("GET", "/repos/o/axb/git/" + rest)),
+                                  github.Unanswered, rest)
+        self.assertEqual(recording.sent, good + [github.request("GET", "/repos/o/a.b/git/blobs/" + NAMED)])
+        # A token for a repo or a branch told wrongly, a work branch's name with more after it among them, sends
+        # nothing at all: nor one for a repo with more after it, or for the work branch of an issue or an attempt 0.
+        for repo, branch in (("o/..", WORK), (PUSHED, "main"), (PUSHED, None), (PUSHED, WORK + "/../main"),
+                             ("o/repo/extra", WORK), ("owner/repo/../other", WORK),
+                             (PUSHED, "factory-work/issue-9971-0"), (PUSHED, "factory-work/issue-0-1"),
+                             (PUSHED, "factory-work/issue-9971-01")):
+            self.assertEqual(push.allowed(repo, branch), ({}, []), (repo, branch))
+
+    def test_a_pushs_token_holds_each_thing_it_is_told_to_its_exact_kind(self):
+        # Text of another kind, that equals any text and reads as other text, as the repo or the branch: no token.
+        for repo, branch in ((Lying(PUSHED), WORK), (PUSHED, Lying(WORK))):
+            self.assertEqual(calmly(push.allowed, repo, branch), ({}, []), (repo, branch))
+        recording = self.Recording()
+        sending = effects.Allowed(recording, *push.allowed(PUSHED, WORK))
+        git = "/repos/%s/git/" % PUSHED
+        entry = {"path": "a.md", "mode": "100644", "type": "blob", "sha": NAMED}
+        tree = {"base_tree": NAMED, "tree": [entry]}
+        blob = {"content": "eA==", "encoding": "base64"}
+        holding, deep = [], NAMED
+        holding.append(holding)
+        for _ in range(600):
+            deep = [deep]
+        refused = [
+            # A body holding text of another kind: as the ref made, a file's mode, type or path, a blob's content or
+            # encoding, a key.
+            ("POST", git + "refs", {"ref": Lying("refs/heads/main"), "sha": NAMED}),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, mode=Lying("120000"))])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, type=Lying("commit"))])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path=Lying("../a.md"))])),
+            ("POST", git + "blobs", dict(blob, content=Lying("not base64!"))),
+            ("POST", git + "blobs", dict(blob, encoding=Lying("utf-8"))),
+            ("POST", git + "blobs", {Lying("content"): "eA==", "encoding": "base64"}),
+            # A body of more things than any push holds, and then one that holds itself, or is nested deep.
+            ("POST", git + "trees", dict(tree, tree=[entry] * (push.MOST // 5))),
+            ("POST", git + "trees", dict(tree, tree=holding)),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, sha=deep)]))]
+        for method, path, body in refused:
+            self.assertIsInstance(calmly(sending.send, github.request(method, path, body=body)), github.Unanswered,
+                                  (method, path))
+        self.assertEqual(recording.sent, [])
+        # The most a body may hold is sent.
+        most = github.request("POST", git + "trees", body=dict(tree, tree=[entry] * (push.MOST // 5 - 1)))
+        self.assertEqual(sending.send(most)["status"], 200)
+
+    def test_a_pushs_token_holds_a_path_base64_and_each_bound_at_its_edge(self):
+        recording = self.Recording()
+        sending = effects.Allowed(recording, *push.allowed(PUSHED, WORK))
+        git = "/repos/%s/git/" % PUSHED
+        entry = {"path": "a.md", "mode": "100644", "type": "blob", "sha": NAMED}
+        tree, blob = {"base_tree": NAMED, "tree": [entry]}, {"content": "eA==", "encoding": "base64"}
+
+        class Equal(int):
+            """A whole number of another kind, equal to any mode."""
+            __hash__ = int.__hash__
+
+            def __eq__(self, other):
+                return True
+        good = [("POST", git + "blobs", dict(blob, content=told)) for told in ("eA==", "YWI=", "YWJj")] + [
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path=path)]))
+            for path in ("docs/a\xa0b.md", "caf\xe9.md", "git", ".gitignore", "docs/.github/a.yml")] + [
+            # A file removed where one is written beneath it, names that begin alike, and 20 files.
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="docs", sha=None),
+                                                     dict(entry, path="docs/a.md")])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="docs/a"), dict(entry, path="docs/a.md")])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="f%d.md" % n) for n in range(20)]))]
+        refused = [
+            # Base64 padded past a four, by three, with = in its midst, of another alphabet, or longer than GitHub takes.
+            ("POST", git + "blobs", dict(blob, content=told))
+            for told in ("YWJj====", "YWJj=", "eA=", "eA===", "eA==eA==", "eHh4!!!!", "A" * 134217732)] + [
+            # A path with a C1 control, through git's own directory in any form, or with a backslash.
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path=path)]))
+            for path in ("docs/a\x80b", "docs/a\x9fb", ".git/config", ".GIT/config", ".Git/HEAD", "docs/.git/a",
+                         ".git", ".git./config", ".git:x/config", "GIT~1/config", "docs\\a.md")] + [
+            # A file written where another needs a directory, at the top or below it.
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="docs"), dict(entry, path="docs/a.md")])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="docs/a/b.md"), dict(entry, path="docs/a")])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, mode=Equal(0))])),
+            # A blob's or a tree's read with a body; 40 characters of no hex, read or built upon.
+            ("GET", git + "blobs/" + NAMED, {}), ("GET", git + "trees/" + NAMED + "?recursive=1", {}),
+            ("GET", git + "blobs/" + "g" * 40, None), ("POST", git + "trees", dict(tree, base_tree="g" * 40))]
+        answered = {"status": 200, "headers": {}, "body": None}
+        for method, path, body in good:
+            self.assertEqual(calmly(sending.send, github.request(method, path, body=body)), answered, path)
+        for method, path, body in refused:
+            self.assertIsInstance(calmly(sending.send, github.request(method, path, body=body)), github.Unanswered,
+                                  (method, path))
+        self.assertEqual(len(recording.sent), len(good))
+        # The longest base64 is sent, newlines counted, and no longer.
+        with mock.patch.object(push, "MOST_BASE64", 8):
+            edge = github.request("POST", git + "blobs", body=dict(blob, content="eHh4eHh4"))
+            self.assertEqual(calmly(sending.send, edge), answered)
+            for told in ("eHh4eHh4eA==", "eHh4\neHh4"):
+                self.assertIsInstance(calmly(sending.send, github.request("POST", git + "blobs", body=dict(
+                    blob, content=told))), github.Unanswered, told)
+        # The most a body may hold, counted as `_plain` counts.
+        self.assertTrue(push._plain([None] * 99999))
+        self.assertFalse(push._plain([None] * 100000))
+        # A retry's token sends its own branch's requests, not the first attempt's.
+        retry = "factory-work/issue-9971-2"
+        again = effects.Allowed(recording, *push.allowed(PUSHED, retry))
+        for method, path, body in (("GET", git + "ref/heads/" + retry, None),
+                                   ("POST", git + "refs", {"ref": "refs/heads/" + retry, "sha": NAMED}),
+                                   ("PATCH", git + "refs/heads/" + retry, {"sha": NAMED, "force": False})):
+            self.assertEqual(calmly(again.send, github.request(method, path, body=body)), answered, method)
+        self.assertIsInstance(calmly(again.send, github.request("GET", git + "ref/heads/" + WORK)), github.Unanswered)
+        # An owner of 39 characters, a name of 100, an issue or attempt of 19 digits; none of one more, nor a repo `.`.
+        long_ = "9" * 19
+        for repo, branch in (("a" * 39 + "/r", WORK), ("o/" + "r" * 100, WORK),
+                             (PUSHED, "factory-work/issue-%s-1" % long_), (PUSHED, "factory-work/issue-1-%s" % long_)):
+            read = github.request("GET", "/repos/%s/git/ref/heads/%s" % (repo, branch))
+            self.assertEqual(calmly(effects.Allowed(recording, *push.allowed(repo, branch)).send, read), answered, repo)
+        for repo, branch in (("a" * 40 + "/r", WORK), ("o/" + "r" * 101, WORK), ("o/.", WORK),
+                             (PUSHED, "factory-work/issue-%s9-1" % long_),
+                             (PUSHED, "factory-work/issue-1-%s9" % long_)):
+            self.assertEqual(push.allowed(repo, branch), ({}, []), (repo, branch))
 
 
 if __name__ == "__main__":
