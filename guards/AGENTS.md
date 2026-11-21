@@ -16,7 +16,7 @@ A guard binds the Role that writes this repo's code. So it lives here, never in 
 | A package at the top of the repo is one of verify's inputs, whole, and this one is | `tests/test_tools.py::test_every_package_at_the_top_of_the_repo_is_a_lens_input_whole` |
 | A patch is read section by section as git writes it: each one's kind, its two names and its modes | `tests/test_guards.py::test_a_patch_is_read_section_by_section_as_git_writes_it` |
 | A name is read one way: unquoted, of a narrow set of characters and no more parts than a bound; each line that names a file agrees with the header | `tests/test_guards.py::test_a_name_is_read_one_way_or_not_at_all` |
-| What is not a patch as git writes it is unreadable, never fewer changes | `tests/test_guards.py::test_what_is_not_a_patch_as_git_writes_it_is_unreadable` |
+| What is not a patch as git writes it is unreadable, never fewer changes: lines out of git's order, a mode changed but a file's, a hash git does not write, a path twice | `tests/test_guards.py::test_what_is_not_a_patch_as_git_writes_it_is_unreadable` |
 | A section's hunks are read as their headers count them, each line on its side, with git's marker of a last line that ends in no newline | `tests/test_guards.py::test_a_sections_hunks_are_read_as_their_headers_count_them` |
 | A hunk or a side git does not write makes its patch unreadable, and so does a NUL: a binary change written as text | `tests/test_guards.py::test_a_hunk_or_a_side_git_does_not_write_is_unreadable` |
 | The files a patch reads are named once each, and a new file reads none | `tests/test_guards.py::test_sources_names_each_file_a_patch_reads_once_and_no_new_file` |

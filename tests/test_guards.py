@@ -28,6 +28,14 @@ TREE = {"docs/a.md": FILE, "run.sh": "100755", "link": "120000", "vendored": "16
 HELD = {"docs/a.md": OLD, "run.sh": b"#!/bin/sh\n", "link": b"docs/a.md", "tests/t.py": b"x\n"}
 
 
+def readable(data: bytes) -> list:
+    """The sections of a patch `patch.read` reads: where it reads none an assertion fails, so a rule broken to refuse
+    what git writes fails a test, and never raises in one."""
+    said = patch.read(data)
+    assert said is not None, data
+    return said
+
+
 def section(name: str, hunks: bytes, old: str = None, extended: bytes = b"index 1111111..2222222 100644\n") -> bytes:
     """One section that changes `name`, or `old` into `name`, as git writes it."""
     was = (old or name).encode()
@@ -44,7 +52,7 @@ def gone_file(hunks: bytes) -> bytes:
 
 def after(old: bytes, hunks: bytes):
     """What a file of `old` holds once `hunks`, as a patch writes them, are applied; None where they are not its."""
-    return patch.content(old, patch.read(section("docs/a.md", hunks))[0]["hunks"])
+    return patch.content(old, readable(section("docs/a.md", hunks))[0]["hunks"])
 
 
 def landed(data, tree=None, held=None):
@@ -59,21 +67,29 @@ class Patch(unittest.TestCase):
         empty = b"diff --git a/docs/e b/docs/e\nnew file mode 100755\nindex 0000000..e69de29\n"
         gone = b"diff --git a/docs/g b/docs/g\ndeleted file mode 100644\nindex e69de29..0000000\n"
         said = [(s["kind"], s["old"], s["new"], s["old_mode"], s["new_mode"], s["index_mode"])
-                for s in patch.read(COPIED + MODE + RENAMED + empty + gone)]
-        # A link's mode and a submodule's are modes git writes, and are read: what applies a patch refuses them, by
-        # its own code. An index line gives a mode only where the section has no line of its own for one.
+                for s in readable(COPIED + MODE + RENAMED + empty + gone)]
+        # A link's mode and a submodule's are modes git writes of a file made or removed, and are read: whether such a
+        # file may be written is not asked in reading. An index line gives a mode only where the section has no line
+        # of its own for one.
         other = b"diff --git a/l b/l\nnew file mode 120000\ndiff --git a/m b/m\ndeleted file mode 160000\n"
-        self.assertEqual([(s["old_mode"], s["new_mode"]) for s in patch.read(other)], [(None, "120000"), ("160000", None)])
+        self.assertEqual([(s["old_mode"], s["new_mode"]) for s in readable(other)], [(None, "120000"), ("160000", None)])
         self.assertIsNone(patch.read(MODE + b"index 1111111..2222222\n")[0]["index_mode"])
         self.assertEqual(said, [("copy", "docs/a.md", "docs/c.md", None, None, None),
                                 ("change", "docs/a.md", "docs/a.md", "100644", "100755", None),
                                 ("rename", "docs/a.md", "docs/b.md", None, None, "100644"),
                                 ("new", "docs/e", "docs/e", None, "100755", None),
                                 ("deleted", "docs/g", "docs/g", "100644", None, None)])
+        # A rename that changes the mode is read with both modes, in the order git writes its lines.
+        runnable = (b"diff --git a/docs/a.md b/docs/r\nold mode 100644\nnew mode 100755\nsimilarity index 100%\n"
+                    b"rename from docs/a.md\nrename to docs/r\n")
+        self.assertEqual([(s["kind"], s["old_mode"], s["new_mode"]) for s in readable(runnable)], [("rename", "100644", "100755")])
+        # A hash is read to the length of a SHA-256 name in full, and each side to its own length.
+        for hashes in (b"a" * 64 + b".." + b"b" * 64, b"abcd..1234567"):
+            self.assertEqual(len(readable(RENAMED.replace(b"1111111..2222222", hashes))), 1, hashes)
 
     def test_a_name_is_read_one_way_or_not_at_all(self):
         good = MODE
-        self.assertEqual(len(patch.read(good)), 1)
+        self.assertEqual(len(readable(good)), 1)
         self.assertEqual(landed(good)[1], None)
         names = (b'"docs/a\\303\\251.md"', b"docs/a b.md", b"docs/caf\xc3\xa9.md", b"docs/a\\b.md", b'docs/a"b.md',
                  b"docs/../x", b"./x", b"docs//x", b"/x", b"x/", b".git/config", b"docs/.GIT/x", b"docs/a\tb", b"",
@@ -91,20 +107,29 @@ class Patch(unittest.TestCase):
                 self.assertIsNone(patch.read(good.replace(b"docs/a.md", name)))
         for name in (b".gitignore", b"docs/.gitkeep", b".github/x", b"x.git/y", b"legit~1", b"docs/.git-x", b"git/x"):
             with self.subTest(name=name):
-                self.assertEqual(patch.read(good.replace(b"docs/a.md", name))[0]["new"], name.decode())
+                self.assertEqual(readable(good.replace(b"docs/a.md", name))[0]["new"], name.decode())
+        # A name may hold capitals, as most do.
+        self.assertEqual((readable(good.replace(b"docs/a.md", b"README.md"))[0]["new"], patch.named("docs/README.md")),
+                         ("README.md", True))
         # A name is read alike as text, for a caller that holds a path and no patch; and what is no text is no name.
         self.assertIs(patch.named("docs/a.md"), True)
+        # Nor is text of a subclass of str, whose own methods would be read in place of the built-in ones.
+
+        class Said(str):
+            def split(self, sep=None, maxsplit=-1):
+                return ["docs"]
+        self.assertEqual((patch.named(Said("docs")), patch.named(Said("docs/../x"))), (False, False))
         for name in ("", "docs/a b.md", "docs/../x", "docs//x", ".git/config", "docs/caf\u00e9.md", b"docs/a.md", None, ["docs/a.md"],
                      "docs/a.md\n", "docs/a\r", "a\x00b", "a\x7f"):
             self.assertIs(patch.named(name), False, name)
         # A name has no more parts than the bound, which git does not have and no path of this repo's is near.
         deep = "/".join(["d"] * len(patch.DEEPEST))
         self.assertEqual((len(patch.DEEPEST), patch.named(deep), patch.named(deep + "/x")), (32, True, False))
-        self.assertEqual(patch.read(good.replace(b"docs/a.md", deep.encode()))[0]["new"], deep)
+        self.assertEqual(readable(good.replace(b"docs/a.md", deep.encode()))[0]["new"], deep)
         self.assertIsNone(patch.read(good.replace(b"docs/a.md", deep.encode() + b"/x")))
         # Every line that names a file names what the header names: a rename's line, a copy's.
         moved = b"diff --git a/docs/a.md b/docs/b.md\nsimilarity index 100%\nrename from docs/a.md\nrename to docs/b.md\n"
-        self.assertEqual([said["kind"] for said in patch.read(moved + COPIED)], ["rename", "copy"])
+        self.assertEqual([said["kind"] for said in readable(moved + COPIED)], ["rename", "copy"])
         for data in (moved.replace(b"rename from docs/a.md", b"rename from run.sh"),
                      moved.replace(b"rename to docs/b.md", b"rename to run.sh"),
                      moved.replace(b"rename to docs/b.md\n", b""), moved.replace(b"similarity index 100%\n", b""),
@@ -117,11 +142,11 @@ class Patch(unittest.TestCase):
                      # a copy whose own lines name another file than its header does, on either side
                      COPIED.replace(b"copy from docs/a.md", b"copy from run.sh"), COPIED.replace(b"copy to docs/c.md", b"copy to run.sh"),
                      # one line of a rename or a copy, on a section that is otherwise a change of mode
-                     b"diff --git a/docs/a.md b/docs/a.md\nrename from run.sh\nold mode 100644\nnew mode 100755\n",
-                     b"diff --git a/docs/a.md b/docs/a.md\ncopy to run.sh\nold mode 100644\nnew mode 100755\n",
+                     b"diff --git a/docs/a.md b/docs/a.md\nold mode 100644\nnew mode 100755\nrename from run.sh\n",
+                     b"diff --git a/docs/a.md b/docs/a.md\nold mode 100644\nnew mode 100755\ncopy to run.sh\n",
                      moved.replace(b"similarity index 100%", b"similarity index x%"),
                      b"diff --git a/docs/a.md b/run.sh\nold mode 100644\nnew mode 100755\n",     # two names and no rename
-                     moved.replace(b"rename from docs/a.md\n", b"rename from docs/a.md\ncopy from docs/a.md\ncopy to docs/b.md\n")):
+                     moved + b"copy from docs/a.md\ncopy to docs/b.md\n"):
             with self.subTest(data=data):
                 self.assertIsNone(patch.read(data))
                 self.assertEqual(landed(data), (None, patch.UNREADABLE))
@@ -139,6 +164,7 @@ class Patch(unittest.TestCase):
             RENAMED.replace(b"index 1111111..2222222 100644\n", b"index 1111111..2222222 100644\nindex 1111111..2222222 100644\n"),
             RENAMED.replace(b"1111111..2222222", b"1111111.2222222"), RENAMED.replace(b"1111111..2222222", b"111111g..2222222"),
             RENAMED.replace(b"1111111..2222222", b"..2222222"), RENAMED.replace(b"1111111..2222222", b"1111111.."),
+            b"diff --git a/n b/n\nnew file mode 100644\nindex ..2222222\n", b"diff --git a/f b/f\ndeleted file mode 100644\nindex 1111111..\n",
             RENAMED.replace(b"1111111..2222222", b"1111111..222222g"),
             RENAMED.replace(b"2222222 100644", b"2222222 file"),
             b"diff --git a/x.bin b/x.bin\nindex 1111111..2222222 100644\nGIT binary patch\nliteral 2\nJcmZQ%0000\n\n",
@@ -146,7 +172,7 @@ class Patch(unittest.TestCase):
             b"diff --git a/docs/a.md b/docs/a.md\nindex 1111111..2222222 100644\n",           # a section that changes nothing
             b"diff --git a/docs/a.md b/docs/a.md\nold mode 100644\n",
             b"diff --git a/docs/a.md b/docs/a.md\nold mode 100644\nnew mode rwx\n",
-            b"diff --git a/n b/n\nnew file mode 100644\ndeleted file mode 100644\n",
+            b"diff --git a/n b/n\ndeleted file mode 100644\nnew file mode 100644\n",
             b"diff --git a/n b/n\nnew file mode 100644\nold mode 100644\nnew mode 100755\n",
             # A mode git does not write; a change of mode to the same mode; a second mode on the index line.
             b"diff --git a/f b/f\nold mode 100644\nnew mode 999\n", b"diff --git a/f b/f\nold mode 1\nnew mode 100644\n",
@@ -158,13 +184,44 @@ class Patch(unittest.TestCase):
             MODE + b"index 1111111..2222222 100755\n",
             # What only a rename or a copy has, on a section that is neither.
             b"diff --git a/a b/b\nnew file mode 100644\nsimilarity index 100%\nrename from a\nrename to b\n",
-            b"diff --git a/f b/f\nsimilarity index 100%\nold mode 100644\nnew mode 100755\n",
+            b"diff --git a/f b/f\nold mode 100644\nnew mode 100755\nsimilarity index 100%\n",
             b"diff --git a/a b/b\ndeleted file mode 100644\nsimilarity index 100%\nrename from a\nrename to b\n",
             b"diff --git a/f b/f\ndeleted file mode 100644\nold mode 100644\nnew mode 100755\n",
             # How alike two files are is a whole number of percent, 100 at most.
             RENAMED.replace(b"index 87%", b"index 87"), RENAMED.replace(b"index 87%", b"index 101%"),
             RENAMED.replace(b"index 87%", b"index 1000%"), RENAMED.replace(b"index 87%", b"index 087%"),
             RENAMED.replace(b"index 87%", b"index 07%"),
+            # How alike is a count: one of no digit is none, and so is one of more digits than any percent has.
+            RENAMED.replace(b"index 87%", b"index %"), RENAMED.replace(b"index 87%", b"index 1000000000%"),
+            # One section git does not write, after one it does, leaves the patch unread, not read in part.
+            MODE + b"diff --git a/x b/x\nold mode 100644\n",
+            # A change of mode is a file's, between its two modes: git writes a change of type as a removal and a new file.
+            b"diff --git a/f b/f\nold mode 100644\nnew mode 120000\n", b"diff --git a/f b/f\nold mode 120000\nnew mode 100644\n",
+            b"diff --git a/f b/f\nold mode 100755\nnew mode 160000\n",
+            b"diff --git a/a b/l\nold mode 100644\nnew mode 120000\nsimilarity index 100%\nrename from a\nrename to l\n",
+            b"diff --git a/l b/c\nold mode 120000\nnew mode 100644\nsimilarity index 100%\ncopy from l\ncopy to c\n",
+            # git writes a section's lines in one order: its modes, how alike, a rename's or a copy's lines, the index.
+            b"diff --git a/f b/f\nnew mode 100755\nold mode 100644\n",
+            b"diff --git a/a b/b\nsimilarity index 100%\nrename to b\nrename from a\n",
+            b"diff --git a/a b/c\nsimilarity index 100%\ncopy to c\ncopy from a\n",
+            b"diff --git a/a b/b\nrename from a\nrename to b\nsimilarity index 100%\n",
+            b"diff --git a/a b/b\nsimilarity index 100%\nold mode 100644\nnew mode 100755\nrename from a\nrename to b\n",
+            RENAMED.replace(b"similarity index 87%\n", b"index 1111111..2222222 100644\nsimilarity index 87%\n"),
+            b"diff --git a/n b/n\nindex 0000000..2222222\nnew file mode 100644\n",
+            # An index line's hashes are lower hex, no longer than a SHA-256 name in full; a new file's first is zeros
+            # and a removed one's second, and no other section's either.
+            RENAMED.replace(b"1111111..2222222", b"1111111..222222F"), RENAMED.replace(b"1111111..2222222", b"111111F..2222222"),
+            RENAMED.replace(b"1111111..2222222", b"a" * 65 + b"..2222222"), RENAMED.replace(b"1111111..2222222", b"1111111.." + b"b" * 65),
+            b"diff --git a/n b/n\nnew file mode 100644\nindex 1111111..2222222\n",
+            b"diff --git a/f b/f\ndeleted file mode 100644\nindex 1111111..2222222\n",
+            RENAMED.replace(b"1111111..2222222", b"0000000..2222222"), RENAMED.replace(b"1111111..2222222", b"1111111..0000000"),
+            # No path is in two sections: none written twice, and no file removed and one made at its path, which is
+            # how git writes a change of a file's type.
+            MODE + MODE, RENAMED + MODE.replace(b"docs/a.md", b"docs/b.md"), COPIED + COPIED.replace(b"docs/a.md", b"run.sh"),
+            b"diff --git a/f b/f\ndeleted file mode 100644\nindex 1111111..0000000\n"
+            b"diff --git a/f b/f\nnew file mode 120000\nindex 0000000..2222222\n",
+            b"diff --git a/f b/f\nnew file mode 100644\nindex 0000000..2222222\n"
+            b"diff --git a/f b/f\ndeleted file mode 100644\nindex 1111111..0000000\n",
         )
         for data in cases:
             with self.subTest(data=data):
@@ -172,7 +229,13 @@ class Patch(unittest.TestCase):
                 self.assertIsNone(patch.sources(data))
                 self.assertEqual(landed(data), (None, patch.UNREADABLE))
         # Two files wholly alike and wholly unlike are read.
-        self.assertEqual([len(patch.read(RENAMED.replace(b"index 87%", said))) for said in (b"index 100%", b"index 0%")], [1, 1])
+        self.assertEqual([len(readable(RENAMED.replace(b"index 87%", said))) for said in (b"index 100%", b"index 0%")], [1, 1])
+        # What is bytes of a subclass is not read: its own methods would be read in place of the built-in ones.
+
+        class Said(bytes):
+            def split(self, sep=None, maxsplit=-1):
+                return MODE.split(b"\n")
+        self.assertIsNone(patch.read(Said(b"x")))
 
     def test_a_sections_hunks_are_read_as_their_headers_count_them(self):
         line = lambda sign, text: {"sign": sign, "text": text, "bare": False}
@@ -180,35 +243,35 @@ class Patch(unittest.TestCase):
                 "lines": [line(b" ", b"b"), line(b"-", b"c"), line(b"+", b"C"), line(b" ", b"d")]}
         self.assertEqual(patch.read(CHANGE), [{"kind": "change", "old": "docs/a.md", "new": "docs/a.md", "hunks": [hunk],
                                                "index_mode": "100644", "old_mode": None, "new_mode": None}])
-        said = [(s["kind"], s["old"], s["new"], len(s["hunks"])) for s in patch.read(NEW + GONE + MOVED + COPIED + MODE)]
+        said = [(s["kind"], s["old"], s["new"], len(s["hunks"])) for s in readable(NEW + GONE + MOVED + COPIED + MODE)]
         self.assertEqual(said, [("new", "docs/n.md", "docs/n.md", 1), ("deleted", "tests/t.py", "tests/t.py", 1),
                                 ("rename", "docs/a.md", "docs/b.md", 1), ("copy", "docs/a.md", "docs/c.md", 0),
                                 ("change", "docs/a.md", "docs/a.md", 0)])
         # After a header's second `@@` git writes nothing, or a space and the line the hunk stands under. A line's
         # bytes are its own to the last: a space, a tab or a carriage return at its end is read.
-        under = patch.read(section("docs/a.md", b"@@ -2,3 +2,3 @@ def f():\n b \t\r\n-c \r\n+C\t\r\n d\n"))[0]["hunks"][0]
+        under = readable(section("docs/a.md", b"@@ -2,3 +2,3 @@ def f():\n b \t\r\n-c \r\n+C\t\r\n d\n"))[0]["hunks"][0]
         self.assertEqual([said["text"] for said in under["lines"]], [b"b \t\r", b"c \r", b"C\t\r", b"d"])
         # Each hunk of a section is read, with each side's own place and count.
-        two = patch.read(section("docs/a.md", b"@@ -2,2 +2,3 @@\n b\n+C\n d\n@@ -9,3 +10,2 @@\n x\n-y\n z\n"))[0]["hunks"]
+        two = readable(section("docs/a.md", b"@@ -2,2 +2,3 @@\n b\n+C\n d\n@@ -9,3 +10,2 @@\n x\n-y\n z\n"))[0]["hunks"]
         self.assertEqual([(h["old_start"], h["old_count"], h["new_start"], h["new_count"], len(h["lines"])) for h in two],
                          [(2, 2, 2, 3, 3), (9, 3, 10, 2, 3)])
-        self.assertEqual(patch.read(section("docs/a.md", b"@@ -999999999 +999999999 @@\n-a\n+A\n"))[0]["hunks"][0]["old_start"],
+        self.assertEqual(readable(section("docs/a.md", b"@@ -999999999 +999999999 @@\n-a\n+A\n"))[0]["hunks"][0]["old_start"],
                          999999999)
         # A count a header leaves out is one line; git's marker says the line before it has no newline at its end,
         # in a hunk or after its last line.
         marker = b"\\ No newline at end of file\n"
         for lines, bare in ((b"-a\n" + marker + b"+A\n", [True, False]), (b"-a\n+A\n" + marker, [False, True]),
                             (b"-a\n" + marker + b"+A\n" + marker, [True, True])):
-            hunk = patch.read(section("docs/a.md", b"@@ -1 +1 @@\n" + lines))[0]["hunks"][0]
+            hunk = readable(section("docs/a.md", b"@@ -1 +1 @@\n" + lines))[0]["hunks"][0]
             self.assertEqual((hunk["old_count"], hunk["new_count"], [said["bare"] for said in hunk["lines"]]), (1, 1, bare))
             self.assertEqual([said["text"] for said in hunk["lines"]], [b"a", b"A"])      # a marked line's bytes are its own
-        ends = patch.read(section("docs/a.md", b"@@ -1,2 +1,2 @@\n-a\n+A\n b\n" + marker))[0]["hunks"][0]
+        ends = readable(section("docs/a.md", b"@@ -1,2 +1,2 @@\n-a\n+A\n b\n" + marker))[0]["hunks"][0]
         self.assertEqual([(said["text"], said["bare"]) for said in ends["lines"]], [(b"a", False), (b"A", False), (b"b", True)])
 
     def test_a_hunk_or_a_side_git_does_not_write_is_unreadable(self):
         marker = b"\\ No newline at end of file\n"
         good = section("docs/a.md", b"@@ -1 +1 @@\n-a\n+A\n")
-        self.assertEqual(len(patch.read(good)), 1)
+        self.assertEqual(len(readable(good)), 1)
         cases = (
             CHANGE.decode(), CHANGE[:-1], CHANGE + b"\n", CHANGE + b"trailer\n", CHANGE + b" ",
             # Each side names what the header names, the old side of a new file and the new side of a removed one nothing.
@@ -361,7 +424,7 @@ class Patch(unittest.TestCase):
             with self.subTest(hunks=hunks):
                 self.assertIsNone(after(old, hunks))
         # What is no bytes is no file's content, an empty file's least of all.
-        gains = patch.read(section("docs/a.md", b"@@ -0,0 +1 @@\n+x\n"))[0]["hunks"]
+        gains = readable(section("docs/a.md", b"@@ -0,0 +1 @@\n+x\n"))[0]["hunks"]
         self.assertEqual(patch.content(b"", gains), b"x\n")
         for old in (None, "", 0, [], {}, "a\n", [b"a"]):
             self.assertIsNone(patch.content(old, gains), old)
@@ -494,15 +557,13 @@ class Patch(unittest.TestCase):
                     extended=b"index 1111111..2222222 120000\n"),              # a link pointed elsewhere
             b"diff --git a/link b/link\ndeleted file mode 120000\nindex 1111111..0000000\n--- a/link\n+++ /dev/null\n"
             b"@@ -1 +0,0 @@\n-docs/a.md\n\\ No newline at end of file\n",       # a link removed
-            b"diff --git a/docs/a.md b/docs/a.md\nold mode 100644\nnew mode 120000\n",    # a file turned into a link
-            b"diff --git a/link b/link\nold mode 120000\nnew mode 100644\n",              # a link turned into a file
+            b"diff --git a/link b/link\nold mode 100755\nnew mode 100644\n",              # a link taken for a file
             new % (b"link/x", b"link/x", b"100644", b"link/x"),                # a file under a link
             new % (b"run.sh/x", b"run.sh/x", b"100644", b"run.sh/x"),          # a file under a file
             new % (b"docs", b"docs", b"100644", b"docs"),                      # a file where a directory stands
             new % (b"n", b"n", b"100644", b"n") + new % (b"n/x", b"n/x", b"100644", b"n/x"),    # one of its own under another
             b"diff --git a/link b/l2\nsimilarity index 100%\nrename from link\nrename to l2\n",    # a link moved
             b"diff --git a/link b/l2\nsimilarity index 100%\ncopy from link\ncopy to l2\n",        # a link copied
-            b"diff --git a/link b/l2\nold mode 120000\nnew mode 100644\nsimilarity index 100%\ncopy from link\ncopy to l2\n",
             # A submodule changed, removed, moved, and written under: no bytes of one are read, and none are needed.
             section("vendored", b"@@ -1 +1 @@\n-a\n+b\n", extended=b"index 1111111..2222222 160000\n"),
             b"diff --git a/vendored b/vendored\ndeleted file mode 160000\nindex 1111111..0000000\n",
@@ -525,12 +586,6 @@ class Patch(unittest.TestCase):
         for data in cases:
             with self.subTest(data=data):
                 self.assertEqual(landed(data), (None, patch.NOT_A_FILE))
-        # A rename and a copy may change the mode to a file's two alone.
-        for mode in (b"120000", b"160000"):
-            for verb in (b"rename", b"copy"):
-                data = (b"diff --git a/docs/a.md b/l\nold mode 100644\nnew mode %s\nsimilarity index 100%%\n%s from docs/a.md\n"
-                        b"%s to l\n" % (mode, verb, verb))
-                self.assertEqual(landed(data), (None, patch.NOT_A_FILE), data)
         # A directory that holds a link or a submodule alone is a directory all the same.
         for held in ({"d/l": "120000"}, {"d/sub": "160000"}):
             self.assertEqual(landed(new % (b"d", b"d", b"100644", b"d"), tree=held), (None, patch.NOT_A_FILE), held)
