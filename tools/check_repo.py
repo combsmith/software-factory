@@ -11,7 +11,7 @@ import re
 from tools import walk
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-LOCAL = {"kernel", "tools", "sim", "tests", "adapters", "controller", "harness", "release"}
+LOCAL = {"kernel", "guards", "tools", "sim", "tests", "adapters", "controller", "harness", "release"}
 # The standard-library modules in use. A new one is added here on purpose, in the same change.
 STDLIB = {"__future__", "ast", "contextlib", "copy", "datetime", "hashlib", "io", "json", "os", "pathlib", "random", "re", "shlex",
           "shutil", "subprocess", "sys", "tempfile", "time", "typing", "unittest"}
@@ -29,20 +29,32 @@ STDLIB = STDLIB | {"marshal"}
 STDLIB = STDLIB | {"difflib"}
 # importlib: tests/test_tools.py reads the import system's own suffixes, so that a Lens's inputs keep up with Python's.
 STDLIB = STDLIB | {"importlib"}
-# http: adapters/github.py, the one transport, refuses an answer http.client cut short. NETWORK refuses it anywhere else.
+# http: adapters/github.py and adapters/azure.py, the two transports, refuse an answer http.client cut short. NETWORK
+# refuses it anywhere else.
 STDLIB = STDLIB | {"http"}
+# ssl: adapters/azure.py makes its own context, so that a default replaced elsewhere cannot turn verification off.
+# NETWORK refuses it anywhere else.
+STDLIB = STDLIB | {"ssl"}
 # zipfile and zlib: adapters/artifacts.py opens a Run's artifact, a zip GitHub serves, of one file and bounded.
 STDLIB = STDLIB | {"zipfile", "zlib"}
 # uuid: harness/run.py names a Run's session before the call, so that its usage names it even when the CLI never answers.
 STDLIB = STDLIB | {"uuid"}
 # email: tools/check_apps.py reads the date on GitHub's answer, an HTTP date, with email.utils alone.
 STDLIB = STDLIB | {"email"}
-# The network. Only the one transport reaches it, so a request to GitHub is made in one file a review can read whole;
+# The network. Only a transport reaches it, so a request to GitHub is made in one file a review can read whole;
 # everywhere else these are refused, the required check fetches nothing, and a test replays what a trial recorded.
 # A net, as the search for secrets is: a subprocess or importlib can still reach out, and review is the real guard.
 NETWORK = {"urllib.request", "http", "socket", "ssl", "ftplib", "smtplib", "imaplib", "poplib", "nntplib",
            "telnetlib", "xmlrpc", "socketserver", "asyncio", "webbrowser"}
 TRANSPORT = pathlib.PurePosixPath("adapters/github.py")
+# The second transport, and the last without a record that names another (decision 0224): what an advisory Lens's
+# reader is asked through, HTTPS to the one Azure host the configuration names. GitHub is still reached by the first
+# alone, and the artifact storage named by the first alone.
+ADVISORY_TRANSPORT = pathlib.PurePosixPath("adapters/azure.py")
+TRANSPORTS = (TRANSPORT, ADVISORY_TRANSPORT)
+# What the second may not name, in text or in bytes, so that it builds no address at GitHub: a net, as STORAGE is, that
+# a name put together from parts passes, and review is the guard.
+GITHUB = re.compile(r"github\.com", re.IGNORECASE)
 # The one exception, decision 0044's Boundaries (the Maintainer's ruling on issue 287): P-50's stub of the model's API,
 # which serves the pinned CLI canned answers on the canary's runner, and its tests' stand-in on 127.0.0.1 here. It is
 # held by an allowlist, not a list of what is refused: it imports these modules alone, by their own names; of http, os
@@ -215,14 +227,21 @@ def _python(rel: pathlib.PurePath, text: str) -> list:
         problems.append("%s:%d defines %s a second time" % (rel, line, name))
     seeded = rel.parts[0] in ("sim", "tests")
     transport = pathlib.PurePosixPath(*rel.parts) == TRANSPORT
+    networked = pathlib.PurePosixPath(*rel.parts) in TRANSPORTS
+    advisory = pathlib.PurePosixPath(*rel.parts) == ADVISORY_TRANSPORT
     stub = pathlib.PurePosixPath(*rel.parts) == TRIAL_STUB
     if stub:
         problems += _stub(rel, tree)
     for node in ast.walk(tree):
         line = getattr(node, "lineno", 0)
-        if isinstance(node, ast.Constant) and isinstance(node.value, str) and STORAGE.search(node.value) \
+        # In text or in bytes, since the second transport reaches the network too (decision 0224).
+        if isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes)) \
+                and STORAGE.search(node.value if isinstance(node.value, str) else node.value.decode("latin-1")) \
                 and not transport and rel.parts[0] != "tests":
             problems.append("%s:%d names GitHub's artifact storage, which only %s reaches" % (rel, line, TRANSPORT))
+        if advisory and isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes)) \
+                and GITHUB.search(node.value if isinstance(node.value, str) else node.value.decode("latin-1")):
+            problems.append("%s:%d names GitHub's host, which only %s reaches" % (rel, line, TRANSPORT))
         mods = []
         if isinstance(node, ast.Import):
             mods = [alias.name for alias in node.names]
@@ -236,9 +255,9 @@ def _python(rel: pathlib.PurePath, text: str) -> list:
                 problems.append("%s:%d imports %s, which is not in the allowed list" % (rel, line, mod))
         for mod in mods + (reached if isinstance(node, ast.ImportFrom) and not node.level else []):
             served = stub and mod == "http.server" and isinstance(node, ast.Import)
-            if any(mod == net or mod.startswith(net + ".") for net in NETWORK) and not transport and not served:
-                problems.append("%s:%d imports %s, which reaches the network; only %s does, as the one transport"
-                                % (rel, line, mod, TRANSPORT))
+            if any(mod == net or mod.startswith(net + ".") for net in NETWORK) and not networked and not served:
+                problems.append("%s:%d imports %s, which reaches the network; only %s do, as the two transports"
+                                % (rel, line, mod, " and ".join(map(str, TRANSPORTS))))
         if isinstance(node, ast.Name) and node.id in LOADERS:
             problems.append("%s:%d uses %s, which can load code no check has seen" % (rel, line, node.id))
         # Only random() gives the same sequence from the same seed on every Python version.

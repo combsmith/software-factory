@@ -3,14 +3,17 @@
 The issue and its timeline are read by REST, the timeline by `adapters/timeline.py` as a pull request's is: whole only
 when its last page names no next one, and an act an App made with a person's token, the opening among them, the App's
 (decision 0218). One GraphQL read gives what REST does not, `lastEditedAt` and each change of the type: a key left out
-refuses it, never reads as null. Both reads must name one `updatedAt`.
+refuses it, never reads as null. Both reads must name one `updatedAt`, and the changes of type, read whole, must
+end on REST's type where any is read: GitHub times a change seconds after the update it makes (trials/P-72.json), so
+a read between is refused as moved.
 
 `content_id` hashes the title and the body, as the pull request's hashes its diff; neither text is kept.
 
 The pull requests that close the issue are read by `adapters/linked.py`, after the rest and before the time is taken:
-`linked` as it lists them, and `complete.linked` true only where it reads them whole and no pull request names the
-issue, while their keyword spans are not read; so an issue any pull request names defers. The issue is read once more
-after them, and refused if it moved. Not read yet, and said so: `branch_head`, which needs the count of pull requests
+`linked` as it lists them, each with its keyword spans from the pass records before this pass, and `complete.linked`
+true only where it reads the list and the spans whole, or as that port says where the records break their chain
+(decision 0186). The issue is read once more after them, and refused if it moved, and `read_at` is taken after that: no
+earlier than the closing references are read. Not read yet, and said so: `branch_head`, which needs the count of pull requests
 the Factory opened for the issue, is null. `complete.runs` is true: the pass puts the records port's answer in its place
 (`controller/pass_.py`'s `asked`), and false here would leave every issue unreadable.
 """
@@ -107,6 +110,20 @@ def edits(transport, repo: str, number: int) -> dict:
             "last_edited_at": None if last is None else timeline._time(last), "type_events": changes, "whole": not more}
 
 
+def typed(issue: dict, edited: dict):
+    """REST's type of the issue, held to its changes as `edits` read them. GitHub times a change of type two or three
+    seconds after the update it makes, on either timeline, so a read between gives the type changed and no change for
+    it under one `updatedAt` (trials/P-72.json): it is refused as moved where the changes, read whole, end on another
+    type. With none read, REST's type stands: an issue with no change logged is read, never deferred for good. Changes
+    read short end on none known, and leave the timeline not whole."""
+    kind, changes = _type(_field(issue, "type")), edited["type_events"]
+    if not edited["whole"]:
+        return kind
+    if changes and changes[-1]["to"] != kind:
+        raise facts.Moved("the issue's type is not its last change's; it is read again at the next pass")
+    return kind
+
+
 def content_changed_at(created: str, last_edited, events: list) -> str:
     """When the title or the body last changed: the newer of `lastEditedAt`, which moves for the body alone, and the
     timeline's last rename, or the creation while neither has moved (trials/P-34.json). No list of the body's edits is
@@ -165,16 +182,18 @@ def comments(events: list, accounts: timeline.Accounts) -> tuple:
 
 
 def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=facts._utc, *, identities: dict,
-         earlier) -> tuple:
+         earlier, kernel=None) -> tuple:
     """`(facts, title)`: `issue-facts/1` for one issue of `repo`, held to its schema, and its title beside the facts,
     never in them, for the view alone. `accounts` tells who acted, the Factory's Apps among them, `identities` the class's
     accounts of a pull request that closes it (`adapters/pull.own`), `earlier` the pass records before this pass, oldest
-    first, or None where they could not be read, and `clock` gives the time after the last read."""
+    first, or None where they could not be read, and `clock` gives the time after the last read. `kernel`, the Kernel's
+    configuration, says whether the Factory's linked draft's checks are read (`adapters/draft_checks.py`)."""
     issue = own(transport, repo, number)
     events, whole = timeline.events(transport, {"number": number, "base": {"repo": {"full_name": repo}}})
     edited = edits(transport, repo, number)
     if edited["updated_at"] != _field(issue, "updated_at"):
         raise facts.Moved("the issue changed while it was read; it is read again at the next pass")
+    kind = typed(issue, edited)
     title, body, state = _field(issue, "title"), _field(issue, "body"), _field(issue, "state")
     if state not in STATES or not isinstance(title, str) or not isinstance(body, (str, type(None))):
         raise Unanswered("the issue's state or content cannot be read")
@@ -186,7 +205,7 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
     writer = timeline.since_writer(events, accounts)
     apps, said = comments(events, accounts)
     closing, closing_whole = linked.read(transport, repo, number, edited["updated_at"], lived["life_started_at"],
-                                         identities, accounts, earlier)
+                                         identities, accounts, earlier, kernel)
     # A merge may have closed it since: read once more, as `adapters/pull.unchanged` does.
     if _field(own(transport, repo, number), "updated_at") != _field(issue, "updated_at"):
         raise facts.Moved("the issue changed while its pull requests were read; it is read again at the next pass")
@@ -196,7 +215,7 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
         "item": {"repo": repo, "type": "issue", "number": number},
         "state": state,
         "author": author,
-        "type": _type(_field(issue, "type")),
+        "type": kind,
         "type_events": edited["type_events"],
         "label_names": _names(_field(issue, "labels"), "name"),
         "assignees": _names(_field(issue, "assignees"), "login"),
