@@ -352,16 +352,18 @@ RULES = (
      "closing references name, and the issue's timeline names the pull request the closer; an edit to its description "
      "after the merge can add an issue to its references, and closes nothing", ("P-33", "P-46", "P-67"),
      ("trials/P-46.json", "trials/P-67.json"), None),
-    # trials/P-34.json: lastEditedAt moves for the body alone; the title's change is the timeline's rename, which
-    # trials/P-34.rest.json read again by REST, so the content's time is the newer of the two, which the port computes;
-    # updatedAt moves for anything. The REST read names each reopening's actor and App (decision 0218).
+    # trials/P-34.json: lastEditedAt moves for the body alone; the title's change is the timeline's rename, so the
+    # content's time is the newer of the two, which the port computes; updatedAt moves for anything. trials/P-72.json
+    # recorded the issues port's own reads, REST's issue and timeline, which name each reopening's actor and App
+    # (decision 0218), and its own query, so read() reads all three rules from it (issue 831); P-72 has no close after
+    # its reopening, so trials/P-34.rest.json's, the first close of the life its reopening began, stays beside it.
     ("an_issues_content_time_is_read_apart", "When an issue's title or body last changed is read apart from when "
-     "anything on it changed", ("P-34",), ("trials/P-34.json", "trials/P-34.rest.json"), None),
+     "anything on it changed", ("P-34", "P-72"), ("trials/P-34.json", "trials/P-72.json"), None),
     ("a_reopening_names_its_actor", "Each reopening of an issue is on its timeline, with who did it",
-     ("P-34",), "trials/P-34.rest.json", None),
+     ("P-34", "P-72"), "trials/P-72.json", None),
     ("an_issues_close_and_reopening_say_when", "Each close and each reopening of an issue is on its timeline with its "
-     "time, so the first close of its present life is read across a reopening", ("P-34",), "trials/P-34.rest.json",
-     None),
+     "time, so the first close of its present life is read across a reopening", ("P-34", "P-72"),
+     ("trials/P-34.rest.json", "trials/P-72.json"), None),
     ("an_issues_run_record_expires", "A run record is gone from the list once it is past the retention",
      ("P-16",), None, None),
     # Contradicted by the fake's issues world, where a person merges a stranger's draft; P-2 (trials/P-2.queue.json) saw
@@ -559,9 +561,11 @@ ASKS = {
     "an_issues_content_time_is_read_apart": {
         "P-34": "Can the time an issue's title or body last changed be read, apart from the time anything on it "
               "changed",
+        "P-72": "When one issue has its body edited, its title renamed",
     },
-    "a_reopening_names_its_actor": {"P-34": "and each reopening, with who did it?"},
-    "an_issues_close_and_reopening_say_when": {"P-34": "and each reopening, with who did it?"},
+    "a_reopening_names_its_actor": {"P-34": "and each reopening, with who did it?", "P-72": "and is closed and reopened"},
+    "an_issues_close_and_reopening_say_when": {"P-34": "and each reopening, with who did it?",
+                                               "P-72": "and is closed and reopened"},
     "an_issues_run_record_expires": {"P-16": "How long are run records, logs and artifacts kept in a public repo?"},
     "a_draft_is_not_merged": {"P-2": "is a draft ever merged by a person or the queue"},
     "a_forks_run_never_counts": {"P-27": "can it never be a schedule or dispatch run?"},
