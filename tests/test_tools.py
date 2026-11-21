@@ -2228,6 +2228,8 @@ class Purity(unittest.TestCase):
                            ("async def f(_decision):\n    return _decision()\n", 1)):
             self.assertIn("x.py:%d takes _decision, which the Kernel alone may call; guards/ makes no Decision and calls "
                           "no function it is given" % line, held({"guards/x.py": text}), text)
+        self.assertTrue(caught(held({"guards/x.py": "def f(patch, g):\n    _decision = g\n    return _decision(patch)\n"}),
+                               "x.py:3 calls _decision, a value it binds"))
         fine = dict(other, **{"guards/a.py": "from guards import b\nfrom guards.b import g\nimport guards.b as other\n\n\n"
                                              "def f():\n    return b.g() or g() or other.g()\n"})
         self.assertEqual(held(fine), [])
@@ -2255,6 +2257,76 @@ class Purity(unittest.TestCase):
         self.assertTrue(caught(held({"guards/terms.py": "DAYS_PER_YEAR = 365\n"}), "guards/terms.py bears the name"))
         below = {"guards/sub/__init__.py": "", "guards/sub/terms.py": "DAYS_PER_YEAR = 365\n"}
         self.assertTrue(caught(held(below), "sub/terms.py:1 writes the number 365; a limit is data, read from the configuration"))
+
+    def test_the_guards_are_the_package_python_imports_and_read_nothing_off_a_value(self):
+        held = lambda files: check_purity.guards(tree(dict({"guards/__init__.py": ""}, **files)))
+        # With no __init__.py Python may import a guards.py at the root in the package's place, which nothing reads.
+        self.assertTrue(caught(check_purity.guards(tree({"guards/x.py": ""})), "guards/ has no __init__.py"))
+        self.assertTrue(caught(held({"guards/sub/x.py": ""}), "guards/sub has no __init__.py"))
+        self.assertTrue(caught(held({"guards/sub/AGENTS.md": ""}), "guards/sub has no __init__.py"))
+        self.assertEqual(held({"guards/sub/__init__.py": "", "guards/sub/x.py": "", "guards/AGENTS.md": "",
+                               "guards/sub/AGENTS.md": ""}), [])
+        # Of two files of one name Python imports the compiled before the source, so the guards hold source alone.
+        # A file named `.py` is no source to this check, which reads a file by its suffix, and Python can still run it.
+        for name in ("guards/x.cpython-39-darwin.so", "guards/__init__.pyc", "guards/x.pyc", "guards/sub/x.so",
+                     "guards/data.json", "guards/README.md", "guards/.py"):
+            self.assertTrue(caught(held({name: ""}), name + " is neither Python's source nor an AGENTS.md"), name)
+        # Nor a link: Python imports through one to a folder, and what it points at is read by nothing here.
+        linked = tree({"guards/__init__.py": "", "out/__init__.py": "import os\n"})
+        os.symlink(linked / "out", linked / "guards" / "sub")
+        os.symlink(linked / "out" / "__init__.py", linked / "guards" / "x.py")
+        found = check_purity.guards(linked)
+        self.assertTrue(caught(found, "guards/sub is a link") and caught(found, "guards/x.py is a link"), found)
+        deep = tree({"guards/__init__.py": "", "guards/sub/__init__.py": "", "out/__init__.py": "import os\n"})
+        os.symlink(deep / "out" / "__init__.py", deep / "guards" / "sub" / "x.py")
+        self.assertTrue(caught(check_purity.guards(deep), "guards/sub/x.py is a link"))
+        # Nor is the package itself one: its files would then be kept where nothing protects them.
+        whole = tree({"out/__init__.py": ""})
+        os.symlink(whole / "out", whole / "guards")
+        self.assertTrue(caught(check_purity.guards(whole), "guards is a link"))
+        self.assertFalse(caught(check_purity.guards(ROOT), "is a link"))
+        # Nothing is read of a value but by a built-in type's method that is called. A generator's frame is one
+        # attribute from any function, and through it every builtin: this guard would open a file as `len`.
+        frame = ("def f(path):\n    g = (0 for _ in ())\n    b = g.gi_frame.f_builtins\n"
+                 "    b.update({'len': b.get('open')})\n    return list(len(path))\n")
+        found = held({"guards/x.py": frame})
+        self.assertTrue(caught(found, "x.py:3 reads f_builtins off a value") and caught(found, "x.py:3 reads gi_frame off a value"))
+        self.assertTrue(caught(held({"guards/x.py": "def f(xs):\n    return xs.count\n"}), "x.py:2 reads count off a value"))
+        self.assertTrue(caught(held({"guards/x.py": "def f(xs, g):\n    return sorted(xs, key=g.get)\n"}), "reads get off a value"))
+        # Nor is it handed what it was given, to be called: the Kernel's rule, read of a guard.
+        self.assertTrue(caught(held({"guards/x.py": "def f(xs, cb):\n    return sorted(xs, key=cb)\n"}), "x.py:2 hands cb to be called"))
+        reads = {"guards/b.py": "G = 1\n\n\ndef g():\n    return 'x'\n", "guards/sub/__init__.py": "", "guards/sub/c.py": "H = 1\n",
+                 "guards/x.py": "from guards import b, sub\nfrom guards.sub import c\nimport guards.b as other\n\n\n"
+                                "def f(xs):\n    return b.G, c.H, other.G, xs.count(b.G), b.g().startswith('x')\n"}
+        self.assertEqual(held(reads), [])
+        off = dict(reads, **{"guards/x.py": "from guards import sub\n\n\ndef f():\n    return sub.c.H\n"})
+        self.assertEqual(held(off), ["x.py:5 reads H off a value; guards/ reads a name of a "
+                         "module of its own, calls a built-in type's method, and reads nothing else of a value"])
+        # A module's name is bound by its import alone. Any other binding of it is a value under a module's name,
+        # which the rule above would read anything off: a parameter, a local, a loop's or a comprehension's name, a
+        # function's own, what an `except` names, and a value imported under it.
+        steal = "from guards import b\n\n\n%s"
+        for text, line in (("def frame_of(b):\n    return b.gi_frame\n", 4), ("def f(xs):\n    b = (0 for _ in xs)\n    return b.gi_frame\n", 5),
+                           ("def f(xs):\n    return [b.gi_frame for b in xs]\n", 5), ("def f(xs):\n    for b in xs:\n        return b.gi_frame\n", 5),
+                           ("def f(xs):\n    return sorted(xs, key=lambda b: b.gi_frame)\n", 5), ("def b():\n    return 1\n", 4),
+                           ("def f(xs):\n    try:\n        return xs.count(0)\n    except ValueError as b:\n        return b.args\n", 7),
+                           ("from guards.b import g as b\n\n\ndef f():\n    return b.count\n", 4)):
+            found = held(dict(reads, **{"guards/x.py": steal % text}))
+            self.assertTrue(caught(found, "x.py:%d binds b, which names a module of guards/" % line), (text, found))
+        # Nor does a second import take it, but of the same module.
+        for text, line in (("from guards import b as m\nfrom guards.sub import c as m\n", 5),
+                           ("def f():\n    import guards.sub.c as b\n    return b.H\n", 5)):
+            found = held(dict(reads, **{"guards/x.py": "from guards import b\n\n\n" + text}))
+            self.assertTrue(caught(found, "x.py:%d binds" % line) and caught(found, "which another import binds to another "
+                                                                           "module of guards/"), (text, found))
+        self.assertEqual(held(dict(reads, **{"guards/x.py": "from guards import b\nimport guards.b as b\n\n\n"
+                                                          "def f():\n    return b.G\n"})), [])
+        # A name imported from a module of its own is that module's value, not a module: nothing is read off it.
+        value = dict(reads, **{"guards/x.py": "from guards.b import g\n\n\ndef f():\n    return g.count\n"})
+        self.assertTrue(caught(held(value), "x.py:5 reads count off a value"))
+        if sys.version_info >= (3, 10):
+            matched = "def f(g):\n    match g:\n        case object(gi_frame=frame):\n            return frame\n"
+            self.assertTrue(caught(held({"guards/x.py": matched}), "x.py:2 matches a value against patterns"))
 
     def test_a_limit_written_into_the_kernel_is_caught(self):
         root = tree({"kernel/x.py": "def f(runs):\n    return len(runs) >= 3 or runs[0] == 1\n"})
@@ -2905,8 +2977,12 @@ class Repo(unittest.TestCase):
         self.assertEqual(validate(whole, schema), [])
         reader = {"host": "factory-readers.openai.azure.com", "deployment": "astra-reader", "model": "astra-model", "api": "responses",
                   "effort": {"critical": "max", "elsewhere": "xhigh"}, "output_tokens": 32000, "prompt_characters": 600000,
-                  "seconds": 900, "usd_per_million": {"input": 2.5, "output": 20}}
+                  "seconds": 900, "share": 540, "usd_per_million": {"input": 2.5, "output": 20}}
         self.assertEqual(validate(dict(whole, readers={"astra": reader, "kimi": dict(reader, api="chat")}), schema), [])
+        # A reader's share of the advise step is its own, from a minute to the step's whole (decision 0243).
+        for share in (59, 1441, None):
+            self.assertTrue(validate(dict(whole, readers={"astra": dict(reader, share=share)}), schema), share)
+        self.assertTrue(validate(dict(whole, readers={"astra": {k: v for k, v in reader.items() if k != "share"}}), schema))
         self.assertEqual(validate(dict(whole, readers={}), schema), [])
         for change in ({"host": "example.com"}, {"host": "factory.openai.azure.com:8443"}, {"host": "a.b.openai.azure.com"},
                        {"deployment": "a deployment"}, {"model": "A Model"}, {"api": "assistants"}, {"effort": "max"},
