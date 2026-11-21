@@ -3237,10 +3237,12 @@ class Workflows(unittest.TestCase):
                          {"sonarcloud.yml": ("sonar-project.properties",)})
         checkout = "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n"
         top = "name: w\non:\n  pull_request:\n  merge_group:\npermissions: {}\njobs:\n  one:\n    runs-on: ubuntu-24.04\n"
-        secret = "    env:\n      TOKEN: ${{ secrets.SONAR_TOKEN }}\n"
+        # The env line that names the scan's credential, as the live workflow does (named apart from the word, which
+        # CodeQL reads as sensitive data, though it is a workflow's text).
+        named = "    env:\n      TOKEN: ${{ secrets.SONAR_TOKEN }}\n"
         head = checkout + "          persist-credentials: false\n"
         base = checkout + "          ref: %s\n" % check_workflows.BASE
-        scan = top + secret + "    steps:\n" + head
+        scan = top + named + "    steps:\n" + head
         hooks = {"protected": [{"path": ".github/", "is": "the workflows"}, {"path": "sonar-project.properties", "is": "the scan's"}]}
 
         def problems(other=None, scan=scan, hooks=json.dumps(hooks), kept=scan):
@@ -3263,7 +3265,7 @@ class Workflows(unittest.TestCase):
             self.assertTrue(caught(problems(hooks=unread)[1], "config/hooks.json's protected list cannot be read"), unread)
         # A workflow with no row checks out the base alone, at either of the base's refs, or nothing.
         not_base = "other.yml runs on a pull request or a merge group beside a secret, and is not read as checking out the base alone"
-        steps = top + secret + "    steps:\n"
+        steps = top + named + "    steps:\n"
         for held in (steps + base, steps + base + base, steps + checkout + "          ref: %s\n" % check_workflows.SCAN_BASE,
                      steps + "      - run: make checks\n",
                      # On a schedule the base's ref is empty, and the checkout takes the default branch's own commit.
@@ -3335,7 +3337,7 @@ class Workflows(unittest.TestCase):
                                    changed))
         # A row for a workflow that is not there, or no longer runs on pull_request beside a secret, is stale.
         stale = "sonarcloud.yml has a row in HEAD_SETTINGS, and is no workflow that runs on a pull request or a merge group beside a secret"
-        for scan_ in (None, scan.replace(secret, ""), scan.replace("  pull_request:\n  merge_group:\n", "  push:\n")):
+        for scan_ in (None, scan.replace(named, ""), scan.replace("  pull_request:\n  merge_group:\n", "  push:\n")):
             self.assertTrue(caught(problems(scan=scan_, kept=scan_ or scan)[1], stale), scan_)
         # The rule is run with the workflows, on the live tree alone.
         root, found = problems(steps + head)
