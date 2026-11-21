@@ -980,17 +980,20 @@ def questions(root: pathlib.Path) -> dict:
     return None if section is None else dict(QUESTION.findall(section), **{t: p[1] for t, p in pages(root)[0].items()})
 
 
-def _batch_rows(root: pathlib.Path) -> list:
-    """[(a batch, a trial it names)] as the rows of 6.1 name them, or none where the design cannot be read."""
+def _batch_rows(root: pathlib.Path) -> tuple:
+    """([(a batch, a trial it names)] as the rows of 6.1 name them, {each batch whose row is read, trials named or none}),
+    or nothing where the design cannot be read."""
     try:
         text = (root / DESIGN).read_text(encoding="utf-8")
     except (OSError, ValueError):
-        return []
+        return [], set()
     start = text.find("\n### 6.1 ")
-    batched = HIDDEN.sub("", text[start:text.find("\n## ", start + 1)] if start >= 0 else "")
+    end = text.find("\n## ", start + 1) if start >= 0 else -1
+    batched = HIDDEN.sub("", text[start:end if end >= 0 else len(text)] if start >= 0 else "")
     opened = OPENED.search(batched)
     batched = batched[:opened.start()] if opened else batched      # read as section 6 is: what is seen alone
-    return [(b, t) for b, cell in BATCH.findall(batched) for t in re.findall(r"\bP-[1-9][0-9]*\b", cell)]
+    rows = BATCH.findall(batched)
+    return [(b, t) for b, cell in rows for t in re.findall(r"\bP-[1-9][0-9]*\b", cell)], {b for b, _ in rows}
 
 
 def table(root: pathlib.Path = ROOT) -> str:
@@ -1004,7 +1007,7 @@ def table(root: pathlib.Path = ROOT) -> str:
         raise ValueError("the trials are refused as they stand; python3 -m tools.check_trials says why")
     rows = {m.group(1): m.group(0) for m in WHOLE_ROW.finditer(section)}
     paged = pages(root)[0]
-    batch = {t: b for b, t in _batch_rows(root)}
+    batch = {t: b for b, t in _batch_rows(root)[0]}
     for trial, (said, question, passed) in paged.items():
         rows[trial], batch[trial] = "| %s | %s | %s |" % (trial, question, passed), said
     order = sorted(rows, key=lambda trial: int(trial[2:]))
@@ -1038,10 +1041,10 @@ def catalog(root: pathlib.Path) -> list:
                             % (DESIGN, trial, LAST_ROW, PAGES))
         # 6.1 names each trial in one batch at most, and all four batches can be read: else a trial in none could not
         # be told from one unread, and the table would mislead.
-        pairs = _batch_rows(root)
+        pairs, batches = _batch_rows(root)
         for trial in sorted({t for _, t in pairs if len({b for b, u in pairs if u == t}) > 1}, key=lambda t: int(t[2:])):
             problems.append("%s: 6.1 names %s in more than one batch; name it in one" % (DESIGN, trial))
-        if {b for b, _ in pairs} != {"1", "2", "3", "4"}:
+        if batches != {"1", "2", "3", "4"}:
             problems.append("%s: 6.1's four batches cannot all be read as '| **N. ...** | trials | ... |'" % DESIGN)
         # A page's batch is the one 6.1 names it in, where 6.1 still does.
         named = {t: b for b, t in pairs}
