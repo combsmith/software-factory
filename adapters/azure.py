@@ -13,9 +13,10 @@ the connection has its caller's limit in seconds, which bounds neither the findi
 that comes slowly: the whole is bounded by the limit of the step that calls. Every answer is bounded in size and
 refused past the bound or of other than the length it said, counted as read, never cut short; no read of the
 connection under it takes more than the bound and a frame's allowance. An answer is read only when it is framed as
-Azure frames each of its own, chunked alone or with one length of at most ten digits, no larger than the bound. One that
-is not UTF-8 is text and never read as JSON, and so is one that holds a whole number of more digits than any count, NaN,
-an infinity or a number too large for a float. Of an answer's headers it keeps the two a caller reads, each by its last
+Azure frames each of its own, chunked alone, each chunk's size of hex digits, or with one length of at most ten digits, no
+larger than the bound, under headers http.client read whole. One that is not UTF-8 is text and never read as JSON, and so
+is one not of JSON's type or its suffix, and one that holds a whole number of more digits than any count, NaN, an
+infinity or a number too large for a float. A body whose object names a member by other than text is not sent. Of an answer's headers it keeps the two a caller reads, each by its last
 value and only when that is short, printable ASCII. It verifies the host's certificate by a context of
 its own, so a default changed elsewhere in the process cannot turn that off. No refusal names the host, the address or
 the key, and each is raised from nothing, chained to no error of urllib's, which holds the address asked. Nothing is
