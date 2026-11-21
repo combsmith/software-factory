@@ -1090,6 +1090,59 @@ class Engine(unittest.TestCase):
                                           "is_error": False, "modelUsage": {MODEL: {}}}])))
         self.assertEqual((r["status"], r["usage"]["turns"]), ("completed", 1))
 
+    def test_the_harness_fills_shown(self):  # issue 856
+        # What a review was shown of its Lens's open Findings is the Harness's to say, from the Task alone: each Finding
+        # the Task lists whose text it kept, in the Task's order, by its id and the digest of that text as UTF-8. The
+        # Result's digest binds it, so `apply` can hold a Disposition to what was shown and to nothing read again.
+        first, second = "f_9c1e", "f_22ab"
+        texts = [text("finding:" + first, body="Return early.\n"), text("finding:" + second, body="café")]
+        the_task = built(texts, findings=[first, second])
+        r = engined(the_task=the_task)
+        self.assertEqual((r["status"], shared.errors(r, "result")), ("completed", []))
+        self.assertEqual(r["shown"], [{"finding": first, "text": sha(b"Return early.\n")},
+                                      {"finding": second, "text": sha("café".encode("utf-8"))}])
+        self.assertEqual(shared.FINDING_TEXT, "finding:")
+        # The Task's order, whatever the texts' or the ids'; and a text edited is another digest.
+        self.assertEqual([s["finding"] for s in engine.shown(built(texts, findings=[second, first]))], [second, first])
+        self.assertEqual([s["finding"] for s in engine.shown(built(texts[::-1], findings=[first, second]))], [first, second])
+        edited = engine.shown(built([text("finding:" + first, body="Return early."), texts[1]], findings=[first, second]))
+        self.assertEqual([s["text"] for s in edited], [sha(b"Return early."), r["shown"][1]["text"]])
+        # A Finding listed with no text kept was not shown, and a text under another id is not its text; a Task that
+        # lists none showed none, and says so.
+        self.assertEqual(engine.shown(built([texts[1], text("thread:" + first)], findings=[first, second])), [r["shown"][1]])
+        self.assertEqual(engine.shown(built(texts)), [])
+        self.assertEqual(engined()["shown"], [])
+        # Two kept texts under one Finding's id were both read, and one digest names one text: that Finding was not
+        # shown, whichever came first, and the other still was.
+        for twice in ([texts[0], text("finding:" + first, body="Other words."), texts[1]],
+                      [text("finding:" + first, body="Other words."), texts[1], texts[0]]):
+            self.assertEqual(engine.shown(built(twice, findings=[first, second])), [r["shown"][1]])
+        # A lone surrogate, which a Task's JSON can carry and UTF-8 cannot, is digested as its own bytes: the step gives
+        # a Result, and never ends on a text.
+        lone = engined(the_task=built([text("finding:" + first, body="bad \ud800 text")], findings=[first]))
+        self.assertEqual((lone["status"], lone["shown"]),
+                         ("completed", [{"finding": first, "text": sha(b"bad \xed\xa0\x80 text")}]))
+        # The model is not handed the field, and an answer that names it, empty or not, is no Result.
+        self.assertNotIn("shown", engine.handed(the_task)["properties"])
+        for named in ([], r["shown"], [{"finding": "f_0bad", "text": sha(b"x")}]):
+            forged = engined(CLI(said=answer(result=judged(shown=named))), the_task)
+            self.assertEqual((forged["status"], forged["reason"]), ("failed", "result_invalid"), named)
+            self.assertNotIn("shown", forged)
+        # result/1 holds each entry to an id and a digest, and nothing else: no text of the Finding's reaches a Result.
+        example = json.loads((ROOT / "examples" / "result.adjudication.json").read_text())
+        self.assertEqual(([s["finding"] for s in example["shown"]], shared.errors(example, "result")), ([first, second], []))
+        for name in ("a-finding-shown-with-its-text", "a-finding-shown-by-no-digest", "a-finding-shown-by-its-id-alone",
+                     "a-finding-shown-without-its-digest", "a-digest-shown-without-its-finding"):
+            odd = json.loads((ROOT / "examples" / "invalid" / ("result.%s.json" % name)).read_text())
+            self.assertEqual(len(shared.errors(odd, "result")), 1, name)
+        twice = dict(example, shown=example["shown"][:1] * 2)
+        self.assertNotEqual(shared.errors(twice, "result"), [])
+        for odd in ("f_zz", "f_9c1", "9c1e", "F_9C1E", "f_9c1e ", "f_" + "a" * 65, None, 9):
+            named = dict(example, shown=[dict(example["shown"][0], finding=odd)])
+            self.assertEqual(len(shared.errors(named, "result")), 1, odd)
+        for odd in (None, 9, ["sha256:" + "0" * 64], "sha256:" + "0" * 63, "sha256:" + "0" * 65):
+            self.assertEqual(len(shared.errors(dict(example, shown=[dict(example["shown"][0], text=odd)]), "result")), 1, odd)
+
     def test_an_answer_that_does_not_validate_is_no_result(self):  # decision 0038, decision 0004
         bad = [answer(result={}), answer(result=judged(run="r_01JA7Z")), answer(result=judged(reason="all_good")),
                answer(result=judged(status="refused")), answer(result=judged(status="failed", reason="x")),
@@ -1391,6 +1444,19 @@ class Passes(unittest.TestCase):
         # One answer naming a criterion twice is one answer: it never stands for another that left it out.
         twice = said([], [{"criterion": "PR-3", "verdict": "met"}, {"criterion": "PR-3", "verdict": "not_applicable", "reason": "no_rule_added"}])
         self.assertEqual(passes.union([twice, said([], [{"criterion": "PR-1", "verdict": "met"}])])["coverage"], [])
+        # A Finding shown stands where any answer rules it so, whichever comes first; one ruled alike is as it was ruled.
+        ruled = lambda word: [{"finding": "f_9c1e", "decision": {"result": word}}]
+        fixed, stands = dict(said([]), dispositions=ruled("accepted")), dict(said([]), dispositions=ruled("rejected"))
+        for answers in ([fixed, stands], [stands, fixed], [fixed, fixed, stands]):
+            self.assertEqual(passes.union(answers)["dispositions"], ruled("rejected"))
+        self.assertEqual(passes.union([fixed, dict(fixed)])["dispositions"], ruled("accepted"))
+        # So does one that a later answer leaves unruled, or rules only by a proposal: silence is no ruling.
+        proposed = dict(said([]), dispositions=[{"finding": "f_9c1e", "proposal": {"outcome": "fixed"}}])
+        # And one a later answer rules both ways, or by both halves: a hedge is no `accepted`.
+        both_ways = dict(said([]), dispositions=ruled("accepted") + ruled("rejected"))
+        halves = dict(said([]), dispositions=[{"finding": "f_9c1e", "proposal": {"outcome": "fixed"}, "decision": {"result": "accepted"}}])
+        for answers in ([fixed, said([])], [fixed, proposed], [fixed, dict(fixed), said([])], [fixed, both_ways], [fixed, halves]):
+            self.assertEqual(passes.union(answers)["dispositions"], ruled("rejected"))
         # Agreement is counted by answer: two answers raising a blocker outvote one raising three minors at the same place.
         minors = [raised("n%d" % i, "kernel/decide.py", line, line, "PR-3", "minor", "functional") for i, line in ((1, 90), (2, 91), (3, 90))]
         voted = passes.union([said([other]), said([dict(other)]), said(minors)])
