@@ -198,7 +198,7 @@ RUN_ALONE = ("tests.test_tools.Mutants.test_a_mutant_a_boundary_names_is_run_aga
 NOT_KILLED_TESTS = ("tests.test_tools.Mutants.test_a_mutant_its_named_tests_miss_is_an_error_and_never_runs_the_whole_suite",)
 OPENER_TESTS = ("tests.test_tools.Workflows.test_a_pull_request_is_opened_from_this_repo_by_an_account_the_configuration_allows",)
 OPENER_JOB = ("tests.test_tools.Workflows.test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds",)
-# A pull request's title (issue 1089): its rule, its read from GitHub, and that no word of it reaches the job's log.
+# A pull request's title (decision 0244): its rule, its read from GitHub, and that no word of it reaches the job's log.
 TITLE_RULE = ("tests.test_tools.PullTitle.test_a_title_keeps_the_rule_or_says_which_part_it_breaks",)
 TITLE_READ = ("tests.test_tools.PullTitle.test_the_title_is_read_from_github_on_both_events_and_refuses_where_it_cannot_be",)
 TITLE_LOG = ("tests.test_tools.PullTitle.test_no_title_writes_a_command_into_the_jobs_log",)
@@ -9567,6 +9567,7 @@ MUTANTS = ISSUE + [
     ('a day that does not exist is read', 'tools/pr_title.py', '    except ValueError:\n        return None, None, "title_unreadable: when pull request %d was opened cannot be read" % number\n', '    except TypeError:\n        return None, None, "title_unreadable: when pull request %d was opened cannot be read" % number\n', TITLE_READ),
     ('a pull request opened before the cutover needs a title', 'tools/pr_title.py', '    if opened < CUTOVER:\n        return []\n    if not isinstance(title, str) or not title:\n', '    if not isinstance(title, str) or not title:\n        return ["title_unreadable: the pull request\'s title cannot be read"]\n    if opened < CUTOVER:\n        return []\n    if False:\n', TITLE_READ),
     ('a title of no text is read', 'tools/pr_title.py', '    if not isinstance(title, str) or not title:\n', '    if not title:\n', TITLE_READ),
+    ('the job does not read the title', 'tools/commits_are_the_maintainers.py', '    found += pr_title.check(environ, transport)\n', '', OPENER_JOB),
     ('a title of any length passes', 'tools/pr_title.py', '    if len(title) > LONGEST:\n', '    if False:\n', TITLE_RULE),
     ('a title one past the most passes', 'tools/pr_title.py', '    if len(title) > LONGEST:\n', '    if len(title) > LONGEST + 1:\n', TITLE_RULE),
     ('a title at the most refuses', 'tools/pr_title.py', '    if len(title) > LONGEST:\n', '    if len(title) >= LONGEST:\n', TITLE_RULE),

@@ -1,7 +1,8 @@
 """A pull request's title is `area: plain verb phrase (#issue)`, in at most LONGEST characters (issue 1089).
 
-The squash commit takes the title as its subject, so what a pull request is called is main's log for good. `check` is
-for the `commits` job of the required check, which runs from the base, so a change cannot make its own title pass. It
+The squash commit takes the title as its subject, so what a pull request is called is main's log for good. The
+`commits` job of the required check calls `check` through `commits_are_the_maintainers.py`, from the base, so a change
+cannot make its own title pass (decision 0244). It
 reads the title from GitHub, never from the event's payload, so a title edited before review is read again when the
 failed job is re-run; on a merge group it reads the pull request the queue's ref names, as it is when it merges. A title
 that cannot be read refuses.
