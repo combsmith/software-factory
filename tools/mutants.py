@@ -4809,7 +4809,7 @@ MUTANTS = ISSUE + [
     ('a kept header may hold what is not printable', AZURE,
      ' and v.isascii() and v.isprintable()}', ' and v.isascii()}', AZURE_BOUND),
     ("an Azure answer's connection is not capped", AZURE,
-     '        held.fp = _Capped(held.fp)\n', '        pass\n', AZURE_CAPPED),
+     '        held.fp = _Capped(held.fp, held.chunked)\n', '        pass\n', AZURE_CAPPED),
     ("an Azure error's connection is not capped", AZURE,
      '_bounded(_capped(err), said))', '_bounded(err, said))', AZURE_CAPPED),
     ("a connection's bytes are read past the cap", AZURE,
