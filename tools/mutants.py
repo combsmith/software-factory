@@ -1640,8 +1640,13 @@ def area_names(root: pathlib.Path) -> list:
             if path.parent == folder and path.suffix == ".py" and path.stem not in ("__init__", "common")]
 
 
-# Each name is a module name, by AREA_NAME, before it is loaded: nothing but a file of tools/mutants_of/ is imported.
-AREAS = tuple(importlib.import_module("tools.mutants_of." + name) for name in area_names(ROOT) if AREA_NAME.fullmatch(name))
+def areas(root: pathlib.Path, load=importlib.import_module) -> tuple:
+    """Each file of mutants in `root`, loaded by `load` in the order of the names. Each name is a module name, by
+    AREA_NAME, before it is loaded: nothing but a file of tools/mutants_of/ is imported."""
+    return tuple(load("tools.mutants_of." + name) for name in area_names(root) if AREA_NAME.fullmatch(name))
+
+
+AREAS = areas(ROOT)
 OUTSIDE = [mutant for area in AREAS for mutant in area.MUTANTS]
 MUTANTS = ISSUE + OUTSIDE + [
     # Issue 1016: a binary file's change is bound to its full blob id.
@@ -18402,6 +18407,10 @@ MUTANTS = ISSUE + OUTSIDE + [
      'MUTANTS = ISSUE + OUTSIDE + [\n', 'MUTANTS = ISSUE + [\n', ('tests.test_tools.Mutants.test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone',)),
     ("the files' mutants are dropped", 'tools/mutants.py',
      'OUTSIDE = [mutant for area in AREAS for mutant in area.MUTANTS]\n', 'OUTSIDE = []\n', ('tests.test_tools.Mutants.test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone',)),
+    ('a file of mutants is loaded whatever its name', 'tools/mutants.py',
+     ' for name in area_names(root) if AREA_NAME.fullmatch(name))', ' for name in area_names(root))', ('tests.test_tools.Mutants.test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone',)),
+    ('only the first file of mutants is loaded', 'tools/mutants.py',
+     ' for name in area_names(root) if AREA_NAME.fullmatch(name))', ' for name in area_names(root)[:1] if AREA_NAME.fullmatch(name))', ('tests.test_tools.Mutants.test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone',)),
     ('a file nested below tools/mutants_of is read as one of its files', 'tools/mutants.py',
      '            if path.parent == folder and path.suffix == ".py" and path.stem not in ("__init__", "common")]\n', '            if path.suffix == ".py" and path.stem not in ("__init__", "common")]\n', ('tests.test_tools.Mutants.test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone',)),
     ('common.py of the mutants is read as a file of them', 'tools/mutants.py',
@@ -18420,7 +18429,15 @@ MUTANTS = ISSUE + OUTSIDE + [
     ('a file of mutants may bind a call of data to another value', 'tools/check_writes.py',
      'if isinstance(node, ast.Lambda) or DATA_CALLS.intersection(bound):', 'if isinstance(node, ast.Lambda):', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
     ('a file of mutants may set an attribute', 'tools/check_writes.py',
-     '        elif isinstance(node, ast.Attribute) and not isinstance(node.ctx, ast.Load):', '        elif False:', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+     '        elif isinstance(node, (ast.Attribute, ast.Subscript)) and not isinstance(node.ctx, ast.Load):', '        elif False:', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+    ('a module named from a package need not be data', 'tools/check_writes.py',
+     ' and all(\n                _inert(mods[whole], mods, seen | {mod.name}, known) for whole in (', ' and (True or all(\n                _inert(mods[whole], mods, seen | {mod.name}, known) for whole in (', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+    ('a file of mutants may set an item', 'tools/check_writes.py',
+     'isinstance(node, (ast.Attribute, ast.Subscript)) and not isinstance(node.ctx, ast.Load)', 'isinstance(node, ast.Attribute) and not isinstance(node.ctx, ast.Load)', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+    ('a runner may hand on a command named as text', 'tools/check_writes.py',
+     '        if not _inert(mod, mods, known=known) and mod.rel not in RUNNERS:\n', '        if not _inert(mod, mods, known=known):\n', ('tests.test_tools.Writes.test_a_command_a_file_of_mutants_names_as_text_is_taken_only_by_another_or_a_runner',)),
+    ("a module whose file's name ends as a package's is read as one", 'tools/check_writes.py',
+     'package = mod.name if mod.rel.rpartition("/")[2] == "__init__.py" else', 'package = mod.name if mod.rel.endswith("__init__.py") else', ('tests.test_tools.Writes.test_a_command_a_file_of_mutants_names_as_text_is_taken_only_by_another_or_a_runner',)),
     ('a name read is a name bound', 'tools/check_writes.py',
      'bound = [node.id] if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) else', 'bound = [node.id] if isinstance(node, ast.Name) else', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
     ('an import binds no name', 'tools/check_writes.py',
@@ -18434,11 +18451,11 @@ MUTANTS = ISSUE + OUTSIDE + [
     ('a file of mutants may not take a command another names as text', 'tools/check_writes.py',
      '        if mod.rel not in RUNNERS and not _inert(mod, mods, known=inert):\n', '        if mod.rel not in RUNNERS:\n', ('tests.test_tools.Writes.test_a_command_a_file_of_mutants_names_as_text_is_taken_only_by_another_or_a_runner',)),
     ("a file's own command named as text is not told", 'tools/check_writes.py',
-     '    if set(_commands(mod)) & _mutant_data(mod, mods, known):\n        return True\n', '', ('tests.test_tools.Writes.test_a_command_a_file_of_mutants_names_as_text_is_taken_only_by_another_or_a_runner',)),
+     '        if set(_commands(mod)) & _mutant_data(mod, mods, known):\n            told[mod.name] = True\n            return True\n', '', ('tests.test_tools.Writes.test_a_command_a_file_of_mutants_names_as_text_is_taken_only_by_another_or_a_runner',)),
     ('a command named as text a step off is not told', 'tools/check_writes.py',
-     '    return any(_texts(mods[name], mods, known) for _, names in _imported(mod) for name in names if name in mods)\n', '    return False\n', ('tests.test_tools.Writes.test_a_command_a_file_of_mutants_names_as_text_is_taken_only_by_another_or_a_runner',)),
+     '        told[mod.name] = any(_texts(mods[name], mods, known, told) for _, names in _imported(mod) for name in names\n', '        told[mod.name] = False and any(_texts(mods[name], mods, known, told) for _, names in _imported(mod) for name in names\n', ('tests.test_tools.Writes.test_a_command_a_file_of_mutants_names_as_text_is_taken_only_by_another_or_a_runner',)),
     ("a file that is no data is read as naming a command as text", 'tools/check_writes.py',
-     '    if not _inert(mod, mods, known=known):\n        return False\n    if set(', '    if set(', ('tests.test_tools.Writes.test_a_command_a_file_of_mutants_names_as_text_is_taken_only_by_another_or_a_runner',)),
+     '        if not _inert(mod, mods, known=known) and mod.rel not in RUNNERS:\n            return False\n        if set(', '        if set(', ('tests.test_tools.Writes.test_a_command_a_file_of_mutants_names_as_text_is_taken_only_by_another_or_a_runner',)),
     ('a plain import loads nothing', 'tools/check_writes.py',
      '            out.append((node.lineno, [alias.name for alias in node.names]))\n', '            out.append((node.lineno, []))\n', ('tests.test_tools.Writes.test_a_command_a_file_of_mutants_names_as_text_is_taken_only_by_another_or_a_runner',)),
     ('a name from a package is no module of it', 'tools/check_writes.py',

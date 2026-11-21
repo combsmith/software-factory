@@ -12173,7 +12173,9 @@ class Writes(unittest.TestCase):
         # the package itself, a relative import, or a file beside the folder whose name starts as its does. Only its
         # top-level assignments may name one, never a def: a def handed a runner would run what it names. Nor a lambda,
         # whatever its parameters are called, and none of the calls it may make bound to another value, by a
-        # comprehension, an assignment, a walrus or an import, or set as an attribute, which would make any call one.
+        # comprehension, an assignment, a walrus or an import, or set as an attribute, which would make any call one;
+        # nor an item set, which would change another file's list.
+        # A module named from a package is read as any file named from, and a ring of them through it is no data.
         entry = "MUTANTS = [\n    ('a push is not read', 'tools/hooks/identity.py', \"subprocess.run(['git', 'push'])\", '', ()),\n]\n"
         files = {"tools/mutants_of/common.py": "\"\"\"Shared.\"\"\"\n\nX = ('t',)\nY = X + ('u',)\n",
                  "tools/mutants_of/data.py": "\"\"\"Data.\"\"\"\n\nfrom tools.mutants_of.common import X, Y\n\nZ = tuple('ab'.replace('a', 'c'))\n" + entry,
@@ -12196,6 +12198,12 @@ class Writes(unittest.TestCase):
                  "tools/mutants_of/imported.py": "from tools.mutants_of.exited import E as tuple\n\nX = tuple()\n" + entry,
                  "tools/mutants_of/attribute_set.py": "exit.replace = print\nX = exit.replace('x')\n" + entry,
                  "tools/mutants_of/walrus.py": "X = (tuple := exit)\nY = tuple()\n" + entry,
+                 "tools/mutants_of/item_set.py": "from tools.mutants_of.common import Y\n\nY[0] = 1\n" + entry,
+                 "tools/mutants_of/deep/__init__.py": "",
+                 "tools/mutants_of/deep/helper.py": "import subprocess\n\nX = 1\n",
+                 "tools/mutants_of/fromdeep.py": "from tools.mutants_of.deep import helper\n\n" + entry,
+                 "tools/mutants_of/deep/a.py": "from tools.mutants_of.deep import b\n\n" + entry,
+                 "tools/mutants_of/deep/b.py": "from tools.mutants_of.deep import a\n\nX = 1\n",
                  "tools/mutants_of/dunder.py": "RUN = ().__class__\n" + entry,
                  "tools/mutants_of/builtin.py": "RUN = __import__\n" + entry,
                  "tools/mutants_of/reaches.py": "RUN = getattr\n" + entry,
@@ -12212,7 +12220,8 @@ class Writes(unittest.TestCase):
         problems = check_writes.run(clone(files))
         self.assertFalse(caught(problems, "tools/mutants_of/data.py"), problems)
         for name in ("runs", "path", "handed", "further", "ring", "package", "later", "runner", "lambda", "named", "bare",
-                     "rebound", "renamed", "imported", "attribute_set", "walrus", "dunder",
+                     "rebound", "renamed", "imported", "attribute_set", "walrus", "item_set", "fromdeep", "deep/a",
+                     "dunder",
                      "builtin", "reaches", "alias", "attribute", "wrapper", "beside", "raises", "exits", "calls", "near", "relative",
                      "../mutants_ofx"):
             rel = os.path.normpath("tools/mutants_of/%s.py" % name)
@@ -12222,7 +12231,8 @@ class Writes(unittest.TestCase):
         # Issue 1101 (Astra, and a Claude read): a command a file of mutants names as text is exempt only while no
         # code runs it, so a file that runs code takes it from there, or from a file there that names from one, only
         # where RUNNERS names that file: by any import, plain, of the module, of a name, or relative, and from a file
-        # of the folder that is no data either. A name with no command in it is taken freely, and a runner takes any.
+        # of the folder that is no data either. A file that names no command is imported freely, and a runner may
+        # import any, though it hands what it took on to no other file. A module is a package's by its file's name.
         untested = (ROOT / "tools" / "untested.py").read_text() + "\nfrom tools.mutants_of.argv import VERSION\n"
         files = {"tools/mutants_of/argv.py": "VERSION = ('git', '--version')\n",
                  "tools/mutants_of/relay.py": "from tools.mutants_of.argv import VERSION\n",
@@ -12234,12 +12244,15 @@ class Writes(unittest.TestCase):
                  "tools/plainimport.py": "import tools.mutants_of.argv\n",
                  "tools/relative.py": "from .mutants_of.argv import VERSION\n",
                  "tools/shared.py": "from tools.mutants_of.common import X\n",
+                 "tools/via_runner.py": "from tools.untested import VERSION\n",
+                 "tools/not__init__.py": "from .mutants_of.argv import VERSION\n",
                  "tools/mutants_of/common.py": "X = ('t',)\n",
                  "tools/untested.py": untested}
         problems = check_writes.run(clone(files))
-        taken = "imports a command a file of the mutants' data names as text"
+        taken = "imports from a file of the mutants' data that names a command as text"
         for rel, line in (("tools/consumer.py", 2), ("tools/relayed.py", 2), ("tools/whole.py", 1),
-                          ("tools/plainimport.py", 1), ("tools/relative.py", 1), ("tools/mutants_of/launders.py", 3)):
+                          ("tools/plainimport.py", 1), ("tools/relative.py", 1), ("tools/mutants_of/launders.py", 3),
+                          ("tools/via_runner.py", 1), ("tools/not__init__.py", 1)):
             self.assertTrue(caught(problems, "%s:%d %s" % (rel, line, taken)), (rel, problems))
         for rel in ("tools/mutants_of/argv.py", "tools/mutants_of/relay.py", "tools/mutants_of/after.py",
                     "tools/shared.py", "tools/untested.py"):
@@ -12920,6 +12933,10 @@ class Mutants(unittest.TestCase):
         self.assertEqual([area.__name__ for area in mutants.AREAS], ["tools.mutants_of." + name for name in names])
         self.assertEqual(mutants.area_names(tree({"tools/mutants_of/%s" % rel: "" for rel in (
             "a.py", "b.py", "deep/c.py", "common.py", "__init__.py", "AGENTS.md", "d.txt")})), ["a", "b"])
+        # Each is loaded, in that order, and a name that is no module name is never handed to the import.
+        loaded = mutants.areas(tree({"tools/mutants_of/%s" % rel: "" for rel in ("a.py", "b.py", "x.y.py", "C.py")}),
+                               load=lambda name: name)
+        self.assertEqual(loaded, ("tools.mutants_of.a", "tools.mutants_of.b"))
         held = {}
         for area in mutants.AREAS:
             self.assertTrue(area.TARGETS and isinstance(area.TARGETS, tuple), area.__name__)
