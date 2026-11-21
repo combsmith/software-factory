@@ -4767,6 +4767,8 @@ MUTANTS = ISSUE + [
      '    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)', '    context = ssl.create_default_context()', AZURE_KEY),
     ("the Azure transport's context takes TLS before 1.2", AZURE,
      '    context.minimum_version = ssl.TLSVersion.TLSv1_2\n', '    context.minimum_version = ssl.TLSVersion.TLSv1\n', AZURE_KEY),
+    ("the Azure transport's context checks no host's name", AZURE, "as a client's default\n",
+     "as a client's default\n    context.check_hostname = False\n", AZURE_KEY),
     ('a number too large for a float is read as an infinity', AZURE,
      'parse_float=_real, ', '', AZURE_BOUND),
     ("ssl may be imported outside the two transports", 'tools/check_repo.py',
