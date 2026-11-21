@@ -43,6 +43,7 @@
       "output_tokens": 96000,
       "prompt_characters": 190000,
       "seconds": 120,
+      "share": 900,
       "usd_per_million": {
         "input": 10,
         "output": 50
@@ -57,14 +58,15 @@
         "critical": "max",
         "elsewhere": "xhigh"
       },
-      "output_tokens": 40000,
+      "output_tokens": 64000,
       "prompt_characters": 190000,
       "seconds": 900,
+      "share": 540,
       "usd_per_million": {
         "input": 3,
         "output": 15
       }
     }
   },
-  "advisory_worst_case_usd": 7.87
+  "advisory_worst_case_usd": 8.23
 }
