@@ -298,16 +298,16 @@ def issue_config(kernel: dict) -> dict:
 
 def moved_once(left_out: list, why: list, before) -> set:
     """The pages of the items left out because they moved while read that the last pass record read and did not leave
-    out as moved: each is deferred with no alert, once, and its writes are owed to the next pass (#658). It is derived
-    from that record, never kept: a last record that cannot be read, or holds no `left_out`, cannot say, so each move
-    counts as a second."""
+    out as moved: each is deferred with no alert, once, and a pull request's writes are owed to the next pass (#658).
+    An issue is graced as a pull request is (decision 0229). It is derived from that record, never kept: a last record
+    that cannot be read, or holds no `left_out`, cannot say, so each move counts as a second."""
     last = before[-1] if isinstance(before, list) and before else None
     held = last.get("left_out") if isinstance(last, dict) else None
     if not isinstance(held, list):
         return set()
     again = {key(e["item"]) for e in held if e["code"] == reads_.MOVED and e["item"] is not None}
     return {key(i) for i, code in zip(left_out, why) if code == reads_.MOVED and reads_.item(i) is not None
-            and i["type"] == "pull_request" and key(i) not in again}
+            and key(i) not in again}
 
 
 def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
@@ -322,8 +322,9 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     refused = reads.get(ISSUE_APPS) is True     # the issues alone are refused: the pull requests are decided as ever
     issues, also, why_also = reads_.items(copy.deepcopy([] if refused else reads.get("issues")), "issue-facts")
     left_out, why = left_out + also, why + why_also
-    # A pull request that moved while it was read, and had not in the last pass, is deferred with no alert: the pass its
-    # change starts reads it again. Any other left out, or one that moved twice in a row, is the alert (#658).
+    # A pull request or an issue that moved while it was read, and had not in the last pass, is deferred with no alert:
+    # the pass its change starts reads it again. Any other left out, or one that moved twice in a row, is the alert
+    # (#658, decision 0229).
     graced = moved_once(left_out, why, before)
     alarmed = [i for i in left_out if reads_.item(i) is None or key(i) not in graced]
     repos = {e["facts"]["item"]["repo"] for e in pulls + issues}
