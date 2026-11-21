@@ -53,7 +53,9 @@ def config(**controller) -> dict:
     table, the Controller's own, here with both accounts known, the Release, and the credentials' dates."""
     c = dict(copy.deepcopy(CONTROLLER), accounts=dict(CONTROLLER["accounts"], workflow_token=dict(TOKEN), relay=dict(RELAY),
                                                       controller=dict(APP_ACCOUNT),
-                                                      roles={name: dict(ROLE_ACCOUNT) for name in CONTROLLER["accounts"]["roles"]}))
+                                                      roles={name: dict(ROLE_ACCOUNT) for name in CONTROLLER["accounts"]["roles"]},
+                                                      # each Lens's App is its Role's account (decision 0223)
+                                                      lenses=[dict(lens, id=ROLE_ACCOUNT["id"]) for lens in CONTROLLER["accounts"]["lenses"]]))
     c.update(controller)
     kernel = {k: v for k, v in copy.deepcopy(support.CONFIG).items() if k != "lifecycle"}
     kernel["issues"] = written(test_issue.config()["issues"])
@@ -271,6 +273,7 @@ class Record(unittest.TestCase):
     def test_an_issue_decision_replays_through_the_issues_kernel_configuration(self):  # decisions 0002, 0218
         # Replayed through `pass_.issue_config`, as the pass asked it, the Controller's factory:triage counts.
         from kernel import issue
+        from controller import __main__ as main
         triaged = an_issue(7, label_events=[test_issue.labelled(test_issue.TRIAGE, by=test_issue.CONTROLLER)])
         record = passed(reads(pulls=[], issues=[triaged]))["record"]
         (entry,) = record["issues"]
@@ -282,6 +285,30 @@ class Record(unittest.TestCase):
         written_ = dict(config()["kernel"], lifecycle=config()["lifecycles"]["issue"])
         self.assertEqual(issue.decide(entry["facts"], record["runs"], record["context"], written_, record["now"])["reason"],
                          "label_not_counted")
+        # The entry asks the same configuration first, for the names it reserves, and the pass asks it again: it is left
+        # as written, so the Kernel is told each App's name with one suffix, and the label counts (issue 963).
+        held = dict(config(), apps=json.loads((ROOT / "config" / "apps.json").read_text())["apps"])
+        kept = copy.deepcopy(held["kernel"])
+        main.reader(github.Replay([]), held)
+        self.assertEqual(held["kernel"], kept)
+        self.assertEqual(passed(reads(pulls=[], issues=[triaged]), cfg=held)["record"]["issues"][0]["decision"],
+                         entry["decision"])
+        # A name written with its suffix would be told with two, and no App's label or comment would count: the
+        # configuration refuses it, an Intent's App as a label's, and its counter-example says so (issue 963).
+        defaults = json.loads((ROOT / "config" / "defaults.json").read_text())
+        self.assertEqual(shared.errors(defaults, "config"), [])
+        suffixed = copy.deepcopy(defaults)
+        suffixed["issues"]["label_apps"]["factory:ready"] = "combsmith-sf-readiness[bot]"
+        self.assertTrue(shared.errors(suffixed, "config"))
+        for intent in ("investigate-issue", "judge-readiness", "open-pull-request"):
+            suffixed = copy.deepcopy(defaults)
+            suffixed["issues"]["intents"][intent] = {"role": "readiness", "app": "combsmith-sf-readiness[bot]"}
+            self.assertTrue(shared.errors(suffixed, "config"), intent)
+            plain = copy.deepcopy(suffixed)
+            plain["issues"]["intents"][intent]["app"] = "combsmith-sf-readiness"
+            self.assertEqual(shared.errors(plain, "config"), [], intent)
+        counter = json.loads((ROOT / "examples" / "invalid" / "config.an-issues-app-named-with-its-bot-suffix.json").read_text())
+        self.assertTrue(shared.errors(counter, "config"))
 
     def test_an_issue_is_asked_of_the_issues_kernel_with_its_own_lifecycle(self):  # decision 0028
         out = passed(reads(pulls=[], issues=[an_issue(7), an_issue(8, repo=OTHER_REPO)]))
@@ -2051,6 +2078,8 @@ class Entry(unittest.TestCase):
             table = self.table(numbers=[7])
             table[("GET", "/repos/%s/issues/5" % self.HOME)] = {
                 "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}, "body": {}}
+            table[("GET", "/repos/%s/issues/10" % self.HOME)] = {
+                "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:00 GMT", "age": "0"}, "body": {}}
             hub = Hub(table)
             with unittest.mock.patch.object(entry, "configuration", configured), \
                     unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
@@ -2090,6 +2119,12 @@ class Entry(unittest.TestCase):
         self.assertEqual([r for r in record["reads"] if r["read"] == "facts"], [{"read": "facts", "date": "2026-10-12T11:59:30Z", "age": 2}])
         shown = [i for i in files["view/items.json"]["items"] if i["url"].endswith("/issues/5")]
         self.assertEqual([i["untrusted"] for i in shown], [{"title": "Issue five"}])
+        # Two issues read whole: each read is dated by its own first answer, so the older is never stamped as fresh as
+        # the other (issue 963).
+        code, _, files = entry_with([5, 10])
+        self.assertEqual((code, [r for r in files["pass.json"]["reads"] if r["read"] == "facts"]),
+                         (0, [{"read": "facts", "date": "2026-10-12T11:59:30Z", "age": 2},
+                              {"read": "facts", "date": "2026-10-12T11:59:00Z", "age": 0}]))
         # A list read short, or not answered, stops the pass before any issue is read; nothing is written.
         for whole in (False, None):
             self.assertEqual(entry_with([5], whole), (1, "issue_list_unreadable\n", {}), whole)
