@@ -125,10 +125,16 @@ WIRE_UNMATCHED = ("tests.test_adapters.EffectsRecorded.test_a_write_by_a_pass_th
 WIRE_CARRY = ("tests.test_reconcile.Carried",)
 WIRE_ENTRY = ("tests.test_controller.Entry.test_the_entry_gathers_what_reconciliation_reads",)
 # The push port's tests (issue 838).
+PUSH_BUILT = ('tests.test_adapters.Push.test_a_push_is_built_for_its_repos_git_data_alone_and_a_part_told_wrongly_builds_nothing',)
+PUSH_ANSWERED = ('tests.test_adapters.Push.test_each_request_of_a_push_is_answered_as_github_recorded_it_with_its_status_as_text',)
+PUSH_REFUSED = ('tests.test_adapters.Push.test_a_refusal_is_an_answer_and_no_answer_is_none',)
+PUSH_BLOB = ('tests.test_adapters.Push.test_a_blobs_bytes_are_its_base64_read_past_githubs_newline_and_named_as_git_names_them',)
 PUSH_TOKEN = ('tests.test_adapters.Push.test_a_pushs_token_sends_a_pushs_alone',)
 PUSH_KIND = ('tests.test_adapters.Push.test_a_pushs_token_holds_each_thing_it_is_told_to_its_exact_kind',)
 PUSH_PY = 'adapters/push.py'
 PUSH_EDGE = ('tests.test_adapters.Push.test_a_pushs_token_holds_a_path_base64_and_each_bound_at_its_edge',)
+PUSH_SENDER = ('tests.test_adapters.Push.test_a_push_is_sent_by_its_own_sender_alone',
+               'tests.test_adapters.Push.test_a_senders_binding_and_permits_are_its_own_and_a_request_is_one_request_builds')
 # The issues port's tests (decision 0218).
 ISSUE_WHOLE = ("tests.test_adapters.Issues.test_an_issues_timeline_is_whole_only_when_its_last_page_names_no_next",)
 ISSUE_CONTENT = ("tests.test_adapters.Issues.test_an_issues_content_time_is_the_newer_of_its_edit_and_its_rename",)
@@ -18491,8 +18497,8 @@ MUTANTS = ISSUE + [
     ('a tag outside factory/ is read', 'adapters/tags.py',
      '        if not ref["ref"].startswith(PREFIX):\n            continue\n',
      '', ('tests.test_release.Tags.test_a_move_reads_refs_and_nothing_at_any_tag',)),
-    # The push port's token (issue 838, P-71): what a push may send, narrowed to its repo's git data and its one work
-    # branch, and nothing for a repo or a branch told wrongly.
+    # The push port (issue 838, P-71): each request built for its repo alone and sent by its own sender alone, each
+    # answer handed back with its status as text, a blob's bytes held to the name asked, and the token narrowed.
     ("a name of any letters and length is a commit's", 'adapters/push.py', 'SHA = re.compile(r"[0-9a-f]{40}")', 'SHA = re.compile(r"[0-9A-Za-z]{1,40}")', PUSH_TOKEN),
     ("a name with more after it is a commit's", 'adapters/push.py', 'SHA.fullmatch(said)', 'SHA.match(said)', PUSH_TOKEN),
     ("a name of letters alone is a commit's", 'adapters/push.py', 'SHA = re.compile(r"[0-9a-f]{40}")', 'SHA = re.compile(r"[a-f]{40}")', PUSH_TOKEN),
@@ -18510,6 +18516,80 @@ MUTANTS = ISSUE + [
     ("a body of any size is plain", 'adapters/push.py', '            if held > MOST:\n                return False\n', '', PUSH_KIND),
     ("a repo named . or .. is a push's", 'adapters/push.py', ' and repo.split("/")[1] not in (".", "..")', '', PUSH_TOKEN),
     ("a branch that begins as a work branch's is one", 'adapters/push.py', 'WORK.fullmatch(branch) is not None', 'WORK.match(branch) is not None', PUSH_TOKEN),
+    ('a commit is read by a name that is none', PUSH_PY, '    if not (_repo(repo) and _sha(sha)):\n        return None\n    return request("GET", _git(repo) + "commits/"', '    return request("GET", _git(repo) + "commits/"', PUSH_BUILT),
+    ('a tree is read by a name that is none', PUSH_PY, '    if not (_repo(repo) and _sha(sha)):\n        return None\n    return request("GET", _git(repo) + "trees/"', '    return request("GET", _git(repo) + "trees/"', PUSH_BUILT),
+    ('a blob is read by a name that is none', PUSH_PY, '    if not (_repo(repo) and _sha(sha)):\n        return None\n    return request("GET", _git(repo) + "blobs/"', '    return request("GET", _git(repo) + "blobs/"', PUSH_BUILT),
+    ('a branch that is no work branch is read', PUSH_PY, '    if not (_repo(repo) and _work(branch)):\n        return None\n    return request("GET"', '    if not _repo(repo):\n        return None\n    return request("GET"', PUSH_BUILT),
+    ('a branch that is no work branch is made', PUSH_PY, '    if not (_repo(repo) and _work(branch) and _sha(sha)):\n        return None\n    return request("POST"', '    if not (_repo(repo) and _sha(sha)):\n        return None\n    return request("POST"', PUSH_BUILT),
+    ('a branch that is no work branch is moved', PUSH_PY, '    if not (_repo(repo) and _work(branch) and _sha(sha)):\n        return None\n    return request("PATCH"', '    if not (_repo(repo) and _sha(sha)):\n        return None\n    return request("PATCH"', PUSH_BUILT),
+    ('the branch is made at a name that is none', PUSH_PY, '_work(branch) and _sha(sha)):\n        return None\n    return request("POST"', '_work(branch)):\n        return None\n    return request("POST"', PUSH_BUILT),
+    ('the branch is moved to a name that is none', PUSH_PY, '_work(branch) and _sha(sha)):\n        return None\n    return request("PATCH"', '_work(branch)):\n        return None\n    return request("PATCH"', PUSH_BUILT),
+    ('a tree is made upon a name that is none', PUSH_PY, 'if not (_repo(repo) and _sha(base))', 'if not _repo(repo)', PUSH_BUILT),
+    ('a blob is made in a repo told wrongly', PUSH_PY, '(_repo(repo) and type(content) is str)', '(type(content) is str)', PUSH_BUILT),
+    ('a blob is made of content that is no text', PUSH_PY, '(_repo(repo) and type(content) is str)', '(_repo(repo))', PUSH_BUILT),
+    ('a blob is made of text of another kind', PUSH_PY, 'type(content) is str)', 'isinstance(content, str))', PUSH_BUILT),
+    ("a name of text of another kind is a commit's", PUSH_PY, 'type(said) is str and SHA', 'isinstance(said, str) and SHA', PUSH_BUILT),
+    ('a commit is made in a repo told wrongly', PUSH_PY, '(_repo(repo) and _sha(tree) and _sha(parent))', '(_sha(tree) and _sha(parent))', PUSH_BUILT),
+    ('a commit is made of a tree that is no name', PUSH_PY, '(_repo(repo) and _sha(tree) and _sha(parent))', '(_repo(repo) and _sha(parent))', PUSH_BUILT),
+    ('a commit is made on a parent that is no name', PUSH_PY, '(_repo(repo) and _sha(tree) and _sha(parent))', '(_repo(repo) and _sha(tree))', PUSH_BUILT),
+    ('a tree is made of its entries as they are later', PUSH_PY, '"tree": copied}', '"tree": entries}', PUSH_BUILT),
+    ("a tree is made of its entries' later contents", PUSH_PY, '[dict(entry) if type(entry) is dict else entry for entry in entries]', 'list(entries)', PUSH_BUILT),
+    ('a tree is made of a deep copy of its entries', PUSH_PY, '[dict(entry) if type(entry) is dict else entry for entry in entries] if type(entries) is list else entries', '__import__("copy").deepcopy(entries)', PUSH_BUILT),
+    ('a tree of entries that are no list is copied as one', PUSH_PY, ' for entry in entries] if type(entries) is list else entries', ' for entry in entries]', PUSH_BUILT),
+    ('a tree of an entry that is no mapping is copied as one', PUSH_PY, 'dict(entry) if type(entry) is dict else entry', 'dict(entry)', PUSH_BUILT),
+    ('a tree is read at its top alone', PUSH_PY, ' + "?recursive=1")', ')', PUSH_ANSWERED),
+    ('the branch is read by the path that writes it', PUSH_PY, '_git(repo) + "ref/heads/" + branch)', '_git(repo) + "refs/heads/" + branch)', PUSH_ANSWERED),
+    ('the branch is moved by force', PUSH_PY, '{"sha": sha, "force": False})', '{"sha": sha, "force": True})', PUSH_ANSWERED),
+    ('a sender is made for a repo or a branch told wrongly', PUSH_PY, '    if not (_repo(repo) and _work(branch) and callable(getattr(live, "send", None))):\n        return None\n    return _Sender', '    return _Sender', PUSH_SENDER),
+    ('a sender is made on what has no send to call', PUSH_PY, ' and callable(getattr(live, "send", None))):', '):', PUSH_SENDER),
+    ('a bare transport sends a push', PUSH_PY, '    if type(sender) is not _Sender or sender.bound != (repo, branch):\n        return None\n', '', PUSH_SENDER),
+    ('any Allowed sends a push', PUSH_PY, 'type(sender) is not _Sender or ', 'not isinstance(sender, Allowed) or ', PUSH_SENDER),
+    ("a sender of the push's own kind sends a push", PUSH_PY, 'type(sender) is not _Sender or ', 'not isinstance(sender, _Sender) or ', PUSH_SENDER),
+    ('a sender bound to another repo sends a push', PUSH_PY, 'sender.bound != (repo, branch)', 'sender.bound[1] != branch', PUSH_SENDER),
+    ('a sender bound to another branch sends a push', PUSH_PY, 'sender.bound != (repo, branch)', 'sender.bound[0] != repo', PUSH_SENDER),
+    ("a send set on a sender sends a push", PUSH_PY, 'answer = Allowed.send(sender, req)', 'answer = sender.send(req)', PUSH_SENDER),
+    ("a sender's binding is an attribute set on it", PUSH_PY, '    @property\n    def bound(self)', '    @__import__("functools").cached_property\n    def bound(self)', PUSH_SENDER),
+    ("a sender's permits are an attribute set on it", PUSH_PY, '    @property\n    def _permits(self)', '    @__import__("functools").cached_property\n    def _permits(self)', PUSH_SENDER),
+    ("a sender's transport is an attribute set on it", PUSH_PY, '    @property\n    def _transport(self)', '    @__import__("functools").cached_property\n    def _transport(self)', PUSH_SENDER),
+    ("a request's keys are compared before they are read", PUSH_PY, 'not _plain(req) or set(req) != REQUEST', 'set(req) != REQUEST or not _plain(req)', PUSH_SENDER),
+    ('a request with headers the builders give none of is sent', PUSH_PY, 'req["headers"] != {} or ', '', PUSH_SENDER),
+    ('a request with an Accept the builders give none of is sent', PUSH_PY, ' or req["accept"] != JSON', '', PUSH_SENDER),
+    ("a transport's OSError is raised", PUSH_PY, 'OSError, ', '', PUSH_REFUSED),
+    ("anything a transport raises is no answer", PUSH_PY, '(Unanswered, OSError, TypeError, ValueError, KeyError, AttributeError)', 'Exception', PUSH_REFUSED),
+    ("a blob is read from an answer of another kind", PUSH_PY, 'type(answer) is dict', 'isinstance(answer, dict)', PUSH_BLOB),
+    ("a blob is read from a body of another kind", PUSH_PY, 'type(body) is not dict or', 'not isinstance(body, dict) or', PUSH_BLOB),
+    ("a blob is read by a status of another kind", PUSH_PY, '_said(answer.get("status"), "200")', 'answer.get("status") == "200"', PUSH_BLOB),
+    ("a blob is read in an encoding of another kind", PUSH_PY, 'not _said(body.get("encoding"), "base64")', 'body.get("encoding") != "base64"', PUSH_BLOB),
+    ('a tree of more entries than a body holds is copied', PUSH_PY, ' or type(entries) is list and len(entries) > MOST', '', PUSH_BUILT),
+    ('a tree of the most entries is not built', PUSH_PY, 'len(entries) > MOST', 'len(entries) >= MOST', PUSH_BUILT),
+    ("the branch read is P-71's", PUSH_PY, '_git(repo) + "ref/heads/" + branch)', '_git(repo) + "ref/heads/factory-work/issue-9971-1")', PUSH_BUILT),
+    ("a sender's patterns are an attribute set on it", PUSH_PY, '    @property\n    def _patterns(self)', '    @__import__("functools").cached_property\n    def _patterns(self)', PUSH_SENDER),
+    ("a sender's permits are a mapping any may add to", PUSH_PY, '        return dict(self._held[0])', '        return self._held[0]', PUSH_SENDER),
+    ("a sender's patterns are a list any may add to", PUSH_PY, 'tuple(patterns)', 'list(patterns)', PUSH_SENDER),
+    ('a request that is no dict raises', PUSH_PY, ' or type(req) is not dict or ', ' or ', PUSH_SENDER),
+    ('a request of a key more is sent', PUSH_PY, ' or set(req) != REQUEST', '', PUSH_SENDER),
+    ('a request that holds text of another kind is sent', PUSH_PY, ' or not _plain(req)', '', PUSH_SENDER),
+    ('a send told a repo of text of another kind sends', PUSH_PY, 'if not (_repo(repo) and _work(branch)) or type(req)', 'if not (_work(branch)) or type(req)', PUSH_SENDER),
+    ('a send told a branch of text of another kind sends', PUSH_PY, 'if not (_repo(repo) and _work(branch)) or type(req)', 'if not (_repo(repo)) or type(req)', PUSH_SENDER),
+    ('a request the transport would not send is answered', PUSH_PY, '        return None\n    status =', '        return {"status": "", "body": None}\n    status =', PUSH_REFUSED),
+    ("a transport's TypeError is raised", PUSH_PY, 'TypeError, ', '', PUSH_REFUSED),
+    ("a transport's ValueError is raised", PUSH_PY, 'ValueError, ', '', PUSH_REFUSED),
+    ("a transport's KeyError is raised", PUSH_PY, 'KeyError, ', '', PUSH_REFUSED),
+    ("a transport's AttributeError is raised", PUSH_PY, ', AttributeError)', ')', PUSH_REFUSED),
+    ("a status told as text is an answer's", PUSH_PY, 'type(status) is not int or not 100 <= status <= 599', 'not 100 <= int(status) <= 599', PUSH_REFUSED),
+    ("a status below 100 is an answer's", PUSH_PY, 'not 100 <= status <= 599', 'not status <= 599', PUSH_REFUSED),
+    ("a status above 599 is an answer's", PUSH_PY, 'not 100 <= status <= 599', 'not 100 <= status', PUSH_REFUSED),
+    ('an answer with no body is one of none', PUSH_PY, ' or "body" not in answer:\n        return None\n    return {"status": str(status), "body": answer["body"]}', ':\n        return None\n    return {"status": str(status), "body": answer.get("body")}', PUSH_REFUSED),
+    ('the status is handed back as GitHub gave it', PUSH_PY, '{"status": str(status),', '{"status": status,', PUSH_ANSWERED),
+    ('a blob is read for a name of text of another kind', PUSH_PY, '    if not _sha(sha):\n        return None\n    body = answer', '    body = answer', PUSH_BLOB),
+    ("a blob's content of text of another kind is read", PUSH_PY, 'if type(text) is not str or', 'if not isinstance(text, str) or', PUSH_BLOB),
+    ('an empty blob is none', PUSH_PY, '    if data is None:\n        return None\n', '    if not data:\n        return None\n', PUSH_BLOB),
+    ('a blob is read from an answer that is no success', PUSH_PY, ' and _said(answer.get("status"), "200") else None', ' else None', PUSH_BLOB),
+    ('a blob is read in another encoding', PUSH_PY, ' or not _said(body.get("encoding"), "base64")', '', PUSH_BLOB),
+    ("a blob's base64 is not read past GitHub's newline", PUSH_PY, 'text.replace("\\n", "")', 'text', PUSH_BLOB),
+    ("a blob's base64 is read past GitHub's last newline alone", PUSH_PY, 'text.replace("\\n", "")', 'text.rstrip("\\n")', PUSH_BLOB),
+    ("a blob's bytes are taken whatever git names them", PUSH_PY, '    if hashlib.sha1(b"blob %d\\0" % len(data) + data, usedforsecurity=False).hexdigest() != sha:\n        return None\n', '', PUSH_BLOB),
+    ("a blob's bytes are named by the name its answer gives", PUSH_PY, 'hashlib.sha1(b"blob %d\\0" % len(data) + data, usedforsecurity=False).hexdigest() != sha', 'body.get("sha") != sha', PUSH_BLOB),
     ("the token for a repo or a branch told wrongly sends", 'adapters/push.py', '    if not (_repo(repo) and _work(branch)):\n        return {}, []\n', '', PUSH_TOKEN),
     ("the token reads with a body", 'adapters/push.py', '        return body is None\n', '        return True\n', PUSH_TOKEN),
     ("the token makes a blob with a key more", 'adapters/push.py', 'set(body) == {"content", "encoding"}', 'True', PUSH_TOKEN),
