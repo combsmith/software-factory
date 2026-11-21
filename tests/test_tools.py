@@ -15691,9 +15691,11 @@ class Desk(unittest.TestCase):
         git(root, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", message)
 
     def test_the_size_is_counted_as_the_factory_counts_it_and_warned_past_its_share(self):
-        root = self.repo({"a.py": "a\nb\nc\n", "m.py": "".join("line %d\n" % n for n in range(40))})
+        root = self.repo({"a.py": "a\nb\nc\n", "m.py": "".join("line %d\n" % n for n in range(40)),
+                          "\u00e9.py": "".join("line %d\n\n" % n for n in range(20))})
         git(root, "checkout", "-q", "-b", "work")
         (root / "a.py").write_text("a\nB\nc\nd\n")
+        (root / "\u00e9.py").write_text("".join("line %d\n\n" % n if n not in (2, 8) else "new\n\n" for n in range(20)))
         git(root, "mv", "m.py", "moved.py")
         self.commit(root, "work")
         # Main moving on past the branch's base counts nothing of main's: the base is where the branch left it.
@@ -15705,20 +15707,23 @@ class Desk(unittest.TestCase):
         base = git(root, "merge-base", "HEAD", "origin/main").strip()
 
         def factory(*args: str) -> int:     # as adapters/pull.py counts it: index lines cut, numbered, escaped
-            return task.carried(task.numbered(desk.pull.canonical(git(root, "diff", "--no-color", "--full-index", "-M",
-                                                                      "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", *args))))
+            plain = git(root, "-c", "core.quotePath=true", "-c", "diff.suppressBlankEmpty=false", "diff", "--no-color",
+                        "--full-index", "-M", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/",
+                        "--inter-hunk-context=0", *args)
+            return task.carried(task.numbered(desk.pull.canonical(plain)))
 
         # However this clone's configuration would write a diff, it is counted as GitHub writes one.
         (root / ".git" / "info" / "attributes").write_text("*.py diff=upper\n")
-        for key, value in (("diff.upper.textconv", "sed -e s/a/A/g"), ("color.ui", "always"), ("diff.noprefix", "true"),
-                           ("diff.renames", "false"), ("core.abbrev", "4")):
+        for key, value in (("diff.upper.textconv", "sed -e s/a/AAA/g"), ("color.ui", "always"), ("diff.noprefix", "true"),
+                           ("diff.renames", "false"), ("core.abbrev", "4"), ("diff.interHunkContext", "20"),
+                           ("diff.suppressBlankEmpty", "true"), ("core.quotePath", "false")):
             git(root, "config", key, value)
 
         said = "about %d of 60000 characters and %d of 4000 lines committed against origin/main as last fetched"
-        self.assertEqual(desk.size(root), said % (factory(base), 3))
+        self.assertEqual(desk.size(root), said % (factory(base), 7))
         # Past 95% of either limit it warns, and under it does not: the Factory's count is a little apart from this.
         warned = "; split it before it opens, or the Factory holds it as too_large"
-        for most, warns in (((int(factory(base) / 0.96), 4000), True), ((60000, 3), True), ((60000, 4), False)):
+        for most, warns in (((int(factory(base) / 0.96), 4000), True), ((60000, 7), True), ((60000, 8), False)):
             with mock.patch.object(desk, "limits", return_value=most):
                 self.assertEqual(desk.size(root).endswith(warned), warns, most)
         for most, warns in (((60000, 21), True), ((60000, 22), False)):       # 20 lines: past 95% of 21, not of 22
@@ -15729,16 +15734,16 @@ class Desk(unittest.TestCase):
         # untracked files are named; each index line is cut as the Factory cuts it, however git abbreviates.
         (root / "a.py").write_text("a\nc\n" + "y" * 300 + "\n")
         self.commit(root, "more")
-        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 2))
+        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6))
         self.assertNotEqual(factory(base, "HEAD"), task.carried(task.numbered(git(root, "diff", "--no-color", "--full-index",
                                                                                   "-M", "--no-textconv", base, "HEAD"))))
         (root / "a.py").write_text("z\n" * 9000)
-        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 2))
+        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6))
         (root / "new.py").write_text("n\n")
-        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 2) + ", 1 untracked file not counted")
+        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6) + ", 1 untracked file not counted")
         (root / "other.py").write_text("o\n")
         git(root, "add", "a.py")
-        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 2) +
+        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6) +
                          ", staged edits and 2 untracked files not counted")
         git(root, "reset", "-q")
         (root / "new.py").unlink()

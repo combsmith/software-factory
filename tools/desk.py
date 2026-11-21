@@ -5,7 +5,7 @@ will count a branch's diff. It fails no run that CI or a hook acts on.
 branch has committed against `origin/main` at, each against its limit in `config/defaults.json`, with a warning past
 SHARE of either. It counts as `adapters/pull.py` counts a pull request's diff: each index line cut as `canonical` cuts
 it, then numbered and escaped as JSON. GitHub heads its hunks a little differently, so the count is near the Factory's,
-not equal to it. A stale local `origin/main` errs high: the base is older than main's, and what main merged since counts
+not equal to it; a binary file's index line counts some 33 characters high. A stale local `origin/main` errs high: the base is older than main's, and what main merged since counts
 as the branch's. Edits not committed are not counted; it says so of staged ones, and how many untracked files there are,
 and says so of text that is no UTF-8, which the Factory holds. `make checks` prints the note after the checks, on the
 desk's run alone (`tools/verify.py --checks`): CI's legs never run it, and nothing it does changes what make checks
@@ -31,13 +31,16 @@ SHARE = 0.95            # of a limit, past which `size` warns: the Factory's cou
 SECONDS = 10
 # The only verbs this runs: each reads this clone, and none fetches, pushes or reaches a remote.
 READS = ("config", "diff", "diff-index", "ls-files", "merge-base")
-# Each read is git's own: no program a repo's configuration names runs, no object is fetched, no lock is taken.
+# Each read is git's own: no program a repo's configuration names runs, no object is fetched, no lock is taken; an
+# external diff is set to none, so a diff that would run one fails rather than runs it.
 SAFE = ("--no-replace-objects", "--literal-pathspecs", "-c", "core.commitGraph=false", "-c", "core.fsmonitor=false",
-        "-c", "diff.external=", "-c", "diff.ignoreSubmodules=none")
+        "-c", "diff.external=", "-c", "diff.ignoreSubmodules=none", "-c", "core.quotePath=true",
+        "-c", "diff.suppressBlankEmpty=false")
 # A diff as GitHub writes one: no colour, no external diff, no textconv, the whole tree, renames found, a/ and b/; its
 # index lines whole, for `canonical` to cut as the Factory's are cut, however long this clone abbreviates an id.
 FORM = ("--no-color", "--no-ext-diff", "--no-textconv", "--no-relative", "-M")
-DIFF = FORM + ("--src-prefix=a/", "--dst-prefix=b/", "-U3", "--full-index")
+DIFF = FORM + ("--src-prefix=a/", "--dst-prefix=b/", "-U3", "--inter-hunk-context=0", "--diff-algorithm=myers",
+               "--full-index")
 MOST = 10 ** 9          # a limit past this is no limit this note can compare with
 
 
