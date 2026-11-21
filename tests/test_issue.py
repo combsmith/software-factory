@@ -1519,10 +1519,14 @@ class Counts(unittest.TestCase):
 
     def test_only_an_app_is_read_as_the_declared_app(self):
         cfg = config(label_apps={"factory:triage": None, "factory:ready": "readiness"})
-        # The queue App is an App too, typed by its account (issue 389).
-        for kind, want in (("app", "ready"), ("lens", "ready"), ("queue", "ready"), ("human", "new")):
+        # The queue App is never an issue's App, whatever its name (issue 1033); a Lens's App is read as the Lens.
+        for kind, want in (("app", "ready"), ("lens", "ready"), ("queue", "new"), ("human", "new")):
             by = {"kind": kind, "name": "readiness", "can_write": False}
             self.assertEqual(state(facts(label_events=[labelled(READY, by)]), [run(minute=0)], cfg), want, kind)
+        cfg = config(label_apps={"factory:triage": "triager", "factory:ready": None})
+        for kind, want in (("app", "triage"), ("lens", "triage"), ("queue", "new"), ("human", "new")):
+            by = {"kind": kind, "name": "triager", "can_write": False}
+            self.assertEqual(state(facts(label_events=[labelled(TRIAGE, by)]), cfg=cfg), want, kind)
 
     def test_no_app_counts_until_it_is_declared(self):
         cfg = config(label_apps={"factory:triage": None, "factory:ready": None})
@@ -1974,9 +1978,10 @@ class Investigation(unittest.TestCase):
         f = facts(label_events=ACCEPTED + [labelled(READY, READINESS, 2), unlabelled(READY, READINESS, 5)])
         self.assertEqual(decide(f, [investigated()])["reason"], "triage")
         cfg = config(intents=intents(judge={"role": "readiness", "app": "readiness"}))
-        person = {"kind": "human", "name": "readiness", "can_write": True}
-        f = facts(label_events=ACCEPTED + [labelled(READY, person, 5), unlabelled(READY, CONTROLLER, 6)])
-        self.assertEqual(decide(f, [investigated()], cfg=cfg)["reason"], "triage")
+        for kind, want in (("human", "triage"), ("queue", "triage"), ("lens", "judged"), ("app", "judged")):
+            by = {"kind": kind, "name": "readiness", "can_write": True}
+            f = facts(label_events=ACCEPTED + [labelled(READY, by, 5), unlabelled(READY, CONTROLLER, 6)])
+            self.assertEqual(decide(f, [investigated()], cfg=cfg)["reason"], want, kind)
 
     def test_a_person_who_removed_ready_since_the_content_changed_overrules_readiness(self):
         removed = ACCEPTED + [labelled(READY, minute=4), unlabelled(READY, minute=5)]
