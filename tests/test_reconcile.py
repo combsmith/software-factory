@@ -284,6 +284,12 @@ class Hand(unittest.TestCase):
         for before, found_ in (([passed(), blind], []), ([passed(), passed([]), blind], [("hand", "resolution")]),
                                ([passed(hands=None), blind], [])):
             self.assertEqual(kinds(check(seen(HAND), before=before)), found_, before)
+        # What such a pass named itself still matches where nothing before it can judge the rest.
+        blind_t = passed()
+        blind_t["reconciled"]["owed"] = [42]
+        for before in ([blind_t], [passed(hands=None), blind_t]):
+            found = check(seen(HAND), before=before)
+            self.assertEqual((found["unmatched"], found["unjudged"], found["short"]), ([], [], False), before)
         # The item's Decision is read wherever it stands in its record.
         second = passed(item=OTHER)
         second["pull_requests"].append(passed([])["pull_requests"][0])
