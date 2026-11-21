@@ -53,7 +53,7 @@ PATCHERS = {"tools/make_corpus.py": {"sim.world.decide"}}
 # workflow's text it checks, and none runs gh or git to write to GitHub, which is an adapter's (issue 596). A new one is
 # the Maintainer's to allow.
 RUNNERS = ("harness/steps.py", "tools/check_decisions.py", "tools/check_trials.py", "tools/check_workflows.py",
-           "tools/commits_are_the_maintainers.py",
+           "tools/commits_are_the_maintainers.py", "tools/desk.py",
            "tools/hooks/before_stop.py", "tools/hooks/identity.py", "tools/hooks/make.py", "tools/hooks/protected.py",
            "tools/hooks/rules_changed.py", "tools/hooks/shell.py", "tools/mutants.py", "tools/untested.py")
 # A command's name as a string, in any case, by a path or not, `.exe` or not: gh or git alone or opening a command line;

@@ -3,7 +3,7 @@
 `make fast` runs the same checks and every test but the seeded simulation. `make checks` runs the checks alone, half a
 minute, and is what a session's hooks run after an edit and before a stop (`tools/hooks/after_edit.py`,
 `tools/hooks/before_stop.py`), and what the desk owes with the mutants of the files a change touches; the tests are CI's.
-It ends with the branch's size as the Factory will count it, `tools/desk.py`'s note, which fails nothing.
+After the checks it prints one note that fails nothing, `tools/desk.py`'s size (`desk_note`), which CI's legs never run.
 
 CI runs `make verify` in legs, each told CHECKS_SHARD and CHECKS_SHARDS by its matrix: each leg runs every check and its
 share of the tests, so that across the legs every test runs once and no leg nears the step's limit. Neither set: every
@@ -19,8 +19,7 @@ import unittest
 
 from tools import (check_apps, check_authority, check_context, check_decisions, check_examples, check_gate_sets,
                    check_lifecycle,
-                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes,
-                   desk)
+                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CHECKS = [
@@ -110,6 +109,17 @@ def notes() -> list:
             "%-22s %s" % ("boundary mutants", check_decisions.unnamed())]
 
 
+def desk_note() -> str:
+    """`tools/desk.py`'s note on about the size the Factory will count the branch at, which `make checks` prints after
+    the checks have answered (issue 1109). It is imported here alone, late, and whatever it raises, an exit among
+    them, is the note's: it never changes what make checks answers. Each git it runs has a timeout."""
+    try:
+        from tools import desk      # late: a fault in it is the note's, never the checks'
+        return desk.size()
+    except BaseException as err:    # NOSONAR: an exit too; the note never decides make checks' answer
+        return "no note: it raised %s" % type(err).__name__
+
+
 def main(argv: list, environ=None) -> int:
     try:
         share = None if "--checks" in argv or "--fast" in argv else leg(environ or {})
@@ -118,10 +128,9 @@ def main(argv: list, environ=None) -> int:
         return 1
     checks_failed = failed(CHECKS)
     if "--checks" in argv:
-        # The desk's run, which the hooks make after each edit: how large the Factory will count the branch, a note
-        # that fails nothing (issue 1109).
-        print("%-22s %s" % ("diff size", desk.size()))
-        return 1 if checks_failed else 0
+        answer = 1 if checks_failed else 0      # the checks' answer, told before the note runs
+        print("%-22s %s" % ("diff size", desk_note()))
+        return answer
     for line in notes():
         print(line)
     unverified(check_trials.unverified())
