@@ -57,8 +57,10 @@ RUNNERS = ("harness/steps.py", "tools/check_decisions.py", "tools/check_trials.p
            "tools/hooks/before_stop.py", "tools/hooks/identity.py", "tools/hooks/make.py", "tools/hooks/protected.py",
            "tools/hooks/rules_changed.py", "tools/hooks/shell.py", "tools/mutants.py", "tools/untested.py")
 # The mutants of the files outside kernel/, as data: each names a command as the text a mutant finds in its target, and
-# runs none, since it imports nothing but from tools.mutants_of and pathlib (issue 1101; allowed by the Maintainer,
-# 2026-11-21). A file there that imports anything else is read as any other.
+# runs none, since it imports no module, and names from no file but another there that imports none either (issue 1101;
+# allowed by the Maintainer, 2026-11-21). Only its top-level assignments may name one, never a def or a class; a file
+# there that imports anything else is read as any other.
+# It is read in good faith, as the rest of this check is: every other rule here still reads it.
 MUTANT_DATA = "tools/mutants_of/"
 # A command's name as a string, in any case, by a path or not, `.exe` or not: gh or git alone or opening a command line;
 # a shell's command after a new line, its `;`, `&`, `|`, `(`, `{` or `!`, or a `case` pattern's `)` after `in`, `;;`,
@@ -945,18 +947,29 @@ def _adapter(mod: Module) -> bool:
     return mod.name == "adapters" or mod.name.startswith("adapters.")
 
 
-def _mutant_data(mod) -> bool:
-    """Whether `mod` is a file of the mutants' data: under MUTANT_DATA, and importing nothing but from tools.mutants_of
-    and pathlib, anywhere in it, so that a command it names is text, and nothing it can run."""
-    if not mod.rel.startswith(MUTANT_DATA):
+def _inert(mod, mods: dict, seen: frozenset = frozenset()) -> bool:
+    """Whether `mod` is under MUTANT_DATA and imports, anywhere in it, no module, and names from none but another file
+    there that is inert as well, read through each in turn; an import that comes back round is not."""
+    if not mod.rel.startswith(MUTANT_DATA) or mod.name in seen:
         return False
     for node in mod.nodes:
-        if isinstance(node, ast.Import) and any(alias.name != "pathlib" for alias in node.names):
+        if isinstance(node, ast.Import):
             return False
-        if isinstance(node, ast.ImportFrom) and (node.level or not (node.module == "tools.mutants_of"
-                                                                    or (node.module or "").startswith("tools.mutants_of."))):
-            return False
+        if isinstance(node, ast.ImportFrom):
+            source = None if node.level else mods.get(node.module)
+            if source is None or not _inert(source, mods, seen | {mod.name}):
+                return False
     return True
+
+
+def _mutant_data(mod, mods: dict) -> set:
+    """The lines of `mod` that are the mutants' data: each line of an assignment at its top level, none in a def or a
+    class, where `mod` is inert; else none. So a command such a line names is text, and nothing the file can reach can
+    run one."""
+    if not _inert(mod, mods):
+        return set()
+    return {line for node in mod.tree.body if isinstance(node, ast.Assign)
+            for line in range(node.lineno, node.end_lineno + 1)}
 
 
 def run(root: pathlib.Path = ROOT) -> list:
@@ -995,10 +1008,11 @@ def run(root: pathlib.Path = ROOT) -> list:
         patching |= {(mod.rel, what) for what, _ in patched}
         if _commands(mod):
             commanding.add(mod.rel)
-        if mod.rel not in RUNNERS and not _mutant_data(mod):
+        if mod.rel not in RUNNERS:
+            data = _mutant_data(mod, mods)
             problems += ["%s:%d names gh or git as a command, which may write to GitHub past adapters/; a write is an "
                          "adapter's, and Python that runs either to read is named in tools/check_writes.py's RUNNERS"
-                         % (mod.rel, line) for line in _commands(mod)]
+                         % (mod.rel, line) for line in _commands(mod) if line not in data]
         for qual, nodes in mod.units.items():
             for call, which in ([] if (mod.name, qual) in TRANSPORT else reading.sends(mod, nodes)):
                 if which is None:

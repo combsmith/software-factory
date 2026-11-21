@@ -11957,20 +11957,33 @@ class Writes(unittest.TestCase):
 
     def test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one(self):
         # Issue 1101: the mutants of a file outside kernel/ live in tools/mutants_of/, and a mutant of a script or a
-        # hook names gh or git as the text it finds. Such a file imports only from tools.mutants_of and pathlib, so it
-        # runs nothing; one that imports anything else, anywhere in it, is read as any other file.
+        # hook names gh or git as the text it finds. Such a file imports no module, and names only from another file
+        # there that imports none either, read through in turn, so nothing it reaches runs a command. One that imports
+        # anything else, anywhere in it, is read as any other file: a module (pathlib hands on os), a name from a file
+        # that imported a module and hands it on, from one that does so a step further off, from a ring of imports,
+        # the package itself, a relative import, or a file beside the folder whose name starts as its does. Only its
+        # top-level assignments may name one, never a def: a def handed a runner would run what it names.
         entry = "MUTANTS = [\n    ('a push is not read', 'tools/hooks/identity.py', \"subprocess.run(['git', 'push'])\", '', ()),\n]\n"
-        files = {"tools/mutants_of/data.py": "from tools.mutants_of.common import X\nimport pathlib\n\n" + entry,
+        files = {"tools/mutants_of/common.py": "X = ('t',)\n\n\ndef helper():\n    return X\n",
+                 "tools/mutants_of/data.py": "from tools.mutants_of.common import X, helper\n\n" + entry,
+                 "tools/mutants_of/launder.py": "import subprocess\n\nrun = subprocess.run\n",
                  "tools/mutants_of/runs.py": "import subprocess\n\n" + entry,
+                 "tools/mutants_of/path.py": "import pathlib\n\n" + entry,
+                 "tools/mutants_of/handed.py": "from tools.mutants_of.launder import run\n\n" + entry,
+                 "tools/mutants_of/further.py": "from tools.mutants_of.handed import run\n\n" + entry,
+                 "tools/mutants_of/ring.py": "from tools.mutants_of.round import X\n\n" + entry,
+                 "tools/mutants_of/round.py": "from tools.mutants_of.ring import MUTANTS\n\nX = 1\n",
+                 "tools/mutants_of/package.py": "from tools.mutants_of import common\n\n" + entry,
                  "tools/mutants_of/later.py": entry + "\n\ndef go():\n    import os\n    return os.system('git push')\n",
+                 "tools/mutants_of/runner.py": "def version(run):\n    return run(['git', 'push'])\n",
                  "tools/mutants_of/near.py": "from tools.mutants_ofx import X\n\n" + entry,
-                 "tools/mutants_of/relative.py": "from .tools.mutants_of import common\n\n" + entry,     # relative, whatever it names
-                 "tools/mutants_ofx.py": entry}
+                 "tools/mutants_of/relative.py": "from .tools.mutants_of.common import X\n\n" + entry,
+                 "tools/mutants_ofx.py": "X = 1\n" + entry}
         problems = check_writes.run(clone(files))
         self.assertFalse(caught(problems, "tools/mutants_of/data.py"), problems)
-        for rel in ("tools/mutants_of/runs.py", "tools/mutants_of/later.py", "tools/mutants_of/near.py",
-                    "tools/mutants_of/relative.py", "tools/mutants_ofx.py"):
-            self.assertTrue(caught(problems, rel + ":"), rel)
+        for name in ("runs", "path", "handed", "further", "ring", "package", "later", "runner", "near", "relative",
+                     "../mutants_ofx"):
+            rel = os.path.normpath("tools/mutants_of/%s.py" % name)
             self.assertTrue(any(p.startswith(rel + ":") and "names gh or git as a command" in p for p in problems), rel)
 
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
@@ -12648,6 +12661,7 @@ class Mutants(unittest.TestCase):
         held = {}
         for area in mutants_of.AREAS:
             self.assertTrue(area.TARGETS and isinstance(area.TARGETS, tuple), area.__name__)
+            self.assertIn(area.__name__.rpartition(".")[2], [mutants_of.named(t) for t in area.TARGETS])
             for target in area.TARGETS:
                 self.assertFalse(target.startswith("kernel/"), (area.__name__, target))
                 self.assertNotIn(target, held, area.__name__)
@@ -12658,6 +12672,15 @@ class Mutants(unittest.TestCase):
         self.assertEqual(mutants.MUTANTS[start:end], mutants_of.MUTANTS)
         own = mutants.MUTANTS[:start] + mutants.MUTANTS[end:]
         self.assertEqual([m[0] for m in own if m[1] in held], [])
+        # The runner's list is the one assignment that reads them, right after ISSUE.
+        made = [n.value for n in ast.parse((ROOT / "tools" / "mutants.py").read_text(encoding="utf-8")).body
+                if isinstance(n, ast.Assign) and [getattr(t, "id", None) for t in n.targets] == ["MUTANTS"]]
+        self.assertEqual(len(made), 1)
+        self.assertTrue(ast.unparse(made[0]).startswith("ISSUE + mutants_of.MUTANTS + "))
+        # A file is named for one of its targets, so that a mutant's file is found from its target alone.
+        for target, name in (("adapters/pull.py", "adapters_pull"), (".github/workflows/verify.yml", "github_workflows_verify_yml"),
+                             ("controller/__main__.py", "controller_main"), ("Makefile", "makefile"), ("3d/x.py", "_3d_x")):
+            self.assertEqual(mutants_of.named(target), name)
 
     def test_every_mutant_finds_its_text_once_in_its_target(self):
         # Issue 1101: a mutant whose text is not in its target exactly once is STALE, which only a run of the mutants
@@ -12669,8 +12692,13 @@ class Mutants(unittest.TestCase):
         for mutant in mutants.MUTANTS:
             name, rel, old = mutant[:3]
             if rel not in texts:
+                # A target is a plain path in the tree, as git names it, so that none is read outside it.
                 path = ROOT / rel
-                texts[rel] = path.read_bytes().decode() if path.is_file() and not path.is_symlink() else None
+                plain = rel == os.path.normpath(rel) and not rel.startswith(("/", "../")) and rel != ".."
+                try:
+                    texts[rel] = path.read_bytes().decode() if plain and path.is_file() else None
+                except (OSError, UnicodeDecodeError):
+                    texts[rel] = None
             if texts[rel] is None or texts[rel].count(old) != 1:
                 stale.append("%s: %s" % (rel, name))
         self.assertEqual(stale, [], "update each stale mutant to the code as it now reads")

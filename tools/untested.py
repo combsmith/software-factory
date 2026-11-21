@@ -52,9 +52,9 @@ CRASH = ("SyntaxError", "IndentationError", "ImportError", "ModuleNotFoundError"
 # Where a changed line is not read: the tests themselves (the issue's own rule), and the trees that hold no Python.
 LEFT_OUT = ("tests/", "trials/", "examples/", "schemas/")
 # The lists in tools/mutants.py that are its data, the mutants themselves; the runner below them is read. A file of
-# tools/mutants_of/ holds the mutants of a file outside kernel/, and its lists are data as well.
+# tools/mutants_of/ holds the mutants of a file outside kernel/, and its MUTANTS alone is data as well.
 DATA = ("tools/mutants.py", ("ISSUE", "MUTANTS"))
-DATA_FOLDER = "tools/mutants_of/"
+DATA_FOLDER = ("tools/mutants_of/", ("MUTANTS",))
 TRAILER = "Behaviour-preserving"
 # A path this prints: a path a pull request named, so held to plain characters before it reaches a log or a summary.
 SAFE = re.compile(r"^[\w./-]+\.py$")
@@ -151,13 +151,13 @@ def shape(text: str) -> str:
     return ast.dump(tree)
 
 
-def holds_data(rel: str) -> bool:
-    """Whether `rel` is a file of the mutants, whose lists DATA names are data: tools/mutants.py, or one of
-    tools/mutants_of/."""
-    return rel == DATA[0] or rel.startswith(DATA_FOLDER)
+def holds_data(rel: str) -> tuple:
+    """The names of the lists that are data in `rel`: DATA's in tools/mutants.py, DATA_FOLDER's in a file of
+    tools/mutants_of/, and none in any other file."""
+    return DATA[1] if rel == DATA[0] else DATA_FOLDER[1] if rel.startswith(DATA_FOLDER[0]) else ()
 
 
-def data_lines(text: str) -> set:
+def data_lines(text: str, names: tuple = DATA[1]) -> set:
     """The lines of a mutants' file's `text` that are its data: each line of an entry of a list or a tuple within an
     assignment to a name DATA names, where the entry is a literal, as `_literal` reads one, and each blank or comment
     line of the assignment; but no line on which any other part of it starts or ends, so that code there, a
@@ -169,7 +169,7 @@ def data_lines(text: str) -> set:
     lines, found, code = source_lines(text), set(), set()
     bound = {}
     for node in tree.body:
-        listed = isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id in DATA[1]
+        listed = isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id in names
                                                       for target in node.targets)
         _unsettle(bound, node)
         if not listed:
@@ -697,7 +697,8 @@ def check(root: pathlib.Path, base: str, head: str, deadline: float, run=None, w
             except ValueError:
                 base_text = ""     # a file the change adds
             diff = git(root, "diff", "-U0", "--no-color", "--no-ext-diff", "--no-renames", since, head, "--", rel)
-            data = (data_lines(head_text), data_lines(base_text)) if holds_data(rel) else (set(), set())
+            names = holds_data(rel)
+            data = (data_lines(head_text, names), data_lines(base_text, names)) if names else (set(), set())
             texts[rel] = (head_text, base_text)
             try:
                 head_shape = shape(head_text)
