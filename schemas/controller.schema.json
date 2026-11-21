@@ -257,6 +257,12 @@
           "required": [
             "pr-review"
           ],
+          "properties": {
+            "hand": {
+              "description": "No Role is named hand: it is who a person's resolution of a thread a Role opened is by (decision 0223), so a Role of that name could not be told from a person",
+              "enum": []
+            }
+          },
           "additionalProperties": {
             "type": [
               "object",

@@ -1223,7 +1223,7 @@ class OnlyAPersonEnds(unittest.TestCase):
                            (thread(kind="human", name="don-petry", severity=None, at=at(20)), "human_finding"),
                            (other_lens, "approval_due"),
                            (thread(ruling="accepted", at=at(20)), "resolve_due"),
-                           (dict(thread(at=at(20)), dropped=True), "resolve_due")):
+                           (thread(at=at(20), dropped=True), "resolve_due")):
             runs = [first, again] if th.get("dropped") else [first]
             self.assertEqual(go(dict(held, threads=[th]), runs)["reason"], reason, th)
         # A push at no time that can be read asks nothing.
@@ -1245,7 +1245,7 @@ class OnlyAPersonEnds(unittest.TestCase):
         # comment's text) is no longer the author's to answer: what still stands, that review raised on a thread of
         # its own. It is the Kernel's to resolve, as an expired Run's thread is (decisions 0086 and 0125).
         old, fresh = run(at=at(10)), run(name="r2", at=at(30))
-        gone = dict(thread(at=at(15)), dropped=True)
+        gone = thread(at=at(15), dropped=True)
         held = facts(threads=[gone], last_push_at=at(25))
         d = go(held, [old, fresh])
         self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["action"]),
@@ -1315,7 +1315,7 @@ class OnlyAPersonEnds(unittest.TestCase):
         accepted = dict(plain, category="security", ruling="accepted")
         self.assertEqual(go(dict(held, threads=[accepted]), [old, fresh])["reason"], "findings_open")
         # Only a Lens's thread is dropped by a review: on a person's, or an App's, the word says nothing.
-        person = dict(thread(kind="human", name="don-petry", severity=None, at=at(15)), dropped=True)
+        person = thread(kind="human", name="don-petry", severity=None, at=at(15), dropped=True)
         self.assertEqual(go(dict(held, threads=[person]), [old, fresh])["reason"], "human_finding")
         # A person's gate comes first, as for any act; and a queued item with the thread open leaves the queue.
         human = thread(tid="T9", kind="human", name="don-petry", severity=None, at=at(31))
