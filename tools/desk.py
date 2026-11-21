@@ -1,6 +1,5 @@
-"""What the desk runs beside the checks, for a person to read, and no check (issues 1109 and 1110): about how large the
-Factory will count a branch's diff, and which lines a merge of main may have lost. Neither fails a run that CI or a hook
-acts on.
+"""What the desk runs beside the checks, for a person to read, and no check (issue 1109): about how large the Factory
+will count a branch's diff. It fails no run that CI or a hook acts on.
 
 `python3 -m tools.desk size` prints a note: about how many characters and lines the Factory will count the diff the
 branch has committed against `origin/main` at, each against its limit in `config/defaults.json`, with a warning past
@@ -11,15 +10,6 @@ as the branch's. Edits not committed are not counted; it says so of staged ones,
 and says so of text that is no UTF-8, which the Factory holds. `make checks` prints the note after the checks, on the
 desk's run alone (`tools/verify.py --checks`): CI's legs never run it, and nothing it does changes what make checks
 answers. The hooks never show it: they show make checks only when a check fails.
-
-`python3 -m tools.desk merged` lists lines a merge of `origin/main` may have lost of either side, or made up, for a
-person to read each. While a merge is in progress (MERGE_HEAD is there) the merge is the index, and a path in it still
-unmerged is refused; once committed, it is HEAD, which must have exactly two parents. A merge of more heads, or of two
-sides with more than one merge base, is refused, since it cannot tell. A file one side changed must hold that side's
-blob and mode, and a file neither side changed the base's. In a file both changed, lines are compared as counts, not in
-order, so a line moved is not seen. A rename on either side is named, "renamed: not compared", and not judged. A line it
-lists is not always wrong: where both sides changed one line, the right resolution may be a line neither side wrote,
-combined by hand, and the person reading it says so. It is never wired into anything that blocks.
 
 Each read is git's own, with no program a repo's configuration names, no fetch and a timeout: `origin/main` is whatever
 this clone last fetched.
@@ -38,11 +28,9 @@ from harness import task
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BASE = "refs/remotes/origin/main"
 SHARE = 0.95            # of a limit, past which `size` warns: the Factory's count runs a few hundred characters apart
-SHOWN = 5               # the lines told of each file, at most, each cut to WIDTH
-WIDTH = 60
 SECONDS = 10
 # The only verbs this runs: each reads this clone, and none fetches, pushes or reaches a remote.
-READS = ("cat-file", "config", "diff", "diff-index", "ls-files", "ls-tree", "merge-base", "rev-list", "rev-parse")
+READS = ("config", "diff", "diff-index", "ls-files", "merge-base")
 # Each read is git's own: no program a repo's configuration names runs, no object is fetched, no lock is taken.
 SAFE = ("--no-replace-objects", "--literal-pathspecs", "-c", "core.commitGraph=false", "-c", "core.fsmonitor=false",
         "-c", "diff.external=", "-c", "diff.ignoreSubmodules=none")
@@ -135,138 +123,11 @@ def size(root: pathlib.Path = ROOT) -> str:
         "; split it before it opens, or the Factory holds it as too_large" if over else "")
 
 
-def _entry(root: pathlib.Path, where: str, rel: str):
-    """(the mode, the blob id) of `rel` at commit `where`, or in the index for ":", or None where no entry is that
-    exact path. Raises ValueError where it cannot be read."""
-    if where == ":":       # mode, id, stage, then a tab and the path; a merge with any stage left is refused first
-        heads = [row.partition("\t")[0].split(" ") for row in _rows(_git(root, "ls-files", "-s", "-z", "--", rel))
-                 if row.partition("\t")[2] == rel]
-        return (heads[0][0], heads[0][1]) if heads else None
-    heads = [row.partition("\t")[0].split(" ") for row in _rows(_git(root, "ls-tree", "-z", where, "--", rel))
-             if row.partition("\t")[2] == rel]          # mode, type, id, then a tab and the path
-    return (heads[0][0], heads[0][2]) if heads else None
-
-
-def _changed(root: pathlib.Path, *between: str) -> set:
-    return set(_rows(_git(root, "diff", "--name-only", "--no-renames", "-z", *between)))
-
-
-def _renamed(root: pathlib.Path, base: str, side: str) -> set:
-    """The paths a rename by `side` took from and gave to, found as `size` finds them."""
-    rows = _text(_git(root, "diff", "--name-status", "-z", "-M", base, side)).split("\0")
-    out, at = set(), 0
-    while at < len(rows) - 1:
-        if rows[at][:1] in ("R", "C"):
-            out |= {rows[at + 1], rows[at + 2]}
-            at += 3
-        else:
-            at += 2
-    return out
-
-
-def _counts(root: pathlib.Path, entry) -> dict:
-    """Each line of an entry's blob, split at a newline alone so a carriage return is the line's own, and how often."""
-    counts = {}
-    for line in _text(_git(root, "cat-file", "blob", entry[1])).split("\n") if entry else ():
-        counts[line] = counts.get(line, 0) + 1
-    return counts
-
-
-def _less(more: dict, fewer: dict) -> dict:
-    """The lines `more` holds beyond `fewer`, each counted as often as it is beyond, as two multisets are taken apart."""
-    return {line: n - fewer.get(line, 0) for line, n in more.items() if n > fewer.get(line, 0)}
-
-
-def _told(rel: str, said: str, lines: dict) -> list:
-    return ["%r: %s: %s" % (rel, said, line.strip()[:WIDTH]) for line in sorted(lines)[:SHOWN]]
-
-
-def _sides(root: pathlib.Path):
-    """(the merge's result, ":" for the index, its first side, its other side, the diff between the first and the
-    result), or a list of what makes it one that cannot be told."""
-    heads = pathlib.Path(root, _text(_git(root, "rev-parse", "--git-path", "MERGE_HEAD")).strip())
-    if heads.is_file():
-        named = heads.read_text(encoding="utf-8", errors="replace").split()
-        if len(named) != 1:
-            return ["cannot tell: a merge of %d heads into HEAD is in progress, not of one" % len(named)]
-        if _rows(_git(root, "ls-files", "-u", "-z")):
-            return ["cannot tell: the index holds paths still unmerged; resolve and stage each, then read it again"]
-        ours = _text(_git(root, "rev-parse", "HEAD")).strip()
-        theirs = _text(_git(root, "rev-parse", "-q", "--verify", "MERGE_HEAD^{commit}")).strip()
-        return ":", ours, theirs, ("--cached", ours)
-    parents = _text(_git(root, "rev-list", "--parents", "-n", "1", "HEAD")).split()
-    if len(parents) == 2:
-        return ["HEAD is no merge and no merge is in progress: run git merge origin/main first"]
-    if len(parents) != 3:
-        return ["cannot tell: HEAD has %d parents, not two" % (len(parents) - 1)]
-    result, ours, theirs = parents
-    return result, ours, theirs, (ours, result)
-
-
-def merged(root: pathlib.Path = ROOT) -> list:
-    """The lines to read of the merge in progress, staged, or the merge commit at HEAD: what it may have lost of either
-    side or made up, and what it cannot tell; [] when it kept both. Raises ValueError where git cannot read it."""
-    if _partial(root):
-        return ["cannot tell: this is a partial clone, whose reads may fetch; read the merge by hand"]
-    sides = _sides(root)
-    if isinstance(sides, list):
-        return sides
-    result, ours, theirs, made = sides
-    bases = _text(_git(root, "merge-base", "--all", ours, theirs)).split()
-    if len(bases) != 1:
-        return ["cannot tell: the two sides have %d merge bases, not one" % len(bases)]
-    base, problems = bases[0], []
-    try:
-        tip = _text(_git(root, "rev-parse", "-q", "--verify", BASE)).strip()
-    except ValueError:
-        tip = None
-    if theirs != tip:
-        problems.append("the merge's other side is not origin/main as last fetched; fetch, then merge it")
-    mine, main = _changed(root, base, ours), _changed(root, base, theirs)
-    renames = _renamed(root, base, ours) | _renamed(root, base, theirs)
-    problems += ["%r: renamed: not compared" % rel for rel in sorted(renames)]
-    for rel in sorted((mine | main | _changed(root, *made)) - renames):
-        have = _entry(root, result, rel)
-        if rel not in mine or rel not in main:
-            side, whose = (theirs, "only main") if rel not in mine else (ours, "only the branch")
-            if rel not in mine and rel not in main:
-                side, whose = base, "neither side"
-            if have != _entry(root, side, rel):
-                problems.append("%r: %s changed it, and the merge does not hold its blob and mode as left" % (rel, whose))
-            continue
-        entries = _entry(root, base, rel), _entry(root, ours, rel), _entry(root, theirs, rel)
-        if (have is None) != (entries[1] is None and entries[2] is None):
-            problems.append("%r: %s" % (rel, "both sides took it out, and the merge has it" if have else
-                                        "both sides kept it, and the merge took it out"))
-            continue
-        was, kept, wanted, held = (_counts(root, entry) for entry in entries + (have,))
-        problems += _told(rel, "main's line is gone, and the branch did not take it out",
-                          _less(_less(wanted, held), _less(was, kept)))
-        problems += _told(rel, "the branch's line is gone, and main did not take it out",
-                          _less(_less(kept, held), _less(was, wanted)))
-        problems += _told(rel, "a line main took out, or no side wrote, is there",
-                          _less(_less(held, wanted), _less(kept, was)))
-        problems += _told(rel, "a line the branch took out, or no side wrote, is there",
-                          _less(_less(held, kept), _less(wanted, was)))
-    return problems
-
-
 def main(argv: list, root: pathlib.Path = ROOT) -> int:
     if argv == ["size"]:
         print(size(root))
         return 0
-    if argv == ["merged"]:
-        try:
-            problems = merged(root)
-        except ValueError as err:
-            problems = ["cannot tell: the merge cannot be read: %s" % err]
-        for problem in problems:
-            print(problem)
-        print("the merge keeps every line of both sides" if not problems else
-              "%d to read: read each, then put a line back, or say why a side meant to replace the other's, or why a "
-              "line both changed is rightly one neither wrote" % len(problems))
-        return 1 if problems else 0
-    print("usage: python3 -m tools.desk size | merged")
+    print("usage: python3 -m tools.desk size")
     return 1
 
 

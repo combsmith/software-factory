@@ -193,13 +193,10 @@ PERSON_READ = ("tests.test_hooks.RulesChanged.test_a_path_only_a_person_decides_
 BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_of_tests",)
 NAMED_MUTANTS = ("tests.test_tools.Decisions.test_a_new_or_changed_row_names_the_mutant_its_test_kills",)
 MAIN_ROWS = ("tests.test_tools.Decisions.test_a_row_main_holds_names_no_mutant_until_its_check_changes",)
-# Issues 1109 and 1110: the tests of tools/desk.py's note and of its read of a merge.
+# Issue 1109: the tests of tools/desk.py's note.
 DESK_SIZE = ("tests.test_tools.Desk.test_the_size_is_counted_as_the_factory_counts_it_and_warned_past_its_share",)
 DESK_GIT = ("tests.test_tools.Desk.test_the_desk_runs_git_only_to_read_and_says_when_there_is_no_base",)
 DESK_NOTE = ("tests.test_tools.Desk.test_make_checks_note_fails_nothing",)
-DESK_MERGE = ("tests.test_tools.Desk.test_a_merge_that_keeps_both_sides_passes_and_one_that_drops_either_is_told",)
-DESK_HAND = ("tests.test_tools.Desk.test_a_line_both_sides_changed_and_a_hand_combined_is_listed_to_read",)
-DESK_REFUSED = ("tests.test_tools.Desk.test_a_merge_it_cannot_tell_is_refused_and_a_rename_is_named",)
 DECLINE_TESTS = ("tests.test_tools.Mutants.test_on_a_pull_request_the_mutants_decline_and_on_a_merge_group_every_shard_runs",)
 ROUTES_655 = ("tests.test_tools.Writes.test_the_routes_issue_655_names_are_refused",)
 RUN_ALONE = ("tests.test_tools.Mutants.test_a_mutant_a_boundary_names_is_run_against_its_own_tests_alone",)
@@ -7178,7 +7175,7 @@ MUTANTS = ISSUE + [
      'sum(1 for c in rows if not MUTANT.search(c))', 'sum(1 for c in rows if MUTANT.search(c))', MAIN_ROWS),
     ('verify counts a waiting row', 'tools/check_decisions.py',
      ' if not _exempt(cell, root)]\n    return "%d of %d', ']\n    return "%d of %d', MAIN_ROWS),
-    # Issues 1109 and 1110: the desk's note on about the size the Factory will count, and what a merge of main lost.
+    # Issue 1109: the desk's note on about the size the Factory will count.
     ('the size warns only at its limit', 'tools/desk.py',
      'SHARE = 0.95 ', 'SHARE = 1.0 ', DESK_SIZE),
     ('the size counts the diff as it is written', 'tools/desk.py',
@@ -7223,8 +7220,6 @@ MUTANTS = ISSUE + [
      '    except (OSError, ValueError, KeyError, TypeError):\n', '    except (OSError, ValueError):\n', DESK_SIZE),
     ('a partial clone is counted', 'tools/desk.py',
      '    if _partial(root):\n        return "no count: this is a partial clone, whose reads may fetch"\n', '', DESK_SIZE),
-    ("a partial clone's merge is read", 'tools/desk.py',
-     '    if _partial(root):\n        return ["cannot tell: this is a partial clone', '    if False:\n        return ["cannot tell: this is a partial clone', DESK_SIZE),
     ('a tree that is no clone is read as one', 'tools/desk.py',
      '    if not os.path.lexists(str(root / ".git")):\n        return "no base to compare: this tree is no clone"\n', '', DESK_GIT),
     ('the desk runs any git verb', 'tools/desk.py',
@@ -7237,46 +7232,6 @@ MUTANTS = ISSUE + [
      '        print("%-22s %s" % ("diff size", desk_note()))\n', '', DESK_NOTE),
     ("CI's legs run the note", 'tools/verify.py',
      '"%-22s %s" % ("boundary mutants", check_decisions.unnamed())]', '"%-22s %s" % ("boundary mutants", check_decisions.unnamed()), desk_note()]', DESK_NOTE),
-    ('a file only one side changed is read as both changed', 'tools/desk.py',
-     '        if rel not in mine or rel not in main:\n', '        if rel not in main:\n', DESK_MERGE),
-    ("a line the branch took out is read as main's lost", 'tools/desk.py',
-     '_less(_less(wanted, held), _less(was, kept))', '_less(wanted, held)', DESK_MERGE),
-    ("the branch's lines lost are not told", 'tools/desk.py',
-     '_less(_less(kept, held), _less(was, wanted))', '{}', DESK_MERGE),
-    ("a line the branch added is read as no side's", 'tools/desk.py',
-     '_less(_less(held, wanted), _less(kept, was))', '_less(held, wanted)', DESK_MERGE),
-    ('a line the branch took out and the merge kept is not told', 'tools/desk.py',
-     '_less(_less(held, kept), _less(wanted, was))', '{}', DESK_MERGE),
-    ('a line held twice counts once', 'tools/desk.py',
-     '        counts[line] = counts.get(line, 0) + 1\n', '        counts[line] = 1\n', DESK_MERGE),
-    ("a carriage return is no line's own", 'tools/desk.py',
-     '_git(root, "cat-file", "blob", entry[1])).split("\\n")', '_git(root, "cat-file", "blob", entry[1])).splitlines()', DESK_MERGE),
-    ('a merge in progress is read from HEAD', 'tools/desk.py',
-     'return ":", ours, theirs, ("--cached", ours)', 'return "HEAD", ours, theirs, ("--cached", ours)', DESK_MERGE),
-    ("a file's mode in the index is not read", 'tools/desk.py',
-     'return (heads[0][0], heads[0][1]) if heads else None', 'return ("", heads[0][1]) if heads else None', DESK_MERGE),
-    ("a file's mode in a commit is not read", 'tools/desk.py',
-     'return (heads[0][0], heads[0][2]) if heads else None', 'return ("", heads[0][2]) if heads else None', DESK_MERGE),
-    ('a commit that merges nothing is read as a merge', 'tools/desk.py',
-     '    if len(parents) == 2:\n        return ["HEAD is no merge', '    if False:\n        return ["HEAD is no merge', DESK_MERGE),
-    ('a merge with lines to read passes', 'tools/desk.py',
-     '        return 1 if problems else 0\n', '        return 0\n', DESK_MERGE),
-    ('a file the merge alone changed is not read', 'tools/desk.py',
-     '(mine | main | _changed(root, *made))', '(mine | main)', DESK_MERGE),
-    ('a merge with paths unmerged is read', 'tools/desk.py',
-     '        if _rows(_git(root, "ls-files", "-u", "-z")):\n', '        if False:\n', DESK_HAND),
-    ("a merge of another branch is read as main's", 'tools/desk.py',
-     '    if theirs != tip:\n', '    if False:\n', DESK_REFUSED),
-    ('a rename is judged as any change', 'tools/desk.py',
-     '    renames = _renamed(root, base, ours) | _renamed(root, base, theirs)\n', '    renames = set()\n', DESK_REFUSED),
-    ('a merge of more heads in progress is read', 'tools/desk.py',
-     '        if len(named) != 1:\n', '        if len(named) < 1:\n', DESK_REFUSED),
-    ('an octopus merge committed is read', 'tools/desk.py',
-     '    if len(parents) != 3:\n', '    if len(parents) < 3:\n', DESK_REFUSED),
-    ('two merge bases are read as one', 'tools/desk.py',
-     '    if len(bases) != 1:\n', '    if len(bases) < 1:\n', DESK_REFUSED),
-    ('only one merge base is asked for', 'tools/desk.py',
-     '"merge-base", "--all", ours, theirs', '"merge-base", ours, theirs', DESK_REFUSED),
     ('verify says nothing of the mutants', 'tools/verify.py',
      ',\n            "%-22s %s" % ("boundary mutants", check_decisions.unnamed())]\n', ']\n', MAIN_ROWS),
     ("a mutant its named tests miss runs the whole suite", 'tools/mutants.py',
