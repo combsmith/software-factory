@@ -6442,20 +6442,37 @@ class Trials(unittest.TestCase):
         lines = check_trials.table(made).split("\n")
         self.assertEqual(lines[lines.index("| Batch | Trials |") - 2], "| P-97 | Is it asked? | Yes |")
         self.assertTrue(next(line for line in lines if line.startswith("| 4 | ")).endswith(", P-78, P-97 |"))
+        none = clone({check_trials.PAGES + "/P-97.md": "# P-97\n\nBatch: none\n\n## Question\n\nIs it asked?\n\n## Pass\n\nYes\n"})
+        self.assertTrue(next(line for line in check_trials.table(none).split("\n") if line.startswith("| none | "))
+                        .endswith(", P-97 |"))
         # Anything else there is refused: a file not named for a trial, or nested, a page headed with another trial, a
         # batch 6.1 has not, a question run over two lines, text past the pass, and a trial with a page and a row.
         good = "# P-%s\n\nBatch: 4\n\n## Question\n\nIs it asked?\n\n## Pass\n\nYes\n"
         files = {"README.md": "# Trials\n", "P-095.md": good % "095", "deep/P-96.md": good % "96",
                  "P-90.md": good % "91", "P-92.md": (good % "92").replace("Batch: 4", "Batch: 5"),
                  "P-93.md": (good % "93").replace("Is it asked?", "Is it\nasked?"), "P-94.md": good % "94" + "more\n",
-                 "P-41.md": page}
-        problems = check_trials.run(clone({check_trials.PAGES + "/" + k: v for k, v in files.items()}))
-        for name in ("README.md", "P-095.md", "deep/P-96.md"):
+                 "P-98.md": (good % "98").replace("Is it asked?", "Is it <!-- hidden --> asked?"),
+                 "P-99.md": (good % "99").replace("Is it asked?", "```hidden"), "P-41.md": page}
+        planted = clone({check_trials.PAGES + "/" + k: v for k, v in files.items()})
+        (planted / check_trials.PAGES / "P-89.md").symlink_to(planted / check_trials.PAGES / "P-90.md")
+        problems = check_trials.run(planted)
+        for name in ("P-98.md", "P-99.md"):
+            self.assertTrue(caught(problems, "%s/%s: holds a fence or an HTML comment" % (check_trials.PAGES, name)), name)
+        for name in ("README.md", "P-095.md", "deep/P-96.md", "P-89.md"):
             self.assertTrue(caught(problems, "%s/%s: only a trial's page" % (check_trials.PAGES, name)), name)
         self.assertTrue(caught(problems, "P-90.md: is headed P-91"), problems)
         for name in ("P-92.md", "P-93.md", "P-94.md"):
             self.assertTrue(caught(problems, "%s/%s: is not a trial's page" % (check_trials.PAGES, name)), name)
         self.assertTrue(caught(problems, "P-41 has a page in %s and a row in section 6" % check_trials.PAGES), problems)
+        # A page's batch is the one 6.1 names it in, while 6.1 does; and a row the table could not write is refused,
+        # since dropping it would leave the table unchanged.
+        other = clone({check_trials.DESIGN: design.replace(row + "\n", "", 1),
+                       check_trials.PAGES + "/P-41.md": page.replace("Batch: 2", "Batch: 4")})
+        self.assertTrue(caught(check_trials.run(other), "P-41's page says Batch: 4, and 6.1 names it in batch 2"))
+        odd = clone({check_trials.DESIGN: design.replace(row, row + " ", 1)})
+        self.assertTrue(caught(check_trials.run(odd), "P-41's row in section 6 is not '| P-41 | question | pass |'"))
+        with self.assertRaises(ValueError):
+            check_trials.table(odd)
 
     def test_the_table_is_printed_from_rows_and_pages_in_the_order_of_their_numbers(self):  # decision 0249
         # No index is committed: `python3 -m tools.check_trials --table` prints section 6 and the batches of 6.1.

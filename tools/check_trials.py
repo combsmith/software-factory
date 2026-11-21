@@ -25,6 +25,7 @@ from __future__ import annotations
 import ast
 import base64
 import json
+import os
 import pathlib
 import re
 import sys
@@ -937,7 +938,7 @@ def pages(root: pathlib.Path) -> tuple:
     for path in walk.files(root, PAGES):
         rel = path.relative_to(root).as_posix()
         named = PAGE_NAME.match(path.name)
-        if not named or path.parent != root / PAGES:
+        if not named or path.parent != root / PAGES or path.is_symlink():
             problems.append("%s: only a trial's page, named for the trial as P-12.md, is kept in %s" % (rel, PAGES))
             continue
         try:
@@ -945,7 +946,10 @@ def pages(root: pathlib.Path) -> tuple:
         except (OSError, ValueError):
             text = ""
         page = PAGE.fullmatch(text)
-        if not page:
+        if page and (HIDDEN.search(text) or OPENED.search(text)):
+            # What a renderer hides, or a fence it opens, is no text of a row's either: a quote reads what is seen.
+            problems.append("%s: holds a fence or an HTML comment, which hides what a quote would read; take it out" % rel)
+        elif not page:
             problems.append("%s: is not a trial's page: '# %s', a 'Batch:' of 1 to 4 or none, then '## Question' and "
                             "'## Pass', each with its text on one line, a blank line between each" % (rel, named.group(1)))
         elif page.group(1) != named.group(1):
@@ -972,6 +976,17 @@ def questions(root: pathlib.Path) -> dict:
     return None if section is None else dict(QUESTION.findall(section), **{t: p[1] for t, p in pages(root)[0].items()})
 
 
+def _batches(root: pathlib.Path) -> dict:
+    """{trial: its batch} as the rows of 6.1 name them, or none where the design cannot be read."""
+    try:
+        text = (root / DESIGN).read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return {}
+    start = text.find("\n### 6.1 ")
+    batched = text[start:text.find("\n## ", start + 1)] if start >= 0 else ""
+    return {t: b for b, cell in BATCH.findall(batched) for t in re.findall(r"\bP-[1-9][0-9]*\b", cell)}
+
+
 def table(root: pathlib.Path = ROOT) -> str:
     """Section 6 and the batches of 6.1 as every row and page give them, in the order of the trials' numbers: a row as
     section 6 holds it, and a page as its row would be written. Committed nowhere: any shared list would be a line two
@@ -979,11 +994,10 @@ def table(root: pathlib.Path = ROOT) -> str:
     section = _section_6(root)
     if section is None:
         raise ValueError("%s cannot be read" % DESIGN)
-    text = (root / DESIGN).read_text(encoding="utf-8")
-    start = text.find("\n### 6.1 ")
-    batched = text[start:text.find("\n## ", start + 1)] if start >= 0 else ""
     rows = {m.group(1): m.group(0) for m in WHOLE_ROW.finditer(section)}
-    batch = {t: b for b, cell in BATCH.findall(batched) for t in re.findall(r"\bP-[1-9][0-9]*\b", cell)}
+    if set(ROW.findall(section)) != set(rows):
+        raise ValueError("a row of section 6 is not '| P-N | question | pass |'; the check says which")
+    batch = _batches(root)
     for trial, (said, question, passed) in pages(root)[0].items():
         rows[trial], batch[trial] = "| %s | %s | %s |" % (trial, question, passed), said
     order = sorted(rows, key=lambda trial: int(trial[2:]))
@@ -1013,6 +1027,15 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
         for trial in sorted(set(listed_rows) & set(paged)):
             problems.append("%s: %s has a page in %s and a row in section 6; a trial has one, so take the row out"
                             % (DESIGN, trial, PAGES))
+        # A row the table cannot write as it stands would leave the table unchanged were it dropped (decision 0249).
+        whole = set(WHOLE_ROW.findall(_section_6(root)))
+        for trial in sorted(set(listed_rows) - whole):
+            problems.append("%s: %s's row in section 6 is not '| %s | question | pass |'; write it so" % (DESIGN, trial, trial))
+        # A page's batch is the one 6.1 names it in, where 6.1 still does.
+        named = _batches(root)
+        for trial in sorted(t for t in paged if t in named and named[t] != paged[t][0]):
+            problems.append("%s: %s's page says Batch: %s, and 6.1 names it in batch %s; make them one"
+                            % (DESIGN, trial, paged[trial][0], named[trial]))
     try:
         quoted = asks(root)
     except ValueError as err:
@@ -1150,9 +1173,12 @@ def front(argv: list, root: pathlib.Path = ROOT) -> int:
     if argv == ["--table"]:
         try:
             sys.stdout.write(table(root))
+            sys.stdout.flush()
         except ValueError as err:
             print(err)
             return 1
+        except BrokenPipeError:         # a reader that stopped early, as head does
+            sys.stdout = open(os.devnull, "w")
         return 0
     if argv:
         print("usage: python3 -m tools.check_trials [--table]")
