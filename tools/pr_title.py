@@ -35,11 +35,16 @@ CUTOVER = "2026-11-22T00:00:00Z"    # a pull request opened before this is not r
 BODY_CUTOVER = "2026-11-23T00:00:00Z"   # nor, for its body, one opened before this (decision 0246)
 # The body's headings, from .github/pull_request_template.md, in their order.
 HEADINGS = ("Why", "What changed", "What to look at", "Record and protected edits")
-HEADING = re.compile(r" {0,3}##[ \t]+(.*?)[ \t#]*")
-FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
-# The template's own scaffolding, which is no text: its comments, the checks-and-readers block, and an empty list item.
-SCAFFOLD = re.compile(r"<!--.*?-->|<details>.*?</details>", re.S)
-EMPTY_ITEM = re.compile(r"^[ \t]*(?:[-*+]|[0-9]+[.)])[ \t]*$", re.M)
+# A code fence: three or more backticks or tildes, after any indent or list marker, so that a fence in a list item hides
+# what it holds too (reading an indented fence as one only hides more); it closes on its own kind, at least as long,
+# with nothing but spaces or tabs after it. A backtick fence's words hold no backtick, or it is inline code.
+FENCE_OPEN = re.compile(r"[ \t]*(?:(?:[-*+]|[0-9]{1,9}[.)])[ \t]+)*(`{3,}|~{3,})([^\n]*)")
+FENCE_CLOSE = re.compile(r"[ \t]*(`{3,}|~{3,})[ \t]*")
+# The template's own scaffolding, which is no text and hides any heading in it: its comments, the checks-and-readers
+# block (nested, of any case, with attributes), and an empty list item. A comment or a block left open runs to the end.
+DETAILS_OPEN = re.compile(r"<details(?:[ \t][^>\n]{0,200})?>", re.I)
+DETAILS_CLOSE = re.compile(r"</details[ \t]*>", re.I)
+EMPTY_ITEM = re.compile(r"[ \t]*(?:[-*+]|[0-9]{1,9}[.)])?[ \t]*")
 AREA = re.compile(r"[a-z0-9.][a-z0-9._/-]*: (?=\S)")
 TAIL = re.compile(r" \(#[1-9][0-9]*(?:, part (0|[1-9][0-9]*) of (0|[1-9][0-9]*))?\)\Z")
 # The marks of a name from inside the code, which a newcomer cannot read.
@@ -88,36 +93,84 @@ def problems(title: str) -> list:
     return found
 
 
+def _heading(line: str):
+    """The words of a second-level heading on `line`, as GitHub's Markdown reads one, or None: up to three spaces, `##`,
+    then nothing or a space or tab and the words, a closing run of hashes dropped only after a space or tab."""
+    indent = len(line) - len(line.lstrip(" "))
+    if indent > 3 or not line.startswith("##", indent) or line[indent + 2:indent + 3] not in ("", " ", "\t"):
+        return None
+    words = line[indent + 2:].strip(" \t")
+    closing = len(words) - len(words.rstrip("#"))
+    if closing and (closing == len(words) or words[-closing - 1] in " \t"):
+        words = words[:-closing].rstrip(" \t")
+    return words
+
+
+def _visible(line: str, hidden: list) -> str:
+    """What of `line` a reader sees outside the scaffolding, `hidden` being [in a comment, details blocks open], which
+    it carries from line to line."""
+    seen, at = [], 0
+    while at < len(line):
+        if hidden[0]:
+            end = line.find("-->", at)
+            hidden[0], at = (False, end + 3) if end >= 0 else (True, len(line))
+        elif hidden[1]:
+            opened, closed = DETAILS_OPEN.search(line, at), DETAILS_CLOSE.search(line, at)
+            if closed and (not opened or closed.start() < opened.start()):
+                hidden[1], at = hidden[1] - 1, closed.end()
+            elif opened:
+                hidden[1], at = hidden[1] + 1, opened.end()
+            else:
+                at = len(line)
+        else:
+            comment, opened = line.find("<!--", at), DETAILS_OPEN.search(line, at)
+            starts = [i for i in (comment, opened.start() if opened else -1) if i >= 0]
+            if not starts:
+                seen.append(line[at:])
+                break
+            seen.append(line[at:min(starts)])
+            if min(starts) == comment:
+                hidden[0], at = True, comment + 4
+            else:
+                hidden[1], at = 1, opened.end()
+    return "".join(seen)
+
+
 def body_problems(body: str) -> list:
     """Why `body` is not in the template's shape: nothing where it is. No problem holds a word of it."""
-    seen, fence, section = [], None, None
-    for line in body.split("\n"):
-        opening = FENCE.match(line)
-        if fence is None and opening:
-            fence = opening.group(1)
-        elif fence is not None:
-            if opening and len(opening.group(1)) >= len(fence) \
-                    and not line.strip().strip(fence[0]):
+    seen, section, fence, hidden = [], None, None, [False, 0]
+    for line in body.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        if fence is not None:
+            closing = FENCE_CLOSE.fullmatch(line)
+            if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence):
                 fence = None
-        else:
-            heading = HEADING.fullmatch(line.rstrip("\r"))
-            if heading:
-                section = [heading.group(1), []]
-                seen.append(section)
-                continue
-        if section is not None:
-            section[1].append(line)
+            elif section is not None:
+                section[1].append(line)
+            continue
+        whole = not hidden[0] and not hidden[1]
+        visible = _visible(line, hidden)
+        whole = whole and visible == line
+        opening = FENCE_OPEN.fullmatch(line) if whole else None
+        if opening and not (opening.group(1)[0] == "`" and "`" in opening.group(2)):
+            fence = opening.group(1)
+            continue
+        words = _heading(line) if whole else None
+        if words is not None:
+            section = [words, []]
+            seen.append(section)
+        elif section is not None:
+            section[1].append(visible)
     found, places = [], []
     for name in HEADINGS:
-        held = [i for i, (title, _) in enumerate(seen) if title == name]
+        held = [i for i, (words, _) in enumerate(seen) if words == name]
         if not held:
             found.append("body_heading_missing: the body has no heading '## %s'" % name)
-        elif len(held) > 1:
+            continue
+        if len(held) > 1:
             found.append("body_heading_twice: the body has the heading '## %s' %d times" % (name, len(held)))
-        else:
-            places.append(held[0])
-            if not EMPTY_ITEM.sub("", SCAFFOLD.sub("", "\n".join(seen[held[0]][1]))).strip():
-                found.append("body_section_empty: the section '## %s' holds nothing but the template's own" % name)
+        places.append(held[0])
+        if any(not any(text.strip() and not EMPTY_ITEM.fullmatch(text) for text in seen[i][1]) for i in held):
+            found.append("body_section_empty: the section '## %s' holds nothing but the template's own" % name)
     if places != sorted(places):
         found.append("body_heading_out_of_order: the headings are not in the template's order: %s"
                      % ", ".join(HEADINGS))

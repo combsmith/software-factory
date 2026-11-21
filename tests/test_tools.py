@@ -5629,10 +5629,52 @@ class PullBody(unittest.TestCase):
         self.assertEqual(self.codes(self.body().replace("## Why", "   ## Why ##")), [])
         for odd in ("# Why", "### Why", "##Why", "    ## Why", "## why", "## Why?"):
             self.assertEqual(self.codes(self.body().replace("## Why\n", odd + "\n")), ["body_heading_missing"], odd)
+        # A section ends at any second-level heading, its own or not, and a bare "##" is one.
+        self.assertEqual(self.codes(self.body({"Why": "## Notes\nText for notes."})), ["body_section_empty"])
+        self.assertEqual(self.codes(self.body({"Why": "##\nText under an empty heading."})), ["body_section_empty"])
+        self.assertEqual(self.codes(self.body({"Why": "## ###\nText under a heading of closing hashes."})),
+                         ["body_section_empty"])
+        # A fence closes on a longer one of its kind; a backtick fence's words hold no backtick, so that is inline code;
+        # and only spaces or tabs may follow a closing fence.
+        self.assertEqual(self.codes(self.body({"Why": "~~~\nsample\n~~~~"})), [])
+        self.assertEqual(self.codes("```example```\n" + self.body()), [])
+        self.assertEqual(self.codes("```\n```\u00a0\n" + self.body() + "```\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes("```\n```\t \n" + self.body()), [])
+        # A fence in a list item hides what it holds.
+        listed = "- ```\n" + "".join("  ## %s\n  x\n" % name for name in self.HEADS) + "  ```\n"
+        self.assertEqual(len(pr_title.body_problems(listed)), 4)
+        # A heading's words are its own: a hash run is closing only after a space or a tab; a tab may follow "##" but
+        # not lead it.
+        self.assertEqual(self.codes(self.body().replace("## Why\n", "## Why#\n")), ["body_heading_missing"])
+        self.assertEqual(self.codes(self.body().replace("## Why\n", "##\tWhy\t#\n")), [])
+        self.assertEqual(self.codes(self.body().replace("## Why\n", "\t## Why\n")), ["body_heading_missing"])
+        # A heading inside a comment or a details block is hidden, as GitHub hides it: whole, nested, of any case, with
+        # attributes, or left open to the end.
+        for wrap in ("<!--\n%s-->\n", "<details>\n%s</details>\n", "<DETAILS open>\n%s</Details>\n",
+                     "<details><details>x</details>\n%s</details>\n", "<!-- left open\n%s"):
+            self.assertEqual(len(pr_title.body_problems(wrap % self.body())), 4, wrap)
+        self.assertEqual(self.codes(self.body({"Why": "<!-- an edit dropped its close"})),
+                         ["body_heading_missing", "body_section_empty"])
+        for empty in ("<details open>checks</details>", "<details><details>a</details></details>", "<!-- x --> - "):
+            self.assertEqual(self.codes(self.body({"Why": empty})), ["body_section_empty"], empty)
+        self.assertEqual(self.codes(self.body({"Why": "<!-- x --> words"})), [])
+        # Line ends of any kind are line ends, as the web editor's CRLF and the desk's LF are one body.
+        self.assertEqual([p.split(": ", 1)[1] for p in pr_title.body_problems(template.replace("\n", "\r\n"))],
+                         ["the section '## %s' holds nothing but the template's own" % name for name in self.HEADS])
+        self.assertEqual(self.codes(self.body().replace("\n", "\r")), [])
+        # A heading held twice is still read for its order and for whether each of its sections says something.
+        twice = self.body(order=["What changed", "Why", "What to look at", "Record and protected edits"]) + "## Why\n- \n"
+        self.assertEqual(self.codes(twice), ["body_heading_out_of_order", "body_heading_twice", "body_section_empty"])
+        # Read in time whatever its size: GitHub keeps a body to 65,536 characters.
+        started = time.monotonic()
+        for long in ("## " + "#" * 65000 + "a", "## a" + " #" * 32000, "<!--" * 16000, "<details " * 7000,
+                     "<details>" * 7000, ("```\n" * 16000), "- " * 32000 + "```"):
+            pr_title.body_problems(long)
+        self.assertLess(time.monotonic() - started, 5.0)
         # Every problem at once, never the first alone, and none holds a word of the body.
         planted = "::error::x\n## Why\n::add-mask::y\n## Why\n"
         said = pr_title.body_problems(planted)
-        self.assertEqual(self.codes(planted), ["body_heading_missing", "body_heading_twice"])
+        self.assertEqual(self.codes(planted), ["body_heading_missing", "body_heading_twice", "body_section_empty"])
         self.assertFalse(any("::" in p or "add-mask" in p for p in said))
 
     def test_the_body_is_read_on_both_events_from_its_cutover(self):
@@ -5644,22 +5686,35 @@ class PullBody(unittest.TestCase):
 
         class Asked:
             def __init__(self, body):
-                self.body = body
+                self.body, self.asked = body, []
 
             def send(self, asked):
+                self.asked.append(asked["path"])
                 return {"status": 200, "body": self.body}
 
-        def checked(answer, event="pull_request"):
+        asked = []
+
+        def checked(answer, event="pull_request", stale=None):
             told = ({"pull_request": {"number": 44}, "repository": {"full_name": "o/r"}} if event == "pull_request" else
                     {"merge_group": {"head_ref": ref}, "repository": {"full_name": "o/r"}})
+            if stale is not None and event == "pull_request":
+                told["pull_request"]["body"] = stale
             where.write_text(json.dumps(told))
-            return pr_title.check({"EVENT": event, "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"}, Asked(answer))
+            transport = Asked(answer)
+            said = pr_title.check({"EVENT": event, "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"}, transport)
+            asked.append(transport.asked)
+            return said
 
         self.assertEqual(pr_title.BODY_CUTOVER, "2026-11-23T00:00:00Z")
         for event in ("pull_request", "merge_group"):
             self.assertEqual(checked(good, event), [], event)
             # A body out of shape refuses on each event, the merge group's among them, which main's log takes.
             self.assertIn("body_heading_missing", checked(dict(good, body="Just words."), event)[0])
+            # The body is the one read's, once, never the event's, and nothing of it reaches what the job prints.
+            said = checked(dict(good, body="Just words.\nprivate-draft-marker ::error::x"), event, stale=self.body())
+            self.assertEqual(len(said), 4)
+            self.assertFalse(any("private-draft-marker" in p or "::" in p for p in said))
+            self.assertEqual(asked[-1], ["/repos/o/r/pulls/44"])
             # A null body, or one of no text type, cannot be read, and refuses.
             for body in (None, 3, ["## Why"]):
                 self.assertEqual(checked(dict(good, body=body), event),
