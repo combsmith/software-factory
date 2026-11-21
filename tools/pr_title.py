@@ -1,10 +1,11 @@
 """A pull request's title is `area: plain verb phrase (#issue)`, in at most LONGEST characters (issue 1089).
 
-The squash commit takes the title as its subject, so what a pull request is called is main's log for good. `check` is
-for the `commits` job of the required check, which runs from the base, so a change cannot make its own title pass. It
-reads the title from GitHub, never from the event's payload, so a title edited before review is read again when the
-failed job is re-run; on a merge group it reads the pull request the queue's ref names, as it is when it merges. A title
-that cannot be read refuses.
+The squash commit takes the title as its subject, so what a pull request is called is main's log for good. This module
+holds the rule, `check`, which reads a pull request's title, and the desk's command; nothing calls `check` yet, so no
+title is refused on a pull request here. Part 2 of issue 1089 has the required check's `commits` job call `check` from
+the base, so a change cannot make its own title pass. `check` reads the title from GitHub, never from the event's
+payload, so a title edited before review is read again when the failed job is re-run; on a merge group it reads the
+pull request the queue's ref names, as it is when it merges. A title that cannot be read refuses.
 
 Only the mechanical half of the rule is held here: the length, the area, a phrase that starts with a lowercase letter
 and ends with no stop, the issue and the part's numbers, and the marks of a name from inside the code. Whether a title
