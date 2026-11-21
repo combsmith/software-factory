@@ -40,6 +40,7 @@
   },
   "limits": {
     "max_attempts": 3,
+    "max_implementing_rounds": 3,
     "max_rounds": 3,
     "max_runs_per_item": 10,
     "max_environment_runs_per_item": 30,
