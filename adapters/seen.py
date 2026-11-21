@@ -171,7 +171,7 @@ def _check_runs(transport, item: dict) -> tuple:
 
 def _state(transport, issue: str, number: int):
     """What REST's read of an issue that left answers: `open` or `closed`, a status of `ENDED`, or None for any other
-    answer, a body of another number, or none at all (decision 0235)."""
+    answer, a body of another number, of a pull request, or none at all (decision 0235)."""
     try:
         answer = transport.send(request("GET", issue))
     except Unanswered:
@@ -179,17 +179,20 @@ def _state(transport, issue: str, number: int):
     if answer.get("status") in ENDED:
         return answer["status"]
     body = _object(answer.get("body")) if answer.get("status") == 200 else {}
-    return body.get("state") if body.get("number") == number and body.get("state") in ("open", "closed") else None
+    own = type(body.get("number")) is int and body["number"] == number and "pull_request" not in body
+    return body.get("state") if own and body.get("state") in ("open", "closed") else None
 
 
 def repo_read(transport, repo: str) -> bool:
-    """Whether REST answered the repo `repo` itself, by its full name, through `transport` (decision 0235)."""
+    """Whether REST answered the repo `repo` itself, by its full name, with its issues on, through `transport`: with
+    them off, every issue answers 410, and none has ended (decision 0235)."""
     try:
         answer = transport.send(request("GET", "/repos/%s" % repo))
     except Unanswered:
         return False
-    full = _object(answer.get("body")).get("full_name") if answer.get("status") == 200 else None
-    return isinstance(full, str) and full.lower() == repo.lower()
+    body = _object(answer.get("body")) if answer.get("status") == 200 else {}
+    full = body.get("full_name")
+    return isinstance(full, str) and full.lower() == repo.lower() and body.get("has_issues") is True
 
 
 def read(transport, item: dict, kept, identities: dict, apps: dict, since: str, repo_read=False, told=None) -> tuple:
@@ -208,9 +211,11 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str, 
     if item["type"] == "issue" and ending:
         state = _state(transport, issue, number)
         if state in ENDED:
-            if repo_read is True and told is not None:
+            # Whole only where the end can be told: with nowhere to tell it, the issue would end unseen.
+            ended = repo_read is True and told is not None
+            if ended:
                 told.append({"item": dict(item), "answer": state})
-            return [], [], repo_read is True
+            return [], [], ended
         if state is None:
             return [], [], False
         ending = state == "closed"

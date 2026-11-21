@@ -724,26 +724,38 @@ class SeenPort(unittest.TestCase):
         # read as it is, by its state, with no close.
         self.assertIs(read([], None, answer=None)[2], True)
         for kept in (seen_.LEFT, seen_.GONE):
-            self.assertEqual(read(closed[:1], kept, answer=state("open"))[1:], ([], True), kept)
+            writes, _, whole = read(closed[:1], kept, answer=state("open"))
+            self.assertEqual(([(w["by"], w["kind"]) for w in writes], whole), ([("controller", "label")], True), kept)
+            self.assertIs(read(closed[:1], kept, answer=state("open"), comments=None)[2], False, kept)
         # Not found or deleted, it is whole with nothing more read only where the same token read its repo in this pass,
-        # and is told with its answer; else access may be what was lost, and it is short.
+        # and is told with its answer; else access may be what was lost, and it is short. With nowhere to tell it, it is
+        # short too.
         for code in (404, 410):
-            told = []
-            self.assertEqual(read(closed, seen_.LEFT, {"status": code, "body": {}}, repo_read=True, told=told), ([], [], True))
-            self.assertEqual(told, [{"item": issue, "answer": code}])
-            told = []
-            self.assertEqual(read(closed, seen_.GONE, {"status": code, "body": {}}, told=told), ([], [], False))
-            self.assertEqual(told, [])
-        # Any other answer is short: a 403, a 429 or a 5xx, none at all (as a transfer's 301 reaches the port, the
-        # transport keeping no redirect's code), a body of another issue or with no state.
-        for answer in ({"status": 403, "body": {}}, {"status": 429, "body": {}}, {"status": 500, "body": {}}, None,
-                       {"number": 7, "state": "closed"}, {"number": ITEM["number"]}, {"number": ITEM["number"], "state": "all"}):
+            for kept in (seen_.LEFT, seen_.GONE):
+                for repo in (True, False):
+                    told = []
+                    self.assertEqual(read(closed, kept, {"status": code, "body": {}}, repo_read=repo, told=told),
+                                     ([], [], repo), (code, kept, repo))
+                    self.assertEqual(told, [{"item": issue, "answer": code}] if repo else [], (code, kept, repo))
+                self.assertEqual(read(closed, kept, {"status": code, "body": {}}, repo_read=True), ([], [], False))
+        # Any other answer is short: a 403, a 429 or a 5xx, whatever its body says, none at all (as a transfer's 301
+        # reaches the port, the transport keeping no redirect's code), a body of another issue, of a pull request, or with
+        # no state.
+        for answer in ({"status": 403, "body": state("closed")}, {"status": 429, "body": {}}, {"status": 500, "body": state("open")},
+                       None, {"number": 7, "state": "closed"}, dict(state("closed"), pull_request={}), {"number": ITEM["number"]},
+                       {"number": ITEM["number"], "state": "all"}):
             self.assertEqual(read(closed, seen_.LEFT, answer, repo_read=True, told=[]), ([], [], False), answer)
+        # A number that is no integer is none, though Python takes true for 1 (Astra).
+        first = dict(issue, number=1)
+        github = GitHub({("GET", "/repos/%s/issues/1" % ITEM["repo"]): {"number": True, "state": "open"}})
+        self.assertIs(seen_.read(github, first, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], False)
 
     def test_the_repo_is_read_by_its_full_name(self):  # decision 0235
         repo = ITEM["repo"]
-        for answer, read in (({"full_name": repo}, True), ({"full_name": repo.upper()}, True), ({"full_name": "a/b"}, False),
-                             ({}, False), ({"status": 404, "body": {"full_name": repo}}, False), (None, False)):
+        on = {"has_issues": True}
+        for answer, read in (({"full_name": repo, **on}, True), ({"full_name": repo.upper(), **on}, True),
+                             ({"full_name": "a/b", **on}, False), (on, False), ({"full_name": repo, "has_issues": False}, False),
+                             ({"full_name": repo}, False), ({"status": 404, "body": {"full_name": repo, **on}}, False), (None, False)):
             self.assertIs(seen_.repo_read(GitHub({("GET", "/repos/" + repo): answer}), repo), read, answer)
 
     def test_the_issues_read_whole_by_their_end_are_carried_in_what_was_seen(self):  # decision 0235
@@ -1048,6 +1060,10 @@ class Carried(unittest.TestCase):
         # One that leaves again is stamped anew, once (Muse).
         anew = reconcile.carried(before, self.effects(), seen(), self.NEXT, gone_issues=[41])
         self.assertEqual(anew["left_issues"], [{"number": 41, "at": self.NEXT}])
+        # Two owed and two left in one pass are each carried, and read back (Astra).
+        two = reconcile.carried([], self.effects(), seen(), self.NOW, unread_issues=[10, 9], gone_issues=[42, 41])
+        self.assertEqual((two["owed_issues"], two["left_issues"]), ([9, 10], [{"number": 41, "at": self.NOW}, {"number": 42, "at": self.NOW}]))
+        self.assertEqual(reconcile.left_issues([{"now": self.NOW, "pull_requests": [], "reconciled": two}]), [41, 42])
         # Another that leaves keeps the first one's stamp beside its own (Astra).
         other = reconcile.carried(before, self.effects(), seen(), self.NEXT, gone_issues=[42])
         self.assertEqual(other["left_issues"], [{"number": 41, "at": self.NOW}, {"number": 42, "at": self.NEXT}])
