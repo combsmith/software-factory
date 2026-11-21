@@ -37,7 +37,7 @@ from kernel.decide import decide
 from sim import world
 from adapters import github
 from tests import support
-from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_gate_sets, check_lifecycle, context_eval,
+from tools import (check_apps, check_authority, commits_are_the_maintainers, pr_title, check_context, check_decisions, check_examples, check_gate_sets, check_lifecycle, context_eval,
                    check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, redact_trial,
                    environments_drift, machine_user_drift, rulesets_drift, verify, walk)
 from tools.hooks import protected
@@ -5342,6 +5342,215 @@ class Workflows(unittest.TestCase):
                 found = ROOT.joinpath(*parts).with_suffix(".py").is_file() or (ROOT.joinpath(*parts) / "__main__.py").is_file()
                 self.assertTrue(found, "%s runs %s" % (path.name, module))
 
+
+
+class PullTitle(unittest.TestCase):
+    """A pull request's title is `area: plain verb phrase (#issue)`, held by tools/pr_title.py (issue 1089)."""
+
+    GOOD = "review: use full blob id for binary files so diffs stop flapping (#1016)"
+
+    def codes(self, title):
+        return sorted({problem.split(":", 1)[0] for problem in pr_title.problems(title)})
+
+    def test_a_title_keeps_the_rule_or_says_which_part_it_breaks(self):
+        # The Maintainer's own examples keep it, and so do an area with a dot or a slash, and a part of a count.
+        for title in (self.GOOD, "config: cap implementing rounds at 3 (#1038, part 1 of 4)",
+                      ".github: add a pull request template (#1072)", "adapters/github: retry a read once (#9)",
+                      "kernel: hold an item (#1, part 2 of 2)", "kernel: hold an item (#1, part 1 of 2)",
+                      "pr-review2: hold an item (#1)", "check_x.y: hold an item (#1, part 9999 of 9999)"):
+            self.assertEqual(pr_title.problems(title), [], title)
+        # The length: at most 72 characters, GitHub's " (#N)" on the squash not counted, since the title holds none.
+        self.assertEqual(pr_title.LONGEST, 72)
+        at_most = "kernel: " + "a" * (72 - len("kernel:  (#1)")) + " (#1)"
+        self.assertEqual((len(at_most), self.codes(at_most)), (72, []))
+        self.assertEqual(self.codes(at_most.replace("kernel", "kernels")), ["title_too_long"])
+        # The area: a lowercase word of letters, digits, dots, slashes, dashes or underscores, a colon and a space.
+        for title in ("Kernel: hold an item (#1)", "kernel:hold an item (#1)", "kernel : hold an item (#1)",
+                      "hold an item (#1)", ": hold an item (#1)", "-kernel: hold an item (#1)", "ker nel: hold an item (#1)",
+                      "kerNel: hold an item (#1)", "kernel$: hold an item (#1)"):
+            self.assertIn("title_no_area", self.codes(title), title)
+        # The phrase starts with a lowercase letter and ends with no full stop.
+        for title in ("kernel: Hold an item (#1)", "kernel: 3 items are held (#1)", "kernel: (#1)", "kernel:  hold (#1)",
+                      "kernel: \u2173 items are held (#1)", "kernel: \u00e9tend an item (#1)"):
+            self.assertIn("title_phrase_not_lowercase" if title != "kernel:  hold (#1)" else "title_no_area",
+                          self.codes(title), title)
+        self.assertEqual(self.codes("kernel: hold an item. (#1)"), ["title_ends_with_stop"])
+        self.assertEqual(self.codes("kernel: hold an item.  (#1)"), ["title_ends_with_stop"])
+        # A part's numbers too long to convert are out of range, said with no number of the title's.
+        said = pr_title.problems("kernel: hold (#1, part 1 of " + "9" * 5000 + ")")
+        self.assertIn("title_part_out_of_range: a part's numbers are longer than 4 digits", said)
+        self.assertFalse(any("99999" in p for p in said))
+        self.assertEqual(self.codes("kernel: hold an item... (#1)"), ["title_ends_with_stop"])
+        for title in ("kernel: hold an item, (#1)", "kernel: hold an item; (#1)", "kernel: hold an item: (#1)",
+                      "kernel: hold an item  (#1)", "kernel: hold an item\t (#1)"):
+            self.assertEqual(self.codes(title), ["title_ends_with_stop"], title)
+        # The issue, at the end: a number with no leading zero, and a part K of M with 1 <= K <= M and M >= 2.
+        for title in ("kernel: hold an item", "kernel: hold an item (1)", "kernel: hold an item #1",
+                      "kernel: hold an item (#01)", "kernel: hold an item (#1) now",
+                      "kernel: hold an item (#1, part 1 of 02)", "kernel: hold an item (#1 part 1 of 2)",
+                      "kernel: hold an item (#1)\n", "kernel: hold an item(#1)", "kernel: hold an item (#1, part 01 of 2)"):
+            self.assertIn("title_no_issue", self.codes(title), title)
+        for title in ("kernel: hold an item (#1, part 3 of 2)", "kernel: hold an item (#1, part 1 of 1)",
+                      "kernel: hold an item (#1, part 2 of 1)", "kernel: hold an item (#1, part 0 of 2)",
+                      "kernel: hold an item (#1, part 0 of 0)", "kernel: hold an item (#1, part 1 of 10000)"):
+            self.assertEqual(self.codes(title), ["title_part_out_of_range"], title)
+        # A name from inside the code, each mark on its own, and none in the area.
+        for title in ("kernel: hold an item with `x` (#1)", "kernel: hold max_rounds (#1)", "kernel: amend record 0219 (#1)",
+                      "kernel: amend decision 0219 (#1)", "kernel: amend Records #0219 (#1)", "trials: record P-73 (#1)",
+                      "kernel: amend decision  0219 (#1)", "kernel: amend record\t0219 (#1)",
+                      "trials: record p-73 (#1)",
+                      "kernel: bound effect/1 (#1)"):
+            self.assertEqual(self.codes(title), ["title_internal_term"], title)
+        for title in ("check_x: hold an item (#1)", "kernel: hold a record of 219 items (#1)", "kernel: hold P-x (#1)",
+                      "kernel: read and/or write (#1)", "kernel: hold 1/2 of it (#1)", "kernel: hold an item_ (#1)",
+                      "kernel: speak HTTP/2 (#1)"):
+            self.assertEqual(self.codes(title), [], title)
+        # Each problem says where, and holds no word of the title.
+        said = pr_title.problems("kernel: hold max_rounds (#1)")
+        self.assertEqual(said, ["title_internal_term: characters 16 to 18 hold a name joined by an underscore, a name from "
+                                "inside the code; say it in plain words"])
+        # Every problem at once, never the first alone.
+        self.assertEqual(self.codes("Hold `max_rounds` in record 0219 for effect/1 at P-2 now, and for a long while yet."),
+                         ["title_ends_with_stop", "title_internal_term", "title_no_area", "title_no_issue", "title_too_long"])
+
+    def test_the_title_is_read_from_github_on_both_events_and_refuses_where_it_cannot_be(self):
+        root = tree({})
+        where = root / "event.json"
+        sha = "a" * 40
+        ref = "refs/heads/gh-readonly-queue/main/pr-44-" + sha
+        opened = pr_title.CUTOVER
+        good = {"number": 44, "title": self.GOOD, "created_at": opened, "base": {"repo": {"full_name": "o/r"}}}
+
+        class Asked:
+            def __init__(self, status=200, body=None, fails=False):
+                self.status, self.body, self.fails, self.asked = status, good if body is None else body, fails, []
+
+            def send(self, asked):
+                self.asked.append(asked)
+                if self.fails:
+                    raise github.Unanswered("no answer")
+                return {"status": self.status, "body": self.body}
+
+        def checked(transport=None, event="pull_request", payload=None, token="t"):
+            told = ({"pull_request": {"number": 44}, "repository": {"full_name": "o/r"}} if event == "pull_request" else
+                    {"merge_group": {"head_ref": ref, "base_ref": "refs/heads/main"}, "repository": {"full_name": "o/r"}})
+            where.write_text(json.dumps(told if payload is None else payload))
+            environ = {"EVENT": event, "GITHUB_EVENT_PATH": str(where)}
+            if token is not None:
+                environ["WORKFLOW_TOKEN"] = token
+            return pr_title.check(environ, Asked() if transport is None else transport)
+
+        def refused(found, code):
+            self.assertTrue(found and all(p.startswith(code) for p in found), found)
+
+        # On both events the pull request is read from GitHub, once, by its number, never from the payload's title: so a
+        # title edited before review is read again when the failed job is re-run.
+        for event in ("pull_request", "merge_group"):
+            read = Asked()
+            self.assertEqual(checked(read, event), [], event)
+            self.assertEqual([(a["method"], a["path"]) for a in read.asked], [("GET", "/repos/o/r/pulls/44")])
+            # A title that breaks the rule refuses on each, the merge group's among them, which is what main's log takes.
+            refused(checked(Asked(body=dict(good, title="Holds an item")), event), "title_")
+            self.assertIn("title_no_area", checked(Asked(body=dict(good, title="Holds an item (#1)")), event)[0])
+        self.assertEqual(checked(payload={"pull_request": {"number": 44, "title": "Holds an item"},
+                                          "repository": {"full_name": "o/r"}}), [])
+        # The cutover: a pull request opened one second before it is not read; one opened at it is.
+        bad = dict(good, title="Holds an item")
+        self.assertEqual(checked(Asked(body=dict(bad, created_at="2026-11-21T23:59:59Z"))), [])
+        refused(checked(Asked(body=dict(bad, created_at="2026-11-22T00:00:00Z"))), "title_")
+        refused(checked(Asked(body=dict(bad, created_at="2026-11-22T00:00:01Z"))), "title_")
+        self.assertEqual(pr_title.CUTOVER, "2026-11-22T00:00:00Z")
+        # What cannot be read refuses, with its own code, and never passes: no answer, another status or shape, another
+        # pull request, a title or a time that cannot be read, no token, no event, and a payload or a ref of no form.
+        refused(checked(Asked(fails=True)), "title_unreadable")
+        for transport in (Asked(status=404), Asked(status=500), Asked(body=[]), Asked(body="x"), Asked(body=dict(good, number=45)),
+                          Asked(body=dict(good, number=True)), Asked(body=dict(good, title=None)), Asked(body=dict(good, title="")),
+                          Asked(body=dict(good, title=["x"])), Asked(body={"number": 44, "title": self.GOOD}),
+                          Asked(body=dict(good, created_at="2026-11-22")), Asked(body=dict(good, created_at=None)),
+                          Asked(body=dict(good, created_at="2026-11-22T00:00:00+00:00")),
+                          Asked(body=dict(good, base={"repo": {"full_name": "o/other"}})), Asked(body=dict(good, base=None)),
+                          Asked(body=dict(good, base={"repo": None})), Asked(body={k: v for k, v in good.items() if k != "base"}),
+                          Asked(body=dict(good, base="o/r")), Asked(body=dict(good, base={"repo": "o/r"})),
+                          Asked(body=dict(good, base={"repo": ["o/r"]})),
+                          Asked(body=dict(good, created_at="2026-02-30T00:00:00Z")),
+                          Asked(body=dict(good, created_at="2026-13-01T00:00:00Z")),
+                          Asked(body=dict(good, created_at="2026-11-22T24:00:00Z")),
+                          Asked(body=dict(good, created_at="2026-1-2T0:0:0Z"))):
+            for event in ("pull_request", "merge_group"):
+                refused(checked(transport, event), "title_unreadable")
+        # The answer's number is held to an integer as the event's is: true is no pull request 1.
+        where.write_text(json.dumps({"pull_request": {"number": 1}, "repository": {"full_name": "o/r"}}))
+        refused(pr_title.check({"EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"},
+                               Asked(body=dict(good, number=True))), "title_unreadable")
+        self.assertEqual(pr_title.check({"EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"},
+                                        Asked(body=dict(good, number=1))), [])
+        # A pull request opened before the cutover needs no title at all; one opened at it does.
+        for title in (None, "", ["x"]):
+            self.assertEqual(checked(Asked(body=dict(good, title=title, created_at="2026-11-21T23:59:59Z"))), [])
+            refused(checked(Asked(body=dict(good, title=title))), "title_unreadable")
+        self.assertEqual(checked(Asked(body={k: v for k, v in dict(good, created_at="2026-01-01T00:00:00Z").items()
+                                             if k != "title"})), [])
+        for token in (None, ""):
+            refused(checked(token=token), "title_unreadable")
+            refused(checked(token=token, event="merge_group"), "title_unreadable")
+        for event in (None, "push", "pull_request_target"):
+            refused(checked(event=event, payload={"pull_request": {"number": 44}, "repository": {"full_name": "o/r"}}),
+                    "title_unreadable")
+        for payload in ([], {}, {"pull_request": {"number": 44}}, {"pull_request": None, "repository": {"full_name": "o/r"}},
+                        {"pull_request": {"number": "44"}, "repository": {"full_name": "o/r"}},
+                        {"pull_request": {"number": True}, "repository": {"full_name": "o/r"}},
+                        {"pull_request": {"number": 0}, "repository": {"full_name": "o/r"}},
+                        {"pull_request": {"number": 44}, "repository": {"full_name": None}}):
+            read = Asked()
+            refused(checked(read, payload=payload), "title_unreadable")
+            self.assertEqual(read.asked, [], payload)
+        for head_ref in ("refs/heads/gh-readonly-queue/main/pr-44", "refs/heads/main", ref + "x", None,
+                         "refs/heads/gh-readonly-queue/main/pr-0-" + sha):
+            refused(checked(event="merge_group", payload={"merge_group": {"head_ref": head_ref},
+                                                          "repository": {"full_name": "o/r"}}), "title_unreadable")
+        where.write_text("not json")
+        refused(pr_title.check({"EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"}, Asked()),
+                "title_unreadable")
+        refused(pr_title.check({"EVENT": "pull_request", "WORKFLOW_TOKEN": "t"}, Asked()), "title_unreadable")
+        # With no transport handed, the job's own Live is built from its token.
+        with mock.patch.object(pr_title, "Live") as live:
+            live.return_value.send.return_value = {"status": 200, "body": good}
+            where.write_text(json.dumps({"pull_request": {"number": 44}, "repository": {"full_name": "o/r"}}))
+            self.assertEqual(pr_title.check({"EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"}), [])
+            live.assert_called_once_with("t")
+
+    def test_no_title_writes_a_command_into_the_jobs_log(self):
+        # The title is text from outside, and the job's log reads a line that starts with `::` as a command. What the
+        # job prints names a rule's code and a position, never a word of the title.
+        planted = "Pwned ::error::x\n::add-mask::y %0A::stop-commands::z max_rounds `w` record 0001 P-1 effect/1."
+        root = tree({"config/hooks.json": json.dumps({"openers": [{"login": "ada", "id": 1, "is": "the Maintainer"}]})})
+        where = root / "event.json"
+        where.write_text(json.dumps({"pull_request": {"number": 44, "user": {"login": "ada", "id": 1},
+                                                      "head": {"repo": {"full_name": "o/r"}}, "base": {"repo": {"full_name": "o/r"}}},
+                                     "repository": {"full_name": "o/r"}}))
+
+        class Asked:
+            def send(self, asked):
+                return {"status": 200, "body": {"number": 44, "title": planted, "created_at": pr_title.CUTOVER,
+                                                "base": {"repo": {"full_name": "o/r"}}}}
+        environ = {"BASE_SHA": "a" * 40, "HEAD_SHA": "b" * 40, "EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where),
+                   "WORKFLOW_TOKEN": "t"}
+        out = "\n".join(pr_title.check(environ, Asked()))
+        self.assertIn("title_no_area", out)
+        self.assertIn("title_internal_term", out)
+        for word in ("::", "Pwned", "add-mask", "%0A", "max_rounds", "effect/1", "P-1"):
+            self.assertNotIn(word, out)
+        # The desk's command prints the same, and says so where a title keeps the rule.
+        for title, code in ((planted, 1), (self.GOOD, 0)):
+            with contextlib.redirect_stdout(io.StringIO()) as printed:
+                self.assertEqual(pr_title.main([title]), code)
+            self.assertNotIn("::", printed.getvalue())
+            if code:
+                self.assertEqual(printed.getvalue().splitlines(), pr_title.problems(title))
+        self.assertIn("keeps the rule", printed.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            self.assertEqual(pr_title.main([]), 2)
+            self.assertEqual(pr_title.main(["a", "b"]), 2)
 
 
 class TheList(unittest.TestCase):
