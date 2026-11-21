@@ -35,6 +35,7 @@ from harness import engine, shared
 from kernel import decide as decide_module, derive, issue, terms
 from kernel.decide import decide
 from sim import world
+from adapters import github
 from tests import support
 from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_gate_sets, check_lifecycle, context_eval,
                    check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, redact_trial,
@@ -2185,6 +2186,76 @@ class Purity(unittest.TestCase):
         root = tree({"kernel/a.py": "from kernel.extra import clock\n", "kernel/extra/clock.py": "import time\n"})
         self.assertTrue(caught(check_purity.run(root), "extra/clock.py:1 imports time"))
 
+    def test_the_guards_are_held_as_the_kernel_is_and_import_themselves_alone(self):
+        # guards/ decides what a Role's push may land (issue 838). It is held as the Kernel is, under its own name, and
+        # imports itself alone: the Kernel is not protected whole, so nothing the guards decide may rest on it.
+        held = lambda files: check_purity.guards(tree(dict({"guards/__init__.py": ""}, **files)))
+        self.assertEqual(check_purity.guards(ROOT), [])
+        self.assertIn(("guards purity", check_purity.guards), verify.CHECKS)
+        self.assertEqual(check_purity.guards(tree({"kernel/x.py": ""})), ["there is no guards/ to check"])
+        self.assertEqual(check_purity.run(tree({"guards/x.py": ""})), ["there is no kernel/ to check"])
+        io = held({"guards/x.py": "import os\n\ndef f():\n    return open('x')\n"})
+        self.assertTrue(caught(io, "imports os") and caught(io, "uses open"))
+        self.assertTrue(caught(held({"guards/x.py": "def f(n):\n    return n > 3\n"}), "writes the number"))
+        # Only its imports of itself are read as its own: any other package's are refused as the Kernel refuses them.
+        for text, said in (("from os import environ\n", "x.py:1 imports os"), ("import guardsx as g\n", "x.py:1 imports guardsx"),
+                           ("from guardsx import y\n", "x.py:1 imports guardsx"), ("import kernelx\n", "x.py:1 imports kernelx")):
+            self.assertTrue(caught(held({"guards/x.py": text}), said + " ["), text)
+        # The Kernel is refused twice over, at a module's top or in a function: by its name, and as any package that
+        # is not the guards' own.
+        terms = {"kernel/terms.py": "HOLD = 'h'\n\n\ndef f():\n    return HOLD\n"}
+        note = (" [a rule of the Kernel's, read of guards/: where it names a module an import names, `kernel` is `guards` in "
+                "the file and `guards` is `kernel`; a file's name and every other name are as written]")
+        for text, line, module in (("import kernel.terms as t\n", 1, "kernel.terms"), ("from kernel import terms\n", 1, "kernel"),
+                                   ("import guards.b as b, kernel.terms as t\n", 1, "kernel.terms"),
+                                   ("import kernel.terms as t, guards.b as b\n", 1, "kernel.terms"),
+                                   ("from kernel.terms import f\n", 1, "kernel.terms"), ("import kernel\n", 1, "kernel"),
+                                   ("def f():\n    from kernel import terms\n    return terms.HOLD\n", 2, "kernel"),
+                                   ("def f():\n    import kernel.terms as t\n    return t.HOLD\n", 2, "kernel.terms")):
+            found = held(dict(terms, **{"guards/x.py": text}))
+            self.assertIn("x.py:%d imports %s; guards/ imports itself alone" % (line, module), found, text)
+            self.assertIn("x.py:%d imports %s%s" % (line, module.replace("kernel", "guards"), note), found, text)
+        # Nor relatively: the package is imported in one way, by its name, and nothing reaches above it.
+        other = {"guards/b.py": "def g():\n    return 1\n"}
+        for text, line in (("from . import b\n", 1), ("from .b import g\n", 1), ("from .. import kernel\n", 1),
+                           ("from ..kernel import terms\n", 1), ("def f():\n    from . import b\n    return b.g()\n", 2)):
+            found = held(dict(terms, **dict(other, **{"guards/x.py": text})))
+            self.assertTrue(caught(found, "x.py:%d imports ." % line) and caught(found, "imports itself alone, by its name"), text)
+        # A guard makes no Decision, so it takes no parameter the Kernel may call, in any place a parameter stands.
+        for text, line in (("def f(_decision):\n    return _decision()\n", 1), ("def f(*, _decision):\n    return _decision()\n", 1),
+                           ("def f(_decision, /):\n    return _decision()\n", 1), ("def f(*_decision):\n    return 0\n", 1),
+                           ("def f(**_decision):\n    return 0\n", 1), ("def f():\n    return lambda _decision: _decision()\n", 2),
+                           ("async def f(_decision):\n    return _decision()\n", 1)):
+            self.assertIn("x.py:%d takes _decision, which the Kernel alone may call; guards/ makes no Decision and calls "
+                          "no function it is given" % line, held({"guards/x.py": text}), text)
+        fine = dict(other, **{"guards/a.py": "from guards import b\nfrom guards.b import g\nimport guards.b as other\n\n\n"
+                                             "def f():\n    return b.g() or g() or other.g()\n"})
+        self.assertEqual(held(fine), [])
+        # Its imports of itself are read as the Kernel's of itself are: a call into a module at no function of its own
+        # is caught. A problem the Kernel's rule finds is said in the rule's own words, whatever a file there is
+        # named, with a note of how to read it. The Kernel imports no guard.
+        self.assertTrue(caught(held(dict(fine, **{"guards/b.py": "G = 1\n"})), "a.py:"))
+        self.assertEqual(held(dict(other, **{"guards/x.py": "import guards.b\n"})),
+                         ["x.py:1 imports kernel.b without naming it; the Kernel imports a module of its own as "
+                          "`from kernel import x` or `import kernel.x as x`" + note])
+        self.assertEqual(held({"guards/kernel.py": "def f(n):\n    return n > 3\n"}),
+                         ["kernel.py:2 writes the number 3; a limit is data, read from the configuration" + note])
+        self.assertTrue(caught(check_purity.run(tree({"kernel/x.py": "from guards import patch\n"})), "imports guards"))
+        # A module below a folder of the guards is read as itself, to its last name: a call into it at no function
+        # of its own is caught, and one at a function of its own is not.
+        deep = {"guards/pkg/__init__.py": "", "guards/pkg/leaf.py": "def g():\n    return 1\n",
+                "guards/x.py": "from guards.pkg import leaf\nfrom guards.pkg.leaf import g\nimport guards.pkg.leaf as other\n\n\n"
+                               "def f():\n    return leaf.g() or g() or other.g()\n"}
+        self.assertEqual(held(deep), [])
+        self.assertTrue(caught(held(dict(deep, **{"guards/pkg/leaf.py": "G = 1\n"})), "x.py:"))
+        # A rule written for a module of the Kernel's by its name is read of no guard: the calendar's numbers are
+        # terms.py's alone, and a guard of that name could write them.
+        for name in ("terms.py", "gate.py", "brakes.py"):
+            self.assertTrue(caught(held({"guards/" + name: ""}), "guards/%s bears the name" % name), name)
+        self.assertTrue(caught(held({"guards/terms.py": "DAYS_PER_YEAR = 365\n"}), "guards/terms.py bears the name"))
+        below = {"guards/sub/__init__.py": "", "guards/sub/terms.py": "DAYS_PER_YEAR = 365\n"}
+        self.assertTrue(caught(held(below), "sub/terms.py:1 writes the number 365; a limit is data, read from the configuration"))
+
     def test_a_limit_written_into_the_kernel_is_caught(self):
         root = tree({"kernel/x.py": "def f(runs):\n    return len(runs) >= 3 or runs[0] == 1\n"})
         self.assertEqual(len(check_purity.run(root)), 1)
@@ -3832,7 +3903,7 @@ class Workflows(unittest.TestCase):
             refused(group(token=token), "merge_group_pull_unreadable")
         refused(group(token="two words", transport=False), "merge_group_pull_unreadable")
         # An answer with no opener in it cannot be read either, and neither can a repository the payload does not name.
-        for body in ({"number": 44, "state": "open", "base": {"ref": "main"}},):
+        for body in ({"number": 44, "state": "open", "base": {"ref": "main", "repo": {"full_name": "o/r"}}},):
             refused(group(Asked(body=body)), "cannot be read")
         refused(group(payload={"merge_group": {"head_ref": ref, "base_ref": "refs/heads/main"}}), "cannot be read")
         # The payload must be a merge group's: an event that says so of a pull request's refuses, as the other way about.
@@ -3860,6 +3931,125 @@ class Workflows(unittest.TestCase):
         schema = json.loads((ROOT / "schemas" / "hooks.schema.json").read_text())
         app = {"login": "sf-dev[bot]", "id": 2, "is": "the App"}
         self.assertEqual(check_examples.validate(dict(hooks, openers=hooks["openers"] + [app]), schema), [])
+
+    def test_the_merge_groups_read_refuses_when_the_live_transport_fails_or_answers_another_shape(self):
+        # Issue 1048: adapters/github.py is no protected path, though a merge group's opener is read through its Live and
+        # request, for cost: it is the one transport for every port. So this guards the behaviour instead: the check builds
+        # the transport's own Live from the job's token, and every way its read can fail or answer in another shape
+        # refuses, with the code. Only the socket is stood in for; the request, its headers, the status and the body are
+        # read by the transport itself. It holds against a regression, not an edit made to tell the stand-in apart; that
+        # the opener follows no redirect and takes no proxy is held by tests/test_adapters.py's own test of Live.
+        self.assertIs(commits_are_the_maintainers.Live, github.Live)
+        self.assertIs(commits_are_the_maintainers.request, github.request)
+        root = tree({"config/hooks.json": json.dumps({"openers": [{"login": "ada", "id": 1, "is": "the Maintainer"}]})})
+        where = root / "event.json"
+        sha = "a" * 40
+
+        def named(number):
+            where.write_text(json.dumps({"merge_group": {"head_ref": "refs/heads/gh-readonly-queue/main/pr-%d-%s" % (number, sha),
+                                                         "base_ref": "refs/heads/main", "head_sha": "b" * 40, "base_sha": sha},
+                                         "repository": {"full_name": "o/r"}}))
+        named(44)
+        environ = {"EVENT": "merge_group", "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"}
+        pull = {"number": 44, "state": "open", "user": {"login": "ada", "id": 1},
+                "base": {"ref": "main", "repo": {"full_name": "o/r"}}, "head": {"repo": {"full_name": "o/r"}}}
+        whole = json.dumps(pull).encode()
+        JSON = {"Content-Type": "application/json; charset=utf-8"}
+
+        class Answer(io.BytesIO):
+            # Read a part at a time, as the transport's bound needs: an unbounded read is no answer (Astra's read).
+            def __init__(self, raw, status=200, headers=None):
+                super().__init__(raw)
+                self.status, self.headers, self.taken = status, JSON if headers is None else headers, 0
+
+            def read(self, size=-1):
+                if size is None or not 0 < size <= github.CHUNK:
+                    raise AssertionError("an unbounded read of %r" % (size,))
+                part = super().read(size)
+                self.taken += len(part)
+                return part
+
+        class Cut(Answer):      # the whole pull request arrives, then the connection closes before the body ends
+            def read(self, size=-1):
+                part = super().read(size)
+                if not part:
+                    raise github.http.client.IncompleteRead(b"")
+                return part
+
+        class Socket:
+            def __init__(self, answer):
+                self.answer, self.sent = answer, []
+
+            def open(self, sent, timeout=None):
+                self.sent.append(sent)
+                if isinstance(self.answer, Exception):
+                    raise self.answer
+                return self.answer
+
+        def read(answer):
+            socket, made = Socket(answer), []
+
+            class Wired(github.Live):
+                def __init__(self, token, *args, **kwargs):
+                    super().__init__(token, *args, **kwargs)
+                    made.append(token)
+                    self.opener = socket
+            with mock.patch.object(commits_are_the_maintainers, "Live", Wired):
+                return commits_are_the_maintainers.opener_problems(root, environ), socket.sent, made
+
+        # Answered whole, it passes: the transport's own Live, made from the job's token, sends one GET of the pull
+        # request to GitHub's API with the token, and the body it reads is the pull request's.
+        found, sent, made = read(Answer(whole))
+        self.assertEqual((found, made), ([], ["t"]))
+        self.assertEqual([(s.get_method(), s.full_url, s.get_header("Authorization")) for s in sent],
+                         [("GET", "https://api.github.com/repos/o/r/pulls/44", "Bearer t")])
+
+        def refused(answer, code="merge_group_pull_unreadable"):
+            found = read(answer)[0]
+            self.assertTrue(found and all(f.split(":")[0] == code for f in found), (answer, found))
+        # A read that fails refuses: no connection, an answer cut short, a redirect, one over the transport's bound.
+        refused(github.urllib.error.URLError("down"))
+        refused(ConnectionResetError())
+        refused(github.Redirected(302, "https://api.github.com/repositories/1/pulls/44"))
+        refused(github.urllib.error.HTTPError("https://api.github.com/x", 301, "x", {"Location": "/x"}, Answer(b"")))
+        refused(Cut(whole))
+        # The bound is the transport's: the pull request padded past it is refused, not cut short and read, and padded to
+        # it exactly passes (Astra, Kimi, Muse and the Claude review).
+        over = Answer(whole + b" " * (github.LARGEST + 3 * github.CHUNK))
+        refused(over)
+        self.assertLess(over.taken, github.LARGEST + 2 * github.CHUNK)      # read no further than the bound's part
+        refused(Answer(whole + b" " * (github.LARGEST + 1 - len(whole))))
+        self.assertEqual(read(Answer(whole + b" " * (github.LARGEST - len(whole))))[0], [])
+        # And so does an answer in another shape: an error whose body is the pull request itself, not JSON, JSON that
+        # cannot be read, or JSON that is no pull request, another one, or none.
+        for code in (404, 403, 500, 304):
+            refused(github.urllib.error.HTTPError("https://api.github.com/x", code, "x", JSON, Answer(whole)))
+        refused(Answer(whole, 201))
+        refused(Answer(whole, headers={"Content-Type": "text/html"}))
+        refused(Answer(whole, headers={}))
+        refused(Answer(whole[:-1]))
+        refused(Answer(whole + b"{}"))      # one document, read whole
+        for body in ([pull], "x", None, dict(pull, number="44"), dict(pull, number=45)):
+            refused(Answer(json.dumps(body).encode()))
+        refused(Answer(b""))
+        # The repository the answer names is the one held: a fork's head read through the transport refuses for the fork.
+        found = read(Answer(json.dumps(dict(pull, head={"repo": {"full_name": "fork/r"}})).encode()))[0]
+        self.assertEqual([f.split(" this repo")[0] for f in found], ["the pull request is opened from fork/r, and only from"])
+        # And a number is a number: for pull request 1, true is no answer, though true == 1 in Python (Astra's read).
+        named(1)
+        for number in (True, 1.0):
+            refused(Answer(json.dumps(dict(pull, number=number)).encode()))
+        self.assertEqual(read(Answer(json.dumps(dict(pull, number=1)).encode()))[0], [])
+        named(44)
+        # A base of another shape refuses with the code, and an opener's id is read as GitHub gave it (Astra's read).
+        for base in (["main"], "main", None):
+            refused(Answer(json.dumps(dict(pull, base=base)).encode()))
+        for ident in ("1", True, 1.0):
+            found = read(Answer(json.dumps(dict(pull, user={"login": "ada", "id": ident})).encode()))[0]
+            self.assertTrue(found and "opened by ada" in found[0], (ident, found))
+        # And the answer is this repo's pull request: the same number on another repo's base refuses with the code.
+        refused(Answer(json.dumps(dict(pull, base={"ref": "main", "repo": {"full_name": "other/r"}})).encode()))
+        refused(Answer(json.dumps(dict(pull, base={"ref": "main", "repo": None})).encode()))
 
     def test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds(self):
         # Issue 409: main reads both, neither in place of the other, so the commits job is not weakened by the opener.
