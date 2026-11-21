@@ -11964,8 +11964,8 @@ class Writes(unittest.TestCase):
         # the package itself, a relative import, or a file beside the folder whose name starts as its does. Only its
         # top-level assignments may name one, never a def: a def handed a runner would run what it names.
         entry = "MUTANTS = [\n    ('a push is not read', 'tools/hooks/identity.py', \"subprocess.run(['git', 'push'])\", '', ()),\n]\n"
-        files = {"tools/mutants_of/common.py": "X = ('t',)\n\n\ndef helper():\n    return X\n",
-                 "tools/mutants_of/data.py": "from tools.mutants_of.common import X, helper\n\n" + entry,
+        files = {"tools/mutants_of/common.py": "\"\"\"Shared.\"\"\"\n\nX = ('t',)\nY = X + ('u',)\n",
+                 "tools/mutants_of/data.py": "\"\"\"Data.\"\"\"\n\nfrom tools.mutants_of.common import X, Y\n\n" + entry,
                  "tools/mutants_of/launder.py": "import subprocess\n\nrun = subprocess.run\n",
                  "tools/mutants_of/runs.py": "import subprocess\n\n" + entry,
                  "tools/mutants_of/path.py": "import pathlib\n\n" + entry,
@@ -11980,13 +11980,19 @@ class Writes(unittest.TestCase):
                  "tools/mutants_of/dunder.py": "RUN = ().__class__\n" + entry,
                  "tools/mutants_of/builtin.py": "RUN = __import__\n" + entry,
                  "tools/mutants_of/reaches.py": "RUN = getattr\n" + entry,
+                 "tools/mutants_of/alias.py": "from tools.mutants_of.common import X as __builtins__\n" + entry,
+                 "tools/mutants_of/attribute.py": "RUN = X.open\n" + entry,
+                 "tools/mutants_of/wrapper.py": "def bind(argv):\n    return argv\n\n\n" + entry,
+                 "tools/mutants_of/beside.py": "TARGETS = ('x.py',); print('git push')\n" + entry,
+                 "tools/mutants_of/raises.py": entry + "raise SystemExit(0)\n",
                  "tools/mutants_of/near.py": "from tools.mutants_ofx import X\n\n" + entry,
                  "tools/mutants_of/relative.py": "from .tools.mutants_of.common import X\n\n" + entry,
                  "tools/mutants_ofx.py": "X = 1\n" + entry}
         problems = check_writes.run(clone(files))
         self.assertFalse(caught(problems, "tools/mutants_of/data.py"), problems)
         for name in ("runs", "path", "handed", "further", "ring", "package", "later", "runner", "lambda", "dunder",
-                     "builtin", "reaches", "near", "relative", "../mutants_ofx"):
+                     "builtin", "reaches", "alias", "attribute", "wrapper", "beside", "raises", "near", "relative",
+                     "../mutants_ofx"):
             rel = os.path.normpath("tools/mutants_of/%s.py" % name)
             self.assertTrue(any(p.startswith(rel + ":") and "names gh or git as a command" in p for p in problems), rel)
 
@@ -12655,15 +12661,18 @@ class Mutants(unittest.TestCase):
 
     def test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone(self):
         # Issue 1101: a mutant of a file outside kernel/ lives in tools/mutants_of/, one file to a target, so that two
-        # changes adding mutants of different files never meet in one. Each file there is imported, and listed in
-        # AREAS in the order of the names; it holds the mutants of the paths its TARGETS name and no other; and no
-        # path is two files' targets, the Kernel's, or a target of a mutant tools/mutants.py holds itself.
+        # changes adding mutants of different files never meet in one. The runner finds each file there by the walk, in
+        # the order of the names, so that no list names one; each holds the mutants of the paths its TARGETS name and
+        # no other; and no path is two files' targets, the Kernel's, or a target of a mutant tools/mutants.py holds.
         from tools import mutants_of
-        found = sorted(p.stem for p in walk.files(ROOT, "tools/mutants_of")
-                       if p.suffix == ".py" and p.stem not in ("__init__", "common"))
-        self.assertEqual([area.__name__ for area in mutants_of.AREAS], ["tools.mutants_of." + name for name in found])
+        names = mutants.area_names(ROOT)
+        self.assertEqual(names, sorted(names))
+        self.assertEqual([name for name in names if not mutants.AREA_NAME.fullmatch(name)], [])
+        self.assertEqual([area.__name__ for area in mutants.AREAS], ["tools.mutants_of." + name for name in names])
+        self.assertEqual(mutants.area_names(tree({"tools/mutants_of/%s" % rel: "" for rel in (
+            "a.py", "b.py", "deep/c.py", "common.py", "__init__.py", "AGENTS.md", "d.txt")})), ["a", "b"])
         held = {}
-        for area in mutants_of.AREAS:
+        for area in mutants.AREAS:
             self.assertTrue(area.TARGETS and isinstance(area.TARGETS, tuple), area.__name__)
             self.assertIn(area.__name__.rpartition(".")[2], [mutants_of.named(t) for t in area.TARGETS])
             for target in area.TARGETS:
@@ -12671,16 +12680,17 @@ class Mutants(unittest.TestCase):
                 self.assertNotIn(target, held, area.__name__)
                 held[target] = area.__name__
             self.assertEqual([m[0] for m in area.MUTANTS if m[1] not in area.TARGETS], [], area.__name__)
-        self.assertEqual(mutants_of.MUTANTS, [mutant for area in mutants_of.AREAS for mutant in area.MUTANTS])
-        start, end = len(mutants.ISSUE), len(mutants.ISSUE) + len(mutants_of.MUTANTS)
-        self.assertEqual(mutants.MUTANTS[start:end], mutants_of.MUTANTS)
+        self.assertEqual(mutants.OUTSIDE, [mutant for area in mutants.AREAS for mutant in area.MUTANTS])
+        self.assertTrue(mutants.OUTSIDE)
+        start, end = len(mutants.ISSUE), len(mutants.ISSUE) + len(mutants.OUTSIDE)
+        self.assertEqual(mutants.MUTANTS[start:end], mutants.OUTSIDE)
         own = mutants.MUTANTS[:start] + mutants.MUTANTS[end:]
         self.assertEqual([m[0] for m in own if m[1] in held], [])
         # The runner's list is the one assignment that reads them, right after ISSUE.
         made = [n.value for n in ast.parse((ROOT / "tools" / "mutants.py").read_text(encoding="utf-8")).body
                 if isinstance(n, ast.Assign) and [getattr(t, "id", None) for t in n.targets] == ["MUTANTS"]]
         self.assertEqual(len(made), 1)
-        self.assertTrue(ast.unparse(made[0]).startswith("ISSUE + mutants_of.MUTANTS + "))
+        self.assertTrue(ast.unparse(made[0]).startswith("ISSUE + OUTSIDE + "))
         # A file is named for one of its targets, so that a mutant's file is found from its target alone.
         for target, name in (("adapters/pull.py", "adapters_pull"), (".github/workflows/verify.yml", "github_workflows_verify_yml"),
                              ("controller/__main__.py", "controller_main"), ("Makefile", "makefile"), ("3d/x.py", "_3d_x")):

@@ -58,8 +58,9 @@ RUNNERS = ("harness/steps.py", "tools/check_decisions.py", "tools/check_trials.p
            "tools/hooks/rules_changed.py", "tools/hooks/shell.py", "tools/mutants.py", "tools/untested.py")
 # The mutants of the files outside kernel/, as data: each names a command as the text a mutant finds in its target, and
 # runs none, since it imports no module, and names from no file but another there that imports none either (issue 1101;
-# allowed by the Maintainer, 2026-11-21); it holds no lambda and reads none of REACHERS, nor a name of two underscores.
-# Only its top-level assignments may name one, never a def or a class; any other file there is read as any other.
+# allowed by the Maintainer, 2026-11-21). Its top level is a docstring, imports and assignments, with no def, class or
+# lambda anywhere, and it reads none of REACHERS, nor a name of two underscores. Only its assignments may name one; any
+# other file there is read as any other.
 # It is read in good faith, as the rest of this check is: every other rule here still reads it.
 MUTANT_DATA = "tools/mutants_of/"
 # A command's name as a string, in any case, by a path or not, `.exe` or not: gh or git alone or opening a command line;
@@ -954,19 +955,22 @@ REACHERS = {"eval", "exec", "compile", "open", "getattr", "setattr", "delattr", 
 
 
 def _inert(mod, mods: dict, seen: frozenset = frozenset(), known: dict = None) -> bool:
-    """Whether `mod` is under MUTANT_DATA and, anywhere in it, imports no module, names from none but another file there
-    that is inert as well, read through each in turn, holds no lambda, and reads no REACHERS and no name or attribute
-    of two underscores; an import that comes back round is not. Each file is read once (`known`)."""
+    """Whether `mod` is under MUTANT_DATA, holds at its top level nothing but a docstring, imports and assignments, and
+    anywhere in it no def, class or lambda; imports no module, and names from none but another file there that is inert
+    as well, read through each in turn; and reads, imports or binds none of REACHERS and no name or attribute of two
+    underscores. An import that comes back round is not inert. Each file is read once (`known`)."""
     known = {} if known is None else known
     if mod.name in known:
         return known[mod.name]
     if not mod.rel.startswith(MUTANT_DATA) or mod.name in seen:
         return False
-    inert = True
-    for node in mod.nodes:
-        if isinstance(node, (ast.Import, ast.Lambda)) or (isinstance(node, ast.Name) and (
-                node.id in REACHERS or node.id.startswith("__"))) or (
-                isinstance(node, ast.Attribute) and node.attr.startswith("__")):
+    inert = all(isinstance(node, (ast.ImportFrom, ast.Assign)) or (isinstance(node, ast.Expr) and isinstance(
+        node.value, ast.Constant) and isinstance(node.value.value, str)) for node in mod.tree.body)
+    for node in mod.nodes if inert else ():
+        said = [node.id] if isinstance(node, ast.Name) else [node.attr] if isinstance(node, ast.Attribute) else \
+            [n for alias in node.names for n in (alias.name, alias.asname) if n] if isinstance(node, ast.ImportFrom) else []
+        if isinstance(node, (ast.Import, ast.Lambda, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) or any(
+                n in REACHERS or n.startswith("__") for n in said):
             inert = False
         elif isinstance(node, ast.ImportFrom):
             source = None if node.level else mods.get(node.module)

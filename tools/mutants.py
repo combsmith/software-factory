@@ -20,7 +20,7 @@ import sys
 import tempfile
 import unittest
 
-from tools import mutants_of, walk
+from tools import walk
 from tools.verify import SLOW
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -1622,7 +1622,23 @@ ISSUE = [
      'closers = [p for p in merged if p["merged_at"] == first and p["closed_issue_at"] is not None]', 'closers = [p for p in merged if p["merged_at"] == first]', ISSUE_TESTS),
 ]
 
-MUTANTS = ISSUE + mutants_of.MUTANTS + [
+# The files of tools/mutants_of/, each the mutants of files outside kernel/, found by the walk in the order of their
+# names, so that a change adding one edits no list here or there (issue 1101). OUTSIDE is their mutants, in that order.
+AREA_NAME = re.compile(r"[a-z_][a-z0-9_]*")
+
+
+def area_names(root: pathlib.Path) -> list:
+    """The name of each file of mutants in `root`'s tools/mutants_of/: its Python files but __init__.py and common.py,
+    directly in it, as the walk gives them."""
+    folder = root / "tools" / "mutants_of"
+    return [path.stem for path in walk.files(root, "tools/mutants_of")
+            if path.parent == folder and path.suffix == ".py" and path.stem not in ("__init__", "common")]
+
+
+# Each name is a module name, by AREA_NAME, before it is loaded: nothing but a file of tools/mutants_of/ is imported.
+AREAS = tuple(importlib.import_module("tools.mutants_of." + name) for name in area_names(ROOT) if AREA_NAME.fullmatch(name))
+OUTSIDE = [mutant for area in AREAS for mutant in area.MUTANTS]
+MUTANTS = ISSUE + OUTSIDE + [
     # Issue 1016: a binary file's change is bound to its full blob id.
     ("a compare's files not answered make the diff unread", 'adapters/pull.py',
      '    except Unanswered:\n        return ()\n    rows = answer["body"]', '    except ValueError:\n        return ()\n    rows = answer["body"]', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
@@ -18289,29 +18305,41 @@ MUTANTS = ISSUE + mutants_of.MUTANTS + [
      ('tests.test_tools.Writes.test_on_main_only_the_callers_listed_reach_a_write_and_each_what_it_lists',)),
     # Issue 1101: the mutants of the files outside kernel/ are read after ISSUE, in tools/mutants_of/.
     ("the mutants of the files outside kernel are not run", 'tools/mutants.py',
-     'MUTANTS = ISSUE + mutants_of.MUTANTS + [\n', 'MUTANTS = ISSUE + [\n', ('tests.test_tools.Mutants.test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone',)),
+     'MUTANTS = ISSUE + OUTSIDE + [\n', 'MUTANTS = ISSUE + [\n', ('tests.test_tools.Mutants.test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone',)),
+    ("the files' mutants are dropped", 'tools/mutants.py',
+     'OUTSIDE = [mutant for area in AREAS for mutant in area.MUTANTS]\n', 'OUTSIDE = []\n', ('tests.test_tools.Mutants.test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone',)),
+    ('a file nested below tools/mutants_of is read as one of its files', 'tools/mutants.py',
+     '            if path.parent == folder and path.suffix == ".py" and path.stem not in ("__init__", "common")]\n', '            if path.suffix == ".py" and path.stem not in ("__init__", "common")]\n', ('tests.test_tools.Mutants.test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone',)),
+    ('common.py of the mutants is read as a file of them', 'tools/mutants.py',
+     '            if path.parent == folder and path.suffix == ".py" and path.stem not in ("__init__", "common")]\n', '            if path.parent == folder and path.suffix == ".py" and path.stem not in ("__init__",)]\n', ('tests.test_tools.Mutants.test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone',)),
     # Issue 1101: a file of the mutants' data may name gh or git as text, and imports nothing that could run either.
     ("a file of mutants is held to the rule for gh or git", 'tools/check_writes.py',
      'for line in _commands(mod) if line not in data]', 'for line in _commands(mod)]', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
     ("a def of a file of mutants may name a command", 'tools/check_writes.py',
      '    return {line for node in mod.tree.body if isinstance(node, ast.Assign)\n', '    return {line for node in mod.tree.body\n', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
-    ("any file of tools/mutants_of is data, whatever it imports", 'tools/check_writes.py',
-     '    inert = True\n    for node in mod.nodes:\n', '    inert = True\n    for node in ():\n', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
-    ("a file of mutants may import any module", 'tools/check_writes.py',
-     'isinstance(node, (ast.Import, ast.Lambda))', 'isinstance(node, ast.Lambda)', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
-    ("a file of mutants may hold a lambda", 'tools/check_writes.py',
-     'isinstance(node, (ast.Import, ast.Lambda))', 'isinstance(node, ast.Import)', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
-    ("a file of mutants may read a builtin that reaches code", 'tools/check_writes.py', 'node.id in REACHERS or ', '', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
-    ("a file of mutants may read a name of two underscores", 'tools/check_writes.py',
-     'node.id in REACHERS or node.id.startswith("__"))', 'node.id in REACHERS)', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
-    ("a file of mutants may read an attribute of two underscores", 'tools/check_writes.py',
-     'isinstance(node, ast.Attribute) and node.attr.startswith("__")', 'False', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
-    ("a file of mutants may import from itself, relatively", 'tools/check_writes.py',
+    ('any file of tools/mutants_of is data, whatever it imports', 'tools/check_writes.py',
+     '    for node in mod.nodes if inert else ():\n', '    for node in ():\n', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+    ('a file of mutants may hold any statement at its top level', 'tools/check_writes.py',
+     '    inert = all(isinstance(node, (ast.ImportFrom, ast.Assign)) or (', '    inert = True or all(isinstance(node, (ast.ImportFrom, ast.Assign)) or (', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+    ('a file of mutants may import any module', 'tools/check_writes.py',
+     'isinstance(node, (ast.Import, ast.Lambda, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))', 'isinstance(node, (ast.Lambda, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+    ('a file of mutants may hold a lambda', 'tools/check_writes.py',
+     'isinstance(node, (ast.Import, ast.Lambda, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))', 'isinstance(node, (ast.Import, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+    ('a file of mutants may define a function', 'tools/check_writes.py',
+     'isinstance(node, (ast.Import, ast.Lambda, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))', 'isinstance(node, (ast.Import, ast.Lambda, ast.AsyncFunctionDef, ast.ClassDef))', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+    ('a file of mutants may read a builtin that reaches code', 'tools/check_writes.py',
+     'n in REACHERS or n.startswith("__") for n in said', 'n.startswith("__") for n in said', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+    ('a file of mutants may read a name of two underscores', 'tools/check_writes.py',
+     'n in REACHERS or n.startswith("__") for n in said', 'n in REACHERS for n in said', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+    ('a file of mutants may read any attribute', 'tools/check_writes.py',
+     '[node.attr] if isinstance(node, ast.Attribute) else', '[] if isinstance(node, ast.Attribute) else', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+    ('a file of mutants may import any name', 'tools/check_writes.py',
+     'for n in (alias.name, alias.asname) if n]', 'for n in () if n]', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+    ('a file of mutants may import from itself, relatively', 'tools/check_writes.py',
      '            source = None if node.level else mods.get(node.module)\n', '            source = mods.get(node.module)\n', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
-    ("a file of mutants may import from any module of the tree", 'tools/check_writes.py',
-     '            inert = source is not None and _inert(source, mods, seen | {mod.name}, known)\n',
-     '            inert = source is not None\n', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
-    ("a file of mutants may import from one that imports a module", 'tools/check_writes.py',
+    ('a file of mutants may import from any module of the tree', 'tools/check_writes.py',
+     '            inert = source is not None and _inert(source, mods, seen | {mod.name}, known)\n', '            inert = source is not None\n', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+    ('a file of mutants may import from one that imports a module', 'tools/check_writes.py',
      'and _inert(source, mods, seen | {mod.name}, known)', 'and source.rel.startswith(MUTANT_DATA)', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
     ("a ring of imports among the files of mutants is read as inert", 'tools/check_writes.py',
      '    if not mod.rel.startswith(MUTANT_DATA) or mod.name in seen:\n', '    if not mod.rel.startswith(MUTANT_DATA):\n', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
