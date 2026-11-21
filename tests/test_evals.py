@@ -4006,6 +4006,9 @@ class EvalJob(unittest.TestCase):
             # A floored criterion no case is of keeps its two cells, of none.
             self.assertEqual([c["cases"] for c in job.cells_of(*self.floored(whole, floors={"PR-3": [1, 2], "PR-9": [1, 2]}))
                               if c["criterion"] == "PR-9"], ["00", "00"])
+            # A case set aside for a standing Finding is of the kind `finding`, its cell's too, and on no floor (Codex, #1080).
+            aside = job.cells_of(*self.floored([("PR-3", "finding", 10, 5), ("PR-3", "not_applicable", 10, 5), ("PR-1", "met", 20, 10)]))
+            self.assertEqual([c["cases"] for c in aside], ["05", "05", "05", "05", "10", "10"])
             # Nor is the criterion of a clean case: a floor counts the cases that expect a Finding on it alone.
             self.assertIs(ok([("PR-3", "finding", 20, 10), ("PR-3", "met", 10, 5), ("PR-1", "met", 10, 5)]), True)
             # Nothing public says any of it, and nothing is stopped. A word that every cell is whole, beside the counts

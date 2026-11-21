@@ -703,7 +703,7 @@ def cells_of(found: dict, place: pathlib.Path):
     floors, natural, cells = criterion_bars_of(found), {e["id"] for e in found["cases"] if e.get("natural") is True}, {}
     for case, said in expected.items():
         floored = next((name for name in floors if said["verdict"] == "finding" and said.get("criterion") == name), None)
-        cell = (said["verdict"], floored, case in natural)
+        cell = (kind_of(said["verdict"]), floored, case in natural)
         cells[cell] = cells.get(cell, 0) + 1
     width, listed = len(str(found["count"])), []
     for kind, floored in [("finding", None)] + [("finding", name) for name in sorted(floors)] + [("met", None)]:
