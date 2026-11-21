@@ -27,7 +27,7 @@ import re
 import urllib.parse
 
 from adapters.github import DIFF, Unanswered, raw, request
-from adapters.pull import canonical
+from adapters.pull import blobs, canonical
 
 PAGE = 100
 WRITE = {"admin", "maintain", "write"}
@@ -249,13 +249,14 @@ def _content(transport, repo: str, base_head: str, commit: str) -> str:
     served diff's, so never read as unchanged."""
     if not SHA.match(str(commit)) or not SHA.match(str(base_head)):
         raise Unanswered("a review's commit or the base's head cannot be read")
-    answer = transport.send(request("GET", "/repos/%s/compare/%s...%s" % (repo, base_head, commit), accept=DIFF))
+    path = "/repos/%s/compare/%s...%s" % (repo, base_head, commit)
+    answer = transport.send(request("GET", path, accept=DIFF))
     if answer["status"] == 404 or (answer["status"] == 406 and isinstance(answer["body"], dict) and any(
             isinstance(e, dict) and e.get("code") == "too_large" for e in answer["body"].get("errors") or ())):
         return "sha256:" + hashlib.sha256(commit.encode()).hexdigest()
     if answer["status"] != 200 or not isinstance(answer["body"], str):
         raise Unanswered("the content of %s answered %d" % (commit, answer["status"]))
-    return "sha256:" + hashlib.sha256(raw(canonical(answer["body"]))).hexdigest()
+    return "sha256:" + hashlib.sha256(raw(canonical(answer["body"], blobs(transport, path, answer["body"])))).hexdigest()
 
 
 def _dismissals(timeline: list) -> dict:

@@ -290,7 +290,7 @@ permissions: {}
 jobs:
   pass:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 21
     environment: factory-poller
     permissions:
       actions: write
@@ -304,7 +304,7 @@ jobs:
       - name: Read and decide
         env:
           CONTROLLER_APP_KEY: ${{ secrets.CONTROLLER_APP_KEY }}
-        timeout-minutes: 6
+        timeout-minutes: 12
         run: python3 -m controller
       - name: Upload the pass record
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
