@@ -963,8 +963,9 @@ def _inert(mod, mods: dict, seen: frozenset = frozenset(), known: dict = None) -
     anywhere in it no def or class; imports no module, and names from none but another file there that is inert
     as well, read through each in turn; and reads, imports or binds none of REACHERS and no name or attribute of two
     underscores; and calls nothing but DATA_CALLS, binds none of them to another value, and sets or deletes no
-    attribute or item. It holds no lambda, which is code that a file it hands one to could call. A module it names from a
-    package must be inert as well, and an import that comes back round is not. Each file is read once in a run
+    attribute or item. It holds no lambda, which is code that a file it hands one to could call. It names from a file
+    directly in MUTANT_DATA alone, whose package is the one above them all; a module it names from a package must be
+    inert as well, and an import that comes back round is not. Each file is read once in a run
     (`known`)."""
     known = {} if known is None else known
     if mod.name in known:
@@ -988,7 +989,7 @@ def _inert(mod, mods: dict, seen: frozenset = frozenset(), known: dict = None) -
         elif any(n in REACHERS or n.startswith("__") for n in said):     # a def, class or import: refused above
             inert = False
         elif isinstance(node, ast.ImportFrom):
-            source = None if node.level else mods.get(node.module)
+            source = None if node.level or node.module.count(".") != MUTANT_DATA.count("/") else mods.get(node.module)
             inert = source is not None and _inert(source, mods, seen | {mod.name}, known) and all(
                 _inert(mods[whole], mods, seen | {mod.name}, known) for whole in (
                     "%s.%s" % (node.module, alias.name) for alias in node.names) if whole in mods)
@@ -1009,33 +1010,38 @@ def _mutant_data(mod, mods: dict, known: dict = None) -> set:
 
 
 def _imported(mod) -> list:
-    """(the line, each module an import there may load) for each import in `mod`: a name from a module may be one."""
+    """(the line, each module an import there may load) for each import in `mod`: each package above the module it
+    names, which Python runs first, and a name from a module, which may be one."""
     package = mod.name if mod.rel.rpartition("/")[2] == "__init__.py" else mod.name.rpartition(".")[0]
     out = []
     for node in mod.nodes:
-        if isinstance(node, ast.Import):
-            out.append((node.lineno, [alias.name for alias in node.names]))
-        elif isinstance(node, ast.ImportFrom):
-            base = package.split(".")[:len(package.split(".")) - node.level + 1] if node.level else []
-            source = ".".join(base + ([node.module] if node.module else [])) if node.level else node.module
-            out.append((node.lineno, [source] + ["%s.%s" % (source, alias.name) for alias in node.names]))
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            if isinstance(node, ast.Import):
+                named = [alias.name for alias in node.names]
+            else:
+                base = package.split(".")[:len(package.split(".")) - node.level + 1] if node.level else []
+                source = ".".join(base + ([node.module] if node.module else [])) if node.level else node.module
+                named = [source] + ["%s.%s" % (source, alias.name) for alias in node.names]
+            out.append((node.lineno, sorted({".".join(name.split(".")[:n]) for name in named
+                                             for n in range(1, name.count(".") + 2)})))
     return out
 
 
-def _texts(mod, mods: dict, known: dict, told: dict) -> bool:
-    """Whether `mod` is a file of the mutants' data that names a command as text by that rule, or names from one: a
-    file that runs code imports from it only where RUNNERS names that file, and a runner that imports one hands it
-    on to none that RUNNERS does not name. Each file is told once in a run (`told`)."""
-    if mod.name not in told:
-        told[mod.name] = False      # a file is never followed round a ring
-        if not _inert(mod, mods, known=known) and mod.rel not in RUNNERS:
-            return False
-        if set(_commands(mod)) & _mutant_data(mod, mods, known):
-            told[mod.name] = True
-            return True
-        told[mod.name] = any(_texts(mods[name], mods, known, told) for _, names in _imported(mod) for name in names
-                             if name in mods)
-    return told[mod.name]
+def _texting(mods: dict, known: dict) -> set:
+    """The names of the modules a file that runs code imports from only where RUNNERS names it: each file of the
+    mutants' data that names a command as text by that rule, then each such file or runner that imports from one,
+    which hands it on, to a fixed point."""
+    found = {name for name, mod in mods.items()
+             if mod.rel.startswith(MUTANT_DATA) and set(_commands(mod)) & _mutant_data(mod, mods, known)}
+    carriers = [mod for mod in mods.values() if mod.rel in RUNNERS or _inert(mod, mods, known=known)]
+    grown = True
+    while grown:
+        grown = False
+        for mod in carriers:
+            if mod.name not in found and any(n in found for _, names in _imported(mod) for n in names):
+                found.add(mod.name)
+                grown = True
+    return found
 
 
 def run(root: pathlib.Path = ROOT) -> list:
@@ -1057,7 +1063,8 @@ def run(root: pathlib.Path = ROOT) -> list:
         mods[_name(rel)] = Module(rel, tree, known)
     reading = Reading(mods)
     problems += reading.problems
-    inert, told = {}, {}    # each file of the mutants read once in a run, whichever file names from it
+    inert = {}      # each file of the mutants read once in a run, whichever file names from it
+    texting = _texting(mods, inert)
     writers, commanding, patching = set(), set(), set()
     for mod in mods.values():
         if mod.name != GITHUB:
@@ -1078,8 +1085,7 @@ def run(root: pathlib.Path = ROOT) -> list:
         if mod.rel not in RUNNERS and not _inert(mod, mods, known=inert):
             problems += ["%s:%d imports from a file of the mutants' data that names a command as text, which only "
                          "another such file, or one tools/check_writes.py's RUNNERS names, may do" % (mod.rel, line)
-                         for line, names in _imported(mod) if any(n in mods and _texts(mods[n], mods, inert, told)
-                                                                  for n in names)]
+                         for line, names in _imported(mod) if texting.intersection(names)]
         if mod.rel not in RUNNERS:
             data = _mutant_data(mod, mods, inert)
             problems += ["%s:%d names gh or git as a command, which may write to GitHub past adapters/; a write is an "
