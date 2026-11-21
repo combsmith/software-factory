@@ -11,13 +11,19 @@ Effect (I-33)", issue 306, with the Maintainer's answers).
 - `before`: the pass records before this one, whose Decisions say whether a merge had an approval standing;
 - `accounts`: the configuration's accounts, by which each identity is told.
 
-It returns `{"unmatched": [...], "override": [...], "hand": [...], "short": bool}`. A write with no matching Effect is unmatched,
+It returns `{"unmatched": [...], "override": [...], "unjudged": [...], "hand": [...], "taken": [...], "short": bool}`.
+A write with no matching Effect is unmatched,
 whatever it was: the machine user's approvals with no `approve` Effect among them, the Maintainer's own in the browser
 included ("Alarm on all of them", the Maintainer, 2026-10-22). A merge whose item no pass before read as converged or
 queued in the last pass before it is an Override, reported as information, as is a hand approval (decision 0241).
 Reconciliation is short, never silent, when
 what was seen or what was recorded cannot be read whole, or when an identity's account is not known, since its writes
 cannot be told.
+
+One write of a person's is reconciled too, a `hand`'s: the resolution of a thread a Role opened (decision 0223). It
+is matched to the act `resolve_thread` of the last pass before that decided its item, and then carried, since it has
+no time and is seen at every pass. One no act named raises `hand_unmatched`, an alert of its own. One no record before
+can judge is `unjudged`: short for that pass, carried, and named in the view, `hand_unjudged`.
 """
 from __future__ import annotations
 
@@ -43,8 +49,9 @@ DISPATCHES = ("dispatch_run", "dispatch_approval", "dispatch_queue")
 # A Decision that says the item had what a merge needs: an approval of its content standing, read by the Kernel.
 MERGEABLE = ("converged", "queued")
 LANDED = ("applied", "already_applied")
+HAND = "hand"           # who a person's resolution of a thread a Role opened is by, as `adapters/seen.py` reads it
 # The waits for a person alone (decisions 0052, 0200, 0207), under which an unmatched approval may be a hand's (0241).
-HAND = ("model_lens_input_needs_person", "path_needs_person")
+PERSON_WAITS = ("model_lens_input_needs_person", "path_needs_person")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 STAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 LATE = 60 * 60          # how much later than its record's own making a pass's or a Run's write can be: the job's limits
@@ -61,6 +68,16 @@ def _identities(accounts) -> tuple:
         and all(isinstance(a, dict) for a in roles.values())
     found = {c: c for c in codes}
     found.update({name: "role" for name in (roles if isinstance(roles, dict) else {})})
+    # A Role named as a hand's writes are could not be told from a person: no identity is known then.
+    known = known and HAND not in found
+    # A Lens's thread is the facts' by the Lens's account, and a hand's by its Role's (`adapters/seen.py`): where the
+    # two are not one account, a person's resolution of that Lens's thread is read as no write, so none is known.
+    lenses = accounts.get("lenses")
+    for lens in lenses if isinstance(lenses, list) else ():
+        name = lens.get("lens") if isinstance(lens, dict) else None
+        role = roles.get(name) if isinstance(roles, dict) and isinstance(name, str) else None
+        if not isinstance(role, dict) or role.get("type") != "Bot" or role.get("id") != lens.get("id"):
+            known = False
     # The queue App is an identity once its account is set (issue 381); until then nothing is its, and nothing short.
     if isinstance(accounts.get("queue"), dict):
         found["queue"] = "queue"
@@ -104,6 +121,49 @@ def left(before, since=None) -> list:
     `since`: their writes are read on every pass until the window passes when one was first read gone, so a write nobody
     matched keeps its alert as long (issue 787)."""
     return [e["number"] for e in _last(before).get("left", []) if since is None or _within(e["at"], since)]
+
+
+def _named(before, item: str) -> tuple:
+    """`(threads, whole)`: the threads that the last pass before which decided `item` named in its act `resolve_thread`,
+    none if its Decision was any other. A pass that did not decide the item, which it could not read, says nothing of it,
+    and where no record before decided it, nothing can judge the rest: not whole. Nor can that record if it was written
+    before a hand's resolutions were carried: the rule starts for an item where the record that decided it starts it
+    (issue 887). A pass that read the item's writes short could not see a resolution made before it: the one before it
+    names threads too, and what the passes after it named still stands where nothing before can judge."""
+    named = set()
+    for record in reversed(before if isinstance(before, list) else []):
+        for e in record["pull_requests"]:
+            if key(e["facts"]["item"]) == item:
+                reconciled = record.get("reconciled") if isinstance(record.get("reconciled"), dict) else {}
+                if "hands" not in reconciled:
+                    return named, False
+                d = e["decision"]
+                named |= set(d["evidence"]) if d["outcome"] == "act" and d.get("action") == "resolve_thread" else set()
+                if e["facts"]["item"]["number"] not in reconciled.get("owed", ()):
+                    return named, True
+                break
+    return named, False
+
+
+def _is_hands(w: dict) -> bool:
+    """Whether a write seen is a hand's resolution of a thread that can be named, on an item."""
+    return w["by"] == HAND and w["kind"] == "resolution" and w["key"] is not None and w["item"] is not None
+
+
+def _hands(seen: dict, before) -> tuple:
+    """`(matched, unjudged)`, each the threads of a hand's resolutions seen: those matched, to what a record before
+    carried or to the act that named the thread; and those no record before can judge, the last one carrying none of a
+    hand's, or none having decided the item. Any other is unmatched."""
+    held = _last(before).get("hands")
+    carried_ = {e["key"] for e in held or () if _within(e["at"], seen["since"])}
+    matched, unjudged = set(), set()
+    for w in filter(_is_hands, seen["writes"]):
+        named, whole = _named(before, key(w["item"])) if held is not None else (set(), False)
+        if w["key"] in carried_ or w["key"] in named:
+            matched.add(w["key"])
+        elif not whole:
+            unjudged.add(w["key"])
+    return matched, unjudged
 
 
 def _one(doc: dict, kind: str) -> dict:
@@ -152,6 +212,12 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), hand=(), taken=
         held["taken"] = heads_
     held["left"] = [e for e in held.get("left", []) if e["number"] not in set(gone)] + [
         {"number": n, "at": now} for n in sorted(set(gone))]
+    # A hand's resolution that was matched, or that nothing could judge, is stamped again each pass it is seen.
+    matched = set().union(*_hands(seen, before)) if since is not None else set()
+    held["hands"] = [e for e in held.get("hands", []) if e["key"] not in matched] + [
+        {"key": thread, "at": now} for thread in sorted(matched)]
+    if (since is None or not seen["whole"]) and "hands" not in _last(before):
+        del held["hands"]       # or the next pass judges threads from before the rule it never read
     if not _readable(effects):
         return held
     read = effects.get("read") if isinstance(effects.get("read"), dict) else {}
@@ -239,12 +305,12 @@ def decided(before, item, at):
 
 
 def hand_approved(w: dict, before, heads: dict) -> bool:
-    """Whether unmatched approval `w` is a hand approval: its pull request decided under `HAND` by the last pass record
+    """Whether unmatched approval `w` is a hand approval: its pull request decided under `PERSON_WAITS` by the last pass record
     before it, at the commit it approved, and no other approval's key holding its head in `heads`; what cannot be read
     is none (decision 0241)."""
     commit = w.get("commit")      # read as a commit of a pull request before it is asked here
     found = decided(before, w["item"], w.get("at"))
-    if found is None or found[0] not in HAND or found[1] != commit:
+    if found is None or found[0] not in PERSON_WAITS or found[1] != commit:
         return False
     return not heads.get((key(w["item"]), commit), set()) - {w["key"]}
 
@@ -260,7 +326,18 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
     since = seen["since"] if readable else None
     keys, items = _keys(effects, before, since) if recorded else _keys({"applied": [], "written": []}, before, since)
     unmatched, override, hand, approvals = [], [], [], []
+    hands, unjudged = _hands(seen, before) if readable else (set(), set())
+    short = short or bool(unjudged)
+    waved = []
     for w in seen["writes"] if readable else []:
+        if w["by"] == HAND:
+            # A person's write is no Run's: it is matched to the Kernel's act alone, whatever runs on its item.
+            told = {"by": w["by"], "kind": w["kind"], "item": w["item"], "key": w["key"]}
+            if _is_hands(w) and w["key"] in unjudged:
+                waved.append(told)
+            elif not _is_hands(w) or w["key"] not in hands:
+                unmatched.append(told)
+            continue
         kind = identities.get(w["by"])
         if w["by"] == "unattributed":
             # GitHub names no resolver when an App resolved a thread: nobody's that can be told, it raises nothing here
@@ -341,13 +418,17 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
                         state = e["decision"]["state"]
         if state is not None and state not in MERGEABLE:
             override.append({"item": m["item"]})
-    return {"unmatched": unmatched, "override": override, "hand": hand, "taken": seconds, "short": short}
+    return {"unmatched": unmatched, "override": override, "unjudged": waved, "hand": hand, "taken": seconds,
+            "short": short}
 
 
 def alerts(found: dict) -> list:
-    """The alerts of a reconciliation: one for every unmatched write however many (L-48), one for a reconciliation that
-    was short. An Override and a hand approval are information, never an alert."""
-    return sorted(({"write_unmatched"} if found["unmatched"] else set())
+    """The alerts of a reconciliation: one for every unmatched write of an identity's however many (L-48), one of its
+    own for every unmatched resolution by a hand, so that a hand's, which stands as long as its pull request is open,
+    never hides an identity's (decision 0223), and one for a reconciliation that was short. An Override and a hand
+    approval (decision 0241) are information, never an alert."""
+    return sorted(({"write_unmatched"} if any(u["by"] != HAND for u in found["unmatched"]) else set())
+                  | ({"hand_unmatched"} if any(u["by"] == HAND for u in found["unmatched"]) else set())
                   | ({"reconciliation_unreadable"} if found["short"] else set()))
 
 
@@ -355,8 +436,10 @@ def entries(found: dict) -> list:
     """What the view says of a reconciliation, ids and codes alone: each unmatched write, each Override and each hand
     approval, once each, since two writes GitHub gives no key for read the same."""
     out = []
-    for e in [{"alert": "write_unmatched", "by": u["by"], "write": u["kind"],
+    for e in [{"alert": "hand_unmatched" if u["by"] == HAND else "write_unmatched", "by": u["by"], "write": u["kind"],
                "item": key(u["item"]) if u["item"] is not None else None, "key": u["key"]} for u in found["unmatched"]] \
+            + [{"alert": "hand_unjudged", "by": u["by"], "write": u["kind"], "item": key(u["item"]), "key": u["key"]}
+               for u in found.get("unjudged", [])] \
             + [{"alert": "merged_by_override", "by": None, "write": "merge", "item": key(o["item"]), "key": None}
                for o in found["override"]] \
             + [{"alert": "hand_approval", "by": "approver", "write": "approval", "item": key(h["item"]), "key": h["key"]}

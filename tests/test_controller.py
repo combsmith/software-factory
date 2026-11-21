@@ -53,7 +53,9 @@ def config(**controller) -> dict:
     table, the Controller's own, here with both accounts known, the Release, and the credentials' dates."""
     c = dict(copy.deepcopy(CONTROLLER), accounts=dict(CONTROLLER["accounts"], workflow_token=dict(TOKEN), relay=dict(RELAY),
                                                       controller=dict(APP_ACCOUNT),
-                                                      roles={name: dict(ROLE_ACCOUNT) for name in CONTROLLER["accounts"]["roles"]}))
+                                                      roles={name: dict(ROLE_ACCOUNT) for name in CONTROLLER["accounts"]["roles"]},
+                                                      # each Lens's App is its Role's account (decision 0223)
+                                                      lenses=[dict(lens, id=ROLE_ACCOUNT["id"]) for lens in CONTROLLER["accounts"]["lenses"]]))
     c.update(controller)
     kernel = {k: v for k, v in copy.deepcopy(support.CONFIG).items() if k != "lifecycle"}
     kernel["issues"] = written(test_issue.config()["issues"])
@@ -298,6 +300,7 @@ class Record(unittest.TestCase):
     def test_an_issue_decision_replays_through_the_issues_kernel_configuration(self):  # decisions 0002, 0218
         # Replayed through `pass_.issue_config`, as the pass asked it, the Controller's factory:triage counts.
         from kernel import issue
+        from controller import __main__ as main
         triaged = an_issue(7, label_events=[test_issue.labelled(test_issue.TRIAGE, by=test_issue.CONTROLLER)])
         record = passed(reads(pulls=[], issues=[triaged]))["record"]
         (entry,) = record["issues"]
@@ -309,6 +312,30 @@ class Record(unittest.TestCase):
         written_ = dict(config()["kernel"], lifecycle=config()["lifecycles"]["issue"])
         self.assertEqual(issue.decide(entry["facts"], record["runs"], record["context"], written_, record["now"])["reason"],
                          "label_not_counted")
+        # The entry asks the same configuration first, for the names it reserves, and the pass asks it again: it is left
+        # as written, so the Kernel is told each App's name with one suffix, and the label counts (issue 963).
+        held = dict(config(), apps=json.loads((ROOT / "config" / "apps.json").read_text())["apps"])
+        kept = copy.deepcopy(held["kernel"])
+        main.reader(github.Replay([]), held)
+        self.assertEqual(held["kernel"], kept)
+        self.assertEqual(passed(reads(pulls=[], issues=[triaged]), cfg=held)["record"]["issues"][0]["decision"],
+                         entry["decision"])
+        # A name written with its suffix would be told with two, and no App's label or comment would count: the
+        # configuration refuses it, an Intent's App as a label's, and its counter-example says so (issue 963).
+        defaults = json.loads((ROOT / "config" / "defaults.json").read_text())
+        self.assertEqual(shared.errors(defaults, "config"), [])
+        suffixed = copy.deepcopy(defaults)
+        suffixed["issues"]["label_apps"]["factory:ready"] = "combsmith-sf-readiness[bot]"
+        self.assertTrue(shared.errors(suffixed, "config"))
+        for intent in ("investigate-issue", "judge-readiness", "open-pull-request"):
+            suffixed = copy.deepcopy(defaults)
+            suffixed["issues"]["intents"][intent] = {"role": "readiness", "app": "combsmith-sf-readiness[bot]"}
+            self.assertTrue(shared.errors(suffixed, "config"), intent)
+            plain = copy.deepcopy(suffixed)
+            plain["issues"]["intents"][intent]["app"] = "combsmith-sf-readiness"
+            self.assertEqual(shared.errors(plain, "config"), [], intent)
+        counter = json.loads((ROOT / "examples" / "invalid" / "config.an-issues-app-named-with-its-bot-suffix.json").read_text())
+        self.assertTrue(shared.errors(counter, "config"))
 
     def test_an_issue_is_asked_of_the_issues_kernel_with_its_own_lifecycle(self):  # decision 0028
         out = passed(reads(pulls=[], issues=[an_issue(7), an_issue(8, repo=OTHER_REPO)]))
@@ -468,9 +495,29 @@ class Record(unittest.TestCase):
             self.assertEqual(out["alerts"], [], held)
         settled = passed(reads(pulls=[pr(42), pr(43)], runs=[run()]), previous=[clean, moved])
         self.assertEqual(([d["item"]["number"] for d in decisions(settled)], settled["alerts"]), ([42, 43], []))
-        # An issue left out as moved earns no grace: the grace is a pull request's (Muse).
-        issue_moved = {"facts": {"item": dict(test_issue.ITEM, number=7)}, "title": None, "unread": "pull_moved"}
-        out = passed(reads(pulls=[pr(42)], issues=[issue_moved], runs=[run()]), previous=[clean])
+        # An issue that moved once is graced as a pull request is, and one that moved twice in a row is the alert
+        # (decision 0229, issue 839). The move is the item's own: an issue and a pull request of one number are two.
+        theirs = dict(test_issue.ITEM, number=43)
+        older_than_left_out = {k: v for k, v in clean.items() if k != "left_out"}
+        issue_moved = {"facts": {"item": dict(theirs)}, "title": None, "unread": "pull_moved"}
+        first = passed(reads(pulls=[pr(42)], issues=[issue_moved], runs=[run()]), previous=[clean])
+        self.assertEqual((first["alerts"], decisions(first), first["record"]["left_out"]),
+                         ([], decisions(alone), [{"item": theirs, "code": "pull_moved"}]))
+        self.assertEqual(shared.errors(first["record"], "pass"), [])
+        again = dict(first["record"], now="2026-10-11T12:55:00Z")
+        second = passed(reads(pulls=[pr(42)], issues=[issue_moved], runs=[run()]), previous=[clean, again])
+        self.assertEqual(second["alerts"], ["facts_unreadable"])
+        for last, entries in ((moved, {"issues": [issue_moved]}), (again, {"pulls": [pr(42), left()]})):
+            out = passed(reads(**dict({"pulls": [pr(42)], "runs": [run()]}, **entries)), previous=[clean, last])
+            self.assertEqual(out["alerts"], [], entries)
+        both = passed(reads(pulls=[pr(42), left()], issues=[issue_moved], runs=[run()]), previous=[clean, again])
+        self.assertEqual(both["alerts"], ["facts_unreadable"])
+        # So is an issue's move after a last record that cannot say it is a first.
+        for previous in (None, (), [older_than_left_out], [dict(clean, now="2026-10-11T12:50:00")]):
+            out = passed(reads(pulls=[pr(42)], issues=[issue_moved], runs=[run()]), previous=previous)
+            self.assertEqual(out["alerts"], ["facts_unreadable"], previous)
+        # Any other code on an issue is the alert at once, as on a pull request.
+        out = passed(reads(pulls=[pr(42)], issues=[dict(issue_moved, unread="facts_unanswered")], runs=[run()]), previous=[clean])
         self.assertEqual(out["alerts"], ["facts_unreadable"])
         # Any other read left out is the alert at once: one GitHub did not answer, or facts that are not facts.
         for entry in (left("facts_unanswered"), {"facts": {"item": dict(item)}, "title": None}, left("anything")):
@@ -1304,7 +1351,8 @@ class Issues(unittest.TestCase):
 
     def test_p34s_issue_read_by_the_port_is_deferred_on_its_linked_pull_requests(self):  # P-34, S3
         # The canary's issue through the port and the pass defers on its linked pull requests, read short. Its GraphQL
-        # answer is P-34's lastEditedAt in the port's own query, which no trial has recorded (issue 831).
+        # answer is P-34's lastEditedAt in the port's own query, built here; trial P-72 recorded that query, and
+        # tests.test_adapters replays it through read() (issue 831).
         from adapters import issues
         from tests.test_adapters import body, canary, exchanges as recorded, linked_read
         repo = canary()
@@ -1352,6 +1400,12 @@ class Hub:
         return Sent()
 
 
+def ticking():
+    """A timer a second on at each read of it."""
+    told = iter(range(10 ** 6))
+    return lambda: next(told)
+
+
 class Entry(unittest.TestCase):
     HOME = CONTROLLER["home"]["repo"]
     RUN = "777"
@@ -1394,15 +1448,17 @@ class Entry(unittest.TestCase):
             ("DELETE", "/installation/token"): {"status": 204, "headers": {}, "body": None},
         }
 
-    def run_entry(self, hub, **environ):
+    def run_entry(self, hub, timer=None, err=None, quiet=False, **environ):
         env = {"RELEASE": "factory/v0.3.1", "GITHUB_RUN_ID": self.RUN, entry.KEY: self.key}
         env.update(environ)
         slept, printed = [], io.StringIO()
         sleep = lambda seconds: slept.append((seconds, len(hub.sent)))
+        self.said = io.StringIO() if err is None else err
         with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(printed), support.releasing(env):
             code = entry.main(["out"] if os.makedirs(os.path.join(d, "out")) is None else [], {k: v for k, v in env.items()
                                                                                               if v is not None},
-                              base=d, clock=lambda: self.CLOCK, sleep=sleep, connect=hub.connect)
+                              base=d, clock=lambda: self.CLOCK, sleep=sleep, connect=hub.connect,
+                              timer=None if quiet else timer if timer is not None else ticking(), err=self.said)
             named = ["pass.json", "writes.json"] + ["view/%s.json" % v for v in entry.VIEW]
             files = {n: json.loads(pathlib.Path(d, "out", n).read_text()) for n in named
                      if pathlib.Path(d, "out", n).is_file()}
@@ -1900,9 +1956,10 @@ class Entry(unittest.TestCase):
                     return listed_by_the_port(transport, repo, after, apart=apart)
             return open_issues
 
-        def read(transport, repo, number, accounts, clock, *, identities, earlier):
+        def read(transport, repo, number, accounts, clock, *, identities, earlier, kernel):
             spied["read"].append((repo, number, accounts))
             spied["identities"].append((identities, earlier))
+            spied.setdefault("kernel", []).append(kernel)
             if number == 6:
                 raise entry.facts_.Moved("moved")
             if number == 9:
@@ -1923,6 +1980,8 @@ class Entry(unittest.TestCase):
             table = self.table(numbers=[7])
             table[("GET", "/repos/%s/issues/5" % self.HOME)] = {
                 "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}, "body": {}}
+            table[("GET", "/repos/%s/issues/10" % self.HOME)] = {
+                "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:00 GMT", "age": "0"}, "body": {}}
             hub = Hub(table)
             with unittest.mock.patch.object(entry, "configuration", configured), \
                     unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
@@ -1943,6 +2002,9 @@ class Entry(unittest.TestCase):
         self.assertTrue(all(who is spied["who"][0] for _, _, who in spied["read"]))
         # Each is read with the pull requests' class accounts, and the pass records before this pass, here none.
         self.assertEqual(spied["identities"], [(entry.facts_.accounts_of(CONTROLLER)[0], [])] * 3)
+        # And the Kernel's configuration, which says whether a draft's checks are read (decision 0217, issue 878).
+        self.assertEqual([k["author_role"] for k in spied["kernel"]], [None] * 3)
+        self.assertTrue(all("required_lenses" in k for k in spied["kernel"]))
         # The reader names each App the configuration holds by its account's id, as REST spells its Bot's login.
         catalogue = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
         self.assertEqual(spied["who"][0].apps, {(CONTROLLER["accounts"]["controller"]["id"], "Bot"):
@@ -1959,6 +2021,12 @@ class Entry(unittest.TestCase):
         self.assertEqual([r for r in record["reads"] if r["read"] == "facts"], [{"read": "facts", "date": "2026-10-12T11:59:30Z", "age": 2}])
         shown = [i for i in files["view/items.json"]["items"] if i["url"].endswith("/issues/5")]
         self.assertEqual([i["untrusted"] for i in shown], [{"title": "Issue five"}])
+        # Two issues read whole: each read is dated by its own first answer, so the older is never stamped as fresh as
+        # the other (issue 963).
+        code, _, files = entry_with([5, 10])
+        self.assertEqual((code, [r for r in files["pass.json"]["reads"] if r["read"] == "facts"]),
+                         (0, [{"read": "facts", "date": "2026-10-12T11:59:30Z", "age": 2},
+                              {"read": "facts", "date": "2026-10-12T11:59:00Z", "age": 0}]))
         # A list read short, or not answered, stops the pass before any issue is read; nothing is written.
         for whole in (False, None):
             self.assertEqual(entry_with([5], whole), (1, "issue_list_unreadable\n", {}), whole)
@@ -1982,6 +2050,11 @@ class Entry(unittest.TestCase):
             "runs": [], "passes": [], "items": [], "dispatched": [], "owed": [],
             "keys": [{"where": "written", "type": "tracking_issue", "key": "8", "at": "2026-10-12T11:00:00Z"}]})
         code, _, files = entry_with([8, 5], tracked=False, previous=[last])
+        # Each issue is read with every record the entry read, oldest first.
+        self.assertEqual([earlier for _, earlier in spied["identities"]], [[last]])
+        older = dict(last, now="2026-10-12T10:57:00Z")
+        entry_with([8, 5], tracked=False, previous=[last, older])
+        self.assertEqual([earlier for _, earlier in spied["identities"]], [[older, last]])
         self.assertEqual((code, spied["listed"], [n for _, n, _ in spied["read"]]), (0, [(self.HOME, since, [8])], [5]))
         self.assertEqual([e["decision"]["item"] for e in files["pass.json"]["issues"]], [item(5)])
         # No date: nothing is listed, asked or read; the one GraphQL read is the pull requests' list.
@@ -2047,10 +2120,103 @@ class Entry(unittest.TestCase):
                                  (intent("combsmith-sf-business-analyst"), {})):
             self.assertEqual(entry_with(issues, **accounts)[:2], (1, "issue_list_unreadable\n"), issues)
 
+    def test_the_served_issues_writes_are_read_for_reconciliation(self):  # issue 837
+        # Each served issue's writes are read by the seen port as an open pull request's are, with nothing kept by a
+        # snapshot, whether its facts were read or not. One whose writes cannot be read whole, or not at all, leaves
+        # reconciliation short, which says so; it is not owed as a pull request is, since what is owed is read as a pull
+        # request that left.
+        real, spied, order = entry.configuration, [], []
+
+        def served(root, release):
+            found = real(root, release)
+            found["kernel"]["issues"]["served_from"] = "2026-10-01T00:00:00Z"
+            return found
+
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
+            return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
+
+        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel):
+            if number == 6:
+                raise entry.facts_.Moved("moved")
+            return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "An issue"
+        before = json.loads((ROOT / "examples" / "pass.json").read_text())
+        before["now"] = "2026-10-12T11:00:00Z"
+        before["pull_requests"] = [dict(before["pull_requests"][0], facts=dict(before["pull_requests"][0]["facts"], item=dict(
+            before["pull_requests"][0]["facts"]["item"], number=7)))]
+        before["reconciled"] = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}
+
+        def entry_with(short=(), unanswered=(), wrote=(), recorded=True):
+            del spied[:], order[:]
+
+            def read(transport, item, kept, identities, apps, since):
+                spied.append((item, kept, since, identities, apps))
+                order.append("seen")
+                if item["number"] in unanswered:
+                    raise github.Unanswered("no")
+                # What a Factory identity wrote on the issue, where the port is handed the identities to tell it by.
+                writes = [{"by": by, "kind": "label", "item": dict(item), "key": None, "at": "2026-10-12T11:30:00Z"}
+                          for by in set(identities.values()) & set(wrote)] if item["type"] == "issue" else []
+                return (writes, [], item["number"] not in short)
+            with unittest.mock.patch.object(entry, "configuration", served), \
+                    unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                    unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after, **k: (
+                        order.append("listed") or [5, 6], True)), \
+                    unittest.mock.patch.object(entry.issues_, "read", issue_read), \
+                    unittest.mock.patch.object(entry.passes, "records", lambda *a: [before]), \
+                    unittest.mock.patch.object(entry.seen_, "read", read), \
+                    unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)), \
+                    unittest.mock.patch.object(entry.applied, "effects", lambda *a, **k: order.append("applied") or {
+                        "applied": [], "read": [], "at": {}, "whole": True}), \
+                    unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: order.append("passes") or {
+                        "written": [], "read": [], "at": {}, "whole": recorded}):
+                code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
+            self.assertEqual(code, 0)
+            return files["pass.json"]
+        item = lambda kind, n: {"repo": self.HOME, "type": kind, "number": n}
+        record = entry_with()
+        self.assertEqual([s[:2] for s in spied], [(item("pull_request", 7), {}), (item("issue", 5), None), (item("issue", 6), None)])
+        # The passes' records are read before the issues are listed, for the tracking issue's numbers; the Runs' Effects
+        # after every write is seen, as a Run still running may record what it wrote in between (security read).
+        self.assertEqual(order, ["passes", "listed", "seen", "seen", "seen", "applied"])
+        self.assertEqual({s[2] for s in spied}, {"2026-10-11T06:00:00Z"})
+        self.assertNotIn("reconciliation_unreadable", record["alerts"])
+        self.assertNotIn("write_unmatched", record["alerts"])
+        # An issue's writes are told by the identities and the Apps a pull request's are, and what the port gives of
+        # them reaches reconciliation: the Controller's label on a served issue, which no Effect recorded, is the alert,
+        # named by the issue's page.
+        self.assertEqual([s[3:] for s in spied[1:]], [spied[0][3:]] * 2)
+        self.assertEqual(spied[0][3][(CONTROLLER["accounts"]["controller"]["id"], "Bot")], "controller")
+        record = entry_with(wrote=("controller",))
+        self.assertIn("write_unmatched", record["alerts"])
+        self.assertEqual([(e["by"], e["write"], e["item"]) for e in record["reconciliation"]],
+                         [("controller", "label", "https://github.com/%s/issues/%d" % (self.HOME, n)) for n in (5, 6)])
+        for missed in ({"short": (5,)}, {"unanswered": (5,)}, {"short": (6,)}):
+            record = entry_with(**missed)
+            self.assertIn("reconciliation_unreadable", record["alerts"], missed)
+            self.assertEqual(record["reconciled"]["owed"], [], missed)
+        # What an issue read short gives still reaches reconciliation: the Controller's label read before the read fell
+        # short is the alert, beside the shortness (Astra).
+        record = entry_with(short=(5,), wrote=("controller",))
+        self.assertTrue({"write_unmatched", "reconciliation_unreadable"} <= set(record["alerts"]))
+        self.assertEqual([e["item"] for e in record["reconciliation"]],
+                         ["https://github.com/%s/issues/%d" % (self.HOME, n) for n in (5, 6)])
+        # A pull request read short is owed still, and an issue beside it changes nothing of that, read whole, short or
+        # unanswered (Astra).
+        self.assertEqual(entry_with(short=(7,))["reconciled"]["owed"], [7])
+        for missed in ({"short": (7, 5)}, {"short": (7,), "unanswered": (5,)}):
+            record = entry_with(**missed)
+            self.assertIn("reconciliation_unreadable", record["alerts"], missed)
+            self.assertEqual(record["reconciled"]["owed"], [7], missed)
+        # While the passes' records are not read whole, the tracking issue's number is not read, and that issue could be
+        # among those listed: no issue's writes are read, and reconciliation is short by the records alone (issue 901).
+        record = entry_with(recorded=False)
+        self.assertEqual([s[0] for s in spied], [item("pull_request", 7)])
+        self.assertIn("reconciliation_unreadable", record["alerts"])
+
     def test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry(self):  # S3, Astra
         # Through the real port: an issue that read whole would be accepted defers while its linked pull requests are read
         # short.
-        from tests.test_adapters import issue_read, linked_read
+        from tests.test_adapters import issue_read, linked_read, passes_listed
         reads_ = issue_read()
         own, events, edits = (r["response"] for r in reads_[:3])
         edits["body"]["data"]["repository"]["nameWithOwner"] = self.HOME
@@ -2102,7 +2268,7 @@ class Entry(unittest.TestCase):
         self.assertEqual((d["item"]["number"], d["outcome"], d["reason"], d["evidence"]), (41, "defer", "facts_incomplete", ["linked"]))
         # Nothing is written for the issue: the one write is the tracking issue's, which reports the pass's alerts.
         self.assertEqual([w["type"] for w in files["writes.json"]["writes"]], ["tracking_issue"])
-        # Named by none, it is whole, and accepted.
+        # Read whole, with records holding nothing of it: whole, and accepted.
         named[0] = linked_read(repo=self.HOME)["response"]
         hub.sent.clear()
         with unittest.mock.patch.object(entry, "configuration", served), \
@@ -2110,6 +2276,88 @@ class Entry(unittest.TestCase):
             code, _, files, _ = self.run_entry(hub)
         (decided,) = files["pass.json"]["issues"]
         self.assertEqual((code, decided["decision"]["outcome"], decided["decision"].get("action")), (0, "act", "accept"))
+        # With the records not read, the list short, it defers (issue 734).
+        hub.table[("GET", passes_listed([])["request"]["call"].split()[1])] = passes_listed([], total=1)["response"]
+        with unittest.mock.patch.object(entry, "configuration", served), \
+                unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: written):
+            code, _, files, _ = self.run_entry(hub)
+        (decided,) = files["pass.json"]["issues"]
+        d = decided["decision"]
+        self.assertEqual((code, d["outcome"], d["reason"], d["evidence"]), (0, "defer", "facts_incomplete", ["linked"]))
+
+    def test_no_served_issues_runs_are_asked_when_they_began(self):  # issue 836, decision 0231
+        # With issues served, the entry still hands the records port the open pull requests alone: no issue rule reads
+        # when a Run began, so an issue's Runs spend none of the port's bound. The passes' records are read whole and
+        # name no tracking issue, so every issue listed is read (issue 901).
+        real, handed, listed = entry.configuration, [], entry.records.runs
+
+        def served(root, release):
+            found = real(root, release)
+            found["kernel"]["issues"]["served_from"] = "2026-10-01T00:00:00Z"
+            return found
+
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
+            return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
+
+        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel):
+            return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "An issue"
+
+        def runs(*args, **kw):
+            handed.append(kw["of"])
+            return listed(*args, **kw)
+        with unittest.mock.patch.object(entry, "configuration", served), \
+                unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after, **k: ([5, 6], True)), \
+                unittest.mock.patch.object(entry.issues_, "read", issue_read), \
+                unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: {"written": [], "read": [], "at": {}, "whole": True}), \
+                unittest.mock.patch.object(entry.records, "runs", runs):
+            code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
+        self.assertEqual((code, handed), (0, [[{"repo": self.HOME, "type": "pull_request", "number": 7}]]))
+        self.assertEqual([e["decision"]["item"]["number"] for e in files["pass.json"]["issues"]], [5, 6])
+
+    def test_nothing_is_owed_for_an_issue_that_moved(self):  # issue 839, decision 0229
+        # A pull request that moved once has its writes owed to the next pass. An issue that moved is graced too, and
+        # owes nothing: the entry reads no writes by an issue's facts. So a moved issue of a served pull request's
+        # number leaves that pull request's writes read, and nothing owed.
+        real, spied = entry.configuration, []
+
+        def served(root, release):
+            found = real(root, release)
+            found["kernel"]["issues"]["served_from"] = "2026-10-01T00:00:00Z"
+            return found
+
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
+            return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
+
+        def moved(transport, repo, number, accounts, clock, *, identities, earlier, kernel):
+            raise entry.facts_.Moved("moved")
+
+        def read(transport, item, kept, identities, apps, since):
+            spied.append(item)
+            return ([], [], True)
+        before = json.loads((ROOT / "examples" / "pass.json").read_text())
+        before["now"] = "2026-10-12T11:00:00Z"
+        before["pull_requests"] = [dict(before["pull_requests"][0], facts=dict(before["pull_requests"][0]["facts"], item=dict(
+            before["pull_requests"][0]["facts"]["item"], number=7)))]
+        before["reconciled"] = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}
+        before["left_out"] = []
+        with unittest.mock.patch.object(entry, "configuration", served), \
+                unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after, **k: ([7], True)), \
+                unittest.mock.patch.object(entry.issues_, "read", moved), \
+                unittest.mock.patch.object(entry.passes, "records", lambda *a: [before]), \
+                unittest.mock.patch.object(entry.seen_, "read", read), \
+                unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)), \
+                unittest.mock.patch.object(entry.applied, "effects",
+                                           lambda *a, **k: {"applied": [], "read": [], "at": {}, "whole": True}), \
+                unittest.mock.patch.object(entry.passes, "written",
+                                           lambda *a, **k: {"written": [], "read": [], "at": {}, "whole": True}):
+            code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
+        record = files["pass.json"]
+        self.assertEqual((code, record["alerts"]), (0, []))
+        self.assertEqual(record["left_out"], [{"item": {"repo": self.HOME, "type": "issue", "number": 7}, "code": "pull_moved"}])
+        self.assertIn({"repo": self.HOME, "type": "pull_request", "number": 7}, spied)
+        self.assertEqual(record["reconciled"]["owed"], [])
 
     def test_what_the_entry_cannot_read_writes_nothing(self):
         for environ, want in (({"RELEASE": None}, "release_untagged"), ({"RELEASE": "v1"}, "release_untagged"),
@@ -2150,6 +2398,109 @@ class Entry(unittest.TestCase):
                                         connect=Hub(self.table()).connect), 0)
             self.assertTrue(pathlib.Path(d, entry.FOLDER, "pass.json").is_file())
             self.assertEqual(os.stat(os.path.join(d, entry.FOLDER)).st_mode & 0o777, 0o700)
+
+    def test_each_stage_of_a_pass_is_timed_in_the_log_alone_and_times_no_read_differently(self):  # issue 1025
+        # The Solution Architect's ruling: one JSON line a stage on standard error, its name, seconds and whole-number
+        # counts, and nothing in the pass record. The wait is timed apart from the reads, and the poller's list apart
+        # from its artifacts, the gone pull requests' reads from the open ones', the carry and the record's check apart.
+        def entered(**given):
+            hub = Hub(self.table(numbers=[7]))
+            with unittest.mock.patch.object(entry, "mint_id", lambda prefix: prefix + "_" + "A" * 20):
+                code, printed, files, slept = self.run_entry(hub, **given)
+            return code, printed, files, [(c, r["method"], r["path"]) for c, r in hub.sent], self.said
+        code, printed, files, sent, said = entered()
+        self.assertEqual((code, printed), (0, "passed\n"))
+        lines = [json.loads(line) for line in said.getvalue().splitlines()]
+        stages = [line["stage"] for line in lines]
+        self.assertLessEqual({"records_before", "wait", "pull_request_list", "runs", "lens_records", "open_pull_requests",
+                              "seen_open", "seen_pushes", "poller_list", "issue_list", "pause", "decide", "write"}, set(stages))
+        self.assertLess(stages.index("wait"), stages.index("pull_request_list"))
+        self.assertEqual(stages.count("decide"), 1)
+        self.assertEqual(len(stages), len(set(stages)))
+        # The wait is timed as it was, the timer read once at each end of it: a second on.
+        self.assertEqual(lines[stages.index("wait")]["seconds"], 1.0)
+        # The pass times nothing itself: its carry's rebuild and record's check are in "decide", the carry's size beside.
+        carried = ("runs", "passes", "keys", "items", "dispatched", "owed", "left")
+        decided = lines[stages.index("decide")]
+        self.assertEqual({k: decided[k] for k in carried}, {k: len(files["pass.json"]["reconciled"][k]) for k in carried})
+        for line in lines:
+            # Its name, its seconds and its counts, each a number this module made: nothing from outside.
+            self.assertTrue(set(line) <= {"stage", "seconds", "count"} | set(carried), line)
+            self.assertTrue(all(type(v) is int for k, v in line.items() if k not in ("stage", "seconds")), line)
+            self.assertEqual(type(line["seconds"]), float, line)
+        self.assertEqual(dict((l["stage"], l.get("count")) for l in lines)["pull_request_list"], 1)
+        # Not in the record: the pass record and the plan are those of a pass with no timer, read for read, in order,
+        # and that pass says nothing; one whose timer gives no number says each stage with no seconds.
+        quiet = entered(quiet=True)
+        self.assertEqual(quiet[:4], (code, printed, files, sent))
+        self.assertEqual(quiet[4].getvalue(), "")
+        for odd in (None, 10 ** 400, float("inf"), float("nan"), "1"):
+            numbered = entered(timer=lambda odd=odd: odd)
+            self.assertEqual(numbered[:4], (code, printed, files, sent), odd)
+            self.assertEqual({json.loads(line)["seconds"] for line in numbered[4].getvalue().splitlines()}, {None}, odd)
+        # A timer that fails, or a stream that does, says less and fails nothing.
+        def broken():
+            raise OSError("no clock")
+
+        class Closed:
+            def write(self, text):
+                raise OSError("closed")
+
+            def flush(self):
+                raise OSError("closed")
+        failing = entered(timer=broken)
+        self.assertEqual(failing[:4], (code, printed, files, sent))
+        self.assertEqual({json.loads(line)["seconds"] for line in failing[4].getvalue().splitlines()}, {None})
+        self.assertEqual(entered(err=Closed())[:4], (code, printed, files, sent))
+
+    def test_the_writes_seen_and_the_recorded_effects_are_timed_by_what_they_read(self):  # issue 1025
+        # Open, newly left and gone pull requests, each apart; each port's list apart from its artifacts, and each port
+        # whole, its wait included, said as it ends.
+        config = entry.configuration(ROOT, "factory/v0.3.1")
+        now = "2026-10-12T12:00:00Z"
+        before = [{"pull_requests": [{"facts": {"item": {"number": 5}}}, {"facts": {"item": {"number": 7}}}],
+                   "reconciled": {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": [],
+                                  "left": [{"number": 9, "at": now}, {"number": 11, "at": now}]}}]
+        said = io.StringIO()
+        stages = entry.Stages(ticking(), said)
+        with unittest.mock.patch.object(entry.seen_, "read", lambda *a: ([], [], True)), \
+                unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)):
+            entry.writes_seen(None, config, [7, 8], {}, before, "2026-10-11T06:00:00Z", lambda: self.CLOCK, (), stages,
+                              [3])
+        lines = [json.loads(line) for line in said.getvalue().splitlines()]
+        # Each read is a second, by the ticking timer: two open, one newly left, two gone, one served issue (issue 837).
+        self.assertEqual([(l["stage"], l.get("count"), l["seconds"]) for l in lines],
+                         [("seen_open", 2, 2.0), ("seen_left", 1, 1.0), ("seen_gone", 2, 2.0), ("seen_issues", 1, 1.0),
+                          ("seen_pushes", None, 1.0)])
+
+        listed = "/repos/o/r/actions/workflows/poller.yml/runs?per_page=100"
+        artifact = "/repos/o/r/actions/runs/1/artifacts"
+
+        class Answers:
+            def send(self, req):
+                return {"status": 200, "headers": {}, "body": {}}
+
+        def effects(transport, *args, **kwargs):
+            for path in (listed, artifact, artifact):
+                transport.send({"method": "GET", "path": path})
+            return {"applied": [], "read": [], "at": {}, "whole": True}
+
+        def written(transport, *args, **kwargs):
+            for path in (listed, listed, artifact):
+                transport.send({"method": "GET", "path": path})
+            return {"written": [], "read": [], "at": {}, "whole": True}
+        said = io.StringIO()
+        with unittest.mock.patch.object(entry.applied, "effects", effects), \
+                unittest.mock.patch.object(entry.passes, "written", written):
+            # The passes' records are read before the issues are listed, the Runs' after the writes are seen (issue 837).
+            from_passes = entry.recorded_passes(Answers(), config, 777, [], "2026-10-11T06:00:00Z", lambda s: None,
+                                                entry.Stages(ticking(), said))
+            entry.recorded_effects(Answers(), config, None, [], "2026-10-11T06:00:00Z", from_passes, lambda s: None,
+                                   entry.Stages(ticking(), said))
+        lines = [json.loads(line) for line in said.getvalue().splitlines()]
+        self.assertEqual([(l["stage"], l.get("count")) for l in lines],
+                         [("poller", None), ("poller_list", 2), ("poller_artifacts", 1),
+                          ("applied", None), ("applied_list", 1), ("applied_artifacts", 2)])
 
     def test_only_the_entry_reads_the_clock_or_the_environment(self):
         # Every other module of controller/ is a function of what it is given (the test above it); the entry takes the
