@@ -3,7 +3,7 @@
 "A changed line of Python that no test notices fails verify, unless the change says it keeps behaviour" (issue 589). The
 `untested` job runs this from a checkout of the base, never the head, as `commits` runs the base's tool: a change cannot
 set the rules it is read by (decision 0023). It fetches the head, exports it, and reads each hunk of
-`git diff -U0 <merge base> <head>` in a `*.py` outside LEFT_OUT, but those of DATA in tools/mutants.py. A hunk whose
+`git diff -U0 <merge base> <head>` in a `*.py` outside LEFT_OUT, but those of DATA in the mutants' files. A hunk whose
 module reads the same to Python with the hunk reverted, its docstrings and its annotations aside, changes nothing and
 is never run.
 
@@ -51,8 +51,10 @@ MOST = 6               # mutants of one hunk's added lines, at most, spread amon
 CRASH = ("SyntaxError", "IndentationError", "ImportError", "ModuleNotFoundError", "NameError")
 # Where a changed line is not read: the tests themselves (the issue's own rule), and the trees that hold no Python.
 LEFT_OUT = ("tests/", "trials/", "examples/", "schemas/")
-# The lists in tools/mutants.py that are its data, the mutants themselves; the runner below them is read.
+# The lists in tools/mutants.py that are its data, the mutants themselves; the runner below them is read. A file of
+# tools/mutants_of/ holds the mutants of a file outside kernel/, and its lists are data as well.
 DATA = ("tools/mutants.py", ("ISSUE", "MUTANTS"))
+DATA_FOLDER = "tools/mutants_of/"
 TRAILER = "Behaviour-preserving"
 # A path this prints: a path a pull request named, so held to plain characters before it reaches a log or a summary.
 SAFE = re.compile(r"^[\w./-]+\.py$")
@@ -149,8 +151,14 @@ def shape(text: str) -> str:
     return ast.dump(tree)
 
 
+def holds_data(rel: str) -> bool:
+    """Whether `rel` is a file of the mutants, whose lists DATA names are data: tools/mutants.py, or one of
+    tools/mutants_of/."""
+    return rel == DATA[0] or rel.startswith(DATA_FOLDER)
+
+
 def data_lines(text: str) -> set:
-    """The lines of tools/mutants.py's `text` that are its data: each line of an entry of a list or a tuple within an
+    """The lines of a mutants' file's `text` that are its data: each line of an entry of a list or a tuple within an
     assignment to a name DATA names, where the entry is a literal, as `_literal` reads one, and each blank or comment
     line of the assignment; but no line on which any other part of it starts or ends, so that code there, a
     comprehension's clause or a condition, beside an entry or not, is never data."""
@@ -689,7 +697,7 @@ def check(root: pathlib.Path, base: str, head: str, deadline: float, run=None, w
             except ValueError:
                 base_text = ""     # a file the change adds
             diff = git(root, "diff", "-U0", "--no-color", "--no-ext-diff", "--no-renames", since, head, "--", rel)
-            data = (data_lines(head_text), data_lines(base_text)) if rel == DATA[0] else (set(), set())
+            data = (data_lines(head_text), data_lines(base_text)) if holds_data(rel) else (set(), set())
             texts[rel] = (head_text, base_text)
             try:
                 head_shape = shape(head_text)

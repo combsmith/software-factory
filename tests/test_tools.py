@@ -11955,6 +11955,24 @@ class Writes(unittest.TestCase):
         # Nor can what an import of all of such a package binds (issue 640).
         self.assertTrue(caught(problems, "harness/nsstar.py:2 imports * from adapters"), problems)
 
+    def test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one(self):
+        # Issue 1101: the mutants of a file outside kernel/ live in tools/mutants_of/, and a mutant of a script or a
+        # hook names gh or git as the text it finds. Such a file imports only from tools.mutants_of and pathlib, so it
+        # runs nothing; one that imports anything else, anywhere in it, is read as any other file.
+        entry = "MUTANTS = [\n    ('a push is not read', 'tools/hooks/identity.py', \"subprocess.run(['git', 'push'])\", '', ()),\n]\n"
+        files = {"tools/mutants_of/data.py": "from tools.mutants_of.common import X\nimport pathlib\n\n" + entry,
+                 "tools/mutants_of/runs.py": "import subprocess\n\n" + entry,
+                 "tools/mutants_of/later.py": entry + "\n\ndef go():\n    import os\n    return os.system('git push')\n",
+                 "tools/mutants_of/near.py": "from tools.mutants_ofx import X\n\n" + entry,
+                 "tools/mutants_of/relative.py": "from .common import X\n\n" + entry,
+                 "tools/mutants_ofx.py": entry}
+        problems = check_writes.run(clone(files))
+        self.assertFalse(caught(problems, "tools/mutants_of/data.py"), problems)
+        for rel in ("tools/mutants_of/runs.py", "tools/mutants_of/later.py", "tools/mutants_of/near.py",
+                    "tools/mutants_of/relative.py", "tools/mutants_ofx.py"):
+            self.assertTrue(caught(problems, rel + ":"), rel)
+            self.assertTrue(any(p.startswith(rel + ":") and "names gh or git as a command" in p for p in problems), rel)
+
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
         queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
             "    return effects.role_write(transport, item, 'review', req, 'me')\n"
@@ -12617,6 +12635,45 @@ class Mutants(unittest.TestCase):
         with self.assertRaises(ValueError) as raised:
             mutants.selected({}, mutants=[("m", "k.py", "rule\n", "x\n")])
         self.assertIn("1 mutant(s) name no test", str(raised.exception))
+
+    def test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone(self):
+        # Issue 1101: a mutant of a file outside kernel/ lives in tools/mutants_of/, one file to a target, so that two
+        # changes adding mutants of different files never meet in one. Each file there is imported, and listed in
+        # AREAS in the order of the names; it holds the mutants of the paths its TARGETS name and no other; and no
+        # path is two files' targets, the Kernel's, or a target of a mutant tools/mutants.py holds itself.
+        from tools import mutants_of
+        found = sorted(p.stem for p in walk.files(ROOT, "tools/mutants_of")
+                       if p.suffix == ".py" and p.stem not in ("__init__", "common"))
+        self.assertEqual([area.__name__ for area in mutants_of.AREAS], ["tools.mutants_of." + name for name in found])
+        held = {}
+        for area in mutants_of.AREAS:
+            self.assertTrue(area.TARGETS and isinstance(area.TARGETS, tuple), area.__name__)
+            for target in area.TARGETS:
+                self.assertFalse(target.startswith("kernel/"), (area.__name__, target))
+                self.assertNotIn(target, held, area.__name__)
+                held[target] = area.__name__
+            self.assertEqual([m[0] for m in area.MUTANTS if m[1] not in area.TARGETS], [], area.__name__)
+        self.assertEqual(mutants_of.MUTANTS, [mutant for area in mutants_of.AREAS for mutant in area.MUTANTS])
+        start, end = len(mutants.ISSUE), len(mutants.ISSUE) + len(mutants_of.MUTANTS)
+        self.assertEqual(mutants.MUTANTS[start:end], mutants_of.MUTANTS)
+        own = mutants.MUTANTS[:start] + mutants.MUTANTS[end:]
+        self.assertEqual([m[0] for m in own if m[1] in held], [])
+
+    def test_every_mutant_finds_its_text_once_in_its_target(self):
+        # Issue 1101: a mutant whose text is not in its target exactly once is STALE, which only a run of the mutants
+        # told, and they decline on a pull request, so code moved by a change merged first was found in the merge
+        # group (#1037). Read here, as the run reads it, a stale mutant fails the pull request's own tests.
+        if os.environ.get("MUTATING"):
+            self.skipTest("a copy broken on purpose no longer holds the text it was broken from")
+        texts, stale = {}, []
+        for mutant in mutants.MUTANTS:
+            name, rel, old = mutant[:3]
+            if rel not in texts:
+                path = ROOT / rel
+                texts[rel] = path.read_bytes().decode() if path.is_file() and not path.is_symlink() else None
+            if texts[rel] is None or texts[rel].count(old) != 1:
+                stale.append("%s: %s" % (rel, name))
+        self.assertEqual(stale, [], "update each stale mutant to the code as it now reads")
 
     def test_a_test_module_is_read_in_a_process_of_its_own(self):  # issue 511
         # The runner learns whether a named test exists in another process, so a test module whose import patches the

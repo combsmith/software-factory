@@ -56,6 +56,10 @@ RUNNERS = ("harness/steps.py", "tools/check_decisions.py", "tools/check_trials.p
            "tools/commits_are_the_maintainers.py",
            "tools/hooks/before_stop.py", "tools/hooks/identity.py", "tools/hooks/make.py", "tools/hooks/protected.py",
            "tools/hooks/rules_changed.py", "tools/hooks/shell.py", "tools/mutants.py", "tools/untested.py")
+# The mutants of the files outside kernel/, as data: each names a command as the text a mutant finds in its target, and
+# runs none, since it imports nothing but from tools.mutants_of and pathlib (issue 1101; allowed by the Maintainer,
+# 2026-11-21). A file there that imports anything else is read as any other.
+MUTANT_DATA = "tools/mutants_of/"
 # A command's name as a string, in any case, by a path or not, `.exe` or not: gh or git alone or opening a command line;
 # a shell's command after a new line, its `;`, `&`, `|`, `(`, `{` or `!`, or a `case` pattern's `)` after `in`, `;;`,
 # `;&` or `;;&`,
@@ -941,6 +945,20 @@ def _adapter(mod: Module) -> bool:
     return mod.name == "adapters" or mod.name.startswith("adapters.")
 
 
+def _mutant_data(mod) -> bool:
+    """Whether `mod` is a file of the mutants' data: under MUTANT_DATA, and importing nothing but from tools.mutants_of
+    and pathlib, anywhere in it, so that a command it names is text, and nothing it can run."""
+    if not mod.rel.startswith(MUTANT_DATA):
+        return False
+    for node in mod.nodes:
+        if isinstance(node, ast.Import) and any(alias.name != "pathlib" for alias in node.names):
+            return False
+        if isinstance(node, ast.ImportFrom) and (node.level or not (node.module == "tools.mutants_of"
+                                                                    or (node.module or "").startswith("tools.mutants_of."))):
+            return False
+    return True
+
+
 def run(root: pathlib.Path = ROOT) -> list:
     _READ.clear()
     problems, mods = [], {}
@@ -977,7 +995,7 @@ def run(root: pathlib.Path = ROOT) -> list:
         patching |= {(mod.rel, what) for what, _ in patched}
         if _commands(mod):
             commanding.add(mod.rel)
-        if mod.rel not in RUNNERS:
+        if mod.rel not in RUNNERS and not _mutant_data(mod):
             problems += ["%s:%d names gh or git as a command, which may write to GitHub past adapters/; a write is an "
                          "adapter's, and Python that runs either to read is named in tools/check_writes.py's RUNNERS"
                          % (mod.rel, line) for line in _commands(mod)]

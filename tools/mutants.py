@@ -1,7 +1,9 @@
 """Can the tests fail? Break the Kernel on purpose, one rule at a time, and see.
 
 Each mutant removes or inverts one rule. A mutant that the tests do not catch
-is a rule nothing is checking. Run with `python3 -m tools.mutants`.
+is a rule nothing is checking. Run with `python3 -m tools.mutants`. The Kernel's
+mutants are here; those of every other file are in tools/mutants_of/, one file
+to a target, and run after ISSUE.
 """
 from __future__ import annotations
 
@@ -18,7 +20,7 @@ import sys
 import tempfile
 import unittest
 
-from tools import walk
+from tools import mutants_of, walk
 from tools.verify import SLOW
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -1620,7 +1622,7 @@ ISSUE = [
      'closers = [p for p in merged if p["merged_at"] == first and p["closed_issue_at"] is not None]', 'closers = [p for p in merged if p["merged_at"] == first]', ISSUE_TESTS),
 ]
 
-MUTANTS = ISSUE + [
+MUTANTS = ISSUE + mutants_of.MUTANTS + [
     # Issue 1016: a binary file's change is bound to its full blob id.
     ("a compare's files not answered make the diff unread", 'adapters/pull.py',
      '    except Unanswered:\n        return ()\n    rows = answer["body"]', '    except ValueError:\n        return ()\n    rows = answer["body"]', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
@@ -18255,7 +18257,8 @@ MUTANTS = ISSUE + [
     ('a text constant set on a class from a function is refused', 'tools/check_writes.py',
      'or isinstance(node.value, ast.Name) and node.value.id in mod.texts \\\n', 'or False and node.value.id in mod.texts \\\n',
      ('tests.test_tools.Writes.test_on_main_only_the_callers_listed_reach_a_write_and_each_what_it_lists',)),
-    ("gh or git may be run from Python", 'tools/check_writes.py', '        if mod.rel not in RUNNERS:\n', '        if False:\n',
+    ("gh or git may be run from Python", 'tools/check_writes.py',
+     '        if mod.rel not in RUNNERS and not _mutant_data(mod):\n', '        if False:\n',
      ('tests.test_tools.Writes.test_what_cannot_be_read_fails',)),
     ('a command line is read only as its program alone', 'tools/check_writes.py',
      '%s%s(\\s|$|[;&|)}])', '%s%s($|[;&|)}])',
@@ -18281,8 +18284,22 @@ MUTANTS = ISSUE + [
     ("a RUNNERS entry that holds no command is kept", 'tools/check_writes.py',
      'for rel in RUNNERS if rel not in commanding]', 'for rel in RUNNERS if False]',
      ('tests.test_tools.Writes.test_a_listed_caller_that_reaches_a_new_writer_or_none_fails',)),
-    ("a runner's own gh or git is refused", 'tools/check_writes.py', '        if mod.rel not in RUNNERS:\n', '        if True:\n',
+    ("a runner's own gh or git is refused", 'tools/check_writes.py',
+     '        if mod.rel not in RUNNERS and not _mutant_data(mod):\n', '        if True:\n',
      ('tests.test_tools.Writes.test_on_main_only_the_callers_listed_reach_a_write_and_each_what_it_lists',)),
+    # Issue 1101: a file of the mutants' data may name gh or git as text, and imports nothing that could run either.
+    ("a file of mutants is held to the rule for gh or git", 'tools/check_writes.py',
+     '        if mod.rel not in RUNNERS and not _mutant_data(mod):\n', '        if mod.rel not in RUNNERS:\n', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+    ("any file of tools/mutants_of is data, whatever it imports", 'tools/check_writes.py',
+     '        return False\n    for node in mod.nodes:\n', '        return False\n    for node in ():\n', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+    ("a file of mutants may import any module", 'tools/check_writes.py',
+     'isinstance(node, ast.Import) and any(', 'isinstance(node, ast.Import) and False and any(', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+    ("a file of mutants may import from itself, relatively", 'tools/check_writes.py',
+     'isinstance(node, ast.ImportFrom) and (node.level or not (', 'isinstance(node, ast.ImportFrom) and (not (', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+    ("a file of mutants may import from a module that starts as tools.mutants_of does", 'tools/check_writes.py',
+     'startswith("tools.mutants_of."))', 'startswith("tools.mutants_of"))', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+    ("a file beside tools/mutants_of whose name starts as it does is data", 'tools/check_writes.py',
+     'MUTANT_DATA = "tools/mutants_of/"', 'MUTANT_DATA = "tools/mutants_of"', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
     # Issue 640: a name read back through what it is given, an object's class, setattr by another name, a for or
     # with target, a shadow by a nested def, class or catch, a setter under an if, another module's name set or
     # filled, sys and loads reached other ways, code run from text, and a command a shell runs.
@@ -24073,6 +24090,17 @@ MUTANTS = ISSUE + [
     ("a trailer's span is read line by line", "tools/untested.py",
      "        if not any(start <= line <= end for line in touched):", "        if not touched & set(range(start, end + 1)):",
      ("Trailers.test_a_trailers_span_is_never_read_line_by_line",)),
+    # Issue 1101: the lists of a file of tools/mutants_of/ are data, as tools/mutants.py's are.
+    ("a file of tools/mutants_of is read as code", "tools/untested.py",
+     "    return rel == DATA[0] or rel.startswith(DATA_FOLDER)\n", "    return rel == DATA[0]\n",
+     ("Reverts.test_the_lists_of_mutants_are_data_and_the_runner_below_them_is_read",)),
+    ("a file whose path starts as tools/mutants_of does is data", "tools/untested.py",
+     'DATA_FOLDER = "tools/mutants_of/"', 'DATA_FOLDER = "tools/mutants_of"',
+     ("Reverts.test_the_lists_of_mutants_are_data_and_the_runner_below_them_is_read",)),
+    ("a mutants' file is read as code wherever it is", "tools/untested.py",
+     "(data_lines(head_text), data_lines(base_text)) if holds_data(rel) else (set(), set())",
+     "(data_lines(head_text), data_lines(base_text)) if rel == DATA[0] else (set(), set())",
+     ("Reverts.test_the_lists_of_mutants_are_data_and_the_runner_below_them_is_read",)),
 )]
 
 
