@@ -5593,6 +5593,35 @@ class Context(unittest.TestCase):
         self.assertTrue(caught(problems, "0003-y.md: records are numbered from 0001 with no gap"))
         self.assertTrue(caught(problems, "0003-y.md: the title must open with its number"))
 
+    def test_a_new_records_title_is_short_and_names_its_file(self):
+        # Decision 0245: from FIRST_SHORT on, a record's title is at most 72 characters and its file is named by it.
+        self.assertEqual((check_context.FIRST_SHORT, check_context.RECORD_TITLE), (245, 72))
+        body = "\n\n## Decision\n\nY.\n\n## Why\n\nZ.\n\n## Boundaries\n\n| B | Check |\n|---|---|\n| b | `tools/x.py` |\n"
+
+        def found(name, title, first=2):
+            files = {"docs/decisions/0001-a-long-title.md": "# 0001. " + "A long title " * 10 + body, "tools/x.py": ""}
+            files["docs/decisions/" + name] = "# 0002. %s" % title + body
+            with mock.patch.object(check_context, "FIRST_SHORT", first):
+                return check_context._decisions(tree(files))
+
+        at_most = "A" + " b" * 35 + "c"
+        self.assertEqual(len(at_most), 72)
+        self.assertEqual(found("0002-" + check_context._slug(at_most) + ".md", at_most), [])
+        over = at_most + "d"
+        self.assertTrue(caught(found("0002-" + check_context._slug(over) + ".md", over), "the title is 73 characters"))
+        # The file is the title lowercased, spaces to dashes, other punctuation dropped; any other name refuses.
+        title = "A pull request's title — names its area, and (#1) its issue"
+        self.assertEqual(check_context._slug(title), "a-pull-requests-title-names-its-area-and-1-its-issue")
+        self.assertEqual(found("0002-a-pull-requests-title-names-its-area-and-1-its-issue.md", title), [])
+        for name in ("0002-a-pull-requests-title.md", "0002-A-pull-requests-title-names-its-area-and-1-its-issue.md",
+                     "0002-a-pull-request-s-title-names-its-area-and-1-its-issue.md",
+                     "0002-a-pull-requests-title-names-its-area-and-1-its-issue-.md"):
+            self.assertTrue(caught(found(name, title), "the file is named by its title"), name)
+        self.assertEqual(check_context._slug("Self-held  x-y"), "self-held-x-y")
+        # A record below FIRST_SHORT keeps its long title and its name, and so does every record before it.
+        self.assertEqual(found("0002-x.md", over, first=3), [])
+        self.assertTrue(caught(found("0002-x.md", over, first=2), "the title is 73 characters"))
+
     def test_a_lesson_with_no_check_is_caught(self):
         text = ("### L-01 A thing broke\n\n**Failure.** It broke.\n\n**Rule.** Do not.\n\n"
                 "## L-02 Another\n\n**Failure.** It broke.\n\n**Rule.** Do not.\n")
