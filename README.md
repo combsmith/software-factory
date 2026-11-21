@@ -2,7 +2,8 @@
 
 The Factory is a set of agent Roles that turn an issue into a reviewed, merged change, and a small
 core that decides what each Role may do next. This repo is that core, the parts that run it on
-GitHub, and the context its authors work from. The Factory reviews and ships this repo itself.
+GitHub, and the context its authors work from. The Factory already reviews and approves the pull
+requests in this repo, and runs from its own Releases.
 
 If you are about to change something, read `AGENTS.md` first. It is one page. Capitalised words
 such as Role, Run, Lens and Release have one meaning each: see `docs/glossary.md` and the
@@ -10,14 +11,14 @@ glossary it points to.
 
 ## The idea
 
-- **No stored state.** The Factory reads the open Work items (pull requests and issues) from GitHub,
-  and the records of its own past Runs, and works out from those alone where each item stands. If a
+- **No stored state.** The Factory reads the open Work items from GitHub, and the records of its
+  own past Runs, and works out from those alone where each item stands. If a
   pass is lost, the next one reaches the same answer.
 - **One pure function decides.** The Kernel (`kernel/`) does no I/O and reads no clock. Every reason
   it gives is a code, never a sentence, and no text from outside reaches a decision.
 - **The model never holds a credential that can write.** A Run's `run` job gives a model a Task and
-  gets back a Result that only asks for changes. A separate `verify` job runs the checks with no
-  secret, and a separate `apply` job reads the item again before it writes anything.
+  gets back a Result that only asks for changes. A separate `verify` job, holding no secret, checks
+  the Result by its digest, and a separate `apply` job reads the item again before it writes anything.
 - **People act in GitHub.** A person's hold label stops an item, and a person's review blocks it.
 - **Every rule names the check that holds it.** A rule no check holds is not a rule here.
 
@@ -27,21 +28,26 @@ The whole design, on one page, is section 0 of `docs/architecture/software-facto
 
 - The **poller** (`.github/workflows/poller.yml`) runs three times an hour, and whenever a run of
   the `factory` or `ci` workflows ends. Each time it calls one **pass** of the Controller.
-- The **pass** reads every open item through the ports in `adapters/`, asks the Kernel about each
-  one, records what it decided, and then dispatches Runs and acts. The workflows call the code of
-  the Release that the `next` Channel points to, not whatever is on `main`.
+- The **pass** reads every open pull request through the ports in `adapters/`, asks the Kernel
+  about each one, records what it decided, and then dispatches Runs and acts. The poller, the Run
+  and the acts run the code of the Release that the `next` Channel points to, not whatever is on
+  `main`. Issues are read only once `issues.served_from` is set in `config/defaults.json`, and it is
+  not set yet.
 - One Role is built: **`pr-review`**, the review Role, whose one Intent is `review-change`. It
   reviews pull requests in this repo and writes through its own GitHub App.
 - When the Kernel finds a change ready, the **approve** act approves it with the machine user's
-  token (decision 0055), and the **queue** act puts it in GitHub's merge queue.
+  token (decision 0055). The **queue** act, which would put it in GitHub's merge queue, is built
+  but not switched on: `config/controller.json` names no queue App, so the Maintainer's account
+  enqueues it (decision 0198).
 - A change to a model Lens's own inputs (for the review Role: its prompt, its rubric, the Harness
-  and the other entries under `lens_inputs` in `config/hooks.json`) waits for the approval of a
-  different person with write access (decision 0052).
+  and the other `pr-review` entries under `lens_inputs` in `config/hooks.json`) waits for the
+  approval of a different person with write access (decision 0052).
 - **Releases** are tags `factory/vX.Y.Z` on `main`, cut through `.github/workflows/release.yml`.
   The `next` Channel serves this repo (`release/rings.json`). The skill
   `.claude/skills/cut-a-release/SKILL.md` says how to cut one.
-- Built ahead of the Roles that will use it: the path by which a Run hands over code as a patch
-  that only `apply` may push (decision 0219), and the first guard, `guards/patch.py`.
+- Built ahead of the Roles that will use them: a Run's hand-over of code as a patch, by its digest
+  (decision 0219), and the first guard, `guards/patch.py`. The push itself (`harness/push.py`) is
+  not built, and no guard is called yet.
 - Not built yet: every Role but `pr-review`, and a page that shows the Controller's view to people.
   Each directory's `AGENTS.md` names its parts still to come.
 
@@ -51,10 +57,10 @@ The whole design, on one page, is section 0 of `docs/architecture/software-facto
 flowchart LR
   poller["poller"] --> pass["pass: Controller asks the Kernel"]
   pass -->|dispatches| run["Run: run, verify, apply"]
-  pass -->|acts| acts["approve, queue"]
+  pass -->|acts| approve["approve"]
   run --> pr["pull request"]
-  acts --> pr
-  pr --> queue["merge queue: factory / verify"]
+  approve --> pr
+  pr -->|enqueued| queue["merge queue: factory / verify"]
   queue --> main["main"]
   main -->|cut| release["Release, served by next"]
   release -.->|runs| pass
@@ -79,7 +85,7 @@ frozen shim that does no more than call its jobs at the Channel.
 | `guards/` | Pure functions that bound what a Role's own push may land |
 | `roles/` | The Role manifests and the review Role's prompt |
 | `release/` | How the Factory ships itself: the Channels and the rules that cut a Release and move or roll back a Channel |
-| `evals/` | One manifest for each held-out eval set. The cases themselves live in a private repo, never here |
+| `evals/` | One manifest for each held-out eval set, whose cases live in a private repo, never here; and the context's own test, `evals/context/task.json` |
 | `sim/` | A fake GitHub that drives the real Kernel, injects faults, and checks the invariants after every step |
 | `trials/` | What the real GitHub was seen to do, one redacted fixture for each platform trial; the fake GitHub is held to these |
 | `tools/` | The checks, the mutation check, the session hooks (`tools/hooks/`) and the scripts the Maintainer runs by hand |
@@ -88,7 +94,8 @@ frozen shim that does no more than call its jobs at the Channel.
 | `.github/` | The workflows, the code owners and the pull request template |
 | `.claude/` | The session hooks' settings and the skills a task loads |
 
-Every directory has its own `AGENTS.md` with the rules of that place. At the top level,
+Every top-level directory but `.github/` and `.claude/` has its own `AGENTS.md`, with the rules of
+that place. At the top level,
 `Makefile` runs the checks, and `sonar-project.properties`, `.coderabbit.yaml` and the
 `.gitleaks` files configure outside reviewers and the secret scan.
 
@@ -104,18 +111,21 @@ python3 -m tools.mutants PATH... # the mutants of the files a change touches
 
 Run those two before a change is finished. The tests themselves run in CI: the required check,
 `factory / verify` (`.github/workflows/verify.yml`), runs `make verify` in three legs on every pull
-request and merge group, and the mutation check in shards on the merge group alone. It runs the
-base's tools, never the head's, so a change cannot pass its own verdict (decision 0023).
+request and merge group, and the mutation check in shards on the merge group alone. Its verdict
+job and its `commits` job run the base's tools, never the head's, so a change cannot write its own
+verdict (decision 0023). The checks and tests themselves run from the head, which is why a change to
+them is a Lens input in `config/hooks.json`.
 
 The session hooks in `.claude/settings.json` run the checks after an edit and before a stop, refuse a
 commit that does not name the Maintainer, and, outside bypass mode, ask before a protected edit or a
-merge.
+merge. They catch mistakes at the desk; CI's `commits` job is what holds every commit to the
+Maintainer's name.
 
 To change the Kernel, follow the five steps in `AGENTS.md`: a boundary test first, then the code,
 then a mutant that the test kills.
 
-`SIM_SEEDS` is the one environment variable: the number of simulator seeds, 300 if unset.
-`SIM_SEEDS=40 make verify` is a quicker full run.
+No environment variable is needed. `SIM_SEEDS` sets how many seeds both simulators run, 300 if
+unset, which is what CI runs.
 
 ## Where to read next
 
