@@ -23,6 +23,8 @@ SCHEMA = json.loads((ROOT / "schemas" / "issue-facts.schema.json").read_text())
 DECISION = json.loads((ROOT / "schemas" / "issue-decision.schema.json").read_text())
 ITEM = {"repo": "combsmith/software-factory", "type": "issue", "number": 7}
 THIS, OTHER = "sha256:c1c1", "sha256:c2c2"
+# The default branch's head as the pass read it: the commit an opening Run reads and lands on.
+BASE = "b45e0f1d2c3a49586777a6b5c4d3e2f1a0b9c8d7"
 # Who acts. A person is human with write access, and nobody else is.
 WRITER = MAINTAINER
 COLLEAGUE = {"kind": "human", "name": "a-colleague", "can_write": True}
@@ -117,7 +119,7 @@ def facts(**over) -> dict:
     f = {"schema": "issue-facts/1", "item": dict(ITEM), "state": "open", "author": dict(WRITER), "type": None, "type_events": [], "label_names": [], "assignees": [],
          "life_started_at": at(0), "reopened_last_by": "never", "content_id": THIS, "content_changed_at": at(0),
          "label_events": [], "linked": [], "role_comments": [], "last_writer_action_at": at(0),
-         "last_writer_comment_at": None, "acts_since_writer": 0, "branch_head": None,
+         "last_writer_comment_at": None, "acts_since_writer": 0, "branch_head": None, "base_head": BASE,
          "complete": {"timeline": True, "linked": True, "runs": True},
          "read_at": at(50)}
     f.update(over)
@@ -2247,10 +2249,44 @@ class Opening(unittest.TestCase):
     def test_in_ready_the_opening_run_is_admitted_for_the_content_and_the_branch_head(self):
         d = decide(facts(label_events=READIED_BY_A_PERSON))
         self.assertEqual((what(d), d["admit"]), (("admit", "ready", OPEN), {"role": "dev-lead", "intent": OPEN,
-                                                                           "content_id": THIS, "branch_head": None}))
+                                                                           "content_id": THIS, "branch_head": None,
+                                                                           "base_head": BASE}))
         d = decide(facts(label_events=READIED_BY_A_PERSON, branch_head="9f2c41d"))
         self.assertEqual(d["admit"]["branch_head"], "9f2c41d")
         self.assertNotIn("branch_head", decide(TRIAGED)["admit"])
+
+    def test_the_opening_run_of_a_branch_that_does_not_exist_is_admitted_for_the_commit_it_lands_on(self):
+        # Where the branch does not exist, the Run reads the default branch's head as the pass read it and its one
+        # commit lands on it: the admission names that commit, and no other Run's does.
+        d = decide(facts(label_events=READIED_BY_A_PERSON, base_head="c0ffee1000000000000000000000000000000000"))
+        self.assertEqual((what(d), d["admit"]["base_head"]), (("admit", "ready", OPEN), "c0ffee1000000000000000000000000000000000"))
+        self.assertNotIn("base_head", decide(TRIAGED)["admit"])
+        # Unread, it defers: a name that is no text, is empty or is no commit's whole name, or a fact left out. Null
+        # is unread too: the default branch always has a head.
+        for value in ("", list(BASE), 1, None, [BASE], True, "main", BASE[1:], BASE + "0", BASE.upper(), "g" + BASE[1:],
+                      " " * len(BASE)):
+            self.assertEqual(what(decide(facts(label_events=READIED_BY_A_PERSON, base_head=value))),
+                             ("defer", "base_unreadable", None), value)
+        f = facts(label_events=READIED_BY_A_PERSON)
+        del f["base_head"]
+        self.assertEqual(what(decide(f)), ("defer", "base_unreadable", None))
+        # What stops the opening Run for a person to act on is said before an unread base, which a later pass reads.
+        unread = dict(label_events=READIED_BY_A_PERSON, base_head=None)
+        self.assertEqual(what(decide(facts(**unread), cfg=config(intents=intents(opening=None))))[1], "intent_undeclared")
+        self.assertEqual(what(decide(outsiders(label_events=[labelled(ADMIT), labelled(READY, minute=2)], base_head=None)))[1],
+                         "no_statement")
+        # An unreadable branch head is said first: without it nothing says whether a base is needed.
+        self.assertEqual(what(decide(facts(label_events=READIED_BY_A_PERSON, branch_head="", base_head="")))[1], "branch_unreadable")
+        # Where the branch exists, an earlier Run's commit stands on it and this Run pushes none: no base is asked
+        # for, read or not, and none is carried.
+        for f in (facts(label_events=READIED_BY_A_PERSON, branch_head="9f2c41d"),
+                  facts(label_events=READIED_BY_A_PERSON, branch_head="9f2c41d", base_head=None),
+                  facts(label_events=READIED_BY_A_PERSON, branch_head="9f2c41d", base_head=1)):
+            d = decide(f)
+            self.assertEqual((what(d), d["admit"]["branch_head"], "base_head" in d["admit"]),
+                             (("admit", "ready", OPEN), "9f2c41d", False))
+        # No other State's Run waits on it.
+        self.assertEqual(what(decide(facts(label_events=ACCEPTED, base_head=1)))[2], INVESTIGATE)
 
     def test_an_unreadable_branch_head_defers_the_opening_run_alone(self):
         for value in ("", 1, ["9f2c41d"]):
@@ -2444,6 +2480,52 @@ class Apply(unittest.TestCase):
                         dict(f, content_id=OTHER, content_changed_at=at(7)),
                         dict(f, branch_head="a07e3c1")):
             self.assertRefused(admitted, changed)
+
+    def test_the_default_branch_moving_does_not_stop_the_opening_run_and_a_branch_made_does(self):
+        # The Run's one commit lands on the commit it was admitted for, wherever the default branch has gone since:
+        # nothing holds the default branch still while a Run is in flight.
+        f = facts(label_events=READIED_BY_A_PERSON, base_head="c0ffee1000000000000000000000000000000000")
+        admitted = decide(f)
+        self.assertEqual(admitted["admit"]["base_head"], "c0ffee1000000000000000000000000000000000")
+        self.assertRefused(admitted, f, want=True)
+        self.assertRefused(admitted, dict(f, base_head="d00d1e5000000000000000000000000000000000"), want=True)
+        # But a default branch that cannot be read is no admission, and nothing is written.
+        self.assertRefused(admitted, dict(f, base_head=None))
+        # The branch made meanwhile, at any commit, is the head moved; so is everything else that stopped it before.
+        self.assertRefused(admitted, dict(f, branch_head="c0ffee1000000000000000000000000000000000"))
+        self.assertRefused(admitted, dict(f, base_head="d00d1e5000000000000000000000000000000000", content_id=OTHER, content_changed_at=at(7)))
+        self.assertRefused(admitted, dict(f, base_head="d00d1e5000000000000000000000000000000000", label_events=f["label_events"] + [labelled(HOLD, OTHER_APP, 7)]))
+        # An admission that is no mapping is none, on either side, and never matches itself.
+        again = decide(f)
+        for broken in ("admit", ["admit"], 1):
+            self.assertFalse(issue.still_admitted({"admit": broken}, again))
+            self.assertFalse(issue.still_admitted(admitted, {"admit": broken}))
+            self.assertFalse(issue.still_admitted({"admit": broken}, {"admit": broken}))
+        # The Run's own admission names the base it lands on: one that names none, or no commit's whole name, lands
+        # on nothing, and nothing is written.
+        own = {part: admitted["admit"][part] for part in admitted["admit"] if part != "base_head"}
+        for base in ("main", "c0ffee1", "C0FFEE1000000000000000000000000000000000", None, "c0ffee1" + "0" * 34,
+                     "c0ffee1" + "0" * 32, "g" + "0" * 39):
+            self.assertFalse(issue.still_admitted({"admit": dict(own, base_head=base)}, again), base)
+            # Nor does a second asking whose base cannot be read, or two admissions that share one such base.
+            self.assertFalse(issue.still_admitted(admitted, {"admit": dict(own, base_head=base)}), base)
+            self.assertFalse(issue.still_admitted({"admit": dict(own, base_head=base)}, {"admit": dict(own, base_head=base)}), base)
+        self.assertFalse(issue.still_admitted({"admit": own}, again))
+        self.assertFalse(issue.still_admitted(admitted, {"admit": own}))
+        # A base stands on both admissions or on neither: an admission of a branch that stands carries none.
+        standing = decide(dict(f, branch_head="c0ffee1000000000000000000000000000000000"))
+        self.assertNotIn("base_head", standing["admit"])
+        self.assertTrue(issue.still_admitted(standing, standing))
+        for base in ("c0ffee1000000000000000000000000000000000", None):
+            self.assertFalse(issue.still_admitted({"admit": dict(standing["admit"], base_head=base)}, standing), base)
+        # And the branch head is compared on its own: a branch that stands and moved stops the Run.
+        self.assertFalse(issue.still_admitted(standing, decide(dict(f, branch_head="d00d1e5000000000000000000000000000000000"))))
+        # Only the base is left out: an admission that differs in it AND in a part more is another Run's.
+        self.assertFalse(issue.still_admitted(admitted, dict(again, admit=dict(again["admit"], base_head="d00d1e5000000000000000000000000000000000", role="qa-lead"))))
+        self.assertFalse(issue.still_admitted(admitted, dict(again, admit=dict(again["admit"], extra=1))))
+        moved = dict(again["admit"], base_head="d00d1e5000000000000000000000000000000000")
+        self.assertFalse(issue.still_admitted(admitted, {"admit": dict(moved, extra=1)}))
+        self.assertFalse(issue.still_admitted({"admit": dict(admitted["admit"], extra=1)}, {"admit": moved}))
 
     def test_an_investigating_or_readiness_run_is_refused_once_the_issue_changed(self):
         admitted = decide(TRIAGED)
