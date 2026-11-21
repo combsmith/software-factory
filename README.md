@@ -13,13 +13,14 @@ glossary it points to.
 
 - **No stored state.** The Factory reads the open Work items from GitHub, and the records of its
   own past Runs, and works out from those alone where each item stands. If a
-  pass is lost, the next one reaches the same answer.
+  pass is lost, the next one works it all out again from what it reads.
 - **One pure function decides.** The Kernel (`kernel/`) does no I/O and reads no clock. Every reason
   it gives is a code, never a sentence, and no text from outside reaches a decision.
 - **The model never holds a credential that can write.** A Run's `run` job gives a model a Task and
   gets back a Result that only asks for changes. A separate `verify` job, holding no secret, checks
   the Result by its digest, and a separate `apply` job reads the item again before it writes anything.
-- **People act in GitHub.** A person's hold label stops an item, and a person's review blocks it.
+- **People act in GitHub.** A person's hold label stops an item, and a person's request for changes
+  blocks it.
 - **Every rule names the check that holds it.** A rule no check holds is not a rule here.
 
 The whole design, on one page, is section 0 of `docs/architecture/software-factory-design.md`.
@@ -81,7 +82,7 @@ frozen shim that does no more than call its jobs at the Channel.
 | `config/` | The settings, as data: the Kernel's limits, who owns each kind of Finding, the review rubric, the Apps, and what the session hooks protect |
 | `controller/` | The Controller: one pass as a function of what it read, which reads no clock and writes nothing itself, and the entry the pass job runs |
 | `adapters/` | The ports: all of the Factory's I/O. Only `adapters/github.py` and `adapters/azure.py` reach the network |
-| `harness/` | A Run's jobs: building the Task, running the model, applying the Result, approving and queueing. `harness/eval/` is the eval job |
+| `harness/` | A Run's jobs (building the Task, running the model, applying the Result), the jobs of the approve and queue acts, and `harness/eval/`, the eval job |
 | `guards/` | Pure functions that bound what a Role's own push may land |
 | `roles/` | The Role manifests and the review Role's prompt |
 | `release/` | How the Factory ships itself: the Channels and the rules that cut a Release and move or roll back a Channel |
@@ -109,7 +110,8 @@ make checks                      # every check, about half a minute
 python3 -m tools.mutants PATH... # the mutants of the files a change touches
 ```
 
-Run those two before a change is finished. The tests themselves run in CI: the required check,
+Run those two before a change is finished, as the Verify block of `AGENTS.md` says, which also says
+when to run every mutant of a file. The tests themselves run in CI: the required check,
 `factory / verify` (`.github/workflows/verify.yml`), runs `make verify` in three legs on every pull
 request and merge group, and the mutation check in shards on the merge group alone. Its verdict
 job and its `commits` job run the base's tools, never the head's, so a change cannot write its own
