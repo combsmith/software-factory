@@ -53,7 +53,9 @@ def config(**controller) -> dict:
     table, the Controller's own, here with both accounts known, the Release, and the credentials' dates."""
     c = dict(copy.deepcopy(CONTROLLER), accounts=dict(CONTROLLER["accounts"], workflow_token=dict(TOKEN), relay=dict(RELAY),
                                                       controller=dict(APP_ACCOUNT),
-                                                      roles={name: dict(ROLE_ACCOUNT) for name in CONTROLLER["accounts"]["roles"]}))
+                                                      roles={name: dict(ROLE_ACCOUNT) for name in CONTROLLER["accounts"]["roles"]},
+                                                      # each Lens's App is its Role's account (decision 0223)
+                                                      lenses=[dict(lens, id=ROLE_ACCOUNT["id"]) for lens in CONTROLLER["accounts"]["lenses"]]))
     c.update(controller)
     kernel = {k: v for k, v in copy.deepcopy(support.CONFIG).items() if k != "lifecycle"}
     kernel["issues"] = written(test_issue.config()["issues"])
