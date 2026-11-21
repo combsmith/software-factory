@@ -2,10 +2,9 @@
 
 The squash commit takes the title as its subject, so what a pull request is called is main's log for good. The
 `commits` job of the required check calls `check` through `commits_are_the_maintainers.py`, from the base, so a change
-cannot make its own title pass (decision 0244). It
-reads the title from GitHub, never from the event's payload, so a title edited before review is read again when the
-failed job is re-run; on a merge group it reads the pull request the queue's ref names, as it is when it merges. A title
-that cannot be read refuses.
+cannot make its own title pass (decision 0244). `check` reads the title from GitHub, never from the event's payload, so
+a title edited before review is read again when the failed job is re-run; on a merge group it reads the pull request the
+queue's ref names, as it is when it merges. A title that cannot be read refuses.
 
 Only the mechanical half of the rule is held here: the length, the area, a phrase that starts with a lowercase letter
 and ends with no stop, the issue and the part's numbers, and the marks of a name from inside the code. Whether a title
