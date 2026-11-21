@@ -1,14 +1,14 @@
 # adapters/
-All the Factory's I/O; `github.py` alone reaches the network. `items.py` open Work items, `pull.py` one, `timeline.py` reviews, labels, actors, `checks.py` checks, queue, `threads.py`, `edits.py`, `applied.py` Lenses' records, `facts.py`, `records.py`,
+All the Factory's I/O; `github.py`, `azure.py` reach the network. `items.py` open Work items, `pull.py` one, `timeline.py` reviews, labels, actors, `checks.py` checks, queue, `threads.py`, `edits.py`, `applied.py` Lenses' records, `facts.py`, `records.py`,
 `artifacts.py`, `seen.py` writes, `passes.py`, `acceptance.py`, `heldout.py`, `rules.py`, `texts.py` texts, `issues.py`, `linked.py`, `keyword_spans.py`; `effects.py` writes, `pause.py`, `tags.py`, `candidate.py`, `deployments.py`, `identity.py`, `queue.py`.
-`draft_checks.py` reads a linked draft's checks.
+`draft_checks.py` reads a linked draft's checks, and `push.py` allows a push's token its requests alone.
 Not built yet, by their stories: contract.py, binding.py, settings.py and usage.py. A port decides nothing and hands the Kernel no text.
 
 | Rule | Held by |
 |---|---|
-| Only `github.py` imports what reaches the network, or names the storage | `tests/test_tools.py::test_only_the_transport_reaches_the_network`, `tests/test_tools.py::test_only_the_transport_names_githubs_artifact_storage` |
-| It sends HTTPS to GitHub's API alone, by a path from its root | `tests/test_adapters.py::test_a_request_stays_on_githubs_api` |
-| It follows no redirect but an artifact's download and a tarball's (0138), takes no proxy, bounds every answer, and uses its caller's token | `tests/test_adapters.py::test_the_live_transport_takes_its_token_from_its_caller_and_follows_no_redirect` |
+| Only `github.py` and `azure.py` import what reaches the network; only `github.py` names the storage | `tests/test_tools.py::test_only_the_transport_reaches_the_network`, `tests/test_tools.py::test_only_the_transport_names_githubs_artifact_storage` |
+| `github.py` sends HTTPS to GitHub's API alone, by a path from its root; `azure.py` asks four acts | `tests/test_adapters.py::test_a_request_stays_on_githubs_api`, `tests/test_advisory.py::test_the_azure_transport_asks_four_requests_and_no_other` |
+| `github.py` follows no redirect but an artifact's download and a tarball's (0138), takes no proxy, bounds every answer, and uses its caller's token | `tests/test_adapters.py::test_the_live_transport_takes_its_token_from_its_caller_and_follows_no_redirect` |
 | An artifact's download follows its redirect to GitHub's artifact storage alone, over HTTPS | `tests/test_adapters.py::test_only_an_artifacts_download_follows_its_redirect_and_only_to_githubs_storage` |
 | No token is sent to the storage, and what it answers is bounded | `tests/test_adapters.py::test_the_live_transport_sends_no_token_to_the_storage_and_bounds_what_it_holds` |
 | A download is bounded at 64 KiB, 1 MiB for a pass record, read out to 8 MiB; a Run's record is found by its pass id | `tests/test_adapters.py::test_a_pass_record_alone_is_downloaded_under_a_wider_bound`, `tests/test_steps.py::test_a_runs_record_is_found` |
@@ -36,5 +36,5 @@ Not built yet, by their stories: contract.py, binding.py, settings.py and usage.
 | A held-out case is the bytes its manifest hashed, or none and a code; one that could name another file is not asked | `tests/test_adapters.py::test_a_held_out_case_is_its_hashed_bytes`, `tests/test_adapters.py::test_a_held_out_case_not_read_whole_says_why` |
 | The title, and the head the snapshot was held to, are handed beside the facts, never in them | `tests/test_adapters.py::test_the_pull_requests_own_facts_and_the_title_beside_them`, `tests/test_adapters.py::test_a_snapshot_hands_back_its_head` |
 | A plan of writes not its pass record's sends nothing; a dispatch is sent once, never retried | `tests/test_effects.py::test_a_write_list_that_is_not_the_records_is_refused_whole`, `tests/test_effects.py::test_a_dispatch_is_sent_once_and_never_retried` |
-| Each write goes through its one credential, which sends only its own requests by path and body | `tests/test_effects.py::test_each_write_goes_through_its_one_credential_and_its_allowlist` |
+| Each write goes through its one credential, which sends only its own requests by path and body | `tests/test_effects.py::test_each_write_goes_through_its_one_credential_and_its_allowlist`, `tests/test_adapters.py::test_a_pushs_token_sends_a_pushs_alone` |
 | A rule of a part not built yet waits on the file named above, and the story that builds it re-points its rows | `tests/test_tools.py::test_a_wait_on_a_file_a_built_directory_plans_holds_until_the_file_exists` |

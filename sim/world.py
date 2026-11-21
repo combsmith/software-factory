@@ -19,6 +19,9 @@ from tools import check_lifecycle
 from tools.hooks import protected
 from tools.jsonschema_lite import validate
 
+# The categories whose thread a later review may drop, as the Kernel reads them: each it knows but security's (0212).
+DROPPABLE = tuple(c for c in t.CATEGORIES if c != "security")
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # The Kernel is given the defaults, the Lifecycle whose staleness limits it reads, and the protected paths and Lenses'
 # inputs from config/hooks.json, and which of them only a person decides, as the Controller gives it them.
@@ -605,14 +608,14 @@ class World:
         self.trace.append("%s %s" % (self.now(), what))
 
     def dropped_since_the_push(self, th: dict) -> bool:
-        """Whether a Lens's thread is one its later review dropped, as the world says it (decision 0212): marked dropped,
-        not ruled rejected, not a security Finding's, opened before the last push, with a review by its Lens that
-        succeeded on this content and began after that push."""
-        return th.get("dropped") is True and th["ruling"] != "rejected" and th["category"] != "security" \
-            and th["opened_at"] < self.last_push and any(
+        """Whether a Lens's thread is one its later review dropped, as the Kernel reads it (decision 0212): a Lens's,
+        marked dropped, of a category the Kernel knows that is not security, not ruled rejected, opened before the last
+        push, with a review by its Lens that succeeded on this content and began after that push."""
+        return th.get("dropped") is True and th["opened_by"]["kind"] == "lens" and th["ruling"] != "rejected" \
+            and th["category"] in DROPPABLE and th["opened_at"] < self.last_push and any(
                 r["role"] == th["opened_by"]["name"] and r["intent"] == "review-change" and r["status"] == "completed"
                 and r["conclusion"] == "success" and r["content_id"] == self.cid() and r["started_at"] > self.last_push
-                for r in self.runs)
+                and r["item"] == ITEM for r in self.runs)
 
     def waits_for_its_author(self, decision: dict) -> bool:
         """Whether the item rests on its author: a pull request the Factory did not open, in addressing for what a fix
@@ -964,7 +967,7 @@ class World:
             # GitHub: an_app_resolves_any_thread
             for th in self.threads:
                 if th["id"] in d["evidence"]:
-                    self.check(th["opened_by"]["kind"] == "lens" and not th["resolved"]
+                    self.check(th["opened_by"]["kind"] == "lens" and not th["resolved"] and th["category"] != "security"
                                and (th["ruling"] == "accepted" or self.dropped_since_the_push(th)),
                                "the queue App resolves a thread no Lens accepted or dropped")
                     th.update(resolved=True, resolved_by=dict(QUEUE_APP))
@@ -1070,11 +1073,14 @@ class World:
             done = [r for r in self.runs if r["intent"] == "review-change" and r["conclusion"] == "success"
                     and r["content_id"] == run["content_id"]]
             # Unless the head was pushed past every such review while a thread of the Lens still stands that asks for it:
-            # not one the Kernel is to resolve, accepted or dropped since the push (decision 0212, issue 855).
+            # not one the Kernel is to resolve, accepted or dropped since the push (decision 0212, issue 855). One the
+            # queue App resolved on a drop stands again once a push leaves no review after it, as kernel/gate.py reads it.
             pushed_past = all(r["started_at"] <= self.last_push for r in done) and any(
-                th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"] and not th["resolved"]
+                th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"]
+                and (not th["resolved"] or (th["resolved_by"] == QUEUE_APP and th["ruling"] != "accepted"))
                 and (th["severity"] in ("blocking", "major") or th["category"] == "security")
-                and th["ruling"] != "accepted" and not self.dropped_since_the_push(th) for th in self.threads)
+                and (th["ruling"] != "accepted" or th["category"] == "security") and not self.dropped_since_the_push(th)
+                for th in self.threads)
             self.check(not done or pushed_past, "I-11 a second review of unchanged content")
 
     def finish_run(self):
@@ -1117,9 +1123,14 @@ class World:
         run["conclusion"] = "success"
         if run["intent"] == "review-change":
             # The port says a Lens's thread dropped where this later review of its Lens, which succeeded on the current
-            # content, records nothing on its Finding (decision 0212): now and then, of a thread opened before it began.
+            # content, records nothing on its Finding (decision 0212): now and then, of an open thread opened before it
+            # began. A resolved one is in the read too, and nothing records it, so the port says it of each, as the
+            # Lenses' records port does: a push cleared the word, and a thread the queue App resolved on it stays closed.
             for th in self.threads:
-                if th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"] and not th["resolved"] \
+                if th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"] and th["resolved"] \
+                        and th["opened_at"] < run["started_at"]:
+                    th["dropped"] = True
+                elif th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"] and not th["resolved"] \
                         and not th.get("dropped") and run["content_id"] == self.cid() \
                         and th["opened_at"] < run["started_at"] and self.keeps.random() < 0.5:
                     th["dropped"] = True
