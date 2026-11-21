@@ -1,0 +1,26 @@
+# 0249. A trial's question and pass are read from its own page
+
+Status: accepted. The Solution Architect's ruling of 2026-11-21 on "trials: the design doc's trial table is one line every trial PR edits" (issue 1104), routed by the Factory Builder. It changes where decision 0074 reads a trial's question, and how it reads it nowhere else.
+
+## Decision
+
+| What | Decided | Because |
+|---|---|---|
+| Where a trial lives | A trial has a page of its own, P-N.md in docs/architecture/trials, in place of its row in section 6 of the design. The folder holds pages alone: no index, and no file not named for its trial. A trial with a page and a row is refused | Every trial pull request appended a row to section 6 and its number to 6.1's batch-4 line, so two in flight always met there, and each re-merge dismissed an approval: on 2026-11-21 three pull requests left the queue for that line alone. Two pages share no line |
+| What a page holds | `# P-N`, its heading the trial it is named for; `Batch:` 1 to 4 or none, its batch of section 6.1; `## Question`, then the text the row's question cell holds; `## Pass`, then the text of its pass cell. Each text is on one line, as the cell was, a pipe escaped, and the question and the pass stay apart | A quote of `ASKS` is held to the question exactly as decision 0074 reads a row's cell, so the page keeps the cell's text byte for byte; a reflowed line would end a quote |
+| How 0074 reads now | Where decision 0074 reads a trial's row, its question and its second row, it reads the page as the row: its question is the page's, a rule naming the trial must quote it, and a page and a row for one trial are refused as two rows are. 0074 is not edited | One meaning of a trial's question, read from wherever the trial is |
+| The table | `python3 -m tools.check_trials --table` prints section 6, every row and every page, a page as its row would be written, in the order of the trials' numbers, and the batches of 6.1, a page's from its `Batch:`. It is committed nowhere | Any committed list, checked or generated, is a line two pull requests each add to |
+| The transition | Trials added from this decision on have a page. The rows section 6 holds move to pages in pull requests the Factory can review, one at a time in the queue, each made from main just before it is queued, its evidence that `--table` prints the same bytes at its base and its head. When none is left, the reader of rows goes, and 6.1 keeps each batch's meaning while its pages name its trials | A move checked by the check's own reading needs no reader to compare rows by eye |
+
+## Why
+
+"trials: the design doc's trial table is one line every trial PR edits" (issue 1104): the trial table and 6.1's batch-4
+line were the one hot spot every trial pull request shared, and the conflicts there forced re-merges that dismissed
+approvals and took pull requests out of the queue.
+
+## Boundaries
+
+| Boundary | Check |
+|---|---|
+| A trial's page is read as its row is: a quote of its question holds, the check finds nothing new, and the table is the same, byte for byte. A page alone is one of section 6's trials, in the batch it names; a file not named for a trial or nested, a page headed with another trial, a batch 6.1 has not, a question over two lines, text past the pass, and a trial with a page and a row, are refused | `tests/test_tools.py::test_a_trial_may_have_a_page_of_its_own_read_as_its_row_is`, `tools/check_trials.py`, mutant: "a trial's page is no trial of section 6", mutant: "a page's question is not read", mutant: "a file nested below the pages is read as a page", mutant: "a file not named for a trial is read as a page", mutant: "a page is read past its end", mutant: "a page may be headed with another trial", mutant: "a page may name a batch 6.1 has not", mutant: "a page's question may run over lines", mutant: "a trial may have a page and a row", mutant: "what is wrong with a page is not told", mutant: "a page's row is written another way", mutant: "a page's batch is not its own" |
+| The table holds every row and page in the order of their numbers, and 6.1's batches, and the check prints it on `--table` | `tests/test_tools.py::test_the_table_is_printed_from_rows_and_pages_in_the_order_of_their_numbers`, `tools/check_trials.py`, mutant: "the table is in the order the trials' names sort in", mutant: "6.1's batches are not read", mutant: "the check prints no table" |

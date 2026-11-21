@@ -116,6 +116,17 @@ HIDDEN = re.compile(r"(?:^ {0,3}(`{3,})[^\n]*\n.*?^ {0,3}\1`*[ \t]*$)|(?:^ {0,3}
                     r"|(?:<!--.*?-->)", re.M | re.S)
 # An opener with no close hides the rest, as a renderer reads it: no row after it is a trial.
 OPENED = re.compile(r"(?:^ {0,3}(?:```|~~~))|(?:<!--)", re.M)
+# A trial's page, in place of its row in section 6, so that two pull requests that each add a trial touch no line in
+# common (decision 0249). PAGES holds nothing else: no index, and no file not named for its trial. A page holds the
+# trial as its heading, its batch of section 6.1, and its question and its pass, each the text its row's cell would
+# hold, on one line, a pipe escaped, so that its row is written from it byte for byte and a quote reads it as a row's.
+PAGES = "docs/architecture/trials"
+PAGE_NAME = re.compile(r"^(P-[1-9][0-9]*)\.md$")
+CELL = r"(?:\\[^\n]|[^\\|\n])+"
+PAGE = re.compile(r"# (P-[1-9][0-9]*)\n\nBatch: ([1-4]|none)\n\n## Question\n\n(%s)\n\n## Pass\n\n(%s)\n" % (CELL, CELL))
+WHOLE_ROW = re.compile(r"^\| (P-[1-9][0-9]*) \| %s \| %s \|$" % (CELL, CELL), re.M)
+# A batch of section 6.1 and the trials its row names, until each has a page that names its batch.
+BATCH = re.compile(r"^\| \*\*([1-4])\. [^|\n]*\| ([^|\n]*) \|", re.M)
 MARK = re.compile(r"^\s*# GitHub: (\S+)\s*$", re.M)
 
 # A key that names a credential, however it is spelt: compared after strip(), lower() and - to _.
@@ -920,10 +931,34 @@ def _section_6(root: pathlib.Path):
     return section[:opened.start()] if opened else section
 
 
+def pages(root: pathlib.Path) -> tuple:
+    """({trial: (its batch, its question, its pass)} of each page in PAGES, [what is wrong with any file there])."""
+    found, problems = {}, []
+    for path in walk.files(root, PAGES):
+        rel = path.relative_to(root).as_posix()
+        named = PAGE_NAME.match(path.name)
+        if not named or path.parent != root / PAGES:
+            problems.append("%s: only a trial's page, named for the trial as P-12.md, is kept in %s" % (rel, PAGES))
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, ValueError):
+            text = ""
+        page = PAGE.fullmatch(text)
+        if not page:
+            problems.append("%s: is not a trial's page: '# %s', a 'Batch:' of 1 to 4 or none, then '## Question' and "
+                            "'## Pass', each with its text on one line, a blank line between each" % (rel, named.group(1)))
+        elif page.group(1) != named.group(1):
+            problems.append("%s: is headed %s; a page is headed with the trial it is named for" % (rel, page.group(1)))
+        else:
+            found[named.group(1)] = page.group(2, 3, 4)
+    return found, problems
+
+
 def section_6(root: pathlib.Path) -> set:
-    """The trials section 6 of the design has a row for, or None when the design cannot be read."""
+    """The trials section 6 of the design has a row for, or a page in PAGES, or None when the design cannot be read."""
     section = _section_6(root)
-    return None if section is None else set(ROW.findall(section))
+    return None if section is None else set(ROW.findall(section)) | set(pages(root)[0])
 
 
 def _quoted(quote: str, question: str) -> bool:
@@ -934,7 +969,28 @@ def _quoted(quote: str, question: str) -> bool:
 def questions(root: pathlib.Path) -> dict:
     """What each trial's row in section 6 asks, its second cell, or None when the design cannot be read."""
     section = _section_6(root)
-    return None if section is None else dict(QUESTION.findall(section))
+    return None if section is None else dict(QUESTION.findall(section), **{t: p[1] for t, p in pages(root)[0].items()})
+
+
+def table(root: pathlib.Path = ROOT) -> str:
+    """Section 6 and the batches of 6.1 as every row and page give them, in the order of the trials' numbers: a row as
+    section 6 holds it, and a page as its row would be written. Committed nowhere: any shared list would be a line two
+    pull requests each add to. Raises ValueError when the design cannot be read."""
+    section = _section_6(root)
+    if section is None:
+        raise ValueError("%s cannot be read" % DESIGN)
+    text = (root / DESIGN).read_text(encoding="utf-8")
+    start = text.find("\n### 6.1 ")
+    batched = text[start:text.find("\n## ", start + 1)] if start >= 0 else ""
+    rows = {m.group(1): m.group(0) for m in WHOLE_ROW.finditer(section)}
+    batch = {t: b for b, cell in BATCH.findall(batched) for t in re.findall(r"\bP-[1-9][0-9]*\b", cell)}
+    for trial, (said, question, passed) in pages(root)[0].items():
+        rows[trial], batch[trial] = "| %s | %s | %s |" % (trial, question, passed), said
+    order = sorted(rows, key=lambda trial: int(trial[2:]))
+    out = ["| # | Question | Pass |", "|---|---|---|"] + [rows[t] for t in order] + ["", "| Batch | Trials |", "|---|---|"]
+    for name in ("1", "2", "3", "4", "none"):
+        out.append("| %s | %s |" % (name, ", ".join(t for t in order if batch.get(t, "none") == name)))
+    return "\n".join(out) + "\n"
 
 
 def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
@@ -951,6 +1007,12 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
         listed_rows = ROW.findall(_section_6(root))
         for trial in sorted({t for t in listed_rows if listed_rows.count(t) > 1}):
             problems.append("%s: section 6 has more than one row for %s; a trial has one" % (DESIGN, trial))
+        # Nor a page and a row: which of the two a quote reads could not be told (decision 0249).
+        paged, wrong = pages(root)
+        problems += wrong
+        for trial in sorted(set(listed_rows) & set(paged)):
+            problems.append("%s: %s has a page in %s and a row in section 6; a trial has one, so take the row out"
+                            % (DESIGN, trial, PAGES))
     try:
         quoted = asks(root)
     except ValueError as err:
@@ -1083,5 +1145,20 @@ def main(root: pathlib.Path = ROOT) -> int:
     return 1 if problems else 0
 
 
+def front(argv: list, root: pathlib.Path = ROOT) -> int:
+    """`python3 -m tools.check_trials`: the check alone; with --table, section 6 and 6.1 as `table` gives them."""
+    if argv == ["--table"]:
+        try:
+            sys.stdout.write(table(root))
+        except ValueError as err:
+            print(err)
+            return 1
+        return 0
+    if argv:
+        print("usage: python3 -m tools.check_trials [--table]")
+        return 1
+    return main(root)
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(front(sys.argv[1:]))
