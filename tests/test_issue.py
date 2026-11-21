@@ -2404,7 +2404,7 @@ class Opening(unittest.TestCase):
                      dict(DRAFT_HEAD, ref="main"), dict(DRAFT_HEAD, ref="factory-work/issue-8-1"),
                      dict(DRAFT_HEAD, ref="factory-work/issue-7-01"), dict(DRAFT_HEAD, ref="factory-work/issue-7-"),
                      dict(DRAFT_HEAD, ref="factory-work/issue-07-1"), dict(DRAFT_HEAD, ref="factory-work/issue-7-1-2"),
-                     dict(DRAFT_HEAD, ref="factory-work/issue-7-x")):
+                     dict(DRAFT_HEAD, ref="factory-work/issue-7-x"), dict(DRAFT_HEAD, ref="factory-wurk/issue-7-1")):
             draft = agents(draft=True, checks="failing")
             if head is missing:
                 del draft["head"]
