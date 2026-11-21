@@ -57,4 +57,4 @@ Before editing in a directory, read its `AGENTS.md`: it carries the rules of tha
 | Running a platform trial, or adding its fixture to `trials/` | The skill `.claude/skills/run-a-platform-trial/SKILL.md` |
 | Cutting a Release, moving `next` or rolling it back, or merging what the Factory cannot or may not approve | The skill `.claude/skills/cut-a-release/SKILL.md` |
 
-Not built yet, under names that are reserved: every Role but `pr-review`; `adapters/AGENTS.md`, `controller/AGENTS.md`, `harness/AGENTS.md` and `release/AGENTS.md` name their parts still to come. A rule that is waiting on one of them says so.
+Not built yet, under names that are reserved: every Role but `pr-review`; `adapters/AGENTS.md`, `controller/AGENTS.md`, `guards/AGENTS.md`, `harness/AGENTS.md` and `release/AGENTS.md` name their parts still to come. A rule waiting on one says so.
