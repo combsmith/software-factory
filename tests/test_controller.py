@@ -2163,7 +2163,7 @@ class Entry(unittest.TestCase):
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
-        def moved(transport, repo, number, accounts, clock):
+        def moved(transport, repo, number, accounts, clock, *, identities, earlier, kernel):
             raise entry.facts_.Moved("moved")
 
         def read(transport, item, kept, identities, apps, since):
