@@ -19145,7 +19145,7 @@ MUTANTS = ISSUE + [
     ('an answer may hold text of another kind', 'guards/push.py',
      ' or not _plain(answer) or type',
      ' or type', PUSH_ANSWER),
-    ('text of another kind is plain', 'guards/push.py',
+    ("an answer's text of another kind is plain", 'guards/push.py',
      'type(value) is not str and',
      'not isinstance(value, str) and', PUSH_ANSWER),
     ('a number of any kind is plain', 'guards/push.py',
