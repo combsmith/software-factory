@@ -20,8 +20,8 @@ import urllib.parse
 import zipfile
 from unittest import mock
 
-from adapters import acceptance, applied, artifacts, checks, edits, effects, facts, github, heldout, issues, items, linked, passes, \
-    pull, records, pause, rules, texts, threads, timeline
+from adapters import acceptance, applied, artifacts, checks, draft_checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
+    passes, pull, push, records, pause, rules, texts, threads, timeline
 from controller import shared
 from harness import task
 from kernel import brakes
@@ -883,6 +883,229 @@ class Diff(unittest.TestCase):
         data = body("P-29.base", 1)
         data["changed_files"] += 1
         self.assertIs(pull.diff(compared("P-29.base", 2, data), data, PINNED_BASE)["complete"], False)
+
+    def test_index_ids_of_any_length_are_one_content(self):
+        # 2026-11-19: GitHub sent pull request 903's compare with each index line's blob ids 8 characters long at one
+        # read and 9 at the next, and every Run that read it twice ended content_moved. Each id is cut to git's least,
+        # 7, so the content id, its count, the bytes a Run is given and a review's content are one whatever the read gave.
+        def sent(world: str, gate: str, empty: str, gone: str) -> str:
+            # The first file's name holds `diff --git `, and the second's `@@ `: neither begins a file or a hunk but at
+            # the start of a line.
+            return ("diff --git a/sim/diff --git w.py b/sim/diff --git w.py\nindex %s\n--- a/sim/diff --git w.py\n"
+                    "+++ b/sim/diff --git w.py\n"
+                    "@@ -15,2 +15,3 @@\n from controller import configuration\n+from kernel.gate import closed\n"
+                    " from kernel import terms as t\ndiff --git a/kernel/gate@@ -1 +1 @@ x.py b/kernel/gate@@ -1 +1 @@ x.py\nindex %s\n"
+                    "--- a/kernel/gate@@ -1 +1 @@ x.py\n+++ b/kernel/gate@@ -1 +1 @@ x.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
+                    "diff --git a/kernel/__init__.py b/kernel/__init__.py\nnew file mode 100755\nindex %s\n"
+                    "diff --git a/old/__init__.py b/old/__init__.py\ndeleted file mode 100644\nindex %s\n"
+                    % (world, gate, empty, gone))
+        eight = sent("0e91505d..9f114f5d 100644", "77da7d97..7227c4f0 100755", "00000000..e69de29b", "e69de29b..00000000")
+        nine = sent("0e91505d0..9f114f5d8 100644", "77da7d97f..7227c4f06 100755", "000000000..e69de29bb",
+                    "e69de29bb..000000000")
+        # Ids of 7 beside longer ones, of 64, and of 40, as a full index gives them: an empty file's ids are none and
+        # the empty blob's.
+        whole = sent("0e91505..9f114f5d8a7c 100644", "77da7d97f" + "0" * 55 + "..7227c4f06" + "1" * 31 + " 100755",
+                     "0" * 40 + "..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+                     "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391.." + "0" * 40)
+        seven = sent("0e91505..9f114f5 100644", "77da7d9..7227c4f 100755", "0000000..e69de29", "e69de29..0000000")
+        self.assertEqual([pull.canonical(text) for text in (eight, nine, whole, seven)], [seven] * 4)
+        # An index line without a mode is cut as well, and an empty file's in a repo of SHA-256; an id already shorter
+        # than 7 is left as it is.
+        self.assertEqual(pull.canonical(sent("0e91505d0..9f114f5", "1..2", "0" * 64 + ".." + pull.EMPTY[1],
+                                             pull.EMPTY[1] + ".." + "0" * 64)),
+                         sent("0e91505..9f114f5", "1..2", "0000000..473a0f4", "473a0f4..0000000"))
+        self.assertEqual(pull.EMPTY, (hashlib.sha1(b"blob 0\x00").hexdigest(),
+                                      hashlib.sha256(b"blob 0\x00").hexdigest()))
+        data = body("P-29.base", 1)
+        data.update(changed_files=4, additions=2, deletions=1)
+        commit = data["head"]["sha"]
+        seen = set()
+        for text in (eight, nine, whole):
+            answer = github._answer(200, {"Content-Type": github.DIFF}, text.encode())
+            exchange = dict(exchanges("P-29.base")[2], response=dict(exchanges("P-29.base")[2]["response"],
+                                                                     body=answer["body"]))
+            got = pull.diff(github.Replay([as_compare(exchange, data)]), data, PINNED_BASE)
+            self.assertIs(got["complete"], True)
+            self.assertEqual(got["diff"]["characters"], task.carried(task.numbered(seven)))
+            given = pull.change(github.Replay([as_compare(exchange, data)]), data, PINNED_BASE)
+            review = copy.deepcopy(exchange)
+            review["request"]["call"] = "GET /repos/%s/compare/%s...%s" % (canary(), BASE_HEAD, commit)
+            seen.add((got["content_id"], "sha256:" + hashlib.sha256(given).hexdigest(), given,
+                      timeline._content(github.Replay([review]), canary(), BASE_HEAD, commit)))
+        content = "sha256:" + hashlib.sha256(seven.encode()).hexdigest()
+        self.assertEqual(seen, {(content, content, seven.encode(), content)})
+
+    def test_only_a_files_own_index_line_is_cut(self):
+        kept = "".join((
+            # Before the first file's header, nothing is a file's index line.
+            "index 0e91505d0..9f114f5d8\n",
+            # A line of a hunk, and one after it, are no header's, so one that reads as an index line is kept; so is a
+            # file's name that ends as one.
+            "diff --git a/index 0e91505d0..9f114f5d8 b/index 0e91505d0..9f114f5d8\nindex 0e91505..9f114f5 100644\n"
+            "--- a/index 0e91505d0..9f114f5d8\n+++ b/index 0e91505d0..9f114f5d8\n@@ -1,2 +1,2 @@\n"
+            " index 0e91505d0..9f114f5d8 100644\n-index 77da7d97f..7227c4f06\n+index 77da7d97f..7227c4f06 100644\n"
+            "index 0e91505d0..9f114f5d8 100644\n",
+            # A file no hunk tells, a binary one among them, keeps its index line, though another file has hunks: it is
+            # all that tells its content, git never gives two blobs one abbreviation, and two blobs made to share their
+            # first 7 characters must stay two contents. Only an empty file's part is cut, and only when it says nothing
+            # more, names no blob, all zeros, and a blob whose id begins as the empty blob's does.
+            "diff --git a/logo.png b/logo.png\nindex 11aab6ce..11aab6c4 100644\nBinary files a/logo.png and b/logo.png "
+            "differ\n",
+            "diff --git a/w.bin b/w.bin\nnew file mode 100644\nindex 00000000..e69de29b\n"
+            "Binary files /dev/null and b/w.bin differ\n",
+            "diff --git a/x.bin b/x.bin\nnew file mode 100644\nindex 00000000..e69de29c\n",
+            "diff --git a/y.bin b/y.bin\nnew file mode 100644\nindex 11aab6ce..e69de29b\n",
+            "diff --git a/z.bin b/z.bin\nnew file mode 100644\nindex 00000000..000000000\n",
+            "diff --git a/u.bin b/u.bin\nnew file mode 100644\nindex 00000001..e69de29b\n",
+            "diff --git a/v.bin b/v.bin\nnew file mode 100644\nindex 000000000..e69de29b0\n",
+            # A line that begins `@@ ` but is no hunk's header tells nothing of a binary file.
+            "diff --git a/t.bin b/t.bin\nindex 11aab6ce..11aab6c4 100644\nBinary files a/t.bin and b/t.bin differ\n"
+            "@@ incomplete\n",
+            # A line that says more than an index line, and an id longer than any git gives, are not index lines.
+            "diff --git a/a b/a\nindex 0e91505d0..9f114f5d8 100644 and more\nindex %s..9f114f5d8\n@@ -1 +1 @@\n-a\n+b\n"
+            % ("0" * 65),
+            "diff --git a/b b/b\nindex 0e91505d0..%s 100644\n@@ -1 +1 @@\n-a\n+b\n" % ("9" * 65),
+        ))
+        self.assertEqual(pull.canonical(kept), kept)
+        # In one diff a binary file is kept and a file of text cut, each by its own hunks.
+        text = "diff --git a/f.py b/f.py\nindex %s\n--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
+        binary = ("diff --git a/logo.png b/logo.png\nindex 11aab6ce..11aab6c4 100644\n"
+                  "Binary files a/logo.png and b/logo.png differ\n")
+        self.assertEqual(pull.canonical(binary + text % "0e91505d0..9f114f5d8 100644"),
+                         binary + text % "0e91505..9f114f5 100644")
+
+    def test_a_binary_files_change_is_bound_to_its_full_blob_id(self):  # issue 1016
+        # A binary file's change has no hunks, so its index line is all that tells it. GitHub abbreviates its ids to 8
+        # characters at one read and 9 at the next; cut to 7, a blob ground to share an approved one's first 7 would
+        # pass for it. So its head's id is written whole, from the compare's row for its own path, and its base's, of
+        # the base branch's history, cut to 7: one content at every read, and no other blob's.
+        head = "9f114f5d8" + "a" * 31
+        ground = "9f114f5d8" + "b" * 31
+        other = "77da7d97f" + "c" * 31
+
+        def binary(ids: str, mode: str = " 100644", name: str = "img.png") -> str:
+            return ("diff --git a/%s b/%s\nindex %s%s\nBinary files a/%s and b/%s differ\n"
+                    % (name, name, ids, mode, name, name))
+
+        def at(*shas, name: str = "img.png", before: str = None) -> tuple:
+            return tuple((before or name, name, sha) for sha in shas)
+        bound = binary("0e91505..%s" % head)
+        for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8", "0e91505..9f114f5", "0e91505d0" + "1" * 31 + ".." + head):
+            self.assertEqual(pull.canonical(binary(ids), at(other, head)), bound, ids)
+        # A blob ground to share the approved one's prefix is another content.
+        self.assertNotEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(ground)), bound)
+        # GitHub's whole abbreviation is matched, not its first 7: a blob it contradicts at its eighth digit is none.
+        near = "9f114f5e" + "d" * 32
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(head, near)), bound)
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(near)), binary("0e91505d..9f114f5d"))
+        # Only the row whose paths are the part's own header, word for word, binds it: a blob another path's row names,
+        # though the abbreviation begins it, is none (Astra's read), nor one of a path the header only ends with, as a
+        # space is not quoted (the security read).
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(head, name="other.png")), binary("0e91505d..9f114f5d"))
+        crafted = binary("0e91505d..9f114f5d", name="foo b/img.png")
+        self.assertEqual(pull.canonical(crafted, at(head)), crafted)
+        self.assertEqual(pull.canonical(crafted, at(head, name="foo b/img.png")), binary("0e91505..%s" % head, name="foo b/img.png"))
+        moved = ("diff --git a/old.png b/new.png\nsimilarity index 50%%\nrename from old.png\nrename to new.png\n"
+                 "index %s 100644\nBinary files a/old.png and b/new.png differ\n")
+        self.assertEqual(pull.canonical(moved % "0e91505d..9f114f5d", at(head, name="new.png", before="old.png") + at(ground, name="new.png")
+                                        + at(ground, name="old.png", before="old.png")),
+                         moved % ("0e91505..%s" % head))
+        # Without a mode, of another mode, of SHA-256, last in the diff with no newline after, and added.
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d", ""), at(head)), binary("0e91505..%s" % head, ""))
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d", " 100755"), at(head)), binary("0e91505..%s" % head, " 100755"))
+        wide = "9f114f5d8" + "e" * 55
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(wide)), binary("0e91505..%s" % wide))
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d")[:-1], at(head)), bound[:-1])
+        added = "diff --git a/n.png b/n.png\nnew file mode 100644\nindex %s\nBinary files /dev/null and b/n.png differ\n"
+        self.assertEqual(pull.canonical(added % "00000000..9f114f5d", at(head, name="n.png")), added % ("0000000..%s" % head))
+        # A deleted file's head is no blob, so both its ids are cut, files or none.
+        gone = "diff --git a/g.png b/g.png\ndeleted file mode 100644\nindex %s\nBinary files a/g.png and /dev/null differ\n"
+        for ids in ("0e91505d..00000000", "0e91505d0..000000000"):
+            self.assertEqual(pull.canonical(gone % ids), gone % "0e91505..0000000", ids)
+        # The security read: a blob ground to as many leading zeros as GitHub abbreviates is all zeros too, so only a
+        # part that says it was deleted, by its mode line and by /dev/null, is read as a deletion; any other is bound to
+        # its own full id, and two such blobs are two contents.
+        zeros, more = "0" * 9 + "a" * 31, "0" * 9 + "b" * 31
+        for ids in ("0e91505d..00000000", "0e91505d0..000000000"):
+            self.assertEqual(pull.canonical(binary(ids), at(zeros)), binary("0e91505..%s" % zeros), ids)
+            self.assertNotEqual(pull.canonical(binary(ids), at(zeros)), pull.canonical(binary(ids), at(more)), ids)
+            self.assertEqual(pull.canonical(binary(ids)), binary(ids), ids)
+            for half in (gone.replace("deleted file mode 100644\n", ""), gone.replace(" and /dev/null", " and b/g.png")):
+                self.assertEqual(pull.canonical(half % ids), half % ids, half)
+        # Where the files name no blob the head's id begins, or more than one, or none at all, the line is kept as
+        # GitHub sent it: a content that may move, never one taken for another.
+        for given in ((), at(other), at(head, ground[:8] + "9" + ground[9:]), at("9f114f5d" + "e" * 32, head[:9] + "f" * 31)):
+            self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), given), binary("0e91505d..9f114f5d"), given)
+        # A part that ends otherwise, says more after its binary line, or carries an id longer than git gives, is kept.
+        for kept in (binary("0e91505d..9f114f5d").replace(" differ\n", " differ\nmore\n"),
+                     binary("0e91505d..9f114f5d").replace("Binary files", "Binary Files"),
+                     binary("0e91505d..9f114f5d").replace("100644", "100644 and more"),
+                     binary("0e91505d.." + "9" * 65)):
+            self.assertEqual(pull.canonical(kept, at(head, "9" * 64)), kept, kept)
+        # Through the port: the content id, the bytes a Run is given and a review's content are one at either read,
+        # whichever file the binary one is; the compare's files are asked of the same pinned compare as the diff, and
+        # only for a diff that holds a binary file; a row whose sha is no blob id, of the wrong length or shape, a
+        # newline after it among them, is none.
+        data = body("P-29.base", 1)
+        data.update(changed_files=2, additions=1, deletions=1)
+        commit = data["head"]["sha"]
+        text = "diff --git a/f.py b/f.py\nindex %s\n--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
+        files = {"files": [{"filename": "f.py", "sha": "x" * 40}, {"filename": "img.png", "sha": head},
+                           {"filename": "img.png", "sha": other.upper()}, {"filename": "img.png", "sha": head[:9] + "Z" * 31},
+                           {"filename": "img.png", "sha": head[:39]}, {"filename": "img.png", "sha": head + "0"},
+                           {"filename": "img.png", "sha": head[:9] + "f" * 31 + "\n"}, {"filename": 7, "sha": ground},
+                           {"sha": ground}, {"filename": "img.png"}]}
+
+        class Sent:
+            def __init__(self, diff: str, compared):
+                self.answers, self.asked = {github.DIFF: diff, github.JSON: compared}, []
+
+            def send(self, req):
+                self.asked.append((req["method"], req["path"], req["accept"]))
+                found = self.answers[req["accept"]]
+                if found is github.Unanswered:
+                    raise github.Unanswered("no answer")
+                return found if isinstance(found, dict) and "status" in found else {"status": 200, "headers": {}, "body": found}
+        seen = set()
+        pinned = "/repos/%s/compare/%s...%s" % (data["base"]["repo"]["full_name"], PINNED_BASE, commit)
+        reviewed = "/repos/%s/compare/%s...%s" % (canary(), BASE_HEAD, commit)
+        for ids, short in (("0e91505d..9f114f5d", "1aab6ce4..2bbc7df5"), ("0e91505d0..9f114f5d8", "1aab6ce4a..2bbc7df5b")):
+            for sent in (binary(ids) + text % short, text % short + binary(ids)):
+                read, given_, review_ = Sent(sent, files), Sent(sent, files), Sent(sent, files)
+                got = pull.diff(read, data, PINNED_BASE)
+                given = pull.change(given_, data, PINNED_BASE)
+                review = timeline._content(review_, canary(), BASE_HEAD, commit)
+                first = sent.startswith("diff --git a/img.png")
+                seen.add((first, got["content_id"], "sha256:" + hashlib.sha256(given).hexdigest(), review))
+                for asked, path in ((read, pinned), (given_, pinned), (review_, reviewed)):
+                    self.assertEqual(asked.asked, [("GET", path, github.DIFF), ("GET", path, github.JSON)])
+        tail = text % "1aab6ce..2bbc7df"
+        self.assertEqual(seen, {(True,) + ("sha256:" + hashlib.sha256((bound + tail).encode()).hexdigest(),) * 3,
+                                (False,) + ("sha256:" + hashlib.sha256((tail + bound).encode()).hexdigest(),) * 3})
+        asked = Sent(text % "1aab6ce4..2bbc7df5", files)
+        pull.diff(asked, data, PINNED_BASE)
+        self.assertEqual(asked.asked, [("GET", pinned, github.DIFF)])
+        # A compare whose files cannot be read gives none: the binary file's line is GitHub's, at each read its own.
+        for unread in ({"status": 500, "headers": {}, "body": files}, {"files": "x"}, ["x"], {"files": [None, {"sha": 1}]},
+                       github.Unanswered):
+            got = {pull.diff(Sent(binary(ids) + text % "1aab6ce4..2bbc7df5", unread), data, PINNED_BASE)["content_id"]
+                   for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8")}
+            self.assertEqual(len(got), 2, unread)
+        # A row of no blob, all zeros, names none: a ground binary whose own row is not listed is kept, never bound to
+        # zeros (the security read).
+        # A renamed file's row binds it by the path it had and the path it has.
+        renamed = {"files": [{"filename": "new.png", "previous_filename": "old.png", "status": "renamed", "sha": head}]}
+        got = {pull.diff(Sent(moved % ids + text % "1aab6ce4..2bbc7df5", renamed), data, PINNED_BASE)["content_id"]
+               for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8")}
+        self.assertEqual(len(got), 1)
+        # A row of SHA-256's whole id binds as SHA-1's does.
+        got = {pull.diff(Sent(binary(ids) + text % "1aab6ce4..2bbc7df5", {"files": [{"filename": "img.png", "sha": wide}]}),
+                         data, PINNED_BASE)["content_id"] for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8")}
+        self.assertEqual(len(got), 1)
+        nulls = {"files": [{"filename": "img.png", "sha": "0" * 40}]}
+        got = {pull.diff(Sent(binary(ids) + text % "1aab6ce4..2bbc7df5", nulls), data, PINNED_BASE)["content_id"]
+               for ids in ("0e91505d..00000000", "0e91505d0..000000000")}
+        self.assertEqual(len(got), 2)
 
     def test_a_diff_github_will_not_serve_is_truncated_and_new_content_at_every_push(self):
         # trials/P-29.truncated.json: 3,001 files, a 406 too_large. Read whole, so the Kernel holds it as too large;
@@ -2794,8 +3017,8 @@ def thread_text(ident: str, body="It reads the head before the push.", opened=No
 class FindingTexts(unittest.TestCase):
     PULL = {"number": 26, "base": {"ref": "main", "repo": {"full_name": "o/r", "default_branch": "main"}}}
 
-    def read(self, threads, *found, lens="pr-review", pull=None):
-        router = Router(github.Replay(list(found)), {"don-petry": "admin"})
+    def read(self, threads, *found, lens="pr-review", pull=None, permissions=None):
+        self.router = router = Router(github.Replay(list(found)), permissions or {"don-petry": "admin"})
         accounts = timeline.Accounts(router, "o/r", MACHINE, {LENS[1:]: "pr-review", (5, "Bot"): "qa-lead"})
         self.sent = sent = []
 
@@ -2852,11 +3075,29 @@ class FindingTexts(unittest.TestCase):
                            ("a number that is no whole number", thread_text("PRRT_7", number=26.0)),
                            ("a repository that is no object", thread_text("PRRT_7", pullRequest={"number": 26, "repository": "o/r"})),
                            ("a comment that is no object", thread_text("PRRT_7", comments={"nodes": [None]})),
-                           ("a reply", first(replyTo={"id": "PRRC_1"})), ("a reply GitHub does not say it is not", first(replyTo=...)),
+                           ("a reply", first(replyTo={"id": "PRRC_1"})),
+                           ("a reply to a legacy id", first(replyTo={"id": "MDE3OlB1bGxSZXF1ZXN0UmV2aWV3Q29tbWVudDE="})), ("a reply GitHub does not say it is not", first(replyTo=...)),
                            ("a reply to no comment", first(replyTo="PRRC_1")), ("a reply to nought", first(replyTo=0)),
+                           # A reply or an edit GitHub gives in no form of its own is a read that failed (issue 974).
+                           ("a reply to a comment of no id", first(replyTo={})), ("a reply to a null id", first(replyTo={"id": None})),
+                           ("a reply to an empty id", first(replyTo={"id": ""})), ("a reply to a list", first(replyTo=[])),
+                           ("a reply to an id that is a number", first(replyTo={"id": 17})),
+                           ("a reply to an id of blanks", first(replyTo={"id": " "})),
+                           ("a reply that hides an edit of no form", first(replyTo={"id": "PRRC_1"}, lastEditedAt=False)),
+                           ("a reply that hides an author that cannot be read", first(replyTo={"id": "PRRC_1"}, author=None)),
+                           ("an edit that hides a reply of no form", first(replyTo={}, lastEditedAt="2026-11-14T08:00:00Z")),
+                           ("a reply to an id with more after it", first(replyTo={"id": "PRRC_1!"})),
+                           ("an edit that hides a login GitHub never gives", first(lastEditedAt="2026-11-14T08:00:00Z", author={
+                               "__typename": "User", "login": "pr-review[bot]", "databaseId": 4242})),
                            ("an edited comment", first(lastEditedAt="2026-11-14T08:00:00Z")),
                            ("an edit GitHub does not say never was", first(lastEditedAt=...)),
                            ("an edit at no time", first(lastEditedAt=0)), ("an edit that is a flag", first(lastEditedAt=False)),
+                           ("an edit at an empty time", first(lastEditedAt="")), ("an edit at no time GitHub gives", first(lastEditedAt="never")),
+                           ("an edit that is a list", first(lastEditedAt=[])),
+                           ("an edit time with more after it", first(lastEditedAt="2026-11-14T08:00:00Zjunk")),
+                           ("an edit on no day of the calendar", first(lastEditedAt="2026-02-30T08:00:00Z")),
+                           ("an edit at no hour", first(lastEditedAt="2026-11-14T99:00:00Z")),
+                           ("an edit time not written out whole", first(lastEditedAt="2026-1-5T8:0:0Z")),
                            # An author GitHub gives as none, a deleted account's, is refused as the facts' read of the
                            # same thread refuses it, before any text is asked for: a read that failed, as it was.
                            ("an author that is none", first(author=None)), ("no author", first(author=...)),
@@ -2867,8 +3108,14 @@ class FindingTexts(unittest.TestCase):
                            ("no pull request", thread_text("PRRT_7", pullRequest=None)),
                            ("no comment", thread_text("PRRT_7", comments={"nodes": []})),
                            ("comments that are no list", thread_text("PRRT_7", comments=None)),
+                           ("comment nodes that are no list", thread_text("PRRT_7", comments={"nodes": 3})),
+                           ("a number that is a flag", thread_text("PRRT_7", number=True)),
                            ("a person's", thread_text("PRRT_7", opened=PERSON)),
                            ("another App's", thread_text("PRRT_7", opened=APP)),
+                           # The Lens's name is no proof: a person, or an App no configuration holds, may show it.
+                           ("a person's under the Lens's name", thread_text("PRRT_7", opened=("pr-review", 4242, "User"))),
+                           ("an App's under the Lens's name", thread_text("PRRT_7", opened=("pr-review", 4343, "Bot"))),
+                           ("a person's under the Lens App's number", thread_text("PRRT_7", opened=("don-petry", LENS[1], "User"))),
                            ("another Lens's", thread_text("PRRT_7", opened=("qa-lead", 5, "Bot"))),
                            ("a body that is none", thread_text("PRRT_7", None)),
                            ("a body of nothing", thread_text("PRRT_7", "")),
@@ -2877,8 +3124,30 @@ class FindingTexts(unittest.TestCase):
                 self.read(["PRRT_7"], found)
             # What GitHub says, and is not the Lens's own unedited first comment, is the thread's own state, told
             # apart from a read that failed: anyone who can write can make it, and it must not pass for the Factory's.
-            own_state = why in ("a reply", "an edited comment", "a person's", "another App's", "another Lens's")
+            own_state = why in ("a reply", "a reply to a legacy id", "an edited comment", "a person's", "another App's", "another Lens's",
+                                "a person's under the Lens's name", "an App's under the Lens's name",
+                                "a person's under the Lens App's number")
             self.assertIs(type(raised.exception), texts.NotOwn if own_state else github.Unanswered, why)
+            # Whose words they are is told by the account alone: no one's write access is asked for it (issue 974).
+            self.assertEqual(self.router.asked, [], why)
+        # A pull request numbered 1 is not the one a number given as a flag names.
+        with self.assertRaises(github.Unanswered):
+            self.read(["PRRT_7"], thread_text("PRRT_7", number=True), pull=dict(self.PULL, number=1))
+        # Words are read as a Lens's only where a Lens is named: with none, nothing is asked of GitHub.
+        for lens in (None, "", 7):
+            with self.subTest(lens=lens):
+                with self.assertRaises(github.Unanswered) as raised:
+                    self.read(["PRRT_7"], lens=lens)
+                self.assertIs(type(raised.exception), github.Unanswered)
+                self.assertEqual(self.sent, [])
+        # A User's login GitHub never gives is a read that was wrong, as the facts' reader takes it.
+        with self.assertRaises(github.Unanswered) as raised:
+            self.read(["PRRT_7"], thread_text("PRRT_7", opened=("pr-review[bot]", 4242, "User")))
+        self.assertIs(type(raised.exception), github.Unanswered)
+        # A person's comment is refused as the thread's own state though their write access could not be read.
+        with self.assertRaises(texts.NotOwn):
+            self.read(["PRRT_7"], thread_text("PRRT_7", opened=PERSON), permissions={"don-petry": "missing"})
+        self.assertEqual(self.router.asked, [])
         self.assertTrue(issubclass(texts.NotOwn, github.Unanswered))
         # The Lens asked for is the one whose words they must be: its own thread is another's to any other Lens.
         with self.assertRaises(github.Unanswered):
@@ -4578,6 +4847,10 @@ WHY = {"controller", "kernel", "issues_port"}
 # as no answer, never as one (FR-56); a refusal recorded later fails here until it is placed.
 REFUSALS = {
     ("P-68", 6): None,                 # the download of an artifact deleted, 404: the port downloads only what a list names
+    # A push by the git data API (P-71, issue 838): the work branch absent, 404, which the push guard reads as the branch
+    # the Decision admitted none of; the branch made again where it stands, 422; and two moves without force that are no
+    # fast-forward, 422. No port pushes until the push port is built.
+    ("P-71", 4): None, ("P-71", 12): None, ("P-71.moved", 6): None, ("P-71.moved", 8): None,
     ("P-12", 16): None,                # an output past GitHub's limit, 422: no port writes the status until it is built
     ("P-41", 26): None,                # the controller's label on 64 at issues: write and pull_requests: read, 403
     ("P-41", 27): None,                # its removal, 403 too: no port writes a label until the label act is built
@@ -6075,7 +6348,8 @@ class Items(unittest.TestCase):
         self.assertEqual(read(page([4], total=2))[1], False)
         # With no date no issue is served: none is listed, and nothing is asked. One that is no time lists nothing.
         self.assertEqual(items.open_issues(github.Replay([]), HOME, None, apart=()), ([], True))
-        for unreadable in ("2026-10-01", "0001-01-01T00:00:00Z"):     # no time, or none a second before it (Carbon)
+        # A date that is no text is no time either, never a crash (issue 965).
+        for unreadable in ("2026-10-01", "0001-01-01T00:00:00Z", 20261001, False, 0, ""):  # no time, or none a second before it (Carbon)
             with self.assertRaises(github.Unanswered):
                 items.open_issues(github.Replay([]), HOME, unreadable, apart=())
         # The Controller's tracking issue, 5, open and updated since the date, is one GitHub lists and counts. It is
@@ -6139,6 +6413,11 @@ def crossed(source: str = "PullRequest") -> dict:
     return {"__typename": "CrossReferencedEvent", "source": {"__typename": source}}
 
 
+def referenced(oid="c" * 40) -> dict:
+    """A reference on the issue's timeline by a commit, as a commit's closing keyword leaves one, or by one not read."""
+    return {"__typename": "ReferencedEvent", "commit": None if oid is None else {"oid": oid}}
+
+
 IDENTITIES = {"agent": {CONTROLLER_APP[1:]}, "maintainer": {(MAINTAINER, "User")}, "dependency": set()}
 
 
@@ -6168,10 +6447,11 @@ def issue_read(events=(), more=False, last=None, types=(), edits=None, closing=N
 class Issues(unittest.TestCase):
     NOW = "2026-10-11T12:00:00Z"
 
-    def read(self, exchanges, clock=None, transport=None):
+    def read(self, exchanges, clock=None, transport=None, earlier=()):
         router = transport or Router(github.Replay(exchanges), {"don-petry": "admin", "stranger": "read"})
         accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]})
-        found, title = issues.read(router, "o/r", 41, accounts, clock or (lambda: self.NOW), identities=IDENTITIES)
+        found, title = issues.read(router, "o/r", 41, accounts, clock or (lambda: self.NOW), identities=IDENTITIES,
+                                   earlier=None if earlier is None else list(earlier))
         # The title is handed beside the facts, never in them.
         self.assertEqual(title, (exchanges or issue_read())[0]["response"]["body"]["title"])
         self.assertNotIn(title, json.dumps(found))
@@ -6211,7 +6491,7 @@ class Issues(unittest.TestCase):
                   issue_event("labeled", 4, actor=("dependabot[bot]", 99, "Bot"), label={"name": "x"})]
         router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory=set(names), apps=names)
-        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES)
+        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES, earlier=[])
         # An App the configuration does not name keeps its login (Carbon).
         self.assertEqual([e["by"]["name"] for e in found["label_events"]],
                          ["combsmith-sf-controller[bot]", "combsmith-sf-controller", "dependabot[bot]"])
@@ -6224,6 +6504,10 @@ class Issues(unittest.TestCase):
         self.assertEqual(facts.app_names_of(held, {"controller": catalogue["controller"]}), {(41, "Bot"): names[(41, "Bot")]})
         # One the catalogue names whose account `controller/1` does not hold is named by no id (Carbon).
         self.assertEqual(facts.app_names_of(held, dict(catalogue, **{"dev-lead": {"name": "combsmith-sf-dev-lead"}})), names)
+        # One the catalogue holds with no name, or an empty one, is named by its login, never by the suffix alone (issue 965).
+        for unnamed in ({}, {"name": ""}):
+            self.assertEqual(facts.app_names_of({"accounts": {"controller": {"id": 41}, "roles": {}}}, {"controller": unnamed}),
+                             {}, unnamed)
 
     def test_an_account_showing_a_configured_apps_name_by_another_id_is_refused(self):  # decision 0218, Astra
         # A slug reused after a rename: another Bot under the Controller's name, labelling or commenting. It is not that
@@ -6234,17 +6518,58 @@ class Issues(unittest.TestCase):
             router = Router(github.Replay(issue_read([event])), {"don-petry": "admin"})
             accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory=set(names), apps=names)
             with self.assertRaises(github.Unanswered, msg=event["event"]):
-                issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES)
+                issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES, earlier=[])
         # A name the configuration declares, though it holds no account of that App's, no account may show (Carbon).
         event = issue_event("labeled", 1, actor=("combsmith-sf-dev-lead[bot]", 99, "Bot"), label={"name": "factory:ready"})
         router = Router(github.Replay(issue_read([event])), {"don-petry": "admin"})
         reserved = timeline.Accounts(router, "o/r", MACHINE, {}, apps=names, reserved={"combsmith-sf-dev-lead[bot]"})
         with self.assertRaises(github.Unanswered):
-            issues.read(router, "o/r", 41, reserved, lambda: self.NOW, identities=IDENTITIES)
+            issues.read(router, "o/r", 41, reserved, lambda: self.NOW, identities=IDENTITIES, earlier=[])
+        # A name reserved refuses only the account that shows it: another Bot is read by its login (issue 965).
+        event = issue_event("labeled", 1, actor=("dependabot[bot]", 99, "Bot"), label={"name": "x"})
+        router = Router(github.Replay(issue_read([event])), {"don-petry": "admin"})
+        reserved = timeline.Accounts(router, "o/r", MACHINE, {}, apps=names, reserved={"combsmith-sf-dev-lead[bot]"})
+        found, _ = issues.read(router, "o/r", 41, reserved, lambda: self.NOW, identities=IDENTITIES, earlier=[])
+        self.assertEqual(found["label_events"][0]["by"]["name"], "dependabot[bot]")
+        # The queue App is read by its id as the queue, but under a name the configuration holds or reserves it is
+        # refused too: renamed onto it, it could be read as that App (issue 965).
+        queued = timeline.Accounts(router, "o/r", MACHINE, {}, queue=(99, "Bot"), apps=names,
+                                   reserved={"combsmith-sf-dev-lead[bot]"})
+        for login in ("combsmith-sf-controller[bot]", "combsmith-sf-dev-lead[bot]"):
+            with self.assertRaises(github.Unanswered, msg=login):
+                queued.actor({"login": login, "id": 99, "type": "Bot"})
+        self.assertEqual(queued.actor({"login": "combsmith-sf-queue[bot]", "id": 99, "type": "Bot"}),
+                         {"kind": "queue", "name": "combsmith-sf-queue[bot]", "can_write": False})
+        # A queue whose id is held among the Apps too is held to the login it shows, and named by it: another App's name
+        # is refused, a name of its own is read, and so is its own App's name, reserved or not (issue 965).
+        own = timeline.Accounts(router, "o/r", MACHINE, {}, queue=(99, "Bot"),
+                                apps={**names, (99, "Bot"): "combsmith-sf-queue[bot]"},
+                                reserved={"combsmith-sf-queue[bot]"})
+        with self.assertRaises(github.Unanswered):
+            own.actor({"login": "combsmith-sf-controller[bot]", "id": 99, "type": "Bot"})
+        for login in ("renamed-queue[bot]", "combsmith-sf-queue[bot]"):
+            self.assertEqual(own.actor({"login": login, "id": 99, "type": "Bot"}),
+                             {"kind": "queue", "name": login, "can_write": False}, login)
+        # A Lens is told by its id and read as its own name whatever login it shows, so no name it shows is read as an
+        # App's (issue 901).
+        lens = timeline.Accounts(router, "o/r", MACHINE, {(77, "Bot"): "verify"}, apps=names)
+        self.assertEqual(lens.actor({"login": "combsmith-sf-controller[bot]", "id": 77, "type": "Bot"}),
+                         {"kind": "lens", "name": "verify", "can_write": False})
+        # A User's login is compared as it is: a person may hold an App's name without its suffix (issue 965).
+        self.assertEqual(queued.named("combsmith-sf-controller", 17, "User"), "combsmith-sf-controller")
+        # GraphQL spells a Bot's login with no suffix, as the threads port passes it on: another account under either
+        # name is refused as REST's is, and the App itself is named by its id (issue 965).
+        for login in ("combsmith-sf-controller", "combsmith-sf-dev-lead"):
+            with self.assertRaises(github.Unanswered, msg=login):
+                queued.actor(threads._account({"__typename": "Bot", "login": login, "databaseId": 98}))
+        self.assertEqual(queued.actor(threads._account({"__typename": "Bot", "login": "combsmith-sf-controller",
+                                                        "databaseId": 41}))["name"], names[(41, "Bot")])
+        self.assertEqual(queued.actor(threads._account({"__typename": "Bot", "login": "dependabot", "databaseId": 98}))["name"],
+                         "dependabot")
         # The App itself, by its id, is read.
         events = [issue_event("labeled", 1, actor=("combsmith-sf-controller[bot]", 41, "Bot"), label={"name": "factory:triage"})]
         router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
-        found, _ = issues.read(router, "o/r", 41, timeline.Accounts(router, "o/r", MACHINE, {}, apps=names), lambda: self.NOW, identities=IDENTITIES)
+        found, _ = issues.read(router, "o/r", 41, timeline.Accounts(router, "o/r", MACHINE, {}, apps=names), lambda: self.NOW, identities=IDENTITIES, earlier=[])
         self.assertEqual(found["label_events"][0]["by"]["name"], names[(41, "Bot")])
 
     def test_an_issues_content_time_is_the_newer_of_its_edit_and_its_rename(self):  # P-34
@@ -6336,7 +6661,7 @@ class Issues(unittest.TestCase):
                   issue_event("labeled", 3, CONTROLLER_APP, label={"name": "y"})]
         router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, "o/r", approver, lenses, factory, roles=facts_.roles_of(held))
-        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES)
+        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES, earlier=[])
         # The Role's comment is read as its own; its label is no act, and the Controller's is the one counted.
         self.assertEqual((found["role_comments"], found["acts_since_writer"]), ([{"by": role[0], "at": minute(1)}], 1))
         # A pull request's timeline is counted by the same reader: what `acts_since_writer` counts there is as it was,
@@ -6352,7 +6677,7 @@ class Issues(unittest.TestCase):
         events.append(issue_event("labeled", 4, both, label={"name": "z"}))
         router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, "o/r", approver, lenses, factory, roles=facts_.roles_of(held))
-        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES)
+        found, _ = issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES, earlier=[])
         self.assertEqual((found["acts_since_writer"], timeline.since_writer(events, accounts)["acts_since_writer"]), (2, 2))
         # And it is read as that Lens, never as an App, wherever who acted is told: its label on an issue and on a pull request.
         lens = {"kind": "lens", "name": "pr-review", "can_write": False}
@@ -6453,6 +6778,8 @@ class Issues(unittest.TestCase):
         self.assertIsNotNone(issue.derive(f, [], CONFIG)["state"])
         deferred = issue.derive(dict(f, complete=dict(f["complete"], linked=False)), [], CONFIG)
         self.assertEqual((deferred["state"], deferred["reason"], deferred["evidence"]), (None, "facts_incomplete", ["linked"]))
+        # The port hands the linked read the pass records it was given: with those not read, they are not whole.
+        self.assertEqual(self.read(issue_read(), earlier=None)["complete"], {"timeline": True, "linked": False, "runs": True})
         with self.assertRaises(github.Unanswered):
             self.read(issue_read(), clock=lambda: "noon")
 
@@ -6504,11 +6831,14 @@ class Linked(unittest.TestCase):
 
     def listed(self, exchanges, began=CREATED, repo="o/r", number=41, updated=UPDATED) -> tuple:
         router = Router(github.Replay(exchanges), {"don-petry": "admin", "stranger": "read"})
-        return linked.listing(router, repo, number, updated, began, IDENTITIES, self.accounts(router))[:2]
+        return linked.listing(router, repo, number, updated, began, IDENTITIES, self.accounts(router), {})[:2]
 
-    def read(self, exchanges) -> tuple:
+    def read(self, exchanges, earlier=()) -> tuple:
+        """The linked pull requests as the port reads them, `(number, keyword, spans)` each, and whether whole."""
         router = Router(github.Replay(exchanges), {"don-petry": "admin", "stranger": "read"})
-        return linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router))
+        found, whole = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router),
+                                   None if earlier is None else list(earlier))
+        return [(p["number"], p["keyword"], p["keyword_spans"]) for p in found], whole
 
     def test_only_a_pull_request_to_the_default_branch_is_listed_as_linked(self):  # P-33, decision 0028
         # 8 is to another base, which carries no closing reference (P-33), as 9, linked by hand, is.
@@ -6675,6 +7005,33 @@ class Linked(unittest.TestCase):
             with self.assertRaises(github.Unanswered):
                 self.listed([linked_read(ref(5)), pull_read(5, files=files), pull_timeline(5)])
 
+    def test_a_pull_request_whose_keyword_a_pass_saw_stays_listed_after_an_edit_takes_it_out_and_no_other_does(self):  # 0186 (1)
+        from kernel import issue
+        # A pass listed 7 with its keyword and 8 with none, linked by hand then. The references name neither now, and no
+        # link by hand is read: 7 is listed, with no keyword and the span that pass began, and 8 is not read at all.
+        before = [seen_by(3, [(7, True, []), (8, False, [])])]
+        found = self.read([linked_read(), pull_read(7), pull_timeline(7)], before)
+        self.assertEqual(found, ([(7, False, [span(3)])], True))
+        # The Kernel reads it as listed for something; with no span it would be listed for nothing.
+        router = Router(github.Replay([linked_read(), pull_read(7), pull_timeline(7)]), {})
+        (kept,), _ = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), before)
+        self.assertTrue(issue.readable_keyword(kept))
+        self.assertFalse(issue.readable_keyword(dict(kept, keyword_spans=[])))
+        # The pass after, whose record holds the span and the keyword gone, ends it; the pull request stays listed.
+        later = [seen_by(6, [(7, False, [span(3)])])]
+        self.assertEqual(self.read([linked_read(), pull_read(7), pull_timeline(7)], later), ([(7, False, [span(3, 6)])], True))
+        # Each is given its own spans, and one still named is listed once, with its keyword and its span.
+        two = [seen_by(3, [(7, True, [span(0, 2)]), (9, True, [])])]
+        found, _ = self.read([linked_read(ref(9)), pull_read(7), pull_timeline(7), pull_read(9), pull_timeline(9)], two)
+        self.assertEqual(found, [(7, False, [span(0, 2), span(3)]), (9, True, [span(3)])])
+        # Once seen, it is read as any listed: to another base now it is left out and the list is not whole, as its
+        # author may retarget it after a merge; and its timeline read short is not whole.
+        self.assertEqual(self.read([linked_read(), pull_read(7, base="next")], before), ([], False))
+        short = [linked_read(), pull_read(7), pull_timeline(7, more=True), rest_answer("/repos/o/r/issues/7/timeline?per_page=100&page=2", {})]
+        self.assertEqual(self.read(short, before), ([(7, False, [span(3)])], False))
+        # Pass records that could not be read give no time and could hide one once seen: the list is not whole.
+        self.assertEqual(self.read([linked_read()], None), ([], False))
+
     def test_the_linked_pull_requests_are_whole_only_where_no_pull_request_names_the_issue(self):  # decision 0186
         # While keyword spans are unread, a pull request listed or cross-referencing leaves the list short; an issue does not.
         self.assertEqual(self.read([linked_read()]), ([], True))
@@ -6689,11 +7046,24 @@ class Linked(unittest.TestCase):
             self.assertEqual(self.read(named), ([], False))
         self.assertEqual(self.read([linked_read((), total=1)]), ([], False))
         self.assertEqual(self.read([linked_read(more=True)]), ([], False))
-        self.assertIn("itemTypes: [CLOSED_EVENT, CONNECTED_EVENT, DISCONNECTED_EVENT, CROSS_REFERENCED_EVENT]", linked.QUERY)
+        self.assertIn("itemTypes: [CLOSED_EVENT, CONNECTED_EVENT, DISCONNECTED_EVENT, CROSS_REFERENCED_EVENT, REFERENCED_EVENT]",
+                      linked.QUERY)
         self.assertIn("... on CrossReferencedEvent { source { __typename } }", linked.QUERY)
         self.assertEqual(self.read([linked_read((), [{"__typename": "CrossReferencedEvent", "source": None}])]), ([], False))
-        found, whole = self.read([linked_read(ref(7)), pull_read(7), pull_timeline(7)])
-        self.assertEqual(([(p["number"], p["keyword"], p["keyword_spans"]) for p in found], whole), ([(7, True, [])], False))
+        self.assertEqual(self.read([linked_read(ref(7)), pull_read(7), pull_timeline(7)]), ([(7, True, [])], False))
+        # Pass records that break the chain of spans leave the list not whole, whatever names the issue.
+        self.assertEqual(self.read([linked_read()], [seen_by(3, issues=[], alerts=["issue_apps_unreadable"])]), ([], False))
+
+    def test_a_commits_reference_names_the_issue_and_the_timeline_is_read_on_past_it(self):  # issue 990
+        # A commit's closing keyword leaves a reference by the commit, not a cross-reference: it names the issue, and so
+        # does one whose commit cannot be read. The timeline is read on past it: a link by hand after it is listed.
+        named = ()
+        self.assertIn("CROSS_REFERENCED_EVENT, REFERENCED_EVENT]", linked.QUERY)
+        self.assertIn("... on ReferencedEvent { commit { oid } }", linked.QUERY)
+        for events in ([referenced()], [referenced(None)], [crossed("Issue"), referenced()]):
+            self.assertEqual(self.read([linked_read((), events)], named), ([], False), events)
+        self.assertEqual(self.read([linked_read((), [referenced(), link("ConnectedEvent", 1, 7)]), pull_read(7), pull_timeline(7)], named),
+                         ([(7, False, [])], False))
 
     def test_a_merge_beside_a_rival_keyword_link_is_never_read_with_no_spans(self):  # decision 0186
         # The Controller's App's 5 merged and closed the issue; the Maintainer's 6 named it too. Read whole with no spans,
@@ -6705,7 +7075,7 @@ class Linked(unittest.TestCase):
             linked_read(ref(5, 6), [closed_by(20, 5)]),
             pull_read(5, user=CONTROLLER_APP, merged=19, closed=19, files=2), pull_timeline(5, merge),
             pull_read(6), pull_timeline(6)])), {"don-petry": "admin"})
-        f, _ = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES)
+        f, _ = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=[])
         self.assertEqual(([p["number"] for p in f["linked"]], f["complete"]["linked"]), ([5, 6], False))
         deferred = issue.derive(f, [], CONFIG)
         self.assertEqual((deferred["state"], deferred["reason"], deferred["evidence"]), (None, "facts_incomplete", ["linked"]))
@@ -6717,7 +7087,7 @@ class Linked(unittest.TestCase):
         events = [issue_event("closed", 0), issue_event("reopened", 5), issue_event("closed", 8)]
         router = Router(github.Replay(issue_read(events, state="closed", closing=[
             linked_read((), [closed_by(8, oid="d" * 40)])])), {"don-petry": "admin"})
-        f, _ = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES)
+        f, _ = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=[])
         self.assertEqual((f["life_started_at"], f["complete"]["linked"]), (minute(5), False))
 
     def test_the_linked_pull_requests_read_short_are_not_whole_and_one_not_answered_refuses_the_issue(self):
@@ -6748,13 +7118,149 @@ class Linked(unittest.TestCase):
                    answer(("timelineItems", "nodes")), answer(refs=[("7", "o/r")]),
                    answer(events=[link("ConnectedEvent", 1, 41, repo="a/fork", typed="Issue")]), answer(refs=[(0, "a/fork")]),
                    answer(events=[{"__typename": "LabeledEvent", "createdAt": minute(1)}]),
-                   answer(events=[{"__typename": "ConnectedEvent", "createdAt": minute(1)}])]
+                   answer(events=[{"__typename": "ConnectedEvent", "createdAt": minute(1)}]),
+                   answer(events=[referenced("x")]), answer(events=[{"__typename": "ReferencedEvent", "commit": "c" * 40}]),
+                   answer(events=[{"__typename": "ReferencedEvent", "commit": {}}]), answer(events=[{"__typename": "ReferencedEvent"}]),
+                   answer(events=[referenced(int("1" * 40))]),
+                   answer(events=[referenced(), {"__typename": "CrossReferencedEvent", "source": {}}]),
+                   answer(events=[crossed(), {"__typename": "CrossReferencedEvent", "source": {}}])]
         for at, found in enumerate(refused):
             with self.assertRaises(github.Unanswered, msg=at):
                 self.listed([found])
         # An issue that changed while its pull requests were read is read again at the next pass.
         with self.assertRaises(facts.Moved):
             self.listed([answer(updated="2026-10-11T11:00:01Z")])
+
+
+def seen_by(at: int, pulls=(), linked_whole=True, repo="o/r", number=41, **more) -> dict:
+    """A pass record as far as the spans' reader reads one: the facts of issue `number`, read at minute `at`, each of its
+    linked pull requests `(number, keyword, spans)` as that pass handed them on."""
+    listed = [{"number": n, "keyword": keyword, "keyword_spans": spans} for n, keyword, spans in pulls]
+    facts = {"item": {"repo": repo, "type": "issue", "number": number}, "linked": listed, "read_at": minute(at),
+             "complete": {"timeline": True, "linked": linked_whole, "runs": True}}
+    return dict({"schema": "pass/1", "now": minute(at - 1), "issues": [{"facts": facts}], "left_out": [], "alerts": []}, **more)
+
+
+def span(seen: int, gone=None) -> dict:
+    return {"seen_at": minute(seen), "gone_at": None if gone is None else minute(gone)}
+
+
+class KeywordSpans(unittest.TestCase):
+    """A closing keyword's link is timed by the pass records that saw it (decision 0186, issue 734)."""
+    ITEM = {"repo": "o/r", "type": "issue", "number": 41}
+
+    def spans(self, *records):
+        return keyword_spans.read(list(records), self.ITEM)
+
+    def test_a_keyword_is_seen_from_the_first_pass_record_that_listed_it_until_the_first_that_saw_it_gone(self):
+        # The first record that listed 7 with its keyword opens a span, at the read of the issue's facts in it, which is
+        # after the pass's own `now`; the record before it, which saw no pull request, gives nothing.
+        first = seen_by(3, [(7, True, [])])
+        self.assertEqual(self.spans(seen_by(0), first), ({7: [span(3)]}, True))
+        # The pass after hands the span on, and its record, the keyword still read, opens no second one.
+        self.assertEqual(self.spans(first, seen_by(6, [(7, True, [span(3)])])), ({7: [span(3)]}, True))
+        # The first record after it that saw the keyword gone ends the span at its own read, and the pull request is
+        # kept, by its span, when its keyword is read no more.
+        gone = seen_by(9, [(7, False, [span(3)])])
+        self.assertEqual(self.spans(first, gone), ({7: [span(3, 9)]}, True))
+        self.assertEqual(self.spans(gone, seen_by(12, [(7, False, [span(3, 9)])])), ({7: [span(3, 9)]}, True))
+        # A keyword put back begins a new span at the record that saw it again, which reaches back to nothing.
+        back = seen_by(15, [(7, True, [span(3, 9)])])
+        self.assertEqual(self.spans(gone, back), ({7: [span(3, 9), span(15)]}, True))
+        self.assertEqual(self.spans(back, seen_by(18, [(7, False, [span(3, 9), span(15)])])),
+                         ({7: [span(3, 9), span(15, 18)]}, True))
+        # Each pull request has its own; one a pass listed with no keyword and no span, linked by hand, has none.
+        both = seen_by(3, [(7, True, []), (8, False, []), (9, True, [span(0)])])
+        self.assertEqual(self.spans(both), ({7: [span(3)], 9: [span(0)]}, True))
+        # The record read is left as it was.
+        self.assertEqual(gone, seen_by(9, [(7, False, [span(3)])]))
+        self.assertEqual(back["issues"][0]["facts"]["linked"][0]["keyword_spans"], [span(3, 9)])
+
+    def test_a_keyword_is_seen_gone_only_by_a_record_that_read_the_linked_pull_requests_whole(self):
+        # A record read short, newer than the base, may have missed the reference: its own spans aside, it opens one for
+        # a keyword it read and ends none; a later whole read ends it then.
+        short = seen_by(9, [(7, False, []), (8, True, [])], linked_whole=False)
+        self.assertEqual(self.spans(seen_by(3, [(7, True, []), (8, False, [])]), short), ({7: [span(3)], 8: [span(9)]}, True))
+        self.assertEqual(self.spans(short, seen_by(12, [(7, False, [span(3)])])), ({7: [span(3, 12)]}, True))
+        # Records that hold the issue, none of them whole, break the chain (`None`).
+        self.assertEqual(self.spans(seen_by(6, [(7, True, [])], linked_whole=False), short), ({7: [span(6)], 8: [span(9)]}, None))
+
+    def test_the_spans_are_read_from_the_newest_record_that_holds_the_issue_and_no_record_gives_no_time(self):
+        older, newer = seen_by(3, [(7, True, [])]), seen_by(6, [(7, False, [span(3)])])
+        self.assertEqual(self.spans(older, newer), ({7: [span(3, 6)]}, True))
+        # The issue's facts are found in a record whatever issue it holds before them.
+        self.assertEqual(self.spans(older, dict(newer, issues=seen_by(6, number=42)["issues"] + newer["issues"])),
+                         ({7: [span(3, 6)]}, True))
+        # A record that holds no issue and leaves none out, as with no `served_from` or none open, or that served issues
+        # and not this one, closed then, saw nothing of it: the one before it is read.
+        for none in (seen_by(6, issues=[]), seen_by(6, number=42)):
+            self.assertEqual(self.spans(older, none), ({7: [span(3)]}, True))
+        # One newer than the base that left the issue out, or an item it cannot name, or whose issues' Apps could not be
+        # told, breaks the chain, wherever it stands in `left_out`; another item left out does not.
+        apps = {"alerts": ["issue_apps_unreadable"]}
+        other = {"item": dict(self.ITEM, number=42), "code": "facts_unanswered"}
+        for left, more, chained in (([{"item": self.ITEM, "code": "facts_unanswered"}], {}, None),
+                                    ([{"item": None, "code": "not_facts"}], {}, None), ([], apps, None),
+                                    ([other], {}, True),
+                                    ([other, {"item": self.ITEM, "code": "facts_unanswered"}], {}, None),
+                                    ([other, {"item": None, "code": "not_facts"}], {}, None)):
+            self.assertEqual(self.spans(older, seen_by(6, issues=[], left_out=left, **more)), ({7: [span(3)]}, chained))
+            self.assertEqual(self.spans(seen_by(6, issues=[], left_out=left, **more)), ({}, chained))
+        self.assertEqual(keyword_spans.ISSUE_APPS, "issue_apps_unreadable")
+        # Another issue's facts, or the same number's in another repo, are not this issue's.
+        for other in (seen_by(6, [(7, False, [span(3)])], number=42), seen_by(6, [(7, False, [span(3)])], repo="a/fork")):
+            self.assertEqual(self.spans(older, other), ({7: [span(3)]}, True))
+            self.assertEqual(self.spans(other), ({}, True))
+        # No record at all, or none that holds the issue: no pass saw a keyword, and that is read whole.
+        self.assertEqual(self.spans(), ({}, True))
+        self.assertEqual(self.spans(seen_by(3, number=42)), ({}, True))
+
+    def test_a_pass_that_read_no_issue_is_passed_over_and_with_none_but_such_passes_the_chain_is_broken(self):  # issue 849
+        # A record whose pass read no issue at all leaves one entry with no item and its own code: it is passed over, so
+        # the record before it is the base and the chain holds; any other itemless entry still breaks it.
+        older, unread = seen_by(3, [(7, True, [])]), {"item": None, "code": "issue_list_unreadable"}
+        self.assertEqual(self.spans(older, seen_by(6, issues=[], left_out=[unread])), ({7: [span(3)]}, True))
+        self.assertEqual(self.spans(older, seen_by(6, issues=[], left_out=[dict(unread, code="not_facts")])),
+                         ({7: [span(3)]}, None))
+        # With every record at hand passed over, no base is left: the chain is broken, never first sight.
+        self.assertEqual(self.spans(seen_by(3, issues=[], left_out=[unread]), seen_by(6, issues=[], left_out=[unread])),
+                         ({}, None))
+        # A record that holds an issue is read as any other, the entry among what it left out: this issue's facts make it
+        # the base, and another issue's leave the chain broken by the itemless entry.
+        self.assertEqual(self.spans(older, seen_by(6, [(7, True, [span(3)]), (8, True, [])], left_out=[unread])),
+                         ({7: [span(3)], 8: [span(6)]}, True))
+        self.assertEqual(self.spans(older, seen_by(6, number=42, left_out=[unread])), ({7: [span(3)]}, None))
+        # So is one that leaves out anything beside the one entry, even the same again, or raised that its issues' Apps
+        # could not be told; and one whose issues cannot be read is no pass record.
+        for left in ([unread, dict(unread, code="not_facts")], [dict(unread, code="not_facts"), unread], [unread, dict(unread)],
+                     [unread, {"item": self.ITEM, "code": "facts_unanswered"}], [dict(unread, item=self.ITEM)],
+                     [unread, {"item": dict(self.ITEM, number=42), "code": "facts_unanswered"}]):
+            self.assertEqual(self.spans(older, seen_by(6, issues=[], left_out=left)), ({7: [span(3)]}, None), left)
+        self.assertEqual(self.spans(older, seen_by(6, issues=[], left_out=[unread], alerts=["issue_apps_unreadable"])),
+                         ({7: [span(3)]}, None))
+        self.assertEqual(self.spans(older, seen_by(6, issues=None, left_out=[unread])), ({}, False))
+        for bad in ({"alerts": "x"}, {"alerts": None}, {"left_out": dict(unread)}, {"left_out": [{"item": None}]}):
+            self.assertEqual(self.spans(older, dict(seen_by(6, issues=[], left_out=[unread]), **bad)), ({}, False), bad)
+        # One that holds the issue whole is the base, and what it left out or raised itself breaks nothing.
+        for more in ({}, {"alerts": ["issue_apps_unreadable"]}):
+            self.assertEqual(self.spans(older, seen_by(6, [(7, True, [span(3)])], left_out=[unread], **more)), ({7: [span(3)]}, True))
+            self.assertEqual(self.spans(seen_by(6, [(7, True, [])], left_out=[unread], **more)), ({7: [span(6)]}, True))
+        # A record read after one passed over is read as if that were not at hand; one that holds and leaves out nothing
+        # is not passed over, and alone is first sight.
+        self.assertEqual(self.spans(seen_by(3, issues=[], left_out=[unread]), seen_by(6, [(7, True, [])])), ({7: [span(6)]}, True))
+        self.assertEqual(self.spans(seen_by(3, issues=[], left_out=[unread]), seen_by(6, issues=[], left_out=[dict(unread, code="not_facts")])),
+                         ({}, None))
+        self.assertEqual(self.spans(seen_by(6, issues=[])), ({}, True))
+        self.assertEqual(keyword_spans.UNLISTED, "issue_list_unreadable")
+
+    def test_pass_records_that_could_not_be_read_give_no_time_and_are_not_whole(self):
+        self.assertEqual(keyword_spans.read(None, self.ITEM), ({}, False))
+        # The newest at hand, where it is no pass record, gives no time either, whatever the one before it holds.
+        good = seen_by(3, [(7, True, [])])
+        for bad in ({"schema": "pass/1"}, dict(good, issues=[{"facts": {"item": self.ITEM}}]), dict(good, issues=None), "p",
+                    seen_by(6, [(7, True, ["x"])]), seen_by(6, [(7, True, [[], span(3)])]), seen_by(6, [(7, False, ["", span(3)])]),
+                    seen_by(6, [(7, True, {})]), seen_by(6, [(7, True, [span(0, 1), [["seen_at", minute(2)], ["gone_at", None]]])])):
+            self.assertEqual(self.spans(good, bad), ({}, False), bad)
 
 
 class Rules(unittest.TestCase):
@@ -6861,6 +7367,400 @@ class Rules(unittest.TestCase):
                 protected.load(path)
             with self.assertRaises(protected.Unreadable):
                 protected.load(pathlib.Path(d) / "nowhere.json")
+
+
+class DraftChecks(unittest.TestCase):
+    """A linked draft the Factory opened carries its head's required checks, where the issue rule would act on them
+    (decision 0217, issue 878: the Factory Builder's rulings Q1 to Q5, option A each)."""
+
+    @staticmethod
+    def kernel(author="dev-lead"):
+        from tests.support import CONFIG
+        return dict(CONFIG, author_role=author)
+
+    @staticmethod
+    def check(name, conclusion="success", app=15368, workflow=None, suite="success", run=7):
+        return {"name": name, "app_id": app, "workflow": workflow, "conclusion": conclusion,
+                "completed_at": "2026-10-20T00:51:22Z", "run_id": run, "suite_conclusion": suite}
+
+    def passing(self):
+        return [self.check("verify", workflow=".github/workflows/verify.yml", run=1),
+                self.check("Secret scan (gitleaks)", workflow=".github/workflows/ci.yml", run=2),
+                self.check("CodeQL", app=57789, run=None, suite=None)]
+
+    def test_a_drafts_checks_are_read_as_the_pull_requests_kernel_reads_each_required_lens(self):
+        kernel, ok = self.kernel(), self.passing()
+        self.assertEqual([lens["check"] for lens in kernel["required_lenses"]["deterministic"]],
+                         ["verify", "Secret scan (gitleaks)", "CodeQL"])
+        self.assertEqual(draft_checks.verdict(ok, kernel), "passing")
+        failed = [dict(ok[0], conclusion="failure")] + ok[1:]
+        self.assertEqual(draft_checks.verdict(failed, kernel), "failing")
+        # A failing Lens is failing beside one pending, not yet listed or concluding (Astra).
+        self.assertEqual(draft_checks.verdict(failed[:2], kernel), "failing")
+        self.assertEqual(draft_checks.verdict(failed[:2] + [dict(ok[2], conclusion="in_progress", completed_at=None)], kernel),
+                         "failing")
+        # A Lens not yet listed, as for a few seconds after a push (P-42), or still running, is pending, never failing.
+        self.assertEqual(draft_checks.verdict(ok[:2], kernel), "pending")
+        self.assertEqual(draft_checks.verdict([dict(ok[0], conclusion="in_progress", suite_conclusion=None)] + ok[1:], kernel), "pending")
+        # A failing check whose suite has not concluded is concluding: pending, since its run may yet be stopped (Q5).
+        self.assertEqual(draft_checks.verdict([dict(ok[0], conclusion="failure", suite_conclusion=None)] + ok[1:], kernel),
+                         "pending")
+        # A Lens with no verdict, or a check under a Lens's name from another App, leaves the checks unread, even beside
+        # a failing Lens: an unreadable fact defers (Q5).
+        for bad in ([dict(ok[0], conclusion="neutral")] + ok[1:],
+                    ok + [self.check("verify", app=99, workflow=".github/workflows/verify.yml")],
+                    [dict(ok[0], conclusion="neutral"), dict(ok[1], conclusion="failure"), ok[2]],
+                    [dict(ok[0], conclusion="failure"), dict(ok[1], conclusion="neutral"), ok[2]],
+                    [dict(ok[0], conclusion="failure")] + ok[1:] + [self.check("CodeQL", app=99)]):
+            self.assertIsNone(draft_checks.verdict(bad, kernel), bad)
+        # Read through the checks port: one it refuses, or reads short, leaves them unread (Q3).
+        with mock.patch.object(draft_checks.checks, "read", lambda t, p: {"checks": failed, "complete": True, "queue": False}):
+            self.assertEqual(draft_checks.read(None, {}, kernel), "failing")
+        with mock.patch.object(draft_checks.checks, "read", lambda t, p: {"checks": failed, "complete": False, "queue": False}):
+            self.assertIsNone(draft_checks.read(None, {}, kernel))
+
+        def moved(t, p):
+            raise github.Unanswered("the pull request's head moved while its checks were read")
+        with mock.patch.object(draft_checks.checks, "read", moved):
+            self.assertIsNone(draft_checks.read(None, {}, kernel))
+        # Through the real checks port, of REST's read of the draft: its rollup asked by owner, name and number, read of
+        # its head; one of another head is null.
+        def run(name, workflow, conclusion, n, app=15368):
+            return {"__typename": "CheckRun", "id": "c%d" % n, "name": name, "status": "COMPLETED", "conclusion": conclusion,
+                    "completedAt": "2026-10-20T00:51:22Z", "databaseId": n,
+                    "detailsUrl": "https://github.com/o/r/actions/runs/%d/job/%d" % (100 + n, n) if workflow else None,
+                    "checkSuite": {"app": {"databaseId": app}, "conclusion": conclusion,
+                                   "workflowRun": {"databaseId": 100 + n, "file": {"path": workflow}} if workflow else None}}
+
+        def answer(head, nodes):
+            asked = {"query": checks.QUERY, "variables": {"owner": "o", "name": "r", "number": 5, "after": None}}
+            node = {"headRefOid": head, "mergeQueueEntry": None, "commits": {"nodes": [{"commit": {"oid": head,
+                    "statusCheckRollup": {"contexts": {"totalCount": len(nodes), "pageInfo": {"hasNextPage": False,
+                                                                                            "endCursor": None},
+                                                       "nodes": nodes}}}}]}}
+            return {"request": {"via": "graphql", "call": "POST /graphql", "headers": {}, "body": asked},
+                    "response": {"status": 200, "headers": {}, "body": {"data": {"repository": {"pullRequest": node}}}}}
+        nodes = [run("verify", ".github/workflows/verify.yml", "FAILURE", 1),
+                 run("Secret scan (gitleaks)", ".github/workflows/ci.yml", "SUCCESS", 2),
+                 run("CodeQL", None, "SUCCESS", 3, app=57789)]
+        draft = pull_read(5, user=CONTROLLER_APP, draft=True)["response"]["body"]
+        self.assertEqual(draft_checks.read(github.Replay([answer("a" * 40, nodes)]), draft, kernel), "failing")
+        self.assertIsNone(draft_checks.read(github.Replay([answer("b" * 40, nodes)]), draft, kernel))
+        # A configuration that cannot be read leaves the checks unread, never raising out of the port.
+        self.assertIsNone(draft_checks.read(github.Replay([answer("a" * 40, nodes)]), draft, {}))
+
+    def test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read(self):  # Q2
+        mine = {"class": "agent", "state": "open", "is_draft": True}
+        self.assertTrue(draft_checks.asked(self.kernel(), mine))
+        for kernel, own in ((self.kernel(None), mine), (None, mine), (self.kernel(), dict(mine, **{"class": "maintainer"})),
+                            (self.kernel(), dict(mine, state="closed")), (self.kernel(), dict(mine, is_draft=False))):
+            self.assertFalse(draft_checks.asked(kernel, own), (kernel and kernel["author_role"], own))
+        # Through the linked read: the Factory's draft carries `checks`, read of its own head, and with no author Role
+        # named, or another's draft, none is read and none carried.
+        asked = []
+
+        def read(transport, got, kernel):
+            asked.append((got["number"], got["head"]["sha"]))
+            self.assertIs(kernel, given)
+            return "failing"
+        given = self.kernel()
+        router = lambda: Router(github.Replay([linked_read(ref(5, 6)), pull_read(5, user=CONTROLLER_APP, draft=True),
+                                               pull_timeline(5), pull_read(6, draft=True), pull_timeline(6)]),
+                                {"don-petry": "admin"})
+        with mock.patch.object(draft_checks, "read", read):
+            transport = router()
+            found = linked.listing(transport, "o/r", 41, UPDATED, CREATED, IDENTITIES, Linked().accounts(transport), {},
+                                   given)[0]
+            self.assertEqual([(p["number"], p.get("checks")) for p in found], [(5, "failing"), (6, None)])
+            self.assertEqual(("checks" in found[1], asked), (False, [(5, "a" * 40)]))
+            transport = router()
+            found = linked.listing(transport, "o/r", 41, UPDATED, CREATED, IDENTITIES, Linked().accounts(transport), {},
+                                   self.kernel(None))[0]
+            self.assertEqual([("checks" in p) for p in found], [False, False])
+            self.assertEqual(len(asked), 1)
+            # The issues port hands the linked read the configuration it is given.
+            transport = router()
+            accounts = Linked().accounts(transport)
+            exchanges_ = issue_read(closing=[linked_read(ref(5, 6)), pull_read(5, user=CONTROLLER_APP, draft=True),
+                                             pull_timeline(5), pull_read(6, draft=True), pull_timeline(6)])
+            transport = Router(github.Replay(exchanges_), {"don-petry": "admin"})
+            got = issues.read(transport, "o/r", 41, timeline.Accounts(transport, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]}),
+                              lambda: Issues.NOW, identities=IDENTITIES, earlier=[], kernel=given)[0]
+            self.assertEqual([p.get("checks") for p in got["linked"]], ["failing", None])
+
+
+PUSHED = json.loads((ROOT / "trials" / "P-71.json").read_text())["repo"]       # P-71's repo, and its work branch
+WORK = "factory-work/issue-9971-1"
+NAMED = "a" * 40
+MIXED = "0123456789abcdef" * 2 + "01234567"     # a name of digits and letters both
+
+
+def calmly(send, *args):
+    """What `send` gives, or the error it raised in its place."""
+    try:
+        return send(*args)
+    except Exception as raised:
+        return raised
+
+
+class Posing:
+    """No text, though it answers as text would: as base64, as a file's path, and as equal to any."""
+
+    def replace(self, old, new):
+        return "eA=="
+
+    def split(self, sep):
+        return ["a.md"]
+
+    def __eq__(self, other):
+        return True
+
+
+class Lying(str):
+    """Text of another kind: equal to any text and unequal to none, and read as other text by str(), replace and split."""
+    __hash__ = str.__hash__
+
+    def __eq__(self, other):
+        return True
+
+    def __ne__(self, other):
+        return False
+
+    def __str__(self):
+        return "main"
+
+    def replace(self, old, new, count=-1):
+        return "eA=="
+
+    def split(self, sep=None, maxsplit=-1):
+        return ["o", "a.md"]
+
+
+class Push(unittest.TestCase):
+    """The push port (issue 838): what a push's token may send by the git data API, deciding nothing."""
+
+    class Recording:
+        """A transport that answers every request, so only the push's token can refuse one."""
+        def __init__(self):
+            self.sent = []
+
+        def send(self, req):
+            self.sent.append(req)
+            return {"status": 200, "headers": {}, "body": None}
+
+    def test_a_pushs_token_sends_a_pushs_alone(self):
+        entry = {"path": "a.md", "mode": "100644", "type": "blob", "sha": NAMED}
+        recording = self.Recording()
+        sending = effects.Allowed(recording, *push.allowed(PUSHED, WORK))
+        git, other = "/repos/%s/git/" % PUSHED, "/repos/%sx/git/" % PUSHED[:-1]     # another repo, its name as long
+        tree = {"base_tree": NAMED, "tree": [entry]}
+        commit = {"message": "m", "tree": NAMED, "parents": [NAMED]}
+        blob = {"content": "eA==", "encoding": "base64"}
+        good = [github.request(method, path, body=body) for method, path, body in (
+            ("GET", git + "commits/" + NAMED, None), ("GET", git + "trees/" + NAMED + "?recursive=1", None),
+            ("GET", git + "blobs/" + NAMED, None), ("GET", git + "ref/heads/" + WORK, None),
+            ("GET", git + "blobs/" + MIXED, None), ("POST", git + "trees", dict(tree, base_tree=MIXED)),
+            ("POST", git + "blobs", blob), ("POST", git + "blobs", dict(blob, content="eHh4\neA==\n")),
+            ("POST", git + "blobs", dict(blob, content="")),
+            ("POST", git + "trees", dict(tree, tree=[entry, dict(entry, path="bin/b.sh", mode="100755"),
+                                                     dict(entry, path="docs/c..d", sha=None)])),
+            ("POST", git + "commits", commit), ("POST", git + "refs", {"ref": "refs/heads/" + WORK, "sha": NAMED}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": False}))]
+        for req in good:
+            self.assertEqual(calmly(sending.send, req), {"status": 200, "headers": {}, "body": None}, req)
+        self.assertEqual(recording.sent, good)
+        refused = [
+            # A read off the repo's git data, another repo's, of no name, of a tree's top alone, or with a body.
+            ("GET", "/repos/%s/contents/a.md" % PUSHED, None), ("GET", other + "commits/" + NAMED, None),
+            ("GET", git + "commits/main", None), ("GET", git + "trees/" + NAMED, None),
+            ("GET", git + "ref/heads/main", None), ("GET", git + "ref/heads/factory-work/issue-9971-2", None),
+            ("GET", git + "commits/" + NAMED, {}), ("GET", git + "ref/heads/" + WORK, {"sha": NAMED}),
+            # Of a name of 39 hex digits, or of 41.
+            ("GET", git + "blobs/" + NAMED[:-1], None), ("GET", git + "commits/" + NAMED + "a", None),
+            # A blob of another repo's, another encoding or one that is no text, a key more, no text, or no base64:
+            # alphabet, padding, length.
+            ("POST", other + "blobs", blob), ("POST", git + "blobs", dict(blob, encoding="utf-8")),
+            ("POST", git + "blobs", dict(blob, encoding=Posing())),
+            ("POST", git + "blobs", dict(blob, size=1)), ("POST", git + "blobs", dict(blob, content=Posing())),
+            ("POST", git + "blobs", dict(blob, content=b"eA==")), ("POST", git + "blobs", dict(blob, content=1)),
+            ("POST", git + "blobs", dict(blob, content="not base64!")), ("POST", git + "blobs", dict(blob, content="e!A==")),
+            ("POST", git + "blobs", dict(blob, content="eA=")), ("POST", git + "blobs", dict(blob, content="YWJj=")),
+            ("POST", git + "blobs", dict(blob, content="YWJj==")), ("POST", git + "blobs", dict(blob, content="YWJj====")),
+            ("POST", git + "blobs", dict(blob, content="eA==eA==")), ("POST", git + "blobs", dict(blob, content="eHh4e")),
+            # A tree of a symlink, a submodule, an entry of another type, with a key more or no name; with a key more,
+            # of no list, or of a good entry and then a bad one; of a path that is no text, names no file or holds a
+            # control character; upon a name with more after it, or of 39 or 41 hex digits.
+            ("POST", git + "trees", dict(tree, base_tree="main")), ("POST", other + "trees", tree),
+            ("POST", git + "trees", dict(tree, base_tree=NAMED[:-1])),
+            ("POST", git + "trees", dict(tree, base_tree=NAMED + "a")),
+            ("POST", git + "trees", dict(tree, mode="100644")), ("POST", git + "trees", dict(tree, tree={})),
+            ("POST", git + "trees", dict(tree, tree=[entry, dict(entry, mode="120000")])),
+            ("POST", git + "trees", dict(tree, tree=[entry, dict(entry, path=b"b.md")])),
+            ("POST", git + "trees", dict(tree, base_tree=NAMED + "\n"))] + [
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, **bad)]))
+            for bad in ({"mode": "120000"}, {"mode": "160000", "type": "commit"}, {"type": "commit"}, {"size": 1},
+                        {"sha": "x"}, {"path": b"a.md"}, {"path": 1}, {"path": Posing()})] + [
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path=path)]))
+            for path in ("", "/a.md", "docs/", "docs//a.md", "./a.md", "docs/./a.md", "../a.md", "docs/../a.md",
+                         ".", "..", "docs/a\x00b", "docs/a\nb", "\x1fa.md", "docs/a\x7fb")] + [
+            # A commit of no parent or two, a tree of no name, another repo's; with a key more; of a message no text,
+            # parents no list, or a parent of no name.
+            ("POST", git + "commits", dict(commit, parents=[])), ("POST", git + "commits", dict(commit, parents=[NAMED] * 2)),
+            ("POST", git + "commits", dict(commit, tree="main")), ("POST", other + "commits", commit),
+            ("POST", git + "commits", dict(commit, author={"name": "a"})),
+            ("POST", git + "commits", dict(commit, committer={"name": "a"})),
+            ("POST", git + "commits", dict(commit, signature="s")),
+            ("POST", git + "commits", dict(commit, message=1)), ("POST", git + "commits", dict(commit, parents={"0": NAMED})),
+            ("POST", git + "commits", dict(commit, parents=["main"])),
+            # Another ref made: the default branch, a tag, another work branch, by its own path, a key more; or at no name.
+            ("POST", git + "refs", {"ref": "refs/heads/main", "sha": NAMED}),
+            ("POST", git + "refs", {"ref": "refs/tags/factory/v1.0.0", "sha": NAMED}),
+            ("POST", git + "refs", {"ref": "refs/heads/factory-work/issue-9971-2", "sha": NAMED}),
+            ("POST", git + "refs", {"ref": "refs/heads/" + WORK, "sha": NAMED, "force": True}),
+            ("POST", git + "refs/heads/" + WORK, {"sha": NAMED, "force": False}),
+            ("POST", other + "refs", {"ref": "refs/heads/" + WORK, "sha": NAMED}),
+            ("POST", git + "refs", {"ref": "refs/heads/" + WORK, "sha": "main"}),
+            ("POST", git + "refs", {"ref": "refs/heads/" + WORK, "sha": None}),
+            # A force told any way, or none; another branch moved; by the read's path or another repo's; to no name.
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": True}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": 0}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": "false"}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": False, "extra": 1}),
+            ("PATCH", git + "refs/heads/main", {"sha": NAMED, "force": False}),
+            ("PATCH", git + "refs/heads/factory-work/issue-9971-2", {"sha": NAMED, "force": False}),
+            ("PATCH", git + "ref/heads/" + WORK, {"sha": NAMED, "force": False}),
+            ("PATCH", other + "refs/heads/" + WORK, {"sha": NAMED, "force": False}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": "main", "force": False}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": None, "force": False}),
+            # Never a delete, and never a put.
+            ("DELETE", git + "refs/heads/" + WORK, None), ("PUT", git + "refs/heads/" + WORK, {"sha": NAMED, "force": False})]
+        for method, path, body in refused:
+            self.assertIsInstance(calmly(sending.send, github.request(method, path, body=body)), github.Unanswered,
+                                  (method, path, body))
+        self.assertEqual(recording.sent, good)
+        # A read of another repo's whose name differs from this one's where it holds a dot, by any pattern.
+        dotted = effects.Allowed(recording, *push.allowed("o/a.b", WORK))
+        self.assertEqual(dotted.send(github.request("GET", "/repos/o/a.b/git/blobs/" + NAMED))["status"], 200)
+        for rest in ("blobs/" + NAMED, "trees/" + NAMED + "?recursive=1", "commits/" + NAMED):
+            self.assertIsInstance(calmly(dotted.send, github.request("GET", "/repos/o/axb/git/" + rest)),
+                                  github.Unanswered, rest)
+        self.assertEqual(recording.sent, good + [github.request("GET", "/repos/o/a.b/git/blobs/" + NAMED)])
+        # A token for a repo or a branch told wrongly, a work branch's name with more after it among them, sends
+        # nothing at all: nor one for a repo with more after it, or for the work branch of an issue or an attempt 0.
+        for repo, branch in (("o/..", WORK), (PUSHED, "main"), (PUSHED, None), (PUSHED, WORK + "/../main"),
+                             ("o/repo/extra", WORK), ("owner/repo/../other", WORK),
+                             (PUSHED, "factory-work/issue-9971-0"), (PUSHED, "factory-work/issue-0-1"),
+                             (PUSHED, "factory-work/issue-9971-01")):
+            self.assertEqual(push.allowed(repo, branch), ({}, []), (repo, branch))
+
+    def test_a_pushs_token_holds_each_thing_it_is_told_to_its_exact_kind(self):
+        # Text of another kind, that equals any text and reads as other text, as the repo or the branch: no token.
+        for repo, branch in ((Lying(PUSHED), WORK), (PUSHED, Lying(WORK))):
+            self.assertEqual(calmly(push.allowed, repo, branch), ({}, []), (repo, branch))
+        recording = self.Recording()
+        sending = effects.Allowed(recording, *push.allowed(PUSHED, WORK))
+        git = "/repos/%s/git/" % PUSHED
+        entry = {"path": "a.md", "mode": "100644", "type": "blob", "sha": NAMED}
+        tree = {"base_tree": NAMED, "tree": [entry]}
+        blob = {"content": "eA==", "encoding": "base64"}
+        holding, deep = [], NAMED
+        holding.append(holding)
+        for _ in range(600):
+            deep = [deep]
+        refused = [
+            # A body holding text of another kind: as the ref made, a file's mode, type or path, a blob's content or
+            # encoding, a key.
+            ("POST", git + "refs", {"ref": Lying("refs/heads/main"), "sha": NAMED}),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, mode=Lying("120000"))])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, type=Lying("commit"))])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path=Lying("../a.md"))])),
+            ("POST", git + "blobs", dict(blob, content=Lying("not base64!"))),
+            ("POST", git + "blobs", dict(blob, encoding=Lying("utf-8"))),
+            ("POST", git + "blobs", {Lying("content"): "eA==", "encoding": "base64"}),
+            # A body of more things than any push holds, and then one that holds itself, or is nested deep.
+            ("POST", git + "trees", dict(tree, tree=[entry] * (push.MOST // 5))),
+            ("POST", git + "trees", dict(tree, tree=holding)),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, sha=deep)]))]
+        for method, path, body in refused:
+            self.assertIsInstance(calmly(sending.send, github.request(method, path, body=body)), github.Unanswered,
+                                  (method, path))
+        self.assertEqual(recording.sent, [])
+        # The most a body may hold is sent.
+        most = github.request("POST", git + "trees", body=dict(tree, tree=[entry] * (push.MOST // 5 - 1)))
+        self.assertEqual(sending.send(most)["status"], 200)
+
+    def test_a_pushs_token_holds_a_path_base64_and_each_bound_at_its_edge(self):
+        recording = self.Recording()
+        sending = effects.Allowed(recording, *push.allowed(PUSHED, WORK))
+        git = "/repos/%s/git/" % PUSHED
+        entry = {"path": "a.md", "mode": "100644", "type": "blob", "sha": NAMED}
+        tree, blob = {"base_tree": NAMED, "tree": [entry]}, {"content": "eA==", "encoding": "base64"}
+
+        class Equal(int):
+            """A whole number of another kind, equal to any mode."""
+            __hash__ = int.__hash__
+
+            def __eq__(self, other):
+                return True
+        good = [("POST", git + "blobs", dict(blob, content=told)) for told in ("eA==", "YWI=", "YWJj")] + [
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path=path)]))
+            for path in ("docs/a\xa0b.md", "caf\xe9.md", "git", ".gitignore", "docs/.github/a.yml")] + [
+            # A file removed where one is written beneath it, names that begin alike, and 20 files.
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="docs", sha=None),
+                                                     dict(entry, path="docs/a.md")])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="docs/a"), dict(entry, path="docs/a.md")])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="f%d.md" % n) for n in range(20)]))]
+        refused = [
+            # Base64 padded past a four, by three, with = in its midst, of another alphabet, or longer than GitHub takes.
+            ("POST", git + "blobs", dict(blob, content=told))
+            for told in ("YWJj====", "YWJj=", "eA=", "eA===", "eA==eA==", "eHh4!!!!", "A" * 134217732)] + [
+            # A path with a C1 control, through git's own directory in any form, or with a backslash.
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path=path)]))
+            for path in ("docs/a\x80b", "docs/a\x9fb", ".git/config", ".GIT/config", ".Git/HEAD", "docs/.git/a",
+                         ".git", ".git./config", ".git:x/config", "GIT~1/config", "docs\\a.md")] + [
+            # A file written where another needs a directory, at the top or below it.
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="docs"), dict(entry, path="docs/a.md")])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="docs/a/b.md"), dict(entry, path="docs/a")])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, mode=Equal(0))])),
+            # A blob's or a tree's read with a body; 40 characters of no hex, read or built upon.
+            ("GET", git + "blobs/" + NAMED, {}), ("GET", git + "trees/" + NAMED + "?recursive=1", {}),
+            ("GET", git + "blobs/" + "g" * 40, None), ("POST", git + "trees", dict(tree, base_tree="g" * 40))]
+        answered = {"status": 200, "headers": {}, "body": None}
+        for method, path, body in good:
+            self.assertEqual(calmly(sending.send, github.request(method, path, body=body)), answered, path)
+        for method, path, body in refused:
+            self.assertIsInstance(calmly(sending.send, github.request(method, path, body=body)), github.Unanswered,
+                                  (method, path))
+        self.assertEqual(len(recording.sent), len(good))
+        # The longest base64 is sent, newlines counted, and no longer.
+        with mock.patch.object(push, "MOST_BASE64", 8):
+            edge = github.request("POST", git + "blobs", body=dict(blob, content="eHh4eHh4"))
+            self.assertEqual(calmly(sending.send, edge), answered)
+            for told in ("eHh4eHh4eA==", "eHh4\neHh4"):
+                self.assertIsInstance(calmly(sending.send, github.request("POST", git + "blobs", body=dict(
+                    blob, content=told))), github.Unanswered, told)
+        # The most a body may hold, counted as `_plain` counts.
+        self.assertTrue(push._plain([None] * 99999))
+        self.assertFalse(push._plain([None] * 100000))
+        # A retry's token sends its own branch's requests, not the first attempt's.
+        retry = "factory-work/issue-9971-2"
+        again = effects.Allowed(recording, *push.allowed(PUSHED, retry))
+        for method, path, body in (("GET", git + "ref/heads/" + retry, None),
+                                   ("POST", git + "refs", {"ref": "refs/heads/" + retry, "sha": NAMED}),
+                                   ("PATCH", git + "refs/heads/" + retry, {"sha": NAMED, "force": False})):
+            self.assertEqual(calmly(again.send, github.request(method, path, body=body)), answered, method)
+        self.assertIsInstance(calmly(again.send, github.request("GET", git + "ref/heads/" + WORK)), github.Unanswered)
+        # An owner of 39 characters, a name of 100, an issue or attempt of 19 digits; none of one more, nor a repo `.`.
+        long_ = "9" * 19
+        for repo, branch in (("a" * 39 + "/r", WORK), ("o/" + "r" * 100, WORK),
+                             (PUSHED, "factory-work/issue-%s-1" % long_), (PUSHED, "factory-work/issue-1-%s" % long_)):
+            read = github.request("GET", "/repos/%s/git/ref/heads/%s" % (repo, branch))
+            self.assertEqual(calmly(effects.Allowed(recording, *push.allowed(repo, branch)).send, read), answered, repo)
+        for repo, branch in (("a" * 40 + "/r", WORK), ("o/" + "r" * 101, WORK), ("o/.", WORK),
+                             (PUSHED, "factory-work/issue-%s9-1" % long_),
+                             (PUSHED, "factory-work/issue-1-%s9" % long_)):
+            self.assertEqual(push.allowed(repo, branch), ({}, []), (repo, branch))
 
 
 if __name__ == "__main__":
