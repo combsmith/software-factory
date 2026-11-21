@@ -11,7 +11,7 @@ import re
 from tools import walk
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-LOCAL = {"kernel", "tools", "sim", "tests", "adapters", "controller", "harness", "release"}
+LOCAL = {"kernel", "guards", "tools", "sim", "tests", "adapters", "controller", "harness", "release"}
 # The standard-library modules in use. A new one is added here on purpose, in the same change.
 STDLIB = {"__future__", "ast", "contextlib", "copy", "datetime", "hashlib", "io", "json", "os", "pathlib", "random", "re", "shlex",
           "shutil", "subprocess", "sys", "tempfile", "time", "typing", "unittest"}
@@ -32,6 +32,9 @@ STDLIB = STDLIB | {"importlib"}
 # http: adapters/github.py and adapters/azure.py, the two transports, refuse an answer http.client cut short. NETWORK
 # refuses it anywhere else.
 STDLIB = STDLIB | {"http"}
+# ssl: adapters/azure.py makes its own context, so that a default replaced elsewhere cannot turn verification off.
+# NETWORK refuses it anywhere else.
+STDLIB = STDLIB | {"ssl"}
 # zipfile and zlib: adapters/artifacts.py opens a Run's artifact, a zip GitHub serves, of one file and bounded.
 STDLIB = STDLIB | {"zipfile", "zlib"}
 # uuid: harness/run.py names a Run's session before the call, so that its usage names it even when the CLI never answers.

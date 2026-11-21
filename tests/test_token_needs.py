@@ -64,6 +64,7 @@ RAW = {
     "adapters.seen.pushes": {"contents": R},                           # the repo's activity, as P-47 reads a branch's
     "adapters.tags._ours": {"contents": R}, "adapters.tags._page": {"contents": R},
     "adapters.texts.issues": {"issues": R}, "adapters.threads._read": {"pull_requests": R},
+    "adapters.texts.findings": {"pull_requests": R},                   # a review thread and its first comment (issue 856)
     "adapters.timeline.Accounts": {"metadata": R},                     # a login's permission on the repo
     "adapters.timeline._content": {"contents": R},                     # a commit's content, compared with its base
     "adapters.timeline._pages": {"issues": R, "pull_requests": R},     # the timeline, and the reviews
@@ -119,6 +120,7 @@ SITES = {
     "adapters.seen.pushes": 1,
     "adapters.tags._ours": 1,
     "adapters.tags._page": 1,
+    "adapters.texts.findings": 1,
     "adapters.texts.issues": 1,
     "adapters.threads._read": 1,
     "adapters.timeline.Accounts": 1,
