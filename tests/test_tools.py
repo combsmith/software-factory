@@ -5658,6 +5658,10 @@ class PullBody(unittest.TestCase):
         for empty in ("<details open>checks</details>", "<details><details>a</details></details>", "<!-- x --> - "):
             self.assertEqual(self.codes(self.body({"Why": empty})), ["body_section_empty"], empty)
         self.assertEqual(self.codes(self.body({"Why": "<!-- x --> words"})), [])
+        # Inline code holds no markup: a tag or a comment's opening named in backticks hides nothing.
+        self.assertEqual(self.codes(self.body({"Why": "A `<details>` block and a `` <!-- `` stay text."})), [])
+        self.assertEqual(self.codes(self.body({"Why": "`<details>` then <details>hidden</details>"})), [])
+        self.assertEqual(self.codes(self.body({"Why": "<details>a `x` b"})), ["body_heading_missing", "body_section_empty"])
         # Line ends of any kind are line ends, as the web editor's CRLF and the desk's LF are one body.
         self.assertEqual([p.split(": ", 1)[1] for p in pr_title.body_problems(template.replace("\n", "\r\n"))],
                          ["the section '## %s' holds nothing but the template's own" % name for name in self.HEADS])

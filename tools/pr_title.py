@@ -44,6 +44,8 @@ FENCE_CLOSE = re.compile(r"[ \t]*(`{3,}|~{3,})[ \t]*")
 # block (nested, of any case, with attributes), and an empty list item. A comment or a block left open runs to the end.
 DETAILS_OPEN = re.compile(r"<details(?:[ \t][^>\n]{0,200})?>", re.I)
 DETAILS_CLOSE = re.compile(r"</details[ \t]*>", re.I)
+# Inline code, in which GitHub reads no markup: a run of up to eight backticks, then what it holds, then the same run.
+CODE_SPAN = re.compile(r"(`{1,8})(?!`)[^\n]{0,4000}?(?<!`)\1(?!`)")
 EMPTY_ITEM = re.compile(r"[ \t]*(?:[-*+]|[0-9]{1,9}[.)])?[ \t]*")
 AREA = re.compile(r"[a-z0-9.][a-z0-9._/-]*: (?=\S)")
 TAIL = re.compile(r" \(#[1-9][0-9]*(?:, part (0|[1-9][0-9]*) of (0|[1-9][0-9]*))?\)\Z")
@@ -110,6 +112,7 @@ def _visible(line: str, hidden: list) -> str:
     """What of `line` a reader sees outside the scaffolding, `hidden` being [in a comment, details blocks open], which
     it carries from line to line."""
     seen, at = [], 0
+    spans = [found.span() for found in CODE_SPAN.finditer(line)]
     while at < len(line):
         if hidden[0]:
             end = line.find("-->", at)
@@ -124,6 +127,10 @@ def _visible(line: str, hidden: list) -> str:
                 at = len(line)
         else:
             comment, opened = line.find("<!--", at), DETAILS_OPEN.search(line, at)
+            while comment >= 0 and any(a <= comment < b for a, b in spans):
+                comment = line.find("<!--", comment + 1)
+            while opened and any(a <= opened.start() < b for a, b in spans):
+                opened = DETAILS_OPEN.search(line, opened.start() + 1)
             starts = [i for i in (comment, opened.start() if opened else -1) if i >= 0]
             if not starts:
                 seen.append(line[at:])

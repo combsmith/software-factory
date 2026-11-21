@@ -9572,6 +9572,8 @@ MUTANTS = ISSUE + [
     ('a pull request opened before the cutover needs a title', 'tools/pr_title.py', '    if opened >= CUTOVER:\n        title = pull.get("title")\n', '    if opened >= CUTOVER or not pull.get("title"):\n        title = pull.get("title")\n', TITLE_READ),
     ('a title of no text is read', 'tools/pr_title.py', 'if isinstance(title, str) and title else', 'if title else', TITLE_READ),
     ('the job does not read the title', 'tools/commits_are_the_maintainers.py', '    found += pr_title.check(environ, transport)\n', '', OPENER_JOB),
+    ('a comment named in inline code hides', 'tools/pr_title.py', '            while comment >= 0 and any(a <= comment < b for a, b in spans):\n                comment = line.find("<!--", comment + 1)\n', '', BODY_RULE),
+    ('a tag named in inline code hides', 'tools/pr_title.py', '            while opened and any(a <= opened.start() < b for a, b in spans):\n                opened = DETAILS_OPEN.search(line, opened.start() + 1)\n', '', BODY_RULE),
     ('a missing heading passes', 'tools/pr_title.py', '            found.append("body_heading_missing: the body has no heading \'## %s\'" % name)\n            continue\n', '            continue\n', BODY_RULE),
     ('a heading held twice passes', 'tools/pr_title.py', '        if len(held) > 1:\n', '        if False:\n', BODY_RULE),
     ('an empty section passes', 'tools/pr_title.py', '        if any(not any(text.strip() and not EMPTY_ITEM.fullmatch(text) for text in seen[i][1]) for i in held):\n', '        if False:\n', BODY_RULE),
