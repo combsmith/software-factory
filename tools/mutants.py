@@ -196,6 +196,7 @@ DECLINE_TESTS = ("tests.test_tools.Mutants.test_on_a_pull_request_the_mutants_de
 ROUTES_655 = ("tests.test_tools.Writes.test_the_routes_issue_655_names_are_refused",)
 RUN_ALONE = ("tests.test_tools.Mutants.test_a_mutant_a_boundary_names_is_run_against_its_own_tests_alone",)
 NOT_KILLED_TESTS = ("tests.test_tools.Mutants.test_a_mutant_its_named_tests_miss_is_an_error_and_never_runs_the_whole_suite",)
+NOTES_TESTS = ("tests.test_release.Notes.test_the_notes_list_each_subject_once_under_its_area_in_the_order_merged",)
 OPENER_TESTS = ("tests.test_tools.Workflows.test_a_pull_request_is_opened_from_this_repo_by_an_account_the_configuration_allows",)
 OPENER_JOB = ("tests.test_tools.Workflows.test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds",)
 COMMITS_JOB_TESTS = ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)
@@ -17658,6 +17659,21 @@ MUTANTS = ISSUE + [
      '        paths.append({"path": name, "previous": before})\n', '        paths.append({"path": name, "previous": None})\n',
      ('tests.test_adapters.ChangedPaths.test_a_renamed_file_is_read_with_its_old_name_from_a_fixture',)),
     # The Release's rules (#197, PR 1).
+    ('a subject in the plain form is listed with the others', 'release/notes.py', '        if plain:\n', '        if False:\n', NOTES_TESTS),
+    ('areas are listed in the order they came', 'release/notes.py', '    for area in sorted(areas):\n', '    for area in areas:\n', NOTES_TESTS),
+    ('an area may start with a capital in the notes', 'release/notes.py', '(?P<area>[a-z0-9.][a-z0-9._/-]*)', '(?P<area>[A-Za-z0-9.][a-z0-9._/-]*)', NOTES_TESTS),
+    ('a subject with no issue is listed under its area', 'release/notes.py', '\\S.*\\(#[1-9][0-9]*(?:, part [0-9]+ of [0-9]+)?\\))', '\\S.*)', NOTES_TESTS),
+    ('a subject with no pull request is listed under its area', 'release/notes.py', 'r" \\(#(?P<pull>[1-9][0-9]*)\\)")', 'r"(?: \\(#(?P<pull>[1-9][0-9]*)\\))?")', NOTES_TESTS),
+    ("the other changes' heading is printed with none", 'release/notes.py', '    if other:\n', '    if True:\n', NOTES_TESTS),
+    ('one change is said as many', 'release/notes.py', '"" if count == 1 else "s"', '"s"', NOTES_TESTS),
+    ('notes are made for a name that is no Release', 'release/notes.py', '    if not current.version(release) or not current.version(previous):\n', '    if False:\n', NOTES_TESTS),
+    ('notes are made for the Release before alone', 'release/notes.py', '    if not current.version(release) or not current.version(previous):\n', '    if not current.version(previous):\n', NOTES_TESTS),
+    ('a subject of two lines is read', 'release/notes.py', ' or "\\n" in subject:\n', ':\n', NOTES_TESTS),
+    ('a blank subject is read', 'release/notes.py', ' or not subject.strip() or', ' or', NOTES_TESTS),
+    ("a subject's surrounding spaces are kept", 'release/notes.py', 'PLAIN.fullmatch(subject.strip())', 'PLAIN.fullmatch(subject)', NOTES_TESTS),
+    ('blank lines on stdin are subjects', 'release/notes.py', ' if line.strip()]\n', ']\n', NOTES_TESTS),
+    ("the desk's command passes what it cannot make notes of", 'release/notes.py', '        return 1\n', '        return 0\n', NOTES_TESTS),
+    ("the desk's command takes one name", 'release/notes.py', '    if len(args) != 2:\n', '    if len(args) < 1:\n', NOTES_TESTS),
     ('a cut of a commit the facts are not of is planned', 'release/cut.py',
      '    if not wanted or not sha(commit) or facts.get("commit") != commit:',
      '    if not wanted or not sha(commit):', ('tests.test_release.Cut.test_each_rule_of_a_cut_refuses_with_its_own_code',)),

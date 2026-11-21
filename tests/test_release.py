@@ -19,7 +19,7 @@ import unittest
 
 from adapters import effects, github, tags
 from harness import eval as eval_gate
-from release import current, cut, move
+from release import current, cut, move, notes
 from tools import check_examples, check_release, check_rulesets
 from tools.jsonschema_lite import validate
 
@@ -1436,8 +1436,22 @@ class Skill(unittest.TestCase):
                     if name in fields:
                         self.assertTrue(current.version(fields[name]) or re.fullmatch(r"factory/v0\.X\.Y", fields[name]),
                                         fields[name])
-        # Nothing else is printed to run: no write but the dispatch, and nothing that mints or shows a credential.
-        self.assertEqual(sorted(commands), sorted(plans + dispatches))
+        # A cut's notes (issue 1093): the squash subjects since the Release before, handed to release.notes, and published
+        # as the GitHub Release of a tag that is already there, so that the publication creates no tag and moves none.
+        made = [c for c in commands if "release.notes" in c]
+        published = [c for c in commands if c.startswith("gh release create")]
+        self.assertEqual(len(made), 1)
+        self.assertEqual(len(published), 1)
+        self.assertEqual(made[0], "git log --reverse --format=%s factory/vPREVIOUS..factory/vNEW | python3 -m release.notes "
+                                  "factory/vNEW factory/vPREVIOUS > notes.md")
+        words = shlex.split(published[0])
+        self.assertEqual(words[:4], ["gh", "release", "create", "factory/vNEW"])
+        self.assertIn("--verify-tag", words)
+        self.assertEqual(sorted(w for w in words[4:] if w.startswith("-")), ["--notes-file", "--repo", "--title", "--verify-tag"])
+        self.assertEqual(words[words.index("--repo") + 1], REPO)
+        # Nothing else is printed to run: no write but the dispatch and that Release, and nothing that mints or shows a
+        # credential.
+        self.assertEqual(sorted(commands), sorted(plans + dispatches + made + published))
         for command in commands:
             self.assertNotRegex(command, r"auth token|--show-token|\.pem|git (tag|push)|-X |--method")
 
@@ -1470,6 +1484,53 @@ class Skill(unittest.TestCase):
         self.assertIsNone(re.search(r"^(?: {4}|\t)", section, re.M))
         self.assertEqual([span for span in re.findall(r"`([^`]*)`", section) if re.search(r"\s", span)], [])
         self.assertEqual(hashlib.sha256(section.encode()).hexdigest(), CANNOT_APPROVE_SHA256)
+
+
+class Notes(unittest.TestCase):
+    """A Release's notes: the squash subjects since the Release before it, grouped by area (issue 1093)."""
+
+    def test_the_notes_list_each_subject_once_under_its_area_in_the_order_merged(self):
+        subjects = ["kernel: hold an item while its issue is held (#850) (#901)",
+                    "azure: refuse malformed answers (#390, part 3 of 3) (#1087)",
+                    "Trial P-73: one request takes 50 annotations (#1030) (#1031)",
+                    "kernel: count implementing rounds apart (#1038, part 1 of 4) (#1058)",
+                    ".github: add a pull request template (#1072)",
+                    "kernel: no issue here (#1100)"]
+        said = notes.notes(subjects, "factory/v0.1.19", "factory/v0.1.18")
+        self.assertEqual(said, "\n".join([
+            "## factory/v0.1.19", "", "6 changes since factory/v0.1.18.",
+            "", "### azure", "", "- refuse malformed answers (#390, part 3 of 3) (#1087)",
+            "", "### kernel", "", "- hold an item while its issue is held (#850) (#901)",
+            "- count implementing rounds apart (#1038, part 1 of 4) (#1058)",
+            "", "### Other changes", "", "- Trial P-73: one request takes 50 annotations (#1030) (#1031)",
+            "- .github: add a pull request template (#1072)", "- kernel: no issue here (#1100)"]) + "\n")
+        # One change is one, and none is none, with no heading for an area or for the others that has nothing.
+        self.assertIn("1 change since", notes.notes(["kernel: hold it (#1) (#2)"], "factory/v0.1.1", "factory/v0.1.0"))
+        none = notes.notes([], "factory/v0.1.1", "factory/v0.1.0")
+        self.assertEqual(none, "## factory/v0.1.1\n\n0 changes since factory/v0.1.0.\n")
+        self.assertNotIn("Other changes", notes.notes(["kernel: hold it (#1) (#2)"], "factory/v0.1.1", "factory/v0.1.0"))
+        # A subject with a capital area, no space, no issue or no pull request is listed as it is.
+        for odd in ("Kernel: hold it (#1) (#2)", "kernel:hold it (#1) (#2)", "kernel: hold it (#2)", "kernel: hold it (#1)",
+                    "kernel: hold it (#1) (#2) x", "kernel:  (#1) (#2)"):
+            self.assertIn("### Other changes\n\n- %s\n" % odd, notes.notes([odd], "factory/v0.1.1", "factory/v0.1.0"), odd)
+        # Surrounding spaces are not part of a subject.
+        self.assertIn("### kernel\n\n- hold it (#1) (#2)\n", notes.notes(["  kernel: hold it (#1) (#2) "],
+                                                                            "factory/v0.1.1", "factory/v0.1.0"))
+        # Only Releases are named, and a subject is one line of text.
+        for release, previous in (("factory/v0-next", "factory/v0.1.0"), ("factory/v0.1.1", "v0.1.0"), ("", "factory/v0.1.0")):
+            with self.assertRaises(ValueError):
+                notes.notes([], release, previous)
+        for subject in ("", "  ", "a\nb", None, 3):
+            with self.assertRaises(ValueError):
+                notes.notes([subject], "factory/v0.1.1", "factory/v0.1.0")
+        # The desk's command reads stdin, skips blank lines, and says why it cannot print notes.
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            self.assertEqual(notes.main(["factory/v0.1.1", "factory/v0.1.0"], io.StringIO("kernel: hold it (#1) (#2)\n\n")), 0)
+        self.assertEqual(printed.getvalue(), notes.notes(["kernel: hold it (#1) (#2)"], "factory/v0.1.1", "factory/v0.1.0"))
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            self.assertEqual(notes.main(["factory/v0-next", "factory/v0.1.0"], io.StringIO("")), 1)
+            self.assertEqual(notes.main(["factory/v0.1.1"], io.StringIO("")), 2)
+        self.assertIn("release notes: both names must be Releases", printed.getvalue())
 
 
 if __name__ == "__main__":

@@ -91,6 +91,20 @@ Read the run's conclusion, the Deployment it recorded on `factory-next`, and the
 the tag and `next` name the commit the plan named. A rollback is timed from the dispatch to its read-back, against
 FR-49's 15 minutes.
 
+## Release notes
+
+Once a cut's read-back is done, publish its notes as the tag's GitHub Release, from a fresh fetch of the tags, in a scratch
+directory outside the repo:
+
+```
+git log --reverse --format=%s factory/vPREVIOUS..factory/vNEW | python3 -m release.notes factory/vNEW factory/vPREVIOUS > notes.md
+gh release create factory/vNEW --repo combsmith/software-factory --verify-tag --title factory/vNEW --notes-file notes.md
+```
+
+`--verify-tag` refuses unless the tag is already there, so this creates no tag and moves none. The notes list each squash
+subject under its area, and any subject not in the plain form as it is (`release/notes.py`). A rollback publishes nothing.
+A Release's notes may be corrected with `gh release edit`; the tag never changes.
+
 ## When the workflow cannot run
 
 The fallback is the Maintainer's own admin login, at his terminal, which records itself as his act: one update of
