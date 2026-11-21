@@ -158,6 +158,8 @@ F901_ROLE = ("tests.test_adapters.Issues.test_a_role_apps_comment_is_its_roles_a
 F901_NAMES = ("tests.test_controller.Entry.test_a_queues_or_a_lenss_name_declared_as_an_issues_app_refuses_the_issues_alone_and_the_pull_requests_are_decided",)
 F901_PASS = ("tests.test_controller.Issues.test_issues_whose_apps_cannot_be_told_are_not_decided_and_the_pull_requests_are",)
 F901_TRACKED = ("tests.test_reconcile.Tracking.test_the_tracking_issues_number_is_what_the_passes_recorded_and_none_while_their_records_are_not_whole",)
+F849_KERNEL = ("tests.test_issue.Unreadable.test_a_timeline_past_the_ports_bound_defers_on_its_own_code_and_calls_a_person",)
+F849_WORLD = ("tests.test_issue.Unreadable.test_the_issue_world_meets_a_timeline_past_the_bound_under_faults_and_calls_a_person",)
 F931_PORT = ("tests.test_adapters.Issues.test_the_controllers_tracking_issue_is_told_at_its_first_read_by_its_opener_and_its_body",)
 S3_ROW10 = ("tests.test_controller.Issues.test_with_no_app_declared_for_factory_triage_an_accepted_served_issue_gets_no_acceptance_act",)
 COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers",)
@@ -349,7 +351,8 @@ PATCH_UNREAD = ('tests.test_guards.Patch.test_what_is_not_a_patch_as_git_writes_
 ISSUE = [
     # What is read short or cannot be read, before row 1.
     ("an issue's lists read short are trusted", ISSUE_PY,
-     "    gaps = unread_lists(facts)\n", "    gaps = []\n", ISSUE_TESTS),
+     "    gaps = [name for name in ISSUE_READ_IN_FULL if name in unread_lists(facts) or (name == \"timeline\" and bounded is not False)]\n",
+     "    gaps = []\n", ISSUE_TESTS),
     ("an issue's flag that is not exactly true counts as whole", ISSUE_PY,
      "if flags.get(name) is not True]", "if not flags.get(name, True)]", ISSUE_TESTS),
     ("an issue's unreadable state is trusted", ISSUE_PY,
@@ -15653,6 +15656,24 @@ MUTANTS = ISSUE + [
     ("an account held as a Role and a Lens is not read as a Lens", 'adapters/timeline.py',
      '            if (ident, kind) in self.lenses:\n',
      '            if (ident, kind) in self.lenses and (ident, kind) not in self.roles:\n', F901_ROLE),
+    # Decision 0234: an issue's timeline and its linked pull requests' are read to a bound, and past it the issue defers on
+    # its own code and calls a person.
+    ("a timeline past the port's bound defers as any short one", 'kernel/issue.py',
+     '    if bounded is True:\n        return out(None, "timeline_bounded", ["timeline"])\n', '', F849_KERNEL),
+    ("a bound flag of any truth is a bound", 'kernel/issue.py',
+     '    if bounded is True:\n', '    if bounded:\n', F849_KERNEL),
+    ("a bound flag that cannot be read is read as within the bound", 'kernel/issue.py',
+     ' or (name == "timeline" and bounded is not False)]', ']', F849_KERNEL),
+    ("only a cut of the issue's own timeline is a bound", 'kernel/issue.py',
+     '    if bounded is True:\n', '    if bounded is True and "timeline" in unread_lists(facts):\n', F849_KERNEL),
+    ("a timeline past the port's bound calls no one", 'kernel/issue.py',
+     '    "human_hold",\n    "timeline_bounded",\n', '    "human_hold",\n', F849_KERNEL),
+    ("the issue world never bounds a timeline", 'sim/issues.py',
+     'facts["timeline_bounded"] = short in ("linked", "timeline") and fault < 0.11', 'facts["timeline_bounded"] = False', F849_WORLD),
+    ("the issue world bounds only a linked read", 'sim/issues.py',
+     'facts["timeline_bounded"] = short in ("linked", "timeline") and fault < 0.11', 'facts["timeline_bounded"] = short == "linked" and fault < 0.11', F849_WORLD),
+    ("the issue world bounds a read it did not read short", 'sim/issues.py',
+     'facts["timeline_bounded"] = short in ("linked", "timeline") and fault < 0.11', 'facts["timeline_bounded"] = short not in ("linked", "timeline") and fault < 0.11', F849_WORLD),
     # Decision 0217's row, issue 878: a linked draft the Factory opened carries its head's required checks.
     ("a foreign check under a Lens's name is read past", 'adapters/draft_checks.py',
      '    if derive.foreign_checks(found, kernel):\n        return None\n', '', ("tests.test_adapters.DraftChecks.test_a_drafts_checks_are_read_as_the_pull_requests_kernel_reads_each_required_lens",)),
