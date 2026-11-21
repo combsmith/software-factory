@@ -120,7 +120,7 @@ def facts(**over) -> dict:
          "life_started_at": at(0), "reopened_last_by": "never", "content_id": THIS, "content_changed_at": at(0),
          "label_events": [], "linked": [], "role_comments": [], "last_writer_action_at": at(0),
          "last_writer_comment_at": None, "acts_since_writer": 0, "branch_head": None, "base_head": BASE,
-         "complete": {"timeline": True, "linked": True, "runs": True},
+         "complete": {"timeline": True, "linked": True, "runs": True}, "timeline_bounded": False,
          "read_at": at(50)}
     f.update(over)
     # The two times a close and a reopening carry, as GitHub holds them, unless the case gives them: a person's close
@@ -292,6 +292,61 @@ class Unreadable(unittest.TestCase):
         self.assertEqual(derive(f)["reason"], "facts_incomplete")
         self.assertEqual(derive(facts(complete={"timeline": True, "linked": True}))["evidence"], ["runs"])
         self.assertEqual(derive(facts())["reason"], "acceptance_due")
+
+    def test_a_timeline_past_the_ports_bound_defers_on_its_own_code_and_calls_a_person(self):  # issue 849, decision 0234
+        # The port stopped at its bound: the issue defers `timeline_bounded`, a closed one's too, before a list read short
+        # beside it, and a person is called, since more comments never bring the timeline back under the bound.
+        for f in (facts(), facts(state="closed"), facts(complete={"timeline": False, "linked": False, "runs": False})):
+            f.update(timeline_bounded=True, complete=dict(f["complete"], timeline=False))
+            d = derive(f)
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), (None, "timeline_bounded", ["timeline"]))
+            self.assertEqual((what(decide(f)), decide(f)["attention"]), (("defer", "timeline_bounded", None), "needs_you"))
+        # Cut at a linked pull request's read alone, the issue's own timeline whole, it defers so too (Astra, Kimi).
+        f = facts(timeline_bounded=True, complete={"timeline": True, "linked": False, "runs": True})
+        self.assertEqual((derive(f)["reason"], decide(f)["attention"]), ("timeline_bounded", "needs_you"))
+        # Within the bound, a timeline read short is the plain gap, which mends itself and calls no one.
+        short = facts(timeline_bounded=False, complete={"timeline": False, "linked": True, "runs": True})
+        self.assertEqual((derive(short)["reason"], derive(short)["evidence"], decide(short)["attention"]),
+                         ("facts_incomplete", ["timeline"], "none"))
+        self.assertEqual(derive(facts(timeline_bounded=False))["reason"], "acceptance_due")
+        # A flag that is not exactly true or false cannot say the timeline is whole: it is a gap in it, never read as
+        # within the bound.
+        for flag in (None, "false", 0, 1, "true"):
+            d = derive(facts(timeline_bounded=flag))
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), (None, "facts_incomplete", ["timeline"]), flag)
+        f = facts()
+        del f["timeline_bounded"]
+        self.assertEqual((derive(f)["reason"], derive(f)["evidence"]), ("facts_incomplete", ["timeline"]))
+        self.assertEqual(derive(facts(timeline_bounded=None, complete={"timeline": True, "linked": False, "runs": True}))["evidence"],
+                         ["linked", "timeline"])
+
+    def test_the_issue_world_meets_a_timeline_past_the_bound_under_faults_and_calls_a_person(self):  # decision 0234
+        # The simulator's issue world sets the fact beside a timeline read short, in its own draws, so its fixed seeds
+        # meet the deferral, which calls a person each time.
+        import unittest.mock
+        import sim.issues
+        from sim.issues import IssueWorld
+        met, seen, real = [], [], sim.issues.issue.decide
+
+        def decide(facts, *a):
+            seen.append((facts.get("timeline_bounded"), dict(facts["complete"])))
+            return real(facts, *a)
+        with unittest.mock.patch.object(sim.issues.issue, "decide", decide):
+            for seed in range(1, 11):
+                w = IssueWorld(seed)
+                for _ in range(300):
+                    w.step()
+                met += [line for line in w.trace if "pass: None / timeline_bounded" in line]
+        self.assertTrue(met)
+        self.assertTrue(all(line.endswith("-> defer  [needs_you]") for line in met), met[:3])
+        # The flag stands only beside the timeline or the linked list read short (Astra); each short within the bound is
+        # met unflagged too.
+        self.assertTrue(all(False in (complete["timeline"], complete["linked"]) for bounded, complete in seen if bounded is True))
+        self.assertTrue(any(bounded is True and complete["linked"] is False for bounded, complete in seen))
+        self.assertTrue(any(bounded is True and complete["timeline"] is False for bounded, complete in seen))
+        self.assertTrue(all(bounded in (True, False) for bounded, _ in seen))
+        self.assertTrue(any(bounded is False and complete["timeline"] is False for bounded, complete in seen))
+        self.assertTrue(any(bounded is False and complete["linked"] is False for bounded, complete in seen))
 
     def test_an_unreadable_label_event_defers(self):
         bad = [dict(labelled(HOLD), by={"kind": "bot", "name": "x", "can_write": True}),
