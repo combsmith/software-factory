@@ -15676,7 +15676,7 @@ if mode == "cut":
 
 class Desk(unittest.TestCase):
     """What the desk runs beside the checks, for a person, and no check: about the size the Factory will count a branch
-    at (issue 1109)."""
+    at, and what a merge of main may have lost (issues 1109 and 1110)."""
 
     def repo(self, files: dict) -> pathlib.Path:
         limits = {"limits": {"max_diff_characters": 60000, "max_diff_lines": 4000}}
@@ -15689,6 +15689,12 @@ class Desk(unittest.TestCase):
     def commit(self, root: pathlib.Path, message: str) -> None:
         git(root, "add", "-A")
         git(root, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", message)
+
+    def merge(self, root: pathlib.Path, *heads: str, check: bool = True) -> None:
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        subprocess.run(["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q",
+                        "--no-commit", "--no-ff", *heads], env=env, check=check, capture_output=True)
 
     def test_the_size_is_counted_as_the_factory_counts_it_and_warned_past_its_share(self):
         root = self.repo({"a.py": "a\nb\nc\n", "m.py": "".join("line %d\n" % n for n in range(40))})
@@ -15758,11 +15764,11 @@ class Desk(unittest.TestCase):
         # A partial clone's reads may fetch, so it reads nothing.
         git(root, "config", "extensions.partialclone", "origin")
         self.assertEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
+        self.assertEqual(desk.merged(root), ["cannot tell: this is a partial clone, whose reads may fetch; read the "
+                                             "merge by hand"])
 
     def test_the_desk_runs_git_only_to_read_and_says_when_there_is_no_base(self):
-        root = self.repo({"a.py": "a\n"})
-        (root / "a.py").write_text("b\n")
-        self.commit(root, "work")
+        root = self.merging()
         ran, real = [], subprocess.run
 
         def run(argv, **kwargs):
@@ -15772,6 +15778,9 @@ class Desk(unittest.TestCase):
         with mock.patch.object(desk, "subprocess", mock.NonCallableMock(
                 run=run, DEVNULL=subprocess.DEVNULL, TimeoutExpired=subprocess.TimeoutExpired)):
             desk.size(root)
+            desk.merged(root)
+            self.commit(root, "merge")
+            desk.merged(root)
             with self.assertRaises(ValueError):
                 desk._git(root, "fetch", "origin")
         verbs = {argv[len(desk.SAFE) + 1] for argv, _ in ran}
@@ -15815,3 +15824,133 @@ class Desk(unittest.TestCase):
             self.assertEqual(verify.main([], {}), 0)
             self.assertEqual(verify.main([], {"CHECKS_SHARD": "0", "CHECKS_SHARDS": "2"}), 0)
         note.assert_not_called()
+
+    def merging(self) -> pathlib.Path:
+        """A branch and a main that each changed f.py, and one file of its own, merged with nothing committed."""
+        root = self.repo({"f.py": "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n", "g.py": "g\n", "h.py": "h\n", "s.py": "s\n",
+                          "d/n.py": "n\n"})
+        git(root, "checkout", "-q", "-b", "work")
+        (root / "f.py").write_text("a\nb\nc\ne\nf\ng\nh\ni\nj\nx1\n")         # the branch takes d out and adds x1
+        (root / "h.py").write_text("h2\n")
+        self.commit(root, "work")
+        git(root, "checkout", "-q", "main")
+        (root / "f.py").write_text("a\nm1\nb\nc\nd\ne\nf\ng\ni\nj\n")       # main adds m1 and takes h out
+        (root / "g.py").write_text("g2\n")
+        (root / "d" / "n.py").write_text("n2\n")
+        self.commit(root, "main")
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        git(root, "checkout", "-q", "work")
+        self.merge(root, "origin/main")
+        return root
+
+    def staged(self, root: pathlib.Path, files: dict) -> list:
+        for rel, text in files.items():
+            if text is None:
+                (root / rel).unlink()
+            else:
+                (root / rel).write_text(text)
+        git(root, "add", "-A")
+        return desk.merged(root)
+
+    def test_a_merge_that_keeps_both_sides_passes_and_one_that_drops_either_is_told(self):
+        root = self.merging()
+        good = "a\nm1\nb\nc\ne\nf\ng\ni\nj\nx1\n"
+        self.assertEqual((root / "f.py").read_text(), good)
+        self.assertEqual(desk.merged(root), [])
+        # The branch's side taken whole drops main's lines, and main's side whole drops the branch's; a file only one
+        # side changed holds that side's blob, and one neither side changed the base's.
+        self.assertEqual(self.staged(root, {"f.py": "a\nb\nc\ne\nf\ng\nh\ni\nj\nx1\n", "g.py": "g\n", "h.py": "h\n",
+                                            "d/n.py": "n\n", "s.py": None}), [
+            "'d/n.py': only main changed it, and the merge does not hold its blob and mode as left",
+            "'f.py': main's line is gone, and the branch did not take it out: m1",
+            "'f.py': a line main took out, or no side wrote, is there: h",
+            "'g.py': only main changed it, and the merge does not hold its blob and mode as left",
+            "'h.py': only the branch changed it, and the merge does not hold its blob and mode as left",
+            "'s.py': neither side changed it, and the merge does not hold its blob and mode as left"])
+        # A file's mode is its own: main's text with the mode the base gave it is not main's.
+        self.staged(root, {"f.py": good, "g.py": "g2\n", "h.py": "h2\n", "d/n.py": "n2\n", "s.py": "s\n"})
+        git(root, "update-index", "--chmod=+x", "g.py")
+        self.assertEqual(desk.merged(root), ["'g.py': only main changed it, and the merge does not hold its blob and "
+                                             "mode as left"])
+        git(root, "update-index", "--chmod=-x", "g.py")
+        # A line both sides hold twice counts twice, and a carriage return is a line's own.
+        self.assertEqual(self.staged(root, {"f.py": good.replace("x1\n", "x1\nm1\n")}), [
+            "'f.py': a line main took out, or no side wrote, is there: m1",
+            "'f.py': a line the branch took out, or no side wrote, is there: m1"])
+        self.assertEqual(len(self.staged(root, {"f.py": good.replace("\n", "\r\n")})), 4 * desk.SHOWN)     # each kind, cut
+        self.assertEqual(self.staged(root, {"f.py": "a\nm1\nb\nc\nd\ne\nf\ng\ni\nj\n"}), [
+            "'f.py': the branch's line is gone, and main did not take it out: x1",
+            "'f.py': a line the branch took out, or no side wrote, is there: d"])
+        # A conflict's markers are lines no side wrote; what is staged is read, not what the working tree holds.
+        self.assertEqual(self.staged(root, {"f.py": good + "<<<<<<< HEAD\n"}), [
+            "'f.py': a line main took out, or no side wrote, is there: <<<<<<< HEAD",
+            "'f.py': a line the branch took out, or no side wrote, is there: <<<<<<< HEAD"])
+        self.staged(root, {"f.py": good})
+        (root / "g.py").write_text("g\n")
+        self.assertEqual(desk.merged(root), [])
+        (root / "g.py").write_text("g2\n")
+        # Committed, the merge is read from HEAD and its two parents.
+        self.commit(root, "merge")
+        self.assertEqual(desk.merged(root), [])
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            self.assertEqual(desk.main(["merged"], root), 0)
+        self.assertEqual(said.getvalue(), "the merge keeps every line of both sides\n")
+        git(root, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "after")
+        self.assertEqual(desk.merged(root), ["HEAD is no merge and no merge is in progress: run git merge origin/main "
+                                             "first"])
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            self.assertEqual(desk.main(["merged"], root), 1)
+            self.assertEqual(desk.main(["sizes"], root), 1)
+        self.assertEqual(said.getvalue().splitlines()[1], "1 to read: read each, then put a line back, or say why a "
+                         "side meant to replace the other's, or why a line both changed is rightly one neither wrote")
+
+    def test_a_line_both_sides_changed_and_a_hand_combined_is_listed_to_read(self):
+        # The right resolution of a line both sides changed may be one neither wrote: it is listed, for a person to
+        # read and say so, never passed and never failed by anything that blocks.
+        root = self.repo({"f.py": "a\nlimit = 1\nz\n"})
+        git(root, "checkout", "-q", "-b", "work")
+        (root / "f.py").write_text("a\nlimit = 2\nz\n")
+        self.commit(root, "work")
+        git(root, "checkout", "-q", "main")
+        (root / "f.py").write_text("a\nlimit = 1  # the most\nz\n")
+        self.commit(root, "main")
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        git(root, "checkout", "-q", "work")
+        self.merge(root, "origin/main", check=False)
+        self.assertEqual(desk.merged(root), ["cannot tell: the index holds paths still unmerged; resolve and stage each, "
+                                             "then read it again"])
+        self.assertEqual(self.staged(root, {"f.py": "a\nlimit = 2  # the most\nz\n"}), [
+            "'f.py': main's line is gone, and the branch did not take it out: limit = 1  # the most",
+            "'f.py': the branch's line is gone, and main did not take it out: limit = 2",
+            "'f.py': a line main took out, or no side wrote, is there: limit = 2  # the most",
+            "'f.py': a line the branch took out, or no side wrote, is there: limit = 2  # the most"])
+
+    def test_a_merge_it_cannot_tell_is_refused_and_a_rename_is_named(self):
+        root = self.repo({"f.py": "a\nb\nc\nd\ne\nf\ng\n", "k.py": "k\n", "o.py": "o\n"})
+        git(root, "checkout", "-q", "-b", "other")
+        (root / "k.py").write_text("k2\n")
+        self.commit(root, "other")
+        git(root, "checkout", "-q", "-b", "third", "main")
+        (root / "o.py").write_text("o2\n")
+        self.commit(root, "third")
+        git(root, "checkout", "-q", "-b", "work", "main")
+        git(root, "mv", "f.py", "r.py")
+        self.commit(root, "rename")
+        self.merge(root, "other")
+        self.assertEqual(desk.merged(root), ["the merge's other side is not origin/main as last fetched; fetch, then merge it",
+                                             "'f.py': renamed: not compared", "'r.py': renamed: not compared"])
+        git(root, "merge", "--abort")
+        # More heads than one into HEAD, in progress or committed, it cannot tell.
+        self.merge(root, "other", "third")
+        self.assertEqual(desk.merged(root), ["cannot tell: a merge of 2 heads into HEAD is in progress, not of one"])
+        git(root, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "octopus")
+        self.assertEqual(desk.merged(root), ["cannot tell: HEAD has 3 parents, not two"])
+        # Two sides that crossed, each merging the other, have two merge bases, and it cannot tell which.
+        git(root, "checkout", "-q", "-b", "x", "other")
+        self.merge(root, "third")
+        self.commit(root, "x takes third")
+        git(root, "checkout", "-q", "-b", "y", "third")
+        self.merge(root, "other")
+        self.commit(root, "y takes other")
+        self.merge(root, "x")
+        self.assertEqual(desk.merged(root), ["cannot tell: the two sides have 2 merge bases, not one"])
