@@ -1,6 +1,6 @@
 # 0235. An issue a pass served that has left is read with its close, and one read short is owed
 
-Status: accepted. The Factory Builder's ruling of 2026-11-19 on "A Factory write on an issue that closes before the next pass is never reconciled: issues that left are read" (issue 916), part b: `pass/1`'s reconciliation carries `left_issues` and `owed_issues`, optional, and a pass that could not list the issues carries those it served as owed, with reconciliation short. It completes decision 0230, whose row on an issue that left waited on this. It is built in two parts: the carry and the seen port's close of an issue first, then the pass's reading of which issues left, which fills that row; each part adds its rows below.
+Status: accepted. The Factory Builder's ruling of 2026-11-19 on "A Factory write on an issue that closes before the next pass is never reconciled: issues that left are read" (issue 916), part b: `pass/1`'s reconciliation carries `left_issues` and `owed_issues`, optional, and a pass that could not list the issues carries those it served as owed, with reconciliation short. It completes decision 0230, whose row on an issue that left waited on this. It is built in three parts: the carry and the seen port's reading of an issue that left first, then the pass's reading of which issues left, which fills that row, then the pass's read of the repo for them; each part adds its rows below.
 
 ## Decision
 
