@@ -20,6 +20,16 @@
     }
   ],
   "findings": [],
+  "shown": [
+    {
+      "finding": "f_9c1e",
+      "text": "sha256:6f1ed002ab5595859014ebf0951522d9a7b8c8d5e9b0f1a2c3d4e5f60718293a"
+    },
+    {
+      "finding": "f_22ab",
+      "text": "sha256:0b5c1f4e7d2a9c8b3e6f1a0d4c7b2e5f8a1d4c7b0e3f6a9c2d5e8b1f4a7c0d3e"
+    }
+  ],
   "effects": {},
   "coverage": [],
   "usage": {
