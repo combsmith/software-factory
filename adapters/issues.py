@@ -7,9 +7,11 @@ refuses it, never reads as null. Both reads must name one `updatedAt`.
 
 `content_id` hashes the title and the body, as the pull request's hashes its diff; neither text is kept.
 
-Not read yet, and said so: the pull requests that close the issue are `adapters/linked.py`'s, so `linked` is empty and
-`complete.linked` false, and the Kernel defers; `branch_head`, which needs the count of pull requests the Factory opened
-for the issue, is null. `complete.runs` is true: the pass puts the records port's answer in its place
+The pull requests that close the issue are read by `adapters/linked.py`, after the rest and before the time is taken:
+`linked` as it lists them, and `complete.linked` true only where it reads them whole and no pull request names the
+issue, while their keyword spans are not read; so an issue any pull request names defers. The issue is read once more
+after them, and refused if it moved. Not read yet, and said so: `branch_head`, which needs the count of pull requests
+the Factory opened for the issue, is null. `complete.runs` is true: the pass puts the records port's answer in its place
 (`controller/pass_.py`'s `asked`), and false here would leave every issue unreadable.
 """
 from __future__ import annotations
@@ -18,7 +20,7 @@ import hashlib
 import json
 import pathlib
 
-from adapters import facts, timeline
+from adapters import facts, linked, timeline
 from adapters.github import Unanswered, raw, request
 from kernel import gate
 from tools.jsonschema_lite import validate
@@ -143,8 +145,10 @@ def _names(listed, key: str) -> list:
 
 
 def comments(events: list, accounts: timeline.Accounts) -> tuple:
-    """`(role_comments, last_writer_comment_at)`: each Factory App's latest comment, by its login, and a person with
-    write access's last comment, or None. A comment an App made with a person's token is no person's."""
+    """`(role_comments, last_writer_comment_at)`: each Factory App's latest comment, a Role's App held only under
+    `roles` among them (issue 901), by its name, the one configured for its id where the configuration holds it
+    (`timeline.Accounts.named`), and a person with write access's last comment, or None. A comment an App made with a
+    person's token is no person's."""
     latest, said = {}, None
     for ev in events:
         if ev.get("event") != "commented":
@@ -152,16 +156,21 @@ def comments(events: list, accounts: timeline.Accounts) -> tuple:
         who = accounts.acted(ev)
         login, ident, kind = accounts.account(ev.get("actor"))
         at = timeline._time(ev.get("created_at"))
-        if (ident, kind) in accounts.factory:
+        if (ident, kind) in accounts.factory or (ident, kind) in accounts.roles:
+            login = accounts.named(login, ident, kind)
             latest[login] = max(at, latest.get(login, at))
         elif gate.is_person(who):
             said = at if said is None or at > said else said
     return [{"by": login, "at": latest[login]} for login in sorted(latest)], said
 
 
-def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=facts._utc) -> dict:
-    """`issue-facts/1` for one issue of `repo`, held to its schema. `accounts` tells who acted, the Factory's Apps among
-    them, and `clock` gives the time after the last read."""
+def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=facts._utc, *, identities: dict,
+         earlier, kernel=None) -> tuple:
+    """`(facts, title)`: `issue-facts/1` for one issue of `repo`, held to its schema, and its title beside the facts,
+    never in them, for the view alone. `accounts` tells who acted, the Factory's Apps among them, `identities` the class's
+    accounts of a pull request that closes it (`adapters/pull.own`), `earlier` the pass records before this pass, oldest
+    first, or None where they could not be read, and `clock` gives the time after the last read. `kernel`, the Kernel's
+    configuration, says whether the Factory's linked draft's checks are read (`adapters/draft_checks.py`)."""
     issue = own(transport, repo, number)
     events, whole = timeline.events(transport, {"number": number, "base": {"repo": {"full_name": repo}}})
     edited = edits(transport, repo, number)
@@ -177,6 +186,11 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
     author, labels = accounts.acted(opened), timeline.label_events(events, accounts)
     writer = timeline.since_writer(events, accounts)
     apps, said = comments(events, accounts)
+    closing, closing_whole = linked.read(transport, repo, number, edited["updated_at"], lived["life_started_at"],
+                                         identities, accounts, earlier, kernel)
+    # A merge may have closed it since: read once more, as `adapters/pull.unchanged` does.
+    if _field(own(transport, repo, number), "updated_at") != _field(issue, "updated_at"):
+        raise facts.Moved("the issue changed while its pull requests were read; it is read again at the next pass")
     now = clock()
     found = dict(lived, **{
         "schema": "issue-facts/1",
@@ -190,16 +204,16 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
         "content_id": "sha256:" + hashlib.sha256(raw(json.dumps([title, body or ""], ensure_ascii=False))).hexdigest(),
         "content_changed_at": content_changed_at(created, edited["last_edited_at"], events),
         "label_events": labels,
-        "linked": [],
+        "linked": closing,
         "role_comments": apps,
         "last_writer_action_at": writer["last_writer_action_at"],
         "last_writer_comment_at": said,
         "acts_since_writer": writer["acts_since_writer"],
         "branch_head": None,
-        "complete": {"timeline": whole and edited["whole"], "linked": False, "runs": True},
+        "complete": {"timeline": whole and edited["whole"], "linked": closing_whole, "runs": True},
         "read_at": now,
     })
     problems = validate(found, SCHEMA)
     if problems:
         raise Unanswered("the issue's facts do not hold to issue-facts/1: %s" % problems[0])
-    return found
+    return found, title

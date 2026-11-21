@@ -1,14 +1,14 @@
 # adapters/
-
-All the Factory's I/O; `github.py` alone reaches the network. `items.py` open pull requests, `pull.py` one, `timeline.py` reviews, labels, actors, `checks.py` checks, queue, `threads.py`, `edits.py`, `applied.py` Lenses' records, `facts.py`, `records.py`,
-`artifacts.py`, `seen.py` writes made, `passes.py`, `acceptance.py`, `heldout.py`, `rules.py`, `texts.py` a Task's texts, `issues.py` an issue's facts; `effects.py` writes, `pause.py`, `tags.py`, `candidate.py`, `deployments.py`, `identity.py`, `queue.py`.
-Not built yet, by their stories: contract.py, binding.py, linked.py, an issue's linked pull requests, settings.py and usage.py. A port decides nothing and hands the Kernel no text.
+All the Factory's I/O; `github.py`, `azure.py` reach the network. `items.py` open Work items, `pull.py` one, `timeline.py` reviews, labels, actors, `checks.py` checks, queue, `threads.py`, `edits.py`, `applied.py` Lenses' records, `facts.py`, `records.py`,
+`artifacts.py`, `seen.py` writes, `passes.py`, `acceptance.py`, `heldout.py`, `rules.py`, `texts.py` texts, `issues.py`, `linked.py`, `keyword_spans.py`; `effects.py` writes, `pause.py`, `tags.py`, `candidate.py`, `deployments.py`, `identity.py`, `queue.py`.
+`draft_checks.py` reads a linked draft's checks, and `push.py` allows a push's token its requests alone.
+Not built yet, by their stories: contract.py, binding.py, settings.py and usage.py. A port decides nothing and hands the Kernel no text.
 
 | Rule | Held by |
 |---|---|
-| Only `github.py` imports what reaches the network, or names the storage | `tests/test_tools.py::test_only_the_transport_reaches_the_network`, `tests/test_tools.py::test_only_the_transport_names_githubs_artifact_storage` |
-| It sends HTTPS to GitHub's API alone, by a path from its root | `tests/test_adapters.py::test_a_request_stays_on_githubs_api` |
-| It follows no redirect but an artifact's download and a tarball's (0138), takes no proxy, bounds every answer, and uses its caller's token | `tests/test_adapters.py::test_the_live_transport_takes_its_token_from_its_caller_and_follows_no_redirect` |
+| Only `github.py` and `azure.py` import what reaches the network; only `github.py` names the storage | `tests/test_tools.py::test_only_the_transport_reaches_the_network`, `tests/test_tools.py::test_only_the_transport_names_githubs_artifact_storage` |
+| `github.py` sends HTTPS to GitHub's API alone, by a path from its root; `azure.py` asks four acts | `tests/test_adapters.py::test_a_request_stays_on_githubs_api`, `tests/test_advisory.py::test_the_azure_transport_asks_four_requests_and_no_other` |
+| `github.py` follows no redirect but an artifact's download and a tarball's (0138), takes no proxy, bounds every answer, and uses its caller's token | `tests/test_adapters.py::test_the_live_transport_takes_its_token_from_its_caller_and_follows_no_redirect` |
 | An artifact's download follows its redirect to GitHub's artifact storage alone, over HTTPS | `tests/test_adapters.py::test_only_an_artifacts_download_follows_its_redirect_and_only_to_githubs_storage` |
 | No token is sent to the storage, and what it answers is bounded | `tests/test_adapters.py::test_the_live_transport_sends_no_token_to_the_storage_and_bounds_what_it_holds` |
 | A download is bounded at 64 KiB, 1 MiB for a pass record, read out to 8 MiB; a Run's record is found by its pass id | `tests/test_adapters.py::test_a_pass_record_alone_is_downloaded_under_a_wider_bound`, `tests/test_steps.py::test_a_runs_record_is_found` |
@@ -18,7 +18,7 @@ Not built yet, by their stories: contract.py, binding.py, linked.py, an issue's 
 | An outcome is bounded and held to `outcome/1` and its Run; what cannot be read is not whole | `tests/test_adapters.py::test_an_outcome_that_cannot_be_read_whole_is_not_whole` |
 | A test replays a trial's fixture, which answers each recorded request once, in order and with its whole body, and refuses any other | `tests/test_adapters.py::test_a_replay_answers_only_what_the_fixture_holds_and_each_once` |
 | A read that is not whole says so in its `complete` flag | `tests/test_adapters.py::test_a_diff_that_disagrees_with_the_counts_is_a_short_read`, `tests/test_adapters.py::test_a_list_github_stops_short_of_the_count_is_never_the_whole` |
-| A fact that cannot be read is null or refused, never guessed; the diff is the bytes GitHub sent | `tests/test_adapters.py::test_an_activity_that_has_not_caught_up_with_the_head_names_no_one`, `tests/test_steps.py::test_the_diff_is_the_bytes_github_sent` |
+| An unread fact is null or refused, never guessed; the diff is GitHub's, text's ids cut | `tests/test_adapters.py::test_an_activity_that_has_not_caught_up_with_the_head_names_no_one`, `tests/test_adapters.py::test_index_ids_of_any_length_are_one_content` |
 | A head that moved while read is refused, the snapshot too, held to `facts/1` | `tests/test_adapters.py::test_a_head_that_moved_while_it_was_read_is_refused`, `tests/test_adapters.py::test_a_snapshot_whose_head_moved_while_it_was_read_is_refused` |
 | An account is told by its id and its type, a Bot for an App and a User for the Maintainer, as the caller names it; anyone else is `outside` | `tests/test_adapters.py::test_the_class_is_the_account_named_or_outside` |
 | A run counts only as a dispatch of a Role's workflow from this repo's default branch; its name says whose it is | `tests/test_adapters.py::test_only_a_dispatch_of_a_role_workflow_from_the_default_branch_in_this_repo_counts` |
@@ -36,5 +36,5 @@ Not built yet, by their stories: contract.py, binding.py, linked.py, an issue's 
 | A held-out case is the bytes its manifest hashed, or none and a code; one that could name another file is not asked | `tests/test_adapters.py::test_a_held_out_case_is_its_hashed_bytes`, `tests/test_adapters.py::test_a_held_out_case_not_read_whole_says_why` |
 | The title, and the head the snapshot was held to, are handed beside the facts, never in them | `tests/test_adapters.py::test_the_pull_requests_own_facts_and_the_title_beside_them`, `tests/test_adapters.py::test_a_snapshot_hands_back_its_head` |
 | A plan of writes not its pass record's sends nothing; a dispatch is sent once, never retried | `tests/test_effects.py::test_a_write_list_that_is_not_the_records_is_refused_whole`, `tests/test_effects.py::test_a_dispatch_is_sent_once_and_never_retried` |
-| Each write goes through its one credential, which sends only its own requests by path and body | `tests/test_effects.py::test_each_write_goes_through_its_one_credential_and_its_allowlist` |
+| Each write goes through its one credential, which sends only its own requests by path and body | `tests/test_effects.py::test_each_write_goes_through_its_one_credential_and_its_allowlist`, `tests/test_adapters.py::test_a_pushs_token_sends_a_pushs_alone` |
 | A rule of a part not built yet waits on the file named above, and the story that builds it re-points its rows | `tests/test_tools.py::test_a_wait_on_a_file_a_built_directory_plans_holds_until_the_file_exists` |

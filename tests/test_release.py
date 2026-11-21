@@ -456,6 +456,20 @@ class Fixture(unittest.TestCase):
         self.assertLessEqual(len(answer["body"]), int(size))
         return answer["body"], int(size)
 
+    LINK_REMOVED = check_release.LINK_REMOVED
+
+    def a_page_of_deployments_keeps_no_link(self, fixture):
+        """A read of a page of next's Deployments in `fixture` keeps no `Link` header, and the fixture's `removed` says
+        it was taken out (issue 863): the read's own call, `per_page` and no `page`, is what says the page is the first,
+        so every fixture says the same of GitHub's answer. A fixture that read the whole list had none to take out."""
+        pages = [e for item in fixture["items"] for e in item["exchanges"]
+                 if e["request"]["call"].split(" ")[1].startswith(self.DEPLOYMENTS + "&per_page=")]
+        for e in pages:
+            self.assertNotIn("link", {name.lower() for name in e["response"]["headers"]}, e["request"]["call"])
+        if pages:
+            self.assertEqual(len([said for said in fixture["removed"] if self.LINK_REMOVED in said]), 1,
+                             "removed says the page's link header was taken out")
+
     def eval_run(self, item) -> int:
         """The eval job's run `item` read, by its workflow file: one, the run the cut passed the gate on."""
         ran = [e["response"]["body"]["id"] for e in item["exchanges"]
@@ -473,6 +487,7 @@ class Fixture(unittest.TestCase):
         inactive above its success, `next` having moved off it since."""
         fixture, before = json.loads(path.read_text()), [json.loads(p.read_text()) for p in earlier]
         self.assertEqual(check_release.fixture_problems(fixture, path.name), [])
+        self.a_page_of_deployments_keeps_no_link(fixture)
         made = self.item(fixture, "cut_and_move_of_next")
         commit, channel = made["asked"]["cut_commit"], move.next_channel(json.loads(move.RINGS.read_text()))
         self.assertEqual((made["asked"]["command"], made["asked"]["version"]), ("cut", fixture["version"]))
@@ -489,6 +504,10 @@ class Fixture(unittest.TestCase):
         # The cut's own run: a dispatch or the schedule's, on main, at the commit it was asked to cut.
         self.assertIn(run["event"], ("workflow_dispatch", "schedule"))
         self.assertEqual((run["head_branch"], run["head_sha"]), ("main", commit))
+        # It had ended, so its `updated_at` is when it did, and it ran once, so its `created_at` is when that run began
+        # (issue 863).
+        self.assertEqual(run["status"], "completed")
+        self.assertEqual(run["run_attempt"], 1)
         for tag in (fixture["version"], channel):
             with self.subTest(tag=tag):
                 self.assertEqual(body("/repos/%s/git/ref/tags/%s" % (REPO, tag))["object"]["sha"], commit)
@@ -508,6 +527,7 @@ class Fixture(unittest.TestCase):
         self.assertEqual([(d["id"], d["sha"], d["description"]) for d in deployed], expected)
         statuses = body("/repos/%s/deployments/%d/statuses" % (REPO, own))
         self.assertEqual([s["state"] for s in statuses], ["inactive", "success"] if since else ["success"])
+        self.assertEqual({s["environment"] for s in statuses}, {"factory-next"}, "the cut's own Deployment's statuses")
         # The cut's own Deployment was made inside the run that printed it, and succeeded there, no earlier than it was made.
         mine, = [d["created_at"] for d in deployed if d["id"] == own]
         self.assertTrue(run["created_at"] <= mine <= statuses[-1]["created_at"] <= run["updated_at"],
@@ -517,6 +537,10 @@ class Fixture(unittest.TestCase):
         statuses = body("/repos/%s/deployments/%d/statuses" % (REPO, below[0][0]))
         self.assertEqual([s["state"] for s in statuses], ["inactive", "success"])
         self.assertGreaterEqual(statuses[0]["created_at"], mine)
+        # Its statuses are of next's environment too, and the success it kept is no later than the inactive above it:
+        # the times say the order the states do (issue 863).
+        self.assertEqual({s["environment"] for s in statuses}, {"factory-next"}, "the Deployment next moved off")
+        self.assertLessEqual(statuses[1]["created_at"], statuses[0]["created_at"])
         # What else the reads say of the cut (the readers of factory/v0.1.12's fixture). The run's one job, and its step
         # of the move, succeeded at the cut commit. The eval had completed, on main, and its workflow's list says of it
         # what its own read says. Each tag is read as itself, and names a commit. Each Deployment is of next's
@@ -576,6 +600,7 @@ class Fixture(unittest.TestCase):
             if e["request"]["call"].split(" ")[1] == self.DEPLOYMENTS:
                 e["request"]["call"] = e["request"]["call"].replace(self.DEPLOYMENTS, self.DEPLOYMENTS + "&per_page=%d" % size + more)
                 e["response"]["body"] = order(e["response"]["body"][:size])
+        fixture["removed"] = fixture["removed"] + ["items[*].exchanges[*].response.headers: %s" % self.LINK_REMOVED]
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         path = pathlib.Path(folder.name) / self.ELEVENTH_CUT.name
@@ -646,6 +671,150 @@ class Fixture(unittest.TestCase):
             with self.subTest(wrong=wrong), self.assertRaises(AssertionError):
                 self.a_later_cut_moved_next_on(wrong, eval_run, earlier)
 
+    def test_no_read_of_the_deployments_list_keeps_a_link_header_however_it_is_written(self):  # issue 899
+        # The check reads a read of the list of Deployments however its call is written, and a Link header kept on one
+        # is refused in any fixture of a Release's runs; where the read is of a page, `removed` says once it went.
+        link = '<https://api.github.com/repositories/1/deployments?page=2>; rel="next"'
+        paged = json.loads(self.FIRST_ROLLBACK.read_text())
+        page, = [e for item in paged["items"] for e in item["exchanges"] if self.DEPLOYMENTS + "&per_page=" in e["request"]["call"]]
+        path = "/repos/%s/deployments" % REPO
+        for call in ("GET %s?per_page=4&environment=factory-next" % path, "GET %s?environment=factory-next&per_page=4&page=2" % path,
+                     "GET %s?environment=factory-stable&per_page=100" % path, "GET https://api.github.com%s?per_page=4" % path,
+                     "gh api --include %s?per_page=4" % path.lstrip("/"), "GET %s/?per_page=4" % path, "GET\t%s?per_page=4" % path,
+                     "GET %s?environment=factory-next" % path, "GET %s" % path, "gh api --include '%s'" % path.lstrip("/")):
+            kept = copy.deepcopy(paged)
+            kept_page, = [e for item in kept["items"] for e in item["exchanges"] if e["request"]["call"] == page["request"]["call"]]
+            kept_page["request"]["call"], kept_page["response"]["headers"]["link"] = call, link
+            self.assertTrue(any("keeps the Link header of a read of Deployments" in p
+                                for p in check_release.fixture_problems(kept, "rollback.json")), call)
+        # A fixture of another schema is held the same way, and a page's `removed` must say it once.
+        loose = {"exchanges": [{"request": {"call": "GET %s?per_page=4" % path, "headers": {}},
+                                "response": {"status": 200, "headers": {"link": link}, "body": []}}], "removed": []}
+        found = check_release.fixture_problems(loose, "refs.json")
+        self.assertTrue(any("keeps the Link header" in p for p in found) and any("removed says 0 times" in p for p in found), found)
+        later = copy.deepcopy(loose)
+        later["exchanges"][0]["request"]["call"], later["exchanges"][0]["response"]["headers"] = "GET %s?page=2" % path, {}
+        self.assertEqual([p for p in check_release.fixture_problems(later, "refs.json") if "removed says 0 times" in p],
+                         ["refs.json: reads a page of Deployments, and removed says 0 times that the link header of the read of "
+                          "a Channel's Deployments was taken out, not once"])
+        # A page asked as a field gh api sends in the query is a page too (Astra's read).
+        field = copy.deepcopy(later)
+        for call in ("gh api --include --method GET %s -F page=2" % path.lstrip("/"),
+                     "gh api --include -F per_page=4 --method GET %s" % path.lstrip("/")):
+            field["exchanges"][0]["request"]["call"] = call
+            self.assertTrue(any("removed says 0 times" in p for p in check_release.fixture_problems(field, "refs.json")), call)
+        # Of whichever Channel's Deployments the page was, `removed` says it of that Channel.
+        stable = copy.deepcopy(later)
+        stable["exchanges"][0]["request"]["call"] = "GET %s?environment=factory-stable&per_page=4" % path
+        stable["removed"] = ["exchanges[0].response.headers: the link header of the read of stable's Deployments"]
+        self.assertEqual(check_release.fixture_problems(stable, "refs.json"), [])
+        # And of that Channel alone: next's said of a page of stable's is not said (cubic's read).
+        stable["removed"] = ["exchanges[0].response.headers: the link header of the read of next's Deployments"]
+        self.assertTrue(any("removed says 0 times that the link header of the read of stable's" in p
+                            for p in check_release.fixture_problems(stable, "refs.json")))
+        # A repo's name in any case is the repo; and a write to the list is no read of it (cubic's reads).
+        upper = copy.deepcopy(loose)
+        upper["exchanges"][0]["request"]["call"] = "GET /repos/Combsmith/Software-Factory/deployments?per_page=4"
+        self.assertTrue(any("keeps the Link header" in p for p in check_release.fixture_problems(upper, "refs.json")))
+        for write in ("POST %s" % path, "gh api --method POST %s" % path.lstrip("/"), "gh api -X PATCH %s?page=2" % path.lstrip("/")):
+            posted = copy.deepcopy(loose)
+            posted["exchanges"][0]["request"]["call"] = write
+            self.assertEqual(check_release.fixture_problems(posted, "refs.json"), [], write)
+        # A `removed` or a response of another type is said, never a crash (Carbon's read).
+        for odd in ({"removed": 1}, {"removed": {"x": 1}}):
+            broken = dict(copy.deepcopy(later), **odd)
+            self.assertTrue(check_release.fixture_problems(broken, "refs.json"))
+        for side in ("request", "response"):
+            odd_part = copy.deepcopy(later)
+            odd_part["exchanges"][0][side] = ["not", "a", side]
+            self.assertIsInstance(check_release.fixture_problems(odd_part, "refs.json"), list, side)
+        # A read of the whole list needs no word in `removed`; one of a Deployment, or of its statuses, is no read of it.
+        whole = copy.deepcopy(loose)
+        whole["exchanges"][0]["request"]["call"], whole["exchanges"][0]["response"]["headers"] = "GET %s?environment=x" % path, {}
+        self.assertEqual(check_release.fixture_problems(whole, "refs.json"), [])
+        for one in ("GET %s/123" % path, "GET %s/123/statuses?per_page=4" % path):
+            single = copy.deepcopy(loose)
+            single["exchanges"][0]["request"]["call"] = one
+            self.assertEqual(check_release.fixture_problems(single, "refs.json"), [], one)
+
+    def test_a_cut_s_fixture_is_held_to_each_field_its_readers_passed_over(self):  # issue 863
+        # Five fields of a cut's fixture that no test read, each changed alone in a copy of the newest cut's: the cut's
+        # own run still in progress, so its `updated_at` is no end; a second attempt of it, so its `created_at` is not
+        # when the run that cut began; its one job under another name; a status of the cut's own Deployment, or of the
+        # one `next` moved off, of another environment; and the success the Deployment `next` moved off kept, dated
+        # after the inactive above it. Each is refused by the helper every later cut is read by, the job's name by the
+        # check of the fixture it asks first (`tools/check_release.py`), and the copy unchanged is held.
+        newest = self.cuts()[-1]
+        earlier = list(reversed(self.cuts()[:-1]))
+        made = self.item(json.loads(newest.read_text()), "cut_and_move_of_next")
+        eval_run, own = self.eval_run(made), made["printed"]["deployments"][0]
+        off = self.deployments_read(made)[0][1]["id"]
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+
+        def changed(path, change):
+            fixture = json.loads(newest.read_text())
+            found = [e["response"]["body"] for e in self.item(fixture, "cut_and_move_of_next")["exchanges"]
+                     if e["request"]["call"].split(" ")[1] == "/repos/%s%s" % (REPO, path)]
+            self.assertEqual(len(found), 1, path)
+            change(found[0])
+            copy_ = pathlib.Path(folder.name) / newest.name
+            copy_.write_text(json.dumps(fixture))
+            return copy_
+
+        def later(statuses):
+            self.assertEqual([s["state"] for s in statuses], ["inactive", "success"])
+            at = datetime.datetime.strptime(statuses[0]["created_at"], "%Y-%m-%dT%H:%M:%SZ") + datetime.timedelta(seconds=1)
+            statuses[1]["created_at"] = at.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        run, moved_off = "/actions/runs/%d" % made["run"], "/deployments/%d/statuses" % off
+        self.a_later_cut_moved_next_on(changed(run, lambda body: None), eval_run, earlier)
+        wrong = {"the cut's run had not ended": (run, lambda body: body.update(status="in_progress")),
+                 "the cut's run ran twice": (run, lambda body: body.update(run_attempt=2)),
+                 "the run's job is not the release job": (run + "/jobs", lambda body: body["jobs"][0].update(name="verify")),
+                 "the cut's own Deployment's status is of another environment":
+                     ("/deployments/%d/statuses" % own, lambda body: body[-1].update(environment="factory-stable")),
+                 "the status of the Deployment next moved off is of another environment":
+                     (moved_off, lambda body: body[0].update(environment="factory-stable")),
+                 "the success kept is later than the inactive above it": (moved_off, later)}
+        for why, (path, change) in wrong.items():
+            copy_ = changed(path, change)       # made outside the refusal, so that only the helper's own is counted
+            with self.subTest(why=why), self.assertRaises(AssertionError):
+                self.a_later_cut_moved_next_on(copy_, eval_run, earlier)
+        # A success dated the second its inactive was is no later than it, and is held.
+        self.a_later_cut_moved_next_on(changed(moved_off, lambda body: body[1].update(created_at=body[0]["created_at"])),
+                                       eval_run, earlier)
+        # The page's read keeps no Link header, and `removed` says it was taken out: each fixture that reads a page,
+        # the first rollback's among them, and a copy that keeps the header, or does not say, is refused.
+        for path in [p for p in self.cuts() if self.deployments_read(self.item(json.loads(p.read_text()), "cut_and_move_of_next"))[1]] \
+                + [self.FIRST_ROLLBACK]:
+            fixture = json.loads(path.read_text())
+            self.a_page_of_deployments_keeps_no_link(fixture)
+            kept, unsaid = copy.deepcopy(fixture), copy.deepcopy(fixture)
+            page, = [e for item in kept["items"] for e in item["exchanges"] if self.DEPLOYMENTS + "&per_page=" in e["request"]["call"]]
+            page["response"]["headers"]["Link"] = '<https://api.github.com/repositories/1/deployments?page=2>; rel="next"'
+            unsaid["removed"] = [said.replace(self.LINK_REMOVED, "") for said in unsaid["removed"]]
+            twice = copy.deepcopy(fixture)
+            twice["removed"] += [said for said in twice["removed"] if self.LINK_REMOVED in said]
+            for why, wrong_ in (("the header kept", kept), ("removed does not say", unsaid), ("removed says twice", twice)):
+                with self.subTest(path=path.name, why=why), self.assertRaises(AssertionError):
+                    self.a_page_of_deployments_keeps_no_link(wrong_)
+                # The check asks it of every fixture of a Release's runs, whatever test reads it (issue 899); and the
+                # helper every later cut is read by asks it too.
+                found = check_release.fixture_problems(wrong_, path.name)
+                self.assertEqual(len(found), 1, (path.name, why, found))
+                self.assertIn({"the header kept": "keeps the Link header of a read of Deployments",
+                               "removed does not say": "removed says 0 times that the link header of the read of next's",
+                               "removed says twice": "removed says 2 times"}[why], found[0])
+                if path == newest:
+                    copy_ = pathlib.Path(folder.name) / path.name
+                    copy_.write_text(json.dumps(wrong_))
+                    with self.subTest(path=path.name, why=why, by="the helper"), self.assertRaises(AssertionError):
+                        self.a_later_cut_moved_next_on(copy_, eval_run, earlier)
+        whole = json.loads(self.ELEVENTH_CUT.read_text())
+        self.assertFalse(any(self.LINK_REMOVED in said for said in whole["removed"]))
+        self.a_page_of_deployments_keeps_no_link(whole)
+
     def test_the_first_rollback_moved_next_back_within_its_time_and_a_move_brought_it_forward_again(self):
         # Issue 197's ruling 9', items 4 and 5. Run 43317751252 rolled `next` back from factory/v0.1.10 to factory/v0.1.9
         # on 2026-11-12, while the repo's Pause stood, and run 43317854989, asked 39 seconds after the rollback was,
@@ -654,6 +823,7 @@ class Fixture(unittest.TestCase):
         # port lists them, with `next` on again.
         fixture = json.loads(self.FIRST_ROLLBACK.read_text())
         self.assertEqual(check_release.fixture_problems(fixture, self.FIRST_ROLLBACK.name), [])
+        self.a_page_of_deployments_keeps_no_link(fixture)
         self.assertEqual([item["item"] for item in fixture["items"]], ["rollback", "move_forward_again"])
         back, on = self.item(fixture, "rollback"), self.item(fixture, "move_forward_again")
         rings = json.loads(move.RINGS.read_text())
@@ -976,6 +1146,8 @@ class Fixture(unittest.TestCase):
             "the run refused": lambda i: exchange(i, "/actions/runs/")["response"].update(status=404),
             "the log of another run's job": lambda i: exchange(i, "/jobs")["response"]["body"]["jobs"][0].update(
                 run_id=i["run"] + 1),
+            "the run's one job under another name": lambda i: exchange(i, "/jobs")["response"]["body"]["jobs"][0].update(
+                name="verify"),
             "the log not read": lambda i: i["exchanges"].remove(exchange(i, "/logs")),
             "the log's last line in other words": lambda i: exchange(i, "/logs")["response"].update(
                 body=exchange(i, "/logs")["response"]["body"].replace('"eval_gate_closed"', '"not_verified"')),
