@@ -9,12 +9,21 @@ unreadable, or any foreign check under a Lens's name, leaves `checks` null; else
 or concluding, its failing suite not yet concluded, is `pending`; all passing is `passing`. A rollup not read whole, or
 one the port refuses, leaves it null: an unreadable fact defers, never passes (the Factory Builder's rulings on issue
 878, Q1, Q3 and Q5, option A each).
+
+Beside its checks, `head` gives the draft's own head, the commit and the branch an implementing Run is admitted at
+(issue 1059): only for the Factory's draft from this repo, on a branch of the Factory's shape; else null, and the Kernel
+defers that Run.
 """
 from __future__ import annotations
 
+import re
+
 from adapters import checks
 from adapters.github import Unanswered
-from kernel import derive
+from kernel import derive, terms
+
+SHA = re.compile(r"[0-9a-f]{40}")
+WORK = re.compile(terms.WORK_BRANCH)
 
 
 def verdict(found: list, kernel: dict):
@@ -42,6 +51,24 @@ def read(transport, pull: dict, kernel: dict):
         return verdict(found["checks"], kernel)
     except (Unanswered, KeyError, TypeError, AttributeError):
         return None
+
+
+def head(pull: dict):
+    """The draft's own head, `{"sha", "ref"}`, from REST's read of it, `pull`, read where its checks are: the commit an
+    implementing Run is admitted at and pushes past (issue 1059). None where it cannot be told the Factory's from this
+    repo: a head from another repo, or one whose repo, commit or branch cannot be read, or a branch of another shape than
+    the Factory's work branch (decision 0068)."""
+    found = pull.get("head") if isinstance(pull.get("head"), dict) else {}
+    base = pull.get("base") if isinstance(pull.get("base"), dict) else {}
+    held, given = found.get("repo"), base.get("repo")
+    mine = held.get("id") if isinstance(held, dict) else None
+    home = given.get("id") if isinstance(given, dict) else None
+    sha, ref = found.get("sha"), found.get("ref")
+    # From this repo as `adapters/pull.own` tells it: the head's repo is the base's, by id.
+    if not (type(home) is int and mine == home and type(mine) is int and isinstance(sha, str) and SHA.fullmatch(sha)
+            and isinstance(ref, str) and WORK.fullmatch(ref)):
+        return None
+    return {"sha": sha, "ref": ref}
 
 
 def asked(kernel, own: dict) -> bool:

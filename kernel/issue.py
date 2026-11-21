@@ -831,6 +831,22 @@ def readable_head(facts: dict) -> bool:
         facts["branch_head"] is None or is_sha(facts["branch_head"]))
 
 
+def draft_head(draft: dict, number) -> bool:
+    """Whether the Factory's draft's own head was told: its commit's whole sha, on a work branch of issue `number`, read
+    with the draft from this repo (`adapters/draft_checks.head`); anything else is not (issue 1059)."""
+    head = draft.get("head")
+    return isinstance(head, dict) and is_sha(head.get("sha")) and work_branch_of(head.get("ref"), number)
+
+
+def work_branch_of(ref, number) -> bool:
+    """Whether `ref` is a work branch of issue `number`, as terms.py's WORK_BRANCH spells one: the prefix, the issue, a
+    dash and the count, each a whole number from 1 with no leading zero (decision 0068)."""
+    if not (isinstance(ref, str) and ref.startswith(t.WORK_PREFIX)):
+        return False
+    issue, _, count = ref[len(t.WORK_PREFIX):].partition("-")
+    return issue == str(number) and all(p != "" and p[0] != "0" and all(c in t.DIGITS for c in p) for p in (issue, count))
+
+
 def is_sha(value) -> bool:
     """Whether `value` is a commit's whole sha: forty lower-case hex digits, never a branch's name or a short sha."""
     return isinstance(value, str) and len(value) == len(SHA_SHAPE) and all(c in t.HEX_DIGITS for c in value)
@@ -1051,7 +1067,11 @@ def _implementing(facts, state, reason, evidence, mine, config):
     held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"])
     if held:
         return held
-    return (config["author_role"], IMPLEMENT, {"pull_request": draft["number"]})
+    # The Run pushes to the draft it is admitted for (decision 0217), so its own head is what it is admitted at: one the
+    # port could not tell defers it. The next opening's branch is no branch it touches (issue 1059).
+    if not draft_head(draft, facts["item"]["number"]):
+        return _decision(facts, state, "branch_unreadable", evidence, t.DEFER)
+    return (config["author_role"], IMPLEMENT, {"pull_request": draft["number"], "branch_head": draft["head"]["sha"]})
 
 
 def moved_at(facts: dict, runs: list, config: dict, now: str):
@@ -1194,7 +1214,8 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
 def still_admitted(admitted: dict, again: dict) -> bool:
     """Whether `apply` may write. Before any Effect it asks the Kernel again, leaving its own Run out of the records
     (I-38), and writes nothing unless that admits the same Run: the same Role and Intent, which only one State admits,
-    for the same content, and for the opening Run the same branch head (I-21). So a label removed, a Hold added, an
+    for the same content, and the same branch head, the opening Run's or the implementing Run's draft's (I-21, issue
+    1059). So a label removed, a Hold added, an
     edit made or a head moved while the Run was in flight each stop it. The base is never compared: a default branch
     that moved is no refusal, and `apply` lands on the base of the admission it recorded (decision 0242)."""
     now, then = again.get("admit"), admitted.get("admit")
