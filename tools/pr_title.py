@@ -13,7 +13,13 @@ names one change, and in words a newcomer can read, is judgment: the reviewers'.
 is not read. The title is text from outside: what this prints names a rule's code and a position, never a word of the
 title, so no title can write a command into a job's log.
 
-Run `python3 -m tools.pr_title "TITLE"` at the desk before opening a pull request.
+The body is held to the template's shape (decision 0246): `.github/pull_request_template.md`'s four headings, each once,
+in that order, each over some text. A heading inside a code fence is no heading, and the template's own scaffolding (a
+comment, an empty list item, the checks-and-readers block) is no text.
+What the body says is the reviewers' to judge. A pull request opened before BODY_CUTOVER is not read for its body.
+
+Run `python3 -m tools.pr_title "TITLE"`, and `python3 -m tools.pr_title --body FILE`, at the desk before opening a pull
+request.
 """
 from __future__ import annotations
 
@@ -27,6 +33,14 @@ from adapters.github import Live, Unanswered, request
 
 LONGEST = 72                        # characters; the Maintainer's "about 70". GitHub's " (#N)" on the squash is not counted
 CUTOVER = "2026-11-22T00:00:00Z"    # a pull request opened before this is not read (issue 1089)
+BODY_CUTOVER = "2026-11-23T00:00:00Z"   # nor, for its body, one opened before this (decision 0246)
+# The body's headings, from .github/pull_request_template.md, in their order.
+HEADINGS = ("Why", "What changed", "What to look at", "Record and protected edits")
+HEADING = re.compile(r" {0,3}##[ \t]+(.*?)[ \t#]*")
+FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
+# The template's own scaffolding, which is no text: its comments, the checks-and-readers block, and an empty list item.
+SCAFFOLD = re.compile(r"<!--.*?-->|<details>.*?</details>", re.S)
+EMPTY_ITEM = re.compile(r"^[ \t]*(?:[-*+]|[0-9]+[.)])[ \t]*$", re.M)
 AREA = re.compile(r"[a-z0-9.][a-z0-9._/-]*: (?=\S)")
 TAIL = re.compile(r" \(#[1-9][0-9]*(?:, part (0|[1-9][0-9]*) of (0|[1-9][0-9]*))?\)\Z")
 # The marks of a name from inside the code, which a newcomer cannot read.
@@ -75,10 +89,46 @@ def problems(title: str) -> list:
     return found
 
 
+def body_problems(body: str) -> list:
+    """Why `body` is not in the template's shape: nothing where it is. No problem holds a word of it."""
+    seen, fence, section = [], None, None
+    for line in body.split("\n"):
+        opening = FENCE.match(line)
+        if fence is None and opening:
+            fence = opening.group(1)
+        elif fence is not None:
+            if opening and opening.group(1)[0] == fence[0] and len(opening.group(1)) >= len(fence) \
+                    and not line.strip().strip(fence[0]):
+                fence = None
+        else:
+            heading = HEADING.fullmatch(line.rstrip("\r"))
+            if heading:
+                section = [heading.group(1), []]
+                seen.append(section)
+                continue
+        if section is not None:
+            section[1].append(line)
+    found, places = [], []
+    for name in HEADINGS:
+        held = [i for i, (title, _) in enumerate(seen) if title == name]
+        if not held:
+            found.append("body_heading_missing: the body has no heading '## %s'" % name)
+        elif len(held) > 1:
+            found.append("body_heading_twice: the body has the heading '## %s' %d times" % (name, len(held)))
+        else:
+            places.append(held[0])
+            if not EMPTY_ITEM.sub("", SCAFFOLD.sub("", "\n".join(seen[held[0]][1]))).strip():
+                found.append("body_section_empty: the section '## %s' holds nothing but the template's own" % name)
+    if places != sorted(places):
+        found.append("body_heading_out_of_order: the headings are not in the template's order: %s"
+                     % ", ".join(HEADINGS))
+    return found
+
+
 def read(environ, transport=None) -> tuple:
-    """(the title as GitHub answered it, when the pull request was opened, why it cannot be read): the pull request the
-    event names, read from GitHub with the job's read-only token. The last is empty where the pull request and when it
-    was opened were read; the title is held by `check`, since a pull request opened before CUTOVER needs none."""
+    """(the pull request as GitHub answered it, when it was opened, why it cannot be read): the pull request the event
+    names, read from GitHub with the job's read-only token. The last is empty where the pull request and when it was
+    opened were read; its title and body are held by `check`, since one opened before a cutover needs neither."""
     event, token = environ.get("EVENT"), environ.get("WORKFLOW_TOKEN")
     try:
         payload = json.loads(pathlib.Path(environ["GITHUB_EVENT_PATH"]).read_text())
@@ -110,27 +160,45 @@ def read(environ, transport=None) -> tuple:
         datetime.datetime.strptime(opened if isinstance(opened, str) and MOMENT.fullmatch(opened) else "", "%Y-%m-%dT%H:%M:%SZ")
     except ValueError:
         return None, None, "title_unreadable: when pull request %d was opened cannot be read" % number
-    return pull.get("title"), opened, ""
+    return pull, opened, ""
 
 
 def check(environ, transport=None) -> list:
-    """Why the event's pull request's title breaks the rule, or cannot be read: nothing where it keeps it, or where the
-    pull request was opened before CUTOVER."""
-    title, opened, why = read(environ, transport)
+    """Why the event's pull request's title or body breaks its rule, or cannot be read: nothing where both keep theirs,
+    or where the pull request was opened before the cutover of each."""
+    pull, opened, why = read(environ, transport)
     if why:
         return [why]
-    if opened < CUTOVER:
-        return []
-    if not isinstance(title, str) or not title:
-        return ["title_unreadable: the pull request's title cannot be read"]
-    return problems(title)
+    found = []
+    if opened >= CUTOVER:
+        title = pull.get("title")
+        found += problems(title) if isinstance(title, str) and title else ["title_unreadable: the pull request's title cannot be read"]
+    if opened >= BODY_CUTOVER:
+        body = pull.get("body")
+        found += body_problems(body) if isinstance(body, str) else ["body_unreadable: the pull request's body cannot be read"]
+    return found
 
 
 def main(argv=None) -> int:
-    """The desk's check of one title, before a pull request is opened: its problems, or that it keeps the rule."""
+    """The desk's check of one title, or of one body's file, before a pull request is opened: its problems, or that it
+    keeps the rule."""
     args = sys.argv[1:] if argv is None else argv
+    if args[:1] == ["--body"]:
+        if len(args) != 2:
+            print("usage: python3 -m tools.pr_title --body FILE")
+            return 2
+        try:
+            found = body_problems(pathlib.Path(args[1]).read_text())
+        except (OSError, ValueError) as err:
+            print("body_unreadable: the file cannot be read: %s" % type(err).__name__)
+            return 1
+        for problem in found:
+            print(problem)
+        if not found:
+            print("the body keeps the template's shape: %s" % ", ".join(HEADINGS))
+        return 1 if found else 0
     if len(args) != 1:
-        print("usage: python3 -m tools.pr_title \"area: plain verb phrase (#issue)\"")
+        print("usage: python3 -m tools.pr_title \"area: plain verb phrase (#issue)\" | --body FILE")
         return 2
     found = problems(args[0])
     for problem in found:
