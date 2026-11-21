@@ -14676,8 +14676,8 @@ MUTANTS = ISSUE + [
     # Issues 963 and 965, the reader audits of #918 and #912: each issue's read dated by its own answer, the issues'
     # configuration left as written and its Apps named plain, and every account held to the names an App's id holds.
     ("each issue's facts read is dated by the first issue's answer", 'controller/__main__.py',
-     '    issues, tally = [], {}\n    for number in listed:\n        began, through = stages.now(), Dated(transport)\n',
-     '    issues, tally = [], {}\n    through = Dated(transport)\n    for number in listed:\n        began = stages.now()\n', S3_ENTRY),
+     '    for number in listed:\n        began, through = stages.now(), Dated(transport)\n',
+     '    through = Dated(transport)\n    for number in listed:\n        began = stages.now()\n', S3_ENTRY),
     ("the issues' Kernel configuration rewrites the caller's", 'controller/pass_.py',
      'issues = copy.deepcopy(kernel.get("issues"))',
      'issues = kernel.get("issues")', S3_REPLAY),
