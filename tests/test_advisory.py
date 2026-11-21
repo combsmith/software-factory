@@ -459,13 +459,6 @@ class Transport(unittest.TestCase):
             with self.assertRaisesRegex(azure.Unanswered, "closes them"):
                 live(Real(raw[:-4])).send(azure.read(ID))
 
-        class Chunked(Answer):
-            headers = dict(Answer.headers, **{"Transfer-Encoding": "chunked"})
-        opener = Capture(b"x" * (azure.LARGEST + 1), Chunked)
-        with self.assertRaises(azure.Unanswered):
-            live(opener).send(azure.read(ID))
-        self.assertEqual(opener.answers[0].asked, [azure.CHUNK] * 4 + [azure.FRAMING])
-
     def test_the_azure_transport_bounds_every_answer_in_size_and_time(self):
         # The seconds are its caller's, a whole number from one to the longest a step may wait on one request.
         self.assertEqual(azure.LONGEST, 20 * 60)
@@ -483,12 +476,12 @@ class Transport(unittest.TestCase):
         class Chunked(Answer):
             headers = dict(Answer.headers, **{"Transfer-Encoding": "chunked"})
         # One that says a length over the bound is not read; one chunked is read a chunk at a time, never the whole of
-        # what is sent, read to be refused.
-        for answer, asked in ((Answer, set()), (Chunked, {azure.CHUNK, azure.FRAMING})):
+        # what is sent, read to be refused, and capped as a whole, a stand-in's too.
+        for answer, asked in ((Answer, []), (Chunked, [azure.CHUNK] * 4 + [azure.FRAMING])):
             opener = Capture(at + b" ", answer)
             with self.assertRaises(azure.Unanswered):
                 live(opener).send(azure.read(ID))
-            self.assertEqual(set(opener.answers[0].asked), asked, answer.__name__)
+            self.assertEqual(opener.answers[0].asked, asked, answer.__name__)
             self.assertTrue(all(0 < n <= 1024 * 1024 for n in opener.answers[0].asked), answer.__name__)
         # Azure out of reach, or an answer cut short while it is read, a body's or an error's, is refused and never
         # another exception.

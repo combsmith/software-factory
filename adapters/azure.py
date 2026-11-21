@@ -14,13 +14,12 @@ that comes slowly: the whole is bounded by the limit of the step that calls. Eve
 refused past the bound or of other than the length it said, counted as read, never cut short; no read of the
 connection under it takes more than the bound and a frame's allowance. An answer is read only when it is framed as
 Azure frames each of its own, chunked alone, each chunk's size of hex digits and its data ended by CRLF, or with one
-length of at most ten digits, no larger than the bound, under headers http.client read whole and closed by their blank
-line. The bound holds from an answer's first byte, of its status, its headers and each interim answer before it. One
-that is not UTF-8 is text and never read as JSON, and so is one not of JSON's type or its suffix, and one that holds a
-whole number of more digits than any count, NaN, an infinity or a number too large for a float. A body whose object
-names a member by other than text, or that holds a kind of dict, list or tuple, or one of them twice, is not sent, and
-nor is a request not built here. Of an answer's headers it keeps the two a caller reads, each by its last value and
-only when that is short, printable ASCII. It verifies the host's certificate by a context of
+length of at most ten digits, no larger than the bound, under headers read whole to their blank line, all bounded from
+the first byte. A body is not sent whose object names a member by other than text, or holds a kind of dict, list or
+tuple, or one twice. An answer not of JSON's type or its suffix is text, never read as JSON. One that
+is not UTF-8 is text and never read as JSON, and so is one that holds a whole number of more digits than any count, NaN,
+an infinity or a number too large for a float. Of an answer's headers it keeps the two a caller reads, each by its last
+value and only when that is short, printable ASCII. It verifies the host's certificate by a context of
 its own, so a default changed elsewhere in the process cannot turn that off. No refusal names the host, the address or
 the key, and each is raised from nothing, chained to no error of urllib's, which holds the address asked. Nothing is
 installed: the standard library does the rest.
@@ -145,9 +144,8 @@ def _framed(headers):
 
 class _Capped:
     """The connection under an answer, of which no read takes more than the bound and a frame's allowance. Of one
-    chunked, each chunk's size is hex digits alone, which http.client would read with a sign, a prefix or a space, its
-    data ends in CRLF, which http.client tosses unread, and each line after the last chunk is a field or the blank line
-    that ends them, so that one cut short there is refused, not taken as whole."""
+    chunked, each chunk's size is hex digits alone, which http.client would read with a sign, a prefix or a space, and
+    each line after the last chunk ends as a line does, so that one cut short there is refused, not taken as whole."""
 
     __slots__ = ("_fp", "_left", "_chunked", "_trailer", "_due", "_end", "_last")
 
@@ -200,9 +198,8 @@ class _Capped:
 
 
 class _Response(http.client.HTTPResponse):
-    """An answer whose connection is capped from its first byte, so that interim answers, which http.client reads and
-    passes over for as long as they come, are bounded with the rest; and whose headers end with their blank line, where
-    http.client takes the end of the connection for one."""
+    """An answer capped from its first byte, interim answers too, which http.client passes over for as long as they
+    come; its headers end with their blank line, not the connection's end."""
 
     def __init__(self, sock, *args, **kwargs):
         super().__init__(sock, *args, **kwargs)
@@ -225,8 +222,7 @@ class _Https(urllib.request.HTTPSHandler):
 
 
 def _capped(got):
-    """What an answer is read through: one of http.client's only when its connection was capped from its first byte,
-    or else it is refused, and anything else as a whole, capped all the same."""
+    """What an answer is read through: http.client's only if capped from its first byte, anything else capped whole."""
     held = got if isinstance(got, http.client.HTTPResponse) else getattr(got, "fp", None)
     if not isinstance(held, http.client.HTTPResponse):
         return _Capped(got)
@@ -272,9 +268,8 @@ def _answer(status: int, headers, raw: bytes) -> dict:
 
 def _named(value, seen):
     """Each object of a body names its members by text alone: JSON writes a key of another type as text, so that
-    `{1: "a", "1": "b"}` would be sent as two members of one name, which readers read otherwise. Each object, list and
-    tuple is of that type itself, never a kind of one whose keys say otherwise than its items, and none is held twice,
-    so that each is looked into once and the JSON written is no longer than the body."""
+    `{1: "a", "1": "b"}` would be sent as two members of one name, which readers read otherwise. None is a kind of dict,
+    list or tuple, whose keys may say otherwise than its items, and none is held twice, so JSON's text is no longer."""
     if isinstance(value, (dict, list, tuple)):
         if type(value) not in (dict, list, tuple) or id(value) in seen:
             raise Unanswered("a body that holds a kind of dict, list or tuple, or one of them twice; it is not sent")

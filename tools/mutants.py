@@ -4879,7 +4879,7 @@ MUTANTS = ISSUE + [
      'self.do_open(http.client.HTTPSConnection,', AZURE_CAPPED),
     ("an answer's headers may end where its connection does", AZURE, '        if self.fp._last != b"\\r\\n":\n',
      '        if False:\n', AZURE_CAPPED),
-    ("a stand-in's answer is read uncapped", AZURE, '        return _Capped(got)\n', '        return got\n', AZURE_CAPPED),
+    ("a stand-in's answer is read uncapped", AZURE, '        return _Capped(got)\n', '        return got\n', AZURE_BOUND),
     ("a request is written before the path that refuses", AZURE, '        try:\n            verb, path, body = wire(req)\n',
      '        verb, path, body = wire(req)\n        try:\n', AZURE_KEY),
     ("a refusal holds as its context an error its caller was handling", AZURE,
