@@ -8,8 +8,9 @@ present life is listed only while its base is the default branch, as REST names 
 reference (trials/P-33.json), and a closer of this life to another base is not whole. A closer is listed whatever its
 references now say (trials/P-46.json): a pull request by repository and number, as a merge commit's close (P-33) and the
 queue's squash (P-67) named one, or a commit that is one listed pull request's merge commit; a pull request's first
-close in the present life is its own. Any other commit closer of this life, one with no id, a closer of another kind, or
-a pull request of another repo, is not whole.
+close in the present life is its own. Any other commit closer of this life, a closer of another kind, or a pull request
+of another repo, is not whole, and a commit closer of this life with no id refuses the read; each of these in a life
+before is passed over, though it names the issue, and a closer of no type is refused in any life.
 
 Each one's own facts are read as a pull request's (`adapters/pull.py`, `adapters/timeline.py`): its draft changes, the
 later ones undone from its flag now, give its flag at a time (`draft_at`, decision 0141); an act an App made with a
@@ -23,9 +24,9 @@ once seen, a link by hand, or a close it made in the present life, and no other.
 list and the spans were both read whole: records that could not be read give no time and could hide a pull request once
 seen, so the issue defers. Where the records at hand break the chain of spans (`adapters/keyword_spans.py`), the list is
 whole besides only where they give no pull request a span, which a broken chain may give short, and nothing names the
-issue now: no pull request referenced, linked by hand or the closer of a close in any life, of any base, nothing but
-an issue cross-referencing it and no commit referencing it, as the read also asks; a pull request whose keyword an edit
-took out still cross-references it, as its trial is to show (issue 990).
+issue now: no pull request referenced, linked by hand or the closer of a close in any life, of any base, no closer of
+any life but a person, nothing but an issue cross-referencing it and no commit referencing it, as the read also asks;
+a pull request whose keyword an edit took out still cross-references it, as its trial is to show (issue 990).
 """
 from __future__ import annotations
 
@@ -73,8 +74,10 @@ def _number(node, repo: str):
 def joined(transport, repo: str, number: int, updated_at: str, began: str) -> dict:
     """The issue's GraphQL read: `refs`, the numbers referenced; `links`, each link and unlinking by hand, by number;
     `closers`, when each pull request closed the issue, its first close in the life begun at `began` or else its first;
-    `commits`, when each commit did in that life; `crossed`, whether anything but an issue cross-references it, or a
-    commit references it, as a commit's closing keyword does; and `whole`. The read must name the issue's `updated_at`."""
+    `commits`, when each commit did in that life; `closed`, whether a close of any life names a closer `closers` cannot
+    hold, a commit, a pull request of another repo or a closer of another kind; `crossed`, whether anything but an issue
+    cross-references it, or a commit references it, as a commit's closing keyword does; and `whole`. The read must name
+    the issue's `updated_at`."""
     field, (owner, name) = issues._field, repo.split("/")
     answer = transport.send(request("POST", "/graphql", body={
         "query": QUERY, "variables": {"owner": owner, "name": name, "number": number}}))
@@ -93,7 +96,7 @@ def joined(transport, repo: str, number: int, updated_at: str, began: str) -> di
     if type(total) is not int or not isinstance(nodes, list) or not isinstance(more, bool) or not isinstance(events, list):
         raise Unanswered("the references cannot be read")
     refs = [_number(node, repo) for node in nodes]
-    out, closes = {"refs": set(refs), "links": {}, "commits": {}, "crossed": False,
+    out, closes = {"refs": set(refs), "links": {}, "commits": {}, "crossed": False, "closed": False,
            "whole": total == len(nodes) and not more and None not in refs and len(set(refs)) == len(refs)}, {}
     for node in events:
         kind = field(node, "__typename")
@@ -120,20 +123,29 @@ def joined(transport, repo: str, number: int, updated_at: str, began: str) -> di
             out["whole"] = out["whole"] and linked is not None
             out["links"].setdefault(linked, []).append({"action": LINKS[kind], "at": at})
         elif kind == "ClosedEvent":
+            # A person's close names no closer; a closer that names no type is a read that failed.
             closer = field(node, "closer")
             typed = field(closer, "__typename") if closer is not None else None
+            if closer is not None and not (isinstance(typed, str) and typed):
+                raise Unanswered("a closer of no type")
             if typed == "PullRequest":
                 closed = _number(closer, repo)
-                out["whole"] = out["whole"] and closed is not None
                 closes.setdefault(closed, []).append(at)
-            elif typed is not None and typed != "Commit":
-                out["whole"] = False
-            elif typed == "Commit":
+                unlisted = closed is None
+            else:
+                unlisted = closer is not None
+            # One that cannot be listed by its number names the issue, of any life (decision 0218), and is passed over
+            # in a life before: only one of the present life makes the list not whole, or names a merge commit.
+            out["closed"] = out["closed"] or unlisted
+            if not unlisted or at < began:
+                continue
+            if typed == "Commit":
                 oid = field(closer, "oid")
-                if not timeline.SHA.match(str(oid)):
+                if not (isinstance(oid, str) and timeline.SHA.match(oid)):
                     raise Unanswered("a commit closer with no id")
-                if at >= began:
-                    out["commits"].setdefault(oid, at)
+                out["commits"].setdefault(oid, at)
+            else:
+                out["whole"] = False    # a pull request of another repo, or a closer of another kind
         else:
             raise Unanswered("an event of a kind not asked")
     out["refs"].discard(None)
@@ -241,7 +253,7 @@ def listing(transport, repo: str, number: int, updated_at: str, began: str, iden
             merged[0]["closed_issue_at"] = at
         whole = whole and len(merged) == 1
     linked = [made for made, _ in found]
-    return linked, whole, bool(join["refs"] or join["links"] or join["closers"] or join["crossed"])
+    return linked, whole, bool(join["refs"] or join["links"] or join["closers"] or join["crossed"] or join["closed"])
 
 
 def read(transport, repo: str, number: int, updated_at: str, began: str, identities: dict,

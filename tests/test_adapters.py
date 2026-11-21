@@ -6709,6 +6709,18 @@ class Issues(unittest.TestCase):
         refused += [edits(issue + (key,)) for key in ("lastEditedAt", "updatedAt", "number", "timelineItems")]
         refused += [edits(issue + ("timelineItems", "pageInfo", "hasNextPage")),
                     issue_read(types=[{"__typename": "IssueTypeChangedEvent", "createdAt": minute(0), "issueType": None}])]
+        # A next page that is no boolean, edits answered other than 200, an answer that is no object where one is asked,
+        # and labels or assignees that are no list, or no objects, are no answer, never none (issue 973).
+        refused += [issue_read(edits={"timelineItems": {"pageInfo": {"hasNextPage": more}, "nodes": []}}) for more in (None, 0)]
+        for status in (502, 206):
+            refused.append(issue_read())
+            refused[-1][2]["response"]["status"] = status
+        unissued, unrepo, listed = issue_read(), issue_read(), issue_read()
+        unissued[2]["response"]["body"]["data"]["repository"]["issue"] = None
+        unrepo[2]["response"]["body"]["data"]["repository"] = None
+        listed[2]["response"]["body"]["data"]["repository"] = ["issue"]
+        refused += [unissued, unrepo, listed, issue_read(labels=None), issue_read(assignees=None), issue_read(labels={}), issue_read(assignees={}),
+                    issue_read(labels=["kernel"]), issue_read(assignees=["don-petry"])]
         # So is a key REST's issue left out that the facts rest on; an empty body is null, and read.
         for key in ("type", "body", "title", "updated_at", "performed_via_github_app"):
             left_out = issue_read()
@@ -6722,11 +6734,12 @@ class Issues(unittest.TestCase):
         for edits, issue in (("2026-10-11T11:00:01Z", UPDATED), (UPDATED, "2026-10-11T11:00:01Z")):
             with self.assertRaises(facts.Moved):
                 self.read(issue_read(edits={"updatedAt": edits}, updated_at=issue, closing=[linked_read(updated=edits)]))
-        # Or while its pull requests were read.
-        moved = issue_read()
-        moved[-1]["response"]["body"] = dict(moved[-1]["response"]["body"], updated_at="2026-10-11T11:00:01Z")
-        with self.assertRaises(facts.Moved):
-            self.read(moved)
+        # Or while its pull requests were read, its last read newer or older than its first (issue 972).
+        for last in ("2026-10-11T11:00:01Z", "2026-10-11T10:59:59Z"):
+            moved = issue_read()
+            moved[-1]["response"]["body"] = dict(moved[-1]["response"]["body"], updated_at=last)
+            with self.assertRaises(facts.Moved, msg=last):
+                self.read(moved)
 
     def test_the_issues_own_facts_hold_to_the_schema_with_its_linked_pull_requests(self):
         from kernel import issue
@@ -6849,6 +6862,11 @@ class Linked(unittest.TestCase):
         self.assertEqual([(p["number"], p["keyword"], p["link_events"]) for p in found],
                          [(7, True, []), (10, False, [{"action": "connected", "at": minute(2)}])])
         self.assertTrue(whole)
+        # The default branch is the repo's, whatever its name: where it is `trunk`, one to `main` is to another base
+        # (issue 970).
+        found, whole = self.listed([linked_read(ref(7, 8)), pull_read(7, base="trunk", default="trunk"), pull_timeline(7),
+                                    pull_read(8, default="trunk")])
+        self.assertEqual(([p["number"] for p in found], whole), ([7], True))
         # A base or default branch that cannot be read is refused, never left out.
         held = pull_read(7)
         held["response"]["body"]["base"]["repo"] = "o/r"
@@ -6879,9 +6897,43 @@ class Linked(unittest.TestCase):
         self.assertFalse(short)
         _, short = self.listed([linked_read((), [closed_by(30, 12, repo="a/fork")])], began)
         self.assertFalse(short)
+        # Nor is the commit's close credited to a listed pull request whose merge is another commit.
+        found, short = self.listed([linked_read(ref(14), [closed_by(30, oid="d" * 40)]),
+                                    pull_read(14, merged=29, closed=29, sha="b" * 40), pull_timeline(14)], began)
+        self.assertEqual(([p["closed_issue_at"] for p in found], short), ([None], False))
+        # Nor where the two merges share only a short prefix: the whole id is compared.
+        found, short = self.listed([linked_read(ref(14), [closed_by(30, oid="abcdef0" + "1" * 33)]),
+                                    pull_read(14, merged=29, closed=29, sha="abcdef0" + "2" * 33), pull_timeline(14)], began)
+        self.assertEqual(([p["closed_issue_at"] for p in found], short), ([None], False))
+        # A closer that names no type, or a type that is no name, is a read that failed, in any life, never a person's
+        # close; so is a commit closer whose id is no string, even one whose digits would spell one.
+        for m in (20, 5):
+            for typed in (None, False, 0, ""):
+                untyped = {"__typename": "ClosedEvent", "createdAt": minute(m), "closer": {"__typename": typed}}
+                with self.assertRaises(github.Unanswered):
+                    self.listed([linked_read((), [untyped])], began)
+        numeric = {"__typename": "ClosedEvent", "createdAt": minute(30), "closer": {"__typename": "Commit", "oid": int("1" * 40)}}
+        with self.assertRaises(github.Unanswered):
+            self.listed([linked_read((), [numeric])], began)
+        # One that cannot be listed, of a life before, is passed over, however often the timeline is read: a closer of
+        # another repo or another kind, a commit's that no listed pull request merged or that has no id. In the second
+        # the life began, it is of it.
+        kind = lambda m: {"__typename": "ClosedEvent", "createdAt": minute(m), "closer": {"__typename": "ProjectV2"}}
+        no_oid = lambda m: {"__typename": "ClosedEvent", "createdAt": minute(m), "closer": {"__typename": "Commit", "oid": None}}
+        absent = {"__typename": "ClosedEvent", "createdAt": minute(5), "closer": {"__typename": "Commit"}}
+        for past in (closed_by(5, 12, repo="a/fork"), kind(5), closed_by(5, oid="d" * 40), no_oid(5), absent):
+            self.assertEqual(self.listed([linked_read(ref(7), [past]), pull_read(7), pull_timeline(7)], began)[1], True, past)
+            # Passed over, it leaves a list read short as short.
+            self.assertEqual(self.listed([linked_read(ref(7), [past], total=2), pull_read(7), pull_timeline(7)], began)[1],
+                             False, past)
+        for now in (closed_by(10, 12, repo="a/fork"), kind(10)):
+            self.assertEqual(self.listed([linked_read((), [now])], began), ([], False), now)
+        with self.assertRaises(github.Unanswered):
+            self.listed([linked_read((), [no_oid(10)])], began)
         # Nor is one whose merge is that of a pull request to another base, or of one not merged; and a pull request's
         # close is the first of this life, its own or its merge commit's, of which the first is read.
-        for pr in (pull_read(15, base="trial", merged=29, closed=29, sha="e" * 40), pull_read(15, sha="e" * 40)):
+        for pr in (pull_read(15, base="trial", merged=29, closed=29, sha="e" * 40), pull_read(15, sha="e" * 40),
+                   pull_read(15, closed=29, sha="e" * 40)):
             _, short = self.listed([linked_read(ref(15), [closed_by(30, oid="e" * 40)]), pr, pull_timeline(15)], began)
             self.assertFalse(short)
         found, _ = self.listed([linked_read(ref(14), [closed_by(20, 14), closed_by(30, oid="b" * 40)]),
@@ -6892,6 +6944,14 @@ class Linked(unittest.TestCase):
             found, _ = self.listed([linked_read(ref(14), closes), pull_read(14, merged=4, closed=4, sha="b" * 40),
                                     pull_timeline(14)], began)
             self.assertEqual(found[0]["closed_issue_at"], minute(first), closes)
+        # One that closed it twice in the present life closed it at the first; one that closed it twice in a life before
+        # alone, at the first of those (issue 970).
+        found, _ = self.listed([linked_read((), [closed_by(20, 12), closed_by(25, 12)]), pull_read(12, merged=19, closed=19),
+                                pull_timeline(12)], began)
+        self.assertEqual([p["closed_issue_at"] for p in found], [minute(20)])
+        found, _ = self.listed([linked_read(ref(12), [closed_by(2, 12), closed_by(5, 12)]), pull_read(12, merged=1, closed=1),
+                                pull_timeline(12)], began)
+        self.assertEqual([p["closed_issue_at"] for p in found], [minute(2)])
         # A person's close names no closer, and is passed over; a pull request that closed it in a life before alone is
         # not read, whatever its base.
         self.assertEqual(self.listed([linked_read(ref(7), [closed_by(12)]), pull_read(7), pull_timeline(7)], began)[1], True)
@@ -6899,6 +6959,9 @@ class Linked(unittest.TestCase):
         # A close in the very second the life began is of it, a pull request's or a commit's.
         found, _ = self.listed([linked_read((), [closed_by(2, 16), closed_by(10, 16)]),
                                 pull_read(16, merged=9, closed=9), pull_timeline(16)], began)
+        self.assertEqual([(p["number"], p["closed_issue_at"]) for p in found], [(16, minute(10))])
+        found, _ = self.listed([linked_read((), [closed_by(10, 16), closed_by(30, oid="b" * 40)]),
+                                pull_read(16, merged=9, closed=9, sha="b" * 40), pull_timeline(16)], began)
         self.assertEqual([(p["number"], p["closed_issue_at"]) for p in found], [(16, minute(10))])
         self.assertFalse(self.listed([linked_read((), [closed_by(10, oid="d" * 40)])], began)[1])
         # A closer of this life to another base is no link, and could be one; a closer of another kind, or a merge commit
@@ -6928,6 +6991,14 @@ class Linked(unittest.TestCase):
         self.assertEqual([(p["number"], p["keyword"], p["merged_at"], p["closed_issue_at"]) for p in found],
                          [(114, True, "2026-11-13T13:06:32Z", "2026-11-13T13:06:35Z")])
         self.assertTrue(whole)
+        # The port asks the references as the trial did, closed pull requests among them, 25 at most and 100 events: a
+        # replay answers the query the port sends, so only this holds it (issue 970).
+        asked = exchanges("P-67")[8]["request"]["body"]["query"]
+        arguments = re.search(r"closedByPullRequestsReferences\(first:\d+,([^)]*)\)", asked).group(1)
+        self.assertEqual(arguments, "includeClosedPrs:true")
+        sent = re.sub(r"\s", "", linked.QUERY)
+        self.assertIn("closedByPullRequestsReferences(first:25,%s)" % arguments, sent)
+        self.assertIn("REFERENCED_EVENT],first:100)", sent)
         # trials/P-61.json: 120 linked to issue 123 by hand, unlinked and linked again, then merged, which closed the
         # issue and named 120 the closer; the pull request's references name the issue. The trial asked neither the
         # subject's repository nor the closer's, which the port asks: those are this test's.
@@ -7000,9 +7071,12 @@ class Linked(unittest.TestCase):
              "draft_events": [], "link_events": [{"action": "connected", "at": minute(2)},
                                                  {"action": "disconnected", "at": minute(3)}],
              "keyword": False, "keyword_spans": [], "close_events": []}])
+        # One closed without a merge reads no merge, whatever its close.
+        (closed,), _ = self.listed([linked_read(ref(6)), pull_read(6, closed=9), pull_timeline(6)])
+        self.assertEqual((closed["open"], closed["merged_at"], closed["closed_at"]), (False, None, minute(9)))
         # A count of files that cannot be read is refused.
-        for files in (None, -1):
-            with self.assertRaises(github.Unanswered):
+        for files in (None, -1, True, False):
+            with self.assertRaises(github.Unanswered, msg=files):
                 self.listed([linked_read(ref(5)), pull_read(5, files=files), pull_timeline(5)])
 
     def test_a_pull_request_whose_keyword_a_pass_saw_stays_listed_after_an_edit_takes_it_out_and_no_other_does(self):  # 0186 (1)
@@ -7059,14 +7133,20 @@ class Linked(unittest.TestCase):
         ended = [seen_by(12, [(7, False, [span(3)])]), seen_by(15, issues=[], left_out=left[1]["left_out"])]
         self.assertEqual(self.read([linked_read(), pull_read(7), pull_timeline(7)], ended), ([(7, False, [span(3, 12)])], False))
         # What names it, which leaves the list whole where the chain is whole: a pull request's cross-reference, or one
-        # of no source, a commit's, read or not, a reference, a link by hand, or a closer of any life or base.
+        # of no source, a commit's, read or not, a reference, a link by hand, or a closer of any life or base, one that
+        # cannot be listed among them.
         for named in ([linked_read((), [crossed()])], [linked_read((), [crossed(None)])], [linked_read((), [crossed("Commit")])],
                       [linked_read((), [crossed(), crossed("Issue")])], [linked_read((), [{"__typename": "CrossReferencedEvent", "source": None}])],
                       [linked_read((), [referenced()])], [linked_read((), [referenced(None)])],
                       [linked_read((), [crossed("Issue"), referenced()])],
                       [linked_read(ref(8)), pull_read(8, base="next")],
-                      [linked_read((), [link("ConnectedEvent", 1, 8)]), pull_read(8, base="next")], [linked_read((), [closed_by(-70, 13)])]):
+                      [linked_read((), [link("ConnectedEvent", 1, 8)]), pull_read(8, base="next")], [linked_read((), [closed_by(-70, 13)])],
+                      [linked_read((), [closed_by(-70, 13, repo="a/fork"), closed_by(-65)])], [linked_read((), [closed_by(-70, oid="d" * 40)])],
+                      [linked_read((), [{"__typename": "ClosedEvent", "createdAt": minute(-70), "closer": {"__typename": "ProjectV2"}}])],
+                      [linked_read((), [{"__typename": "ClosedEvent", "createdAt": minute(-70), "closer": {"__typename": "Commit", "oid": None}}])]):
             self.assertEqual((self.read(named, broken), self.read(named)), (([], False), ([], True)), named)
+        # A person's close names no closer, and so names nothing.
+        self.assertEqual(self.read([linked_read((), [closed_by(-65)])], broken), ([], True))
         # Read on past a commit's reference.
         self.assertEqual(self.read([linked_read((), [referenced(), link("ConnectedEvent", 1, 7)]), pull_read(7), pull_timeline(7)], broken),
                          ([(7, False, [])], False))
@@ -7148,12 +7228,22 @@ class Linked(unittest.TestCase):
         self.assertNotEqual(issue.derive(f, [], CONFIG)["reason"], "facts_incomplete")
 
     def test_the_linked_pull_requests_read_short_are_not_whole_and_one_not_answered_refuses_the_issue(self):
+        def short7(*after, refs=(7, 8), events=()):
+            """7's timeline read short, then what is read after it."""
+            return [linked_read(ref(*refs), events), pull_read(7), pull_timeline(7, more=True),
+                    rest_answer("/repos/o/r/issues/7/timeline?per_page=100&page=2", {})] + list(after)
         short = [[linked_read((), total=1)], [linked_read(more=True)], [linked_read(ref(3, repo="a/fork"))],
                  [linked_read((), [link("ConnectedEvent", 1, 3, repo="a/fork")])],
                  [linked_read(ref(7)), pull_read(7), pull_timeline(7, more=True),
                   rest_answer("/repos/o/r/issues/7/timeline?per_page=100&page=2", {})],
                  [linked_read(ref(7), total=2), pull_read(7), pull_timeline(7)],
-                 [linked_read(ref(7, 7)), pull_read(7), pull_timeline(7)]]
+                 [linked_read(ref(7, 7)), pull_read(7), pull_timeline(7)],
+                 # What was read short is not forgotten by what is read after it: a link by hand after the references, or a
+                 # pull request read whole, one to another base, or a merge commit's close after a timeline (issue 970).
+                 [linked_read(ref(7), [link("ConnectedEvent", 1, 7)], total=2), pull_read(7), pull_timeline(7)],
+                 short7(pull_read(8), pull_timeline(8)), short7(pull_read(8, base="trial")),
+                 short7(pull_read(14, merged=29, closed=29, sha="b" * 40), pull_timeline(14), refs=(7, 14),
+                        events=[closed_by(30, oid="b" * 40)])]
         for at, found in enumerate(short):
             self.assertFalse(self.listed(found)[1], at)
 
@@ -7172,7 +7262,7 @@ class Linked(unittest.TestCase):
         another["response"]["body"]["data"]["repository"]["issue"]["number"] = 42
         refused = [erred, failed, other, another, answer(("closedByPullRequestsReferences",)),
                    answer(("closedByPullRequestsReferences", "totalCount")), answer(("timelineItems", "pageInfo", "hasNextPage")),
-                   answer(("timelineItems", "nodes")), answer(refs=[("7", "o/r")]),
+                   answer(("timelineItems", "nodes")), answer(more=None), answer(more=0), answer(refs=[("7", "o/r")]),
                    answer(events=[link("ConnectedEvent", 1, 41, repo="a/fork", typed="Issue")]), answer(refs=[(0, "a/fork")]),
                    answer(events=[{"__typename": "LabeledEvent", "createdAt": minute(1)}]),
                    answer(events=[{"__typename": "ConnectedEvent", "createdAt": minute(1)}]),
@@ -7184,9 +7274,13 @@ class Linked(unittest.TestCase):
         for at, found in enumerate(refused):
             with self.assertRaises(github.Unanswered, msg=at):
                 self.listed([found])
-        # An issue that changed while its pull requests were read is read again at the next pass.
-        with self.assertRaises(facts.Moved):
-            self.listed([answer(updated="2026-10-11T11:00:01Z")])
+        # A number that is a boolean is none, though a pull request 1 could be read.
+        with self.assertRaises(github.Unanswered):
+            self.listed([linked_read([(True, "o/r")]), pull_read(1), pull_timeline(1)])
+        # An issue that changed while its pull requests were read, newer or older, is read again at the next pass.
+        for updated in ("2026-10-11T11:00:01Z", "2026-10-11T10:59:59Z"):
+            with self.assertRaises(facts.Moved, msg=updated):
+                self.listed([answer(updated=updated)])
 
 
 def seen_by(at: int, pulls=(), linked_whole=True, repo="o/r", number=41, **more) -> dict:
