@@ -2092,6 +2092,99 @@ class Entry(unittest.TestCase):
                                  (intent("combsmith-sf-business-analyst"), {})):
             self.assertEqual(entry_with(issues, **accounts)[:2], (1, "issue_list_unreadable\n"), issues)
 
+    def test_the_served_issues_writes_are_read_for_reconciliation(self):  # issue 837
+        # Each served issue's writes are read by the seen port as an open pull request's are, with nothing kept by a
+        # snapshot, whether its facts were read or not. One whose writes cannot be read whole, or not at all, leaves
+        # reconciliation short, which says so; it is not owed as a pull request is, since what is owed is read as a pull
+        # request that left.
+        real, spied, order = entry.configuration, [], []
+
+        def served(root, release):
+            found = real(root, release)
+            found["kernel"]["issues"]["served_from"] = "2026-10-01T00:00:00Z"
+            return found
+
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
+            return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
+
+        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel):
+            if number == 6:
+                raise entry.facts_.Moved("moved")
+            return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "An issue"
+        before = json.loads((ROOT / "examples" / "pass.json").read_text())
+        before["now"] = "2026-10-12T11:00:00Z"
+        before["pull_requests"] = [dict(before["pull_requests"][0], facts=dict(before["pull_requests"][0]["facts"], item=dict(
+            before["pull_requests"][0]["facts"]["item"], number=7)))]
+        before["reconciled"] = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}
+
+        def entry_with(short=(), unanswered=(), wrote=(), recorded=True):
+            del spied[:], order[:]
+
+            def read(transport, item, kept, identities, apps, since):
+                spied.append((item, kept, since, identities, apps))
+                order.append("seen")
+                if item["number"] in unanswered:
+                    raise github.Unanswered("no")
+                # What a Factory identity wrote on the issue, where the port is handed the identities to tell it by.
+                writes = [{"by": by, "kind": "label", "item": dict(item), "key": None, "at": "2026-10-12T11:30:00Z"}
+                          for by in set(identities.values()) & set(wrote)] if item["type"] == "issue" else []
+                return (writes, [], item["number"] not in short)
+            with unittest.mock.patch.object(entry, "configuration", served), \
+                    unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                    unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after, **k: (
+                        order.append("listed") or [5, 6], True)), \
+                    unittest.mock.patch.object(entry.issues_, "read", issue_read), \
+                    unittest.mock.patch.object(entry.passes, "records", lambda *a: [before]), \
+                    unittest.mock.patch.object(entry.seen_, "read", read), \
+                    unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)), \
+                    unittest.mock.patch.object(entry.applied, "effects", lambda *a, **k: order.append("applied") or {
+                        "applied": [], "read": [], "at": {}, "whole": True}), \
+                    unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: order.append("passes") or {
+                        "written": [], "read": [], "at": {}, "whole": recorded}):
+                code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
+            self.assertEqual(code, 0)
+            return files["pass.json"]
+        item = lambda kind, n: {"repo": self.HOME, "type": kind, "number": n}
+        record = entry_with()
+        self.assertEqual([s[:2] for s in spied], [(item("pull_request", 7), {}), (item("issue", 5), None), (item("issue", 6), None)])
+        # The passes' records are read before the issues are listed, for the tracking issue's numbers; the Runs' Effects
+        # after every write is seen, as a Run still running may record what it wrote in between (security read).
+        self.assertEqual(order, ["passes", "listed", "seen", "seen", "seen", "applied"])
+        self.assertEqual({s[2] for s in spied}, {"2026-10-11T06:00:00Z"})
+        self.assertNotIn("reconciliation_unreadable", record["alerts"])
+        self.assertNotIn("write_unmatched", record["alerts"])
+        # An issue's writes are told by the identities and the Apps a pull request's are, and what the port gives of
+        # them reaches reconciliation: the Controller's label on a served issue, which no Effect recorded, is the alert,
+        # named by the issue's page.
+        self.assertEqual([s[3:] for s in spied[1:]], [spied[0][3:]] * 2)
+        self.assertEqual(spied[0][3][(CONTROLLER["accounts"]["controller"]["id"], "Bot")], "controller")
+        record = entry_with(wrote=("controller",))
+        self.assertIn("write_unmatched", record["alerts"])
+        self.assertEqual([(e["by"], e["write"], e["item"]) for e in record["reconciliation"]],
+                         [("controller", "label", "https://github.com/%s/issues/%d" % (self.HOME, n)) for n in (5, 6)])
+        for missed in ({"short": (5,)}, {"unanswered": (5,)}, {"short": (6,)}):
+            record = entry_with(**missed)
+            self.assertIn("reconciliation_unreadable", record["alerts"], missed)
+            self.assertEqual(record["reconciled"]["owed"], [], missed)
+        # What an issue read short gives still reaches reconciliation: the Controller's label read before the read fell
+        # short is the alert, beside the shortness (Astra).
+        record = entry_with(short=(5,), wrote=("controller",))
+        self.assertTrue({"write_unmatched", "reconciliation_unreadable"} <= set(record["alerts"]))
+        self.assertEqual([e["item"] for e in record["reconciliation"]],
+                         ["https://github.com/%s/issues/%d" % (self.HOME, n) for n in (5, 6)])
+        # A pull request read short is owed still, and an issue beside it changes nothing of that, read whole, short or
+        # unanswered (Astra).
+        self.assertEqual(entry_with(short=(7,))["reconciled"]["owed"], [7])
+        for missed in ({"short": (7, 5)}, {"short": (7,), "unanswered": (5,)}):
+            record = entry_with(**missed)
+            self.assertIn("reconciliation_unreadable", record["alerts"], missed)
+            self.assertEqual(record["reconciled"]["owed"], [7], missed)
+        # While the passes' records are not read whole, the tracking issue's number is not read, and that issue could be
+        # among those listed: no issue's writes are read, and reconciliation is short by the records alone (issue 901).
+        record = entry_with(recorded=False)
+        self.assertEqual([s[0] for s in spied], [item("pull_request", 7)])
+        self.assertIn("reconciliation_unreadable", record["alerts"])
+
     def test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry(self):  # S3, Astra
         # Through the real port: an issue that read whole would be accepted defers while its linked pull requests are read
         # short.
@@ -2314,11 +2407,13 @@ class Entry(unittest.TestCase):
         stages = entry.Stages(ticking(), said)
         with unittest.mock.patch.object(entry.seen_, "read", lambda *a: ([], [], True)), \
                 unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)):
-            entry.writes_seen(None, config, [7, 8], {}, before, "2026-10-11T06:00:00Z", lambda: self.CLOCK, (), stages)
+            entry.writes_seen(None, config, [7, 8], {}, before, "2026-10-11T06:00:00Z", lambda: self.CLOCK, (), stages,
+                              [3])
         lines = [json.loads(line) for line in said.getvalue().splitlines()]
-        # Each read is a second, by the ticking timer: two open, one newly left, two gone.
+        # Each read is a second, by the ticking timer: two open, one newly left, two gone, one served issue (issue 837).
         self.assertEqual([(l["stage"], l.get("count"), l["seconds"]) for l in lines],
-                         [("seen_open", 2, 2.0), ("seen_left", 1, 1.0), ("seen_gone", 2, 2.0), ("seen_pushes", None, 1.0)])
+                         [("seen_open", 2, 2.0), ("seen_left", 1, 1.0), ("seen_gone", 2, 2.0), ("seen_issues", 1, 1.0),
+                          ("seen_pushes", None, 1.0)])
 
         listed = "/repos/o/r/actions/workflows/poller.yml/runs?per_page=100"
         artifact = "/repos/o/r/actions/runs/1/artifacts"
@@ -2339,12 +2434,15 @@ class Entry(unittest.TestCase):
         said = io.StringIO()
         with unittest.mock.patch.object(entry.applied, "effects", effects), \
                 unittest.mock.patch.object(entry.passes, "written", written):
-            entry.recorded_effects(Answers(), config, None, 777, [], "2026-10-11T06:00:00Z", lambda s: None,
+            # The passes' records are read before the issues are listed, the Runs' after the writes are seen (issue 837).
+            from_passes = entry.recorded_passes(Answers(), config, 777, [], "2026-10-11T06:00:00Z", lambda s: None,
+                                                entry.Stages(ticking(), said))
+            entry.recorded_effects(Answers(), config, None, [], "2026-10-11T06:00:00Z", from_passes, lambda s: None,
                                    entry.Stages(ticking(), said))
         lines = [json.loads(line) for line in said.getvalue().splitlines()]
         self.assertEqual([(l["stage"], l.get("count")) for l in lines],
-                         [("applied", None), ("applied_list", 1), ("applied_artifacts", 2),
-                          ("poller", None), ("poller_list", 2), ("poller_artifacts", 1)])
+                         [("poller", None), ("poller_list", 2), ("poller_artifacts", 1),
+                          ("applied", None), ("applied_list", 1), ("applied_artifacts", 2)])
 
     def test_only_the_entry_reads_the_clock_or_the_environment(self):
         # Every other module of controller/ is a function of what it is given (the test above it); the entry takes the
