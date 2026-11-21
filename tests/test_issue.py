@@ -506,6 +506,8 @@ class Unreadable(unittest.TestCase):
         f = facts()
         del f["author"]
         self.assertEqual(derive(f)["reason"], "author_unreadable")
+        # The Decision defers, and its reason is an issue's own (decision 0248).
+        self.assertEqual(what(decide(f)), ("defer", "author_unreadable", None))
         self.assertEqual(state(facts(author=dict(MACHINE))), "new")
 
     def test_a_content_id_has_as_many_digits_as_the_schema_allows(self):
@@ -521,6 +523,7 @@ class Unreadable(unittest.TestCase):
             for f in (facts(**over), facts(state="closed", **over)):
                 d = derive(f)
                 self.assertEqual((d["state"], d["reason"]), (None, "content_unreadable"), over)
+            self.assertEqual(what(decide(facts(**over))), ("defer", "content_unreadable", None), over)
 
     def test_what_cannot_be_read_is_read_in_its_order(self):
         f = facts(state=None, label_events=None, label_names=None, linked=None, life_started_at=None, content_id=None,
@@ -565,6 +568,7 @@ class Unreadable(unittest.TestCase):
         f = facts()
         del f["type"]
         self.assertEqual(derive(f)["reason"], "type_unreadable")
+        self.assertEqual(what(decide(f)), ("defer", "type_unreadable", None))
         for value in (None, "Bug"):
             self.assertEqual(state(facts(type=value)), "new", value)
 
