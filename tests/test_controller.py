@@ -1324,7 +1324,8 @@ class Issues(unittest.TestCase):
 
     def test_p34s_issue_read_by_the_port_is_deferred_on_its_linked_pull_requests(self):  # P-34, S3
         # The canary's issue through the port and the pass defers on its linked pull requests, read short. Its GraphQL
-        # answer is P-34's lastEditedAt in the port's own query, which no trial has recorded (issue 831).
+        # answer is P-34's lastEditedAt in the port's own query, built here; trial P-72 recorded that query, and
+        # tests.test_adapters replays it through read() (issue 831).
         from adapters import issues
         from tests.test_adapters import body, canary, exchanges as recorded, linked_read
         repo = canary()
@@ -2256,6 +2257,36 @@ class Entry(unittest.TestCase):
         (decided,) = files["pass.json"]["issues"]
         d = decided["decision"]
         self.assertEqual((code, d["outcome"], d["reason"], d["evidence"]), (0, "defer", "facts_incomplete", ["linked"]))
+
+    def test_no_served_issues_runs_are_asked_when_they_began(self):  # issue 836, decision 0231
+        # With issues served, the entry still hands the records port the open pull requests alone: no issue rule reads
+        # when a Run began, so an issue's Runs spend none of the port's bound. The passes' records are read whole and
+        # name no tracking issue, so every issue listed is read (issue 901).
+        real, handed, listed = entry.configuration, [], entry.records.runs
+
+        def served(root, release):
+            found = real(root, release)
+            found["kernel"]["issues"]["served_from"] = "2026-10-01T00:00:00Z"
+            return found
+
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
+            return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
+
+        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel):
+            return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "An issue"
+
+        def runs(*args, **kw):
+            handed.append(kw["of"])
+            return listed(*args, **kw)
+        with unittest.mock.patch.object(entry, "configuration", served), \
+                unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after, **k: ([5, 6], True)), \
+                unittest.mock.patch.object(entry.issues_, "read", issue_read), \
+                unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: {"written": [], "read": [], "at": {}, "whole": True}), \
+                unittest.mock.patch.object(entry.records, "runs", runs):
+            code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
+        self.assertEqual((code, handed), (0, [[{"repo": self.HOME, "type": "pull_request", "number": 7}]]))
+        self.assertEqual([e["decision"]["item"]["number"] for e in files["pass.json"]["issues"]], [5, 6])
 
     def test_nothing_is_owed_for_an_issue_that_moved(self):  # issue 839, decision 0229
         # A pull request that moved once has its writes owed to the next pass. An issue that moved is graced too, and

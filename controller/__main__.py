@@ -13,9 +13,9 @@ and written to the folder `OUT` for the pass job's next steps (#193's ruling 10 
    null, and each one's own facts by `adapters/issues.py`, with the accounts and the dating the pull requests' have;
    and, for reconciliation, what each Factory identity wrote and what the Factory recorded (decision 0112). The issues
    are listed and read after the pull requests and the records, without the tracking issue, by the number the passes
-   recorded (issue 901). Not read yet: an issue's Runs' jobs, which decision 0196 asks of the open pull requests'
-   alone. A served issue's writes are reconciled while it is open (decision 0230); one that left between two passes is
-   not read yet. Each issue's linked pull requests are read with their keyword spans from the pass records before this
+   recorded (issue 901). Not read: an issue's Runs' jobs, since no issue rule reads when a Run began (decision 0231).
+   A served issue's writes are reconciled while it is open (decision 0230); one that left between two passes is not
+   read yet. Each issue's linked pull requests are read with their keyword spans from the pass records before this
    pass, the two the entry already read, and with those not read each issue defers (decision 0186).
 4. It gives the pass what it read and the time after the reads, and writes `pass.json`, `writes.json`, the plan the
    effects step holds to it, and the view's three files under `view/`.
@@ -338,7 +338,8 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
     with stages.stage("accounts"):
         identities, who, refused = reader(transport, config)
-    # The open pull requests are listed first: the records port asks when a Run began only of theirs (decision 0196).
+    # The open pull requests are listed first: the records port asks when a Run began only of theirs (decision 0196),
+    # and of no issue's, whose rules read no beginning (decision 0231).
     with stages.stage("pull_request_list") as counts:
         try:
             numbers, whole = items.open_pull_requests(transport, home)

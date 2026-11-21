@@ -22,11 +22,11 @@ Run whose own Release is not its pass record's builds no Task: OUT holds its `ou
 `release_moved`, and the step stops by that code. One whose own Release cannot be named stops `release_unresolved` and
 writes nothing; the pass record's Release is never taken for it; a checkout `steps.commit()` cannot read stops
 `release_unreadable`, before any key is read. Of the texts, the issues the change serves are read (`adapters/texts.py`),
-and what the Run's own Lens said on each Finding the review is shown, `apply.shown` of the facts: its open threads that
-gate. Each is the Task's text `finding:` and the Finding's id, and the ids are the Task's Findings, so that the review
-rules on each (issue 856). One whose words are not the Lens's own, an edited comment among them, is listed and given
-no text: `run` then asks nothing and ends as the item's own, `findings_not_shown`, and the thread gates on. A read
-GitHub did not answer stops the step, `finding_texts_unreadable`.
+and what the Run's own Lens said on each Finding the review is shown, `apply.shown` of the facts as the Kernel reads
+them, marked by the Runs read: its open threads that gate. Each is the Task's text `finding:` and the Finding's id, and
+the ids are the Task's Findings, so that the review rules on each (issue 856). One whose words are not the Lens's own,
+an edited comment among them, is listed and given no text: `run` then asks nothing and ends as the item's own,
+`findings_not_shown`, and the thread gates on. A read GitHub did not answer stops the step, `finding_texts_unreadable`.
 Not read yet, by the stories that hold them: any other thread's text; the Finding records a Decision names
 (`harness/apply.py` writes them, and `adapters/applied.py` reads them for the threads alone); an issue's Run, whose
 reads are the issue Lifecycle's."""
@@ -45,7 +45,7 @@ from adapters.github import Live, Unanswered
 from controller import configuration
 from harness import apply, approve, head as head_, reread, shared, steps, task
 from harness.steps import Stop
-from kernel import terms as t
+from kernel import derive, terms as t
 from release import current, cut
 
 APP = "reader"
@@ -185,8 +185,15 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
     # the item's own (`findings_not_shown`), never as a read that failed. A read GitHub did not answer still stops here.
     raised = []
     with reading("finding_texts"):
+        # The facts as the Kernel reads them, marked by the Runs it is given: a thread its Lens's later review
+        # superseded is closed to the Kernel, and no review is shown it (issue 968). Marks that cannot be made are
+        # none: the facts are read as they came, so a review is shown more, never less.
         try:
-            shown = apply.shown(facts, role, config["kernel"])
+            marked = derive.as_read(facts, listed["runs"], config["kernel"])
+        except (AttributeError, KeyError, TypeError):
+            marked = facts
+        try:
+            shown = apply.shown(marked, role, config["kernel"])
         except (AttributeError, KeyError, TypeError):
             # A thread in a shape the Kernel's own reading does not take, one resolved by an account the port cannot
             # type among them: the item's own state, made since the Run was admitted. No Finding is listed, as before

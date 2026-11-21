@@ -160,8 +160,13 @@
         "verdict": {
           "enum": [
             "finding",
-            "met"
+            "met",
+            "not_applicable"
           ]
+        },
+        "reason": {
+          "description": "The code a criterion is set aside by, given with the verdict `not_applicable` and with no other: the criterion's only fault is a shown Finding the review rules `rejected`.",
+          "const": "finding_stands"
         },
         "criterion": {
           "type": "string",
