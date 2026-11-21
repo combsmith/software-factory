@@ -27,7 +27,8 @@ import re
 import urllib.parse
 
 from adapters.github import DIFF, Unanswered, raw, request
-from adapters.pull import canonical
+from adapters.pull import blobs, canonical
+from kernel.terms import BOT_SUFFIX
 
 PAGE = 100
 WRITE = {"admin", "maintain", "write"}
@@ -86,10 +87,22 @@ class Accounts:
         """A Bot's name: the one configured for its id, else the login it shows. A User's login, which holds no bracket,
         can never be an App's configured name with its `[bot]`. Another account showing that name, or a reserved one, as
         a slug reused after a rename could, is refused: it is no App the configuration holds, and the read cannot say
-        whose act it was."""
+        whose act it was. The names are compared without the suffix, so a login GraphQL spells with none, as
+        `adapters/threads.py` passes it on, is refused as REST's is; a User's login is compared as it is, since a person
+        may hold an App's name without its suffix (issue 965)."""
         if (ident, kind) in self.apps:
             return self.apps[(ident, kind)]
-        if login in self.apps.values() or login in self.reserved:
+        self.unclaimed(login, ident, kind)
+        return login
+
+    def unclaimed(self, login: str, ident: int, kind: str) -> str:
+        """`login`, refused where it shows a name the configuration holds for another id, or one it reserves that is not
+        this account's own (issue 965)."""
+        spell = _plain if kind == "Bot" else (lambda name: name)
+        mine = self.apps.get((ident, kind))
+        others = [name for held, name in self.apps.items() if held != (ident, kind)] \
+            + [name for name in self.reserved if name != mine]
+        if spell(login) in map(spell, others):
             raise Unanswered("an account shows the name of an App the configuration holds by another id")
         return login
 
@@ -146,10 +159,15 @@ class Accounts:
         """`{kind, name, can_write}` for a GitHub user object; refused when it cannot be read or contradicts itself."""
         login, ident, kind = self.account(raw_actor)
         if kind == "Bot":
+            # A Lens is told by its id and read as the Lens's own name whatever login it shows, so no name it shows is
+            # read as an App's (issue 901).
             if (ident, kind) in self.lenses:
                 return {"kind": "lens", "name": self.lenses[(ident, kind)], "can_write": False}
+            # The queue App's name is the login it shows, held to the refusal an App's is, whether or not its id is held
+            # among the Apps: renamed onto a name the configuration holds or reserves, it could be read as that App
+            # (issue 965).
             if (ident, kind) == self.queue:
-                return {"kind": "queue", "name": login, "can_write": False}
+                return {"kind": "queue", "name": self.unclaimed(login, ident, kind), "can_write": False}
             return {"kind": "app", "name": self.named(login, ident, kind), "can_write": False}
         _user(login)
         if (ident, kind) == self.approver:
@@ -171,6 +189,11 @@ class Accounts:
         """Whether an act was the Factory's: the machine user's, or one of the Factory's Apps'."""
         _, ident, kind = self.account(raw_actor)
         return (ident, kind) == self.approver or (ident, kind) in self.factory
+
+
+def _plain(name: str) -> str:
+    """A Bot's name without the suffix REST spells its login with, as GraphQL spells it."""
+    return name[:-len(BOT_SUFFIX)] if isinstance(name, str) and name.endswith(BOT_SUFFIX) else name
 
 
 def _user(login: str) -> str:
@@ -249,13 +272,14 @@ def _content(transport, repo: str, base_head: str, commit: str) -> str:
     served diff's, so never read as unchanged."""
     if not SHA.match(str(commit)) or not SHA.match(str(base_head)):
         raise Unanswered("a review's commit or the base's head cannot be read")
-    answer = transport.send(request("GET", "/repos/%s/compare/%s...%s" % (repo, base_head, commit), accept=DIFF))
+    path = "/repos/%s/compare/%s...%s" % (repo, base_head, commit)
+    answer = transport.send(request("GET", path, accept=DIFF))
     if answer["status"] == 404 or (answer["status"] == 406 and isinstance(answer["body"], dict) and any(
             isinstance(e, dict) and e.get("code") == "too_large" for e in answer["body"].get("errors") or ())):
         return "sha256:" + hashlib.sha256(commit.encode()).hexdigest()
     if answer["status"] != 200 or not isinstance(answer["body"], str):
         raise Unanswered("the content of %s answered %d" % (commit, answer["status"]))
-    return "sha256:" + hashlib.sha256(raw(canonical(answer["body"]))).hexdigest()
+    return "sha256:" + hashlib.sha256(raw(canonical(answer["body"], blobs(transport, path, answer["body"])))).hexdigest()
 
 
 def _dismissals(timeline: list) -> dict:
