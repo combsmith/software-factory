@@ -131,6 +131,13 @@ def _finite(constant: str):
     raise ValueError("NaN and the infinities are no numbers of JSON's")
 
 
+def _real(digits: str) -> float:
+    value = float(digits)
+    if abs(value) == float("inf"):
+        raise ValueError("a number too large for a float reads as an infinity, which is no number of JSON's")
+    return value
+
+
 def _answer(status: int, headers, raw: bytes) -> dict:
     # Of a kept header given twice, the last is kept, or none where the last is refused. A type too long to keep is not
     # kept, and the body is then text, which is safe: a body is read as JSON only when its type says so.
@@ -142,7 +149,8 @@ def _answer(status: int, headers, raw: bytes) -> dict:
         return {"status": status, "headers": kept, "body": raw.decode("utf-8", errors="replace")}
     if kept.get("content-type", "").split(";")[0].strip().lower().endswith("json"):
         try:
-            return {"status": status, "headers": kept, "body": json.loads(text, parse_int=_whole, parse_constant=_finite) if text else None}
+            body = json.loads(text, parse_int=_whole, parse_float=_real, parse_constant=_finite) if text else None
+            return {"status": status, "headers": kept, "body": body}
         except (ValueError, RecursionError):
             pass
     return {"status": status, "headers": kept, "body": text}
@@ -164,6 +172,15 @@ def _bounded(stream, length) -> bytes:
         parts.append(part)
 
 
+def _context() -> ssl.SSLContext:
+    """Certificate and name verified, TLS 1.2 or later, and no session key logged, as the default context would to
+    `SSLKEYLOGFILE`."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)      # CERT_REQUIRED and check_hostname, as a client's default
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.load_default_certs(ssl.Purpose.SERVER_AUTH)
+    return context
+
+
 class Live:
     """HTTPS to the one host named, with the key and the seconds its caller gives it."""
 
@@ -180,7 +197,7 @@ class Live:
         # No proxy from the environment, and no redirect: the request and its key go to the host named, or nowhere. The
         # context is made here, so that a default context replaced elsewhere cannot send the key to a host unverified.
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect,
-                                                  urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+                                                  urllib.request.HTTPSHandler(context=_context()))
 
     def __repr__(self) -> str:
         return "<azure.Live>"
