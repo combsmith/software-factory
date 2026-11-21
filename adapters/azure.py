@@ -14,10 +14,12 @@ the connection has its caller's limit in seconds, which bounds neither the findi
 that comes slowly: the whole is bounded by the limit of the step that calls. Every answer is bounded in size and
 refused past the bound or of other than the length it said, counted as read, never cut short; no read of the
 connection under it takes more than the bound and a frame's allowance. An answer is read only when it is framed as
-Azure frames each of its own, chunked alone, each chunk's size of hex digits, or with one length of at most ten digits, no
-larger than the bound, under headers http.client read whole. One that is not UTF-8 is text and never read as JSON, and so
-is one not of JSON's type or its suffix, and one that holds a whole number of more digits than any count, NaN, an
-infinity or a number too large for a float. A body whose object names a member by other than text is not sent. Of an answer's headers it keeps the two a caller reads, each by its last
+Azure frames each of its own, chunked alone, each chunk's size of hex digits and its data ended by CRLF, or with one
+length of at most ten digits, no larger than the bound, under headers read whole to their blank line, all bounded from
+the first byte. A body is not sent whose object names a member by other than text, or holds a kind of dict, list or
+tuple, or one twice. An answer not of JSON's type or its suffix is text, never read as JSON. One that
+is not UTF-8 is text and never read as JSON, and so is one that holds a whole number of more digits than any count, NaN,
+an infinity or a number too large for a float. Of an answer's headers it keeps the two a caller reads, each by its last
 value and only when that is short, printable ASCII. It verifies the host's certificate by a context of
 its own, so a default changed elsewhere in the process cannot turn that off. No refusal names the host, the address or
 the key, and each is raised from nothing, chained to no error of urllib's, which holds the address asked. Nothing is
@@ -51,7 +53,10 @@ FRAMING = 64 * 1024             # bytes past the bound a connection may give an 
 DIGITS = 64                     # a whole number of this many digits no count needs: Python 3.9 reads one of any length
 # The types of an answer read as JSON: JSON's own, or one of its structured suffix, and no type that only ends so.
 JSON = re.compile(r"application/json|[a-z0-9][a-z0-9.!#$&^_+-]*/[a-z0-9][a-z0-9.!#$&^_+-]*\+json")
-SIZE = re.compile(rb"[0-9A-Fa-f]{1,8}(?:;[^\r\n]*)?\r\n")    # a chunk's size line: hex digits alone, no sign or prefix
+TOKEN = rb"[!#$%&'*+.^_`|~0-9A-Za-z-]+"
+# A chunk's size line: hex digits alone, no sign or prefix, and each extension a name, or a name and a value, of tokens.
+SIZE = re.compile(rb"[0-9A-Fa-f]{1,8}(?:;%s(?:=%s)?)*\r\n" % (TOKEN, TOKEN))
+TRAILER = re.compile(rb"(?:%s:[^\r\n]*)?\r\n" % TOKEN)     # a trailer's line: a name, a colon and a value, or its end
 
 
 class Unanswered(Exception):
@@ -152,10 +157,11 @@ class _Capped:
     chunked, each chunk's size is hex digits alone, which http.client would read with a sign, a prefix or a space, and
     each line after the last chunk ends as a line does, so that one cut short there is refused, not taken as whole."""
 
-    __slots__ = ("_fp", "_left", "_chunked", "_trailer")
+    __slots__ = ("_fp", "_left", "_chunked", "_trailer", "_due", "_end", "_last")
 
-    def __init__(self, fp, chunked=False):
-        self._fp, self._left, self._chunked, self._trailer = fp, LARGEST + FRAMING, chunked, False
+    def __init__(self, fp):
+        self._fp, self._left, self._chunked, self._trailer = fp, LARGEST + FRAMING, False, False
+        self._due, self._end, self._last = 0, b"", b""
 
     def _most(self, asked) -> int:
         most = self._left if asked is None or asked < 0 else min(asked, self._left)
@@ -165,23 +171,33 @@ class _Capped:
 
     def _took(self, got):
         self._left -= len(got)
+        if self._chunked:
+            # Of a chunk, its data, then the CRLF that ends it, and nothing else.
+            data = min(len(got), self._due)
+            rest = bytes(got[data:])
+            if not self._end.startswith(rest):
+                raise Unanswered("an answer whose chunks are not framed as Azure frames them; it is refused, not kept")
+            self._due, self._end = self._due - data, self._end[len(rest):]
         return got
 
     def read(self, size=-1):
         return self._took(self._fp.read(self._most(size)))
 
     def readline(self, size=-1):
-        line = self._took(self._fp.readline(self._most(size)))
+        self._last = line = self._fp.readline(self._most(size))
+        self._left -= len(line)
         if self._chunked:
-            if not line.endswith(b"\r\n") or not (self._trailer or SIZE.fullmatch(line)):
+            if not (TRAILER if self._trailer else SIZE).fullmatch(line):
                 raise Unanswered("an answer whose chunks are not framed as Azure frames them; it is refused, not kept")
-            self._trailer = self._trailer or int(line.split(b";")[0], 16) == 0
+            if not self._trailer:
+                size = int(line.split(b";")[0], 16)
+                self._trailer, self._due, self._end = size == 0, size, b"\r\n" if size else b""
         return line
 
     def readinto(self, b):
         view = memoryview(b).cast("B")
         got = self._fp.readinto(view[:self._most(len(view))]) or 0
-        self._left -= got
+        self._took(view[:got])
         return got
 
     def flush(self):
@@ -191,10 +207,37 @@ class _Capped:
         self._fp.close()
 
 
+class _Response(http.client.HTTPResponse):
+    """An answer capped from its first byte, interim answers too, which http.client passes over for as long as they
+    come; its headers end with their blank line, not the connection's end."""
+
+    def __init__(self, sock, *args, **kwargs):
+        super().__init__(sock, *args, **kwargs)
+        self.fp = _Capped(self.fp)
+
+    def begin(self):
+        super().begin()
+        if self.fp._last != b"\r\n":
+            raise Unanswered("an answer whose headers end before the line that closes them; it is refused, not read")
+        self.fp._chunked = self.chunked
+
+
+class _Connection(http.client.HTTPSConnection):
+    response_class = _Response
+
+
+class _Https(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_Connection, req, context=self._context)
+
+
 def _capped(got):
+    """What an answer is read through: http.client's only if capped from its first byte, anything else capped whole."""
     held = got if isinstance(got, http.client.HTTPResponse) else getattr(got, "fp", None)
-    if isinstance(held, http.client.HTTPResponse) and held.fp is not None:
-        held.fp = _Capped(held.fp, held.chunked)
+    if not isinstance(held, http.client.HTTPResponse):
+        return _Capped(got)
+    if not isinstance(held.fp, _Capped):
+        raise Unanswered("an answer not read through the transport's own response; it is refused, not read")
     return got
 
 
@@ -233,16 +276,20 @@ def _answer(status: int, headers, raw: bytes) -> dict:
     return {"status": status, "headers": kept, "body": text}
 
 
-def _named(value):
+def _named(value, seen):
     """Each object of a body names its members by text alone: JSON writes a key of another type as text, so that
-    `{1: "a", "1": "b"}` would be sent as two members of one name, which readers read otherwise."""
-    if isinstance(value, dict):
-        if any(type(k) is not str for k in value):
-            raise Unanswered("a body whose object names a member by other than text; it is not sent")
-        value = list(value.values())
-    if isinstance(value, (list, tuple)):
+    `{1: "a", "1": "b"}` would be sent as two members of one name, which readers read otherwise. None is a kind of dict,
+    list or tuple, whose keys may say otherwise than its items, and none is held twice, so JSON's text is no longer."""
+    if isinstance(value, (dict, list, tuple)):
+        if type(value) not in (dict, list, tuple) or id(value) in seen:
+            raise Unanswered("a body that holds a kind of dict, list or tuple, or one of them twice; it is not sent")
+        seen.add(id(value))
+        if type(value) is dict:
+            if any(type(k) is not str for k in value):
+                raise Unanswered("a body whose object names a member by other than text; it is not sent")
+            value = value.values()
         for each in value:
-            _named(each)
+            _named(each, seen)
 
 
 def _bounded(stream, length) -> bytes:
@@ -286,17 +333,17 @@ class Live:
         # No proxy from the environment, and no redirect: the request and its key go to the host named, or nowhere. The
         # context is made here, so that a default context replaced elsewhere cannot send the key to a host unverified.
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect,
-                                                  urllib.request.HTTPSHandler(context=_context()))
+                                                  _Https(context=_context()))
 
     def __repr__(self) -> str:
         return "<azure.Live>"
 
     def send(self, req: dict) -> dict:
-        verb, path, body = wire(req)
         headers = {"api-key": self._key, "Accept": "application/json", "User-Agent": "software-factory"}
         try:
+            verb, path, body = wire(req)
             data = None
-            _named(body)
+            _named(body, set())
             if body is not None:
                 data, headers["Content-Type"] = json.dumps(body, allow_nan=False).encode(), "application/json"
             sent = urllib.request.Request("https://%s%s" % (self._host, path), data=data, headers=headers, method=verb)
@@ -315,6 +362,10 @@ class Live:
         except (urllib.error.URLError, OSError, ValueError, TypeError, RecursionError,
                 http.client.HTTPException) as err:
             refused = "Azure could not be reached, or its answer was cut short: %s" % type(err).__name__
-        # Raised once every handler has ended, and from nothing, so that no error that holds the key or the address
-        # rides along as its context or its cause.
-        raise Unanswered(refused) from None
+        # Raised once every handler has ended, from nothing and with no context, so that no error that holds the key or
+        # the address rides along as its context or its cause, nor one its caller was handling when it called.
+        try:
+            raise Unanswered(refused) from None
+        except Unanswered as refusal:
+            refusal.__context__ = None
+            raise
