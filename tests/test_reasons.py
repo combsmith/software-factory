@@ -31,6 +31,7 @@ SETS = ("REASONS", "ISSUE_REASONS")
 TABLES = ("NEEDS_YOU_REASONS", "QUIET_REASONS", "SCOPE_DEFERRALS", "GATE_REASONS", "QUEUE_WAITS")
 # A table handed to a function: `reading`'s parameter `past`, which `derive` gives QUEUE_WAITS. It is never bound again.
 HANDED = ("reading", "past")
+HANDED_AT = 3
 # The names a reason is read on from, each bound to a reading or a Decision: `derive`'s and `_decide`'s `d`, and the
 # issue's `bare`. The scan trusts what they hold; the runtime test holds what the Kernel gives.
 HOLDERS = ("d", "bare")
@@ -54,6 +55,17 @@ def _keyed(node) -> bool:
     else:
         return False
     return isinstance(key, ast.Constant) and key.value == "reason" and _name(base) in HOLDERS
+
+
+def _keyed_any(node) -> bool:
+    """Whether `node` reads any mapping's "reason", by subscript or by `.get`, a holder's or not."""
+    if isinstance(node, ast.Subscript):
+        key = node.slice
+    elif isinstance(node, ast.Call) and _name(node.func) == "get" and node.args:
+        key = node.args[0]
+    else:
+        return False
+    return isinstance(key, ast.Constant) and key.value == "reason"
 
 
 def _read_on(node) -> bool:
@@ -155,6 +167,17 @@ def written(tree, taken: dict) -> tuple:
             named = [kw for kw in node.keywords if kw.arg == "reason"]
             for kw in named:
                 _give(kw.value, found, unread)
+            if _name(node.func) == "setdefault" and node.args and isinstance(node.args[0], ast.Constant) \
+                    and node.args[0].value == "reason":
+                (_give(node.args[1], found, unread) if len(node.args) == 2 else unread.append(node.lineno))
+            if _name(node.func) == HANDED[0]:
+                handed_arg = [kw.value for kw in node.keywords if kw.arg == HANDED[1]] + node.args[HANDED_AT:HANDED_AT + 1]
+                for arg in handed_arg or [node]:
+                    if isinstance(arg, (ast.Tuple, ast.List, ast.Set)):
+                        for member in arg.elts:
+                            _give(member, found, unread)
+                    elif _name(arg) not in TABLES:
+                        unread.append(node.lineno)
             at = taken.get(_name(node.func))
             if at is not None:
                 calls += 1
@@ -168,6 +191,8 @@ def written(tree, taken: dict) -> tuple:
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 _bound(target, node.value, found, unread, bound)
+                if _keyed_any(node.value) and not _reason_slot(target):
+                    unread.append(node.lineno)
                 if id(target) in tops and _name(target) in TABLES:
                     _members(node.value, found, unread)
         if isinstance(node, (ast.AnnAssign, ast.AugAssign)) and node.value is not None:
@@ -178,6 +203,7 @@ def written(tree, taken: dict) -> tuple:
                 _bound(node.target, node.value, found, unread, bound)
         if isinstance(node, ast.Compare):
             sides = [node.left] + node.comparators
+            unread += [node.lineno for side in sides if _keyed_any(side) and not _keyed(side)]
             if any(_read_on(side) or table(side) for side in sides):
                 for side in sides:
                     if isinstance(side, (ast.Tuple, ast.List, ast.Set)):
@@ -265,7 +291,7 @@ class Written(unittest.TestCase):
             ('state == "x"', [], []),
             ('out(s, {k: "x"}["reason"], [])', [], [1]),
             ('_decision(f, s, facts["reason"], e, o)', [], [1]),
-            ('facts["reason"] == "x"', [], []),
+            ('facts["reason"] == "x"', [], [1]),
             ('def relay(s, reason="x"):\n    return {"reason": reason}', ["x"], []),
             ('relay(s)', [], [1]),
             ('out(s, **kw)', [], [1]),
@@ -282,6 +308,13 @@ class Written(unittest.TestCase):
             ('for reason in ("x",):\n    pass', [], [1]),
             ('[_decision(f, s, reason, e, o) for reason in ("x",)]', [], [1]),
             ('(reason := "x")', [], [1]),
+            ('d.setdefault("reason", "x")', ["x"], []),
+            ('why = d["reason"]', [], [1]),
+            ('facts.get("reason") == "x"', [], [1]),
+            ('reading(f, r, c, ("x",))', ["x"], []),
+            ('reading(f, r, c, t.QUEUE_WAITS)', [], []),
+            ('reading(f, r, c, ())', [], []),
+            ('reading(f, r, c, past=make())', [], [1]),
         )
         for source, found, unread in cases:
             with self.subTest(source=source):
@@ -316,20 +349,18 @@ def given() -> dict:
 
 
 class Given(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.seen = given()
-
-    def test_every_decision_carries_a_reason_of_its_own_set(self):
-        self.assertEqual(sorted(set(self.seen) - {"decision/1", "issue-decision/1", "suites_passed"}), [])
-        self.assertEqual(sorted(self.seen["decision/1"] - terms.REASONS), [])
-        self.assertEqual(sorted(self.seen["issue-decision/1"] - terms.REASONS - terms.ISSUE_REASONS), [])
-
-    def test_every_member_is_given_by_a_decision_of_its_kind(self):
-        # A suite that failed while it was recorded may have stopped short of a Decision: say so first.
-        self.assertTrue(self.seen["suites_passed"], "%s failed while recorded; run them alone" % ", ".join(SUITES))
-        self.assertEqual(sorted(terms.REASONS - self.seen["decision/1"]), [])
-        self.assertEqual(sorted(terms.ISSUE_REASONS - self.seen["issue-decision/1"]), [])
+    # One test, so that CI's legs, which deal tests one by one, record the suites and the seeds once.
+    def test_every_decision_and_every_member_keeps_to_its_set(self):
+        seen = given()
+        # Every Decision has its reason in its kind's set, told by its schema.
+        self.assertEqual(sorted(set(seen) - {"decision/1", "issue-decision/1", "suites_passed"}), [])
+        self.assertEqual(sorted(seen["decision/1"] - terms.REASONS), [])
+        self.assertEqual(sorted(seen["issue-decision/1"] - terms.REASONS - terms.ISSUE_REASONS), [])
+        # No dead member: each is given by a Decision of its kind. A suite that failed while it was recorded may have
+        # stopped short of a Decision: say so first.
+        self.assertTrue(seen["suites_passed"], "%s failed while recorded; run them alone" % ", ".join(SUITES))
+        self.assertEqual(sorted(terms.REASONS - seen["decision/1"]), [])
+        self.assertEqual(sorted(terms.ISSUE_REASONS - seen["issue-decision/1"]), [])
 
 
 if __name__ == "__main__":
