@@ -47,7 +47,8 @@
     {"path": "kernel/derive.py", "is": "the State, which reads the gate"},
     {"path": "kernel/terms.py", "is": "the Kernel's codes"},
     {"path": "tests/test_decide.py", "is": "the boundary cases"},
-    {"path": "tools/mutants.py", "is": "the deliberate breaks that show each rule is tested"}
+    {"path": "tools/mutants.py", "is": "the deliberate breaks that show each rule is tested"},
+    {"path": "tools/mutants_of/", "is": "the deliberate breaks of the files outside kernel/"}
   ],
   "lens_inputs": [
     {"lens": "verify", "path": "Makefile", "is": "how verify runs the checks and the tests"},
