@@ -1,9 +1,20 @@
 # guards/
 
-The guards on a Role's own writes, as pure functions: each will say what such a write may land, or give the one reason, a code, why nothing may. None is built yet.
-The package is listed in `config/hooks.json` before it holds a guard, so that the first one is never a file a Role could change.
+The guards on a Role's own writes, as pure functions: each says what such a write may land, or gives the one reason, a code, why nothing may. `patch.py` reads the sections of a Role's patch as git writes them; its hunks, and what applies it, are still to come.
+A guard binds the Role that writes this repo's code. So it lives here, never in `kernel/` or `adapters/`, where that Role may push; a port hands a guard what it read, and the Harness calls it. A guard reads nothing itself.
 
 | Rule | Held by |
 |---|---|
+| No I/O: no file, socket, process, environment variable or clock. Nothing is kept between calls. No `raise`, no special name, no number but 0 and 1 | `tools/check_purity.py` |
+| A guard calls nothing it is given: it takes no `_decision`, the one parameter the Kernel may call | `tests/test_tools.py::test_the_guards_are_held_as_the_kernel_is_and_import_themselves_alone` |
+| Only `__future__` and `guards` are imported, `guards` by its name and never relatively. Never the Kernel: it is not protected whole, so no guard rests on it | `tests/test_tools.py::test_the_guards_are_held_as_the_kernel_is_and_import_themselves_alone` |
+| Every folder here has an `__init__.py` and holds the source the check reads and an `AGENTS.md` alone, no link: Python imports what was read | `tests/test_tools.py::test_the_guards_are_the_package_python_imports_and_read_nothing_off_a_value` |
+| No module here is named as `kernel/terms.py`, `kernel/gate.py` or `kernel/brakes.py` is: the check's rules for those names are the Kernel's | `tests/test_tools.py::test_the_guards_are_held_as_the_kernel_is_and_import_themselves_alone` |
+| Nothing is read of a value but by a built-in type's method that is called: a generator's frame is one attribute from every builtin | `tests/test_tools.py::test_the_guards_are_the_package_python_imports_and_read_nothing_off_a_value` |
+| A module's name here is bound by its import alone: no parameter, local, function or other import takes it | `tests/test_tools.py::test_the_guards_are_the_package_python_imports_and_read_nothing_off_a_value` |
 | A Role's push that touches `guards/` is refused: it is a protected path | `tests/test_apply.py::test_a_push_is_held_to_the_bases_list_by_each_class_of_path` |
 | A package at the top of the repo is one of verify's inputs, whole, and this one is | `tests/test_tools.py::test_every_package_at_the_top_of_the_repo_is_a_lens_input_whole` |
+| A patch is read section by section as git writes it: each one's kind, its two names and its modes | `tests/test_guards.py::test_a_patch_is_read_section_by_section_as_git_writes_it` |
+| A name is read one way: unquoted, of a narrow set of characters and no more parts than a bound; each line that names a file agrees with the header | `tests/test_guards.py::test_a_name_is_read_one_way_or_not_at_all` |
+| Unreadable, never fewer changes: what git does not write, a path on two new sides, named once renamed or removed, or read once made, a file under one made | `tests/test_guards.py::test_what_is_not_a_patch_as_git_writes_it_is_unreadable` |
+| Each of these rules has a mutant that a test kills | `tools/mutants.py` |
