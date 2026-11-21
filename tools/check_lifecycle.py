@@ -12,6 +12,10 @@ SCHEMA = ROOT / "schemas" / "lifecycle.schema.json"
 # A limit on size or on the whole org is not among them. A new counter in the Kernel is added here.
 PER_ITEM = ("max_runs_per_item", "max_environment_runs_per_item", "max_attempts", "max_rounds", "max_acts_per_item",
             "max_unmerged_closes")
+# The counts whose every unit is a Run, each held at or below the Run ceiling, which would hold the item first and leave
+# a bound past it never reached: an issue's implementing rounds (decision 0242, issue 1038). They bound a loop inside
+# `in_progress`, which no transition makes, so no transition may name them as its bound, and they are not in PER_ITEM.
+UNDER_THE_CEILING = ("max_implementing_rounds",)
 # The bound that is no counter: only a person ends what the transition starts. A Hold a label holds stands until a
 # person removes it, whoever placed it, so a transition into `held` that no person makes may name it, and so may a
 # stranger's change, below; nothing else.
@@ -153,6 +157,11 @@ def run(root: pathlib.Path = ROOT) -> list:
         problems.append("config/defaults.json has no object of limits")
     if items is None or not isinstance(limits, dict):
         return problems
+    ceiling = limits.get("max_runs_per_item")
+    for name in UNDER_THE_CEILING:
+        value = limits.get(name)
+        if not (type(value) is int and type(ceiling) is int and 1 <= value <= ceiling):
+            problems.append("config/defaults.json: %s is not a whole number at or below max_runs_per_item" % name)
     for path in sorted((root / "lifecycle").glob("*.json")):
         lc = read(path)
         if lc is None:
