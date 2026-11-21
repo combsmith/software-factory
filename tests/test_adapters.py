@@ -4895,13 +4895,13 @@ NOT_READ = {
 }
 WHY = {"controller", "kernel", "issues_port"}
 # Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
-# as no answer, never as one (FR-56); a refusal recorded later fails here until it is placed.
+# as no answer, never as one (FR-56); a refusal recorded later fails here until it is placed. The push port hands its
+# three on as answers, which the push guard takes as none.
 REFUSALS = {
     ("P-68", 6): None,                 # the download of an artifact deleted, 404: the port downloads only what a list names
-    # A push by the git data API (P-71, issue 838): the work branch absent, 404, which the push guard reads as the branch
-    # the Decision admitted none of; the branch made again where it stands, 422; and two moves without force that are no
-    # fast-forward, 422. No port pushes until the push port is built.
-    ("P-71", 4): None, ("P-71", 12): None, ("P-71.moved", 6): None, ("P-71.moved", 8): None,
+    # A push by the git data API (P-71, issue 838): the branch made again where it stands, 422; and two moves without
+    # force that are no fast-forward, 422.
+    ("P-71", 12): "push", ("P-71.moved", 6): "push", ("P-71.moved", 8): "push",
     ("P-12", 16): None,                # an output past GitHub's limit, 422: no port writes the status until it is built
     ("P-41", 26): None,                # the controller's label on 64 at issues: write and pull_requests: read, 403
     ("P-41", 27): None,                # its removal, 403 too: no port writes a label until the label act is built
@@ -4937,6 +4937,9 @@ REFUSALS = {
     # The tree of a commit the canary does not hold, 422: the head port reads it as no tree, so no head (decision 0142).
     ("P-60.tree", 1): None,
 }
+# Every 404 a trial shows for a thing that does not stand, asked as that answer, never as a refusal: the work branch a
+# push reads before it is made, which the push guard reads as the branch admitted none of (P-71, issue 838).
+ABSENCES = {("P-71", 4): "push"}
 
 
 class Contract(unittest.TestCase):
@@ -5845,8 +5848,20 @@ class Contract(unittest.TestCase):
                  and isinstance(e.get("response", {}).get("status"), int)
                  and (e["response"]["status"] >= 400
                       or (isinstance(e["response"].get("body"), dict) and e["response"]["body"].get("errors")))}
-        self.assertEqual(found, set(REFUSALS))
-        self.assertEqual(sorted({p for p in REFUSALS.values() if p}), ["diff", "dispatch", "graphql", "runs"])
+        self.assertEqual(found, set(REFUSALS) | set(ABSENCES))
+        self.assertFalse(set(REFUSALS) & set(ABSENCES))
+        # Each absence is asked by a port this test holds to its answer.
+        self.assertEqual(set(ABSENCES.values()), {"push"})
+        self.assertEqual(sorted({p for p in REFUSALS.values() if p}), ["diff", "dispatch", "graphql", "push", "runs"])
+        # The push port hands back each refusal it asks, and the absent branch's 404, as GitHub gave it.
+        for name, at in ABSENCES:
+            absent = exchanges(name)[at]
+            self.assertEqual(absent["request"]["call"].split()[:2], ["GET", "/repos/%s/git/ref/heads/%s" % (PUSHED, WORK)])
+            self.assertEqual(absent["response"]["status"], 404)
+        for name, at in sorted(k for k, port in list(REFUSALS.items()) + list(ABSENCES.items()) if port == "push"):
+            exchange = exchanges(name)[at]
+            self.assertEqual(sent(github.Replay([exchange]), pushed(exchange)),
+                             {"status": str(exchange["response"]["status"]), "body": exchange["response"]["body"]})
         missing = exchanges("P-44")[3]
         call = missing["request"]["call"].split()[1].rstrip(",")
         workflow = call.split("/workflows/")[1].split("/")[0]
@@ -7781,12 +7796,39 @@ NAMED = "a" * 40
 MIXED = "0123456789abcdef" * 2 + "01234567"     # a name of digits and letters both
 
 
+def sent(transport, req):
+    """`req` sent through the push's own sender on `transport`, bound to P-71's repo and work branch."""
+    return push.send(push.transport(transport, PUSHED, WORK), PUSHED, WORK, req)
+
+
 def calmly(send, *args):
     """What `send` gives, or the error it raised in its place."""
     try:
         return send(*args)
     except Exception as raised:
         return raised
+
+
+def pushed(exchange: dict) -> dict:
+    """The request the push port builds for one of P-71's exchanges, from the names it carries: the kind of request is
+    read from the path recorded, and the port must build that path itself for the replay to answer it."""
+    method, path = exchange["request"]["call"].split()[:2]
+    sent_, rest = exchange["request"]["body"], path.split("/git/", 1)[1]
+    kind, _, name = rest.partition("/")
+    if method == "GET" and kind == "ref":
+        return push.read_branch(PUSHED, name[len("heads/"):])
+    if method == "GET":
+        reader = {"commits": push.read_commit, "trees": push.read_tree, "blobs": push.read_blob}[kind]
+        return reader(PUSHED, name.split("?")[0])
+    if method == "PATCH":
+        return push.move_branch(PUSHED, name[len("heads/"):], sent_["sha"])
+    if kind == "blobs":
+        return push.make_blob(PUSHED, sent_["content"])
+    if kind == "trees":
+        return push.make_tree(PUSHED, sent_["base_tree"], sent_["tree"])
+    if kind == "commits":
+        return push.make_commit(PUSHED, sent_["message"], sent_["tree"], sent_["parents"][0])
+    return push.make_branch(PUSHED, sent_["ref"][len("refs/heads/"):], sent_["sha"])
 
 
 class Posing:
@@ -7823,7 +7865,7 @@ class Lying(str):
 
 
 class Push(unittest.TestCase):
-    """The push port (issue 838): what a push's token may send by the git data API, deciding nothing."""
+    """The push port (issue 838): each request of a push by the git data API, built and sent, deciding nothing."""
 
     class Recording:
         """A transport that answers every request, so only the push's token can refuse one."""
@@ -7834,10 +7876,248 @@ class Push(unittest.TestCase):
             self.sent.append(req)
             return {"status": 200, "headers": {}, "body": None}
 
+    def test_each_request_of_a_push_is_answered_as_github_recorded_it_with_its_status_as_text(self):
+        # P-71: push A, the branch absent and then made, and push B, moved forward, between them the branch made again
+        # and two moves that are no fast-forward: each through the push's own sender, in order.
+        for name in ("P-71", "P-71.moved"):
+            found = exchanges(name)
+            sending = push.transport(github.Replay(found), PUSHED, WORK)
+            for at, exchange in enumerate(found):
+                answer = push.send(sending, PUSHED, WORK, pushed(exchange))
+                self.assertEqual(answer, {"status": str(exchange["response"]["status"]),
+                                          "body": exchange["response"]["body"]}, (name, at))
+        self.assertEqual([sent(replay("P-71", at), pushed(exchanges("P-71")[at]))["status"] for at in (4, 11, 12)],
+                         ["404", "201", "422"])
+
+    def test_a_push_is_sent_by_its_own_sender_alone(self):
+        recording = self.Recording()
+        good = [push.read_commit(PUSHED, NAMED), push.make_blob(PUSHED, "eA=="),
+                push.make_commit(PUSHED, "m", NAMED, NAMED), push.move_branch(PUSHED, WORK, NAMED)]
+        main = push.make_branch(PUSHED, WORK, NAMED)
+        main["body"]["ref"] = "refs/heads/main"
+
+        class Claiming(self.Recording):
+            """A bare transport that says it is bound."""
+            bound = (PUSHED, WORK)
+
+        class Wide(effects.Allowed):
+            """An `Allowed` made another way, that says it is bound."""
+            bound = (PUSHED, WORK)
+
+        class Forged(type(push.transport(recording, PUSHED, WORK))):
+            """The sender's own kind, that permits whatever it is given."""
+            _permits = {(main["method"], main["path"]): lambda body: True}
+        claiming = Claiming()
+        for req in good:
+            self.assertIsNone(push.send(claiming, PUSHED, WORK, req), req)
+        self.assertEqual(claiming.sent, [])
+        wide = Wide(recording, {(main["method"], main["path"]): lambda body: True})
+        self.assertIsNone(push.send(wide, PUSHED, WORK, main))
+        self.assertIsNone(push.send(Forged(recording, PUSHED, WORK), PUSHED, WORK, main))
+        # Nor does a bare transport, a replay that holds the request, the push's `Allowed` made by hand, or a sender
+        # bound to another branch or repo.
+        p71 = exchanges("P-71")
+        self.assertIsNone(push.send(github.Replay(p71), PUSHED, WORK, pushed(p71[0])))
+        self.assertEqual(sent(github.Replay(p71), pushed(p71[0]))["status"], "200")
+        for sender in (recording, effects.Allowed(recording, *push.allowed(PUSHED, WORK)),
+                       push.transport(recording, PUSHED, "factory-work/issue-9971-2"),
+                       push.transport(recording, PUSHED[:-1] + "x", WORK)):
+            for req in good:
+                self.assertIsNone(push.send(sender, PUSHED, WORK, req), (sender, req))
+        self.assertEqual(recording.sent, [])
+        # A sender bound to one repo sends nothing for a send that claims another, even its own repo's request.
+        self.assertIsNone(push.send(push.transport(recording, "o/a", WORK), "o/b", WORK, push.make_blob("o/a", "eA==")))
+        self.assertEqual(recording.sent, [])
+        # No sender is made for a repo or a branch told wrongly, or on what has no send to call.
+        for live, repo, branch in ((recording, "o/..", WORK), (recording, PUSHED, "main"), (recording, PUSHED, None),
+                                   (None, PUSHED, WORK), (object(), PUSHED, WORK),
+                                   (type("Sendless", (), {"send": 1})(), PUSHED, WORK)):
+            self.assertIsNone(push.transport(live, repo, branch), (live, repo, branch))
+
+    def test_a_senders_binding_and_permits_are_its_own_and_a_request_is_one_request_builds(self):
+        # A sender whose send, binding, permits or patterns were rewritten, in place or as an attribute, sends no more.
+        recording = self.Recording()
+        delete = github.request("DELETE", "/repos/o/a/git/refs/heads/" + WORK)
+        replaced = push.transport(recording, "o/a", WORK)
+        replaced.send = recording.send
+        self.assertIsNone(push.send(replaced, "o/a", WORK, delete))
+        rewritten = push.transport(recording, "o/a", WORK)
+        calmly(setattr, rewritten, "bound", ("o/b", WORK))
+        vars(rewritten)["bound"] = ("o/b", WORK)
+        self.assertIsNone(push.send(rewritten, "o/b", WORK, push.make_blob("o/a", "eA==")))
+        permitting = {(delete["method"], delete["path"]): lambda body: True}
+        for rewrite in (lambda s: s._permits.update(permitting), lambda s: setattr(s, "_permits", permitting),
+                        lambda s: s._patterns.append(("DELETE", re.compile(".*"), lambda body: True)),
+                        lambda s: setattr(s, "_patterns", [("DELETE", re.compile(".*"), lambda body: True)])):
+            sender = push.transport(recording, "o/a", WORK)
+            calmly(rewrite, sender)
+            self.assertIsNone(push.send(sender, "o/a", WORK, delete))
+        self.assertEqual(recording.sent, [])
+        # Nor a request `request` would not build, of text of another kind, or for a repo or a branch of text of
+        # another kind; nor one with no Accept, for which a replay and the live transport raise.
+        sender, blob = push.transport(recording, PUSHED, WORK), push.make_blob(PUSHED, "eA==")
+        unaccepted = {k: v for k, v in blob.items() if k != "accept"}
+
+        class Raising:
+            """A key that hashes as `headers` does, and raises when compared."""
+            def __hash__(self):
+                return hash("headers")
+
+            def __eq__(self, other):
+                raise RuntimeError("compared")
+        keyed = dict(unaccepted, accept=blob["accept"])
+        del keyed["headers"]
+        keyed[Raising()] = {}
+        # Nor headers or an Accept but the builders', though `request` would build some.
+        for req in (None, [], "x", 1, dict(blob, follow=True), unaccepted, dict(blob, path=Lying(blob["path"])), keyed,
+                    dict(blob, headers={"Authorization": "token t"}), dict(blob, headers={"Cache-Control": "no-cache"}),
+                    dict(blob, accept="application/vnd.github.raw")):
+            self.assertIsNone(calmly(push.send, sender, PUSHED, WORK, req), req)
+        for repo, branch in ((Lying(PUSHED), WORK), (PUSHED, Lying(WORK))):
+            self.assertIsNone(calmly(push.send, sender, repo, branch, blob), (repo, branch))
+        self.assertEqual(recording.sent, [])
+        for live in (github.Replay(exchanges("P-71")), github.Live("t")):
+            self.assertIsNone(calmly(push.send, push.transport(live, PUSHED, WORK), PUSHED, WORK, unaccepted), live)
+        self.assertEqual(push.send(sender, PUSHED, WORK, blob), {"status": "200", "body": None})
+        # A transport set on a sender sends nothing: the one it was made on sends.
+        other, made = self.Recording(), self.Recording()
+        moved = push.transport(made, PUSHED, WORK)
+        calmly(setattr, moved, "_transport", other)
+        vars(moved)["_transport"] = other
+        self.assertEqual(push.send(moved, PUSHED, WORK, blob), {"status": "200", "body": None})
+        self.assertEqual((other.sent, made.sent), ([], [blob]))
+
+    def test_a_blobs_bytes_are_its_base64_read_past_githubs_newline_and_named_as_git_names_them(self):
+        found = exchanges("P-71")
+        for at, data in ((2, b"#!/bin/sh\necho run\n"), (3, b"run.sh")):
+            sha = found[at]["response"]["body"]["sha"]
+            answer = sent(replay("P-71", at), push.read_blob(PUSHED, sha))
+            self.assertTrue(answer["body"]["content"].endswith("\n"))
+            self.assertEqual(push.content(answer, sha), data)
+        link, run = found[3]["response"]["body"]["sha"], found[2]["response"]["body"]["sha"]
+        answer = sent(replay("P-71", 3), push.read_blob(PUSHED, link))
+        # Bytes whose git name is another blob's are none of this one's.
+        self.assertIsNone(push.content(answer, run))
+        # Base64 wrapped across lines, as GitHub sends a longer file, is read past every newline.
+        data = b"x" * 90
+        text = base64.b64encode(data).decode()
+        named = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+        wrapped = {"status": "200", "body": {"sha": named, "content": text[:60] + "\n" + text[60:] + "\n",
+                                             "encoding": "base64"}}
+        self.assertEqual(push.content(wrapped, named), data)
+        # Nor text that is no base64, another encoding, an answer that is no success or whose status is no text, or
+        # other bytes in an answer that names itself as asked.
+        body = answer["body"]
+        for told in ({"status": "200", "body": dict(body, content="cnVu!!!!LnNo\n")},
+                     {"status": "200", "body": dict(body, encoding="utf-8")},
+                     {"status": "200", "body": dict(body, content=None)},
+                     {"status": "200", "body": dict(body, content="eA==")},
+                     {"status": "404", "body": body}, {"status": 200, "body": body}, None):
+            self.assertIsNone(push.content(told, link), told)
+
+        class Mapping(dict):
+            """A mapping of another kind."""
+        for told in (Mapping(answer), dict(answer, body=Mapping(body)), dict(answer, status=mock.ANY),
+                     dict(answer, body=dict(body, encoding=mock.ANY))):
+            self.assertIsNone(push.content(told, link), told)
+        self.assertEqual(push.content(dict(answer), link), b"run.sh")
+        # An empty blob is its no bytes, named as git names them.
+        empty = {"status": "200", "body": {"sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391", "content": "",
+                                           "encoding": "base64"}}
+        self.assertEqual(push.content(empty, "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"), b"")
+        # Nor for a name, or of content, of text of another kind.
+        x = hashlib.sha1(b"blob 1\0x").hexdigest()
+        self.assertEqual(push.content({"status": "200", "body": dict(body, content="eA==")}, x), b"x")
+        self.assertIsNone(push.content({"status": "200", "body": dict(body, content="eA==")}, Lying(run)))
+        self.assertIsNone(push.content({"status": "200", "body": dict(body, content=Lying("!"))}, x))
+
+    def test_a_push_is_built_for_its_repos_git_data_alone_and_a_part_told_wrongly_builds_nothing(self):
+        built = [push.read_commit(PUSHED, NAMED), push.read_tree(PUSHED, NAMED), push.read_blob(PUSHED, NAMED),
+                 push.read_branch(PUSHED, WORK), push.make_blob(PUSHED, "eA=="), push.make_tree(PUSHED, NAMED, []),
+                 push.make_commit(PUSHED, "m", NAMED, NAMED), push.make_branch(PUSHED, WORK, NAMED),
+                 push.move_branch(PUSHED, WORK, NAMED)]
+        self.assertEqual([(r["method"], r["path"]) for r in built], [
+            ("GET", "/repos/%s/git/commits/%s" % (PUSHED, NAMED)),
+            ("GET", "/repos/%s/git/trees/%s?recursive=1" % (PUSHED, NAMED)),
+            ("GET", "/repos/%s/git/blobs/%s" % (PUSHED, NAMED)), ("GET", "/repos/%s/git/ref/heads/%s" % (PUSHED, WORK)),
+            ("POST", "/repos/%s/git/blobs" % PUSHED), ("POST", "/repos/%s/git/trees" % PUSHED),
+            ("POST", "/repos/%s/git/commits" % PUSHED), ("POST", "/repos/%s/git/refs" % PUSHED),
+            ("PATCH", "/repos/%s/git/refs/heads/%s" % (PUSHED, WORK))])
+        self.assertEqual(built[-1]["body"], {"sha": NAMED, "force": False})
+        self.assertEqual(push.read_branch("o/r", "factory-work/issue-42-2")["path"],
+                         "/repos/o/r/git/ref/heads/factory-work/issue-42-2")
+        # No tree of more entries than a body may hold is built, nor are they copied.
+        entry = {"path": "a.md", "mode": "100644", "type": "blob", "sha": NAMED}
+        self.assertIsNone(push.make_tree(PUSHED, NAMED, [entry] * (push.MOST + 1)))
+        most = push.make_tree(PUSHED, NAMED, [entry] * push.MOST)
+        self.assertEqual(len(most["body"]["tree"]) if most else None, push.MOST)
+        for repo in ("o", "o/..", "o/.", "o/r/x", "-o/r", "o/r?x", None):
+            for builder, args in ((push.read_commit, (NAMED,)), (push.read_tree, (NAMED,)), (push.read_blob, (NAMED,)),
+                                  (push.read_branch, (WORK,)), (push.make_blob, ("eA==",)),
+                                  (push.make_tree, (NAMED, [])), (push.make_commit, ("m", NAMED, NAMED)),
+                                  (push.make_branch, (WORK, NAMED)), (push.move_branch, (WORK, NAMED))):
+                self.assertIsNone(builder(repo, *args), (builder.__name__, repo))
+        # A name with more after it, a query among it, is no name.
+        self.assertIsNone(push.read_blob("o/r", NAMED + "?x=1"))
+        for sha in ("main", "A" * 40, "a" * 39, NAMED + "?x=1", None):
+            for builder in (push.read_commit, push.read_tree, push.read_blob):
+                self.assertIsNone(builder(PUSHED, sha), (builder.__name__, sha))
+            for builder, args in ((push.make_tree, (sha, [])), (push.make_commit, ("m", sha, NAMED)),
+                                  (push.make_commit, ("m", NAMED, sha)), (push.make_branch, (WORK, sha)),
+                                  (push.move_branch, (WORK, sha))):
+                self.assertIsNone(builder(PUSHED, *args), (builder.__name__, args))
+        for told in (None, 1, b"eA==", ["eA=="], Lying("eA==")):
+            self.assertIsNone(push.make_blob(PUSHED, told), told)
+        self.assertIsNone(push.read_commit(PUSHED, Lying(NAMED)))
+        for branch in ("main", "refs/heads/" + WORK, "factory-work/issue-0-1", "factory-work/issue-1-0",
+                       "factory-work/issue-1", WORK + "/../main", None):
+            for builder, args in ((push.read_branch, ()), (push.make_branch, (NAMED,)), (push.move_branch, (NAMED,))):
+                self.assertIsNone(builder(PUSHED, branch, *args), (builder.__name__, branch))
+        # A tree is built of its entries as they were then: a change made after reaches neither `permits` nor `send`.
+        entry = {"path": "a.md", "mode": "100644", "type": "blob", "sha": NAMED}
+        entries = [entry]
+        tree = push.make_tree(PUSHED, NAMED, entries)
+        entry["mode"] = "120000"
+        entries.append(dict(entry))
+        self.assertEqual(tree["body"]["tree"], [{"path": "a.md", "mode": "100644", "type": "blob", "sha": NAMED}])
+        # An entry nested deep, entries no list, or an entry no mapping, is copied without raising, for the token.
+        deep = NAMED
+        for _ in range(600):
+            deep = [deep]
+        recording = self.Recording()
+        for entries in ([dict(entry, sha=deep)], None, ["x"], {"a.md": entry}):
+            tree = calmly(push.make_tree, PUSHED, NAMED, entries)
+            self.assertIsInstance(tree, dict, entries)
+            self.assertIsNone(calmly(sent, recording, tree))
+        self.assertIsNone(calmly(sent, recording, None))
+        self.assertEqual(recording.sent, [])
+
+    def test_a_refusal_is_an_answer_and_no_answer_is_none(self):
+        class Answering:
+            def __init__(self, answer):
+                self.answer = answer
+
+            def send(self, req):
+                if isinstance(self.answer, type):
+                    raise self.answer("no answer")
+                return self.answer
+        asked = push.read_commit(PUSHED, NAMED)
+        for status in (100, 404, 503, 599):
+            self.assertEqual(sent(Answering({"status": status, "headers": {}, "body": "busy"}), asked),
+                             {"status": str(status), "body": "busy"}, status)
+        # No answer, one with no status from 100 to 599 or no body, or a transport's error, is none.
+        for answer in (github.Unanswered, OSError, TimeoutError, TypeError, ValueError, KeyError, AttributeError, None,
+                       {"status": True, "body": None},
+                       {"status": "200", "body": None}, {"status": 99, "body": None}, {"status": 600, "body": None},
+                       {"status": 200, "headers": {}}, {"body": None}, []):
+            self.assertIsNone(calmly(sent, Answering(answer), asked), answer)
+        # Anything else a transport raises is its bug, and stays raised.
+        self.assertIsInstance(calmly(sent, Answering(RuntimeError), asked), RuntimeError)
+
     def test_a_pushs_token_sends_a_pushs_alone(self):
         entry = {"path": "a.md", "mode": "100644", "type": "blob", "sha": NAMED}
         recording = self.Recording()
-        sending = effects.Allowed(recording, *push.allowed(PUSHED, WORK))
+        sending = push.transport(recording, PUSHED, WORK)
         git, other = "/repos/%s/git/" % PUSHED, "/repos/%sx/git/" % PUSHED[:-1]     # another repo, its name as long
         tree = {"base_tree": NAMED, "tree": [entry]}
         commit = {"message": "m", "tree": NAMED, "parents": [NAMED]}
@@ -7922,8 +8202,9 @@ class Push(unittest.TestCase):
             # Never a delete, and never a put.
             ("DELETE", git + "refs/heads/" + WORK, None), ("PUT", git + "refs/heads/" + WORK, {"sha": NAMED, "force": False})]
         for method, path, body in refused:
-            self.assertIsInstance(calmly(sending.send, github.request(method, path, body=body)), github.Unanswered,
-                                  (method, path, body))
+            req = github.request(method, path, body=body)
+            self.assertIsInstance(calmly(sending.send, req), github.Unanswered, (method, path, body))
+            self.assertIsNone(push.send(sending, PUSHED, WORK, req), (method, path, body))
         self.assertEqual(recording.sent, good)
         # A read of another repo's whose name differs from this one's where it holds a dot, by any pattern.
         dotted = effects.Allowed(recording, *push.allowed("o/a.b", WORK))
