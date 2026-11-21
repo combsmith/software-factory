@@ -6458,6 +6458,7 @@ class Trials(unittest.TestCase):
                  "P-98.md": (good % "98").replace("Is it asked?", "Is it <!-- hidden --> asked?"),
                  "P-99.md": (good % "99").replace("Is it asked?", "```hidden"), "P-41.md": page,
                  "P-88.md": (good % "88").replace("Is it asked?", "Is A | B asked?"), "P-87.md": (good % "87").replace("Yes", " "),
+                 "P-85.md": (good % "85").replace("Is it asked?", " "),
                  "P-86.md\n": good % "86"}
         planted = clone({check_trials.PAGES + "/" + k: v for k, v in files.items()})
         (planted / check_trials.PAGES / "P-89.md").symlink_to(planted / check_trials.PAGES / "P-90.md")
@@ -6467,7 +6468,8 @@ class Trials(unittest.TestCase):
         for name in ("README.md", "P-095.md", "deep/P-96.md", "P-89.md", "P-86.md\n"):
             self.assertTrue(caught(problems, "%s/%s: only a trial's page" % (check_trials.PAGES, name)), name)
         self.assertTrue(caught(problems, "P-90.md: is headed P-91"), problems)
-        self.assertTrue(caught(problems, "P-87.md: its question or its pass is blank"), problems)
+        for name in ("P-87.md", "P-85.md"):
+            self.assertTrue(caught(problems, "%s: its question or its pass is blank" % name), name)
         with self.assertRaises(ValueError):         # the table refuses what the check refuses
             check_trials.table(planted)
         for name in ("P-92.md", "P-93.md", "P-94.md", "P-88.md"):
@@ -6478,6 +6480,13 @@ class Trials(unittest.TestCase):
         other = clone({check_trials.DESIGN: design.replace(row + "\n", "", 1),
                        check_trials.PAGES + "/P-41.md": page.replace("Batch: 2", "Batch: 4")})
         self.assertTrue(caught(check_trials.run(other), "P-41's page says Batch: 4, and 6.1 names it in batch 2"))
+        # The table refuses each of these alone, as the check does: a page beside its row, a page 6.1 contradicts.
+        for refused in (clone({check_trials.PAGES + "/P-41.md": page}), other):
+            with self.assertRaises(ValueError):
+                check_trials.table(refused)
+        twice = design.replace("| **4. As they come up** | P-6,", "| **4. As they come up** | P-13, P-6,", 1)
+        self.assertNotEqual(twice, design)
+        self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: twice})), "6.1 names P-13 in more than one batch"))
         odd = clone({check_trials.DESIGN: design.replace(row, row + " ", 1)})
         self.assertTrue(caught(check_trials.run(odd), "P-41's row in section 6 is not '| P-41 | question | pass |'"))
         with self.assertRaises(ValueError):
@@ -6493,6 +6502,11 @@ class Trials(unittest.TestCase):
         self.assertNotEqual(unbold, design)
         with self.assertRaises(ValueError):
             check_trials.table(clone({check_trials.DESIGN: unbold}))
+        self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: unbold})), "6.1's four batches cannot all be read"))
+        # An opener left open hides the rest of 6.1, as a renderer reads it.
+        unclosed = design.replace("\nP-31, the relay's host", "\n<!--\n| **4. An example** | P-13 | x |\n\nP-31, the relay's host", 1)
+        self.assertNotEqual(unclosed, design)
+        self.assertEqual(check_trials.table(clone({check_trials.DESIGN: unclosed})), check_trials.table(ROOT))
 
     def test_the_table_is_printed_from_rows_and_pages_in_the_order_of_their_numbers(self):  # decision 0249
         # No index is committed: `python3 -m tools.check_trials --table` prints section 6 and the batches of 6.1.

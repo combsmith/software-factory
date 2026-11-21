@@ -980,17 +980,17 @@ def questions(root: pathlib.Path) -> dict:
     return None if section is None else dict(QUESTION.findall(section), **{t: p[1] for t, p in pages(root)[0].items()})
 
 
-def _batches(root: pathlib.Path) -> dict:
-    """{trial: its batch} as the rows of 6.1 name them, or none where the design cannot be read."""
+def _batch_rows(root: pathlib.Path) -> list:
+    """[(a batch, a trial it names)] as the rows of 6.1 name them, or none where the design cannot be read."""
     try:
         text = (root / DESIGN).read_text(encoding="utf-8")
     except (OSError, ValueError):
-        return {}
+        return []
     start = text.find("\n### 6.1 ")
     batched = HIDDEN.sub("", text[start:text.find("\n## ", start + 1)] if start >= 0 else "")
     opened = OPENED.search(batched)
     batched = batched[:opened.start()] if opened else batched      # read as section 6 is: what is seen alone
-    return {t: b for b, cell in BATCH.findall(batched) for t in re.findall(r"\bP-[1-9][0-9]*\b", cell)}
+    return [(b, t) for b, cell in BATCH.findall(batched) for t in re.findall(r"\bP-[1-9][0-9]*\b", cell)]
 
 
 def table(root: pathlib.Path = ROOT) -> str:
@@ -1000,15 +1000,11 @@ def table(root: pathlib.Path = ROOT) -> str:
     section = _section_6(root)
     if section is None:
         raise ValueError("%s cannot be read" % DESIGN)
+    if catalog(root):
+        raise ValueError("the trials are refused as they stand; python3 -m tools.check_trials says why")
     rows = {m.group(1): m.group(0) for m in WHOLE_ROW.finditer(section)}
-    if set(ROW.findall(section)) != set(rows):
-        raise ValueError("a row of section 6 is not '| P-N | question | pass |'; the check says which")
-    paged, wrong = pages(root)
-    if wrong or set(rows) & set(paged):
-        raise ValueError("a page is refused, or a trial has a page and a row; python3 -m tools.check_trials says which")
-    batch = _batches(root)
-    if set(batch.values()) != {"1", "2", "3", "4"}:
-        raise ValueError("6.1's four batches cannot all be read, so a trial in none cannot be told from one unread")
+    paged = pages(root)[0]
+    batch = {t: b for b, t in _batch_rows(root)}
     for trial, (said, question, passed) in paged.items():
         rows[trial], batch[trial] = "| %s | %s | %s |" % (trial, question, passed), said
     order = sorted(rows, key=lambda trial: int(trial[2:]))
@@ -1018,16 +1014,11 @@ def table(root: pathlib.Path = ROOT) -> str:
     return "\n".join(out) + "\n"
 
 
-def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
-    try:
-        listed = rules(root)
-    except ValueError as err:
-        problems.append("sim/grounding.py: %s" % err)
-        return
-    rows, asked = section_6(root), questions(root)
-    if rows is None:
-        problems.append("%s cannot be read, so no trial a rule names can be found in section 6" % DESIGN)
-    else:
+def catalog(root: pathlib.Path) -> list:
+    """What is wrong with section 6's rows, the pages and 6.1's batches, as the check and the table both read them: a
+    table is printed only for a catalog the check passes (decision 0249)."""
+    problems = []
+    if _section_6(root) is not None:
         # A trial has one row: a second could answer a quote the first no longer does (the security pass on #265).
         listed_rows = ROW.findall(_section_6(root))
         for trial in sorted({t for t in listed_rows if listed_rows.count(t) > 1}):
@@ -1045,11 +1036,32 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
         for trial in sorted({t for t in listed_rows if int(t[2:]) > LAST_ROW}, key=lambda t: int(t[2:])):
             problems.append("%s: %s has a row in section 6; a trial after P-%d has a page in %s instead"
                             % (DESIGN, trial, LAST_ROW, PAGES))
+        # 6.1 names each trial in one batch at most, and all four batches can be read: else a trial in none could not
+        # be told from one unread, and the table would mislead.
+        pairs = _batch_rows(root)
+        for trial in sorted({t for _, t in pairs if len({b for b, u in pairs if u == t}) > 1}, key=lambda t: int(t[2:])):
+            problems.append("%s: 6.1 names %s in more than one batch; name it in one" % (DESIGN, trial))
+        if {b for b, _ in pairs} != {"1", "2", "3", "4"}:
+            problems.append("%s: 6.1's four batches cannot all be read as '| **N. ...** | trials | ... |'" % DESIGN)
         # A page's batch is the one 6.1 names it in, where 6.1 still does.
-        named = _batches(root)
+        named = {t: b for b, t in pairs}
         for trial in sorted(t for t in paged if t in named and named[t] != paged[t][0]):
             problems.append("%s: %s's page says Batch: %s, and 6.1 names it in batch %s; make them one"
                             % (DESIGN, trial, paged[trial][0], named[trial]))
+    return problems
+
+
+def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
+    try:
+        listed = rules(root)
+    except ValueError as err:
+        problems.append("sim/grounding.py: %s" % err)
+        return
+    rows, asked = section_6(root), questions(root)
+    if rows is None:
+        problems.append("%s cannot be read, so no trial a rule names can be found in section 6" % DESIGN)
+    else:
+        problems += catalog(root)
     try:
         quoted = asks(root)
     except ValueError as err:
