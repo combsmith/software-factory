@@ -97,9 +97,17 @@ def _file(path) -> bool:
 
 def _apart(paths: set) -> bool:
     """Whether no path among `paths` is a directory above another: `docs` and `docs/readme.md` both written put a
-    file where a directory must be."""
-    return not any("/".join(parts[:i]) in paths for parts in (path.split("/") for path in paths)
-                   for i in range(1, len(parts)))
+    file where a directory must be. The paths are read in order, so a file comes before anything below it, into one
+    tree of their parts, where a file is None: the work is as long as the paths, however deep one is."""
+    files = {}
+    for path in sorted(paths):
+        node, parts = files, path.split("/")
+        for part in parts[:-1]:
+            node = node.setdefault(part, {})
+            if node is None:
+                return False
+        node[parts[-1]] = None
+    return True
 
 
 def _git(repo: str) -> str:
