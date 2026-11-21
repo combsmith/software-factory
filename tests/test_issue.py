@@ -269,6 +269,7 @@ class Lifecycle(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             (root / "kernel").mkdir()
+            (root / "kernel" / "__init__.py").write_text("")
             (root / "kernel" / "issue.py").write_text("import time\n\n\ndef derive(facts):\n    return time.time()\n")
             problems = check_purity.run(root)
         self.assertTrue(problems)
