@@ -119,20 +119,34 @@ def _members(value, found: list, unread: list) -> None:
         unread.append(value.lineno)
 
 
+def _flows(value, foreign: bool = True) -> bool:
+    """Whether `value` hands on a reason read elsewhere, with `foreign` any mapping's "reason" too: as itself, as a
+    branch of a choice or an `and` or `or`, or inside a display."""
+    if _read_on(value) or (foreign and _keyed_any(value)):
+        return True
+    if isinstance(value, ast.IfExp):
+        return _flows(value.body, foreign) or _flows(value.orelse, foreign)
+    parts = value.values if isinstance(value, ast.BoolOp) else value.elts if isinstance(
+        value, (ast.Tuple, ast.List, ast.Set)) else [value.value] if isinstance(value, ast.Starred) else []
+    return any(_flows(part, foreign) for part in parts)
+
+
 def _bound(target, value, found: list, unread: list, read: set) -> None:
-    """A binding of `target` to `value`: a reason given to a reason's slot, pair by pair for tuples. Each name
-    `reason` bound here goes into `read`."""
+    """A binding of `target` to `value`, pair by pair for tuples: a reason given to a reason's slot, and a reason read
+    elsewhere bound to any other name, which cannot be read. Each reason's slot bound here goes into `read`."""
     if isinstance(target, (ast.Tuple, ast.List)):
         starred = any(isinstance(e, ast.Starred) for e in target.elts + getattr(value, "elts", []))
         if isinstance(value, (ast.Tuple, ast.List)) and len(value.elts) == len(target.elts) and not starred:
             for part, given in zip(target.elts, value.elts):
                 _bound(part, given, found, unread, read)
-        elif any(_reason_slot(n) for n in ast.walk(target)):
+        elif any(_reason_slot(n) for n in ast.walk(target)) or _flows(value):
             unread.append(target.lineno)
             read |= {id(n) for n in ast.walk(target)}
     elif _reason_slot(target):
         _give(value, found, unread)
         read.add(id(target))
+    elif _flows(value):
+        unread.append(target.lineno)
 
 
 def written(tree, taken: dict) -> tuple:
@@ -176,6 +190,11 @@ def written(tree, taken: dict) -> tuple:
                 if isinstance(key, ast.Constant) and key.value == "reason":
                     _give(value, found, unread)
         if isinstance(node, ast.Call):
+            # A reason handed on goes only to a parameter named `reason`: any other is followed nowhere. A foreign
+            # mapping's "reason", such as a reviewing Result's in kernel/coverage.py, is no Decision's.
+            slot = taken.get(_name(node.func))
+            unread += [node.lineno for i, a in enumerate(node.args) if _flows(a, False) and i != slot]
+            unread += [node.lineno for kw in node.keywords if kw.arg != "reason" and _flows(kw.value, False)]
             named = [kw for kw in node.keywords if kw.arg == "reason"]
             for kw in named:
                 _give(kw.value, found, unread)
@@ -204,8 +223,6 @@ def written(tree, taken: dict) -> tuple:
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 _bound(target, node.value, found, unread, bound)
-                if (_read_on(node.value) or _keyed_any(node.value)) and not _reason_slot(target):
-                    unread.append(node.lineno)
                 if id(target) in tops and _name(target) in TABLES:
                     _members(node.value, found, unread)
         if isinstance(node, (ast.AnnAssign, ast.AugAssign)) and node.value is not None:
@@ -214,8 +231,12 @@ def written(tree, taken: dict) -> tuple:
                 bound.add(id(node.target))
             else:
                 _bound(node.target, node.value, found, unread, bound)
-                if (_read_on(node.value) or _keyed_any(node.value)) and not _reason_slot(node.target):
-                    unread.append(node.lineno)
+        if isinstance(node, ast.NamedExpr):
+            _bound(node.target, node.value, found, unread, bound)
+        if isinstance(node, ast.Subscript) and _flows(node.slice):
+            unread.append(node.lineno)
+        if isinstance(node, ast.ImportFrom) and any(a.name in taken and a.asname for a in node.names):
+            unread.append(node.lineno)
         if isinstance(node, ast.Compare):
             sides = [node.left] + node.comparators
             unread += [node.lineno for side in sides if _keyed_any(side) and not _keyed(side)]
@@ -264,6 +285,7 @@ class Written(unittest.TestCase):
         # `reading` takes the handed table where the scan reads it, and each table is bound once in a module, somewhere.
         reading = [fn for fn in ast.walk(trees["derive.py"]) if isinstance(fn, ast.FunctionDef) and fn.name == HANDED[0]]
         self.assertEqual([[a.arg for a in fn.args.args].index(HANDED[1]) for fn in reading], [HANDED_AT])
+        self.assertEqual([fn.args.defaults for fn in reading], [[]])
         bound = [(name, t.id) for name, tree in trees.items() for node in tree.body if isinstance(node, ast.Assign)
                  for t in node.targets if isinstance(t, ast.Name) and t.id in TABLES]
         self.assertEqual(len(bound), len(set(bound)))
@@ -331,13 +353,22 @@ class Written(unittest.TestCase):
             ('_decision(f, s, **a)', [], [1]),
             ('for reason in ("x",):\n    pass', [], [1]),
             ('[_decision(f, s, reason, e, o) for reason in ("x",)]', [], [1]),
-            ('(reason := "x")', [], [1]),
+            ('(reason := "x")', ["x"], []),
+            ('def _is_wait(why):\n    return why in ("a",)\n_is_wait(d["reason"])', [], [3]),
+            ('state, why = d["state"], d["reason"]', [], [1]),
+            ('why: str = reason if c else d["reason"]', [], [1]),
+            ('(why := d["reason"])', [], [1]),
+            ('ACTIONS.get(reason)', [], [1]),
+            ('ACTIONS[d["reason"]]', [], [1]),
+            ('from kernel.decide import _decision as make', [], [1]),
+            ('f = lambda reason: reason', [], [1]),
+            ('_decision(f, s, reason, e, o)\nout(s, d["reason"], [])', [], []),
             ('d.setdefault("reason", "x")', ["x"], []),
             ('d.setdefault("reason")', [], [1]),
             ('def get(x):\n    return get(x) == 1', [], []),
             ('QUEUE_WAITS = ()\nQUEUE_WAITS = ("x",)', ["x"], []),
             ('out(s, other.bare["reason"], [])', [], [1]),
-            ('reading(f, r, c, (d["reason"],))', [], [1]),
+            ('reading(f, r, c, (d["reason"],))', [], [1, 1]),
             ('reading(*a, c, ("x",))', [], [1]),
             ('why = reason', [], [1]),
             ('why: str = d["reason"]', [], [1]),
