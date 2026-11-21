@@ -7,18 +7,19 @@ file's is one `adapters/github.py` would send. An answer is `{status, headers, b
 `Live` sends HTTPS to the one host its caller names, which is the configuration's, held to the forms Azure serves a
 model's API under, on its own port. It sends the paths of two APIs alone: Responses, to create a response, read it and
 cancel it, and Chat Completions, to create one. It takes its key from its caller and never from the environment, and
-sends it under Azure's own header to that host and no other: it follows no redirect and uses no proxy. Each wait on
+sends it under Azure's own header to that host and no other: it follows no redirect, refused before its Location is
+read, and uses no proxy. Each wait on
 the connection has its caller's limit in seconds, which bounds neither the finding of the host's address nor an answer
 that comes slowly: the whole is bounded by the limit of the step that calls. Every answer is bounded in size and
-refused past the bound or of other than the length it said, counted as read, never cut short.
-An answer is read only when it is framed as
+refused past the bound or of other than the length it said, counted as read, never cut short; no read of the
+connection under it takes more than the bound and a frame's allowance. An answer is read only when it is framed as
 Azure frames each of its own, chunked alone or with one length of at most ten digits, no larger than the bound. One that
-is not UTF-8 is text and never read as JSON, and so is one that holds a whole number of more digits than any count, NaN
-or an infinity. Of an answer's headers it keeps the two a caller reads, each by its last value and only when that is
-short, printable ASCII. It verifies the host's certificate by a context of
+is not UTF-8 is text and never read as JSON, and so is one that holds a whole number of more digits than any count, NaN,
+an infinity or a number too large for a float. Of an answer's headers it keeps the two a caller reads, each by its last
+value and only when that is short, printable ASCII. It verifies the host's certificate by a context of
 its own, so a default changed elsewhere in the process cannot turn that off. No refusal names the host, the address or
-the key, and none is chained to an error of urllib's, which holds the address asked. Nothing is installed: the
-standard library does the rest.
+the key, and each is raised from nothing, chained to no error of urllib's, which holds the address asked. Nothing is
+installed: the standard library does the rest.
 """
 from __future__ import annotations
 
@@ -44,6 +45,7 @@ REDIRECTS = {301, 302, 303, 307, 308}
 KEPT = ("content-type", "retry-after")      # the headers of an answer a caller reads; no other is kept
 HEADER = 100                    # characters a kept header may hold: one longer, or not printable ASCII, is not kept
 LENGTH = re.compile(r"[0-9]{1,10}")     # the one length an answer may say: digits alone, no sign, space or other numeral
+FRAMING = 64 * 1024             # bytes past the bound a connection may give an answer for its chunks' frame
 DIGITS = 64                     # a whole number of this many digits no count needs: Python 3.9 reads one of any length
 
 
@@ -52,10 +54,17 @@ class Unanswered(Exception):
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
+    # urllib parses the Location of a redirect before it asks `redirect_request`, so that one malformed raises another
+    # error and leaves the answer open: each redirect is refused here, its answer closed and no header of it read.
+    def http_error_302(self, req, fp, code, msg, headers):
         if fp is not None:
             fp.close()
         raise Unanswered("Azure answered %d, a redirect; the transport follows none" % code)
+
+    http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return self.http_error_302(req, fp, code, msg, headers)
 
 
 def request(act: str, ident, body) -> dict:
@@ -119,6 +128,50 @@ def _framed(headers):
     if lengths and int(lengths[0]) > LARGEST:
         raise Unanswered("an answer that says a length over %d bytes; it is refused, not read" % LARGEST)
     return int(lengths[0]) if lengths else None
+
+
+class _Capped:
+    """The connection under an answer, of which no read takes more than the bound and a frame's allowance."""
+
+    __slots__ = ("_fp", "_left")
+
+    def __init__(self, fp):
+        self._fp, self._left = fp, LARGEST + FRAMING
+
+    def _most(self, asked) -> int:
+        most = self._left if asked is None or asked < 0 else min(asked, self._left)
+        if most == 0 and asked != 0:
+            raise Unanswered("an answer over %d bytes with its frame; it is refused, not cut short" % (LARGEST + FRAMING))
+        return most
+
+    def _took(self, got):
+        self._left -= len(got)
+        return got
+
+    def read(self, size=-1):
+        return self._took(self._fp.read(self._most(size)))
+
+    def readline(self, size=-1):
+        return self._took(self._fp.readline(self._most(size)))
+
+    def readinto(self, b):
+        view = memoryview(b).cast("B")
+        got = self._fp.readinto(view[:self._most(len(view))]) or 0
+        self._left -= got
+        return got
+
+    def flush(self):
+        self._fp.flush()
+
+    def close(self):
+        self._fp.close()
+
+
+def _capped(got):
+    held = got if isinstance(got, http.client.HTTPResponse) else getattr(got, "fp", None)
+    if isinstance(held, http.client.HTTPResponse) and held.fp is not None:
+        held.fp = _Capped(held.fp)
+    return got
 
 
 def _whole(digits: str) -> int:
@@ -205,7 +258,6 @@ class Live:
     def send(self, req: dict) -> dict:
         verb, path, body = wire(req)
         headers = {"api-key": self._key, "Accept": "application/json", "User-Agent": "software-factory"}
-        # A refusal is raised only once every handler has ended, so that it is chained to no error of urllib's.
         try:
             data = None
             if body is not None:
@@ -214,16 +266,18 @@ class Live:
             try:
                 with self.opener.open(sent, timeout=self._seconds) as got:
                     said = _framed(got.headers)
-                    return _answer(got.status, got.headers, _bounded(got, said))
+                    return _answer(got.status, got.headers, _bounded(_capped(got), said))
             except urllib.error.HTTPError as err:
                 with err:
                     if err.code in REDIRECTS:
                         raise Unanswered("Azure answered %d, a redirect; the transport follows none" % err.code)
                     said = _framed(err.headers)
-                    return _answer(err.code, err.headers, _bounded(err, said))
+                    return _answer(err.code, err.headers, _bounded(_capped(err), said))
         except Unanswered as err:
             refused = str(err)
         except (urllib.error.URLError, OSError, ValueError, TypeError, RecursionError,
                 http.client.HTTPException) as err:
             refused = "Azure could not be reached, or its answer was cut short: %s" % type(err).__name__
-        raise Unanswered(refused)
+        # Raised once every handler has ended, and from nothing, so that no error that holds the key or the address
+        # rides along as its context or its cause.
+        raise Unanswered(refused) from None
