@@ -640,17 +640,26 @@ def _expected(found: dict, place: pathlib.Path):
         except Stop:
             return None
         said = case.get("expected") if isinstance(case, dict) else None
-        kind = said.get("verdict") if isinstance(said, dict) else None
-        if not isinstance(kind, str) or kind not in KINDS:
+        kind = kind_of(said.get("verdict")) if isinstance(said, dict) else None
+        if kind is None:
             return None
         expected[entry["id"]] = said
     return expected
 
 
+def kind_of(verdict):
+    """The kind a case counts under, by the verdict it expects, or None where that is none a case may give. A criterion
+    set aside for a Finding that stands, `not_applicable`, is a fault the review must keep held: the recall side, so it
+    counts as `finding` (decision 0228). It expects no Finding, so no floor and no blocking rule reads it."""
+    if not isinstance(verdict, str):
+        return None
+    return verdict if verdict in KINDS else "finding" if verdict == eval_result.ASIDE else None
+
+
 def kinds_of(found: dict, place: pathlib.Path):
     """`{id: kind}` of the set's cases, or None where `_expected` can say nothing."""
     expected = _expected(found, place)
-    return None if expected is None else {case: said["verdict"] for case, said in expected.items()}
+    return None if expected is None else {case: kind_of(said["verdict"]) for case, said in expected.items()}
 
 
 def criteria_of(found: dict, place: pathlib.Path):
@@ -673,7 +682,9 @@ def floor_short(found: dict, place: pathlib.Path) -> bool:
     floored, expected = criteria_of(found, place), _expected(found, place)
     if not floored:
         return False
-    rest = len([s for s in expected.values() if s["verdict"] == "finding"]) - sum(len(c) for c in floored.values())
+    # The rest is of the kind as the report counts it, a case set aside for a standing Finding among them (decision
+    # 0228): the count published is the kind's, so a few of those beside the floors would tell their verdicts too.
+    rest = len([s for s in expected.values() if kind_of(s["verdict"]) == "finding"]) - sum(len(c) for c in floored.values())
     return any(len(cases) < FLOOR_LEAST for cases in floored.values()) or 0 < rest < FLOOR_LEAST
 
 
@@ -692,7 +703,7 @@ def cells_of(found: dict, place: pathlib.Path):
     floors, natural, cells = criterion_bars_of(found), {e["id"] for e in found["cases"] if e.get("natural") is True}, {}
     for case, said in expected.items():
         floored = next((name for name in floors if said["verdict"] == "finding" and said.get("criterion") == name), None)
-        cell = (said["verdict"], floored, case in natural)
+        cell = (kind_of(said["verdict"]), floored, case in natural)
         cells[cell] = cells.get(cell, 0) + 1
     width, listed = len(str(found["count"])), []
     for kind, floored in [("finding", None)] + [("finding", name) for name in sorted(floors)] + [("met", None)]:
