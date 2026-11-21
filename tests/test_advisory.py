@@ -54,17 +54,24 @@ class Capture:
 
 
 class Real:
-    """An opener that answers by http.client's own reader over raw bytes, which stay readable once it closes them."""
+    """An opener that answers by the transport's own response over raw bytes, which stay readable once it closes them;
+    or a connection's socket that keeps what is sent it and answers the same."""
 
-    def __init__(self, raw: bytes):
-        self.wire = io.BytesIO(raw)
+    def __init__(self, raw: bytes, response=azure._Response):
+        self.wire, self.response, self.sent = io.BytesIO(raw), response, []
         self.wire.close = lambda: None
 
     def makefile(self, mode):
         return self.wire
 
+    def sendall(self, data):
+        self.sent.append(bytes(data))
+
+    def close(self):
+        pass
+
     def open(self, fullurl, data=None, timeout=None):
-        got = azure.http.client.HTTPResponse(self)
+        got = self.response(self)
         got.begin()
         if got.status >= 400:
             raise azure.urllib.error.HTTPError(fullurl.full_url, got.status, "x", got.headers, got)
@@ -85,7 +92,18 @@ def live(opener=None, host: str = HOST, key: str = KEY, seconds: int = 30) -> az
     return transport
 
 
+def wired(real: Real):
+    """The transport's own opener, handler, connection and response, over a socket that reaches nothing."""
+    return mock.patch.object(azure._Connection, "connect", lambda connection: setattr(connection, "sock", real))
+
+
 class Transport(unittest.TestCase):
+    def setUp(self):
+        # A connection a test does not answer raises before it connects, so no test reaches the network.
+        held = mock.patch.object(azure.http.client.HTTPSConnection, "connect", side_effect=AssertionError("network"))
+        held.start()
+        self.addCleanup(held.stop)
+
     def test_the_azure_transport_asks_four_requests_and_no_other(self):
         # The four requests of the two APIs, and no other. A caller names an act, never a method or a path: the
         # transport alone writes those.
@@ -268,7 +286,7 @@ class Transport(unittest.TestCase):
                 self.assertTrue(answers.fp.closed, (code, location))
                 self.assertTrue(refused.exception.__suppress_context__ and refused.exception.__cause__ is None)
             # And through the opener the transport builds, whose handlers are urllib's own: one open, never a second.
-            transport, answers = azure.Live(HOST, KEY, 30), Redirected(code, b"https://example.com/")
+            transport, answers = azure.Live(HOST, KEY, 30), Redirected(code, b"http://[::1")
             transport.opener.add_handler(answers)
             with self.assertRaisesRegex(azure.Unanswered, "redirect", msg=code):
                 transport.send(azure.create(ASKED))
@@ -296,6 +314,16 @@ class Transport(unittest.TestCase):
                 live(opener, key=secret).send(req)
             self.assertTrue(refused.exception.__context__ is None or refused.exception.__suppress_context__, req)
             self.assertIsNone(refused.exception.__cause__, req)
+        # A request is written inside the path that refuses, and no refusal holds as its context an error its caller was
+        # handling when it called, which may hold the key too.
+        try:
+            raise KeyError(secret)
+        except KeyError:
+            for opener, req in ((Refuses(), {"act": "read", "id": "../x", "body": None}), (Down(), azure.create(ASKED)),
+                                (Capture(), azure.create({"a": {1}}))):
+                with self.assertRaises(azure.Unanswered, msg=req) as refused:
+                    live(opener, key=secret).send(req)
+                self.assertIsNone(refused.exception.__context__, req)
         # It verifies the host's certificate by a context of its own, so a default context replaced elsewhere in the
         # process, as one that verifies nothing, does not turn that off.
         with mock.patch.object(azure.ssl, "_create_default_https_context", azure.ssl._create_unverified_context):
@@ -390,8 +418,53 @@ class Transport(unittest.TestCase):
                      b"-1\r\n{}\r\n0\r\n\r\n", b"2\r\n{}\r\n0\r\n", b"2\r\n{}\r\n0\r\nx: y", b"2\r\n{}\r\n0"):
             with self.assertRaises(azure.Unanswered, msg=body):
                 live(Real(head + body)).send(azure.read(ID))
-        for body in (b"2;e=1\r\n{}\r\n0\r\n\r\n", b"02\r\n{}\r\n0\r\n\r\n", b"1\r\n{\r\n1\r\n}\r\n0\r\nx: y\r\n\r\n"):
+        for body in (b"2;e=1\r\n{}\r\n0\r\n\r\n", b"02\r\n{}\r\n0\r\n\r\n", b"1\r\n{\r\n1\r\n}\r\n0\r\nx: y\r\n\r\n",
+                     b"00000002;e;f=g\r\n{}\r\n0;e\r\n\r\n"):
             self.assertEqual(live(Real(head + body)).send(azure.read(ID))["body"], {}, body)
+        # Each chunk's data ends in CRLF, which http.client tosses unread; an extension is a name, or a name and a value,
+        # of tokens; a trailer's line is a field; and a size is of eight hex digits at most, as "0_2" is not.
+        for body in (b"2\r\n{}XX0\r\n\r\n", b"2\r\n{}\r0\r\n\r\n", b"2;=v\r\n{}\r\n0\r\n\r\n", b"2; e\r\n{}\r\n0\r\n\r\n",
+                     b"2\r\n{}\r\n0\r\nno colon\r\n\r\n", b"000000002\r\n{}\r\n0\r\n\r\n", b"0_2\r\n{}\r\n0\r\n\r\n"):
+            with self.assertRaises(azure.Unanswered, msg=body):
+                live(Real(head + body)).send(azure.read(ID))
+        # The cap holds from the first byte, so that an extension's bytes count, and interim answers too, which
+        # http.client passes over for as long as they come, here through the transport's own connection.
+        interim = b"HTTP/1.1 100 Continue\r\nx: " + b"y" * 60000 + b"\r\n\r\n"
+        for raw in (head + (b"1;" + b"e" * 60000 + b"\r\nx\r\n") * 200, interim * (cap // len(interim) + 2) + head):
+            real = Real(raw + b"2\r\n{}\r\n0\r\n\r\n")
+            with wired(real), self.assertRaises(azure.Unanswered):
+                azure.Live(HOST, KEY, 30).send(azure.read(ID))
+            self.assertLessEqual(real.wire.tell(), cap)
+        real = Real(interim + head + b"2\r\n{}\r\n0\r\n\r\n")
+        with wired(real):
+            self.assertEqual(azure.Live(HOST, KEY, 30).send(azure.read(ID))["body"], {})
+        self.assertTrue(real.sent[0].startswith(b"GET /openai/v1/responses/%s HTTP/1.1\r\n" % ID.encode()))
+        # An answer that reaches the cap exactly is read; one byte more is refused.
+        at = b"400000\r\n\"" + b"a" * (azure.LARGEST - 2) + b"\"\r\n0\r\n"
+        pad = cap - len(head) - len(at) - len(b"x: \r\n" * 2 + b"\r\n")
+        for more, read in ((b"", azure.LARGEST - 2), (b"a", None)):
+            body = at + b"x: " + b"a" * (pad // 2) + b"\r\nx: " + b"a" * (pad - pad // 2) + more + b"\r\n\r\n"
+            if read is None:
+                with self.assertRaises(azure.Unanswered):
+                    live(Real(head + body)).send(azure.read(ID))
+            else:
+                self.assertEqual((len(head + body), len(live(Real(head + body)).send(azure.read(ID))["body"])), (cap, read))
+        # An answer of http.client's own response, not capped from its first byte, is refused; one of a stand-in is
+        # capped as a whole. Headers cut short before the line that closes them, which http.client takes as whole, are
+        # refused.
+        for status in (b"200 OK", b"500 x"):
+            raw = b"HTTP/1.1 %s\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}" % status
+            with self.assertRaisesRegex(azure.Unanswered, "own response"):
+                live(Real(raw, azure.http.client.HTTPResponse)).send(azure.read(ID))
+            with self.assertRaisesRegex(azure.Unanswered, "closes them"):
+                live(Real(raw[:-4])).send(azure.read(ID))
+
+        class Chunked(Answer):
+            headers = dict(Answer.headers, **{"Transfer-Encoding": "chunked"})
+        opener = Capture(b"x" * (azure.LARGEST + 1), Chunked)
+        with self.assertRaises(azure.Unanswered):
+            live(opener).send(azure.read(ID))
+        self.assertEqual(opener.answers[0].asked, [azure.CHUNK] * 4 + [azure.FRAMING])
 
     def test_the_azure_transport_bounds_every_answer_in_size_and_time(self):
         # The seconds are its caller's, a whole number from one to the longest a step may wait on one request.
@@ -411,7 +484,7 @@ class Transport(unittest.TestCase):
             headers = dict(Answer.headers, **{"Transfer-Encoding": "chunked"})
         # One that says a length over the bound is not read; one chunked is read a chunk at a time, never the whole of
         # what is sent, read to be refused.
-        for answer, asked in ((Answer, set()), (Chunked, {azure.CHUNK})):
+        for answer, asked in ((Answer, set()), (Chunked, {azure.CHUNK, azure.FRAMING})):
             opener = Capture(at + b" ", answer)
             with self.assertRaises(azure.Unanswered):
                 live(opener).send(azure.read(ID))
@@ -485,12 +558,24 @@ class Transport(unittest.TestCase):
         deep = {}
         for _ in range(100000):
             deep = {"a": deep}
-        for at, body in enumerate(({"a": {1}}, {"a": float("nan")}, deep, {1: "a", "1": "b"}, {"a": [{"b": {None: 1}}]},
-                                   {"a": ({2: 1},)})):
+        class Keys(dict):       # a kind of dict whose keys say otherwise than its items
+            def __iter__(self):
+                return iter(["1"])
+
+        class Items(list):
+            pass
+        shared, looped = {"b": 1}, []
+        looped.append(looped)
+        for at, body in enumerate(({"a": {1}}, {"a": float("nan")}, deep, {"1": "b", 1: "a"}, {"a": [{"b": {None: 1}}]},
+                                   {"a": ({2: 1},)}, {"a": Keys({1: "a", "1": "b"})}, {"a": Items()}, {"a": [shared, shared]},
+                                   {"a": looped})):
             opener = Capture()
             with self.assertRaises(azure.Unanswered, msg=at):
                 live(opener).send(azure.create(body))
             self.assertEqual(opener.sent, [])
+        opener = Capture()
+        live(opener).send(azure.create({"a": [{"b": 1}, {"b": 1}], "c": [shared, (shared["b"],)]}))
+        self.assertEqual(azure.json.loads(opener.sent[0][0].data), {"a": [{"b": 1}, {"b": 1}], "c": [{"b": 1}, [1]]})
         self.assertEqual(len(live(Capture(b"[" * 200000)).send(azure.read(ID))["body"]), 200000)
         self.assertIsNone(live(Capture(b"")).send(azure.read(ID))["body"])
         # A whole number of more digits than any count is text, never read: Python 3.9 reads one of any length, and
@@ -514,7 +599,7 @@ class Transport(unittest.TestCase):
         self.assertEqual(live(Capture(b"{}", Shouted)).send(azure.read(ID))["body"], {})
         # JSON's own type, or one of its structured suffix, is read as JSON; a type that only ends so is text.
         for kind, read in (("application/problem+json; charset=utf-8", {}), ("text/notjson", "{}"),
-                           ("application/jsonx", "{}"), ("+json", "{}")):
+                           ("application/jsonx", "{}"), ("+json", "{}"), ("problem+json", "{}")):
             Shouted.headers = {"Content-Type": kind}
             self.assertEqual(live(Capture(b"{}", Shouted)).send(azure.read(ID))["body"], read, kind)
         self.assertEqual(live(Capture(b"{not json")).send(azure.read(ID))["body"], "{not json")
