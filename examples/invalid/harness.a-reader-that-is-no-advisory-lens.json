@@ -40,6 +40,7 @@
       "output_tokens": 32000,
       "prompt_characters": 600000,
       "seconds": 900,
+      "share": 540,
       "usd_per_million": {
         "input": 2.5,
         "output": 20
