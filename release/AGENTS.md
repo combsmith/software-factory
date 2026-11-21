@@ -2,7 +2,7 @@
 
 How the Factory ships itself. `rings.json` names the two Channels, what each serves, and the evidence a Release needs from `next` before it reaches `stable`. `cut.py` holds the rules that cut a Release and move or roll back a Channel, pure: it is given the
 refs and the facts, and returns the writes or one code. `current.py` names a commit's one Release. `move.py` prints a step's plan from what was read, and runs the step: it sends each write, reads it back and records the Deployment. The tags themselves are
-read by `adapters/tags.py`; `fixtures/` keeps what GitHub answered a Release's reads and steps. How to cut, and who may, is the skill `.claude/skills/cut-a-release/SKILL.md`.
+read by `adapters/tags.py`; `fixtures/` keeps what GitHub answered a Release's reads and steps. How to cut, and who may, is the skill `.claude/skills/cut-a-release/SKILL.md`. `notes.py` writes a cut's notes.
 Not built yet, by the stories that hold their rules: promote.py, cutover.py.
 
 | Rule | Held by |
