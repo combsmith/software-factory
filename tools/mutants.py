@@ -15312,8 +15312,8 @@ MUTANTS = ISSUE + [
     # Issues 963 and 965, the reader audits of #918 and #912: each issue's read dated by its own answer, the issues'
     # configuration left as written and its Apps named plain, and every account held to the names an App's id holds.
     ("each issue's facts read is dated by the first issue's answer", 'controller/__main__.py',
-     '    issues, tally = [], {}\n    for number in listed:\n        began, through = stages.now(), Dated(transport)\n',
-     '    issues, tally = [], {}\n    through = Dated(transport)\n    for number in listed:\n        began = stages.now()\n', S3_ENTRY),
+     '    for number in listed:\n        began, through = stages.now(), Dated(transport)\n',
+     '    through = Dated(transport)\n    for number in listed:\n        began = stages.now()\n', S3_ENTRY),
     ("the issues' Kernel configuration rewrites the caller's", 'controller/pass_.py',
      'issues = copy.deepcopy(kernel.get("issues"))',
      'issues = kernel.get("issues")', S3_REPLAY),
@@ -15483,7 +15483,7 @@ MUTANTS = ISSUE + [
     ("the issues port hands the linked read no configuration", 'adapters/issues.py',
      'identities, accounts, earlier, kernel)', 'identities, accounts, earlier, None)', ("tests.test_adapters.DraftChecks.test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read",)),
     ("the entry hands the issues port no Kernel configuration", 'controller/__main__.py',
-     'earlier=before, kernel=config["kernel"])', 'earlier=before, kernel=None)', ("tests.test_controller.Entry.test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is",)),
+     'earlier=before, kernel=config["kernel"],', 'earlier=before, kernel=None,', ("tests.test_controller.Entry.test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is",)),
     ('the tracking issue is listed as an open issue', 'adapters/items.py',
      'return [number for number in numbers if number not in apart], whole',
      'return numbers, whole', S3_LIST + S3_LINKED),
