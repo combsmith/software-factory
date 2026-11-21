@@ -298,7 +298,7 @@ class Reverts(unittest.TestCase):
         # The lists of a file of tools/mutants_of/ are data as tools/mutants.py's are, and no other file's (issue 1101).
         # Of a file there, MUTANTS alone: an ISSUE there is a table some code may read, and is read as code.
         for rel, names in (("tools/mutants.py", ("ISSUE", "MUTANTS")), ("tools/mutants_of/adapters_pull.py", ("MUTANTS",)),
-                           ("tools/mutants_of/common.py", ("MUTANTS",)), ("tools/mutants_of.py", ()),
+                           ("tools/mutants_of/common.py", ()), ("tools/mutants_of/__init__.py", ()), ("tools/mutants_of.py", ()),
                            ("tools/untested.py", ()), ("pkg/tools/mutants_of/x.py", ())):
             self.assertEqual(untested.holds_data(rel), names, rel)
         self.assertEqual(untested.data_lines("ISSUE = [\n    1,\n]\nMUTANTS = [\n    2,\n]\n", ("MUTANTS",)), {5})

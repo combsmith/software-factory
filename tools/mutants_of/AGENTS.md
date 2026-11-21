@@ -1,7 +1,8 @@
 # tools/mutants_of/
 
 The mutants of every file outside kernel/, one file to a target. `tools/mutants.py` holds the Kernel's mutants and runs them all, these after its ISSUE list.
-Until the move that brings them here, a file whose mutants are still in `tools/mutants.py` takes a new one beside them there.
+Until the move that brings them here, a file whose mutants are still in `tools/mutants.py` takes a new one beside them there;
+a file with none yet gets a file of its own here.
 A file here is named for its target by `named` in `__init__.py`: the path in lower case, a .py dropped, other extensions kept,
 and each run of characters but letters and digits an underscore. The mutants of `adapters/pull.py` are in adapters_pull.py.
 It holds `TARGETS`, the paths its mutants break, and `MUTANTS`. One entry of a list may make mutants of several paths, as a loop over scripts does:

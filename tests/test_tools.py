@@ -11974,15 +11974,19 @@ class Writes(unittest.TestCase):
                  "tools/mutants_of/ring.py": "from tools.mutants_of.round import X\n\n" + entry,
                  "tools/mutants_of/round.py": "from tools.mutants_of.ring import MUTANTS\n\nX = 1\n",
                  "tools/mutants_of/package.py": "from tools.mutants_of import common\n\n" + entry,
-                 "tools/mutants_of/later.py": entry + "\n\ndef go():\n    import os\n    return os.system('git push')\n",
+                 "tools/mutants_of/later.py": entry + "\n\ndef go():\n    import os\n",
                  "tools/mutants_of/runner.py": "def version(run):\n    return run(['git', 'push'])\n",
+                 "tools/mutants_of/lambda.py": "version = lambda run: run(['git', 'push'])\n",
+                 "tools/mutants_of/dunder.py": "RUN = ().__class__\n" + entry,
+                 "tools/mutants_of/builtin.py": "RUN = __import__\n" + entry,
+                 "tools/mutants_of/reaches.py": "RUN = getattr\n" + entry,
                  "tools/mutants_of/near.py": "from tools.mutants_ofx import X\n\n" + entry,
                  "tools/mutants_of/relative.py": "from .tools.mutants_of.common import X\n\n" + entry,
                  "tools/mutants_ofx.py": "X = 1\n" + entry}
         problems = check_writes.run(clone(files))
         self.assertFalse(caught(problems, "tools/mutants_of/data.py"), problems)
-        for name in ("runs", "path", "handed", "further", "ring", "package", "later", "runner", "near", "relative",
-                     "../mutants_ofx"):
+        for name in ("runs", "path", "handed", "further", "ring", "package", "later", "runner", "lambda", "dunder",
+                     "builtin", "reaches", "near", "relative", "../mutants_ofx"):
             rel = os.path.normpath("tools/mutants_of/%s.py" % name)
             self.assertTrue(any(p.startswith(rel + ":") and "names gh or git as a command" in p for p in problems), rel)
 

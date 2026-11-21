@@ -9,6 +9,8 @@ files use is in common.py.
 
 import re
 
+from tools.mutants_of import tools_mutants_of_init
+
 
 def named(target: str) -> str:
     """The name of the file here that holds the mutants of `target`: the path in lower case, its .py dropped, and every
@@ -18,5 +20,5 @@ def named(target: str) -> str:
 
 
 # Every file's mutants, in the order of the files' names.
-AREAS = ()
+AREAS = (tools_mutants_of_init,)
 MUTANTS = [mutant for area in AREAS for mutant in area.MUTANTS]

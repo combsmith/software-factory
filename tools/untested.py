@@ -153,8 +153,9 @@ def shape(text: str) -> str:
 
 def holds_data(rel: str) -> tuple:
     """The names of the lists that are data in `rel`: DATA's in tools/mutants.py, DATA_FOLDER's in a file of
-    tools/mutants_of/, and none in any other file."""
-    return DATA[1] if rel == DATA[0] else DATA_FOLDER[1] if rel.startswith(DATA_FOLDER[0]) else ()
+    tools/mutants_of/ that holds a target's mutants, and none in any other file, its common.py and __init__.py too."""
+    plain = rel.rpartition("/")[2] not in ("common.py", "__init__.py")
+    return DATA[1] if rel == DATA[0] else DATA_FOLDER[1] if rel.startswith(DATA_FOLDER[0]) and plain else ()
 
 
 def data_lines(text: str, names: tuple = DATA[1]) -> set:

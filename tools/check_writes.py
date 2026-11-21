@@ -58,8 +58,8 @@ RUNNERS = ("harness/steps.py", "tools/check_decisions.py", "tools/check_trials.p
            "tools/hooks/rules_changed.py", "tools/hooks/shell.py", "tools/mutants.py", "tools/untested.py")
 # The mutants of the files outside kernel/, as data: each names a command as the text a mutant finds in its target, and
 # runs none, since it imports no module, and names from no file but another there that imports none either (issue 1101;
-# allowed by the Maintainer, 2026-11-21). Only its top-level assignments may name one, never a def or a class; a file
-# there that imports anything else is read as any other.
+# allowed by the Maintainer, 2026-11-21); it holds no lambda and reads none of REACHERS, nor a name of two underscores.
+# Only its top-level assignments may name one, never a def or a class; any other file there is read as any other.
 # It is read in good faith, as the rest of this check is: every other rule here still reads it.
 MUTANT_DATA = "tools/mutants_of/"
 # A command's name as a string, in any case, by a path or not, `.exe` or not: gh or git alone or opening a command line;
@@ -947,19 +947,34 @@ def _adapter(mod: Module) -> bool:
     return mod.name == "adapters" or mod.name.startswith("adapters.")
 
 
-def _inert(mod, mods: dict, seen: frozenset = frozenset()) -> bool:
-    """Whether `mod` is under MUTANT_DATA and imports, anywhere in it, no module, and names from none but another file
-    there that is inert as well, read through each in turn; an import that comes back round is not."""
+# Names and attributes a file of the mutants' data never reads: each reaches code by a name it is given, or a builtin
+# that could, so a file that reads one is no data however it imports.
+REACHERS = {"eval", "exec", "compile", "open", "getattr", "setattr", "delattr", "globals", "locals", "vars", "breakpoint",
+            "input", "memoryview", "help"}
+
+
+def _inert(mod, mods: dict, seen: frozenset = frozenset(), known: dict = None) -> bool:
+    """Whether `mod` is under MUTANT_DATA and, anywhere in it, imports no module, names from none but another file there
+    that is inert as well, read through each in turn, holds no lambda, and reads no REACHERS and no name or attribute
+    of two underscores; an import that comes back round is not. Each file is read once (`known`)."""
+    known = {} if known is None else known
+    if mod.name in known:
+        return known[mod.name]
     if not mod.rel.startswith(MUTANT_DATA) or mod.name in seen:
         return False
+    inert = True
     for node in mod.nodes:
-        if isinstance(node, ast.Import):
-            return False
-        if isinstance(node, ast.ImportFrom):
+        if isinstance(node, (ast.Import, ast.Lambda)) or (isinstance(node, ast.Name) and (
+                node.id in REACHERS or node.id.startswith("__"))) or (
+                isinstance(node, ast.Attribute) and node.attr.startswith("__")):
+            inert = False
+        elif isinstance(node, ast.ImportFrom):
             source = None if node.level else mods.get(node.module)
-            if source is None or not _inert(source, mods, seen | {mod.name}):
-                return False
-    return True
+            inert = source is not None and _inert(source, mods, seen | {mod.name}, known)
+        if not inert:
+            break
+    known[mod.name] = inert
+    return inert
 
 
 def _mutant_data(mod, mods: dict) -> set:
