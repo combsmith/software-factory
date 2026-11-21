@@ -468,9 +468,29 @@ class Record(unittest.TestCase):
             self.assertEqual(out["alerts"], [], held)
         settled = passed(reads(pulls=[pr(42), pr(43)], runs=[run()]), previous=[clean, moved])
         self.assertEqual(([d["item"]["number"] for d in decisions(settled)], settled["alerts"]), ([42, 43], []))
-        # An issue left out as moved earns no grace: the grace is a pull request's (Muse).
-        issue_moved = {"facts": {"item": dict(test_issue.ITEM, number=7)}, "title": None, "unread": "pull_moved"}
-        out = passed(reads(pulls=[pr(42)], issues=[issue_moved], runs=[run()]), previous=[clean])
+        # An issue that moved once is graced as a pull request is, and one that moved twice in a row is the alert
+        # (decision 0229, issue 839). The move is the item's own: an issue and a pull request of one number are two.
+        theirs = dict(test_issue.ITEM, number=43)
+        older_than_left_out = {k: v for k, v in clean.items() if k != "left_out"}
+        issue_moved = {"facts": {"item": dict(theirs)}, "title": None, "unread": "pull_moved"}
+        first = passed(reads(pulls=[pr(42)], issues=[issue_moved], runs=[run()]), previous=[clean])
+        self.assertEqual((first["alerts"], decisions(first), first["record"]["left_out"]),
+                         ([], decisions(alone), [{"item": theirs, "code": "pull_moved"}]))
+        self.assertEqual(shared.errors(first["record"], "pass"), [])
+        again = dict(first["record"], now="2026-10-11T12:55:00Z")
+        second = passed(reads(pulls=[pr(42)], issues=[issue_moved], runs=[run()]), previous=[clean, again])
+        self.assertEqual(second["alerts"], ["facts_unreadable"])
+        for last, entries in ((moved, {"issues": [issue_moved]}), (again, {"pulls": [pr(42), left()]})):
+            out = passed(reads(**dict({"pulls": [pr(42)], "runs": [run()]}, **entries)), previous=[clean, last])
+            self.assertEqual(out["alerts"], [], entries)
+        both = passed(reads(pulls=[pr(42), left()], issues=[issue_moved], runs=[run()]), previous=[clean, again])
+        self.assertEqual(both["alerts"], ["facts_unreadable"])
+        # So is an issue's move after a last record that cannot say it is a first.
+        for previous in (None, (), [older_than_left_out], [dict(clean, now="2026-10-11T12:50:00")]):
+            out = passed(reads(pulls=[pr(42)], issues=[issue_moved], runs=[run()]), previous=previous)
+            self.assertEqual(out["alerts"], ["facts_unreadable"], previous)
+        # Any other code on an issue is the alert at once, as on a pull request.
+        out = passed(reads(pulls=[pr(42)], issues=[dict(issue_moved, unread="facts_unanswered")], runs=[run()]), previous=[clean])
         self.assertEqual(out["alerts"], ["facts_unreadable"])
         # Any other read left out is the alert at once: one GitHub did not answer, or facts that are not facts.
         for entry in (left("facts_unanswered"), {"facts": {"item": dict(item)}, "title": None}, left("anything")):
@@ -2143,6 +2163,50 @@ class Entry(unittest.TestCase):
         (decided,) = files["pass.json"]["issues"]
         d = decided["decision"]
         self.assertEqual((code, d["outcome"], d["reason"], d["evidence"]), (0, "defer", "facts_incomplete", ["linked"]))
+
+    def test_nothing_is_owed_for_an_issue_that_moved(self):  # issue 839, decision 0229
+        # A pull request that moved once has its writes owed to the next pass. An issue that moved is graced too, and
+        # owes nothing: the entry reads no writes by an issue's facts. So a moved issue of a served pull request's
+        # number leaves that pull request's writes read, and nothing owed.
+        real, spied = entry.configuration, []
+
+        def served(root, release):
+            found = real(root, release)
+            found["kernel"]["issues"]["served_from"] = "2026-10-01T00:00:00Z"
+            return found
+
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
+            return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
+
+        def moved(transport, repo, number, accounts, clock, *, identities, earlier, kernel):
+            raise entry.facts_.Moved("moved")
+
+        def read(transport, item, kept, identities, apps, since):
+            spied.append(item)
+            return ([], [], True)
+        before = json.loads((ROOT / "examples" / "pass.json").read_text())
+        before["now"] = "2026-10-12T11:00:00Z"
+        before["pull_requests"] = [dict(before["pull_requests"][0], facts=dict(before["pull_requests"][0]["facts"], item=dict(
+            before["pull_requests"][0]["facts"]["item"], number=7)))]
+        before["reconciled"] = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}
+        before["left_out"] = []
+        with unittest.mock.patch.object(entry, "configuration", served), \
+                unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after, **k: ([7], True)), \
+                unittest.mock.patch.object(entry.issues_, "read", moved), \
+                unittest.mock.patch.object(entry.passes, "records", lambda *a: [before]), \
+                unittest.mock.patch.object(entry.seen_, "read", read), \
+                unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)), \
+                unittest.mock.patch.object(entry.applied, "effects",
+                                           lambda *a, **k: {"applied": [], "read": [], "at": {}, "whole": True}), \
+                unittest.mock.patch.object(entry.passes, "written",
+                                           lambda *a, **k: {"written": [], "read": [], "at": {}, "whole": True}):
+            code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
+        record = files["pass.json"]
+        self.assertEqual((code, record["alerts"]), (0, []))
+        self.assertEqual(record["left_out"], [{"item": {"repo": self.HOME, "type": "issue", "number": 7}, "code": "pull_moved"}])
+        self.assertIn({"repo": self.HOME, "type": "pull_request", "number": 7}, spied)
+        self.assertEqual(record["reconciled"]["owed"], [])
 
     def test_what_the_entry_cannot_read_writes_nothing(self):
         for environ, want in (({"RELEASE": None}, "release_untagged"), ({"RELEASE": "v1"}, "release_untagged"),
