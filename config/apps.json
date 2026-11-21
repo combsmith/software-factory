@@ -431,6 +431,13 @@
           "needs": [
             "read:facts.queue"
           ]
+        },
+        "pull_requests": {
+          "level": "read",
+          "needs": [
+            "read:facts.state",
+            "read:facts.threads"
+          ]
         }
       }
     },

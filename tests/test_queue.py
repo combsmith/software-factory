@@ -349,8 +349,9 @@ class Step(unittest.TestCase):
         # The record is found through the job's own token, held to the item's repo and reads.
         self.assertEqual([type(t).__name__ for t in reads_through], ["Approving"])
         self.assertEqual((self.found_with[0], self.found_with[-1]), (ITEM["repo"], self.argv[2]))
-        # The queue App's token is minted with the grants its three acts take, and nothing more.
-        self.assertEqual(wanted, [("combsmith-sf-queue", ITEM["repo"], {"contents": "write"}, "k")])
+        # The queue App's token is minted with the grants its three acts and its reads of the pull request take, and
+        # nothing more (issue 711).
+        self.assertEqual(wanted, [("combsmith-sf-queue", ITEM["repo"], {"contents": "write", "metadata": "read", "pull_requests": "read"}, "k")])
         self.assertEqual(len(asked.sent), 3)
         # Paused as the job's vars give it, or with no Pause given at all: nothing is written.
         for paused in ({"FACTORY_PAUSED": "true"}, {}):
@@ -359,6 +360,36 @@ class Step(unittest.TestCase):
                 del env["FACTORY_PAUSED"]
             (done, ended), _, wanted, asked = self.written(env, answers=())
             self.assertEqual((ended["reason"], asked.sent, wanted), ("paused", [], []), paused)
+
+    def test_a_grant_short_of_any_read_the_port_makes_mints_nothing(self):  # issue 711
+        # The port reads the pull request's state, its threads and its place in the queue before it writes, and writes
+        # by one of three acts: a grant short of any of them, or with no pull_requests entry at all, as the App held
+        # before this issue, is short, and nothing is minted or written (Astra's reads).
+        environ = {"GITHUB_TOKEN": "g", "QUEUE_APP_KEY": "k", "FACTORY_PAUSED": ""}
+        text = (steps.ROOT / "config" / "apps.json").read_text()
+        real = json.loads(text)
+
+        def needs(grant, kept):
+            return lambda permissions: permissions[grant].update(needs=kept)
+        for narrow, why in ((needs("pull_requests", ["read:facts.state"]), "read_not_granted"),
+                            (needs("pull_requests", ["read:facts.threads"]), "read_not_granted"),
+                            (lambda permissions: permissions.pop("pull_requests"), "read_not_granted"),
+                            (needs("metadata", []), "read_not_granted"),
+                            (needs("contents", ["effect:enqueue_merge", "effect:dequeue_merge"]), "write_not_granted"),
+                            (needs("contents", ["effect:enqueue_merge"]), "write_not_granted")):
+            apps = copy.deepcopy(real)
+            narrow(apps["apps"]["queue"]["permissions"])
+            # The step reads config/apps.json as this one, with the queue App's grant narrowed: no other file changes.
+            class narrowed:
+                dumps = staticmethod(json.dumps)
+
+                @staticmethod
+                def loads(read, apps=apps):
+                    return copy.deepcopy(apps) if read == text else json.loads(read)
+            with unittest.mock.patch.object(queue_step, "json", narrowed):
+                (done, ended), _, wanted, asked = self.written(environ, answers=())
+            self.assertEqual((ended["outcome"], ended["reason"], wanted, asked.sent),
+                             ("environment", why, [], []), apps["apps"]["queue"]["permissions"])
 
     def test_a_record_a_decision_or_a_key_that_cannot_serve_writes_nothing(self):
         environ = {"GITHUB_TOKEN": "g", "QUEUE_APP_KEY": "k", "FACTORY_PAUSED": ""}
