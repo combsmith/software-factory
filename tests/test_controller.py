@@ -1325,6 +1325,12 @@ class Hub:
         return Sent()
 
 
+def ticking():
+    """A timer a second on at each read of it."""
+    told = iter(range(10 ** 6))
+    return lambda: next(told)
+
+
 class Entry(unittest.TestCase):
     HOME = CONTROLLER["home"]["repo"]
     RUN = "777"
@@ -1367,15 +1373,17 @@ class Entry(unittest.TestCase):
             ("DELETE", "/installation/token"): {"status": 204, "headers": {}, "body": None},
         }
 
-    def run_entry(self, hub, **environ):
+    def run_entry(self, hub, timer=None, err=None, quiet=False, **environ):
         env = {"RELEASE": "factory/v0.3.1", "GITHUB_RUN_ID": self.RUN, entry.KEY: self.key}
         env.update(environ)
         slept, printed = [], io.StringIO()
         sleep = lambda seconds: slept.append((seconds, len(hub.sent)))
+        self.said = io.StringIO() if err is None else err
         with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(printed), support.releasing(env):
             code = entry.main(["out"] if os.makedirs(os.path.join(d, "out")) is None else [], {k: v for k, v in env.items()
                                                                                               if v is not None},
-                              base=d, clock=lambda: self.CLOCK, sleep=sleep, connect=hub.connect)
+                              base=d, clock=lambda: self.CLOCK, sleep=sleep, connect=hub.connect,
+                              timer=None if quiet else timer if timer is not None else ticking(), err=self.said)
             named = ["pass.json", "writes.json"] + ["view/%s.json" % v for v in entry.VIEW]
             files = {n: json.loads(pathlib.Path(d, "out", n).read_text()) for n in named
                      if pathlib.Path(d, "out", n).is_file()}
@@ -1873,9 +1881,10 @@ class Entry(unittest.TestCase):
                     return listed_by_the_port(transport, repo, after, apart=apart)
             return open_issues
 
-        def read(transport, repo, number, accounts, clock, *, identities, earlier):
+        def read(transport, repo, number, accounts, clock, *, identities, earlier, kernel):
             spied["read"].append((repo, number, accounts))
             spied["identities"].append((identities, earlier))
+            spied.setdefault("kernel", []).append(kernel)
             if number == 6:
                 raise entry.facts_.Moved("moved")
             if number == 9:
@@ -1916,6 +1925,9 @@ class Entry(unittest.TestCase):
         self.assertTrue(all(who is spied["who"][0] for _, _, who in spied["read"]))
         # Each is read with the pull requests' class accounts, and the pass records before this pass, here none.
         self.assertEqual(spied["identities"], [(entry.facts_.accounts_of(CONTROLLER)[0], [])] * 3)
+        # And the Kernel's configuration, which says whether a draft's checks are read (decision 0217, issue 878).
+        self.assertEqual([k["author_role"] for k in spied["kernel"]], [None] * 3)
+        self.assertTrue(all("required_lenses" in k for k in spied["kernel"]))
         # The reader names each App the configuration holds by its account's id, as REST spells its Bot's login.
         catalogue = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
         self.assertEqual(spied["who"][0].apps, {(CONTROLLER["accounts"]["controller"]["id"], "Bot"):
@@ -2123,6 +2135,104 @@ class Entry(unittest.TestCase):
                                         connect=Hub(self.table()).connect), 0)
             self.assertTrue(pathlib.Path(d, entry.FOLDER, "pass.json").is_file())
             self.assertEqual(os.stat(os.path.join(d, entry.FOLDER)).st_mode & 0o777, 0o700)
+
+    def test_each_stage_of_a_pass_is_timed_in_the_log_alone_and_times_no_read_differently(self):  # issue 1025
+        # The Solution Architect's ruling: one JSON line a stage on standard error, its name, seconds and whole-number
+        # counts, and nothing in the pass record. The wait is timed apart from the reads, and the poller's list apart
+        # from its artifacts, the gone pull requests' reads from the open ones', the carry and the record's check apart.
+        def entered(**given):
+            hub = Hub(self.table(numbers=[7]))
+            with unittest.mock.patch.object(entry, "mint_id", lambda prefix: prefix + "_" + "A" * 20):
+                code, printed, files, slept = self.run_entry(hub, **given)
+            return code, printed, files, [(c, r["method"], r["path"]) for c, r in hub.sent], self.said
+        code, printed, files, sent, said = entered()
+        self.assertEqual((code, printed), (0, "passed\n"))
+        lines = [json.loads(line) for line in said.getvalue().splitlines()]
+        stages = [line["stage"] for line in lines]
+        self.assertLessEqual({"records_before", "wait", "pull_request_list", "runs", "lens_records", "open_pull_requests",
+                              "seen_open", "seen_pushes", "poller_list", "issue_list", "pause", "decide", "write"}, set(stages))
+        self.assertLess(stages.index("wait"), stages.index("pull_request_list"))
+        self.assertEqual(stages.count("decide"), 1)
+        self.assertEqual(len(stages), len(set(stages)))
+        # The wait is timed as it was, the timer read once at each end of it: a second on.
+        self.assertEqual(lines[stages.index("wait")]["seconds"], 1.0)
+        # The pass times nothing itself: its carry's rebuild and record's check are in "decide", the carry's size beside.
+        carried = ("runs", "passes", "keys", "items", "dispatched", "owed", "left")
+        decided = lines[stages.index("decide")]
+        self.assertEqual({k: decided[k] for k in carried}, {k: len(files["pass.json"]["reconciled"][k]) for k in carried})
+        for line in lines:
+            # Its name, its seconds and its counts, each a number this module made: nothing from outside.
+            self.assertTrue(set(line) <= {"stage", "seconds", "count"} | set(carried), line)
+            self.assertTrue(all(type(v) is int for k, v in line.items() if k not in ("stage", "seconds")), line)
+            self.assertEqual(type(line["seconds"]), float, line)
+        self.assertEqual(dict((l["stage"], l.get("count")) for l in lines)["pull_request_list"], 1)
+        # Not in the record: the pass record and the plan are those of a pass with no timer, read for read, in order,
+        # and that pass says nothing; one whose timer gives no number says each stage with no seconds.
+        quiet = entered(quiet=True)
+        self.assertEqual(quiet[:4], (code, printed, files, sent))
+        self.assertEqual(quiet[4].getvalue(), "")
+        for odd in (None, 10 ** 400, float("inf"), float("nan"), "1"):
+            numbered = entered(timer=lambda odd=odd: odd)
+            self.assertEqual(numbered[:4], (code, printed, files, sent), odd)
+            self.assertEqual({json.loads(line)["seconds"] for line in numbered[4].getvalue().splitlines()}, {None}, odd)
+        # A timer that fails, or a stream that does, says less and fails nothing.
+        def broken():
+            raise OSError("no clock")
+
+        class Closed:
+            def write(self, text):
+                raise OSError("closed")
+
+            def flush(self):
+                raise OSError("closed")
+        failing = entered(timer=broken)
+        self.assertEqual(failing[:4], (code, printed, files, sent))
+        self.assertEqual({json.loads(line)["seconds"] for line in failing[4].getvalue().splitlines()}, {None})
+        self.assertEqual(entered(err=Closed())[:4], (code, printed, files, sent))
+
+    def test_the_writes_seen_and_the_recorded_effects_are_timed_by_what_they_read(self):  # issue 1025
+        # Open, newly left and gone pull requests, each apart; each port's list apart from its artifacts, and each port
+        # whole, its wait included, said as it ends.
+        config = entry.configuration(ROOT, "factory/v0.3.1")
+        now = "2026-10-12T12:00:00Z"
+        before = [{"pull_requests": [{"facts": {"item": {"number": 5}}}, {"facts": {"item": {"number": 7}}}],
+                   "reconciled": {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": [],
+                                  "left": [{"number": 9, "at": now}, {"number": 11, "at": now}]}}]
+        said = io.StringIO()
+        stages = entry.Stages(ticking(), said)
+        with unittest.mock.patch.object(entry.seen_, "read", lambda *a: ([], [], True)), \
+                unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)):
+            entry.writes_seen(None, config, [7, 8], {}, before, "2026-10-11T06:00:00Z", lambda: self.CLOCK, (), stages)
+        lines = [json.loads(line) for line in said.getvalue().splitlines()]
+        # Each read is a second, by the ticking timer: two open, one newly left, two gone.
+        self.assertEqual([(l["stage"], l.get("count"), l["seconds"]) for l in lines],
+                         [("seen_open", 2, 2.0), ("seen_left", 1, 1.0), ("seen_gone", 2, 2.0), ("seen_pushes", None, 1.0)])
+
+        listed = "/repos/o/r/actions/workflows/poller.yml/runs?per_page=100"
+        artifact = "/repos/o/r/actions/runs/1/artifacts"
+
+        class Answers:
+            def send(self, req):
+                return {"status": 200, "headers": {}, "body": {}}
+
+        def effects(transport, *args, **kwargs):
+            for path in (listed, artifact, artifact):
+                transport.send({"method": "GET", "path": path})
+            return {"applied": [], "read": [], "at": {}, "whole": True}
+
+        def written(transport, *args, **kwargs):
+            for path in (listed, listed, artifact):
+                transport.send({"method": "GET", "path": path})
+            return {"written": [], "read": [], "at": {}, "whole": True}
+        said = io.StringIO()
+        with unittest.mock.patch.object(entry.applied, "effects", effects), \
+                unittest.mock.patch.object(entry.passes, "written", written):
+            entry.recorded_effects(Answers(), config, None, 777, [], "2026-10-11T06:00:00Z", lambda s: None,
+                                   entry.Stages(ticking(), said))
+        lines = [json.loads(line) for line in said.getvalue().splitlines()]
+        self.assertEqual([(l["stage"], l.get("count")) for l in lines],
+                         [("applied", None), ("applied_list", 1), ("applied_artifacts", 2),
+                          ("poller", None), ("poller_list", 2), ("poller_artifacts", 1)])
 
     def test_only_the_entry_reads_the_clock_or_the_environment(self):
         # Every other module of controller/ is a function of what it is given (the test above it); the entry takes the

@@ -173,6 +173,7 @@
       "additionalProperties": false,
       "required": [
         "max_attempts",
+        "max_implementing_rounds",
         "max_rounds",
         "max_runs_per_item",
         "max_environment_runs_per_item",
@@ -188,6 +189,11 @@
       ],
       "properties": {
         "max_attempts": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_implementing_rounds": {
+          "description": "The most implementing rounds an issue may spend since a writer acted, a round being an implementing Run that completed, whatever it concluded: a limit of their own, apart from max_attempts (issue 1038)",
           "type": "integer",
           "minimum": 1
         },
