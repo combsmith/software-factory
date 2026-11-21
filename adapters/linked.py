@@ -31,7 +31,7 @@ also asks; the list is handed on all the same, for the pass records.
 """
 from __future__ import annotations
 
-from adapters import facts, issues, keyword_spans, pull, timeline
+from adapters import draft_checks, facts, issues, keyword_spans, pull, timeline
 from adapters.github import Unanswered, request
 
 PAGE = 25            # references read at most; more is not the whole list
@@ -181,22 +181,28 @@ def _when(value):
     return None if value is None else timeline._time(value)
 
 
-def entry(transport, read: dict, identities: dict, accounts: timeline.Accounts, join: dict, spans: dict) -> tuple:
+def entry(transport, read: dict, identities: dict, accounts: timeline.Accounts, join: dict, spans: dict,
+          kernel=None) -> tuple:
     """`(the pull request as issue-facts/1 lists it, whether its timeline was whole)`, from `read`, `join` and `spans`,
-    each pull request's keyword spans as the pass records give them."""
+    each pull request's keyword spans as the pass records give them. Where the issue rule would act on it, with the
+    Kernel's configuration `kernel` naming an author Role, the Factory's open draft carries its head's `checks` too
+    (`adapters/draft_checks.py`, decision 0217)."""
     number = read["number"]
     own, _ = pull.own(read, identities)
     events, whole = timeline.events(transport, read)
     files = read.get("changed_files")
     if type(files) is not int or files < 0:
         raise Unanswered("a count of files that cannot be read")
-    return {"number": number, "class": own["class"], "opener": accounts.actor(read.get("user")),
+    made = {"number": number, "class": own["class"], "opener": accounts.actor(read.get("user")),
             "open": own["state"] == "open", "draft": own["is_draft"],
             "opened_at": timeline._time(read.get("created_at")), "merged_at": _when(read.get("merged_at")),
             "closed_at": _when(read.get("closed_at")), "empty": files == 0,
             "label_events": timeline.label_events(events, accounts), "closed_issue_at": join["closers"].get(number),
             "draft_events": drafts(events), "link_events": join["links"].get(number, []),
-            "keyword": number in join["refs"], "keyword_spans": spans.get(number, []), "close_events": closes(events, accounts)}, whole
+            "keyword": number in join["refs"], "keyword_spans": spans.get(number, []), "close_events": closes(events, accounts)}
+    if draft_checks.asked(kernel, own):
+        made["checks"] = draft_checks.read(transport, read, kernel)
+    return made, whole
 
 
 def on_default(read: dict) -> bool:
@@ -210,7 +216,7 @@ def on_default(read: dict) -> bool:
 
 
 def listing(transport, repo: str, number: int, updated_at: str, began: str, identities: dict,
-            accounts: timeline.Accounts, spans: dict) -> tuple:
+            accounts: timeline.Accounts, spans: dict, kernel=None) -> tuple:
     """`(linked, whole, named)` for issue `number`: each pull request listed, by number; whether every part was read
     whole; and whether a pull request names the issue, before any is left out, or cross-references it.
     `began` is when its present life began, `identities` the class's accounts, `accounts` who acted, and `spans` each
@@ -225,7 +231,7 @@ def listing(transport, repo: str, number: int, updated_at: str, began: str, iden
             # have been one: not whole.
             whole = whole and candidate not in present and candidate not in spans
             continue
-        made, read_whole = entry(transport, got, identities, accounts, join, spans)
+        made, read_whole = entry(transport, got, identities, accounts, join, spans, kernel)
         found.append((made, got.get("merge_commit_sha")))
         whole = whole and read_whole
     # A commit closer of the present life is a listed pull request's merge: its close, unless one of this life is earlier.
@@ -240,10 +246,10 @@ def listing(transport, repo: str, number: int, updated_at: str, began: str, iden
 
 
 def read(transport, repo: str, number: int, updated_at: str, began: str, identities: dict,
-         accounts: timeline.Accounts, earlier) -> tuple:
+         accounts: timeline.Accounts, earlier, kernel=None) -> tuple:
     """`(linked, whole)`, as `listing` reads them with the spans the pass records `earlier` give: whole where the list
     and the spans were both read whole, their chain unbroken, and no pull request names the issue (the docstring above).
     `earlier` is the pass records before this pass, oldest first, or None. Lifting the gate lifts this one condition."""
     spans, read_whole = keyword_spans.read(earlier, {"repo": repo, "type": "issue", "number": number})
-    linked, whole, named = listing(transport, repo, number, updated_at, began, identities, accounts, spans)
+    linked, whole, named = listing(transport, repo, number, updated_at, began, identities, accounts, spans, kernel)
     return linked, whole and read_whole is True and not named
