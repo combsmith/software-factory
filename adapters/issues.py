@@ -165,11 +165,12 @@ def comments(events: list, accounts: timeline.Accounts) -> tuple:
 
 
 def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=facts._utc, *, identities: dict,
-         earlier) -> tuple:
+         earlier, kernel=None) -> tuple:
     """`(facts, title)`: `issue-facts/1` for one issue of `repo`, held to its schema, and its title beside the facts,
     never in them, for the view alone. `accounts` tells who acted, the Factory's Apps among them, `identities` the class's
     accounts of a pull request that closes it (`adapters/pull.own`), `earlier` the pass records before this pass, oldest
-    first, or None where they could not be read, and `clock` gives the time after the last read."""
+    first, or None where they could not be read, and `clock` gives the time after the last read. `kernel`, the Kernel's
+    configuration, says whether the Factory's linked draft's checks are read (`adapters/draft_checks.py`)."""
     issue = own(transport, repo, number)
     events, whole = timeline.events(transport, {"number": number, "base": {"repo": {"full_name": repo}}})
     edited = edits(transport, repo, number)
@@ -186,7 +187,7 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
     writer = timeline.since_writer(events, accounts)
     apps, said = comments(events, accounts)
     closing, closing_whole = linked.read(transport, repo, number, edited["updated_at"], lived["life_started_at"],
-                                         identities, accounts, earlier)
+                                         identities, accounts, earlier, kernel)
     # A merge may have closed it since: read once more, as `adapters/pull.unchanged` does.
     if _field(own(transport, repo, number), "updated_at") != _field(issue, "updated_at"):
         raise facts.Moved("the issue changed while its pull requests were read; it is read again at the next pass")

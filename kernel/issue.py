@@ -46,14 +46,17 @@ LINK_ACTIONS = ("connected", "disconnected")
 # A pull request's closes and reopenings on its own timeline, a merge's close among them (trials/P-48.json, issue 672).
 CLOSED = "closed"
 CLOSE_ACTIONS = ("closed", "reopened")
-# The kinds a declared Factory App may be read as: the Bot account of an App, a Lens's or any other.
-APP_KINDS = ("app", "lens", "queue")
+# The kinds a declared Factory App may be read as: the Bot account of an App, or a Lens's. The queue App's is never
+# read as one, whatever its name (issue 1033), as no issue is decided with its name declared (decision 0218).
+APP_KINDS = ("app", "lens")
 # What GitHub says of an issue: open, or closed.
 ISSUE_STATES = ("open", "closed")
 # The fewest and the most digits of a content id after its prefix, as schemas/issue-facts.schema.json gives them,
 # written as shapes, as terms.py writes a time's: a length is no limit anyone chooses, and so is not configuration.
 CONTENT_FEWEST = "ffff"
 CONTENT_MOST = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+# A commit's name is as long as this, of hexadecimal digits in lower case, as schemas/issue-facts.schema.json has it.
+COMMIT_SHAPE = "ffffffffffffffffffffffffffffffffffffffff"
 # The Intents of an issue's Runs that its State reads, as their run records name them. The issue's decision, which
 # admits them, uses these codes. The readiness Run judges whether the issue is ready for this content, and its `apply`
 # adds factory:ready. The opening Run creates the work's branch and its draft pull request.
@@ -820,6 +823,14 @@ def readable_head(facts: dict) -> bool:
                                        or (isinstance(facts["branch_head"], str) and facts["branch_head"] != ""))
 
 
+def readable_base(facts: dict) -> bool:
+    """The default branch's head as the pass read it, the commit an opening Run reads and lands its one commit on: a
+    commit's whole name, and no branch's or tag's, which would name another commit tomorrow. Never null, and never
+    defaulted: the default branch always has a head, and a guess would be another commit."""
+    base = facts.get("base_head")
+    return isinstance(base, str) and len(base) == len(COMMIT_SHAPE) and all(c in t.HEX_DIGITS for c in base)
+
+
 def readable_intents(intents) -> bool:
     """Whether `issues.intents` can be read whole: each Intent named, and mapped to null, which admits nothing, or to a
     Role and its App, each a name."""
@@ -979,7 +990,12 @@ def _wanted(facts, state, reason, evidence, mine, intents):
         return _decision(facts, state, "no_statement", evidence, t.NOTHING)
     if not readable_head(facts):
         return _decision(facts, state, "branch_unreadable", evidence, t.DEFER)
-    return (who["role"], OPENING, {"branch_head": facts["branch_head"]})
+    if facts["branch_head"] is not None:
+        # An earlier Run's commit stands on the branch: this Run pushes none, and lands on nothing.
+        return (who["role"], OPENING, {"branch_head": facts["branch_head"]})
+    if not readable_base(facts):
+        return _decision(facts, state, "base_unreadable", evidence, t.DEFER)
+    return (who["role"], OPENING, {"branch_head": None, "base_head": facts["base_head"]})
 
 
 def without_opening(runs: list) -> list:
@@ -1167,5 +1183,19 @@ def still_admitted(admitted: dict, again: dict) -> bool:
     """Whether `apply` may write. Before any Effect it asks the Kernel again, leaving its own Run out of the records
     (I-38), and writes nothing unless that admits the same Run: the same Role and Intent, which only one State admits,
     for the same content, and for the opening Run the same branch head (I-21). So a label removed, a Hold added, an
-    edit made or a head moved while the Run was in flight each stop it."""
-    return again.get("admit") is not None and again.get("admit") == admitted.get("admit")
+    edit made or a head moved while the Run was in flight each stop it. The default branch moving does not: the Run's
+    commit lands on the commit it was admitted for, `base_head`, which is left out of the comparison, and nothing
+    holds the default branch still meanwhile. A base stands on both admissions or on neither, and where it stands
+    each is a commit's whole name: the commit lands on its own admission's base, never the second asking's."""
+    was, now = admitted.get("admit"), again.get("admit")
+    if not isinstance(was, dict) or not isinstance(now, dict):
+        return False
+    if ("base_head" in now) != ("base_head" in was):
+        return False
+    if "base_head" in now and not (readable_base(was) and readable_base(now)):
+        return False
+    return _but_base(now) == _but_base(was)
+
+
+def _but_base(admit: dict) -> dict:
+    return {part: admit[part] for part in admit if part != "base_head"}
