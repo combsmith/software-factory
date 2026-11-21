@@ -345,7 +345,7 @@ permissions: {}
 jobs:
   run:
     runs-on: ubuntu-24.04
-    timeout-minutes: 53
+    timeout-minutes: 59
     environment: factory-run
     permissions:
       contents: read
@@ -398,7 +398,7 @@ jobs:
       - name: Ask the advisory readers, which never fails the Run
         env:
           ADVISORY_AZURE_KEY: ${{ secrets.ADVISORY_AZURE_KEY }}
-        timeout-minutes: 20
+        timeout-minutes: 26
         run: python3 -m harness.advise
       - name: Run the Engine
         id: engine

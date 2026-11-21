@@ -35,6 +35,7 @@ ADVISE_EACH = ("tests.test_advise.Advise.test_each_reader_configured_is_asked_on
 ADVISE_PROMPT = ("tests.test_advise.Advise.test_the_rules_and_the_diff_follow_the_instruction_as_data",)
 ADVISE_NOTASKED = ("tests.test_advise.Advise.test_a_reader_is_not_asked_without_the_days_yes_a_key_or_a_prompt_that_fits",)
 ADVISE_RUNNING = ("tests.test_advise.Advise.test_a_response_still_running_when_its_readers_share_is_spent_is_cancelled",)
+ADVISE_TURN = ("tests.test_advise.Advise.test_each_readers_turn_ends_where_only_the_shares_of_the_readers_after_it_are_left",)
 ADVISE_UNSAID = ("tests.test_advise.Advise.test_a_run_that_asks_no_longer_says_that_no_reader_was_asked",)
 ADVISE_FAULT = ("tests.test_advise.Advise.test_a_fault_in_one_reader_is_that_readers_alone",)
 ADVISE_NEVER = ("tests.test_advise.Advise.test_the_step_never_fails_its_job",)
@@ -225,7 +226,7 @@ ADVICE_UPLOADS = ("tests.test_tools.Workflows.test_the_readers_cost_and_each_rea
 # The advise step of the Run's jobs, the uploads after it and the model's step, as run-jobs.yml writes them: a mutant that
 # moves one is written from these.
 ADVISE_ASKS = ("      - name: Ask the advisory readers, which never fails the Run\n        env:\n"
-               "          ADVISORY_AZURE_KEY: ${{ secrets.ADVISORY_AZURE_KEY }}\n        timeout-minutes: 20\n"
+               "          ADVISORY_AZURE_KEY: ${{ secrets.ADVISORY_AZURE_KEY }}\n        timeout-minutes: 26\n"
                "        run: python3 -m harness.advise\n")
 ADVICE_COST_UP = ("      - name: Upload what the readers cost, which the Controller's pass reads\n        if: always()\n"
                   "        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        with:\n"
@@ -5494,8 +5495,29 @@ MUTANTS = ISSUE + [
      "            except Exception:       # NOSONAR whatever one reader's read raises is that reader's Result, and no other's\n",
      '            except azure.Unanswered:\n', ADVISE_FAULT),
     ('the first reader may take the whole step', ADVISE,
-     'share = clock() + (until - clock()) / (len(names) - n)',
-     'share = until', ADVISE_RUNNING),
+     'turn = turn_of([readers[later] for later in names[n + 1:] if later in asking], until)',
+     'turn = until', ADVISE_RUNNING),
+    # Trial P-78: each reader's turn ends where only the shares of the readers after it that are to be asked are left.
+    ("a later reader's share is not left of the step", ADVISE,
+     'return until - sum(share_of(reader) for reader in later)',
+     'return until', ADVISE_TURN + ADVISE_RUNNING),
+    ('a reader not to be asked keeps its share of the step', ADVISE,
+     'for later in names[n + 1:] if later in asking]',
+     'for later in names[n + 1:]]', ADVISE_TURN),
+    ('the last reader is held to its own share', ADVISE,
+     'turn = turn_of([readers[later] for later in names[n + 1:] if later in asking], until)',
+     'turn = min(clock() + share_of(readers[lens]), turn_of([readers[later] for later in names[n + 1:] if later in asking], until))',
+     ADVISE_TURN),
+    ('a share that is a bool is a share', ADVISE,
+     ' and not isinstance(share, bool)', '', ADVISE_TURN),
+    ('a share below nought ends a turn past the step', ADVISE,
+     ' and not isinstance(share, bool) and share > 0 else 0', ' and not isinstance(share, bool) else 0', ADVISE_TURN),
+    ('a share that is no whole number is one', ADVISE,
+     'return share if isinstance(share, int) and not', 'return share if not', ADVISE_TURN),
+    ('a reader with no share breaks the turn before it', ADVISE,
+     'share = reader.get("share")', 'share = reader["share"]', ADVISE_TURN),
+    ('the readers share the step of two even halves, 1,080 seconds', ADVISE,
+     'WHOLE = 1440 ', 'WHOLE = 1080 ', ADVISE_TURN + ADVISE_BOUND),
     ("a request waits its reader's seconds whatever time is left", ADVISE,
      'max(LEAST, min(reader["seconds"], int(until - clock())))',
      'reader["seconds"]', ADVISE_RUNNING),
@@ -5539,7 +5561,7 @@ MUTANTS = ISSUE + [
      '            replace(made, unasked.COST, dict(cost_of(run, release, []), asks=about, cost_usd=None))\n',
      '            pass\n', ADVISE_UNSAID),
     ('a reader refused before it is asked counts as one about to be asked', ADVISE,
-     'about = sum(tolds[lens] is not None and due(readers[lens], prompt, admitted, key) for lens in names)',
+     'about = len(asking)',
      'about = len(names)', ADVISE_UNSAID),
     ('a rate limit is waited for again and again', ADVISE,
      'wait = waited(answer, until - clock()) if asks < 2 else None',
@@ -5608,7 +5630,7 @@ MUTANTS = ISSUE + [
      'until - began <= POLL',
      'until - began < POLL', ADVISE_NOTIME),
     ('a reader whose Result cannot be built counts as one about to be asked', ADVISE,
-     'about = sum(tolds[lens] is not None and due(', 'about = sum(due(', ADVISE_FAULT),
+     'if tolds[lens] is not None and due(', 'if due(', ADVISE_FAULT),
     ('the least wait is two seconds, and the bound is not the one the step names', ADVISE,
      'LEAST = 1 ',
      'LEAST = 2 ', ADVISE_BOUND),
@@ -17214,8 +17236,8 @@ MUTANTS = ISSUE + [
      'r"factory-run|factory-apply|READER_APP_KEY|PR_REVIEW_APP_KEY", re.I)',
      ('tests.test_tools.Workflows.test_a_key_and_its_environment_are_named_by_their_one_file',)),
     ("the Run's jobs are held with no advise step", 'tools/check_workflows.py',
-     '        timeout-minutes: 20\n        run: python3 -m harness.advise\n',
-     '        timeout-minutes: 20\n        run: python3 -m harness.steps\n', ADVISE_STEP),
+     '        timeout-minutes: 26\n        run: python3 -m harness.advise\n',
+     '        timeout-minutes: 26\n        run: python3 -m harness.steps\n', ADVISE_STEP),
     ("the model's step is handed the advisory readers' key", '.github/workflows/run-jobs.yml',
      '          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n',
      '          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n          ADVISORY_AZURE_KEY: ${{ secrets.ADVISORY_AZURE_KEY }}\n',
@@ -17227,8 +17249,8 @@ MUTANTS = ISSUE + [
     ("the advisory readers are asked after the model", '.github/workflows/run-jobs.yml',
      ADVISE_ASKS + ENGINE_RUNS, ENGINE_RUNS + ADVISE_ASKS, ADVISE_STEP),
     ("the advise step is cut before its readers' time is spent", '.github/workflows/run-jobs.yml',
-     '        timeout-minutes: 20\n        run: python3 -m harness.advise\n',
-     '        timeout-minutes: 19\n        run: python3 -m harness.advise\n', ADVISE_STEP),
+     '        timeout-minutes: 26\n        run: python3 -m harness.advise\n',
+     '        timeout-minutes: 25\n        run: python3 -m harness.advise\n', ADVISE_STEP),
     ("the advise step may be skipped or fail softly", '.github/workflows/run-jobs.yml',
      '        run: python3 -m harness.advise\n',
      '        run: python3 -m harness.advise\n        continue-on-error: true\n', ADVISE_STEP),
@@ -17265,7 +17287,7 @@ MUTANTS = ISSUE + [
     ("the run job's checkout has no tag to name its Release by", '.github/workflows/run-jobs.yml',
      '          ref: ${{ job.workflow_sha }}\n          fetch-tags: true\n', '          ref: ${{ job.workflow_sha }}\n', UNASKED_STEP),
     ("the run job's limit leaves its other steps a minute", '.github/workflows/run-jobs.yml',
-     '    timeout-minutes: 53\n    environment: factory-run\n', '    timeout-minutes: 52\n    environment: factory-run\n', UNASKED_STEP),
+     '    timeout-minutes: 59\n    environment: factory-run\n', '    timeout-minutes: 58\n    environment: factory-run\n', UNASKED_STEP),
     ("the Run's jobs are held with no step that says no reader was asked", 'tools/check_workflows.py',
      '        timeout-minutes: 1\n        run: python3 -m harness.unasked\n',
      '        timeout-minutes: 1\n        run: python3 -m harness.steps\n', UNASKED_STEP),

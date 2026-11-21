@@ -5240,7 +5240,7 @@ class Workflows(unittest.TestCase):
         self.assertEqual(cost["path"], "%s/%s" % (unasked.OUT, unasked.COST))
         limits = [int(s["timeout-minutes"]["value"]) for s in steps if "run" in s]
         job = int(next(e["value"] for e in entries if e["path"] == ["jobs", "run"] and e["key"] == "timeout-minutes"))
-        self.assertEqual((limits, job), ([1, 1, 3, 6, 20, 20], sum(limits) + check_workflows.MARGIN))
+        self.assertEqual((limits, job), ([1, 1, 3, 6, 26, 20], sum(limits) + check_workflows.MARGIN))
         self.assertFalse([found for found in check_workflows.lint(good) if found[0] == "timeout"])
 
     def test_apply_is_handed_each_readers_result_where_the_run_job_left_one(self):  # decision 0224

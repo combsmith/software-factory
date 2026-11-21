@@ -34,11 +34,13 @@ that no text of theirs is the shape of a chat template's special token, such as 
 read as a real one and so leave the markers behind. It is given no tool. No step writes `rules.json` yet: the read
 step is to, by a change still to come, and until then a reader is told that none was read.
 
-Time. Every request is given its own wait, the reader's seconds or the time left of its share where that is less, and
-never under LEAST; no reader is asked with POLL or less left, none is asked again unless POLL is left after the wait,
-and no response is read again with less than POLL left. So where each request is answered or given up within the wait
-it is given, the last request and the last wait end within LATEST_END seconds of the step's start. The workflow that
-runs the step is still to come, and is to give it a limit past that. What is not bounded here: a wait is the
+Time. The readers share WHOLE seconds from the step's start, asked one after another: a reader's turn ends where only
+the `share` of each reader after it that is to be asked is left of them, and the last runs to their end (trial P-78).
+A share that cannot be read is none. Every request is given its own wait, the reader's seconds or the time left of its
+turn where that is less, and never under LEAST; no reader is asked with POLL or less left, none is asked again unless
+POLL is left after the wait, and no response is read again with less than POLL left. So where each request is answered
+or given up within the wait it is given, the last request and the last wait end within LATEST_END seconds of the step's
+start. The workflow gives the step a limit a minute and more past that. What is not bounded here: a wait is the
 transport's limit on each wait on the connection, not on a request whole, so a name that resolves slowly, or an answer
 that trickles in under the limit, can outlast it, and only a limit set outside this file ends the step then, with the
 cost file saying what was asked; and the reading and writing of the Run's own small files, which no clock here times.
@@ -61,12 +63,12 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 KEY = "ADVISORY_AZURE_KEY"
 REVIEWING = "review-change"
 INSTRUCTION = ("roles", "pr-review", "advisory-reader.md")
-WHOLE = 1080            # the seconds the readers share, from the step's start
+WHOLE = 1440            # the seconds the readers share, from the step's start: astra's 900 and kimi's 540
 POLL = 10               # seconds between two reads of a response still running
 LONGEST_WAIT = 90       # the longest wait a rate limit may name and be waited for; a longer one is not
 LEAST = 1               # the least seconds a request may wait: the transport takes no less
 # The latest a request or a wait of this step's ends, in seconds from its start: a read begun just inside a reader's
-# share may run LEAST past it, and the cancel that follows LEAST more. The limit the workflow gives the step is to be past it.
+# turn may run LEAST past it, and the cancel that follows LEAST more. The limit the workflow gives the step is past it.
 LATEST_END = WHOLE + 2 * LEAST
 RUNNING = ("queued", "in_progress")
 ENDED = ("completed", "incomplete", "failed", "cancelled")      # a response in any other state may still be billed
@@ -122,8 +124,20 @@ def waited(answer: dict, left: float):
 
 
 def wait_of(reader: dict, until: float, clock) -> int:
-    """The seconds one request may wait: the reader's own, or the time left of its share where that is less."""
+    """The seconds one request may wait: the reader's own, or the time left of its turn where that is less."""
     return max(LEAST, min(reader["seconds"], int(until - clock())))
+
+
+def share_of(reader: dict) -> int:
+    """A reader's `share` of the step, or none where it is not a whole number above nought: a bool is not one."""
+    share = reader.get("share")
+    return share if isinstance(share, int) and not isinstance(share, bool) and share > 0 else 0
+
+
+def turn_of(later: list, until: float) -> float:
+    """Where a reader's turn ends: where only the shares of `later`, the readers after it that are to be asked, are
+    left of the step. With none, the step's end; never past it."""
+    return until - sum(share_of(reader) for reader in later)
 
 
 def lasted(began: float, clock) -> float:
@@ -331,7 +345,8 @@ def job(task_folder: str, out: str, env: dict, root: pathlib.Path = ROOT, base=N
             except Exception:       # NOSONAR whatever is wrong with one reader's settings is that reader's alone
                 return None
         tolds = {lens: told_of(lens) for lens in names}
-        about = sum(tolds[lens] is not None and due(readers[lens], prompt, admitted, key) for lens in names)
+        asking = [lens for lens in names if tolds[lens] is not None and due(readers[lens], prompt, admitted, key)]
+        about = len(asking)
         if about:
             # Before the first request: a step stopped from here on has said how many readers it set out to ask.
             replace(made, unasked.COST, dict(cost_of(run, release, []), asks=about, cost_usd=None))
@@ -341,8 +356,8 @@ def job(task_folder: str, out: str, env: dict, root: pathlib.Path = ROOT, base=N
             if told is None:
                 continue            # no advice/1 can be built: it is not asked, and has no Result
             try:
-                share = clock() + (until - clock()) / (len(names) - n)      # what is left, shared by those still to ask
-                result = one(readers[lens], told, prompt, admitted, key, share, sent, transport, clock, sleep)
+                turn = turn_of([readers[later] for later in names[n + 1:] if later in asking], until)
+                result = one(readers[lens], told, prompt, admitted, key, turn, sent, transport, clock, sleep)
             except Exception:       # NOSONAR whatever one reader's read raises is that reader's Result, and no other's
                 try:
                     result = advice.unasked(told, "transport", asks_of(sent), lasted(began, clock), shared.SCHEMAS)

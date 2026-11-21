@@ -396,17 +396,23 @@ class Advise(unittest.TestCase):
         self.assertEqual(advise.waited(dict(LIMITED, headers={"retry-after": "90"}), 100), 90)
 
     def test_a_response_still_running_when_its_readers_share_is_spent_is_cancelled(self):
-        # A response not ended when the reader's share of the step is spent is cancelled, and is `timed_out`.
-        polls = advise.WHOLE // 2 // advise.POLL - 1      # the first of two readers has half the step
+        # A response not ended when its reader's turn is spent, where only the next reader's share is left of the step,
+        # is cancelled, and is that reader's own Result, `timed_out`: the step goes on, the next reader is asked with
+        # its share and more, and the cost file says both asks (trial P-78).
+        kimi = config()["readers"]["kimi"]["share"]
+        polls = (advise.WHOLE - kimi) // advise.POLL - 1      # astra, asked first, has the step but kimi's share
         results, azure_, clock = advised([response("queued", "")] + [response("in_progress", "")] * polls
                                          + [response("cancelled", ""), completion()])
         self.assertEqual(codes(results), {"astra": ("incomplete", "timed_out", 0, 1), "kimi": ("completed", None, 0, 1)})
         self.assertEqual(azure_.sent[-2], azure.cancel("resp_1"))
         self.assertLessEqual(clock.now, advise.WHOLE)
-        self.assertEqual((results["astra"]["usage"]["seconds"], results["astra"]["usage"]["cost_usd"]), (530.0, None))
-        # Each request waits the time left of its reader's share where that is less than the reader's own seconds: the
-        # last two reads, the cancel, and the second reader's one ask.
-        self.assertEqual([seconds for _, _, seconds in azure_.made[-4:]], [20, 10, 10, advise.WHOLE - 530])
+        turn = advise.WHOLE - kimi - advise.POLL     # astra's last read, the last that left it POLL of its turn
+        self.assertEqual((results["astra"]["usage"]["seconds"], results["astra"]["usage"]["cost_usd"]), (turn, None))
+        self.assertEqual(spent(azure_), (2, None))
+        # Each request waits the time left of its reader's turn where that is less than the reader's own seconds: the
+        # last two reads, the cancel, and the second reader's one ask, which has kimi's share and more.
+        self.assertEqual([seconds for _, _, seconds in azure_.made[-4:]], [20, 10, 10, advise.WHOLE - turn])
+        self.assertGreaterEqual(advise.WHOLE - turn, kimi)
         # What Azure does not answer, or this step did not foresee of it, is a code, and the next reader is still asked.
         results, azure_, _ = advised([azure.Unanswered("down"), completion()])
         self.assertEqual(codes(results), {"astra": ("failed", "transport", 0, 1), "kimi": ("completed", None, 0, 1)})
@@ -418,6 +424,38 @@ class Advise(unittest.TestCase):
         self.assertEqual((codes(results)["astra"], len(azure_.sent)), (("failed", "transport", 0, 1), 5))
         results, _, _ = advised([response(model="another-model"), completion("not json")])
         self.assertEqual(codes(results), {"astra": ("failed", "not_the_model", 0, 1), "kimi": ("failed", "unparsed", 0, 1)})
+
+    def test_each_readers_turn_ends_where_only_the_shares_of_the_readers_after_it_are_left(self):  # trial P-78
+        # The readers share the step's WHOLE seconds, each configured reader's share summed, asked one after another.
+        shares = {lens: reader["share"] for lens, reader in config()["readers"].items()}
+        self.assertEqual((advise.WHOLE, advise.LATEST_END), (sum(shares.values()), 1442))
+        self.assertEqual(advise.turn_of([{"share": 540}], 1440.0), 900.0)
+        self.assertEqual(advise.turn_of([{"share": 300}, {"share": 200}], 1000.0), 500.0)
+        self.assertEqual(advise.turn_of([], 1440.0), 1440.0)       # the last runs to the step's end
+        # A share that cannot be read is none, so that no turn ends past the step's end and none breaks it.
+        for share in (None, True, -100, 0, 1.5, "540"):
+            self.assertEqual(advise.turn_of([{} if share is None else {"share": share}], 1440.0), 1440.0, share)
+
+        def running(request: dict):
+            return response("cancelled", "") if request["act"] == "cancel" else response("in_progress", "")
+        last = advise.WHOLE - advise.POLL       # the last read that leaves POLL of the step
+        # Kimi, asked after astra, takes its whole wait where astra ended early: the last is not held to its own share.
+        results, azure_, _ = advised([response(), completion()])
+        self.assertEqual((codes(results), azure_.made[-1][2]), (BOTH, config()["readers"]["kimi"]["seconds"]))
+        # A reader after it that is not to be asked leaves astra the whole step.
+        results, azure_, _ = advised(running, readers=lambda changed: changed["readers"]["kimi"].update(prompt_characters=1))
+        self.assertEqual(codes(results), {"astra": ("incomplete", "timed_out", 0, 1), "kimi": ("incomplete", "too_large", 0, 0)})
+        self.assertEqual(results["astra"]["usage"]["seconds"], last)
+        # And so does one whose share cannot be read: the step goes on, and kimi is left what astra did not take.
+        for share in (None, True, "540"):
+            def odd(changed, share=share):
+                changed["readers"]["kimi"].pop("share")
+                if share is not None:
+                    changed["readers"]["kimi"]["share"] = share
+            results, azure_, _ = advised(running, readers=odd)
+            self.assertEqual(codes(results), {"astra": ("incomplete", "timed_out", 0, 1),
+                                              "kimi": ("incomplete", "timed_out", 0, 0)}, share)
+            self.assertEqual((results["astra"]["usage"]["seconds"], spent(azure_)), (last, (1, None)), share)
 
     def test_a_response_whose_read_fails_is_cancelled_and_the_cancel_changes_nothing(self):
         # A read answered other than 200, or not answered, leaves the response running: it is cancelled, whatever the
@@ -452,7 +490,7 @@ class Advise(unittest.TestCase):
         self.assertEqual((codes(results), azure_.made[1][2]), (BOTH, advise.POLL + 1))
 
     def test_every_request_and_wait_ends_by_the_bound_the_step_names(self):
-        self.assertEqual(advise.LATEST_END, 1082)       # under the 20 minutes the step is to be given (decision 0224)
+        self.assertEqual(advise.LATEST_END, 1442)       # under the 26 minutes the step is given (decision 0224)
         # The worst this step foresees: every request takes the whole wait it was given, a rate limit names the longest
         # wait, a response never ends, and its cancel is not answered. The clock starts off the second.
 
