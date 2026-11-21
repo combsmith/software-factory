@@ -264,13 +264,13 @@ def recorded_passes(transport, config: dict, own: int, before, since: str, sleep
     concurrency group, so none records a write while this one reads. `stages` times the read whole, its one wait
     included, and its list's requests apart from its artifacts' (issue 1025)."""
     controller = config["controller"]
+    home = controller["home"]["repo"]
     _, known_passes = reconcile.known(before)
     timed = stages.timer is not None
     of_passes = Timed(transport, stages, poller_kind)
     with stages.stage("poller"):
-        from_passes = passes.written(of_passes if timed else transport, controller["home"]["repo"],
-                                     controller["home"]["branch"], controller["workflows"]["poller"], own, since,
-                                     known_passes, sleep=sleep)
+        from_passes = passes.written(of_passes if timed else transport, home, controller["home"]["branch"],
+                                     controller["workflows"]["poller"], own, since, known_passes, sleep=sleep)
     stages.tell({"poller_" + kind: held for kind, held in of_passes.tally.items()})
     return from_passes
 
