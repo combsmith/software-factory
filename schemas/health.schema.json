@@ -224,9 +224,11 @@
           "facts_unreadable",
           "not_run",
           "write_unmatched",
+          "hand_unmatched",
           "reconciliation_unreadable",
           "credential_due",
-          "runs_never_started"
+          "runs_never_started",
+          "issue_apps_unreadable"
         ]
       }
     },

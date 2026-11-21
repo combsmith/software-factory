@@ -30,10 +30,12 @@ import urllib.parse
 import zlib
 from unittest import mock
 
+from controller import pass_
 from harness import engine, shared
 from kernel import decide as decide_module, derive, issue, terms
 from kernel.decide import decide
 from sim import world
+from adapters import github
 from tests import support
 from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_gate_sets, check_lifecycle, context_eval,
                    check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, redact_trial,
@@ -265,6 +267,44 @@ class Validator(unittest.TestCase):
         for schema in ({"type": "array"}, {"type": "array", "uniqueItems": False}):
             self.assertEqual(validate(["AC-1", "AC-1"], schema), [])
 
+    def test_a_number_that_is_not_finite_is_an_error_whatever_the_bounds(self):  # issue 922
+        # json.loads reads NaN and Infinity from a file. NaN is below no minimum and above no maximum, and an infinity
+        # passes where no bound stands, so each is refused by itself, under a number's type, an integer's, or none.
+        nan, inf = float("nan"), float("inf")
+        for schema in ({"type": "number"}, {"type": "number", "minimum": 0}, {"type": "number", "maximum": 30},
+                       {"type": "number", "minimum": 0, "maximum": 30}, {"type": ["number", "null"]}, {}):
+            for value in (nan, inf, -inf, json.loads("NaN"), json.loads("-Infinity")):
+                self.assertTrue(caught(validate(value, schema), "is no finite number"), (schema, value))
+        self.assertEqual(validate({"cost": nan}, {"type": "object", "properties": {"cost": {"type": "number"}}}),
+                         ["$.cost: nan is no finite number"])
+        self.assertEqual(validate(nan, {"type": "integer"}), ["$: expected integer"])
+        # Nor where no schema describes the value: items with no `items`, a property no schema names, at any depth.
+        for value, schema, where in ((json.loads("[1, NaN]"), {"type": "array"}, "$[1]"),
+                                     ({"x": inf}, {}, "$.x"), ({"a": {"b": [-inf]}}, {"type": "object"}, "$.a.b[0]"),
+                                     ({"a": 1, "x": [nan]}, {"type": "object", "properties": {"a": {"type": "number"}}}, "$.x[0]")):
+            self.assertEqual(validate(value, schema), ["%s: no finite number" % where], value)
+        self.assertEqual(validate({"x": [1, 2.5]}, {"type": "object"}), [])
+        # However deep, by a list of what is left and no recursion (cubic's read).
+        deep = [nan]
+        for _ in range(5000):
+            deep = [deep]
+        self.assertEqual(validate(deep, {"type": "array"}), ["$%s: no finite number" % ("[0]" * 5001)])
+        # The other side: a finite number, a float or an int however large, is read as it was.
+        for value in (0, 0.0, -0.0, 1.5, 1e308, -1e308, 10 ** 400):
+            self.assertEqual(validate(value, {"type": "number"}), [], value)
+
+    def test_a_text_longer_than_the_most_is_an_error(self):  # issue 880
+        # Counted in characters, as `minLength` is, never in bytes.
+        most = {"type": "string", "maxLength": 3}
+        for value in ("", "a", "abc", "caf", "éèê"):
+            self.assertEqual(validate(value, most), [], value)
+        self.assertEqual(validate("abcd", most), ["$: longer than 3"])
+        # A most of none is a bound, not an absent keyword; without the keyword a text may be as long as it is.
+        self.assertEqual(validate("", {"type": "string", "maxLength": 0}), [])
+        self.assertEqual(validate("a", {"type": "string", "maxLength": 0}), ["$: longer than 0"])
+        self.assertEqual(validate("a" * 1000, {"type": "string"}), [])
+        self.assertEqual(validate([1, 2, 3, 4], {"maxLength": 3}), [])     # and it bounds a text alone
+
     def test_more_items_than_the_most_is_an_error(self):  # decision 0143
         most = {"type": "array", "maxItems": 3}
         for value in ([], [1], [1, 2, 3]):
@@ -439,6 +479,70 @@ class Examples(unittest.TestCase):
         for loose in ("^fixed$|b$", "^[a-z]+\\$", "^a|b$", "a$", "^a", "^(a|b)$|^c$", None, 3):
             self.assertFalse(check_examples._anchored(loose), loose)
 
+    def test_a_reference_out_of_the_codes_and_a_pattern_that_admits_a_sentence_are_caught(self):  # issue 913
+        schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
+                   for p in (ROOT / "schemas").glob("*.schema.json")}
+        free = lambda kind, schema: check_examples._free(schema, schemas, schema, kind, "$", set())
+        # A reference out of a kind of codes reaches only a record RECORDS names, whose own rules hold it; any other
+        # kind, a model's answer whole for one, is refused, however it is referred to.
+        for ref in ("apps.schema.json", "trial.schema.json", "trial.schema.json#/$defs/headers"):
+            applied = copy.deepcopy(schemas["applied"])
+            applied["properties"]["extra"] = {"$ref": ref}
+            self.assertTrue(caught(free("applied", applied), "schema applied refers at $.extra to %s, which is neither"
+                                   % ref.split(".")[0]), ref)
+        self.assertEqual(sorted(check_examples.RECORDS), [("applied", "finding"), ("pass", "decision"), ("pass", "facts"),
+                                                          ("pass", "issue-decision"), ("pass", "issue-facts")])
+        for kind, record in check_examples.RECORDS:
+            referrer = copy.deepcopy(schemas[kind])
+            referrer["properties"]["extra"] = {"$ref": "%s.schema.json" % record}
+            self.assertEqual(free(kind, referrer), [], (kind, record))
+        # Only by the kind RECORDS names it for, and whole: another kind's, or a fragment into a record, is refused.
+        disposition = copy.deepcopy(schemas["disposition"])
+        disposition["properties"]["extra"] = {"type": "array", "items": {"$ref": "finding.schema.json"}}
+        self.assertTrue(caught(free("disposition", disposition), "schema disposition refers at $.extra[] to finding"))
+        # Nor through another kind of codes that may: a fragment of it lends none of its records (Astra's read).
+        lender = copy.deepcopy(schemas["applied"])
+        lender.setdefault("$defs", {})["lent"] = {"$ref": "finding.schema.json"}
+        borrower = copy.deepcopy(schemas["disposition"])
+        borrower["properties"]["extra"] = {"$ref": "applied.schema.json#/$defs/lent"}
+        self.assertTrue(caught(check_examples._free(borrower, dict(schemas, applied=lender), borrower, "disposition", "$", set()),
+                               "refers at $.extra to finding"))
+        # SPACES is every character Python's \s matches, none missed and none more.
+        self.assertEqual(set(check_examples.SPACES), {chr(c) for c in range(0x110000) if re.fullmatch(r"\s", chr(c))})
+        for ref in ("facts.schema.json#/$defs/changed_path", "finding.schema.json#/$defs/surface"):
+            applied = copy.deepcopy(schemas["applied"])
+            applied["properties"]["extra"] = {"$ref": ref}
+            self.assertTrue(caught(free("applied", applied), "schema applied refers at $.extra to %s" % ref.split(".")[0]), ref)
+        # Anchored is not a code: a pattern holds one only where no class of it, no `.` and no escape admits whitespace.
+        for held in ("^[a-z_]+$", "^[^\\s]+$", "^[^/\\s]+/[^/\\s]+$", "^\\S+$", "^[\\w-]+$", "^sf [a-z]+ r_[0-9]+$",
+                     "^[]a]+$", "^sha256:[0-9a-f]{64}$", "^a\\.b$", "^\\x41\\u0042+$", "^[^]\\s]+$", "^[\\]a]+$",
+                     "^\\U00000041+$"):
+            self.assertTrue(check_examples._coded(held), held)
+        for loose in (("^[^\\^@]*$", "^[^/]+/[^/]+$", "^.+$", "^[a .]+$", "^[\\s\\S]+$", "^[^\\S]+$", "^\\s$", "^\\W+$",
+                      "^\\D+$", "^[a\\x20]+$", "^[a\\u3000]+$", "^[a\\t]+$", "^(?x)a b$", "^(?s).$", "^[a-z]+$|b", None, "^[a-$",
+                      # A space a group may repeat, an octal one, and every character \\s matches, U+2001 to U+2009 too.
+                      "^[a-z]+( [a-z]+)*$", "^(?:[a-z]+ ){1,50}$", "^([a-z]+\\040)+$", "^[a-z]\\040[a-z]$", "^(\\w| )+$",
+                      "^\\S+( \\S+)*$", "^(?#[).+(?#])$", "^sf +r_[0-9]+$", "^[a-z]+ {1,9}[a-z]+$", "^a ?b$", "^(?z)a$", "^(a$", "^a\tb$", "^a\nb$", "^a\u3000b$")
+                     + tuple("^[a-z%s]+$" % c for c in "\u2001\u2005\u2009\x1c\x85")):
+            self.assertFalse(check_examples._coded(loose), loose)
+        # The repo of a run record, a pass record, the writes and what was written is a repo's name alone.
+        for kind in ("run-record", "pass", "writes", "written"):
+            found = set()
+            def gather(node):
+                if isinstance(node, dict):
+                    if isinstance(node.get("properties"), dict) and isinstance(node["properties"].get("repo"), dict):
+                        found.add(node["properties"]["repo"].get("pattern"))
+                    for value in node.values():
+                        gather(value)
+                elif isinstance(node, list):
+                    for value in node:
+                        gather(value)
+            gather(schemas[kind])
+            self.assertEqual(found, {"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"}, kind)
+        disposition = copy.deepcopy(schemas["disposition"])
+        disposition["properties"]["note"] = {"type": "string", "pattern": "^[^\\^@]*$"}
+        self.assertTrue(caught(free("disposition", disposition), "schema disposition admits text at $.note"))
+
     def test_a_schema_without_its_envelope_is_caught(self):  # decision 0039
         schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
                    for p in (ROOT / "schemas").glob("*.schema.json")}
@@ -530,11 +634,13 @@ class Examples(unittest.TestCase):
         issues = dict(support.CONFIG, lifecycle=json.loads((ROOT / "lifecycle" / "issue.json").read_text()))
         self.assertTrue(record["pull_requests"] and record["issues"])
         for entry in record["pull_requests"]:
-            self.assertEqual(decide(entry["facts"], record["runs"], record["context"], support.CONFIG, record["now"]),
-                             entry["decision"])
+            self.assertEqual(decide(entry["facts"], record["runs"], pass_.given(record, entry), support.CONFIG,
+                                    record["now"]), entry["decision"])
         for entry in record["issues"]:
-            self.assertEqual(issue.decide(entry["facts"], record["runs"], record["context"], issues, record["now"]),
+            self.assertEqual(issue.decide(entry["facts"], record["runs"], pass_.given(record, entry), issues, record["now"]),
                              entry["decision"])
+        # Each entry holds the count of active Runs it was asked with: the context's, and an admission's those before it.
+        self.assertEqual([e["active_runs"] for e in record["pull_requests"] + record["issues"]], [0, 0])
         # A Run id stands beside an admission or an approval, which is a Run, and is null anywhere else.
         for entry in record["pull_requests"] + record["issues"]:
             minted = entry["decision"]["outcome"] == "admit" or entry["decision"].get("action") == "issue_approval"
@@ -679,6 +785,13 @@ class Examples(unittest.TestCase):
                            ("its branch", dict(bundle=bundle, patch={"body": text, "branch": "main"})),
                            ("a patch that is none", dict(bundle=bundle, patch=None))):
             self.assertIs(refused(**item), True, name)
+        # The Engine's answer is outside text, so the patch's text is bounded here, in characters, and nowhere else:
+        # 200,000, well over the change a Task carries, which stays the Kernel's to hold with its own code, and what
+        # keeps a guard's reading of a patch within memory. One character more is no push.
+        body = push["properties"]["patch"]["properties"]["body"]
+        self.assertEqual(body, {"type": "string", "minLength": 1, "maxLength": 200000})
+        self.assertIs(refused(bundle=bundle, patch={"body": text + "x" * (200000 - len(text))}), False)
+        self.assertIs(refused(bundle=bundle, patch={"body": text + "x" * (200001 - len(text))}), True)
 
     def test_only_success_can_pass_a_check(self):  # I-27, L-07
         # The configuration may say what a conclusion means, but never that one with no verdict has passed.
@@ -2054,9 +2167,166 @@ class Purity(unittest.TestCase):
         problems = check_purity.run(root)
         self.assertTrue(caught(problems, "imports os") and caught(problems, "uses open"))
 
+    def test_the_kernel_is_read_as_python_runs_it_utf_8_alone(self):  # issue 992
+        # Python decodes a file by the encoding it declares, so a file declaring another one could run code its text,
+        # which the check and every reader parse, does not show; and bytes that are not UTF-8 would be replaced.
+        def read(data: bytes) -> list:
+            root = tree({"kernel/__init__.py": "", "kernel/x.py": ""})
+            (root / "kernel" / "x.py").write_bytes(data)
+            return check_purity.run(root)
+        for data in (b"# -*- coding: utf-7 -*-\nA = 'a'\n", b"#!/usr/bin/env python\n# vim: set fileencoding=latin-1 :\nA = 'a'\n",
+                     b"  # coding: latin-1\nA = 'a'\n", b"\x0c\x0c# coding: utf-7\n#+AAo-A = 1\n", b"\xef\xbb\xbf# coding: latin-1\nA = 'a'\n"):
+            self.assertTrue(caught(read(data), "x.py cannot be read as Python: it declares the encoding"), data)
+        self.assertTrue(caught(read(b"A = '\xff'\n"), "x.py cannot be read as Python: its bytes are not UTF-8"))
+        for data in (b"# coding: utf-8\nA = 'a'\n", b"# coding=UTF_8\nA = 'a'\n", b"\xef\xbb\xbfA = 'a'\n", b"# coding: utf8\n# caf\xc3\xa9\nA = 'a'\n",
+                     b"A = 'a'\n\n# coding: latin-1\n"):
+            self.assertEqual(read(data), [], data)
+
     def test_io_in_a_package_below_the_kernel_is_caught(self):
         root = tree({"kernel/a.py": "from kernel.extra import clock\n", "kernel/extra/clock.py": "import time\n"})
         self.assertTrue(caught(check_purity.run(root), "extra/clock.py:1 imports time"))
+
+    def test_the_guards_are_held_as_the_kernel_is_and_import_themselves_alone(self):
+        # guards/ decides what a Role's push may land (issue 838). It is held as the Kernel is, under its own name, and
+        # imports itself alone: the Kernel is not protected whole, so nothing the guards decide may rest on it.
+        held = lambda files: check_purity.guards(tree(dict({"guards/__init__.py": ""}, **files)))
+        self.assertEqual(check_purity.guards(ROOT), [])
+        self.assertIn(("guards purity", check_purity.guards), verify.CHECKS)
+        self.assertEqual(check_purity.guards(tree({"kernel/x.py": ""})), ["there is no guards/ to check"])
+        self.assertEqual(check_purity.run(tree({"guards/x.py": ""})), ["there is no kernel/ to check"])
+        io = held({"guards/x.py": "import os\n\ndef f():\n    return open('x')\n"})
+        self.assertTrue(caught(io, "imports os") and caught(io, "uses open"))
+        self.assertTrue(caught(held({"guards/x.py": "def f(n):\n    return n > 3\n"}), "writes the number"))
+        # Only its imports of itself are read as its own: any other package's are refused as the Kernel refuses them.
+        for text, said in (("from os import environ\n", "x.py:1 imports os"), ("import guardsx as g\n", "x.py:1 imports guardsx"),
+                           ("from guardsx import y\n", "x.py:1 imports guardsx"), ("import kernelx\n", "x.py:1 imports kernelx")):
+            self.assertTrue(caught(held({"guards/x.py": text}), said + " ["), text)
+        # The Kernel is refused twice over, at a module's top or in a function: by its name, and as any package that
+        # is not the guards' own.
+        terms = {"kernel/terms.py": "HOLD = 'h'\n\n\ndef f():\n    return HOLD\n"}
+        note = (" [a rule of the Kernel's, read of guards/: where it names a module an import names, `kernel` is `guards` in "
+                "the file and `guards` is `kernel`; a file's name and every other name are as written]")
+        for text, line, module in (("import kernel.terms as t\n", 1, "kernel.terms"), ("from kernel import terms\n", 1, "kernel"),
+                                   ("import guards.b as b, kernel.terms as t\n", 1, "kernel.terms"),
+                                   ("import kernel.terms as t, guards.b as b\n", 1, "kernel.terms"),
+                                   ("from kernel.terms import f\n", 1, "kernel.terms"), ("import kernel\n", 1, "kernel"),
+                                   ("def f():\n    from kernel import terms\n    return terms.HOLD\n", 2, "kernel"),
+                                   ("def f():\n    import kernel.terms as t\n    return t.HOLD\n", 2, "kernel.terms")):
+            found = held(dict(terms, **{"guards/x.py": text}))
+            self.assertIn("x.py:%d imports %s; guards/ imports itself alone" % (line, module), found, text)
+            self.assertIn("x.py:%d imports %s%s" % (line, module.replace("kernel", "guards"), note), found, text)
+        # Nor relatively: the package is imported in one way, by its name, and nothing reaches above it.
+        other = {"guards/b.py": "def g():\n    return 1\n"}
+        for text, line in (("from . import b\n", 1), ("from .b import g\n", 1), ("from .. import kernel\n", 1),
+                           ("from ..kernel import terms\n", 1), ("def f():\n    from . import b\n    return b.g()\n", 2)):
+            found = held(dict(terms, **dict(other, **{"guards/x.py": text})))
+            self.assertTrue(caught(found, "x.py:%d imports ." % line) and caught(found, "imports itself alone, by its name"), text)
+        # A guard makes no Decision, so it takes no parameter the Kernel may call, in any place a parameter stands.
+        for text, line in (("def f(_decision):\n    return _decision()\n", 1), ("def f(*, _decision):\n    return _decision()\n", 1),
+                           ("def f(_decision, /):\n    return _decision()\n", 1), ("def f(*_decision):\n    return 0\n", 1),
+                           ("def f(**_decision):\n    return 0\n", 1), ("def f():\n    return lambda _decision: _decision()\n", 2),
+                           ("async def f(_decision):\n    return _decision()\n", 1)):
+            self.assertIn("x.py:%d takes _decision, which the Kernel alone may call; guards/ makes no Decision and calls "
+                          "no function it is given" % line, held({"guards/x.py": text}), text)
+        self.assertTrue(caught(held({"guards/x.py": "def f(patch, g):\n    _decision = g\n    return _decision(patch)\n"}),
+                               "x.py:3 calls _decision, a value it binds"))
+        fine = dict(other, **{"guards/a.py": "from guards import b\nfrom guards.b import g\nimport guards.b as other\n\n\n"
+                                             "def f():\n    return b.g() or g() or other.g()\n"})
+        self.assertEqual(held(fine), [])
+        # Its imports of itself are read as the Kernel's of itself are: a call into a module at no function of its own
+        # is caught. A problem the Kernel's rule finds is said in the rule's own words, whatever a file there is
+        # named, with a note of how to read it. The Kernel imports no guard.
+        self.assertTrue(caught(held(dict(fine, **{"guards/b.py": "G = 1\n"})), "a.py:"))
+        self.assertEqual(held(dict(other, **{"guards/x.py": "import guards.b\n"})),
+                         ["x.py:1 imports kernel.b without naming it; the Kernel imports a module of its own as "
+                          "`from kernel import x` or `import kernel.x as x`" + note])
+        self.assertEqual(held({"guards/kernel.py": "def f(n):\n    return n > 3\n"}),
+                         ["kernel.py:2 writes the number 3; a limit is data, read from the configuration" + note])
+        self.assertTrue(caught(check_purity.run(tree({"kernel/x.py": "from guards import patch\n"})), "imports guards"))
+        # A module below a folder of the guards is read as itself, to its last name: a call into it at no function
+        # of its own is caught, and one at a function of its own is not.
+        deep = {"guards/pkg/__init__.py": "", "guards/pkg/leaf.py": "def g():\n    return 1\n",
+                "guards/x.py": "from guards.pkg import leaf\nfrom guards.pkg.leaf import g\nimport guards.pkg.leaf as other\n\n\n"
+                               "def f():\n    return leaf.g() or g() or other.g()\n"}
+        self.assertEqual(held(deep), [])
+        self.assertTrue(caught(held(dict(deep, **{"guards/pkg/leaf.py": "G = 1\n"})), "x.py:"))
+        # A rule written for a module of the Kernel's by its name is read of no guard: the calendar's numbers are
+        # terms.py's alone, and a guard of that name could write them.
+        for name in ("terms.py", "gate.py", "brakes.py"):
+            self.assertTrue(caught(held({"guards/" + name: ""}), "guards/%s bears the name" % name), name)
+        self.assertTrue(caught(held({"guards/terms.py": "DAYS_PER_YEAR = 365\n"}), "guards/terms.py bears the name"))
+        below = {"guards/sub/__init__.py": "", "guards/sub/terms.py": "DAYS_PER_YEAR = 365\n"}
+        self.assertTrue(caught(held(below), "sub/terms.py:1 writes the number 365; a limit is data, read from the configuration"))
+
+    def test_the_guards_are_the_package_python_imports_and_read_nothing_off_a_value(self):
+        held = lambda files: check_purity.guards(tree(dict({"guards/__init__.py": ""}, **files)))
+        # With no __init__.py Python may import a guards.py at the root in the package's place, which nothing reads.
+        self.assertTrue(caught(check_purity.guards(tree({"guards/x.py": ""})), "guards/ has no __init__.py"))
+        self.assertTrue(caught(held({"guards/sub/x.py": ""}), "guards/sub has no __init__.py"))
+        self.assertTrue(caught(held({"guards/sub/AGENTS.md": ""}), "guards/sub has no __init__.py"))
+        self.assertEqual(held({"guards/sub/__init__.py": "", "guards/sub/x.py": "", "guards/AGENTS.md": "",
+                               "guards/sub/AGENTS.md": ""}), [])
+        # Of two files of one name Python imports the compiled before the source, so the guards hold source alone.
+        # A file named `.py` is no source to this check, which reads a file by its suffix, and Python can still run it.
+        for name in ("guards/x.cpython-39-darwin.so", "guards/__init__.pyc", "guards/x.pyc", "guards/sub/x.so",
+                     "guards/data.json", "guards/README.md", "guards/.py"):
+            self.assertTrue(caught(held({name: ""}), name + " is neither Python's source nor an AGENTS.md"), name)
+        # Nor a link: Python imports through one to a folder, and what it points at is read by nothing here.
+        linked = tree({"guards/__init__.py": "", "out/__init__.py": "import os\n"})
+        os.symlink(linked / "out", linked / "guards" / "sub")
+        os.symlink(linked / "out" / "__init__.py", linked / "guards" / "x.py")
+        found = check_purity.guards(linked)
+        self.assertTrue(caught(found, "guards/sub is a link") and caught(found, "guards/x.py is a link"), found)
+        deep = tree({"guards/__init__.py": "", "guards/sub/__init__.py": "", "out/__init__.py": "import os\n"})
+        os.symlink(deep / "out" / "__init__.py", deep / "guards" / "sub" / "x.py")
+        self.assertTrue(caught(check_purity.guards(deep), "guards/sub/x.py is a link"))
+        # Nor is the package itself one: its files would then be kept where nothing protects them.
+        whole = tree({"out/__init__.py": ""})
+        os.symlink(whole / "out", whole / "guards")
+        self.assertTrue(caught(check_purity.guards(whole), "guards is a link"))
+        self.assertFalse(caught(check_purity.guards(ROOT), "is a link"))
+        # Nothing is read of a value but by a built-in type's method that is called. A generator's frame is one
+        # attribute from any function, and through it every builtin: this guard would open a file as `len`.
+        frame = ("def f(path):\n    g = (0 for _ in ())\n    b = g.gi_frame.f_builtins\n"
+                 "    b.update({'len': b.get('open')})\n    return list(len(path))\n")
+        found = held({"guards/x.py": frame})
+        self.assertTrue(caught(found, "x.py:3 reads f_builtins off a value") and caught(found, "x.py:3 reads gi_frame off a value"))
+        self.assertTrue(caught(held({"guards/x.py": "def f(xs):\n    return xs.count\n"}), "x.py:2 reads count off a value"))
+        self.assertTrue(caught(held({"guards/x.py": "def f(xs, g):\n    return sorted(xs, key=g.get)\n"}), "reads get off a value"))
+        # Nor is it handed what it was given, to be called: the Kernel's rule, read of a guard.
+        self.assertTrue(caught(held({"guards/x.py": "def f(xs, cb):\n    return sorted(xs, key=cb)\n"}), "x.py:2 hands cb to be called"))
+        reads = {"guards/b.py": "G = 1\n\n\ndef g():\n    return 'x'\n", "guards/sub/__init__.py": "", "guards/sub/c.py": "H = 1\n",
+                 "guards/x.py": "from guards import b, sub\nfrom guards.sub import c\nimport guards.b as other\n\n\n"
+                                "def f(xs):\n    return b.G, c.H, other.G, xs.count(b.G), b.g().startswith('x')\n"}
+        self.assertEqual(held(reads), [])
+        off = dict(reads, **{"guards/x.py": "from guards import sub\n\n\ndef f():\n    return sub.c.H\n"})
+        self.assertEqual(held(off), ["x.py:5 reads H off a value; guards/ reads a name of a "
+                         "module of its own, calls a built-in type's method, and reads nothing else of a value"])
+        # A module's name is bound by its import alone. Any other binding of it is a value under a module's name,
+        # which the rule above would read anything off: a parameter, a local, a loop's or a comprehension's name, a
+        # function's own, what an `except` names, and a value imported under it.
+        steal = "from guards import b\n\n\n%s"
+        for text, line in (("def frame_of(b):\n    return b.gi_frame\n", 4), ("def f(xs):\n    b = (0 for _ in xs)\n    return b.gi_frame\n", 5),
+                           ("def f(xs):\n    return [b.gi_frame for b in xs]\n", 5), ("def f(xs):\n    for b in xs:\n        return b.gi_frame\n", 5),
+                           ("def f(xs):\n    return sorted(xs, key=lambda b: b.gi_frame)\n", 5), ("def b():\n    return 1\n", 4),
+                           ("def f(xs):\n    try:\n        return xs.count(0)\n    except ValueError as b:\n        return b.args\n", 7),
+                           ("from guards.b import g as b\n\n\ndef f():\n    return b.count\n", 4)):
+            found = held(dict(reads, **{"guards/x.py": steal % text}))
+            self.assertTrue(caught(found, "x.py:%d binds b, which names a module of guards/" % line), (text, found))
+        # Nor does a second import take it, but of the same module.
+        for text, line in (("from guards import b as m\nfrom guards.sub import c as m\n", 5),
+                           ("def f():\n    import guards.sub.c as b\n    return b.H\n", 5)):
+            found = held(dict(reads, **{"guards/x.py": "from guards import b\n\n\n" + text}))
+            self.assertTrue(caught(found, "x.py:%d binds" % line) and caught(found, "which another import binds to another "
+                                                                           "module of guards/"), (text, found))
+        self.assertEqual(held(dict(reads, **{"guards/x.py": "from guards import b\nimport guards.b as b\n\n\n"
+                                                          "def f():\n    return b.G\n"})), [])
+        # A name imported from a module of its own is that module's value, not a module: nothing is read off it.
+        value = dict(reads, **{"guards/x.py": "from guards.b import g\n\n\ndef f():\n    return g.count\n"})
+        self.assertTrue(caught(held(value), "x.py:5 reads count off a value"))
+        if sys.version_info >= (3, 10):
+            matched = "def f(g):\n    match g:\n        case object(gi_frame=frame):\n            return frame\n"
+            self.assertTrue(caught(held({"guards/x.py": matched}), "x.py:2 matches a value against patterns"))
 
     def test_a_limit_written_into_the_kernel_is_caught(self):
         root = tree({"kernel/x.py": "def f(runs):\n    return len(runs) >= 3 or runs[0] == 1\n"})
@@ -3578,7 +3848,7 @@ class Workflows(unittest.TestCase):
             refused(group(token=token), "merge_group_pull_unreadable")
         refused(group(token="two words", transport=False), "merge_group_pull_unreadable")
         # An answer with no opener in it cannot be read either, and neither can a repository the payload does not name.
-        for body in ({"number": 44, "state": "open", "base": {"ref": "main"}},):
+        for body in ({"number": 44, "state": "open", "base": {"ref": "main", "repo": {"full_name": "o/r"}}},):
             refused(group(Asked(body=body)), "cannot be read")
         refused(group(payload={"merge_group": {"head_ref": ref, "base_ref": "refs/heads/main"}}), "cannot be read")
         # The payload must be a merge group's: an event that says so of a pull request's refuses, as the other way about.
@@ -3606,6 +3876,125 @@ class Workflows(unittest.TestCase):
         schema = json.loads((ROOT / "schemas" / "hooks.schema.json").read_text())
         app = {"login": "sf-dev[bot]", "id": 2, "is": "the App"}
         self.assertEqual(check_examples.validate(dict(hooks, openers=hooks["openers"] + [app]), schema), [])
+
+    def test_the_merge_groups_read_refuses_when_the_live_transport_fails_or_answers_another_shape(self):
+        # Issue 1048: adapters/github.py is no protected path, though a merge group's opener is read through its Live and
+        # request, for cost: it is the one transport for every port. So this guards the behaviour instead: the check builds
+        # the transport's own Live from the job's token, and every way its read can fail or answer in another shape
+        # refuses, with the code. Only the socket is stood in for; the request, its headers, the status and the body are
+        # read by the transport itself. It holds against a regression, not an edit made to tell the stand-in apart; that
+        # the opener follows no redirect and takes no proxy is held by tests/test_adapters.py's own test of Live.
+        self.assertIs(commits_are_the_maintainers.Live, github.Live)
+        self.assertIs(commits_are_the_maintainers.request, github.request)
+        root = tree({"config/hooks.json": json.dumps({"openers": [{"login": "ada", "id": 1, "is": "the Maintainer"}]})})
+        where = root / "event.json"
+        sha = "a" * 40
+
+        def named(number):
+            where.write_text(json.dumps({"merge_group": {"head_ref": "refs/heads/gh-readonly-queue/main/pr-%d-%s" % (number, sha),
+                                                         "base_ref": "refs/heads/main", "head_sha": "b" * 40, "base_sha": sha},
+                                         "repository": {"full_name": "o/r"}}))
+        named(44)
+        environ = {"EVENT": "merge_group", "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"}
+        pull = {"number": 44, "state": "open", "user": {"login": "ada", "id": 1},
+                "base": {"ref": "main", "repo": {"full_name": "o/r"}}, "head": {"repo": {"full_name": "o/r"}}}
+        whole = json.dumps(pull).encode()
+        JSON = {"Content-Type": "application/json; charset=utf-8"}
+
+        class Answer(io.BytesIO):
+            # Read a part at a time, as the transport's bound needs: an unbounded read is no answer (Astra's read).
+            def __init__(self, raw, status=200, headers=None):
+                super().__init__(raw)
+                self.status, self.headers, self.taken = status, JSON if headers is None else headers, 0
+
+            def read(self, size=-1):
+                if size is None or not 0 < size <= github.CHUNK:
+                    raise AssertionError("an unbounded read of %r" % (size,))
+                part = super().read(size)
+                self.taken += len(part)
+                return part
+
+        class Cut(Answer):      # the whole pull request arrives, then the connection closes before the body ends
+            def read(self, size=-1):
+                part = super().read(size)
+                if not part:
+                    raise github.http.client.IncompleteRead(b"")
+                return part
+
+        class Socket:
+            def __init__(self, answer):
+                self.answer, self.sent = answer, []
+
+            def open(self, sent, timeout=None):
+                self.sent.append(sent)
+                if isinstance(self.answer, Exception):
+                    raise self.answer
+                return self.answer
+
+        def read(answer):
+            socket, made = Socket(answer), []
+
+            class Wired(github.Live):
+                def __init__(self, token, *args, **kwargs):
+                    super().__init__(token, *args, **kwargs)
+                    made.append(token)
+                    self.opener = socket
+            with mock.patch.object(commits_are_the_maintainers, "Live", Wired):
+                return commits_are_the_maintainers.opener_problems(root, environ), socket.sent, made
+
+        # Answered whole, it passes: the transport's own Live, made from the job's token, sends one GET of the pull
+        # request to GitHub's API with the token, and the body it reads is the pull request's.
+        found, sent, made = read(Answer(whole))
+        self.assertEqual((found, made), ([], ["t"]))
+        self.assertEqual([(s.get_method(), s.full_url, s.get_header("Authorization")) for s in sent],
+                         [("GET", "https://api.github.com/repos/o/r/pulls/44", "Bearer t")])
+
+        def refused(answer, code="merge_group_pull_unreadable"):
+            found = read(answer)[0]
+            self.assertTrue(found and all(f.split(":")[0] == code for f in found), (answer, found))
+        # A read that fails refuses: no connection, an answer cut short, a redirect, one over the transport's bound.
+        refused(github.urllib.error.URLError("down"))
+        refused(ConnectionResetError())
+        refused(github.Redirected(302, "https://api.github.com/repositories/1/pulls/44"))
+        refused(github.urllib.error.HTTPError("https://api.github.com/x", 301, "x", {"Location": "/x"}, Answer(b"")))
+        refused(Cut(whole))
+        # The bound is the transport's: the pull request padded past it is refused, not cut short and read, and padded to
+        # it exactly passes (Astra, Kimi, Muse and the Claude review).
+        over = Answer(whole + b" " * (github.LARGEST + 3 * github.CHUNK))
+        refused(over)
+        self.assertLess(over.taken, github.LARGEST + 2 * github.CHUNK)      # read no further than the bound's part
+        refused(Answer(whole + b" " * (github.LARGEST + 1 - len(whole))))
+        self.assertEqual(read(Answer(whole + b" " * (github.LARGEST - len(whole))))[0], [])
+        # And so does an answer in another shape: an error whose body is the pull request itself, not JSON, JSON that
+        # cannot be read, or JSON that is no pull request, another one, or none.
+        for code in (404, 403, 500, 304):
+            refused(github.urllib.error.HTTPError("https://api.github.com/x", code, "x", JSON, Answer(whole)))
+        refused(Answer(whole, 201))
+        refused(Answer(whole, headers={"Content-Type": "text/html"}))
+        refused(Answer(whole, headers={}))
+        refused(Answer(whole[:-1]))
+        refused(Answer(whole + b"{}"))      # one document, read whole
+        for body in ([pull], "x", None, dict(pull, number="44"), dict(pull, number=45)):
+            refused(Answer(json.dumps(body).encode()))
+        refused(Answer(b""))
+        # The repository the answer names is the one held: a fork's head read through the transport refuses for the fork.
+        found = read(Answer(json.dumps(dict(pull, head={"repo": {"full_name": "fork/r"}})).encode()))[0]
+        self.assertEqual([f.split(" this repo")[0] for f in found], ["the pull request is opened from fork/r, and only from"])
+        # And a number is a number: for pull request 1, true is no answer, though true == 1 in Python (Astra's read).
+        named(1)
+        for number in (True, 1.0):
+            refused(Answer(json.dumps(dict(pull, number=number)).encode()))
+        self.assertEqual(read(Answer(json.dumps(dict(pull, number=1)).encode()))[0], [])
+        named(44)
+        # A base of another shape refuses with the code, and an opener's id is read as GitHub gave it (Astra's read).
+        for base in (["main"], "main", None):
+            refused(Answer(json.dumps(dict(pull, base=base)).encode()))
+        for ident in ("1", True, 1.0):
+            found = read(Answer(json.dumps(dict(pull, user={"login": "ada", "id": ident})).encode()))[0]
+            self.assertTrue(found and "opened by ada" in found[0], (ident, found))
+        # And the answer is this repo's pull request: the same number on another repo's base refuses with the code.
+        refused(Answer(json.dumps(dict(pull, base={"ref": "main", "repo": {"full_name": "other/r"}})).encode()))
+        refused(Answer(json.dumps(dict(pull, base={"ref": "main", "repo": None})).encode()))
 
     def test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds(self):
         # Issue 409: main reads both, neither in place of the other, so the commits job is not weakened by the opener.
@@ -6004,6 +6393,94 @@ class Trials(unittest.TestCase):
         problems = check_trials.run(clone({"trials/P-39.reach.json": json.dumps(reach)}))
         self.assertTrue(caught(problems, "trials/P-39.reach.json: $.exchanges[0].request.as: expected object"))
 
+    def test_a_read_of_the_storage_asks_the_address_a_download_was_redirected_to_alone(self):  # issue 920
+        # Nothing else in a fixture names the storage's host, so this holds where such a read went: a GET, right after
+        # an artifact's download answered 302, of exactly the address that redirect gave, with no query.
+        data = json.loads((ROOT / "trials" / "P-68.json").read_text())
+        self.assertEqual(check_trials._stored(data), [])
+        address = data["exchanges"][1]["request"]["call"].split(" ")[1]
+
+        def found(change):
+            copy = json.loads(json.dumps(data))
+            change(copy["exchanges"])
+            return check_trials.fixture_problems(copy)
+
+        def call(exchanges, text):
+            exchanges[1]["request"]["call"] = text
+        for why, change, words in (
+                ("another host", lambda e: call(e, "GET https://elsewhere.example/a.zip (curl)"), "is not of the address"),
+                ("a longer path", lambda e: call(e, "GET %s/x (curl)" % address), "is not of the address"),
+                ("a query kept", lambda e: call(e, "GET %s?a=1 (curl)" % address), "keeps a query"),
+                ("a fragment", lambda e: call(e, "GET %s#a (curl)" % address), "keeps a query"),
+                ("an empty query", lambda e: call(e, "GET %s? (curl)" % address), "keeps a query"),
+                ("a query in the words after it", lambda e: call(e, "GET %s (its query: ?sv=1)" % address), "keeps a query"),
+                ("a parameter in the words after it", lambda e: call(e, "GET %s sig=QUJD" % address), "keeps a query"),
+                ("a parameter in the address", lambda e: call(e, "GET %s;sig (curl)" % address), "keeps a query"),
+                ("a shorter path", lambda e: call(e, "GET %s (curl)" % address[:-4]), "is not of the address"),
+                ("another host, the redirect's too", lambda e: (e[0]["response"]["headers"].update(location="https://elsewhere.example/a.zip"),
+                                                                call(e, "GET https://elsewhere.example/a.zip (curl)")),
+                 "is of an address off GitHub's artifact storage"),
+                ("the redirect given twice", lambda e: e[0]["response"]["headers"].update(Location=address + "x"),
+                 "follows no artifact download's redirect with one address"),
+                ("an empty redirect", lambda e: (e[0]["response"]["headers"].update(location=""), call(e, "GET  (curl)")),
+                 "is of an address off GitHub's artifact storage"),
+                ("a download answered 301", lambda e: e[0]["response"].update(status=301), "follows no artifact download's redirect"),
+                ("a download asked by another method", lambda e: e[0]["request"].update(
+                    call=e[0]["request"]["call"].replace("GET ", "POST ", 1)), "follows no artifact download's redirect"),
+                ("a download of no repo's path", lambda e: e[0]["request"].update(
+                    call="GET /orgs/combsmith/actions/artifacts/1/zip"), "follows no artifact download's redirect"),
+                ("a download's path run on", lambda e: e[0]["request"].update(
+                    call="GET /repos/combsmith/%s/actions/artifacts/1/zipx" % check_trials.CANARY), "follows no artifact download's redirect"),
+                ("the download after it, last in the fixture", lambda e: e.append(e.pop(0)), "follows no artifact download's redirect"),
+                ("another method", lambda e: call(e, "PUT %s (curl)" % address), "is no GET"),
+                ("no download before it", lambda e: e.pop(0), "follows no artifact download's redirect"),
+                ("a download answered 200", lambda e: e[0]["response"].update(status=200), "follows no artifact download's redirect"),
+                ("another call before it", lambda e: e[0]["request"].update(
+                    call="GET /repos/combsmith/%s/actions/runs/1/logs" % check_trials.CANARY), "follows no artifact download's redirect"),
+                ("a redirect with no address", lambda e: e[0]["response"]["headers"].pop("location"), "follows no artifact download's redirect"),
+                ("a download asked another way", lambda e: e[0]["request"].update(via="cli"), "follows no artifact download's redirect")):
+            where = "exchanges[0]" if why in ("no download before it", "the download after it, last in the fixture") else "exchanges[1]"
+            self.assertTrue(caught(found(change), where + ".request.call " + words), why)
+        # A download is one the port's replay follows: by REST, of an artifact's path its rule admits; and the storage's
+        # answer is no redirect, which the replay would not follow again. A read of the storage asked any other way is
+        # refused.
+        self.assertTrue(caught(found(lambda e: e[0]["request"].update(via="workflow", call=e[0]["request"]["call"].split(" (")[0])),
+                               "exchanges[1].request.call follows no artifact download's redirect"))
+        self.assertTrue(caught(found(lambda e: e[0]["request"].update(call=e[0]["request"]["call"].replace("/artifacts/14482759842/", "/artifacts/0/"))),
+                               "exchanges[1].request.call follows no artifact download's redirect"))
+        for status in (302, "302", "success", True):
+            self.assertTrue(caught(found(lambda e: e[1]["response"].update(status=status)), "exchanges[1].request.call is answered with a redirect"), status)
+        self.assertTrue(caught(found(lambda e: e[1]["request"].update(via="cli", call="curl -s '%s'" % address)),
+                               "exchanges[1].request.call reads the artifact storage other than as a read `via: storage`"))
+        # The header is read in any case, as HTTP does; and a storage read later in the fixture is held the same way.
+        def capital(e):
+            e[0]["response"]["headers"]["Location"] = e[0]["response"]["headers"].pop("location")
+        self.assertEqual(found(capital), [])
+        self.assertTrue(caught(found(lambda e: e.append(json.loads(json.dumps(e[1])))), "exchanges[7].request.call follows no"))
+
+    def test_a_workflows_call_is_a_rest_call_or_a_report_that_names_no_address(self):  # issue 920
+        data = json.loads((ROOT / "trials" / "P-9.json").read_text())
+        self.assertEqual(check_trials.fixture_problems(data), [])
+        for call, words in (("POST /repos/outside/x/actions/workflows/p9-chain.yml/dispatches", "names the owner outside"),
+                            ("GET /repos/combsmith/../outside/x", "climbs out of its repo"),
+                            ("GET /orgs/outside/actions/runners", "names the owner outside"),
+                            ("What the run read from https://elsewhere.example/x", "is a workflow's report that may name an address"),
+                            ("What the run read of repos/outside/x", "is a workflow's report that may name an address"),
+                            ("gh workflow run p9-chain -R outside/x", "is a workflow's report that may name an address"),
+                            ("What it read of uploads.github.com", "is a workflow's report that may name an address"),
+                            ("What it pushed to git@github", "is a workflow's report that may name an address"),
+                            ("What it read of repos%2Foutside", "is a workflow's report that may name an address"),
+                            ("What it read at C:\\outside", "is a workflow's report that may name an address"),
+                            ("What the run read from //elsewhere", "is a workflow's report that may name an address"),
+                            ("What the run read from /orgs/outside/repos", "is a workflow's report that may name an address"),
+                            ("What the run read from localhost:8080", "is a workflow's report that may name an address"),
+                            ("What it read from ::1", "is a workflow's report that may name an address"),
+                            ("GET /repos/combsmith/%s/actions/runs/1 (then curl it)" % check_trials.CANARY,
+                             "is a workflow's call with words after its path")):
+            copy = json.loads(json.dumps(data))
+            copy["exchanges"][9]["request"]["call"] = call
+            self.assertTrue(caught(check_trials.fixture_problems(copy), "exchanges[9].request.call " + words), call)
+
     def test_an_asker_named_by_an_address_is_caught(self):
         # Decision 0033: a fixture names who asked in words, never by an address that ties it to an account.
         vendor = json.loads((ROOT / "examples" / "trial.a-vendors-cli.json").read_text())
@@ -6499,6 +6976,10 @@ class Trials(unittest.TestCase):
             "a-write-in-another-field-of-a-graphql-body": "carries a GraphQL write that is not one of WRITES",
             "a-write-the-check-does-not-hold": "a write one of WRITES on one node by `id`",
             "a-second-write-behind-the-first": "a write one of WRITES on one node by `id`",
+            # A read of the artifact storage asks the address the download before it was redirected to, and a call a
+            # workflow's token made is held as a REST call (issue 920).
+            "a-storage-read-of-another-address": "is not of the address the download just before it was redirected to",
+            "a-workflows-call-of-another-repo": "names the owner outside",
         }
         for name, words in refused.items():
             data = json.loads((ROOT / "examples" / "invalid" / ("trial.%s.json" % name)).read_text())
@@ -6583,8 +7064,8 @@ class Trials(unittest.TestCase):
         by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
         for code in ("a_closing_reference_is_read_from_any_pull_request", "who_changed_the_draft_flag_is_read"):
             self.assertEqual(by_code[code], ("trials/P-33.json", "trials/P-33.port.json"), code)
-        for code in ("an_issues_content_time_is_read_apart", "a_reopening_names_its_actor"):
-            self.assertEqual(by_code[code], "trials/P-34.json", code)
+        self.assertEqual(by_code["an_issues_content_time_is_read_apart"], ("trials/P-34.json", "trials/P-34.rest.json"))
+        self.assertEqual(by_code["a_reopening_names_its_actor"], "trials/P-34.rest.json")
         p33 = json.loads((ROOT / "trials" / "P-33.json").read_text())
         self.assertEqual(p33["verdict"], "pass")
         prs = p33["exchanges"][0]["response"]["body"]["data"]["repository"]
@@ -10043,7 +10524,14 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": "is-error"
 
     def test_the_stand_in_timeout_runs_what_gnu_timeout_runs(self):
         stand_in = self.stand_in() / "bin" / "timeout"
+        # The comparison is with GNU's timeout, which CI's runner has. Another machine may hold another at that path:
+        # macOS ships one that answers the duration `-1` with 1, not 125, and is no word on what GNU's runs. It is
+        # told by its own `--version`; where it is not GNU's the stand-in is held alone, and on Linux GNU's must be there,
+        # so the comparison is never passed over where it is made.
         real = shutil.which("timeout", path="/usr/bin:/bin")
+        gnu = bool(real) and b"GNU coreutils" in subprocess.run([real, "--version"], capture_output=True, timeout=30).stdout
+        self.assertTrue(gnu or not sys.platform.startswith("linux"), "no GNU timeout to hold the stand-in to: %s" % real)
+        real = real if gnu else None
         for given, runs in [(["180"], True), (["60"], True), (["1.5"], True), (["90s"], True), (["3m"], True),
                             ([".5"], True), (["18O"], False), ([""], False), (["5x"], False), (["-1"], False),
                             (["s"], False), (["."], False)]:
