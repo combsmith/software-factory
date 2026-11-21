@@ -20,7 +20,8 @@ OTHER = dict(ITEM, number=43)
 URL = "https://github.com/combsmith/software-factory/pull/42"
 ACCOUNTS = json.loads((ROOT / "config" / "controller.json").read_text())["accounts"]
 KNOWN = dict(ACCOUNTS, controller={"id": 5000001, "type": "Bot", "login": "combsmith-sf-controller[bot]"},
-             roles={"pr-review": {"id": 5000002, "type": "Bot", "login": "combsmith-sf-pr-review[bot]"}})
+             roles={"pr-review": {"id": 5000002, "type": "Bot", "login": "combsmith-sf-pr-review[bot]"}},
+             lenses=[{"lens": "pr-review", "login": "combsmith-sf-pr-review[bot]", "id": 5000002}])
 # The pass job's token's account, once it is set: dispatches are reconciled from then on (ruling 2).
 TOKEN = dict(KNOWN, workflow_token={"id": 5000003, "type": "Bot"})
 
@@ -289,7 +290,24 @@ class Hand(unittest.TestCase):
                                                              "item": URL, "key": "PRRT_t"}])
         # A pass that did not decide the item, one it could not read, says nothing of it: the one before it is read.
         self.assertEqual(check(seen(HAND), before=[passed([]), passed()])["unmatched"], [])
-        self.assertEqual(check(seen(HAND), before=[passed(), passed([], item=OTHER)])["unmatched"], [])
+        found = check(seen(HAND), before=[passed(), passed([], item=OTHER)])
+        self.assertEqual((found["unmatched"], found["unjudged"], found["short"]), ([], [], False))
+        self.assertEqual(kinds(check(seen(HAND), before=[passed([]), passed(item=OTHER)])), [("hand", "resolution")])
+        # Each thread an act names is matched (Astra, issue 887).
+        self.assertEqual(check(seen(HAND), before=[passed(["PRRT_a", "PRRT_t"])])["unmatched"], [])
+        # A pass that read the item's writes short could not see a resolution older than its Decision: the act before it
+        # matches, and no pass before it that read the item whole.
+        blind = passed([], action=None, outcome="admit", state="verifying", reason="awaiting_review")
+        blind["reconciled"]["owed"] = [42]
+        for before, found_ in (([passed(), blind], []), ([passed(), passed([]), blind], [("hand", "resolution")]),
+                               ([passed(hands=None), blind], [])):
+            self.assertEqual(kinds(check(seen(HAND), before=before)), found_, before)
+        # What such a pass named itself still matches where nothing before it can judge the rest.
+        blind_t = passed()
+        blind_t["reconciled"]["owed"] = [42]
+        for before in ([blind_t], [passed(hands=None), blind_t]):
+            found = check(seen(HAND), before=before)
+            self.assertEqual((found["unmatched"], found["unjudged"], found["short"]), ([], [], False), before)
         # The item's Decision is read wherever it stands in its record.
         second = passed(item=OTHER)
         second["pull_requests"].append(passed([])["pull_requests"][0])
@@ -308,6 +326,32 @@ class Hand(unittest.TestCase):
         # A Role named `hand` could not be told from a person: no identity is known, and it is short.
         named = dict(KNOWN, roles=dict(KNOWN["roles"], hand=KNOWN["roles"]["pr-review"]))
         self.assertTrue(check(seen(), before=[passed()], accounts=named)["short"])
+        # A Lens whose account is not its Role's, by its id or its type, or that has no Role, is a thread the facts read as
+        # that Lens's and the seen port as no Role's: a person's resolution of it is no write, so it is short (issue 887).
+        lens = KNOWN["lenses"][0]
+        qa = {"id": 6000001, "type": "Bot", "login": "combsmith-sf-qa-lead[bot]"}
+        for why, accounts in (("another id", dict(KNOWN, lenses=[dict(lens, id=999000111)])),
+                              ("a Role of another type", dict(KNOWN, roles={"pr-review": dict(KNOWN["roles"]["pr-review"], type="User")})),
+                              ("no Role", dict(KNOWN, lenses=[dict(lens, lens="qa-lead")])),
+                              ("a second Lens", dict(KNOWN, roles=dict(KNOWN["roles"], **{"qa-lead": qa}),
+                                                     lenses=[lens, {"lens": "qa-lead", "login": qa["login"], "id": 6000002}])),
+                              ("a Lens of no name", dict(KNOWN, lenses=[dict(lens, lens=[])])), ("a Lens that is none", dict(KNOWN, lenses=[None]))):
+            self.assertTrue(check(seen(), before=[passed()], accounts=accounts)["short"], why)
+        self.assertFalse(check(seen(), before=[passed()], accounts=dict(KNOWN, lenses=[]))["short"])
+        self.assertFalse(check(seen(), before=[passed()],
+                               accounts=dict(KNOWN, roles=dict(KNOWN["roles"], **{"qa-lead": qa}),
+                                             lenses=[lens, {"lens": "qa-lead", "login": qa["login"], "id": 6000001}]))["short"])
+        # And controller/1 refuses the name, so that no such configuration reaches a pass (issue 887).
+        config = json.loads((ROOT / "config" / "controller.json").read_text())
+        self.assertEqual(validate(config, SCHEMAS["controller"], schemas=SCHEMAS), [])
+        for account in (config["accounts"]["roles"]["pr-review"], None):
+            config["accounts"]["roles"]["hand"] = account
+            self.assertEqual(len(validate(config, SCHEMAS["controller"], schemas=SCHEMAS)), 1, account)
+        # A resolution an identity made is no hand's, whatever it resolved: it is never judged as one (issue 887).
+        role = wrote("pr-review", "resolution", "PRRT_t", at=None)
+        self.assertEqual([check(seen(role), before=[passed(hands=None)])[k] for k in ("unjudged", "short")], [[], False])
+        self.assertEqual(reconcile.carried([passed()], dict(recorded(), read={"runs": [], "passes": []}, at={}),
+                                           seen(role), NOW)["hands"], [])
 
     def test_a_hands_resolution_once_matched_is_carried_while_it_is_seen(self):  # issue 854
         # Once matched, a thread is carried, stamped again at each pass that sees it, and matches from then on.
@@ -331,13 +375,28 @@ class Hand(unittest.TestCase):
         # What is carried is what `pass/1` holds.
         record = dict(passed(), reconciled=held, alerts=["hand_unmatched"])
         self.assertEqual(validate(record, SCHEMAS["pass"], schemas=SCHEMAS), [])
+        # And no other: a key that is no thread's, a time that is none, and anything beside the two (issue 887).
+        for odd in ({"key": "PRRT t", "at": NOW}, {"key": "PRRT_t", "at": "2026-13-11T12:00:00Z"}, {"key": "PRRT_t"},
+                    {"at": NOW}, {"key": "A" * 101, "at": NOW}, {"key": "PRRT_t", "at": NOW, "by": "hand"}, "PRRT_t"):
+            bad = dict(record, reconciled=dict(held, hands=[odd]))
+            self.assertEqual(len(validate(bad, SCHEMAS["pass"], schemas=SCHEMAS)), 1, odd)
+        longest = dict(record, reconciled=dict(held, hands=[{"key": "A" * 100, "at": NOW}]))
+        self.assertEqual(validate(longest, SCHEMAS["pass"], schemas=SCHEMAS), [])
 
     def test_a_hands_resolution_no_record_can_judge_is_short_once_carried_and_named(self):  # issue 854
         # Where no record can say whether an act named the thread, the pass is short, carries it and names it: with no
         # record before, one that carried no `hands`, or none that decided the item.
         effects = dict(recorded(), read={"runs": [], "passes": []}, at={})
         waved = [{"alert": "hand_unjudged", "by": "hand", "write": "resolution", "item": URL, "key": "PRRT_t"}]
-        for before in ([], [passed(hands=None)], [passed([], hands=None)], [passed(item=OTHER), passed(item=OTHER)]):
+        review = dict(state="verifying", reason="awaiting_review", outcome="admit", action=None)
+        # The rule starts for an item where the record that decided it starts it, not where the last record does: one
+        # written before it decided the item, and a later one that carries hands did not (issue 887).
+        for before in ([], [passed(hands=None)], [passed([], hands=None)], [passed(item=OTHER), passed(item=OTHER)],
+                       [passed(hands=None, **review), passed([], item=OTHER)],
+                       # Nor does a last record that carried none, though it did not decide the item and an earlier did.
+                       [passed(hands=["PRRT_t"], **review), passed([], item=OTHER, hands=None)],
+                       # The record that decided the item is the one read, though an earlier one named the thread.
+                       [passed(), passed(hands=None, **review), passed([], item=OTHER)]):
             found = check(seen(HAND), before=before)
             self.assertEqual((found["unmatched"], found["short"]), ([], True), before)
             self.assertEqual((reconcile.alerts(found), reconcile.entries(found)), (["reconciliation_unreadable"], waved))
@@ -556,6 +615,13 @@ class SeenPort(unittest.TestCase):
                          ("an account whose id is no number", thread("PRRT_h", author={"__typename": "Bot", "databaseId": True}))):
             writes, _, whole = port(kept(threads=[odd]))
             self.assertEqual((writes, whole), ([], False), why)
+        # The opener is the first comment's author, however many follow it (issue 887).
+        role_first, person_next = (thread("PRRT_h")["comments"]["nodes"][0],
+                                   dict(thread("PRRT_h", opened=PERSON)["comments"]["nodes"][0], replyTo={"id": "PRRC_1"}))
+        for nodes, read_ in (([role_first, person_next], [("hand", "PRRT_h")]), ([dict(person_next, replyTo=None),
+                                                                                  dict(role_first, replyTo={"id": "PRRC_1"})], [])):
+            writes, _, whole = port(kept(threads=[dict(thread("PRRT_h"), comments={"nodes": nodes})]))
+            self.assertEqual(([(w["by"], w["key"]) for w in writes], whole), (read_, True), nodes)
         # Only a person's resolution asks who opened the thread: an identity's is read whoever did, as before.
         writes, _, whole = port(kept(threads=[dict(thread("PRRT_r", by=ROLE), comments=None)]))
         self.assertEqual(([(w["by"], w["key"]) for w in writes], whole), ([("pr-review", "PRRT_r")], True))

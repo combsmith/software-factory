@@ -21,13 +21,11 @@ pass, which the caller hands on. A pull request whose keyword a pass saw is list
 an edit takes it out, so that no edit after a merge moves the issue; so the list is a pull request with a keyword now or
 once seen, a link by hand, or a close it made in the present life, and no other. `complete.linked` is true where the
 list and the spans were both read whole: records that could not be read give no time and could hide a pull request once
-seen, so the issue defers, and so does one whose records at hand break the chain of spans (`adapters/keyword_spans.py`).
-
-Fail closed all the same while the Controller hands no pass record on (issue 734): the Kernel would read no span as a
-keyword that stood at a merge (`keyword_stood`), and could read an issue done that a rival's link held. So
-`complete.linked` is true, besides, only where no pull request names the issue: none referenced, linked or its closer,
-of any base or life, nothing but an issue, as read, cross-referencing it, and no commit referencing it, as the read
-also asks; the list is handed on all the same, for the pass records.
+seen, so the issue defers. Where the records at hand break the chain of spans (`adapters/keyword_spans.py`), the list is
+whole besides only where they give no pull request a span, which a broken chain may give short, and nothing names the
+issue now: no pull request referenced, linked by hand or the closer of a close in any life, of any base, nothing but
+an issue cross-referencing it and no commit referencing it, as the read also asks; a pull request whose keyword an edit
+took out still cross-references it, as its trial is to show (issue 990).
 """
 from __future__ import annotations
 
@@ -218,7 +216,8 @@ def on_default(read: dict) -> bool:
 def listing(transport, repo: str, number: int, updated_at: str, began: str, identities: dict,
             accounts: timeline.Accounts, spans: dict, kernel=None) -> tuple:
     """`(linked, whole, named)` for issue `number`: each pull request listed, by number; whether every part was read
-    whole; and whether a pull request names the issue, before any is left out, or cross-references it.
+    whole; and whether a pull request names the issue, before any is left out, or anything but an issue cross-references it
+    or a commit references it.
     `began` is when its present life began, `identities` the class's accounts, `accounts` who acted, and `spans` each
     pull request a pass saw with its keyword, with its spans: one of those is listed whatever the references now say."""
     join = joined(transport, repo, number, updated_at, began)
@@ -248,8 +247,9 @@ def listing(transport, repo: str, number: int, updated_at: str, began: str, iden
 def read(transport, repo: str, number: int, updated_at: str, began: str, identities: dict,
          accounts: timeline.Accounts, earlier, kernel=None) -> tuple:
     """`(linked, whole)`, as `listing` reads them with the spans the pass records `earlier` give: whole where the list
-    and the spans were both read whole, their chain unbroken, and no pull request names the issue (the docstring above).
-    `earlier` is the pass records before this pass, oldest first, or None. Lifting the gate lifts this one condition."""
+    was read whole and the spans were too, or, where the records break the chain of spans, where they give no span and
+    nothing names the issue.
+    `earlier` is the pass records before this pass, oldest first, or None."""
     spans, read_whole = keyword_spans.read(earlier, {"repo": repo, "type": "issue", "number": number})
     linked, whole, named = listing(transport, repo, number, updated_at, began, identities, accounts, spans, kernel)
-    return linked, whole and read_whole is True and not named
+    return linked, whole and (read_whole is True or read_whole is None and not named and not spans)
