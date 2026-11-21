@@ -12173,7 +12173,7 @@ class Writes(unittest.TestCase):
         # the package itself, a relative import, or a file beside the folder whose name starts as its does. Only its
         # top-level assignments may name one, never a def: a def handed a runner would run what it names. Nor a lambda,
         # whatever its parameters are called, and none of the calls it may make bound to another value, by a
-        # comprehension, an assignment or an import, which would make any call one of them.
+        # comprehension, an assignment, a walrus or an import, or set as an attribute, which would make any call one.
         entry = "MUTANTS = [\n    ('a push is not read', 'tools/hooks/identity.py', \"subprocess.run(['git', 'push'])\", '', ()),\n]\n"
         files = {"tools/mutants_of/common.py": "\"\"\"Shared.\"\"\"\n\nX = ('t',)\nY = X + ('u',)\n",
                  "tools/mutants_of/data.py": "\"\"\"Data.\"\"\"\n\nfrom tools.mutants_of.common import X, Y\n\nZ = tuple('ab'.replace('a', 'c'))\n" + entry,
@@ -12194,6 +12194,8 @@ class Writes(unittest.TestCase):
                  "tools/mutants_of/rebound.py": "X = [tuple() for tuple in (exit,)]\n" + entry,
                  "tools/mutants_of/renamed.py": "tuple = exit\nX = tuple()\n" + entry,
                  "tools/mutants_of/imported.py": "from tools.mutants_of.exited import E as tuple\n\nX = tuple()\n" + entry,
+                 "tools/mutants_of/attribute_set.py": "exit.replace = print\nX = exit.replace('x')\n" + entry,
+                 "tools/mutants_of/walrus.py": "X = (tuple := exit)\nY = tuple()\n" + entry,
                  "tools/mutants_of/dunder.py": "RUN = ().__class__\n" + entry,
                  "tools/mutants_of/builtin.py": "RUN = __import__\n" + entry,
                  "tools/mutants_of/reaches.py": "RUN = getattr\n" + entry,
@@ -12210,11 +12212,38 @@ class Writes(unittest.TestCase):
         problems = check_writes.run(clone(files))
         self.assertFalse(caught(problems, "tools/mutants_of/data.py"), problems)
         for name in ("runs", "path", "handed", "further", "ring", "package", "later", "runner", "lambda", "named", "bare",
-                     "rebound", "renamed", "imported", "dunder",
+                     "rebound", "renamed", "imported", "attribute_set", "walrus", "dunder",
                      "builtin", "reaches", "alias", "attribute", "wrapper", "beside", "raises", "exits", "calls", "near", "relative",
                      "../mutants_ofx"):
             rel = os.path.normpath("tools/mutants_of/%s.py" % name)
             self.assertTrue(any(p.startswith(rel + ":") and "names gh or git as a command" in p for p in problems), rel)
+
+    def test_a_command_a_file_of_mutants_names_as_text_is_taken_only_by_another_or_a_runner(self):
+        # Issue 1101 (Astra, and a Claude read): a command a file of mutants names as text is exempt only while no
+        # code runs it, so a file that runs code takes it from there, or from a file there that names from one, only
+        # where RUNNERS names that file: by any import, plain, of the module, of a name, or relative, and from a file
+        # of the folder that is no data either. A name with no command in it is taken freely, and a runner takes any.
+        untested = (ROOT / "tools" / "untested.py").read_text() + "\nfrom tools.mutants_of.argv import VERSION\n"
+        files = {"tools/mutants_of/argv.py": "VERSION = ('git', '--version')\n",
+                 "tools/mutants_of/relay.py": "from tools.mutants_of.argv import VERSION\n",
+                 "tools/mutants_of/launders.py": "import subprocess\n\nfrom tools.mutants_of.argv import VERSION\n",
+                 "tools/mutants_of/after.py": "import os\n\nfrom tools.mutants_of.launders import VERSION\n",
+                 "tools/consumer.py": "import subprocess\nfrom tools.mutants_of.argv import VERSION\nsubprocess.run(VERSION)\n",
+                 "tools/relayed.py": "import subprocess\nfrom tools.mutants_of.relay import VERSION\n",
+                 "tools/whole.py": "from tools.mutants_of import argv\n",
+                 "tools/plainimport.py": "import tools.mutants_of.argv\n",
+                 "tools/relative.py": "from .mutants_of.argv import VERSION\n",
+                 "tools/shared.py": "from tools.mutants_of.common import X\n",
+                 "tools/mutants_of/common.py": "X = ('t',)\n",
+                 "tools/untested.py": untested}
+        problems = check_writes.run(clone(files))
+        taken = "imports a command a file of the mutants' data names as text"
+        for rel, line in (("tools/consumer.py", 2), ("tools/relayed.py", 2), ("tools/whole.py", 1),
+                          ("tools/plainimport.py", 1), ("tools/relative.py", 1), ("tools/mutants_of/launders.py", 3)):
+            self.assertTrue(caught(problems, "%s:%d %s" % (rel, line, taken)), (rel, problems))
+        for rel in ("tools/mutants_of/argv.py", "tools/mutants_of/relay.py", "tools/mutants_of/after.py",
+                    "tools/shared.py", "tools/untested.py"):
+            self.assertFalse(caught(problems, rel + ":"), (rel, problems))
 
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
         queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
