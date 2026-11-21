@@ -5428,9 +5428,13 @@ MUTANTS = ISSUE + [
     ('readiness Runs started in one second are tied by when their jobs began', 'kernel/issue.py',
      '               for r in mine if r["started_at"] == last)\n',
      '               for r in mine if (r.get("began_at") or r["started_at"]) == last)\n', ('tests.test_issue.RunStarts.test_an_issues_decision_is_the_same_whatever_began_at_its_runs_carry',)),
+    # Asked once the issues are listed, as a pass that read their Runs would: `listed` exists only after the records are read.
     ("the entry asks the served issues' Runs when they began", 'controller/__main__.py',
-     'of=[{"repo": home, "type": "pull_request", "number": number} for number in numbers])',
-     'of=[{"repo": home, "type": "pull_request", "number": number} for number in numbers] + [{"repo": home, "type": "issue", "number": number} for number in listed])',
+     '        raise Stop("issue_list_unreadable")\n',
+     '        raise Stop("issue_list_unreadable")\n'
+     '    records.runs(transport, home, branch, run_files(controller), dispatcher(controller), kept=records.known(earlier), '
+     'began=records.begun(earlier), engines=records.engines(earlier), sleep=sleep, '
+     'of=[{"repo": home, "type": "issue", "number": number} for number in listed])\n',
      ('tests.test_controller.Entry.test_no_served_issues_runs_are_asked_when_they_began',)),
     ("the entry bounds the asking to issues", 'controller/__main__.py',
      'of=[{"repo": home, "type": "pull_request", "number": number}', 'of=[{"repo": home, "type": "issue", "number": number}', WIRE_ENTRY),
