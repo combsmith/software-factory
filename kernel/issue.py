@@ -55,6 +55,8 @@ ISSUE_STATES = ("open", "closed")
 # written as shapes, as terms.py writes a time's: a length is no limit anyone chooses, and so is not configuration.
 CONTENT_FEWEST = "ffff"
 CONTENT_MOST = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+# A commit's name is as long as this, of hexadecimal digits in lower case, as schemas/issue-facts.schema.json has it.
+COMMIT_SHAPE = "ffffffffffffffffffffffffffffffffffffffff"
 # The Intents of an issue's Runs that its State reads, as their run records name them. The issue's decision, which
 # admits them, uses these codes. The readiness Run judges whether the issue is ready for this content, and its `apply`
 # adds factory:ready. The opening Run creates the work's branch and its draft pull request.
@@ -612,14 +614,9 @@ def held_by(labels: dict, drafts: list) -> list:
 
 def stands(facts, config: dict):
     """How the issue stands for the pull request the Factory opened for it (decision 0232): `closed` while GitHub says
-    it is closed, whoever closed it; `held` while a Hold stands on the issue itself, or hands-off anyone but a person
-    placed, which is read as one; `open` else; and None where that cannot be read. Only the issue's state and its own
-    label events are read, never the rows of `derive`: a pull request is stopped by the issue's Hold whether or not the
-    issue is served, linked or accepted. A close the Factory's merge made ends the pull request first, so a closed
-    issue beside an open pull request was closed some other way, and the pull request waits for a person. A person's
-    hands-off on the issue is no stop: the Factory never acts under it, a dequeue is an act, and it leaves a queued
-    item to merge, a Hold beside it too, as row 1 reads a merge under it. Label events read short, or one that cannot
-    be read whole, give None."""
+    so; `held` while a Hold stands on the issue, or hands-off anyone but a person placed; `open` else, a person's
+    hands-off among them (the Factory never acts under it, and a dequeue is an act); None where it cannot be read.
+    Only the issue's state and own label events are read, never the rows of `derive`."""
     if not isinstance(facts, dict) or facts.get("state") not in ISSUE_STATES:
         return None
     if facts["state"] == "closed":
@@ -844,6 +841,14 @@ def readable_head(facts: dict) -> bool:
                                        or (isinstance(facts["branch_head"], str) and facts["branch_head"] != ""))
 
 
+def readable_base(facts: dict) -> bool:
+    """The default branch's head as the pass read it, the commit an opening Run reads and lands its one commit on: a
+    commit's whole name, and no branch's or tag's, which would name another commit tomorrow. Never null, and never
+    defaulted: the default branch always has a head, and a guess would be another commit."""
+    base = facts.get("base_head")
+    return isinstance(base, str) and len(base) == len(COMMIT_SHAPE) and all(c in t.HEX_DIGITS for c in base)
+
+
 def readable_intents(intents) -> bool:
     """Whether `issues.intents` can be read whole: each Intent named, and mapped to null, which admits nothing, or to a
     Role and its App, each a name."""
@@ -1003,7 +1008,12 @@ def _wanted(facts, state, reason, evidence, mine, intents):
         return _decision(facts, state, "no_statement", evidence, t.NOTHING)
     if not readable_head(facts):
         return _decision(facts, state, "branch_unreadable", evidence, t.DEFER)
-    return (who["role"], OPENING, {"branch_head": facts["branch_head"]})
+    if facts["branch_head"] is not None:
+        # An earlier Run's commit stands on the branch: this Run pushes none, and lands on nothing.
+        return (who["role"], OPENING, {"branch_head": facts["branch_head"]})
+    if not readable_base(facts):
+        return _decision(facts, state, "base_unreadable", evidence, t.DEFER)
+    return (who["role"], OPENING, {"branch_head": None, "base_head": facts["base_head"]})
 
 
 def without_opening(runs: list) -> list:
@@ -1191,5 +1201,19 @@ def still_admitted(admitted: dict, again: dict) -> bool:
     """Whether `apply` may write. Before any Effect it asks the Kernel again, leaving its own Run out of the records
     (I-38), and writes nothing unless that admits the same Run: the same Role and Intent, which only one State admits,
     for the same content, and for the opening Run the same branch head (I-21). So a label removed, a Hold added, an
-    edit made or a head moved while the Run was in flight each stop it."""
-    return again.get("admit") is not None and again.get("admit") == admitted.get("admit")
+    edit made or a head moved while the Run was in flight each stop it. The default branch moving does not: the Run's
+    commit lands on the commit it was admitted for, `base_head`, which is left out of the comparison, and nothing
+    holds the default branch still meanwhile. A base stands on both admissions or on neither, and where it stands
+    each is a commit's whole name: the commit lands on its own admission's base, never the second asking's."""
+    was, now = admitted.get("admit"), again.get("admit")
+    if not isinstance(was, dict) or not isinstance(now, dict):
+        return False
+    if ("base_head" in now) != ("base_head" in was):
+        return False
+    if "base_head" in now and not (readable_base(was) and readable_base(now)):
+        return False
+    return _but_base(now) == _but_base(was)
+
+
+def _but_base(admit: dict) -> dict:
+    return {part: admit[part] for part in admit if part != "base_head"}
