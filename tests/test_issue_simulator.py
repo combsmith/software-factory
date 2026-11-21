@@ -1,6 +1,7 @@
 """Seeded simulation of an issue. The seeds are fixed, so this check cannot fail at random."""
 from __future__ import annotations
 
+import json
 import pathlib
 import os
 import unittest
@@ -11,9 +12,11 @@ from kernel import terms
 from sim import issues, world
 from sim.issues import IssueWorld
 from tests import test_transitions
+from tools.jsonschema_lite import validate
 
 # Fixed seeds: the required check cannot fail at random. SIM_SEEDS shortens a local run.
 SEEDS = range(1, 1 + int(os.environ.get("SIM_SEEDS", "300")))
+RUN_RECORD = json.loads((pathlib.Path(__file__).resolve().parent.parent / "schemas" / "run-record.schema.json").read_text())
 # The seeds every fault is reached on, whatever SIM_SEEDS says.
 FIRST = range(1, 41)
 STEPS = 250
@@ -67,9 +70,12 @@ def after(trace: list, first: str, then: str) -> bool:
 class IssueSimulation(unittest.TestCase):
     def test_invariants_hold_under_faults(self):
         made, authors, admitted, readings, stopped = set(), set(), set(), set(), set()
-        began = set()
+        began, older = set(), set()
         for seed in SEEDS:
             w = run(seed)
+            older.add(w.landed_on_an_older_base)
+            # What the world lists of a Run is a run record, and holds nothing of the world's own.
+            self.assertEqual([validate(r, RUN_RECORD) for r in w.records() if validate(r, RUN_RECORD)], [], seed)
             made |= w.made
             began |= w.began
             authors.add(w.is_person(w.author))
@@ -98,6 +104,9 @@ class IssueSimulation(unittest.TestCase):
             w.minute = 2
             w.poll()
             self.assertEqual((w.paused_passes, w.stopped), (1, [held_back]))
+        # The default branch moves while a Run is in flight, and an opening Run's apply passes on the base it was
+        # admitted for (decision 0226).
+        self.assertEqual(older, {True, False})
         # Every change of State the seeds make, with who made it, is declared (I-12), and is one the exploration of
         # every change finds too: what the world reaches and the exploration does not is a gap in the exploration.
         # What the exploration finds and the world never makes is named above, with why.
