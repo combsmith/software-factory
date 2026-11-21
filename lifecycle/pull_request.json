@@ -269,6 +269,18 @@
     },
     {
       "from": "held",
+      "to": "converged",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "adjudicating",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "held",
       "to": "queued",
       "by": "human",
       "bound": null
