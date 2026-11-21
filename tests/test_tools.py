@@ -12171,7 +12171,9 @@ class Writes(unittest.TestCase):
         # anything else, anywhere in it, is read as any other file: a module (pathlib hands on os), a name from a file
         # that imported a module and hands it on, from one that does so a step further off, from a ring of imports,
         # the package itself, a relative import, or a file beside the folder whose name starts as its does. Only its
-        # top-level assignments may name one, never a def: a def handed a runner would run what it names.
+        # top-level assignments may name one, never a def: a def handed a runner would run what it names. Nor a lambda,
+        # whatever its parameters are called, and none of the calls it may make bound to another value, by a
+        # comprehension, an assignment or an import, which would make any call one of them.
         entry = "MUTANTS = [\n    ('a push is not read', 'tools/hooks/identity.py', \"subprocess.run(['git', 'push'])\", '', ()),\n]\n"
         files = {"tools/mutants_of/common.py": "\"\"\"Shared.\"\"\"\n\nX = ('t',)\nY = X + ('u',)\n",
                  "tools/mutants_of/data.py": "\"\"\"Data.\"\"\"\n\nfrom tools.mutants_of.common import X, Y\n\nZ = tuple('ab'.replace('a', 'c'))\n" + entry,
@@ -12186,6 +12188,12 @@ class Writes(unittest.TestCase):
                  "tools/mutants_of/later.py": entry + "\n\ndef go():\n    import os\n",
                  "tools/mutants_of/runner.py": "def version(run):\n    return run(['git', 'push'])\n",
                  "tools/mutants_of/lambda.py": "version = lambda run: run(['git', 'push'])\n",
+                 "tools/mutants_of/named.py": "RUN = lambda tuple: tuple(['git', 'push'])\n",
+                 "tools/mutants_of/bare.py": "RUN = lambda: X\n" + entry,
+                 "tools/mutants_of/exited.py": "E = exit\n",
+                 "tools/mutants_of/rebound.py": "X = [tuple() for tuple in (exit,)]\n" + entry,
+                 "tools/mutants_of/renamed.py": "tuple = exit\nX = tuple()\n" + entry,
+                 "tools/mutants_of/imported.py": "from tools.mutants_of.exited import E as tuple\n\nX = tuple()\n" + entry,
                  "tools/mutants_of/dunder.py": "RUN = ().__class__\n" + entry,
                  "tools/mutants_of/builtin.py": "RUN = __import__\n" + entry,
                  "tools/mutants_of/reaches.py": "RUN = getattr\n" + entry,
@@ -12201,7 +12209,8 @@ class Writes(unittest.TestCase):
                  "tools/mutants_ofx.py": "X = 1\n" + entry}
         problems = check_writes.run(clone(files))
         self.assertFalse(caught(problems, "tools/mutants_of/data.py"), problems)
-        for name in ("runs", "path", "handed", "further", "ring", "package", "later", "runner", "lambda", "dunder",
+        for name in ("runs", "path", "handed", "further", "ring", "package", "later", "runner", "lambda", "named", "bare",
+                     "rebound", "renamed", "imported", "dunder",
                      "builtin", "reaches", "alias", "attribute", "wrapper", "beside", "raises", "exits", "calls", "near", "relative",
                      "../mutants_ofx"):
             rel = os.path.normpath("tools/mutants_of/%s.py" % name)
