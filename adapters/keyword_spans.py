@@ -15,16 +15,18 @@ The chain is broken, and the spans are not the whole history, where a record new
 none, leaves the issue out (its `left_out` names the item, or an item it cannot name) or served no issue because their
 Apps could not be told (its alert `issue_apps_unreadable`); or where records hold the issue but none of them whole. A
 pass that read no issue at all, its list of issues unread or its budget spent, writes no record, or one whose `left_out`
-holds an entry with no item and the code `issue_list_unreadable` (issue 849): that record is passed over, as if not at
-hand, so one such pass costs a pass's window, and with every record at hand passed over the chain is broken. No record at hand that holds or
-leaves out the issue, and none that raised that alert, is first sight: no pass saw a keyword, and the first that sees one
-opens its span. So a record that holds no issue and leaves none out, with no `served_from` or none open, is first sight
-too; and `served_from` set back to null and on again later loses the history between (decision 0186).
+holds that one entry alone, with no item and the code `issue_list_unreadable` (issue 849), holds no issue and raised
+no `issue_apps_unreadable`: that record is passed over, as if not at hand, so one such pass costs a pass's window, and
+with every record at hand passed over the chain is broken. Any other is read as any record is.
+No record at hand that holds or leaves out the issue, and none that raised that alert, is first sight: no pass saw a
+keyword, and the first that sees one opens its span. So a record that holds no issue and leaves none out, with no
+`served_from` or none open, is first sight too; and `served_from` set back to null and on again later loses the history
+between (decision 0186).
 
 Only records the Factory itself wrote are read: the caller hands those `adapters/passes.py` read from the poller's own
 runs and `controller/reads.py` held to `pass/1`, or None where they could not be read. Records that could not be read
-give no time and are not whole: a pull request whose keyword a pass saw could go unlisted, so the issue defers. No
-network read is made here.
+give no time and are not whole: a pull request whose keyword a pass saw could go unlisted, so the issue defers; so
+do spans that are no list, or a span that is no object. No network read is made here.
 """
 from __future__ import annotations
 
@@ -36,6 +38,8 @@ UNLISTED = "issue_list_unreadable"   # an entry of `left_out` with no item: the 
 def after(pull: dict, at: str, whole: bool) -> list:
     """A listed pull request's spans once the pass that listed it is counted: `pull` as that pass's record holds it, `at`
     the `read_at` of the issue's facts there, `whole` whether that pass read the linked pull requests whole."""
+    if not isinstance(pull["keyword_spans"], list) or not all(isinstance(span, dict) for span in pull["keyword_spans"]):
+        raise ValueError("spans that are no list, or a span that is no object")
     spans = [dict(span) for span in pull["keyword_spans"]]
     standing = bool(spans) and spans[-1]["gone_at"] is None
     if pull["keyword"] and not standing:
@@ -46,8 +50,13 @@ def after(pull: dict, at: str, whole: bool) -> list:
 
 
 def unlisted(record: dict) -> bool:
-    """Whether `record`'s pass read no issue at all, so that it is passed over (issue 849)."""
-    return any(entry["item"] is None and entry["code"] == UNLISTED for entry in record["left_out"])
+    """Whether `record`'s pass read no issue at all, so that it is passed over (issue 849): it holds no issue, raised no
+    `issue_apps_unreadable`, and leaves out one entry alone, with no item and the code `UNLISTED`."""
+    left, alerts = record["left_out"], record["alerts"]
+    if not isinstance(alerts, list):
+        raise ValueError("a record whose alerts are no list")
+    return (record["issues"] == [] and ISSUE_APPS not in alerts and len(left) == 1
+            and left[0]["item"] is None and left[0]["code"] == UNLISTED)
 
 
 def held(record: dict, item: dict):

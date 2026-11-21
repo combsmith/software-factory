@@ -290,7 +290,7 @@ permissions: {}
 jobs:
   pass:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 21
     environment: factory-poller
     permissions:
       actions: write
@@ -304,7 +304,7 @@ jobs:
       - name: Read and decide
         env:
           CONTROLLER_APP_KEY: ${{ secrets.CONTROLLER_APP_KEY }}
-        timeout-minutes: 6
+        timeout-minutes: 12
         run: python3 -m controller
       - name: Upload the pass record
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -345,7 +345,7 @@ permissions: {}
 jobs:
   run:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 33
     environment: factory-run
     permissions:
       contents: read
@@ -385,7 +385,7 @@ jobs:
           ITEM: ${{ inputs.item }}
           PASS: ${{ inputs.pass }}
           READER_APP_KEY: ${{ secrets.READER_APP_KEY }}
-        timeout-minutes: 3
+        timeout-minutes: 6
         run: python3 -m harness.read
       - name: Run the Engine
         id: engine
