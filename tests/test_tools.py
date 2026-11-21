@@ -6485,7 +6485,8 @@ class Trials(unittest.TestCase):
         # A trial after the last row has a page, never a row; and 6.1 is read as it is seen, all four batches of it.
         late = clone({check_trials.DESIGN: design.replace(row, row + "\n| P-79 | Is it asked? | Yes |", 1)})
         self.assertTrue(caught(check_trials.run(late), "P-79 has a row in section 6; a trial after P-78 has a page"))
-        hidden = design.replace("\n## 7. ", "\n<!--\n| **4. An example** | P-13 | x |\n-->\n\n## 7. ", 1)
+        hidden = design.replace("\n### 6.1 The order to run them in\n",
+                                "\n### 6.1 The order to run them in\n\n<!--\n| **4. An example** | P-13 | x |\n-->\n", 1)
         self.assertNotEqual(hidden, design)
         self.assertEqual(check_trials.table(clone({check_trials.DESIGN: hidden})), check_trials.table(ROOT))
         unbold = design.replace("| **3. Before the control room** |", "| 3. Before the control room |", 1)
