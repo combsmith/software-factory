@@ -1332,6 +1332,19 @@ class Passes(unittest.TestCase):
         # One answer naming a criterion twice is one answer: it never stands for another that left it out.
         twice = said([], [{"criterion": "PR-3", "verdict": "met"}, {"criterion": "PR-3", "verdict": "not_applicable", "reason": "no_rule_added"}])
         self.assertEqual(passes.union([twice, said([], [{"criterion": "PR-1", "verdict": "met"}])])["coverage"], [])
+        # A Finding shown stands where any answer rules it so, whichever comes first; one ruled alike is as it was ruled.
+        ruled = lambda word: [{"finding": "f_9c1e", "decision": {"result": word}}]
+        fixed, stands = dict(said([]), dispositions=ruled("accepted")), dict(said([]), dispositions=ruled("rejected"))
+        for answers in ([fixed, stands], [stands, fixed], [fixed, fixed, stands]):
+            self.assertEqual(passes.union(answers)["dispositions"], ruled("rejected"))
+        self.assertEqual(passes.union([fixed, dict(fixed)])["dispositions"], ruled("accepted"))
+        # So does one that a later answer leaves unruled, or rules only by a proposal: silence is no ruling.
+        proposed = dict(said([]), dispositions=[{"finding": "f_9c1e", "proposal": {"outcome": "fixed"}}])
+        # And one a later answer rules both ways, or by both halves: a hedge is no `accepted`.
+        both_ways = dict(said([]), dispositions=ruled("accepted") + ruled("rejected"))
+        halves = dict(said([]), dispositions=[{"finding": "f_9c1e", "proposal": {"outcome": "fixed"}, "decision": {"result": "accepted"}}])
+        for answers in ([fixed, said([])], [fixed, proposed], [fixed, dict(fixed), said([])], [fixed, both_ways], [fixed, halves]):
+            self.assertEqual(passes.union(answers)["dispositions"], ruled("rejected"))
         # Agreement is counted by answer: two answers raising a blocker outvote one raising three minors at the same place.
         minors = [raised("n%d" % i, "kernel/decide.py", line, line, "PR-3", "minor", "functional") for i, line in ((1, 90), (2, 91), (3, 90))]
         voted = passes.union([said([other]), said([dict(other)]), said(minors)])
