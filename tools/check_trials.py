@@ -122,6 +122,8 @@ OPENED = re.compile(r"(?:^ {0,3}(?:```|~~~))|(?:<!--)", re.M)
 # trial as its heading, its batch of section 6.1, and its question and its pass, each the text its row's cell would
 # hold, on one line, a pipe escaped, so that its row is written from it byte for byte and a quote reads it as a row's.
 PAGES = "docs/architecture/trials"
+# The last trial section 6 holds a row for: every trial after it has a page, and never a row.
+LAST_ROW = 78
 PAGE_NAME = re.compile(r"^(P-[1-9][0-9]*)\.md$")
 CELL = r"(?:\\[^\n]|[^\\|\n])+"
 PAGE = re.compile(r"# (P-[1-9][0-9]*)\n\nBatch: ([1-4]|none)\n\n## Question\n\n(%s)\n\n## Pass\n\n(%s)\n" % (CELL, CELL))
@@ -937,7 +939,7 @@ def pages(root: pathlib.Path) -> tuple:
     found, problems = {}, []
     for path in walk.files(root, PAGES):
         rel = path.relative_to(root).as_posix()
-        named = PAGE_NAME.match(path.name)
+        named = PAGE_NAME.fullmatch(path.name)
         if not named or path.parent != root / PAGES or path.is_symlink():
             problems.append("%s: only a trial's page, named for the trial as P-12.md, is kept in %s" % (rel, PAGES))
             continue
@@ -952,6 +954,8 @@ def pages(root: pathlib.Path) -> tuple:
         elif not page:
             problems.append("%s: is not a trial's page: '# %s', a 'Batch:' of 1 to 4 or none, then '## Question' and "
                             "'## Pass', each with its text on one line, a blank line between each" % (rel, named.group(1)))
+        elif not (page.group(3).strip() and page.group(4).strip()):
+            problems.append("%s: its question or its pass is blank; write each" % rel)
         elif page.group(1) != named.group(1):
             problems.append("%s: is headed %s; a page is headed with the trial it is named for" % (rel, page.group(1)))
         else:
@@ -983,7 +987,9 @@ def _batches(root: pathlib.Path) -> dict:
     except (OSError, ValueError):
         return {}
     start = text.find("\n### 6.1 ")
-    batched = text[start:text.find("\n## ", start + 1)] if start >= 0 else ""
+    batched = HIDDEN.sub("", text[start:text.find("\n## ", start + 1)] if start >= 0 else "")
+    opened = OPENED.search(batched)
+    batched = batched[:opened.start()] if opened else batched      # read as section 6 is: what is seen alone
     return {t: b for b, cell in BATCH.findall(batched) for t in re.findall(r"\bP-[1-9][0-9]*\b", cell)}
 
 
@@ -997,8 +1003,13 @@ def table(root: pathlib.Path = ROOT) -> str:
     rows = {m.group(1): m.group(0) for m in WHOLE_ROW.finditer(section)}
     if set(ROW.findall(section)) != set(rows):
         raise ValueError("a row of section 6 is not '| P-N | question | pass |'; the check says which")
+    paged, wrong = pages(root)
+    if wrong or set(rows) & set(paged):
+        raise ValueError("a page is refused, or a trial has a page and a row; python3 -m tools.check_trials says which")
     batch = _batches(root)
-    for trial, (said, question, passed) in pages(root)[0].items():
+    if set(batch.values()) != {"1", "2", "3", "4"}:
+        raise ValueError("6.1's four batches cannot all be read, so a trial in none cannot be told from one unread")
+    for trial, (said, question, passed) in paged.items():
         rows[trial], batch[trial] = "| %s | %s | %s |" % (trial, question, passed), said
     order = sorted(rows, key=lambda trial: int(trial[2:]))
     out = ["| # | Question | Pass |", "|---|---|---|"] + [rows[t] for t in order] + ["", "| Batch | Trials |", "|---|---|"]
@@ -1031,6 +1042,9 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
         whole = set(WHOLE_ROW.findall(_section_6(root)))
         for trial in sorted(set(listed_rows) - whole):
             problems.append("%s: %s's row in section 6 is not '| %s | question | pass |'; write it so" % (DESIGN, trial, trial))
+        for trial in sorted({t for t in listed_rows if int(t[2:]) > LAST_ROW}, key=lambda t: int(t[2:])):
+            problems.append("%s: %s has a row in section 6; a trial after P-%d has a page in %s instead"
+                            % (DESIGN, trial, LAST_ROW, PAGES))
         # A page's batch is the one 6.1 names it in, where 6.1 still does.
         named = _batches(root)
         for trial in sorted(t for t in paged if t in named and named[t] != paged[t][0]):

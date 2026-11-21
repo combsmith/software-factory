@@ -14,8 +14,8 @@ everything a trial leaves in it: its runs, logs and artifacts.
 
 - **Order.** Section 6.1 runs the trials in batches. `python3 -m tools.check_trials --table` prints
   each batch's trials, from section 6's rows and each trial's page in docs/architecture/trials.
-  List `trials/` and check that every trial of an earlier batch has a fixture; if one has none,
-  stop and ask the Maintainer.
+  P-32, P-33 and P-34 run before the Factory's author is built. List `trials/` and check that
+  every trial of an earlier batch has a fixture; if one has none, stop and ask the Maintainer.
 - **Only the canary.** A trial runs in combsmith/software-factory-canary. Set
   `GH_REPO=combsmith/software-factory-canary` for every command of the trial, and name no other
   repo. P-8 needs twelve repos, P-11 the control room and the hub, P-19 a separate public repo,
