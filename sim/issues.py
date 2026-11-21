@@ -217,7 +217,8 @@ class IssueWorld:
             # The default branch's head, which the first opening Run is admitted at (decision 0242). It moves each
             # minute, so an opening Run's apply meets a head other than the base it was admitted at.
             "default_head": "%040x" % (0xd0d0 + self.minute),
-            "complete": {"timeline": True, "linked": True, "runs": True}, "read_at": self.now(),
+            # The work branch is told at every read here: a short read of it is a short list, below (issue 1059).
+            "complete": {"timeline": True, "linked": True, "runs": True, "branch": True}, "read_at": self.now(),
         })
 
     def records(self) -> list:

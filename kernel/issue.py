@@ -817,10 +817,18 @@ def readable_writer(facts: dict) -> bool:
                for name in ("last_writer_action_at", "last_writer_comment_at"))
 
 
+def branch_told(facts: dict) -> bool:
+    """Whether the issues port told the next opening's branch: `complete.branch` exactly true. Not one of the lists every
+    rule reads (`ISSUE_READ_IN_FULL`): a branch not told defers an opening alone (decision 0242)."""
+    flags = facts.get("complete")
+    return isinstance(flags, dict) and flags.get("branch") is True
+
+
 def readable_head(facts: dict) -> bool:
-    """The head of the branch the next opening Run would push to: a name, or null while that branch does not exist."""
-    return "branch_head" in facts and (facts["branch_head"] is None
-                                       or (isinstance(facts["branch_head"], str) and facts["branch_head"] != ""))
+    """The head of the branch the next opening Run would push to, told: a commit's whole sha, or null while that branch
+    does not exist. A null the port could not tell is no branch read as missing (issue 1059)."""
+    return branch_told(facts) and "branch_head" in facts and (
+        facts["branch_head"] is None or is_sha(facts["branch_head"]))
 
 
 def is_sha(value) -> bool:

@@ -114,6 +114,8 @@ def strangers(admitted=False, **over) -> dict:
 
 # The default branch's head, as the issues port reads it once for each repo in a pass (decision 0242).
 MAIN_HEAD = "3b8e5d1c0a9f7e6d5c4b3a291807f6e5d4c3b2a1"
+# The work branch's head, a commit's whole sha, where that branch stands (issue 1059).
+BRANCH_HEAD = "9f2c41d07a3be58e1c6d0b4a7e25f3c18d90ab6e"
 
 
 def facts(**over) -> dict:
@@ -122,7 +124,7 @@ def facts(**over) -> dict:
          "life_started_at": at(0), "reopened_last_by": "never", "content_id": THIS, "content_changed_at": at(0),
          "label_events": [], "linked": [], "role_comments": [], "last_writer_action_at": at(0),
          "last_writer_comment_at": None, "acts_since_writer": 0, "branch_head": None,
-         "default_head": MAIN_HEAD, "complete": {"timeline": True, "linked": True, "runs": True},
+         "default_head": MAIN_HEAD, "complete": {"timeline": True, "linked": True, "runs": True, "branch": True},
          "read_at": at(50)}
     f.update(over)
     # The two times a close and a reopening carry, as GitHub holds them, unless the case gives them: a person's close
@@ -2322,8 +2324,8 @@ class Opening(unittest.TestCase):
         self.assertEqual((what(d), d["admit"]), (("admit", "ready", OPEN), {"role": "dev-lead", "intent": OPEN,
                                                                            "content_id": THIS, "branch_head": None,
                                                                            "base": MAIN_HEAD}))
-        d = decide(facts(label_events=READIED_BY_A_PERSON, branch_head="9f2c41d"))
-        self.assertEqual(d["admit"]["branch_head"], "9f2c41d")
+        d = decide(facts(label_events=READIED_BY_A_PERSON, branch_head=BRANCH_HEAD))
+        self.assertEqual(d["admit"]["branch_head"], BRANCH_HEAD)
         self.assertNotIn("branch_head", decide(TRIAGED)["admit"])
 
     def test_the_first_opening_run_carries_the_default_branchs_head_as_its_base(self):  # issue 1038, decision 0242
@@ -2331,7 +2333,7 @@ class Opening(unittest.TestCase):
         # first push lands on; once a branch head exists, never.
         d = decide(facts(label_events=READIED_BY_A_PERSON))
         self.assertEqual((d["admit"]["branch_head"], d["admit"]["base"]), (None, MAIN_HEAD))
-        d = decide(facts(label_events=READIED_BY_A_PERSON, branch_head="9f2c41d"))
+        d = decide(facts(label_events=READIED_BY_A_PERSON, branch_head=BRANCH_HEAD))
         self.assertNotIn("base", d["admit"])
         # A default head that cannot be read defers that admission alone: not an opening with a branch head, nor any
         # other Run, nor an act.
@@ -2343,18 +2345,48 @@ class Opening(unittest.TestCase):
             else:
                 f["default_head"] = value
             self.assertEqual(what(decide(f)), ("defer", "base_unreadable", None), value)
-            self.assertEqual(what(decide(dict(f, branch_head="9f2c41d")))[:2], ("admit", "ready"), value)
+            self.assertEqual(what(decide(dict(f, branch_head=BRANCH_HEAD)))[:2], ("admit", "ready"), value)
             self.assertEqual(what(decide(dict(f, label_events=ACCEPTED)))[2], INVESTIGATE, value)
             self.assertEqual(decide(dict(f, label_events=[])).get("action"), "accept", value)
 
     def test_an_unreadable_branch_head_defers_the_opening_run_alone(self):
-        for value in ("", 1, ["9f2c41d"]):
+        for value in ("", 1, ["9f2c41d"], "9f2c41d", "main", BRANCH_HEAD.upper(), BRANCH_HEAD + "0"):
             self.assertEqual(what(decide(facts(label_events=READIED_BY_A_PERSON, branch_head=value))),
                              ("defer", "branch_unreadable", None), value)
         f = facts(label_events=READIED_BY_A_PERSON)
         del f["branch_head"]
         self.assertEqual(what(decide(f)), ("defer", "branch_unreadable", None))
         self.assertEqual(what(decide(facts(label_events=ACCEPTED, branch_head=1)))[2], INVESTIGATE)
+
+    def test_the_work_branch_is_read_as_a_commit_as_no_branch_or_not_told_and_only_no_branch_carries_a_base(self):
+        # Issue 1059, decision 0242: the issues port tells three values apart. A commit admits the opening Run for it, a
+        # branch read as not standing admits the first opening at the default branch's head, and a branch not told,
+        # `complete.branch` anything but exactly true, defers that admission whatever head the facts hold.
+        sha = "9f2c41d07a3be58e1c6d0b4a7e25f3c18d90ab6e"
+        d = decide(facts(label_events=READIED_BY_A_PERSON, branch_head=sha))
+        self.assertEqual((d["outcome"], d["admit"]["branch_head"], "base" in d["admit"]), ("admit", sha, False))
+        d = decide(facts(label_events=READIED_BY_A_PERSON))
+        self.assertEqual((d["outcome"], d["admit"]["branch_head"], d["admit"]["base"]), ("admit", None, MAIN_HEAD))
+        told = {"timeline": True, "linked": True, "runs": True}
+        missing = object()
+        for flag in (False, None, "true", 1, missing):
+            for head in (None, sha):
+                f = facts(label_events=READIED_BY_A_PERSON, branch_head=head,
+                          complete=dict(told) if flag is missing else dict(told, branch=flag))
+                self.assertEqual(what(decide(f)), ("defer", "branch_unreadable", None), (flag, head))
+                # Nothing else on the issue waits on it: its State, its investigation and the acceptance act.
+                self.assertEqual(derive(f)["state"], derive(facts(label_events=READIED_BY_A_PERSON))["state"])
+                self.assertEqual(what(decide(dict(f, label_events=ACCEPTED)))[2], INVESTIGATE, (flag, head))
+                self.assertEqual(decide(dict(f, label_events=[])).get("action"), "accept", (flag, head))
+        # The implementing Run pushes to its own draft (decision 0217): the next opening's branch, told or not, neither
+        # defers nor admits it.
+        named = dict(config(), author_role="dev-lead")
+        failing = facts(linked=[agents(draft=True, checks="failing")])
+        d = decide(failing, cfg=named)
+        self.assertEqual(d["outcome"], "admit")
+        for flag in (False, None, "true", missing):
+            f = dict(failing, complete=dict(told) if flag is missing else dict(told, branch=flag), branch_head=None)
+            self.assertEqual(decide(f, cfg=named)["admit"], d["admit"], flag)
 
     def test_an_outsiders_issue_opens_only_from_a_statement_made_since_its_content_changed(self):
         events = [labelled(ADMIT), labelled(READY, minute=2)]
@@ -2528,7 +2560,7 @@ class Apply(unittest.TestCase):
         self.assertEqual(issue.still_admitted(admitted, decide(f, runs)), want, f["label_events"])
 
     def test_the_opening_run_is_refused_after_a_label_is_removed_a_hold_added_the_content_changed_or_the_head_moved(self):
-        f = facts(label_events=READIED_BY_A_PERSON, branch_head="9f2c41d")
+        f = facts(label_events=READIED_BY_A_PERSON, branch_head=BRANCH_HEAD)
         admitted = decide(f)
         self.assertEqual(admitted["outcome"], "admit")
         # In flight, the Run holds the issue; left out, it is the Run still wanted.
