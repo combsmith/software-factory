@@ -66,6 +66,14 @@ def _identities(accounts) -> tuple:
     found.update({name: "role" for name in (roles if isinstance(roles, dict) else {})})
     # A Role named as a hand's writes are could not be told from a person: no identity is known then.
     known = known and HAND not in found
+    # A Lens's thread is the facts' by the Lens's account, and a hand's by its Role's (`adapters/seen.py`): where the
+    # two are not one account, a person's resolution of that Lens's thread is read as no write, so none is known.
+    lenses = accounts.get("lenses")
+    for lens in lenses if isinstance(lenses, list) else ():
+        name = lens.get("lens") if isinstance(lens, dict) else None
+        role = roles.get(name) if isinstance(roles, dict) and isinstance(name, str) else None
+        if not isinstance(role, dict) or role.get("type") != "Bot" or role.get("id") != lens.get("id"):
+            known = False
     # The queue App is an identity once its account is set (issue 381); until then nothing is its, and nothing short.
     if isinstance(accounts.get("queue"), dict):
         found["queue"] = "queue"
@@ -111,16 +119,26 @@ def left(before, since=None) -> list:
     return [e["number"] for e in _last(before).get("left", []) if since is None or _within(e["at"], since)]
 
 
-def _named(before, item: str):
-    """The threads that the last pass before which decided `item` named in its act `resolve_thread`: none if its
-    Decision was any other. A pass that did not decide the item, which it could not read, says nothing of it, and where
-    no record before decided it, None: nothing can judge."""
+def _named(before, item: str) -> tuple:
+    """`(threads, whole)`: the threads that the last pass before which decided `item` named in its act `resolve_thread`,
+    none if its Decision was any other. A pass that did not decide the item, which it could not read, says nothing of it,
+    and where no record before decided it, nothing can judge the rest: not whole. Nor can that record if it was written
+    before a hand's resolutions were carried: the rule starts for an item where the record that decided it starts it
+    (issue 887). A pass that read the item's writes short could not see a resolution made before it: the one before it
+    names threads too, and what the passes after it named still stands where nothing before can judge."""
+    named = set()
     for record in reversed(before if isinstance(before, list) else []):
         for e in record["pull_requests"]:
             if key(e["facts"]["item"]) == item:
+                reconciled = record.get("reconciled") if isinstance(record.get("reconciled"), dict) else {}
+                if "hands" not in reconciled:
+                    return named, False
                 d = e["decision"]
-                return set(d["evidence"]) if d["outcome"] == "act" and d.get("action") == "resolve_thread" else set()
-    return None
+                named |= set(d["evidence"]) if d["outcome"] == "act" and d.get("action") == "resolve_thread" else set()
+                if e["facts"]["item"]["number"] not in reconciled.get("owed", ()):
+                    return named, True
+                break
+    return named, False
 
 
 def _is_hands(w: dict) -> bool:
@@ -136,10 +154,10 @@ def _hands(seen: dict, before) -> tuple:
     carried_ = {e["key"] for e in held or () if _within(e["at"], seen["since"])}
     matched, unjudged = set(), set()
     for w in filter(_is_hands, seen["writes"]):
-        named = _named(before, key(w["item"])) if held is not None else None
-        if w["key"] in carried_ or (named is not None and w["key"] in named):
+        named, whole = _named(before, key(w["item"])) if held is not None else (set(), False)
+        if w["key"] in carried_ or w["key"] in named:
             matched.add(w["key"])
-        elif named is None:
+        elif not whole:
             unjudged.add(w["key"])
     return matched, unjudged
 
