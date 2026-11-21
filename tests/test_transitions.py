@@ -159,8 +159,7 @@ BASES = {
     "approval_lost": base([reviewed()], queue=True, acts_since_writer=2),
     "gate_open": base([reviewed()], reviews=APPROVED, queue=True, acts_since_writer=2, threads=[PERSONS_THREAD]),
     "human_hold": base([reviewed()], label_events=[labelled(t.LABEL_HOLD)]),
-    # A pull request the Factory opened stands with its issue: held while a person holds or has closed the issue, and a
-    # queued one taken out (decision 0232).
+    # Its issue held or closed holds it, and takes a queued one out (decision 0232).
     "issue_stopped, its issue held": base([reviewed()], issue_stands="held"),
     "issue_stopped, its issue closed": base([reviewed()], issue_stands="closed"),
     "issue_stopped, queued": base([reviewed()], reviews=APPROVED, queue=True, acts_since_writer=2, issue_stands="held"),
@@ -302,7 +301,7 @@ STILL = {
         {"run": str(7 + i), "created_at": "2026-10-01T00:00:00Z", "status": "completed"}
         for i in range(CONFIG["limits"]["max_unnamed_runs"] + 1)]}),
     "last_pusher_unreadable": base([reviewed()], last_pusher=None),
-    # How the issue a Factory-opened pull request stands with was not read (decision 0232).
+    # How its issue stands was not read (decision 0232).
     "issue_stands_unreadable": base([reviewed()], issue_stands=None),
     # A count the facts schema refuses, which the Kernel still reads as unreadable.
     "acts_unreadable": base([reviewed()], acts_since_writer=None),
@@ -709,8 +708,7 @@ MOVES = [
     Move("a person marks it ready", "human", a_persons(set_fact(is_draft=False))),
     Move("a person adds a Hold", "human", lambda pr: label(pr, t.LABEL_HOLD, MAINTAINER)),
     Move("a person removes a Hold", "human", lambda pr: label(pr, t.LABEL_HOLD, MAINTAINER, "unlabeled")),
-    # A person holds, closes or lets go the issue the pull request was opened for; the Controller's join says how the
-    # issue stands (decision 0232). A hold or a close takes a queued pull request out, as the queue's own drop does.
+    # A person holds, closes or lets go its issue (decision 0232).
     Move("a person holds its issue", "human", set_fact(issue_stands="held")),
     Move("a person closes its issue", "human", set_fact(issue_stands="closed")),
     Move("a person lets its issue go on", "human", set_fact(issue_stands="open")),

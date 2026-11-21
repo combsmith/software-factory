@@ -28,7 +28,6 @@ LIMITS = CONFIG["limits"]
 AGENT = {"class": "agent", "author": "combsmith-sf-dev-lead[bot]", "last_pusher": "combsmith-sf-dev-lead[bot]",
          "opened_for": 7, "issue_stands": "open"}
 # A pull request the Factory opened, for issue 7: the only kind the author Role's fix is admitted on (decision 0216).
-# Its issue stands open, as nobody held or closed it (decision 0232).
 OURS = {"opened_for": 7, "issue_stands": "open"}
 COLLEAGUE = {"kind": "human", "name": "a-colleague", "can_write": True}
 STRANGER = {"kind": "human", "name": "stranger", "can_write": False}
@@ -594,9 +593,7 @@ class OnlyAPersonEnds(unittest.TestCase):
                 self.assertEqual((d["state"], d["action"]), ("converged", "issue_approval"), (cls, who, over))
 
     def test_a_pull_request_whose_issue_a_person_held_or_closed_is_held_and_leaves_the_queue(self):  # decision 0232
-        # A pull request the Factory opened for an issue stands with it: while a person holds the issue, or has closed
-        # it, the pull request is held, and a queued one is taken out, so that no merge lands (decision 0003's row).
-        # Open, the issue stops nothing.
+        # Held or closed, its issue holds it and takes a queued one out; open, it stops nothing.
         for stands in ("held", "closed"):
             d = go(facts(**dict(OURS, issue_stands=stands)), REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
@@ -611,8 +608,7 @@ class OnlyAPersonEnds(unittest.TestCase):
         self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"))
         d = go(facts(reviews=APPROVED, **OURS), REVIEWED)
         self.assertEqual((d["state"], d["reason"]), ("converged", "approved"))
-        # What cannot be read stops, and admits nothing: no word of how the issue stands, a null one, or any word but
-        # the three. The item is deferred, and a queued one is taken out, as on any failed read.
+        # Not read, absent, null or any other word: deferred, nothing admitted, a queued one taken out.
         absent = facts(opened_for=7)
         del absent["issue_stands"]
         for unread in (absent, facts(opened_for=7, issue_stands=None), facts(opened_for=7, issue_stands="Held"),
@@ -626,20 +622,18 @@ class OnlyAPersonEnds(unittest.TestCase):
             d = go(dict(unread, queue=True, reviews=APPROVED), REVIEWED)
             self.assertEqual((d["reason"], d["outcome"], d.get("action")), ("issue_stands_unreadable", "act", "dequeue"))
         self.assertNotIn("issue_stands", absent)
-        # Only a pull request the Factory opened for an issue stands with one: on any other, how an issue stands is not
-        # read, whatever the facts say of it, and nothing is held or deferred for it. So facts made before the fact
-        # was, an eval set's among them, read as they did.
+        # On a pull request opened for no issue the fact is not read, so older facts read as they did.
         for other in ({}, {"issue_stands": "held"}, {"issue_stands": "closed"}, {"issue_stands": None},
                       {"opened_for": None, "issue_stands": "closed"}, {"opened_for": 0, "issue_stands": "held"},
                       {"opened_for": True, "issue_stands": "held"}, {"opened_for": "7", "issue_stands": "held"}):
             d = go(facts(reviews=APPROVED, **other), REVIEWED)
             self.assertEqual((d["state"], d["reason"]), ("converged", "approved"), other)
-        # A person's own Hold on the pull request, and hands-off, are read before its issue: each says who must end it.
+        # A person's own Hold on the pull request, and hands-off, are read before its issue.
         d = go(facts(label_events=[labelled("factory:hold")], **dict(OURS, issue_stands="closed")), REVIEWED)
         self.assertEqual(d["reason"], "human_hold")
         d = go(facts(label_events=[labelled("factory:hold")], opened_for=7), REVIEWED)
         self.assertEqual(d["reason"], "human_hold")
-        # A person's hands-off is never acted on, whatever its issue says: a queued pull request under it stays queued.
+        # Under a person's hands-off, a queued pull request stays queued.
         for stands in ("held", "closed", None):
             d = go(facts(label_events=[labelled("factory:hands-off")], **dict(OURS, issue_stands=stands)), REVIEWED)
             self.assertEqual((d["state"], d["reason"]), ("held", "hands_off"), stands)

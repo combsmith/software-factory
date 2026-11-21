@@ -614,14 +614,9 @@ def held_by(labels: dict, drafts: list) -> list:
 
 def stands(facts, config: dict):
     """How the issue stands for the pull request the Factory opened for it (decision 0232): `closed` while GitHub says
-    it is closed, whoever closed it; `held` while a Hold stands on the issue itself, or hands-off anyone but a person
-    placed, which is read as one; `open` else; and None where that cannot be read. Only the issue's state and its own
-    label events are read, never the rows of `derive`: a pull request is stopped by the issue's Hold whether or not the
-    issue is served, linked or accepted. A close the Factory's merge made ends the pull request first, so a closed
-    issue beside an open pull request was closed some other way, and the pull request waits for a person. A person's
-    hands-off on the issue is no stop: the Factory never acts under it, a dequeue is an act, and it leaves a queued
-    item to merge, a Hold beside it too, as row 1 reads a merge under it. Label events read short, or one that cannot
-    be read whole, give None."""
+    so; `held` while a Hold stands on the issue, or hands-off anyone but a person placed; `open` else, a person's
+    hands-off among them (the Factory never acts under it, and a dequeue is an act); None where it cannot be read.
+    Only the issue's state and own label events are read, never the rows of `derive`."""
     if not isinstance(facts, dict) or facts.get("state") not in ISSUE_STATES:
         return None
     if facts["state"] == "closed":
