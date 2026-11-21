@@ -469,6 +469,17 @@ class Override(unittest.TestCase):
         self.assertEqual(reconcile.entries(check(seen(merged=[merge]), before=[at("verifying")])),
                          [{"alert": "merged_by_override", "by": None, "write": "merge", "item": URL, "key": None}])
 
+    def test_an_issue_read_whole_by_its_end_is_named_once_as_information(self):  # decision 0235
+        issue = dict(ITEM, type="issue", number=41)
+        told = dict(seen(), gone=[{"item": issue, "answer": 404}, {"item": issue, "answer": 404}])
+        assert not validate(told, SCHEMAS["seen"], schemas=SCHEMAS)
+        found = check(told)
+        self.assertEqual((reconcile.alerts(found), found["short"]), ([], False))
+        self.assertEqual(reconcile.entries(found), [{"alert": "issue_gone", "by": None, "write": "close",
+                                                     "item": "https://github.com/%s/issues/41" % ITEM["repo"], "key": "404"}])
+        # What was seen that cannot be read tells nothing.
+        self.assertEqual(check(dict(told, schema="seen/2"))["gone"], [])
+
 
 HEAD, OTHER_HEAD = "a" * 40, "b" * 40
 APPROVER = {"id": 281750570, "type": "User", "login": "donpetry-bot"}
@@ -686,23 +697,59 @@ class SeenPort(unittest.TestCase):
         self.assertIs(seen_.read(GitHub(none), ITEM, seen_.GONE, IDENTITIES, APPS, SINCE)[2], False)
 
     def test_an_issue_that_left_is_read_with_its_close(self):  # issue 916, decision 0235
-        # An issue the pass before served that has left is read as a pull request that left is: whole only with its
-        # close, in the window, or any for one a pass before read as gone. A merge is no issue's close. The Controller's
-        # close and label on it are writes.
+        # An issue the pass before served that has left is read first by its state. Closed, it is read as a pull request
+        # that left is: whole only with its close, in the window, or any for one a pass before read as gone. A merge is
+        # no issue's close. The Controller's close, label and comment on it are writes, and a comments read that fails
+        # leaves it short whatever its close.
         issue = dict(ITEM, type="issue")
-        def read(events, kept):
-            github = GitHub({("GET", ISSUE + "/timeline?per_page=100"): events})
-            return seen_.read(github, issue, kept, IDENTITIES, APPS, SINCE)
+        COMMENTS_ = ("GET", ISSUE + "/comments?since=%s&per_page=100" % SINCE)
+        state = lambda value: {"number": ITEM["number"], "state": value}
+
+        def read(events, kept, answer=state("closed"), comments=(), **kw):
+            github = GitHub({("GET", ISSUE + "/timeline?per_page=100"): events, ("GET", ISSUE): answer,
+                             COMMENTS_: list(comments) if comments is not None else None})
+            return seen_.read(github, issue, kept, IDENTITIES, APPS, SINCE, **kw)
         closed = [{"event": "labeled", "actor": CONTROLLER, "created_at": AT},
                   {"event": "closed", "actor": CONTROLLER, "created_at": AT}]
-        writes, _, whole = read(closed, seen_.LEFT)
-        self.assertEqual(([(w["by"], w["kind"]) for w in writes], whole), ([("controller", "label"), ("controller", "close")], True))
+        said = [{"user": CONTROLLER, "node_id": "IC_c", "created_at": AT}]
+        writes, _, whole = read(closed, seen_.LEFT, comments=said)
+        self.assertEqual(([(w["by"], w["kind"]) for w in writes], whole),
+                         ([("controller", "comment"), ("controller", "label"), ("controller", "close")], True))
+        self.assertIs(read(closed, seen_.LEFT, comments=None)[2], False)
         old = [{"event": "closed", "actor": PERSON, "created_at": EARLY}]
         self.assertEqual((read(old, seen_.LEFT)[2], read(old, seen_.GONE)[2]), (False, True))
         for none in ([], [{"event": "merged", "actor": PERSON, "created_at": AT}]):
             self.assertEqual((read(none, seen_.LEFT)[2], read(none, seen_.GONE)[2]), (False, False), none)
-        # An open issue, served, needs no close.
-        self.assertIs(read([], None)[2], True)
+        # An open issue, served, needs no close and is asked no state; one that left the issues served while open is
+        # read as it is, by its state, with no close.
+        self.assertIs(read([], None, answer=None)[2], True)
+        for kept in (seen_.LEFT, seen_.GONE):
+            self.assertEqual(read(closed[:1], kept, answer=state("open"))[1:], ([], True), kept)
+        # Not found or deleted, it is whole with nothing more read only where the same token read its repo in this pass,
+        # and is told with its answer; else access may be what was lost, and it is short.
+        for code in (404, 410):
+            told = []
+            self.assertEqual(read(closed, seen_.LEFT, {"status": code, "body": {}}, repo_read=True, told=told), ([], [], True))
+            self.assertEqual(told, [{"item": issue, "answer": code}])
+            told = []
+            self.assertEqual(read(closed, seen_.GONE, {"status": code, "body": {}}, told=told), ([], [], False))
+            self.assertEqual(told, [])
+        # Any other answer is short: a 403, a 429 or a 5xx, none at all (as a transfer's 301 reaches the port, the
+        # transport keeping no redirect's code), a body of another issue or with no state.
+        for answer in ({"status": 403, "body": {}}, {"status": 429, "body": {}}, {"status": 500, "body": {}}, None,
+                       {"number": 7, "state": "closed"}, {"number": ITEM["number"]}, {"number": ITEM["number"], "state": "all"}):
+            self.assertEqual(read(closed, seen_.LEFT, answer, repo_read=True, told=[]), ([], [], False), answer)
+
+    def test_the_repo_is_read_by_its_full_name(self):  # decision 0235
+        repo = ITEM["repo"]
+        for answer, read in (({"full_name": repo}, True), ({"full_name": repo.upper()}, True), ({"full_name": "a/b"}, False),
+                             ({}, False), ({"status": 404, "body": {"full_name": repo}}, False), (None, False)):
+            self.assertIs(seen_.repo_read(GitHub({("GET", "/repos/" + repo): answer}), repo), read, answer)
+
+    def test_the_issues_read_whole_by_their_end_are_carried_in_what_was_seen(self):  # decision 0235
+        gone = [{"item": dict(ITEM, type="issue"), "answer": 410}]
+        self.assertEqual(seen_.seen([([], [], True)], SINCE, gone)["gone"], gone)
+        self.assertNotIn("gone", seen_.seen([([], [], True)], SINCE))
 
     def test_an_item_that_left_the_open_list_has_its_timeline_read_here(self):  # issue 329
         # A pull request merged or closed between the passes is no longer open, so no snapshot reads it: its timeline
@@ -1001,12 +1048,19 @@ class Carried(unittest.TestCase):
         # One that leaves again is stamped anew, once (Muse).
         anew = reconcile.carried(before, self.effects(), seen(), self.NEXT, gone_issues=[41])
         self.assertEqual(anew["left_issues"], [{"number": 41, "at": self.NEXT}])
+        # Another that leaves keeps the first one's stamp beside its own (Astra).
+        other = reconcile.carried(before, self.effects(), seen(), self.NEXT, gone_issues=[42])
+        self.assertEqual(other["left_issues"], [{"number": 41, "at": self.NOW}, {"number": 42, "at": self.NEXT}])
         late = reconcile.carried(before, self.effects(), dict(seen(), since="2026-10-11T14:00:00Z"), self.NEXT)
         self.assertNotIn("left_issues", late)
         self.assertEqual(reconcile.left_issues(before, "2026-10-11T14:00:00Z"), [])
         # A record with neither carries neither, as one written before them.
         self.assertEqual(set(reconcile.carried([], self.effects(), seen(), self.NOW)) & {"owed_issues", "left_issues"}, set())
         self.assertEqual((reconcile.owed_issues([]), reconcile.left_issues([])), ([], []))
+        # Nor does a record that carries neither, read back (Astra).
+        bare = [{"now": self.NOW, "pull_requests": [], "reconciled": reconcile.carried([], self.effects(), seen(), self.NOW)}]
+        self.assertEqual((reconcile.owed_issues(bare), reconcile.left_issues(bare), reconcile.left_issues(bare, SINCE)),
+                         ([], [], []))
 
     def test_what_a_pass_read_matches_a_write_in_the_passes_after_it_for_the_window(self):
         read = self.effects(applied(("approve", "K", "applied"), ("comment", "L", "already_applied"), ("comment", "M", "failed")),
