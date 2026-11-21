@@ -2143,7 +2143,7 @@ class Entry(unittest.TestCase):
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
-        def issue_read(transport, repo, number, accounts, clock, *, identities):
+        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel):
             return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "An issue"
 
         def runs(*args, **kw):
