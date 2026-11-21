@@ -177,18 +177,39 @@ def unfit(effects) -> bool:
         or any(not FITS_ITEM.fullmatch(item) for _, item in items)
 
 
-def carried(before, effects, seen, now: str, unread=(), gone=()) -> dict:
+def carried(before, effects, seen, now: str, unread=(), gone=(), hand=(), taken=()) -> dict:
     """What this pass's record carries for the next: what was read in the window and the keys it held, those older than the
     window dropped, and the pull requests whose writes it could not read. A key, which one write alone can match, is stamped
     with when it was read, so it outlasts the write it records. A write matched by its item is credit any such write could
     spend, so it is stamped with when its record was made, and kept for `LATE` after, as the writes it records are later
     than that; so a late first read does not stretch it. So a record holds what the Effects said, not the records
     themselves, and a pass reads only what is new (decision 0112). Each pull request `gone`, first read as left by this
-    pass, is stamped with now, and one a record before stamped is kept until the window passes it (issue 787)."""
+    pass, is stamped with now, and one a record before stamped is kept until the window passes it (issue 787). So is
+    each hand approval, `hand`, and each head an unmatched approval took, `taken`, until its pull request leaves
+    (decision 0241)."""
     since = seen["since"] if seen is not None and not errors(seen, "seen") else None
-    held = {name: [e for e in rows if name == "owed" or since is None or _within(e["at"], since, name == "items")]
+    held = {name: [e for e in rows if name in ("owed", "hand", "taken") or since is None or _within(e["at"], since, name == "items")]
             for name, rows in _last(before).items()}
     held["owed"] = sorted(set(unread))
+    # A hand approval's head stays taken until its pull request leaves, not for the window alone (decision 0241).
+    gone_ = set(gone)
+    # Nothing new is carried for a pull request that left in the window, or this pass: its reviews are read until the
+    # window passes them, and what was dropped when it left is not taken up again.
+    left_ = gone_ | {e["number"] for e in held.get("left", [])}
+    known_hand = {e["key"] for e in held.get("hand", [])}
+    hands = [e for e in held.pop("hand", []) if int(e["item"].rsplit("/", 1)[1]) not in gone_] + [
+        {"key": h["key"], "item": key(h["item"]), "head": h["head"], "at": h["at"]} for h in hand
+        if h["key"] not in known_hand and FITS_KEY.fullmatch(h["key"]) and FITS_ITEM.fullmatch(key(h["item"]))
+        and h["item"]["number"] not in left_]
+    if hands:
+        held["hand"] = hands
+    known_taken = {(e["key"], e["item"], e["head"]) for e in held.get("taken", [])}
+    heads_ = [e for e in held.pop("taken", []) if int(e["item"].rsplit("/", 1)[1]) not in gone_] + [
+        {"key": t["key"], "item": key(t["item"]), "head": t["head"]} for t in taken
+        if (t["key"], key(t["item"]), t["head"]) not in known_taken and (t["key"] is None or FITS_KEY.fullmatch(t["key"]))
+        and FITS_ITEM.fullmatch(key(t["item"])) and t["item"]["number"] not in left_]
+    if heads_:
+        held["taken"] = heads_
     held["left"] = [e for e in held.get("left", []) if e["number"] not in set(gone)] + [
         {"number": n, "at": now} for n in sorted(set(gone))]
     # A hand's resolution that was matched, or that nothing could judge, is stamped again each pass it is seen.
@@ -367,8 +388,7 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
         else:
             # Matched, unmatched or keyless, it takes its head: an approval of that head after it is a second (0241).
             heads.setdefault((key(w["item"]), w["commit"]), set()).add(w["key"])
-            if w["key"] is not None:
-                seconds.append({"item": w["item"], "key": w["key"], "head": w["commit"]})
+            seconds.append({"item": w["item"], "key": w["key"], "head": w["commit"]})
     unmatched = [u for u in unmatched if not any(u is t for t in taken)]
     # The pass job's token is an identity once its account is set; until then no dispatch is reconciled (ruling 2).
     token = isinstance(accounts, dict) and isinstance(accounts.get("workflow_token"), dict)
