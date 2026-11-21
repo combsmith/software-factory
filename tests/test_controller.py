@@ -2177,7 +2177,7 @@ class Entry(unittest.TestCase):
         before["left_out"] = []
         with unittest.mock.patch.object(entry, "configuration", served), \
                 unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
-                unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after: ([7], True)), \
+                unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after, **k: ([7], True)), \
                 unittest.mock.patch.object(entry.issues_, "read", moved), \
                 unittest.mock.patch.object(entry.passes, "records", lambda *a: [before]), \
                 unittest.mock.patch.object(entry.seen_, "read", read), \
