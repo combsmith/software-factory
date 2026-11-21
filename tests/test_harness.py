@@ -886,6 +886,41 @@ class Engine(unittest.TestCase):
             self.assertEqual([c for c in plain.calls if "head" in c], [])
             self.assertNotIn(engine.BASE, plain.asked()[0]["args"][2])
 
+    def test_no_run_is_given_a_tool_that_runs_code_or_writes(self):  # decision 0239, issue 952
+        # No phase of any Role holds a tool that runs code or writes. The Engine alone names a Run's tools, by its Task:
+        # config/harness.json and each Role's manifest are what their schemas allow and nothing more, and name no tool or
+        # argument of the CLI; a review and a Run that writes code have exactly the read tools, and any other Run none
+        # (decisions 0138 and 0219). `--tools` is the flag that restricts; `--allowedTools` only pre-approves, so it is
+        # never read in its place. The read tools are named here, not read from READ_TOOLS, so that a change there is refused.
+        from tools.jsonschema_lite import validate
+
+        def strings(value):
+            if isinstance(value, dict):
+                return [w for k, v in value.items() for w in [k] + strings(v)]
+            return [w for v in value for w in strings(v)] if isinstance(value, list) else [value]
+        for path, schema in [(ROOT / "config" / "harness.json", "harness")] + [
+                (p, "role") for p in walk.files(ROOT, "roles") if p.parent == ROOT / "roles" and p.suffix == ".json"]:
+            held = json.loads(path.read_text())
+            self.assertEqual(validate(held, shared.SCHEMAS[schema], schemas=shared.SCHEMAS), [], path)
+            words = [w for w in strings(held) if isinstance(w, str)]
+            self.assertEqual([w for w in words if re.search("tool|argv|args", w, re.I) or w.startswith("-")], [], path)
+        reads = {"Read", "Grep", "Glob"}
+        settings = dict(run.configuration(), release=writing()["release"])
+        with tempfile.TemporaryDirectory() as d:
+            for the_task, said, want in ((built(), answer(), reads), (writing(), answer(result=pushed()), reads),
+                                         (dict(writing(), permitted_effects=["comment"]),
+                                          answer(result=judged(findings=[], effects={})), set())):
+                cli = CLI(said=said)
+                self.assertEqual(run.answer(the_task, JOB, settings, cli, Clock(), SESSION, d)["status"], "completed")
+                self.assertEqual(len(cli.asked()), 1, the_task["permitted_effects"])
+                args = cli.asked()[0]["args"]
+                tools = [i for i, a in enumerate(args) if a.split("=", 1)[0] == "--tools"]
+                self.assertEqual(len(tools), 1, args)
+                given = args[tools[0]].split("=", 1)[1] if "=" in args[tools[0]] else args[tools[0] + 1]
+                self.assertEqual({t for t in given.split(",") if t}, want, args)
+                allowed = [args[i + 1] for i, a in enumerate(args) if a in ("--allowedTools", "--allowed-tools")]
+                self.assertEqual([{t for t in a.split(",") if t} for a in allowed], [want] if want else [], args)
+
     def test_a_writing_run_with_no_commit_is_never_asked(self):  # issue 880
         # As a review with no head: the Factory's fault, read before the CLI starts, and no model call spent.
         the_task = writing()

@@ -5282,6 +5282,125 @@ class Workflows(unittest.TestCase):
             # No step before it holds a secret, and it names its Release before it reads one (tests/test_steps.py).
             self.assertFalse([e for step in these[:factory[0]] for e in step if "secrets." in e["value"]], job)
 
+    def test_no_job_of_a_run_runs_the_items_code(self):  # decision 0239, issue 952
+        # Every job of a Run's workflow can reach ACTIONS_RUNTIME_TOKEN, and the run job the model's credential, so none
+        # runs the item's code (decision 0219): each checkout names its ref, the Release's own commit, and a later job's is
+        # the one the run job's `commit` step handed on; each `run:` runs a module of the Release's harness from the folder
+        # the job starts in, the CLI's install from the vendor word for word, or the wake's one call; the other steps are
+        # the pinned checkout, upload and download actions, each with its own inputs and one of the data folders below; the CLI is
+        # the one installed, on the runner named; and no key moves where or how a step runs, or hands it more environment:
+        # no `working-directory:`, `shell:`, `defaults:`, `container:`, and no name of `env:` outside the set below. Each
+        # is named here, not read from tools/check_workflows.py, so that a step added there and here alike is still refused.
+        release = {"${{ job.workflow_sha }}", "${{ needs.run.outputs.commit }}"}
+        keys = {(): {"name", "on", "permissions", "jobs"},
+                ("job",): {"env", "environment", "if", "needs", "outputs", "permissions", "runs-on", "steps", "timeout-minutes"},
+                ("step",): {"env", "id", "if", "name", "run", "timeout-minutes", "uses", "with"},
+                ("env",): {"CLAUDE_CLI", "CLAUDE_CODE_OAUTH_TOKEN", "CLI_CHECKSUM", "CLI_VERSION", "GH_TOKEN", "ITEM", "NAME",
+                           "NEEDS", "PASS", "PR_REVIEW_APP_KEY", "READER_APP_KEY", "REPO", "RUN_DIGEST", "APPROVER_TOKEN",
+                           "FACTORY_PAUSED", "GITHUB_TOKEN", "QUEUE_APP_KEY"},
+                "actions/checkout": {"ref", "fetch-tags", "persist-credentials"},
+                "actions/upload-artifact": {"name", "path", "if-no-files-found"},
+                "actions/download-artifact": {"artifact-ids", "path"}}
+        fixed = {"runs-on": "ubuntu-24.04", "CLAUDE_CLI": "/usr/local/bin/claude", "commit": "${{ steps.commit.outputs.commit }}"}
+        paths = {"result/", "result", "task/outcome.json", "verdict/", "reader-outcome", "applied/applied.json",
+                 "outcome/outcome.json"}
+        shapes = {"CLI_VERSION": r"[0-9]+\.[0-9]+\.[0-9]+", "CLI_CHECKSUM": r"[0-9a-f]{64}"}
+        debs = " ".join("'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://%s/ubuntu %s main'" % (host, suite)
+                        for host in ("azure.archive.ubuntu.com", "mirrors.edge.kernel.org")
+                        for suite in ("noble", "noble-updates", "noble-security"))
+        apt = ("sudo RES_OPTIONS='timeout:5 attempts:2' apt-get %s -o Dir::Etc::sourcelist=/tmp/ubuntu.list "
+               "-o Dir::Etc::sourceparts=- -o Acquire::Retries=%d -o Acquire::https::Timeout=10%s")
+        install = ['url="https://downloads.claude.ai/claude-code-releases/${CLI_VERSION}/linux-x64/claude"',
+                   "curl -sSfL --proto '=https' --proto-redir '=https' -o /tmp/claude \"${url}\"",
+                   'echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c', "chmod 0755 /tmp/claude",
+                   "sudo mv /tmp/claude /usr/local/bin/claude", "printf '%s\\n' " + debs + " > /tmp/ubuntu.list",
+                   apt % ("update -q", 0, " || true"), apt % ("install -y --no-install-recommends", 2, " bubblewrap")]
+        wake = ('timeout 60 gh api -X POST "repos/$REPO/actions/workflows/poller.yml/dispatches" -f ref=main || '
+                'echo "the next pass waits for the backstop"')
+
+        def runs_the_items_code(text):
+            entries, bad = check_workflows.read(text)
+
+            def of_step(key):
+                return {(e["path"][1], e["step"]): e["value"] for e in entries
+                        if e["key"] == key and len(e["path"]) == 3 and e["path"][2] == "steps"}
+            named, actions = of_step("name"), {k: v.split("@")[0] for k, v in of_step("uses").items()}
+            refs = {(e["path"][1], e["step"]) for e in entries if e["key"] == "ref" and e["path"][2:] == ["steps", "with"]}
+            paths_of = {(e["path"][1], e["step"]) for e in entries if e["key"] == "path" and e["path"][2:] == ["steps", "with"]}
+            found = [step for step, action in actions.items() if action == "actions/checkout" and step not in refs
+                     or action in ("actions/upload-artifact", "actions/download-artifact") and step not in paths_of]
+            if any(e["value"] == "${{ needs.run.outputs.commit }}" for e in entries) and not (
+                    [e["value"] for e in entries if e["path"] == ["jobs", "run", "outputs"] and e["key"] == "commit"]
+                    == [fixed["commit"]] and of_step("id").get(("run", 2)) == "commit"
+                    and of_step("run").get(("run", 2)) == "python3 -m harness.steps"):
+                found.append("the run job's commit is not the Release's")
+            for e in entries:
+                path, job = e["path"], e["path"][1] if len(e["path"]) > 1 else None
+                where = (() if path == [] else ("job",) if len(path) == 2 and path[0] == "jobs" else
+                         ("step",) if path[2:] == ["steps"] else ("env",) if path[-1] == "env" else
+                         actions.get((job, e["step"])) if path[2:] == ["steps", "with"] else None)
+                if where is not None and e["key"] not in keys.get(where, ()):
+                    found.append(e["key"])
+                elif e["key"] in fixed and (where in (("job",), ("env",)) or path == ["jobs", job, "outputs"]) and \
+                        e["value"] != fixed[e["key"]]:
+                    found.append(e["value"])
+                elif e["key"] == "path" and path[2:] == ["steps", "with"] and e["value"] not in paths:
+                    found.append(e["value"])
+                elif where == ("env",) and e["key"] in shapes and not re.fullmatch(shapes[e["key"]], e["value"]):
+                    found.append(e["value"])
+                elif e["key"] == "ref" and e["value"] not in release or e["key"] == "uses" and not re.fullmatch(
+                        r"actions/(checkout|upload-artifact|download-artifact)@[0-9a-f]{40}", e["value"]):
+                    found.append(e["value"])
+                elif e["key"] == "run" and e["body"]:
+                    if named.get((job, e["step"])) != "Install the CLI at the Engine's pin" or e["body"] != install:
+                        found.append(e["body"])
+                elif e["key"] == "run" and path[2:] == ["steps"] and \
+                        not re.fullmatch(r"python3 -m harness\.\w+", e["value"]) and (job, e["value"]) != ("wake", wake):
+                    found.append(e["value"])
+            return bad + found
+
+        for name in ("run-jobs.yml", "approve-job.yml", "queue-job.yml"):
+            self.assertEqual(runs_the_items_code((self.LIVE / name).read_text()), [], name)
+        good = (self.LIVE / "run-jobs.yml").read_text()
+        engine_step = "        id: engine\n"
+        for why, text in (
+                ("the item's tests beside the model", good.replace(
+                    "        run: python3 -m harness.run\n",
+                    "        run: python3 -m harness.run\n      - name: Test\n        run: python3 -m unittest\n")),
+                ("the item's build in verify", good.replace("        run: python3 -m harness.verify\n", "        run: make\n")),
+                ("the item checked out", good.replace("          ref: ${{ job.workflow_sha }}\n",
+                                                      "          ref: ${{ inputs.item }}\n")),
+                ("the install runs a script", good.replace("          chmod 0755 /tmp/claude\n",
+                                                           "          chmod 0755 /tmp/claude\n          sh ./setup.sh\n")),
+                ("a command after an allowed start", good.replace('-o /tmp/claude "${url}"\n', '-o /tmp/claude "${url}"; make\n')),
+                ("a version that is a path", good.replace('CLI_VERSION: "2.1.306"', 'CLI_VERSION: "2.1.306/../x"')),
+                ("a local action", good.replace("        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
+                                                " # v7.0.2\n        with:\n          name: result\n",
+                                                "        uses: ./\n        with:\n          name: result\n")),
+                ("the Engine from the head's folder", good.replace(engine_step, engine_step + "        working-directory: task/head\n")),
+                ("the Engine in another shell", good.replace(engine_step, engine_step + "        shell: bash ./x {0}\n")),
+                ("the run job's defaults", good.replace("    environment: factory-run\n", "    environment: factory-run\n"
+                                                        "    defaults:\n      run:\n        working-directory: task/head\n")),
+                ("more environment for the Engine", good.replace("          CLAUDE_CLI: /usr/local/bin/claude\n",
+                                                                 "          CLAUDE_CLI: /usr/local/bin/claude\n          PYTHONPATH: task/head\n")),
+                ("a checkout into the head's folder", good.replace("          persist-credentials: false\n",
+                                                                   "          persist-credentials: false\n          path: task/head\n", 1)),
+                ("a checkout with no ref", good.replace("          ref: ${{ job.workflow_sha }}\n", "")),
+                ("the CLI from the head's folder", good.replace("CLAUDE_CLI: /usr/local/bin/claude", "CLAUDE_CLI: task/head/claude")),
+                ("the item handed on as the commit", good.replace("      commit: ${{ steps.commit.outputs.commit }}\n",
+                                                                  "      commit: ${{ inputs.item }}\n")),
+                ("the commit handed on by another step", good.replace("        id: commit\n", "        id: other\n")),
+                ("a runner of its own", good.replace("    runs-on: ubuntu-24.04\n    timeout-minutes: 33\n",
+                                                     "    runs-on: self-hosted\n    timeout-minutes: 33\n")),
+                ("the Result uploaded from the harness", good.replace("          path: result/\n", "          path: harness/\n")),
+                ("the Result downloaded into the Release's folder", good.replace(
+                    "          artifact-ids: ${{ needs.run.outputs.artifact }}\n          path: result\n      - name: Verify the Result\n",
+                    "          artifact-ids: ${{ needs.run.outputs.artifact }}\n      - name: Verify the Result\n")),
+                ("the Result downloaded into the harness", good.replace("          path: result\n", "          path: harness\n", 1)),
+                ("the wake runs more", good.replace('-f ref=main || echo', '-f ref=main; make || echo'))):
+            self.assertNotEqual(text, good, why)
+            self.assertNotEqual(runs_the_items_code(text), [], why)
+
     def test_the_pass_uploads_its_record_before_it_dispatches(self):  # design section 2.3, steps 5 and 6
         good = (self.LIVE / "pass.yml").read_text()
         self.assertEqual(check_workflows.pass_problems(good), [])
