@@ -12200,6 +12200,28 @@ class Verify(unittest.TestCase):
         self.assertIn("\nfast:\n\t$(PY) -m tools.verify --fast\n", makefile)
         self.assertIn("\nchecks:\n\t$(PY) -m tools.verify --checks\n", makefile)
 
+    def test_make_reads_the_makefile_as_committed_and_remakes_it_from_nothing(self):  # issue 1048, decision 0240
+        # make tries to remake the makefile it read before it looks up a target, by an implicit rule from a file beside
+        # it: a newer Makefile.sh is copied over the Makefile, and its verify runs in place of the committed one (Astra's
+        # read). The Makefile's explicit rule with no recipe stops that.
+        with tempfile.TemporaryDirectory() as where:
+            where = pathlib.Path(where)
+            shutil.copy(ROOT / "Makefile", where / "Makefile")
+            os.utime(where / "Makefile", (1, 1))
+            (where / "Makefile.sh").write_text("verify:\n\t@echo not the committed verify\n")
+            # make's built-in rules on, whatever flags the run was given (Astra's read), and verify the goal of a bare
+            # make too.
+            env = {k: v for k, v in os.environ.items() if k not in ("MAKEFLAGS", "MFLAGS", "MAKEFILES", "GNUMAKEFLAGS")}
+            for goal in (["verify"], []):
+                ran = subprocess.run(["make", "-s"] + goal + ["PY=echo"], cwd=where, capture_output=True, text=True,
+                                     timeout=60, env=env)
+                self.assertEqual((ran.returncode, ran.stdout), (0, "-m tools.verify\n"), (goal, ran.stderr))
+                self.assertEqual((where / "Makefile").read_text(), (ROOT / "Makefile").read_text())
+                # And verify's failure is make's (Astra's read).
+                failed = subprocess.run(["make", "-s"] + goal + ["PY=false"], cwd=where, capture_output=True, text=True,
+                                        timeout=60, env=env)
+                self.assertNotEqual(failed.returncode, 0, goal)
+
     def test_every_test_file_is_discovered(self):
         found = set()
 

@@ -2943,8 +2943,8 @@ class ProtectedPaths(Asks):
 
     def test_an_edit_elsewhere_is_not_asked_about(self):
         for rel in ("docs/notes.md", "kernel/AGENTS.md", "kernel/__init__.py", "kernel/decide.py", "kernel/derive.py",
-                    "kernel/terms.py", "config/AGENTS.md", "Makefile", ".gitleaks.toml",
-                    "schemas/facts.schema.json", "tests/test_decide.py", "tests/test_hooks.py", "tools/check_repo.py",
+                    "kernel/terms.py", "config/AGENTS.md", "Makefile.md", ".gitleaks.toml",
+                    "schemas/facts.schema.json", "tests/test_decide.py", "tests/test_hooks.py", "tools/check_authority.py",
                     "lifecycle.md", "docs/lifecycle/x.md", "tools/hooks.md", ".githubx/y", "config/rubric.md",
                     # Only a set's manifest is: its other files, and a manifest deeper down, are not (issue 696).
                     "evals/AGENTS.md", "evals/context/task.json", "evals/cases.json", "evals/pr-review/old/cases.json"):
@@ -3854,8 +3854,11 @@ class RulesChanged(unittest.TestCase):
         for entry in inputs:
             self.write(where, rel(entry))
         said = self.told(where)
+        # One that is protected too, as the Makefile is (decision 0240), is listed with what the protected list says.
+        hooks = json.loads((ROOT / "config" / "hooks.json").read_text())
+        guarded = {entry["path"]: entry["is"] for entry in hooks["protected"]}
         for entry in inputs:
-            self.assertIn("%s: %s" % (rel(entry), entry["is"]), said)
+            self.assertIn("%s: %s" % (rel(entry), guarded.get(entry["path"], entry["is"])), said)
         self.assertEqual(protected.load()["lens_inputs"], [(e["lens"], e["path"], e["is"]) for e in inputs])
         # A list of no Lens's inputs is not the shape the hooks read, as the schema says.
         data = json.loads((ROOT / "config" / "hooks.json").read_text())
