@@ -6840,15 +6840,38 @@ class Linked(unittest.TestCase):
                                    None if earlier is None else list(earlier))
         return [(p["number"], p["keyword"], p["keyword_spans"]) for p in found], whole
 
-    def test_only_a_pull_request_to_the_default_branch_is_listed_as_linked(self):  # P-33, decision 0028
-        # 8 is to another base, which carries no closing reference (P-33), as 9, linked by hand, is.
-        found, whole = self.listed([
-            linked_read(ref(7, 8), [link("ConnectedEvent", 1, 9), link("ConnectedEvent", 2, 10)]),
-            pull_read(7), pull_timeline(7), pull_read(8, base="trial"), pull_read(9, base="trial"), pull_read(10),
-            pull_timeline(10)])
+    def test_only_a_pull_request_to_the_default_branch_is_listed_as_linked(self):  # P-33, P-69, decisions 0028, 0236
+        # 8 is to another base, which carries no closing reference (P-33), and 9 was linked by hand and unlinked: neither
+        # is listed, and the list is whole.
+        def listing(*hand):
+            return self.listed([
+                linked_read(ref(7, 8), list(hand) + [link("ConnectedEvent", 5, 10)]),
+                pull_read(7), pull_timeline(7), pull_read(8, base="trial"), pull_read(9, base="trial"), pull_read(10),
+                pull_timeline(10)])
+        found, whole = listing(link("ConnectedEvent", 1, 9), link("DisconnectedEvent", 2, 9))
         self.assertEqual([(p["number"], p["keyword"], p["link_events"]) for p in found],
-                         [(7, True, []), (10, False, [{"action": "connected", "at": minute(2)}])])
+                         [(7, True, []), (10, False, [{"action": "connected", "at": minute(5)}])])
         self.assertTrue(whole)
+        # 9 linked by hand now, on another base, keeps its link there (trials/P-69.json): it is not listed, and the list
+        # is not whole, since it could have been linked before any pass saw it (decision 0236). The last of its links
+        # and unlinkings is read, never the first.
+        for hand in ([link("ConnectedEvent", 1, 9)], [link("DisconnectedEvent", 1, 9), link("ConnectedEvent", 2, 9)]):
+            found, whole = listing(*hand)
+            self.assertEqual(([p["number"] for p in found], whole), ([7, 10], False), hand)
+        self.assertEqual(listing(link("DisconnectedEvent", 2, 9))[1], True)
+        # As P-69 recorded it, the pull request linked by hand on another base is still among the references (Muse).
+        found, whole = self.listed([linked_read(ref(7, 9), [link("ConnectedEvent", 1, 9)]), pull_read(7), pull_timeline(7),
+                                    pull_read(9, base="trial")])
+        self.assertEqual(([p["number"] for p in found], whole), ([7], False))
+        # Merged or closed on another base, as a stacked pull request is, it still leaves the list not whole until it is
+        # unlinked, as record 0236's cost row says (Muse).
+        for done in (dict(merged=20, closed=20), dict(closed=20)):
+            found, whole = self.listed([linked_read(ref(7), [link("ConnectedEvent", 1, 9)]), pull_read(7), pull_timeline(7),
+                                        pull_read(9, base="trial", **done)])
+            self.assertEqual(([p["number"] for p in found], whole), ([7], False), done)
+        # In the same second, the timeline's order says which came last, never the time (Astra).
+        self.assertEqual(listing(link("DisconnectedEvent", 2, 9), link("ConnectedEvent", 2, 9))[1], False)
+        self.assertEqual(listing(link("ConnectedEvent", 2, 9), link("DisconnectedEvent", 2, 9))[1], True)
         # A base or default branch that cannot be read is refused, never left out.
         held = pull_read(7)
         held["response"]["body"]["base"]["repo"] = "o/r"
