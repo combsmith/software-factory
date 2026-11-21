@@ -11,21 +11,21 @@ desk's commands are in `AGENTS.md`. This page does not repeat them.
 
 | Practice | Held by |
 |---|---|
-| A change merges only once the required check, `factory / verify`, passes, and it fails unless every job it needs passed: `make verify` on the pull request and the merge group, and every mutant shard on the merge group | `tests/test_tools.py::test_the_required_check_fails_unless_every_job_it_needs_passed` |
+| A change merges only once the required check, `factory / verify`, passes, and it fails unless every job it needs passed: `make verify` and the commits job on the pull request and the merge group, and every mutant shard on the merge group | `tests/test_tools.py::test_this_repos_rulesets_agree_with_its_lenses`, `tests/test_tools.py::test_the_required_check_fails_unless_every_job_it_needs_passed`, `tests/test_tools.py::test_on_a_pull_request_the_mutants_decline_and_on_a_merge_group_every_shard_runs` |
 | Every commit a pull request carries names the Maintainer, and an account `config/hooks.json` lists opened it from this repo | `tests/test_tools.py::test_every_commit_a_pull_request_carries_is_the_maintainers`, `tests/test_tools.py::test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds` |
 | A diff over `max_diff_lines` (4000) or `max_diff_characters` (60000) in `config/defaults.json`, or one GitHub cuts short, is held, `too_large`, and never reviewed in part. Split such a change into parts | `tests/test_decide.py::test_truncated_or_oversized_diff_is_held_without_a_run`, `tests/test_decide.py::test_a_diff_no_task_can_carry_whole_is_held_and_one_at_the_bound_is_reviewed` |
-| A change to a model Lens's own inputs, the paths under `lens_inputs` in `config/hooks.json`, waits after the model review for a standing approval of its current head by a person with write access other than its author and its last pusher. The machine user's approval never counts (`docs/decisions/0052-a-change-to-a-model-lenss-own-inputs-needs-a-different-persons-approval.md`) | `tests/test_decide.py::test_a_change_to_a_model_lenss_own_input_waits_for_a_person`, `tests/test_decide.py::test_a_persons_approval_of_the_current_head_lets_it_converge` |
+| A change to a model Lens's own inputs, the paths under `lens_inputs` in `config/hooks.json` whose Lens is a model Lens and those under `person_only`, waits after the model review for a standing approval of its current head by a person with write access other than its author and its last pusher. The machine user's approval never counts (`docs/decisions/0052-a-change-to-a-model-lenss-own-inputs-needs-a-different-persons-approval.md`) | `tests/test_decide.py::test_a_change_to_a_model_lenss_own_input_waits_for_a_person`, `tests/test_decide.py::test_a_persons_approval_of_the_current_head_lets_it_converge` |
 | A person's review thread counts as open until that person resolves it, whoever else resolves it, so leave it for them (`docs/decisions/0014-where-this-repo-departs-from-the-orgs-standards.md`) | `tests/test_decide.py::test_a_persons_thread_resolved_by_anyone_but_that_person_stays_open` |
-| A session asks the person before it edits a protected path, one under `protected` in `config/hooks.json`. In bypass mode the hook tells the session instead, and the session names the edit in what it reports (`docs/decisions/0019-under-bypass-permissions-the-protected-hook-tells-and-asks-nothing.md`). The hook guards against mistakes; the required check, the approving review and the rulesets are the boundary | `tests/test_hooks.py::test_from_the_front_door_an_edit_to_a_protected_path_asks_and_a_clean_one_is_silent`, `tests/test_hooks.py::test_under_bypass_permissions_the_hook_tells_the_session_and_asks_nothing` |
-| Decision records are numbered from 0001 with no gap, and the check runs again on the merge group, on main with the change | `tests/test_tools.py::test_a_decision_with_no_boundary_is_caught` |
+| A session asks the person before it edits a protected path, one under `protected` in `config/hooks.json`. In bypass mode the hook tells the session instead and asks nothing (`docs/decisions/0019-under-bypass-permissions-the-protected-hook-tells-and-asks-nothing.md`). The hook guards against mistakes; the required check, the approving review and the rulesets are the boundary | `tests/test_hooks.py::test_from_the_front_door_an_edit_to_a_protected_path_asks_and_a_clean_one_is_silent`, `tests/test_hooks.py::test_under_bypass_permissions_the_hook_tells_the_session_and_asks_nothing` |
+| Decision records are numbered from 0001 with no gap | `tests/test_tools.py::test_a_decision_with_no_boundary_is_caught` |
 | A decision record and a lesson take the shape `docs/AGENTS.md` gives them | `tests/test_tools.py::test_a_decision_with_no_boundary_is_caught`, `tests/test_tools.py::test_a_lesson_with_no_check_is_caught` |
-| A trial's fixture keeps the rules of `trials/AGENTS.md`; the skill `.claude/skills/run-a-platform-trial/SKILL.md` says how one is made | `tests/test_tools.py::test_a_fixture_that_is_misnamed_or_invalid_is_caught`, `tests/test_tools.py::test_a_credential_in_a_fixture_is_caught` |
+| A trial's fixture is named for its trial, validates and holds no credential. Each other rule in `trials/AGENTS.md` names its own test there, and the skill `.claude/skills/run-a-platform-trial/SKILL.md` says how a trial is run | `tests/test_tools.py::test_a_fixture_that_is_misnamed_or_invalid_is_caught`, `tests/test_tools.py::test_a_credential_in_a_fixture_is_caught` |
 | A pull request whose body was edited after its first approval since a person looked is held until a person approves | `tests/test_decide.py::test_a_description_edited_after_the_approval_holds_until_a_person_approves` |
 
 Advice that follows from the last row, not a check: write a pull request's body in full before its
 first review. Once it has been approved, even if that approval was later dismissed, do not edit the
 body; close the pull request and open a new one from the same branch, which is reviewed and approved
-afresh on its own body, and ask anyone whose thread was still open to look at the new one. That keeps
+afresh on its own body, and ask anyone whose thread was still open to look at the new one, and wait for them before it merges. That keeps
 the hold rather than getting round it: never edit a body and then reopen to get past a hold that
 already stands. The hold is `docs/decisions/0140-the-facts-port-reads-a-pull-requests-description-edits-and-an-edits-absence-is-never-read-as-none.md`,
 which replaces 0135, and `docs/decisions/0168-the-simulators-world-dates-an-approval-by-the-acts-run-and-the-kernels-anchor-takes-the-records-always.md`,
@@ -36,8 +36,9 @@ which replaces 0158. Only a person releases it.
 No check holds these, so they are advice for whoever makes a change, and nothing in this repo
 depends on them.
 
-- **Run the desk's two commands in `AGENTS.md`, under Verify, before a change is finished.** CI runs
-  the same checks, but a failure found at the desk costs a minute rather than a run of CI.
+- **Run the desk's two commands in `AGENTS.md`, under Verify, before a change is finished,** as
+  `AGENTS.md` asks. No check sees whether they ran at the desk; CI runs the same checks, but a
+  failure found at the desk costs a minute rather than a run of CI.
 - **Keep the main checkout on `main`, and work in a separate git worktree.** A session runs the main
   checkout's copy of each hook wherever it started
   (`tests/test_hooks.py::test_every_hook_runs_the_main_checkouts_copy_wherever_the_session_started`),
@@ -50,9 +51,9 @@ depends on them.
 - **Use `.github/pull_request_template.md` as the outline of the body,** and leave the template
   itself as it is: why, what changed, what to look at, the record and any protected edit, then the
   checks and reviews folded away. A reviewer then finds each thing in the same place.
-- **Take a new decision record's number when its pull request is queued,** as the next after main's
-  last, not when it is written. Another record may merge first, and the merge group then fails on
-  the gap or the repeat.
+- **Give a new decision record the next number after main's last, and check it again before its
+  pull request is reviewed and queued.** Another record may merge first, and the merge group then
+  fails on the gap or the repeat; a rename after an approval is a new head to review.
 - **Measure a diff from the diff GitHub serves for the pull request, not from a local one, and leave
   a margin.** The facts port counts it as a Task carries it, each line numbered and the whole escaped
   as JSON, and the Kernel holds that count to the bound (`adapters/pull.py`,
@@ -62,5 +63,6 @@ depends on them.
   never by taking one side whole, and check afterwards that the pull request's diff did not grow by
   deleting lines of main. Taking one side whole can drop another change's tests.
 - **In a runner of your own that tries mutants on a copy, leave the copy's `__pycache__` out and run
-  it with `python3 -B`.** A stale compiled module can report a false survivor or a false kill.
+  it with `PYTHONDONTWRITEBYTECODE=1` set,** so every Python it starts writes none. A stale compiled
+  module can report a false survivor or a false kill.
   `tools/mutants.py` guards against this itself (`docs/decisions/0027-a-mutant-is-killed-by-a-test-that-fails-on-it-twice-and-passes-without-it.md`).
