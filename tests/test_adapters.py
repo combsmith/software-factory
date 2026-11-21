@@ -6496,6 +6496,40 @@ class Issues(unittest.TestCase):
         self.assertNotIn(title, json.dumps(found))
         return found
 
+    def test_how_an_issue_stands_is_read_from_its_state_and_its_own_label_events_alone(self):  # decision 0232
+        # The issue, its timeline, and the issue once more: no edit, no content and no linked pull request is asked.
+        def stood(events=(), more=False, again=None, **change):
+            read = issue_read(list(events), more=more, **change)
+            later = [rest_answer("/repos/o/r/issues/41/timeline?per_page=100&page=2", {})] if more else []
+            exchanges = read[:2] + later + [again or read[-1]]
+            router = Router(github.Replay(exchanges), {"don-petry": "admin", "sf-machine": "write"})
+            accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]})
+            return issues.stood(router, "o/r", 41, accounts)
+        held = stood([issue_event("labeled", 1, label={"name": "factory:hold"}), issue_event("commented", 2)])
+        self.assertEqual(held, {"state": "open", "complete": {"timeline": True}, "label_events": [
+            {"label": "factory:hold", "action": "labeled", "at": minute(1),
+             "by": {"kind": "human", "name": "don-petry", "can_write": True}}]})
+        # A closed issue is closed from its state alone: its timeline is not asked, so one that cannot be read keeps
+        # nothing from being closed (Muse).
+        router = Router(github.Replay(issue_read(state="closed")[:1]), {"don-petry": "admin"})
+        self.assertEqual(issues.stood(router, "o/r", 41, timeline.Accounts(router, "o/r", MACHINE, {})),
+                         {"state": "closed", "label_events": [], "complete": {"timeline": False}})
+        # Each label is told by the account reader the caller hands it: the machine user's is the machine user's, never
+        # a person's, so its removal of a person's Hold releases nothing (Astra).
+        machine = stood([issue_event("labeled", 1, actor=("sf-machine", MACHINE[0], "User"), label={"name": "factory:hold"})])
+        self.assertEqual(machine["label_events"][0]["by"]["kind"], "machine_user")
+        # A timeline whose next page cannot be read is not whole, so `stands` reads the labels as unread.
+        self.assertFalse(stood(more=True)["complete"]["timeline"])
+        # A state GitHub does not give is refused; so is an issue that moved while it was read.
+        with self.assertRaises(github.Unanswered):
+            stood(state="Closed")
+        last = issue_read()[-1]
+        # Moved: its time, or in the same second its state or its labels, since a time is to the second (Astra).
+        for change in ({"updated_at": "2026-10-11T12:59:00Z"}, {"state": "closed"}, {"labels": [{"name": "factory:hold"}]}):
+            moved = dict(last, response=dict(last["response"], body=dict(last["response"]["body"], **change)))
+            with self.assertRaises(facts.Moved, msg=change):
+                stood(again=moved)
+
     def test_an_issues_timeline_is_whole_only_when_its_last_page_names_no_next(self):  # P-33, decision 0218
         said = issue_event("commented", 0)
         whole = self.read(issue_read([said]))

@@ -43,7 +43,7 @@ from adapters import applied, facts as facts_, identity, issues as issues_, item
 from adapters.facts import accounts_of as accounts, app_names_of, dispatcher_of as dispatcher, opener_of as opener, queue_of, \
     roles_of
 from adapters.github import Live, Unanswered
-from controller import configuration as configured, pass_, reads as reads_, reconcile, writes as writes_
+from controller import configuration as configured, issue_holds, pass_, reads as reads_, reconcile, writes as writes_
 from controller.shared import Refused, key as page
 from harness import steps
 from kernel.terms import BOT_SUFFIX
@@ -421,6 +421,21 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
                            "unread": reads_.MOVED if isinstance(err, facts_.Moved) else reads_.UNANSWERED})
         stages.add(tally, "issues", began)
     stages.tell(tally)
+    # How the issue each pull request the Factory opened stands with: one read of each, open or closed, served or not;
+    # one that cannot be read leaves the fact unread, and the pull request defers (decision 0232). While the issues'
+    # Apps cannot be told, or the tracking issue's number was not read, none is read: each is unread, as the issues are.
+    stood, tally = {}, {}
+    for number in issue_holds.wanted(pulls):
+        began = stages.now()
+        try:
+            if refused or apart is None:
+                raise Unanswered("the issues cannot be read")
+            stood[number] = issues_.stood(transport, home, number, who)
+        except Unanswered:
+            stood[number] = None
+        stages.add(tally, "issues_stood", began)
+    stages.tell(tally)
+    pulls = issue_holds.join(pulls, stood, pass_.issue_config(config["kernel"]))
     # The served issues' writes are read beside the pull requests' (issue 837): those of each issue the pass serves,
     # decided or left out unread, never the tracking issue, which the listing leaves out by its number. While that
     # number is not read, no issue's writes are: the tracking issue could be among those listed, and the passes'
