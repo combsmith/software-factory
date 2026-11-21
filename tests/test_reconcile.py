@@ -230,6 +230,117 @@ class Matching(unittest.TestCase):
         self.assertIs(check(seen(), recorded(), None, accounts=unset)["short"], False)
 
 
+def passed(evidence=("PRRT_t",), item=ITEM, hands=(), now="2026-10-11T12:00:00Z", **decision) -> dict:
+    """A pass record before, whose Decision on `item` is the act `resolve_thread` naming `evidence`, or as changed."""
+    record = json.loads((ROOT / "examples" / "pass.json").read_text())
+    entry = record["pull_requests"][0]
+    entry["facts"]["item"] = dict(item)
+    entry["decision"] = dict({"schema": "decision/1", "item": dict(item), "state": "adjudicating", "reason": "resolve_due",
+                              "evidence": list(evidence), "attention": "none", "outcome": "act", "action": "resolve_thread",
+                              "content_id": "sha256:5d0c"}, **decision)
+    record["now"] = now
+    record["reconciled"] = dict(Carried.NONE, hands=[{"key": k, "at": now} for k in hands or ()])
+    if hands is None:       # a record written before a hand's resolutions were carried
+        del record["reconciled"]["hands"]
+    return record
+
+
+HAND = wrote("hand", "resolution", "PRRT_t", at=None)
+
+
+class Hand(unittest.TestCase):
+    """A person's resolution of a thread a Role opened, matched to the Kernel's act that named the thread (decision 0223)."""
+
+    def test_a_hands_resolution_of_a_roles_thread_is_matched_to_the_act_the_last_pass_named(self):  # issue 854
+        # A hand's resolution matches the act of the last pass that decided the item, or is unmatched (decision 0223).
+        found = check(seen(HAND), before=[passed()])
+        self.assertEqual((found["unmatched"], found["unjudged"], found["short"], reconcile.alerts(found)), ([], [], False, []))
+        review = dict(state="verifying", reason="awaiting_review", outcome="admit", action=None)
+        for why, before in (("another thread", [passed(["PRRT_u"])]), ("no thread", [passed([])]),
+                            ("an act a brake held", [passed(outcome="defer")]),
+                            ("another act", [passed(action="enqueue")]),
+                            ("a Decision that is no act", [passed(**review)]),
+                            # The last pass that decided the item is the one read: the head may have moved since an earlier.
+                            ("an act an earlier pass named and the last did not", [passed(), passed([])]),
+                            ("an act an earlier pass named, and the last a review", [passed(), passed(**review)])):
+            with self.subTest(why):
+                found = check(seen(HAND), before=before)
+                self.assertEqual((kinds(found), found["unjudged"], found["short"]), ([("hand", "resolution")], [], False))
+                self.assertEqual(reconcile.alerts(found), ["hand_unmatched"])
+                self.assertEqual(reconcile.entries(found), [{"alert": "hand_unmatched", "by": "hand", "write": "resolution",
+                                                             "item": URL, "key": "PRRT_t"}])
+        # A pass that did not decide the item, one it could not read, says nothing of it: the one before it is read.
+        self.assertEqual(check(seen(HAND), before=[passed([]), passed()])["unmatched"], [])
+        self.assertEqual(check(seen(HAND), before=[passed(), passed([], item=OTHER)])["unmatched"], [])
+        # The item's Decision is read wherever it stands in its record.
+        second = passed(item=OTHER)
+        second["pull_requests"].append(passed([])["pull_requests"][0])
+        self.assertEqual(kinds(check(seen(HAND), before=[second])), [("hand", "resolution")])
+        # A resolution whose thread or item cannot be read is matched to nothing, and a Run on its item makes it no Run's.
+        for odd in (dict(HAND, key=None), dict(HAND, item=None), dict(HAND, kind="comment")):
+            self.assertEqual(kinds(check(seen(odd), before=[passed()])), [("hand", odd["kind"])], odd)
+        running = [{"run": "r_01JA7Q", "item": ITEM, "started_at": AT, "status": "in_progress"}]
+        found = check(seen(HAND), r=running, before=[passed([])], accounts=dict(KNOWN, workflow_token=None))
+        self.assertEqual((kinds(found), found["short"]), ([("hand", "resolution")], False))
+        # A hand's resolution has its own alert, so that one standing never hides an identity's write nobody recorded.
+        both = check(seen(HAND, wrote("approver", "approval", "PRR_a")), before=[passed([])])
+        self.assertEqual(reconcile.alerts(both), ["hand_unmatched", "write_unmatched"])
+        self.assertEqual(reconcile.alerts(check(seen(wrote("approver", "approval", "PRR_a")), before=[passed()])),
+                         ["write_unmatched"])
+        # A Role named `hand` could not be told from a person: no identity is known, and it is short.
+        named = dict(KNOWN, roles=dict(KNOWN["roles"], hand=KNOWN["roles"]["pr-review"]))
+        self.assertTrue(check(seen(), before=[passed()], accounts=named)["short"])
+
+    def test_a_hands_resolution_once_matched_is_carried_while_it_is_seen(self):  # issue 854
+        # Once matched, a thread is carried, stamped again at each pass that sees it, and matches from then on.
+        effects = dict(recorded(), read={"runs": [], "passes": []}, at={})
+        held = reconcile.carried([passed()], effects, seen(HAND), NOW)
+        self.assertEqual(held["hands"], [{"key": "PRRT_t", "at": NOW}])
+        later = dict(passed([], now=NOW), reconciled=held)
+        found = check(seen(HAND), before=[later])
+        self.assertEqual((found["unmatched"], found["unjudged"], found["short"], reconcile.alerts(found)), ([], [], False, []))
+        self.assertEqual(kinds(check(seen(dict(HAND, key="PRRT_u")), before=[later])), [("hand", "resolution")])  # its own
+        again = reconcile.carried([later], effects, seen(HAND), "2026-10-11T13:20:00Z")
+        self.assertEqual(again["hands"], [{"key": "PRRT_t", "at": "2026-10-11T13:20:00Z"}])
+        # A pass that did not see it, its pull request unread, carries it on as it was, until the window passes it.
+        self.assertEqual(reconcile.carried([later], effects, seen(), "2026-10-11T13:20:00Z")["hands"], held["hands"])
+        old = dict(passed([]), reconciled=dict(held, hands=[{"key": "PRRT_t", "at": EARLY}]))
+        self.assertEqual(reconcile.carried([old], effects, seen(), NOW)["hands"], [])
+        self.assertEqual(kinds(check(seen(HAND), before=[old])), [("hand", "resolution")])
+        # One nobody named is not carried, so it alarms at every pass that sees it; nor is one whose thread cannot be read.
+        self.assertEqual(reconcile.carried([passed([])], effects, seen(HAND), NOW)["hands"], [])
+        self.assertEqual(reconcile.carried([passed()], effects, seen(dict(HAND, key=None)), NOW)["hands"], [])
+        # What is carried is what `pass/1` holds.
+        record = dict(passed(), reconciled=held, alerts=["hand_unmatched"])
+        self.assertEqual(validate(record, SCHEMAS["pass"], schemas=SCHEMAS), [])
+
+    def test_a_hands_resolution_no_record_can_judge_is_short_once_carried_and_named(self):  # issue 854
+        # Where no record can say whether an act named the thread, the pass is short, carries it and names it: with no
+        # record before, one that carried no `hands`, or none that decided the item.
+        effects = dict(recorded(), read={"runs": [], "passes": []}, at={})
+        waved = [{"alert": "hand_unjudged", "by": "hand", "write": "resolution", "item": URL, "key": "PRRT_t"}]
+        for before in ([], [passed(hands=None)], [passed([], hands=None)], [passed(item=OTHER), passed(item=OTHER)]):
+            found = check(seen(HAND), before=before)
+            self.assertEqual((found["unmatched"], found["short"]), ([], True), before)
+            self.assertEqual((reconcile.alerts(found), reconcile.entries(found)), (["reconciliation_unreadable"], waved))
+            self.assertEqual(validate(waved[0], SCHEMAS["view-meta"]["$defs"]["entry"], schemas=SCHEMAS), [])
+            held = reconcile.carried(before, effects, seen(HAND), NOW)
+            self.assertEqual(held["hands"], [{"key": "PRRT_t", "at": NOW}])
+            # The pass after it reads what was carried: matched, and short no more.
+            after = check(seen(HAND), before=[dict(passed([], now=NOW), reconciled=held)])
+            self.assertEqual((after["unmatched"], after["unjudged"], after["short"], reconcile.alerts(after)), ([], [], False, []))
+        # A resolution whose thread cannot be read is unmatched even then, and never carried: `pass/1` holds no such key.
+        nameless = seen(dict(HAND, key=None))
+        self.assertEqual(kinds(check(nameless)), [("hand", "resolution")])
+        self.assertEqual(reconcile.carried([], effects, nameless, NOW)["hands"], [])
+        # With no hand's resolution seen, such a record leaves nothing short, and the next record carries none.
+        self.assertFalse(check(seen(), before=[passed(hands=None)])["short"])
+        self.assertEqual(reconcile.carried([passed(hands=None)], effects, seen(), NOW)["hands"], [])
+        # Nor does a pass that could not read what was seen, or read it short, or the next would judge threads it never read.
+        self.assertNotIn("hands", reconcile.carried([passed(hands=None)], effects, None, NOW))
+        self.assertNotIn("hands", reconcile.carried([passed(hands=None)], effects, seen(HAND, whole=False), NOW))
+
+
 class Short(unittest.TestCase):
     def test_what_cannot_be_read_whole_is_short_never_silent(self):  # ruling 5
         whole = check(seen())
@@ -282,6 +393,7 @@ class Override(unittest.TestCase):
                          [{"alert": "merged_by_override", "by": None, "write": "merge", "item": URL, "key": None}])
 
 
+HEAD, OTHER_HEAD = "a" * 40, "b" * 40
 APPROVER = {"id": 281750570, "type": "User", "login": "donpetry-bot"}
 CONTROLLER = {"id": 5000001, "type": "Bot", "login": "combsmith-sf-controller[bot]"}
 ROLE = {"id": 5000002, "type": "Bot", "login": "combsmith-sf-pr-review[bot]"}
@@ -365,7 +477,9 @@ class SeenPort(unittest.TestCase):
                     # A Role App's resolution, which GraphQL types a User: told by its account id (decision 0067).
                     {"id": "PRRT_r", "isResolved": True, "resolvedBy": {"login": "combsmith-sf-pr-review[bot]",
                                                                         "databaseId": 5000002}},
-                    {"id": "PRRT_p", "isResolved": True, "resolvedBy": {"login": "don-petry", "databaseId": 36422719}},
+                    {"id": "PRRT_p", "isResolved": True, "resolvedBy": {"login": "don-petry", "databaseId": 36422719},
+                     "comments": {"nodes": [{"replyTo": None, "author": {"__typename": "User", "login": "don-petry",
+                                                                         "databaseId": 36422719}}]}},
                     {"id": "PRRT_o", "isResolved": False, "resolvedBy": None}]
         runs = [check_run(5364144, "CR_r"), check_run(5364130, "CR_c"), check_run(15368, "CR_x")]
         writes, merged, whole = port(kept(reviews=reviews, events=events, threads=threads_, check_runs=runs),
@@ -386,6 +500,78 @@ class SeenPort(unittest.TestCase):
         self.assertEqual(merged, [{"item": ITEM, "at": AT}])
         out = seen_.seen([(writes, merged, whole)], SINCE)
         self.assertEqual(validate(out, SCHEMAS["seen"], schemas=SCHEMAS), [])
+
+    def test_a_persons_resolution_of_a_thread_a_role_opened_is_read_as_a_hands(self):  # issue 854
+        # A person's resolution of a thread a Role opened is a hand's write; of any other, none; an identity's is its own.
+        def thread(ident, by=PERSON, opened=ROLE, **first):
+            comment = dict({"replyTo": None, "author": opened and {
+                "__typename": opened["type"], "login": opened["login"], "databaseId": opened["id"]}}, **first)
+            return {"id": ident, "isResolved": True, "resolvedBy": by and {"login": by["login"], "databaseId": by["id"]},
+                    "comments": {"nodes": [comment]}}
+
+        queue = {"id": 5000009, "type": "Bot", "login": "combsmith-sf-queue[bot]"}
+        threads_ = [thread("PRRT_h"), thread("PRRT_p", opened=PERSON), thread("PRRT_a", opened=APPROVER),
+                    thread("PRRT_c", opened=CONTROLLER), thread("PRRT_g", opened=None), thread("PRRT_q", opened=queue),
+                    thread("PRRT_m", author={"__typename": "Mannequin", "login": "gone"}),
+                    thread("PRRT_r", by=ROLE), thread("PRRT_n", by=None),
+                    dict(thread("PRRT_o"), isResolved=False, resolvedBy=None)]
+        writes, _, whole = seen_.read(GitHub(), ITEM, kept(threads=threads_), {**IDENTITIES, (5000009, "Bot"): "queue"},
+                                      APPS, SINCE)
+        self.assertTrue(whole)
+        self.assertEqual([(w["by"], w["kind"], w["key"], w["at"]) for w in writes],
+                         [("hand", "resolution", "PRRT_h", None), ("pr-review", "resolution", "PRRT_r", None),
+                          ("unattributed", "resolution", "PRRT_n", None)])
+        self.assertEqual(validate(seen_.seen([(writes, [], whole)], SINCE), SCHEMAS["seen"], schemas=SCHEMAS), [])
+        # An opener that cannot be told from a Role's leaves what was seen short, and no write is read of it: a first
+        # comment that replies to another, none, or an author whose account cannot be read.
+        unsaid = thread("PRRT_h")
+        del unsaid["comments"]["nodes"][0]["replyTo"]
+        for why, odd in (("a reply", thread("PRRT_h", replyTo={"id": "PRRC_1"})), ("a reply not said", unsaid),
+                         ("no comment", dict(thread("PRRT_h"), comments={"nodes": []})),
+                         ("no comments", dict(thread("PRRT_h"), comments=None)),
+                         ("an author not said", dict(thread("PRRT_h"), comments={"nodes": [{"replyTo": None}]})),
+                         ("an account of no id", thread("PRRT_h", author={"__typename": "Bot", "login": "x", "databaseId": None})),
+                         ("an account whose type is not said", thread("PRRT_h", author={"login": "x", "databaseId": 5000002})),
+                         ("an account whose type is no word", thread("PRRT_h", author={"__typename": 7, "databaseId": 5000002})),
+                         # A resolver whose account cannot be read is nobody that can be told, a person least of all.
+                         ("a resolver of no id", dict(thread("PRRT_h"), resolvedBy={"login": "don-petry"})),
+                         ("an account whose id is no number", thread("PRRT_h", author={"__typename": "Bot", "databaseId": True}))):
+            writes, _, whole = port(kept(threads=[odd]))
+            self.assertEqual((writes, whole), ([], False), why)
+        # Only a person's resolution asks who opened the thread: an identity's is read whoever did, as before.
+        writes, _, whole = port(kept(threads=[dict(thread("PRRT_r", by=ROLE), comments=None)]))
+        self.assertEqual(([(w["by"], w["key"]) for w in writes], whole), ([("pr-review", "PRRT_r")], True))
+
+    def test_an_approval_carries_the_commit_it_approved_and_null_where_none_can_be_read(self):  # issue 1026
+        reviews = [{"user": APPROVER, "state": "APPROVED", "node_id": "PRR_a", "submitted_at": AT, "commit_id": HEAD},
+                   {"user": APPROVER, "state": "APPROVED", "node_id": "PRR_b", "submitted_at": AT, "commit_id": "abc"},
+                   {"user": APPROVER, "state": "APPROVED", "node_id": "PRR_c", "submitted_at": AT},
+                   {"user": APPROVER, "state": "APPROVED", "node_id": "PRR_g", "submitted_at": AT, "commit_id": "g" * 40},
+                   {"user": APPROVER, "state": "APPROVED", "node_id": "PRR_h", "submitted_at": AT, "commit_id": False},
+                   {"user": APPROVER, "state": "APPROVED", "node_id": "PRR_i", "submitted_at": AT, "commit_id": HEAD + "x"},
+                   {"user": APPROVER, "state": "DISMISSED", "node_id": "PRR_d", "id": 4, "submitted_at": AT,
+                    "commit_id": OTHER_HEAD},
+                   {"user": ROLE, "state": "COMMENTED", "node_id": "PRR_e", "submitted_at": AT, "commit_id": HEAD},
+                   {"user": APPROVER, "state": "DISMISSED", "node_id": "PRR_f", "id": 6, "submitted_at": AT,
+                    "commit_id": HEAD}]
+        events = [{"event": "review_dismissed", "actor": APPROVER, "created_at": AT,
+                   "dismissed_review": {"review_id": 4, "state": "approved"}}]
+        writes, _, whole = port(kept(reviews=reviews, events=events))
+        # A dismissed review whose state before cannot be read is read as an approval, leaves what was seen short, and
+        # carries no commit: what cannot be read is never a hand approval (issue 1026).
+        self.assertFalse(whole)
+        said = [(w["key"], w["kind"], w.get("commit", "absent")) for w in writes if w["key"] and w["key"].startswith("PRR")]
+        self.assertEqual(said, [("PRR_a", "approval", HEAD), ("PRR_b", "approval", None), ("PRR_c", "approval", None),
+                                ("PRR_g", "approval", None), ("PRR_h", "approval", None), ("PRR_i", "approval", None),
+                                ("PRR_d", "approval", OTHER_HEAD), ("PRR_e", "review", "absent"),
+                                ("PRR_f", "approval", None)])
+        out = seen_.seen([(writes, [], whole)], SINCE)
+        self.assertEqual(validate(out, SCHEMAS["seen"], schemas=SCHEMAS), [])
+        # The seen message carries each as read, nulls among them, and the schema refuses a commit that is no commit.
+        self.assertEqual([(w["key"], w["kind"], w.get("commit", "absent")) for w in out["writes"]
+                          if w["key"] and w["key"].startswith("PRR")], said)
+        bad = dict(out, writes=[dict(out["writes"][0], commit="abc")])
+        self.assertTrue(validate(bad, SCHEMAS["seen"], schemas=SCHEMAS))
 
     def test_no_read_the_facts_port_made_is_made_twice(self):  # ruling 3
         github = GitHub()
@@ -658,13 +844,42 @@ class SeenPort(unittest.TestCase):
                                      schemas=SCHEMAS), [])
 
 
+class Tracking(unittest.TestCase):
+    def test_the_tracking_issues_number_is_what_the_passes_recorded_and_none_while_their_records_are_not_whole(self):  # issue 901
+        # Each landed write of the tracking issue is keyed by its number: those read this pass, and those the last
+        # record carried. A write that did not land, and another type's key, name no tracking issue.
+        done = written(("tracking_issue", None, None, "8", "already_applied"), ("tracking_issue", None, None, "9", "failed"),
+                       ("status_on_item", ITEM, None, "77", "applied"), ("tracking_issue", None, None, "4", "failed"),
+                       ("status_on_item", ITEM, None, "78", "failed"))
+        # But one written open with its assignee dropped is there, under its number, 4: it is left out too, and carried.
+        done["writes"][3]["reason"] = done["writes"][4]["reason"] = "assignee_dropped"
+        read = {"written": [done], "whole": True}
+        self.assertEqual(reconcile.tracking(read, []), [4, 8])
+        kept = reconcile.carried([], dict(read, applied=[], read={}, at={}), seen(), Carried.NOW)["keys"]
+        self.assertEqual(sorted((k["type"], k["key"]) for k in kept),
+                         [("status_on_item", "77"), ("tracking_issue", "4"), ("tracking_issue", "8")])
+        done["writes"][3]["reason"] = None
+        held = dict(Carried.NONE, keys=[{"where": "written", "type": "tracking_issue", "key": "6", "at": Carried.NOW},
+                                        {"where": "applied", "type": "tracking_issue", "key": "5", "at": Carried.NOW}])
+        before = [{"now": Carried.NOW, "pull_requests": [], "reconciled": held}]
+        self.assertEqual(reconcile.tracking(read, before), [6, 8])
+        self.assertEqual((reconcile.tracking(read, None), reconcile.tracking(dict(read, written=[]), [])), ([8], []))
+        # A key of anything but ASCII digits names no tracking issue, and is no crash: '²' is a digit `int` refuses, and
+        # '٣' one it reads as 3 (Carbon).
+        odd = written(*[("tracking_issue", None, None, k, "applied") for k in ("8", "I_kw8", "²", "٣")])
+        self.assertEqual(reconcile.tracking({"written": [odd], "whole": True}, []), [8])
+        # Not read whole, or not read: the number may be one not read, and there is none to give.
+        for unread in (dict(read, whole=False), None):
+            self.assertIsNone(reconcile.tracking(unread, before))
+
+
 class Carried(unittest.TestCase):
     """What a pass carries of what it read, so that the next reads only what is new (decisions 0061, 0112)."""
     NOW = "2026-10-11T13:00:00Z"
     NEXT = "2026-10-11T13:20:00Z"
     MADE = "2026-10-11T12:00:00Z"
     RUN = "r_01JA7Q"
-    NONE = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": [], "left": []}
+    NONE = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": [], "left": [], "hands": []}
 
     def effects(self, *a, written_=(), runs=(), passes=(), whole=True, at=None):
         return dict(recorded(a, written_, whole), read={"runs": list(runs), "passes": list(passes)}, at=at or {})
@@ -810,8 +1025,9 @@ class Carried(unittest.TestCase):
             self.assertNotEqual(validate(dict(record, reconciled=odd), SCHEMAS["pass"], schemas=SCHEMAS), [], odd)
 
     def test_a_record_too_wide_for_the_pass_record_leaves_it_short_and_never_refuses_a_pass(self):
-        # applied/1 and written/1 are wider than what a pass record carries. One record's key or repo that does not fit is
-        # not carried, so it never refuses a pass; it can match nothing GitHub says, and reconciliation says so.
+        # applied/1's key is wider than what a pass record carries, and written/1 refuses a repo a pass record cannot keep
+        # (issue 913). One record's key or repo that does not fit is not carried, so it never refuses a pass; it can match
+        # nothing GitHub says, and reconciliation says so.
         wide = "K" * 101
         for effects in (self.effects(applied(("comment", wide, "applied")), runs=[self.RUN]),
                         self.effects(written_=[written(("dequeue", dict(ITEM, repo="o/r x"), None, None, "applied"))])):
