@@ -6879,9 +6879,43 @@ class Linked(unittest.TestCase):
         self.assertFalse(short)
         _, short = self.listed([linked_read((), [closed_by(30, 12, repo="a/fork")])], began)
         self.assertFalse(short)
+        # Nor is the commit's close credited to a listed pull request whose merge is another commit.
+        found, short = self.listed([linked_read(ref(14), [closed_by(30, oid="d" * 40)]),
+                                    pull_read(14, merged=29, closed=29, sha="b" * 40), pull_timeline(14)], began)
+        self.assertEqual(([p["closed_issue_at"] for p in found], short), ([None], False))
+        # Nor where the two merges share only a short prefix: the whole id is compared.
+        found, short = self.listed([linked_read(ref(14), [closed_by(30, oid="abcdef0" + "1" * 33)]),
+                                    pull_read(14, merged=29, closed=29, sha="abcdef0" + "2" * 33), pull_timeline(14)], began)
+        self.assertEqual(([p["closed_issue_at"] for p in found], short), ([None], False))
+        # A closer that names no type, or a type that is no name, is a read that failed, in any life, never a person's
+        # close; so is a commit closer whose id is no string, even one whose digits would spell one.
+        for m in (20, 5):
+            for typed in (None, False, 0, ""):
+                untyped = {"__typename": "ClosedEvent", "createdAt": minute(m), "closer": {"__typename": typed}}
+                with self.assertRaises(github.Unanswered):
+                    self.listed([linked_read((), [untyped])], began)
+        numeric = {"__typename": "ClosedEvent", "createdAt": minute(30), "closer": {"__typename": "Commit", "oid": int("1" * 40)}}
+        with self.assertRaises(github.Unanswered):
+            self.listed([linked_read((), [numeric])], began)
+        # One that cannot be listed, of a life before, is passed over, however often the timeline is read: a closer of
+        # another repo or another kind, a commit's that no listed pull request merged or that has no id. In the second
+        # the life began, it is of it.
+        kind = lambda m: {"__typename": "ClosedEvent", "createdAt": minute(m), "closer": {"__typename": "ProjectV2"}}
+        no_oid = lambda m: {"__typename": "ClosedEvent", "createdAt": minute(m), "closer": {"__typename": "Commit", "oid": None}}
+        absent = {"__typename": "ClosedEvent", "createdAt": minute(5), "closer": {"__typename": "Commit"}}
+        for past in (closed_by(5, 12, repo="a/fork"), kind(5), closed_by(5, oid="d" * 40), no_oid(5), absent):
+            self.assertEqual(self.listed([linked_read(ref(7), [past]), pull_read(7), pull_timeline(7)], began)[1], True, past)
+            # Passed over, it leaves a list read short as short.
+            self.assertEqual(self.listed([linked_read(ref(7), [past], total=2), pull_read(7), pull_timeline(7)], began)[1],
+                             False, past)
+        for now in (closed_by(10, 12, repo="a/fork"), kind(10)):
+            self.assertEqual(self.listed([linked_read((), [now])], began), ([], False), now)
+        with self.assertRaises(github.Unanswered):
+            self.listed([linked_read((), [no_oid(10)])], began)
         # Nor is one whose merge is that of a pull request to another base, or of one not merged; and a pull request's
         # close is the first of this life, its own or its merge commit's, of which the first is read.
-        for pr in (pull_read(15, base="trial", merged=29, closed=29, sha="e" * 40), pull_read(15, sha="e" * 40)):
+        for pr in (pull_read(15, base="trial", merged=29, closed=29, sha="e" * 40), pull_read(15, sha="e" * 40),
+                   pull_read(15, closed=29, sha="e" * 40)):
             _, short = self.listed([linked_read(ref(15), [closed_by(30, oid="e" * 40)]), pr, pull_timeline(15)], began)
             self.assertFalse(short)
         found, _ = self.listed([linked_read(ref(14), [closed_by(20, 14), closed_by(30, oid="b" * 40)]),
@@ -7000,6 +7034,9 @@ class Linked(unittest.TestCase):
              "draft_events": [], "link_events": [{"action": "connected", "at": minute(2)},
                                                  {"action": "disconnected", "at": minute(3)}],
              "keyword": False, "keyword_spans": [], "close_events": []}])
+        # One closed without a merge reads no merge, whatever its close.
+        (closed,), _ = self.listed([linked_read(ref(6)), pull_read(6, closed=9), pull_timeline(6)])
+        self.assertEqual((closed["open"], closed["merged_at"], closed["closed_at"]), (False, None, minute(9)))
         # A count of files that cannot be read is refused.
         for files in (None, -1):
             with self.assertRaises(github.Unanswered):
@@ -7059,14 +7096,20 @@ class Linked(unittest.TestCase):
         ended = [seen_by(12, [(7, False, [span(3)])]), seen_by(15, issues=[], left_out=left[1]["left_out"])]
         self.assertEqual(self.read([linked_read(), pull_read(7), pull_timeline(7)], ended), ([(7, False, [span(3, 12)])], False))
         # What names it, which leaves the list whole where the chain is whole: a pull request's cross-reference, or one
-        # of no source, a commit's, read or not, a reference, a link by hand, or a closer of any life or base.
+        # of no source, a commit's, read or not, a reference, a link by hand, or a closer of any life or base, one that
+        # cannot be listed among them.
         for named in ([linked_read((), [crossed()])], [linked_read((), [crossed(None)])], [linked_read((), [crossed("Commit")])],
                       [linked_read((), [crossed(), crossed("Issue")])], [linked_read((), [{"__typename": "CrossReferencedEvent", "source": None}])],
                       [linked_read((), [referenced()])], [linked_read((), [referenced(None)])],
                       [linked_read((), [crossed("Issue"), referenced()])],
                       [linked_read(ref(8)), pull_read(8, base="next")],
-                      [linked_read((), [link("ConnectedEvent", 1, 8)]), pull_read(8, base="next")], [linked_read((), [closed_by(-70, 13)])]):
+                      [linked_read((), [link("ConnectedEvent", 1, 8)]), pull_read(8, base="next")], [linked_read((), [closed_by(-70, 13)])],
+                      [linked_read((), [closed_by(-70, 13, repo="a/fork"), closed_by(-65)])], [linked_read((), [closed_by(-70, oid="d" * 40)])],
+                      [linked_read((), [{"__typename": "ClosedEvent", "createdAt": minute(-70), "closer": {"__typename": "ProjectV2"}}])],
+                      [linked_read((), [{"__typename": "ClosedEvent", "createdAt": minute(-70), "closer": {"__typename": "Commit", "oid": None}}])]):
             self.assertEqual((self.read(named, broken), self.read(named)), (([], False), ([], True)), named)
+        # A person's close names no closer, and so names nothing.
+        self.assertEqual(self.read([linked_read((), [closed_by(-65)])], broken), ([], True))
         # Read on past a commit's reference.
         self.assertEqual(self.read([linked_read((), [referenced(), link("ConnectedEvent", 1, 7)]), pull_read(7), pull_timeline(7)], broken),
                          ([(7, False, [])], False))
