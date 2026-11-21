@@ -12174,7 +12174,7 @@ class Writes(unittest.TestCase):
         # top-level assignments may name one, never a def: a def handed a runner would run what it names.
         entry = "MUTANTS = [\n    ('a push is not read', 'tools/hooks/identity.py', \"subprocess.run(['git', 'push'])\", '', ()),\n]\n"
         files = {"tools/mutants_of/common.py": "\"\"\"Shared.\"\"\"\n\nX = ('t',)\nY = X + ('u',)\n",
-                 "tools/mutants_of/data.py": "\"\"\"Data.\"\"\"\n\nfrom tools.mutants_of.common import X, Y\n\n" + entry,
+                 "tools/mutants_of/data.py": "\"\"\"Data.\"\"\"\n\nfrom tools.mutants_of.common import X, Y\n\nZ = tuple('ab'.replace('a', 'c'))\n" + entry,
                  "tools/mutants_of/launder.py": "import subprocess\n\nrun = subprocess.run\n",
                  "tools/mutants_of/runs.py": "import subprocess\n\n" + entry,
                  "tools/mutants_of/path.py": "import pathlib\n\n" + entry,
@@ -12194,13 +12194,15 @@ class Writes(unittest.TestCase):
                  "tools/mutants_of/wrapper.py": "def bind(argv):\n    return argv\n\n\n" + entry,
                  "tools/mutants_of/beside.py": "TARGETS = ('x.py',); print('git push')\n" + entry,
                  "tools/mutants_of/raises.py": entry + "raise SystemExit(0)\n",
+                 "tools/mutants_of/exits.py": "RUN = exit()\n" + entry,
+                 "tools/mutants_of/calls.py": "RUN = 'x'.upper()\n" + entry,
                  "tools/mutants_of/near.py": "from tools.mutants_ofx import X\n\n" + entry,
                  "tools/mutants_of/relative.py": "from .tools.mutants_of.common import X\n\n" + entry,
                  "tools/mutants_ofx.py": "X = 1\n" + entry}
         problems = check_writes.run(clone(files))
         self.assertFalse(caught(problems, "tools/mutants_of/data.py"), problems)
         for name in ("runs", "path", "handed", "further", "ring", "package", "later", "runner", "lambda", "dunder",
-                     "builtin", "reaches", "alias", "attribute", "wrapper", "beside", "raises", "near", "relative",
+                     "builtin", "reaches", "alias", "attribute", "wrapper", "beside", "raises", "exits", "calls", "near", "relative",
                      "../mutants_ofx"):
             rel = os.path.normpath("tools/mutants_of/%s.py" % name)
             self.assertTrue(any(p.startswith(rel + ":") and "names gh or git as a command" in p for p in problems), rel)

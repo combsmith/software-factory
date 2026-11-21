@@ -58,9 +58,9 @@ RUNNERS = ("harness/steps.py", "tools/check_decisions.py", "tools/check_trials.p
            "tools/hooks/rules_changed.py", "tools/hooks/shell.py", "tools/mutants.py", "tools/untested.py")
 # The mutants of the files outside kernel/, as data: each names a command as the text a mutant finds in its target, and
 # runs none, since it imports no module, and names from no file but another there that imports none either (issue 1101;
-# allowed by the Maintainer, 2026-11-21). Its top level is a docstring, imports and assignments, with no def, class or
-# lambda anywhere, and it reads none of REACHERS, nor a name of two underscores. Only its assignments may name one; any
-# other file there is read as any other.
+# allowed by the Maintainer, 2026-11-21). Its top level is a docstring, imports and assignments, with no def or class
+# anywhere; it calls nothing but DATA_CALLS, and reads none of REACHERS, nor a name of two underscores. Only its
+# assignments may name one; any other file there is read as any other.
 # It is read in good faith, as the rest of this check is: every other rule here still reads it.
 MUTANT_DATA = "tools/mutants_of/"
 # A command's name as a string, in any case, by a path or not, `.exe` or not: gh or git alone or opening a command line;
@@ -952,13 +952,16 @@ def _adapter(mod: Module) -> bool:
 # that could, so a file that reads one is no data however it imports.
 REACHERS = {"eval", "exec", "compile", "open", "getattr", "setattr", "delattr", "globals", "locals", "vars", "breakpoint",
             "input", "memoryview", "help"}
+# The calls a file of the mutants' data may make, named: a text's replace and tuple; any other call is code.
+DATA_CALLS = {"replace", "tuple"}
 
 
 def _inert(mod, mods: dict, seen: frozenset = frozenset(), known: dict = None) -> bool:
     """Whether `mod` is under MUTANT_DATA, holds at its top level nothing but a docstring, imports and assignments, and
-    anywhere in it no def, class or lambda; imports no module, and names from none but another file there that is inert
+    anywhere in it no def or class; imports no module, and names from none but another file there that is inert
     as well, read through each in turn; and reads, imports or binds none of REACHERS and no name or attribute of two
-    underscores. An import that comes back round is not inert. Each file is read once (`known`)."""
+    underscores; and calls nothing but DATA_CALLS. An import that comes back round is not inert. Each file is read
+    once in a run (`known`)."""
     known = {} if known is None else known
     if mod.name in known:
         return known[mod.name]
@@ -969,8 +972,10 @@ def _inert(mod, mods: dict, seen: frozenset = frozenset(), known: dict = None) -
     for node in mod.nodes if inert else ():
         said = [node.id] if isinstance(node, ast.Name) else [node.attr] if isinstance(node, ast.Attribute) else \
             [n for alias in node.names for n in (alias.name, alias.asname) if n] if isinstance(node, ast.ImportFrom) else []
-        if isinstance(node, ast.Lambda) or any(       # a def, a class or an import is refused at the top level
-                n in REACHERS or n.startswith("__") for n in said):
+        called = node.func if isinstance(node, ast.Call) else None
+        if called is not None and getattr(called, "attr", getattr(called, "id", None)) not in DATA_CALLS:
+            inert = False
+        elif any(n in REACHERS or n.startswith("__") for n in said):     # a def, class or import: refused above
             inert = False
         elif isinstance(node, ast.ImportFrom):
             source = None if node.level else mods.get(node.module)
@@ -981,11 +986,11 @@ def _inert(mod, mods: dict, seen: frozenset = frozenset(), known: dict = None) -
     return inert
 
 
-def _mutant_data(mod, mods: dict) -> set:
+def _mutant_data(mod, mods: dict, known: dict = None) -> set:
     """The lines of `mod` that are the mutants' data: each line of an assignment at its top level, none in a def or a
     class, where `mod` is inert; else none. So a command such a line names is text, and nothing the file can reach can
     run one."""
-    if not _inert(mod, mods):
+    if not _inert(mod, mods, known=known):
         return set()
     return {line for node in mod.tree.body if isinstance(node, ast.Assign)
             for line in range(node.lineno, node.end_lineno + 1)}
@@ -1010,6 +1015,7 @@ def run(root: pathlib.Path = ROOT) -> list:
         mods[_name(rel)] = Module(rel, tree, known)
     reading = Reading(mods)
     problems += reading.problems
+    inert = {}      # each file of the mutants read once in a run, whichever file names from it
     writers, commanding, patching = set(), set(), set()
     for mod in mods.values():
         if mod.name != GITHUB:
@@ -1028,7 +1034,7 @@ def run(root: pathlib.Path = ROOT) -> list:
         if _commands(mod):
             commanding.add(mod.rel)
         if mod.rel not in RUNNERS:
-            data = _mutant_data(mod, mods)
+            data = _mutant_data(mod, mods, inert)
             problems += ["%s:%d names gh or git as a command, which may write to GitHub past adapters/; a write is an "
                          "adapter's, and Python that runs either to read is named in tools/check_writes.py's RUNNERS"
                          % (mod.rel, line) for line in _commands(mod) if line not in data]
