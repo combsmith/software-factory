@@ -1,5 +1,5 @@
-"""The one transport: every read and write the Factory makes on GitHub goes through `send`, and nothing else in this
-repo reaches the network (tools/check_repo.py). A request is `request(method, path, accept, body)`; an answer is
+"""GitHub's one transport: every read and write the Factory makes on GitHub goes through `send`, and nothing else in this
+repo reaches the network but `adapters/azure.py`, an advisory reader's (tools/check_repo.py). A request is `request(method, path, accept, body)`; an answer is
 `{status, headers, body}`, a trial fixture's exchange as `trials/` records one, so the same port code runs on a live
 answer and on a recorded one.
 
