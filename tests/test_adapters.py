@@ -7032,32 +7032,53 @@ class Linked(unittest.TestCase):
         # Pass records that could not be read give no time and could hide one once seen: the list is not whole.
         self.assertEqual(self.read([linked_read()], None), ([], False))
 
-    def test_the_linked_pull_requests_are_whole_only_where_no_pull_request_names_the_issue(self):  # decision 0186
-        # While keyword spans are unread, a pull request listed or cross-referencing leaves the list short; an issue does not.
+    def test_the_linked_pull_requests_are_whole_where_the_list_and_the_spans_were_read_whole(self):  # decision 0186
+        # A pull request that names the issue is read, whole, with the spans the pass records give: none, where no pass
+        # before this one listed it.
+        named = lambda: [linked_read(ref(7)), pull_read(7), pull_timeline(7)]
         self.assertEqual(self.read([linked_read()]), ([], True))
-        self.assertEqual(self.read([linked_read((), [crossed("Issue")])]), ([], True))
-        self.assertEqual(self.read([linked_read((), [crossed()])]), ([], False))
-        # A source of no type, or not asked, names it; an issue's after it undoes nothing.
-        for events in ([crossed(None)], [crossed("Commit")], [crossed(), crossed("Issue")]):
-            self.assertEqual(self.read([linked_read((), events)]), ([], False), events)
-        # One the read names but leaves out, for its base or its life, names the issue all the same.
-        for named in ([linked_read((), [link("ConnectedEvent", 1, 8)]), pull_read(8, base="next")],
-                      [linked_read(ref(8)), pull_read(8, base="next")], [linked_read((), [closed_by(-70, 13)])]):
-            self.assertEqual(self.read(named), ([], False))
-        self.assertEqual(self.read([linked_read((), total=1)]), ([], False))
-        self.assertEqual(self.read([linked_read(more=True)]), ([], False))
+        self.assertEqual(self.read(named()), ([(7, True, [])], True))
+        self.assertEqual(self.read(named(), [seen_by(0), seen_by(3, [(7, True, [])])]), ([(7, True, [span(3)])], True))
+        # Records not read give no time: not whole.
+        self.assertEqual(self.read(named(), None), ([(7, True, [])], False))
+        self.assertEqual(self.read([linked_read()], None), ([], False))
+        # A list read short is not whole; the spans are still handed on.
+        short = [linked_read(ref(7), total=2), pull_read(7), pull_timeline(7)]
+        self.assertEqual(self.read(short, [seen_by(3, [(7, True, [])])]), ([(7, True, [span(3)])], False))
+        # One named to another base is left out, and the list is whole.
+        self.assertEqual(self.read([linked_read(ref(8)), pull_read(8, base="next")]), ([], True))
+        # A broken chain is whole only where nothing names the issue now.
+        broken = [seen_by(3, issues=[], alerts=["issue_apps_unreadable"])]
+        self.assertEqual(self.read([linked_read((), [crossed("Issue")])], broken), ([], True))
+        # Nor read short, or with a span listed.
+        self.assertEqual(self.read([linked_read((), total=1)], broken), ([], False))
+        self.assertEqual(self.read([linked_read((), more=True)], broken), ([], False))
+        left = [seen_by(3, [(7, True, [])]), seen_by(6, issues=[], left_out=[{"item": KeywordSpans.ITEM, "code": "facts_unanswered"}])]
+        self.assertEqual(self.read([linked_read((), [crossed("Issue")]), pull_read(7), pull_timeline(7)], left),
+                         ([(7, False, [span(3)])], False))
+        ended = [seen_by(12, [(7, False, [span(3)])]), seen_by(15, issues=[], left_out=left[1]["left_out"])]
+        self.assertEqual(self.read([linked_read(), pull_read(7), pull_timeline(7)], ended), ([(7, False, [span(3, 12)])], False))
+        # What names it, which leaves the list whole where the chain is whole: a pull request's cross-reference, or one
+        # of no source, a commit's, read or not, a reference, a link by hand, or a closer of any life or base.
+        for named in ([linked_read((), [crossed()])], [linked_read((), [crossed(None)])], [linked_read((), [crossed("Commit")])],
+                      [linked_read((), [crossed(), crossed("Issue")])], [linked_read((), [{"__typename": "CrossReferencedEvent", "source": None}])],
+                      [linked_read((), [referenced()])], [linked_read((), [referenced(None)])],
+                      [linked_read((), [crossed("Issue"), referenced()])],
+                      [linked_read(ref(8)), pull_read(8, base="next")],
+                      [linked_read((), [link("ConnectedEvent", 1, 8)]), pull_read(8, base="next")], [linked_read((), [closed_by(-70, 13)])]):
+            self.assertEqual((self.read(named, broken), self.read(named)), (([], False), ([], True)), named)
+        # Read on past a commit's reference.
+        self.assertEqual(self.read([linked_read((), [referenced(), link("ConnectedEvent", 1, 7)]), pull_read(7), pull_timeline(7)], broken),
+                         ([(7, False, [])], False))
         self.assertIn("itemTypes: [CLOSED_EVENT, CONNECTED_EVENT, DISCONNECTED_EVENT, CROSS_REFERENCED_EVENT, REFERENCED_EVENT]",
                       linked.QUERY)
         self.assertIn("... on CrossReferencedEvent { source { __typename } }", linked.QUERY)
-        self.assertEqual(self.read([linked_read((), [{"__typename": "CrossReferencedEvent", "source": None}])]), ([], False))
-        self.assertEqual(self.read([linked_read(ref(7)), pull_read(7), pull_timeline(7)]), ([(7, True, [])], False))
-        # Pass records that break the chain of spans leave the list not whole, whatever names the issue.
-        self.assertEqual(self.read([linked_read()], [seen_by(3, issues=[], alerts=["issue_apps_unreadable"])]), ([], False))
+        self.assertIn("... on ReferencedEvent { commit { oid } }", linked.QUERY)
 
     def test_a_commits_reference_names_the_issue_and_the_timeline_is_read_on_past_it(self):  # issue 990
         # A commit's closing keyword leaves a reference by the commit, not a cross-reference: it names the issue, and so
         # does one whose commit cannot be read. The timeline is read on past it: a link by hand after it is listed.
-        named = ()
+        named = [seen_by(3, issues=[], alerts=["issue_apps_unreadable"])]
         self.assertIn("CROSS_REFERENCED_EVENT, REFERENCED_EVENT]", linked.QUERY)
         self.assertIn("... on ReferencedEvent { commit { oid } }", linked.QUERY)
         for events in ([referenced()], [referenced(None)], [crossed("Issue"), referenced()]):
@@ -7065,30 +7086,66 @@ class Linked(unittest.TestCase):
         self.assertEqual(self.read([linked_read((), [referenced(), link("ConnectedEvent", 1, 7)]), pull_read(7), pull_timeline(7)], named),
                          ([(7, False, [])], False))
 
-    def test_a_merge_beside_a_rival_keyword_link_is_never_read_with_no_spans(self):  # decision 0186
-        # The Controller's App's 5 merged and closed the issue; the Maintainer's 6 named it too. Read whole with no spans,
-        # the issue would be done; with the spans the passes would give, the two links held it. So it defers.
-        from kernel import issue
-        from tests.support import CONFIG
+    def rival(self, earlier, refs=(5, 6)):
+        """The issue's facts: the Controller's App's 5 merged at 10:19 and closed it; the Maintainer's 6 named it too."""
         merge = [issue_event("closed", 19, CONTROLLER_APP)]
         router = Router(github.Replay(issue_read([issue_event("closed", 20, CONTROLLER_APP)], state="closed", closing=[
-            linked_read(ref(5, 6), [closed_by(20, 5)]),
+            linked_read(ref(*refs), [closed_by(20, 5)]),
             pull_read(5, user=CONTROLLER_APP, merged=19, closed=19, files=2), pull_timeline(5, merge),
             pull_read(6), pull_timeline(6)])), {"don-petry": "admin"})
-        f, _ = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=[])
-        self.assertEqual(([p["number"] for p in f["linked"]], f["complete"]["linked"]), ([5, 6], False))
-        deferred = issue.derive(f, [], CONFIG)
+        return issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=earlier)[0]
+
+    def test_a_merge_beside_a_rival_keyword_link_is_read_by_the_spans_the_pass_records_give(self):  # decision 0186
+        from kernel import issue
+        from tests.support import CONFIG
+        facts_of = self.rival
+        reason = lambda f: issue.derive(f, [], CONFIG)["reason"]
+        # A pass saw both keywords before the merge: the issue is held.
+        both = [seen_by(3, [(5, True, []), (6, True, [])])]
+        f = facts_of(both)
+        self.assertEqual(([(p["number"], p["keyword"], p["keyword_spans"]) for p in f["linked"]], f["complete"]["linked"]),
+                         ([(5, True, [span(3)]), (6, True, [span(3)])], True))
+        self.assertEqual(reason(f), "merged_while_held")
+        # An edit taking the rival's keyword out after the merge moves nothing: it stays listed, the issue held,
+        # also once a pass has seen the keyword gone.
+        self.assertEqual(reason(facts_of(both, refs=(5,))), "merged_while_held")
+        gone = [seen_by(30, [(5, True, [span(3)]), (6, False, [span(3)])])]
+        self.assertEqual(reason(facts_of(gone, refs=(5,))), "merged_while_held")
+        # No pass saw either before the merge: no link stood at it, and it is done.
+        self.assertEqual(reason(facts_of([])), "merged")
+        self.assertEqual(reason(facts_of([seen_by(25, [(5, True, []), (6, True, [])])])), "merged")
+        # Records not read: the issue defers.
+        unread = facts_of(None)
+        self.assertEqual(([p["number"] for p in unread["linked"]], unread["complete"]["linked"]), ([5, 6], False))
+        deferred = issue.derive(unread, [], CONFIG)
         self.assertEqual((deferred["state"], deferred["reason"], deferred["evidence"]), (None, "facts_incomplete", ["linked"]))
-        whole = dict(f, complete=dict(f["complete"], linked=True))
-        self.assertEqual(issue.derive(whole, [], CONFIG)["reason"], "merged")
-        spans = [dict(p, keyword_spans=[{"seen_at": minute(0), "gone_at": None}]) for p in f["linked"]]
-        self.assertEqual(issue.derive(dict(whole, linked=spans), [], CONFIG)["reason"], "merged_while_held")
-        # The life a writer's reopening began is read: a pushed commit closed it.
+        # The life a writer's reopening began: a pushed commit closed it, merged by no listed pull request.
         events = [issue_event("closed", 0), issue_event("reopened", 5), issue_event("closed", 8)]
         router = Router(github.Replay(issue_read(events, state="closed", closing=[
             linked_read((), [closed_by(8, oid="d" * 40)])])), {"don-petry": "admin"})
         f, _ = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=[])
         self.assertEqual((f["life_started_at"], f["complete"]["linked"]), (minute(5), False))
+
+    def test_a_merge_beside_a_rival_defers_where_the_pass_records_at_hand_break_the_chain_of_spans(self):  # 0186
+        from kernel import issue
+        from tests.support import CONFIG
+        derived = lambda earlier: issue.derive(self.rival(earlier), [], CONFIG)
+        both = lambda at, whole=True, **more: seen_by(at, [(5, True, []), (6, True, [])], whole, **more)
+        # (i) A record not whole after a whole one that saw both keywords: the issue is held.
+        self.assertEqual(derived([both(3), both(25, False)])["reason"], "merged_while_held")
+        left = {"item": KeywordSpans.ITEM, "code": "facts_unanswered"}
+        for broken in ([both(22, False), both(25, False)],     # (i) no record at hand holds the issue whole
+                       [seen_by(22, issues=[], left_out=[left]), seen_by(25, issues=[], left_out=[left])],   # (ii) left out
+                       [seen_by(22, issues=[]), seen_by(25, issues=[], alerts=["issue_apps_unreadable"])],   # (iii) Apps untold
+                       [both(3), seen_by(25, issues=[], left_out=[left])]):     # a record newer than the base left it out
+            d = derived(broken)
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), (None, "facts_incomplete", ["linked"]), broken)
+        # Once nothing names the issue, a broken chain is whole again.
+        router = Router(github.Replay(issue_read(closing=[linked_read((), [crossed("Issue")])])), {"don-petry": "admin"})
+        f = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES,
+                        earlier=[seen_by(25, issues=[], alerts=["issue_apps_unreadable"])])[0]
+        self.assertEqual((f["linked"], f["complete"]["linked"]), ([], True))
+        self.assertNotEqual(issue.derive(f, [], CONFIG)["reason"], "facts_incomplete")
 
     def test_the_linked_pull_requests_read_short_are_not_whole_and_one_not_answered_refuses_the_issue(self):
         short = [[linked_read((), total=1)], [linked_read(more=True)], [linked_read(ref(3, repo="a/fork"))],
