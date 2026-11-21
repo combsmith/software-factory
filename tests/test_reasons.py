@@ -50,18 +50,19 @@ def _keyed(node) -> bool:
     """Whether `node` reads a holder's "reason": `d["reason"]` or `d.get("reason")`."""
     if isinstance(node, ast.Subscript):
         base, key = node.value, node.slice
-    elif isinstance(node, ast.Call) and _name(node.func) == "get" and len(node.args) == 1 and not node.keywords:
+    elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get" \
+            and len(node.args) == 1 and not node.keywords:
         base, key = node.func.value, node.args[0]
     else:
         return False
-    return isinstance(key, ast.Constant) and key.value == "reason" and _name(base) in HOLDERS
+    return isinstance(key, ast.Constant) and key.value == "reason" and isinstance(base, ast.Name) and base.id in HOLDERS
 
 
 def _keyed_any(node) -> bool:
     """Whether `node` reads any mapping's "reason", by subscript or by `.get`, a holder's or not."""
     if isinstance(node, ast.Subscript):
         key = node.slice
-    elif isinstance(node, ast.Call) and _name(node.func) == "get" and node.args:
+    elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get" and node.args:
         key = node.args[0]
     else:
         return False
@@ -91,14 +92,17 @@ def _reason_slot(target) -> bool:
 
 
 def takers(trees: dict) -> dict:
-    """`{name: place}` of each Kernel function's parameter `reason`, among its positional ones. A name two functions
-    share with the parameter at other places is -1: no call to it can be read."""
+    """`{name: place}` of each Kernel function's parameter `reason`, among its positional ones, or the count of them
+    for one it takes by keyword alone, so that no place reaches it. A name two functions share with the parameter at
+    other places is -1: no call to it can be read."""
     out = {}
     for tree in trees.values():
         for fn in ast.walk(tree):
-            names = [a.arg for a in fn.args.posonlyargs + fn.args.args] if isinstance(fn, ast.FunctionDef) else []
-            if "reason" in names:
-                at = names.index("reason")
+            if not isinstance(fn, ast.FunctionDef):
+                continue
+            names = [a.arg for a in fn.args.posonlyargs + fn.args.args]
+            if "reason" in names + [a.arg for a in fn.args.kwonlyargs]:
+                at = names.index("reason") if "reason" in names else len(names) + 1000
                 out[fn.name] = at if out.get(fn.name, at) == at else -1
     return out
 
@@ -119,7 +123,8 @@ def _bound(target, value, found: list, unread: list, read: set) -> None:
     """A binding of `target` to `value`: a reason given to a reason's slot, pair by pair for tuples. Each name
     `reason` bound here goes into `read`."""
     if isinstance(target, (ast.Tuple, ast.List)):
-        if isinstance(value, (ast.Tuple, ast.List)) and len(value.elts) == len(target.elts):
+        starred = any(isinstance(e, ast.Starred) for e in target.elts + getattr(value, "elts", []))
+        if isinstance(value, (ast.Tuple, ast.List)) and len(value.elts) == len(target.elts) and not starred:
             for part, given in zip(target.elts, value.elts):
                 _bound(part, given, found, unread, read)
         elif any(_reason_slot(n) for n in ast.walk(target)):
@@ -138,7 +143,10 @@ def written(tree, taken: dict) -> tuple:
     that takes one, or as its default, as a value bound or stored to the name `reason` or to a mapping's "reason", as a
     literal compared with a reason or a table of them, and as a member of a table. A call that gives no reason by
     place or name, a table bound anywhere but once at the top level, a handed table bound again, and the name `reason`
-    bound any other way, by a loop, a comprehension or `:=`, cannot be read.
+    bound any other way, by a loop, a comprehension or `:=`, cannot be read. The scan assumes good faith, as the
+    Kernel's other source checks do: it reads the forms the Kernel writes and refuses the plain others, not a form
+    made to slip past it (a dict built from pairs, a callee imported under another name). The runtime test is the
+    binding hold.
     """
     found, unread, calls, bound = [], [], 0, set()
     tops = {id(t) for node in tree.body if isinstance(node, ast.Assign) for t in node.targets}
@@ -151,6 +159,10 @@ def written(tree, taken: dict) -> tuple:
     for node in ast.walk(tree):
         if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load) and (
                 (node.id in TABLES and id(node) not in tops) or id(node) in handed):
+            unread.append(node.lineno)
+        if isinstance(node, ast.arg) and (node.arg in TABLES or node.arg == "reason" and not any(
+                node is a for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef)
+                for a in fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs)):
             unread.append(node.lineno)
         if isinstance(node, ast.FunctionDef):
             spots = node.args.posonlyargs + node.args.args
@@ -172,10 +184,11 @@ def written(tree, taken: dict) -> tuple:
                 (_give(node.args[1], found, unread) if len(node.args) == 2 else unread.append(node.lineno))
             if _name(node.func) == HANDED[0]:
                 handed_arg = [kw.value for kw in node.keywords if kw.arg == HANDED[1]] + node.args[HANDED_AT:HANDED_AT + 1]
+                if any(isinstance(a, ast.Starred) for a in node.args[:HANDED_AT + 1]):
+                    handed_arg = []
                 for arg in handed_arg or [node]:
                     if isinstance(arg, (ast.Tuple, ast.List, ast.Set)):
-                        for member in arg.elts:
-                            _give(member, found, unread)
+                        _members(arg, found, unread)
                     elif _name(arg) not in TABLES:
                         unread.append(node.lineno)
             at = taken.get(_name(node.func))
@@ -191,7 +204,7 @@ def written(tree, taken: dict) -> tuple:
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 _bound(target, node.value, found, unread, bound)
-                if _keyed_any(node.value) and not _reason_slot(target):
+                if (_read_on(node.value) or _keyed_any(node.value)) and not _reason_slot(target):
                     unread.append(node.lineno)
                 if id(target) in tops and _name(target) in TABLES:
                     _members(node.value, found, unread)
@@ -201,6 +214,8 @@ def written(tree, taken: dict) -> tuple:
                 bound.add(id(node.target))
             else:
                 _bound(node.target, node.value, found, unread, bound)
+                if (_read_on(node.value) or _keyed_any(node.value)) and not _reason_slot(node.target):
+                    unread.append(node.lineno)
         if isinstance(node, ast.Compare):
             sides = [node.left] + node.comparators
             unread += [node.lineno for side in sides if _keyed_any(side) and not _keyed(side)]
@@ -211,14 +226,15 @@ def written(tree, taken: dict) -> tuple:
                             _give(member, found, unread)
                     elif not table(side):
                         _give(side, found, unread)
-    unread += [n.lineno for n in ast.walk(tree) if isinstance(n, ast.Name) and n.id == "reason"
+    unread += [n.lineno for n in ast.walk(tree) if _reason_slot(n)
                and not isinstance(n.ctx, ast.Load) and id(n) not in bound]
     return found, unread, calls
 
 
 def read_of_sets(tree) -> list:
     """The lines where a module reads REASONS or ISSUE_REASONS: no Kernel rule may."""
-    return [n.lineno for n in ast.walk(tree) if _name(n) in SETS and isinstance(getattr(n, "ctx", None), ast.Load)]
+    return [n.lineno for n in ast.walk(tree) if (_name(n) in SETS and isinstance(getattr(n, "ctx", None), ast.Load))
+            or (isinstance(n, ast.ImportFrom) and any(a.name in SETS for a in n.names))]
 
 
 def kernel_trees() -> dict:
@@ -245,6 +261,13 @@ class Written(unittest.TestCase):
                                  % name)
             seen |= {why for _, why in found}
         self.assertGreater(passed, 100)
+        # `reading` takes the handed table where the scan reads it, and each table is bound once in a module, somewhere.
+        reading = [fn for fn in ast.walk(trees["derive.py"]) if isinstance(fn, ast.FunctionDef) and fn.name == HANDED[0]]
+        self.assertEqual([[a.arg for a in fn.args.args].index(HANDED[1]) for fn in reading], [HANDED_AT])
+        bound = [(name, t.id) for name, tree in trees.items() for node in tree.body if isinstance(node, ast.Assign)
+                 for t in node.targets if isinstance(t, ast.Name) and t.id in TABLES]
+        self.assertEqual(len(bound), len(set(bound)))
+        self.assertEqual({table for _, table in bound}, set(TABLES))
         # No member is written nowhere: each is a literal where a reason is made, passed on or compared.
         self.assertEqual(sorted((terms.REASONS | terms.ISSUE_REASONS) - seen), [])
 
@@ -253,6 +276,7 @@ class Written(unittest.TestCase):
             with self.subTest(module=name):
                 self.assertEqual(read_of_sets(tree), [], "kernel/%s reads REASONS or ISSUE_REASONS: they are data" % name)
         self.assertEqual(read_of_sets(ast.parse("if t.REASONS and c:\n    pass")), [1])
+        self.assertEqual(read_of_sets(ast.parse("from kernel.terms import REASONS as CODES")), [1])
 
     def test_the_two_sets_are_apart_and_each_is_codes(self):
         self.assertIsInstance(terms.REASONS, frozenset)
@@ -309,6 +333,19 @@ class Written(unittest.TestCase):
             ('[_decision(f, s, reason, e, o) for reason in ("x",)]', [], [1]),
             ('(reason := "x")', [], [1]),
             ('d.setdefault("reason", "x")', ["x"], []),
+            ('d.setdefault("reason")', [], [1]),
+            ('def get(x):\n    return get(x) == 1', [], []),
+            ('QUEUE_WAITS = ()\nQUEUE_WAITS = ("x",)', ["x"], []),
+            ('out(s, other.bare["reason"], [])', [], [1]),
+            ('reading(f, r, c, (d["reason"],))', [], [1]),
+            ('reading(*a, c, ("x",))', [], [1]),
+            ('why = reason', [], [1]),
+            ('why: str = d["reason"]', [], [1]),
+            ('a, reason, b = (*p, "x", *())', [], [1]),
+            ('for d["reason"] in ("x",):\n    pass', [], [1]),
+            ('def f(*reason):\n    pass', [], [1]),
+            ('def f(QUEUE_WAITS):\n    pass', [], [1]),
+            ('relay(s, **kw)', [], [1]),
             ('why = d["reason"]', [], [1]),
             ('facts.get("reason") == "x"', [], [1]),
             ('reading(f, r, c, ("x",))', ["x"], []),
