@@ -130,7 +130,7 @@
         "additionalProperties": false,
         "required": ["item", "answer"],
         "properties": {
-          "item": {"$ref": "facts.schema.json#/$defs/item"},
+          "item": {"type": "object", "additionalProperties": false, "required": ["repo", "type", "number"], "properties": {"repo": {"type": "string", "pattern": "^[^/]+/[^/]+$"}, "type": {"const": "issue"}, "number": {"type": "integer", "minimum": 1}}},
           "answer": {"enum": [404, 410]}
         }
       }

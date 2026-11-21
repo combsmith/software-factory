@@ -471,12 +471,17 @@ class Override(unittest.TestCase):
 
     def test_an_issue_read_whole_by_its_end_is_named_once_as_information(self):  # decision 0235
         issue = dict(ITEM, type="issue", number=41)
-        told = dict(seen(), gone=[{"item": issue, "answer": 404}, {"item": issue, "answer": 404}])
+        told = dict(seen(), gone=[{"item": issue, "answer": 404}, {"item": issue, "answer": 404},
+                                  {"item": dict(issue, number=43), "answer": 410}])
         assert not validate(told, SCHEMAS["seen"], schemas=SCHEMAS)
         found = check(told)
         self.assertEqual((reconcile.alerts(found), found["short"]), ([], False))
-        self.assertEqual(reconcile.entries(found), [{"alert": "issue_gone", "by": None, "write": "close",
-                                                     "item": "https://github.com/%s/issues/41" % ITEM["repo"], "key": "404"}])
+        url = "https://github.com/%s/issues/%d"
+        self.assertEqual(reconcile.entries(found), [{"alert": "issue_gone", "by": None, "write": "other", "item": url % (ITEM["repo"], n),
+                                                     "key": code} for n, code in ((41, "404"), (43, "410"))])
+        # Only an issue, and only a 404 or a 410, is one (Astra).
+        for wrong in ({"item": dict(issue, type="pull_request"), "answer": 404}, {"item": issue, "answer": 403}):
+            self.assertTrue(validate(dict(seen(), gone=[wrong]), SCHEMAS["seen"], schemas=SCHEMAS), wrong)
         # What was seen that cannot be read tells nothing.
         self.assertEqual(check(dict(told, schema="seen/2"))["gone"], [])
 

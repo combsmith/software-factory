@@ -380,7 +380,7 @@ def entries(found: dict) -> list:
                for u in found.get("unjudged", [])] \
             + [{"alert": "merged_by_override", "by": None, "write": "merge", "item": key(o["item"]), "key": None}
                for o in found["override"]] \
-            + [{"alert": "issue_gone", "by": None, "write": "close", "item": key(g["item"]), "key": str(g["answer"])}
+            + [{"alert": "issue_gone", "by": None, "write": "other", "item": key(g["item"]), "key": str(g["answer"])}
                for g in found.get("gone", [])]:
         if e not in out:
             out.append(e)

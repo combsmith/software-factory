@@ -2319,11 +2319,16 @@ class Entry(unittest.TestCase):
         example = json.loads((ROOT / "examples" / "pass.json").read_text())
         example["pull_requests"] = [dict(example["pull_requests"][0], facts=dict(example["pull_requests"][0]["facts"],
                                                                                  item=dict(example["pull_requests"][0]["facts"]["item"], number=7)))]
-        held, handed = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}, []
+        held, handed, probes = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}, [], []
 
         def entry_with(before, short=(), wrote=(), recorded=True, serving="2026-10-01T00:00:00Z", listing=(5,), tracked=(),
                        unanswered=(), ended=(), repo=True):
-            del spied[:], handed[:]
+            del spied[:], handed[:], probes[:]
+            answers = list(repo) if isinstance(repo, tuple) else None
+
+            def probe(transport, home):
+                probes.append(home)
+                return answers.pop(0) if answers is not None else repo
             tracking = [{"schema": "written/1", "pass": "p_01JA7Q", "release": "factory/v0.3.1",
                          "writes": [{"id": "w%d" % n, "type": "tracking_issue", "item": None, "run": None,
                                      "state": "already_applied", "key": str(n), "reason": None} for n in tracked]}]
@@ -2331,7 +2336,7 @@ class Entry(unittest.TestCase):
 
             def read(transport, item, kept, identities, apps, since, **kw):
                 spied.append((item["type"], item["number"], kept))
-                handed.append((item["number"], kw.get("repo_read")))
+                handed.append((item["number"], dict(kw, told="told") if "told" in kw else kw))
                 if item["number"] in unanswered:
                     raise github.Unanswered("no")
                 if item["number"] in ended:
@@ -2344,7 +2349,7 @@ class Entry(unittest.TestCase):
                     if item["type"] == "issue" and kept is not None else []
                 return (writes, [], item["number"] not in short)
             with unittest.mock.patch.object(entry, "configuration", dated), \
-                    unittest.mock.patch.object(entry.seen_, "repo_read", lambda transport, home: repo), \
+                    unittest.mock.patch.object(entry.seen_, "repo_read", probe), \
                     unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
                     unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after, **k: ([n for n in listing if n not in k.get("apart", ())] if after else [], True)), \
                     unittest.mock.patch.object(entry.issues_, "read", issue_read), \
@@ -2458,6 +2463,7 @@ class Entry(unittest.TestCase):
         # Read short with a write on it, the write still reaches reconciliation, and the issue is owed (Astra).
         record = entry_with(before, short=(41,), wrote=("controller",))
         self.assertEqual((record["reconciled"]["owed_issues"], "write_unmatched" in record["alerts"]), ([41], True))
+        self.assertEqual(sorted(e["write"] for e in record["reconciliation"] if e["item"].endswith("/issues/41")), ["close", "label"])
         # Its read not answered, as left or as gone, it is owed, and reconciliation is short (Kimi).
         for start in (before, kept):
             record = entry_with(start, unanswered=(41,))
@@ -2466,20 +2472,29 @@ class Entry(unittest.TestCase):
         first = entry_with(before, serving=None)
         record = entry_with(dict(first, now=before["now"], issues=[], left_out=[]), serving=None)
         self.assertEqual((record["reconciled"]["owed_issues"], "reconciliation_unreadable" in record["alerts"]), ([5, 41], True))
-        # The repo is read once for the issues that left and handed to each of their reads, never to an open one's; one
-        # not found ends whole where the repo was read, named once as information, and is owed where it was not
-        # (decision 0235).
+        # The repo is read once for the issues that left, before their reads, and handed to each of them, never to an open
+        # one's; one not found ends whole where the repo was read, named once as information, the repo read once more
+        # after them; it is owed where the repo was not read, before or after (decision 0235).
+        gone = lambda n: {"alert": "issue_gone", "by": None, "write": "other", "key": "404",
+                          "item": "https://github.com/%s/issues/%d" % (self.HOME, n)}
+        record = entry_with(before)
+        self.assertEqual((probes, handed), ([self.HOME], [(7, {}), (5, {}), (41, {"repo_read": True, "told": "told"})]))
         record = entry_with(before, ended=(41,))
-        self.assertEqual(handed, [(7, None), (5, None), (41, True)])
-        self.assertEqual(("owed_issues" in record["reconciled"], record["alerts"], [e for e in record["reconciliation"]]),
-                         (False, [], [{"alert": "issue_gone", "by": None, "write": "close", "key": "404",
-                                       "item": "https://github.com/%s/issues/41" % self.HOME}]))
+        self.assertEqual((probes, handed), ([self.HOME] * 2, [(7, {}), (5, {}), (41, {"repo_read": True, "told": "told"})]))
+        self.assertEqual(("owed_issues" in record["reconciled"], record["alerts"], record["reconciliation"]), (False, [], [gone(41)]))
         record = entry_with(kept, ended=(41,))
-        self.assertEqual(("owed_issues" in record["reconciled"], [e["alert"] for e in record["reconciliation"]]),
-                         (False, ["issue_gone"]))
-        record = entry_with(before, ended=(41,), repo=False)
-        self.assertEqual((record["reconciled"]["owed_issues"], "reconciliation_unreadable" in record["alerts"],
-                          record["reconciliation"]), ([41], True, []))
+        self.assertEqual(("owed_issues" in record["reconciled"], record["reconciliation"], len(probes)), (False, [gone(41)], 2))
+        two = dict(before, reconciled=dict(held, owed_issues=[9]))
+        record = entry_with(two, ended=(9, 41))
+        self.assertEqual((record["reconciliation"], len(probes)), ([gone(9), gone(41)], 2))
+        for start in (before, kept):
+            for repo in (False, (True, False)):
+                record = entry_with(start, ended=(41,), repo=repo)
+                self.assertEqual((record["reconciled"]["owed_issues"], "reconciliation_unreadable" in record["alerts"],
+                                  record["reconciliation"]), ([41], True, []), repo)
+        # Nothing left, nothing kept as left: the repo is not read.
+        entry_with(dict(before, issues=[issue(5)]))
+        self.assertEqual(probes, [])
 
     def test_an_issue_whose_linked_pull_requests_were_not_read_defers_through_the_entry(self):  # S3, Astra
         # Through the real port: an issue that read whole would be accepted defers while its linked pull requests are read
