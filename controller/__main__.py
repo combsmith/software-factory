@@ -14,15 +14,16 @@ and written to the folder `OUT` for the pass job's next steps (#193's ruling 10 
    and, for reconciliation, what each Factory identity wrote and what the Factory recorded (decision 0112). The issues
    are listed and read after the pull requests and the records, without the tracking issue, by the number the passes
    recorded (issue 901). Not read yet: an issue's Runs' jobs, which decision 0196 asks of the open pull requests'
-   alone; nor is any issue's write reconciled. Its linked pull requests are read, whole only where no pull request
-   names it while their keyword spans are not read (issue 734), so an issue a pull request names defers.
+   alone. A served issue's writes are reconciled while it is open (decision 0230); one that left between two passes is
+   not read yet. Each issue's linked pull requests are read with their keyword spans from the pass records before this
+   pass, the two the entry already read, and with those not read each issue defers (decision 0186).
 4. It gives the pass what it read and the time after the reads, and writes `pass.json`, `writes.json`, the plan the
    effects step holds to it, and the view's three files under `view/`.
 
 The Release is the one tag `factory/vX.Y.Z` on the commit the pass checked out (`harness/steps.release`), read before any key. A snapshot that cannot be read leaves its pull
 request out of the pass, by its item and the code of why, as one alert; one that moved while it was read, and had not in
 the last pass, is deferred with no alert and its writes are owed to the next pass (#658). An issue that cannot be read
-is left out so too, moved or not: the grace is a pull request's (decision 0172). A list of open pull requests or of
+is left out so too, and one that moved is graced as a pull request is, with nothing owed for it (decision 0229). A list of open pull requests or of
 issues not read whole, a Release, a key or
 a run id that cannot be read, or a pass `pass_.py` refuses, writes nothing, so that nothing is dispatched; the step
 prints one code and exits 1, and nothing it prints is GitHub's text."""
@@ -199,15 +200,18 @@ def dated(answer) -> list:
 
 
 def writes_seen(transport, config: dict, numbers: list, kept: dict, before, since: str, clock, owed=(),
-                stages=QUIET) -> tuple:
+                stages=QUIET, issues=()) -> tuple:
     """`(seen/1, the pull requests read short, those read as left for the first time)`: what each Factory identity wrote
     on what this pass served, on what the pass before served or could not read and has left (decision 0061), and on what
     a pass before read as left inside the window, so that a write nobody matched keeps its alert until the window passes
     it (issue 787). What a snapshot could not read is short, and one that
     is short is read again by the next pass, so that nothing leaves unread. So is a pass with no records before it to say
     what has left. Nothing is guessed. One `owed`, a pull request that moved for the first time, is not read: it is owed
-    to the next pass, as one read short is, and leaves this reconciliation whole (#658). `stages` times what it read of
-    the open pull requests, of those newly left and of those gone, apart, and the pushes (issue 1025)."""
+    to the next pass, as one read short is, and leaves this reconciliation whole (#658). Each of `issues`, the served
+    open issues, is read too, with nothing kept of it. One read short leaves what was seen short and is not owed: what
+    is owed is read as a pull request that left, and an open issue is read again by the next pass as it is (issue 837).
+    `stages` times what it read of the open pull requests, of those newly left, of those gone and of the issues, apart,
+    and the pushes (issue 1025)."""
     controller = config["controller"]
     home, accounts_held = controller["home"]["repo"], controller["accounts"]
     identities, _ = seen_.identities(accounts_held)
@@ -234,6 +238,14 @@ def writes_seen(transport, config: dict, numbers: list, kept: dict, before, sinc
         parts.append(part)
         if part[-1] is not True:
             unread.append(number)
+    for number in issues:
+        began = stages.now()
+        try:
+            parts.append(seen_.read(transport, {"repo": home, "type": "issue", "number": number}, None, identities, apps,
+                                    since))
+        except Unanswered:
+            parts.append(([], [], False))
+        stages.add(tally, "seen_issues", began)
     stages.tell(tally)
     with stages.stage("seen_pushes"):
         try:
@@ -245,26 +257,39 @@ def writes_seen(transport, config: dict, numbers: list, kept: dict, before, sinc
     return seen_.seen(parts, since), unread, sorted(newly)
 
 
-def recorded_effects(transport, config: dict, runs, own: int, before, since: str, sleep=time.sleep,
-                     stages=QUIET) -> dict:
-    """The Effects the Factory recorded and no record before this pass read: each Run's `applied/1` and each pass's
-    `written/1`, read once, and all of them again where the last record holds none (decision 0112). `sleep` is the
-    entry's, for each port's one wait before its second look (issue 709). `stages` times the Runs' reads and the
-    passes', each whole, its one wait included, and each list's requests apart from its artifacts' (issue 1025)."""
+def recorded_passes(transport, config: dict, own: int, before, since: str, sleep=time.sleep, stages=QUIET) -> dict:
+    """Each pass's `written/1` that no record before this pass read, read once, and all of them again where the last
+    record holds none (decision 0112): `adapters/passes.written`'s answer. It is read before the issues are listed, for
+    the numbers the passes recorded the tracking issue under (issue 901). Passes run one at a time, in the poller's one
+    concurrency group, so none records a write while this one reads. `stages` times the read whole, its one wait
+    included, and its list's requests apart from its artifacts' (issue 1025)."""
     controller = config["controller"]
     home = controller["home"]["repo"]
-    known_runs, known_passes = reconcile.known(before)
+    _, known_passes = reconcile.known(before)
     timed = stages.timer is not None
-    of_runs, of_passes = Timed(transport, stages, poller_kind), Timed(transport, stages, poller_kind)
-    with stages.stage("applied"):
-        from_runs = applied.effects(of_runs if timed else transport, home, runs, since, known_runs, sleep=sleep)
-    stages.tell({"applied_" + kind: held for kind, held in of_runs.tally.items()})
+    of_passes = Timed(transport, stages, poller_kind)
     with stages.stage("poller"):
         from_passes = passes.written(of_passes if timed else transport, home, controller["home"]["branch"],
                                      controller["workflows"]["poller"], own, since, known_passes, sleep=sleep)
     stages.tell({"poller_" + kind: held for kind, held in of_passes.tally.items()})
+    return from_passes
+
+
+def recorded_effects(transport, config: dict, runs, before, since: str, from_passes: dict, sleep=time.sleep,
+                     stages=QUIET) -> dict:
+    """The Effects the Factory recorded and no record before this pass read: each Run's `applied/1`, read once, and all
+    of them again where the last record holds none, beside the passes' `from_passes` (decision 0112). The Runs' are read
+    after the writes are seen, as a Run still running may record what it wrote in between: read first, its write would
+    be short (issue 837). `sleep` is the entry's, for each port's one wait before its second look (issue 709). `stages`
+    times the Runs' reads whole, its one wait included, and its list's requests apart from its artifacts' (issue 1025)."""
+    home = config["controller"]["home"]["repo"]
+    known_runs, _ = reconcile.known(before)
+    timed = stages.timer is not None
+    of_runs = Timed(transport, stages, poller_kind)
+    with stages.stage("applied"):
+        from_runs = applied.effects(of_runs if timed else transport, home, runs, since, known_runs, sleep=sleep)
+    stages.tell({"applied_" + kind: held for kind, held in of_runs.tally.items()})
     return {"applied": from_runs["applied"], "written": from_passes["written"],
-            "tracking": reconcile.tracking(from_passes, before),
             "read": {"runs": from_runs["read"], "passes": from_passes["read"]},
             "at": dict(from_runs["at"], **from_passes["at"]),
             "whole": from_runs["whole"] and from_passes["whole"]}
@@ -363,13 +388,12 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     left = [e for e in pulls if "unread" in e]
     graced = pass_.moved_once([e["facts"]["item"] for e in left], [e["unread"] for e in left], before)
     owed = {e["facts"]["item"]["number"] for e in left if page(e["facts"]["item"]) in graced}
-    seen, unread, gone = writes_seen(transport, config, numbers, kept, before, since, clock, owed, stages)
-    effects = recorded_effects(transport, config, runs, int(run_id), before, since, sleep, stages)
+    from_passes = recorded_passes(transport, config, int(run_id), before, since, sleep, stages)
     # The open issues the Kernel could serve, none while `issues.served_from` is null, without the tracking issue, by
     # the number the passes recorded. A list read short is never the whole, and stops the pass as the pull requests'
     # does: an issue it left out would read as gone from the view.
     # Issues whose Apps cannot be told are not listed, as with no date: none is read or decided, and the pass says so.
-    apart = effects.pop("tracking")
+    apart = reconcile.tracking(from_passes, before)
     served = None if refused else config["kernel"]["issues"]["served_from"]
     with stages.stage("issue_list") as counts:
         try:
@@ -387,9 +411,8 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
         try:
             if apart is None:
                 raise Unanswered("the tracking issue's number was not read")
-            # No pass record is handed on yet, so no span is read, while an issue a pull request names defers (issue 734).
             facts, title = issues_.read(through, home, number, who, lambda: utc(clock), identities=identities,
-                                        earlier=[], kernel=config["kernel"])
+                                        earlier=before, kernel=config["kernel"])
             issues.append({"facts": facts, "title": title})
             facts_reads += dated(through.first)
         except Unanswered as err:
@@ -397,6 +420,13 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
                            "unread": reads_.MOVED if isinstance(err, facts_.Moved) else reads_.UNANSWERED})
         stages.add(tally, "issues", began)
     stages.tell(tally)
+    # The served issues' writes are read beside the pull requests' (issue 837): those of each issue the pass serves,
+    # decided or left out unread, never the tracking issue, which the listing leaves out by its number. While that
+    # number is not read, no issue's writes are: the tracking issue could be among those listed, and the passes'
+    # records read short leave reconciliation short already.
+    served_issues = [e["facts"]["item"]["number"] for e in issues] if apart is not None else ()
+    seen, unread, gone = writes_seen(transport, config, numbers, kept, before, since, clock, owed, stages, served_issues)
+    effects = recorded_effects(transport, config, runs, before, since, from_passes, sleep, stages)
     with stages.stage("pause"):
         pause = pause_.read(transport, home.split("/")[0], [home])
     return {"started": started, "pause": pause,
