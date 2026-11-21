@@ -1,0 +1,619 @@
+{
+  "schema": "trial/1",
+  "trial": "P-78",
+  "question": "How long does each of the desk's two advisory readers take to read a diff of about 5,000, 25,000 and 60,000 characters (60,000 is the Kernel's bound) at the efforts the configuration gives it, Astra at xhigh and at max and Kimi at xhigh, and does any read meet its configured output cap?",
+  "pass": "Written before the run, in issue 1068 at 2026-11-21T00:36Z, nothing having run (trial TA3 of decision 0224's plan). The plan's row says twelve reads but names three readings of three sizes, two each, and five of six at max: eighteen were run, six of Astra at xhigh, six at max, six of Kimi at xhigh, three at once, one for each reading. The requests left the desk, not a GitHub runner, with the desk resource's own key read in-process and never printed, logged or written (the Builder's ruling (a)); the times are the desk's. The code is the build's own at harness/advise-deletes-each-response-390 3764aa12 (harness.advise.prompt_of and one, adapters/azure.Live, adapters/advice.read), each reader's settings from its config/harness.json (output caps 96,000 and 40,000 tokens), the effort set by the trial, each read given the step's 1,080 s and judged against its 540 s share, each stored response deleted once read. The diffs: from canary main e9a2da21 to trial/p-78-5k 13206558, trial/p-78-25k 81dea5a6 and trial/p-78-60k ef8649f0, each adding one file of the Factory's repo at ef796789: adapters/edits.py, tools/check_decisions.py, tools/check_trials.py, 5,185, 23,872 and 58,614 characters as a diff. Pass: every xhigh read, Astra's and Kimi's, ends within 540 s of its first request; at max, at least five of Astra's six do; no read ends incomplete, cut_short. One exchange is kept for each read, its times and counts in the call: Kimi's answer, and Astra's delete, the read's status, usage and finding count in the call. Result: fail, on two points. Every xhigh read ended within 540 s: Astra 95 to 409 s (5k 191 and 95, 25k 283 and 302, 60k 378 and 409), Kimi 40 to 234 s. At max, two of six did: 490 and 357 s at 5k, then 697 and 686 s at 25k and 682 and 642 s at 60k, each writing 42,000 to 44,500 tokens out, under half its cap. One of Kimi's two reads of the 60k diff ended incomplete, cut_short, at its 40,000-token cap after 234 s; its other wrote 33,210, and its two of the 25k diff 33,337 and 35,288, so Kimi at xhigh runs near its cap on any diff past a few thousand characters. Every read completed but that one; every one of Astra's twelve responses was deleted, deleted true. Spent $20.03 at the configured prices, under twice the estimate of $12; Azure's own figure for the day is owed from the desk's read of the resource. What follows is proposed, not decided here: Kimi's output cap raised, or its effort lowered, on large diffs; max not used on critical paths within a 540 s share, or the shares or the step's limit changed.",
+  "repo": null,
+  "ran_at": "2026-11-21T00:39:06Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "DELETE /openai/v1/responses/resp_0cb83293b016bed6006b00e82a586481969909c6cae880026a (act delete), astra at xhigh, read 1 of 2 of canary branch trial/p-78-5k's diff of p78/edits.py (5,185 characters), given the step's 1,080 s; the read took 191.0 s from its first request, within its 540 s share; 2,490 tokens in, 11,034 out; advice.read gave completed, no reason, 5 findings, cost 0.5766 at the configured prices; 20 requests: the create, 18 reads 10 s apart until it ended, and the delete, answered 200, deleted True; this is the delete; client time 2026-11-21T00:42:16Z, answered in 0.6 s; texts written as length and sha256",
+        "headers": {},
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_0cb83293b016bed6006b00e82a586481969909c6cae880026a",
+          "object": "response.deleted",
+          "deleted": true
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "DELETE /openai/v1/responses/resp_02072a1979a29c66006b00e8e94b308190bef7e06f72634445 (act delete), astra at xhigh, read 2 of 2 of canary branch trial/p-78-5k's diff of p78/edits.py (5,185 characters), given the step's 1,080 s; the read took 95.0 s from its first request, within its 540 s share; 2,485 tokens in, 5,837 out; advice.read gave completed, no reason, 3 findings, cost 0.3167 at the configured prices; 11 requests: the create, 9 reads 10 s apart until it ended, and the delete, answered 200, deleted True; this is the delete; client time 2026-11-21T00:43:51Z, answered in 0.6 s; texts written as length and sha256",
+        "headers": {},
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_02072a1979a29c66006b00e8e94b308190bef7e06f72634445",
+          "object": "response.deleted",
+          "deleted": true
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "DELETE /openai/v1/responses/resp_0173359541acba26006b00e94855688190a075fe0aa67eb7cf (act delete), astra at xhigh, read 1 of 2 of canary branch trial/p-78-25k's diff of p78/check_decisions.py (23,872 characters), given the step's 1,080 s; the read took 283.1 s from its first request, within its 540 s share; 7,689 tokens in, 16,435 out; advice.read gave completed, no reason, 17 findings, cost 0.89864 at the configured prices; 29 requests: the create, 27 reads 10 s apart until it ended, and the delete, answered 200, deleted True; this is the delete; client time 2026-11-21T00:48:34Z, answered in 0.7 s; texts written as length and sha256",
+        "headers": {},
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_0173359541acba26006b00e94855688190a075fe0aa67eb7cf",
+          "object": "response.deleted",
+          "deleted": true
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "DELETE /openai/v1/responses/resp_0b20deeb36f22c8e006b00ea636d3481958593abf1811f5cc6 (act delete), astra at xhigh, read 2 of 2 of canary branch trial/p-78-25k's diff of p78/check_decisions.py (23,872 characters), given the step's 1,080 s; the read took 302.2 s from its first request, within its 540 s share; 7,674 tokens in, 18,314 out; advice.read gave completed, no reason, 19 findings, cost 0.99244 at the configured prices; 31 requests: the create, 29 reads 10 s apart until it ended, and the delete, answered 200, deleted True; this is the delete; client time 2026-11-21T00:53:36Z, answered in 0.9 s; texts written as length and sha256",
+        "headers": {},
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_0b20deeb36f22c8e006b00ea636d3481958593abf1811f5cc6",
+          "object": "response.deleted",
+          "deleted": true
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "DELETE /openai/v1/responses/resp_040464e09ac00a1b006b00eb91bb588195be3ca9992779970e (act delete), astra at xhigh, read 1 of 2 of canary branch trial/p-78-60k's diff of p78/check_trials.py (58,614 characters), given the step's 1,080 s; the read took 377.7 s from its first request, within its 540 s share; 17,097 tokens in, 22,631 out; advice.read gave completed, no reason, 26 findings, cost 1.30252 at the configured prices; 38 requests: the create, 36 reads 10 s apart until it ended, and the delete, answered 200, deleted True; this is the delete; client time 2026-11-21T00:59:53Z, answered in 1.2 s; texts written as length and sha256",
+        "headers": {},
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_040464e09ac00a1b006b00eb91bb588195be3ca9992779970e",
+          "object": "response.deleted",
+          "deleted": true
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "DELETE /openai/v1/responses/resp_074fce8d3da004de006b00ed0b6a50819689849dcca3e0ca99 (act delete), astra at xhigh, read 2 of 2 of canary branch trial/p-78-60k's diff of p78/check_trials.py (58,614 characters), given the step's 1,080 s; the read took 409.1 s from its first request, within its 540 s share; 17,092 tokens in, 24,408 out; advice.read gave completed, no reason, 33 findings, cost 1.39132 at the configured prices; 40 requests: the create, 38 reads 10 s apart until it ended, and the delete, answered 200, deleted True; this is the delete; client time 2026-11-21T01:06:39Z, answered in 4.4 s; texts written as length and sha256",
+        "headers": {},
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_074fce8d3da004de006b00ed0b6a50819689849dcca3e0ca99",
+          "object": "response.deleted",
+          "deleted": true
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "DELETE /openai/v1/responses/resp_0672c728bd8f8d76006b00e82a5f408193a6a8c4697054f498 (act delete), astra at max, read 1 of 2 of canary branch trial/p-78-5k's diff of p78/edits.py (5,185 characters), given the step's 1,080 s; the read took 490.3 s from its first request, within its 540 s share; 2,470 tokens in, 30,252 out; advice.read gave completed, no reason, 8 findings, cost 1.5373 at the configured prices; 49 requests: the create, 47 reads 10 s apart until it ended, and the delete, answered 200, deleted True; this is the delete; client time 2026-11-21T00:47:15Z, answered in 1.2 s; texts written as length and sha256",
+        "headers": {},
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_0672c728bd8f8d76006b00e82a5f408193a6a8c4697054f498",
+          "object": "response.deleted",
+          "deleted": true
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "DELETE /openai/v1/responses/resp_0833b48818b86952006b00ea1496e081938ce5e260f6373aa4 (act delete), astra at max, read 2 of 2 of canary branch trial/p-78-5k's diff of p78/edits.py (5,185 characters), given the step's 1,080 s; the read took 356.6 s from its first request, within its 540 s share; 2,500 tokens in, 23,655 out; advice.read gave completed, no reason, 3 findings, cost 1.20775 at the configured prices; 36 requests: the create, 34 reads 10 s apart until it ended, and the delete, answered 200, deleted True; this is the delete; client time 2026-11-21T00:53:12Z, answered in 1.0 s; texts written as length and sha256",
+        "headers": {},
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_0833b48818b86952006b00ea1496e081938ce5e260f6373aa4",
+          "object": "response.deleted",
+          "deleted": true
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "DELETE /openai/v1/responses/resp_04df85d16d1443db006b00eb7934d0819493dd4826932940a9 (act delete), astra at max, read 1 of 2 of canary branch trial/p-78-25k's diff of p78/check_decisions.py (23,872 characters), given the step's 1,080 s; the read took 696.6 s from its first request, past its 540 s share; 7,679 tokens in, 44,481 out; advice.read gave completed, no reason, 29 findings, cost 2.30084 at the configured prices; 68 requests: the create, 66 reads 10 s apart until it ended, and the delete, answered 200, deleted True; this is the delete; client time 2026-11-21T01:04:48Z, answered in 1.6 s; texts written as length and sha256",
+        "headers": {},
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_04df85d16d1443db006b00eb7934d0819493dd4826932940a9",
+          "object": "response.deleted",
+          "deleted": true
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "DELETE /openai/v1/responses/resp_03a9a8f9439054f4006b00ee31df7c8196bcd8d95ad75d761e (act delete), astra at max, read 2 of 2 of canary branch trial/p-78-25k's diff of p78/check_decisions.py (23,872 characters), given the step's 1,080 s; the read took 686.3 s from its first request, past its 540 s share; 7,674 tokens in, 44,257 out; advice.read gave completed, no reason, 30 findings, cost 2.28959 at the configured prices; 67 requests: the create, 65 reads 10 s apart until it ended, and the delete, answered 200, deleted True; this is the delete; client time 2026-11-21T01:16:14Z, answered in 1.6 s; texts written as length and sha256",
+        "headers": {},
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_03a9a8f9439054f4006b00ee31df7c8196bcd8d95ad75d761e",
+          "object": "response.deleted",
+          "deleted": true
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "DELETE /openai/v1/responses/resp_07f27c1409fdd3e8006b00f0e04b088194a69f88b2111675a3 (act delete), astra at max, read 1 of 2 of canary branch trial/p-78-60k's diff of p78/check_trials.py (58,614 characters), given the step's 1,080 s; the read took 682.4 s from its first request, past its 540 s share; 17,062 tokens in, 42,085 out; advice.read gave completed, no reason, 39 findings, cost 2.27487 at the configured prices; 67 requests: the create, 65 reads 10 s apart until it ended, and the delete, answered 200, deleted True; this is the delete; client time 2026-11-21T01:27:36Z, answered in 1.6 s; texts written as length and sha256",
+        "headers": {},
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_07f27c1409fdd3e8006b00f0e04b088194a69f88b2111675a3",
+          "object": "response.deleted",
+          "deleted": true
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "DELETE /openai/v1/responses/resp_04362366c3ac138e006b00f38ac4b881968d978f2dfebe52d4 (act delete), astra at max, read 2 of 2 of canary branch trial/p-78-60k's diff of p78/check_trials.py (58,614 characters), given the step's 1,080 s; the read took 641.5 s from its first request, past its 540 s share; 17,102 tokens in, 43,795 out; advice.read gave completed, no reason, 38 findings, cost 2.36077 at the configured prices; 63 requests: the create, 61 reads 10 s apart until it ended, and the delete, answered 200, deleted True; this is the delete; client time 2026-11-21T01:38:18Z, answered in 1.6 s; texts written as length and sha256",
+        "headers": {},
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_04362366c3ac138e006b00f38ac4b881968d978f2dfebe52d4",
+          "object": "response.deleted",
+          "deleted": true
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/chat/completions (act chat), kimi at xhigh, read 1 of 2 of canary branch trial/p-78-5k's diff of p78/edits.py (5,185 characters), given the step's 1,080 s; the read took 40.0 s from its first request, within its 540 s share; 2,556 tokens in, 7,354 out; advice.read gave completed, no reason, 1 findings, cost 0.117978 at the configured prices; client time 2026-11-21T00:39:06Z, answered in 40.0 s; texts written as length and sha256",
+        "headers": {},
+        "body": {
+          "model": "kimi-k3.1-pro",
+          "messages": [
+            {
+              "role": "user",
+              "content": "<9131 bytes of text, sha256 3f37e082605f69dbf99ce940c546177880b09cf1c5da72029d8dbc85377ba0ca>"
+            }
+          ],
+          "reasoning_effort": "xhigh"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "chatcmpl-6b00e82adbb140d7ca523d50",
+          "model": "Kimi-K3.1",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "<690 bytes of text, sha256 8a241499e5a0136f07f9dd3e3ad0c1e38d264d503fa897ff2b688ea7c2dbfaa0>",
+                "reasoning_content": "<32386 bytes of text, sha256 ed3598129db3901a78b962bb21d1118c5b3f6cadf66549f1209ec310384a2db0>"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "total_tokens": 9910
+          },
+          "created": 1795221546,
+          "object": "chat.completion",
+          "prompt_filter_results": null
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/chat/completions (act chat), kimi at xhigh, read 2 of 2 of canary branch trial/p-78-5k's diff of p78/edits.py (5,185 characters), given the step's 1,080 s; the read took 61.9 s from its first request, within its 540 s share; 2,556 tokens in, 11,760 out; advice.read gave completed, no reason, 1 findings, cost 0.184068 at the configured prices; client time 2026-11-21T00:39:46Z, answered in 61.9 s; texts written as length and sha256",
+        "headers": {},
+        "body": {
+          "model": "kimi-k3.1-pro",
+          "messages": [
+            {
+              "role": "user",
+              "content": "<9131 bytes of text, sha256 8cf1ee1f4b4fb7ca270e8dd7ea9e59be5071f574542399fcbc6eb504bd03ee79>"
+            }
+          ],
+          "reasoning_effort": "xhigh"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "chatcmpl-6b00e85286b26fb9e85a1085",
+          "model": "Kimi-K3.1",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "<673 bytes of text, sha256 11a90daa685f0cfb0c042a682160febe07cbf5ae83fd80b4311d7d007d51d593>",
+                "reasoning_content": "<51250 bytes of text, sha256 fd3b7967ff105552f59833aec9d41c5ef66352438abc18b14dc3883ce45fdd76>"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "total_tokens": 14316
+          },
+          "created": 1795221586,
+          "object": "chat.completion",
+          "prompt_filter_results": null
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/chat/completions (act chat), kimi at xhigh, read 1 of 2 of canary branch trial/p-78-25k's diff of p78/check_decisions.py (23,872 characters), given the step's 1,080 s; the read took 192.1 s from its first request, within its 540 s share; 7,754 tokens in, 33,337 out; advice.read gave completed, no reason, 2 findings, cost 0.523317 at the configured prices; client time 2026-11-21T00:40:48Z, answered in 192.1 s; texts written as length and sha256",
+        "headers": {},
+        "body": {
+          "model": "kimi-k3.1-pro",
+          "messages": [
+            {
+              "role": "user",
+              "content": "<27818 bytes of text, sha256 2648d46c12fc2733e43b593301f260244f6af1268f256328ff171ccd30c4ef4e>"
+            }
+          ],
+          "reasoning_effort": "xhigh"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "chatcmpl-6b00e8900ec06e5053aeabe6",
+          "model": "Kimi-K3.1",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "<1353 bytes of text, sha256 5194b98484d4b356982bde92f0846f709e98eda957427fa80cd4f8570d695139>",
+                "reasoning_content": "<146842 bytes of text, sha256 25c6bb20ec46f26f4cc35c29b5a83305b758b3f96f43b7cfbb8c6eae7cb49f4f>"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "total_tokens": 41091
+          },
+          "created": 1795221648,
+          "object": "chat.completion",
+          "prompt_filter_results": null
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/chat/completions (act chat), kimi at xhigh, read 2 of 2 of canary branch trial/p-78-25k's diff of p78/check_decisions.py (23,872 characters), given the step's 1,080 s; the read took 208.2 s from its first request, within its 540 s share; 7,739 tokens in, 35,288 out; advice.read gave completed, no reason, 4 findings, cost 0.552537 at the configured prices; client time 2026-11-21T00:44:00Z, answered in 208.2 s; texts written as length and sha256",
+        "headers": {},
+        "body": {
+          "model": "kimi-k3.1-pro",
+          "messages": [
+            {
+              "role": "user",
+              "content": "<27818 bytes of text, sha256 e29ffab04ffbe8d53ab97e3d3cfe14f06bb098dae84335708dca930d9a204e28>"
+            }
+          ],
+          "reasoning_effort": "xhigh"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "chatcmpl-6b00e95065e009634b5cddf6",
+          "model": "Kimi-K3.1",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "<2701 bytes of text, sha256 26c9c9cc3591353e2c6b7af5f3fb534816a27253164311aba2f4d55deed37036>",
+                "reasoning_content": "<157813 bytes of text, sha256 80f70bc5cbc8e6f24917d835b3db1411246833b27902e4775aaf6eeedf06839f>"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "total_tokens": 43027
+          },
+          "created": 1795221840,
+          "object": "chat.completion",
+          "prompt_filter_results": null
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/chat/completions (act chat), kimi at xhigh, read 1 of 2 of canary branch trial/p-78-60k's diff of p78/check_trials.py (58,614 characters), given the step's 1,080 s; the read took 233.6 s from its first request, within its 540 s share; 17,167 tokens in, 40,000 out; advice.read gave incomplete, cut_short, 0 findings, cost 0.651501 at the configured prices; client time 2026-11-21T00:47:28Z, answered in 233.6 s; texts written as length and sha256",
+        "headers": {},
+        "body": {
+          "model": "kimi-k3.1-pro",
+          "messages": [
+            {
+              "role": "user",
+              "content": "<62560 bytes of text, sha256 22a44907f68204c74c7f0ac56873e44ea588f0ab7189f35141a14638c2ac9f8d>"
+            }
+          ],
+          "reasoning_effort": "xhigh"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "chatcmpl-6b00ea21a8f3fd1212ce4363",
+          "model": "Kimi-K3.1",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "<0 bytes of text, sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855>",
+                "reasoning_content": "<170007 bytes of text, sha256 cc5a47108afc232905ab12c6cc78e4a6ab00a0f61b98a0a745631079332a97ca>"
+              },
+              "finish_reason": "length"
+            }
+          ],
+          "usage": {
+            "total_tokens": 57167
+          },
+          "created": 1795222049,
+          "object": "chat.completion",
+          "prompt_filter_results": null
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/chat/completions (act chat), kimi at xhigh, read 2 of 2 of canary branch trial/p-78-60k's diff of p78/check_trials.py (58,614 characters), given the step's 1,080 s; the read took 191.0 s from its first request, within its 540 s share; 17,147 tokens in, 33,210 out; advice.read gave completed, no reason, 5 findings, cost 0.549591 at the configured prices; client time 2026-11-21T00:51:22Z, answered in 191.0 s; texts written as length and sha256",
+        "headers": {},
+        "body": {
+          "model": "kimi-k3.1-pro",
+          "messages": [
+            {
+              "role": "user",
+              "content": "<62560 bytes of text, sha256 16e6ba9f3bf7facae389fe738ef33a46f7509362598487b7fcb9733986ed4e4e>"
+            }
+          ],
+          "reasoning_effort": "xhigh"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "chatcmpl-6b00eb0a01b77a3135519e9c",
+          "model": "Kimi-K3.1",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "<3470 bytes of text, sha256 07d8ffe1635923db562a879777922e905b3aa6c5dd018c84be7c5dd4774941a6>",
+                "reasoning_content": "<142291 bytes of text, sha256 92752c535815246e924917cd46558622c83729885debedebe023dcc3a2d772ae>"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "total_tokens": 50357
+          },
+          "created": 1795222282,
+          "object": "chat.completion",
+          "prompt_filter_results": null
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[12].request.body.max_completion_tokens",
+    "exchanges[12].response.body.usage.prompt_tokens",
+    "exchanges[12].response.body.usage.completion_tokens",
+    "exchanges[12].response.body.usage.reasoning_tokens",
+    "exchanges[12].response.body.usage.audio_prompt_tokens",
+    "exchanges[12].response.body.usage.prompt_tokens_details",
+    "exchanges[12].response.body.usage.completion_tokens_details",
+    "exchanges[13].request.body.max_completion_tokens",
+    "exchanges[13].response.body.usage.prompt_tokens",
+    "exchanges[13].response.body.usage.completion_tokens",
+    "exchanges[13].response.body.usage.reasoning_tokens",
+    "exchanges[13].response.body.usage.audio_prompt_tokens",
+    "exchanges[13].response.body.usage.prompt_tokens_details",
+    "exchanges[13].response.body.usage.completion_tokens_details",
+    "exchanges[14].request.body.max_completion_tokens",
+    "exchanges[14].response.body.usage.prompt_tokens",
+    "exchanges[14].response.body.usage.completion_tokens",
+    "exchanges[14].response.body.usage.reasoning_tokens",
+    "exchanges[14].response.body.usage.audio_prompt_tokens",
+    "exchanges[14].response.body.usage.prompt_tokens_details",
+    "exchanges[14].response.body.usage.completion_tokens_details",
+    "exchanges[15].request.body.max_completion_tokens",
+    "exchanges[15].response.body.usage.prompt_tokens",
+    "exchanges[15].response.body.usage.completion_tokens",
+    "exchanges[15].response.body.usage.reasoning_tokens",
+    "exchanges[15].response.body.usage.audio_prompt_tokens",
+    "exchanges[15].response.body.usage.prompt_tokens_details",
+    "exchanges[15].response.body.usage.completion_tokens_details",
+    "exchanges[16].request.body.max_completion_tokens",
+    "exchanges[16].response.body.usage.prompt_tokens",
+    "exchanges[16].response.body.usage.completion_tokens",
+    "exchanges[16].response.body.usage.reasoning_tokens",
+    "exchanges[16].response.body.usage.audio_prompt_tokens",
+    "exchanges[16].response.body.usage.prompt_tokens_details",
+    "exchanges[16].response.body.usage.completion_tokens_details",
+    "exchanges[17].request.body.max_completion_tokens",
+    "exchanges[17].response.body.usage.prompt_tokens",
+    "exchanges[17].response.body.usage.completion_tokens",
+    "exchanges[17].response.body.usage.reasoning_tokens",
+    "exchanges[17].response.body.usage.audio_prompt_tokens",
+    "exchanges[17].response.body.usage.prompt_tokens_details",
+    "exchanges[17].response.body.usage.completion_tokens_details"
+  ],
+  "verdict": "fail"
+}
