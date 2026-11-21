@@ -103,16 +103,19 @@ def _members(value, found: list, unread: list) -> None:
         unread.append(value.lineno)
 
 
-def _bound(target, value, found: list, unread: list) -> None:
-    """A binding of `target` to `value`: a reason given to a reason's slot, pair by pair for tuples."""
+def _bound(target, value, found: list, unread: list, read: set) -> None:
+    """A binding of `target` to `value`: a reason given to a reason's slot, pair by pair for tuples. Each name
+    `reason` bound here goes into `read`."""
     if isinstance(target, (ast.Tuple, ast.List)):
         if isinstance(value, (ast.Tuple, ast.List)) and len(value.elts) == len(target.elts):
             for part, given in zip(target.elts, value.elts):
-                _bound(part, given, found, unread)
+                _bound(part, given, found, unread, read)
         elif any(_reason_slot(n) for n in ast.walk(target)):
             unread.append(target.lineno)
+            read |= {id(n) for n in ast.walk(target)}
     elif _reason_slot(target):
         _give(value, found, unread)
+        read.add(id(target))
 
 
 def written(tree, taken: dict) -> tuple:
@@ -122,9 +125,10 @@ def written(tree, taken: dict) -> tuple:
     A reason is written as a "reason" in a dict display, as the argument `reason`, by name or by place, to a function
     that takes one, or as its default, as a value bound or stored to the name `reason` or to a mapping's "reason", as a
     literal compared with a reason or a table of them, and as a member of a table. A call that gives no reason by
-    place or name, a table bound anywhere but once at the top level, and a handed table bound again, cannot be read.
+    place or name, a table bound anywhere but once at the top level, a handed table bound again, and the name `reason`
+    bound any other way, by a loop, a comprehension or `:=`, cannot be read.
     """
-    found, unread, calls = [], [], 0
+    found, unread, calls, bound = [], [], 0, set()
     tops = {id(t) for node in tree.body if isinstance(node, ast.Assign) for t in node.targets}
     handed = {id(n) for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef) and fn.name == HANDED[0]
               for n in ast.walk(fn) if isinstance(n, ast.Name) and n.id == HANDED[1]}
@@ -163,14 +167,15 @@ def written(tree, taken: dict) -> tuple:
                     unread.append(node.lineno)
         if isinstance(node, ast.Assign):
             for target in node.targets:
-                _bound(target, node.value, found, unread)
+                _bound(target, node.value, found, unread, bound)
                 if id(target) in tops and _name(target) in TABLES:
                     _members(node.value, found, unread)
         if isinstance(node, (ast.AnnAssign, ast.AugAssign)) and node.value is not None:
             if isinstance(node, ast.AugAssign) and _reason_slot(node.target):
                 unread.append(node.lineno)
+                bound.add(id(node.target))
             else:
-                _bound(node.target, node.value, found, unread)
+                _bound(node.target, node.value, found, unread, bound)
         if isinstance(node, ast.Compare):
             sides = [node.left] + node.comparators
             if any(_read_on(side) or table(side) for side in sides):
@@ -180,6 +185,8 @@ def written(tree, taken: dict) -> tuple:
                             _give(member, found, unread)
                     elif not table(side):
                         _give(side, found, unread)
+    unread += [n.lineno for n in ast.walk(tree) if isinstance(n, ast.Name) and n.id == "reason"
+               and not isinstance(n.ctx, ast.Load) and id(n) not in bound]
     return found, unread, calls
 
 
@@ -271,6 +278,10 @@ class Written(unittest.TestCase):
             ('GATE_REASONS = make()', [], [1]),
             ('("a" if c else "b") in GATE_REASONS', ["a", "b"], []),
             ('d.get("reason") == "x"', ["x"], []),
+            ('_decision(f, s, **a)', [], [1]),
+            ('for reason in ("x",):\n    pass', [], [1]),
+            ('[_decision(f, s, reason, e, o) for reason in ("x",)]', [], [1]),
+            ('(reason := "x")', [], [1]),
         )
         for source, found, unread in cases:
             with self.subTest(source=source):
