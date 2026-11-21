@@ -5618,6 +5618,19 @@ class Context(unittest.TestCase):
                      "0002-a-pull-requests-title-names-its-area-and-1-its-issue-.md"):
             self.assertTrue(caught(found(name, title), "the file is named by its title"), name)
         self.assertEqual(check_context._slug("Self-held  x-y"), "self-held-x-y")
+        self.assertEqual(check_context._slug("A b \u2014"), "a-b")
+        self.assertEqual(check_context._slug("Caf\u00e9 au lait"), "caf-au-lait")
+        # A title of 72 characters with spaces or a carriage return after it is still 72; a title that names nothing refuses.
+        self.assertEqual(found("0002-" + check_context._slug(at_most) + ".md", at_most + "  \r"), [])
+        for empty in ("", "\u2014", " - "[1:2] * 0 + "??"):
+            self.assertTrue(caught(found("0002-.md", empty), "the title names nothing"), empty)
+        # The file's own number decides, so a record past a gap is still held to it.
+        files = {"docs/decisions/0001-x.md": "# 0001. X" + body, "docs/decisions/0003-y.md": "# 0003. " + over + body,
+                 "tools/x.py": ""}
+        with mock.patch.object(check_context, "FIRST_SHORT", 3):
+            problems = check_context._decisions(tree(files))
+        self.assertTrue(caught(problems, "0003-y.md: the title is 73 characters"))
+        self.assertTrue(caught(problems, "0003-y.md: records are numbered from 0001 with no gap"))
         # A record below FIRST_SHORT keeps its long title and its name, and so does every record before it.
         self.assertEqual(found("0002-x.md", over, first=3), [])
         self.assertTrue(caught(found("0002-x.md", over, first=2), "the title is 73 characters"))

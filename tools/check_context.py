@@ -43,7 +43,7 @@ SUFFIXES = (".py", ".json", ".md", ".yml", ".yaml")
 EXTENSION = re.compile(r"\.[a-z0-9]{1,5}$")
 PENDING = "not held yet"
 # From this record on, a record's title after "# NNNN. " is at most RECORD_TITLE characters, and its file is named by it:
-# the title lowercased, spaces to dashes, every other character but a letter, a digit or a dash dropped (decision 0245).
+# the title lowercased, spaces to dashes, every character but an ASCII letter, a digit or a dash dropped (decision 0245).
 # The records before keep their names, since a record is never edited.
 FIRST_SHORT = 245
 RECORD_TITLE = 72
@@ -360,8 +360,9 @@ def _decisions(root: pathlib.Path) -> list:
             problems.append("docs/decisions/%s: records are numbered from 0001 with no gap" % path.name)
         if not text.startswith("# %04d. " % want):
             problems.append("docs/decisions/%s: the title must open with its number" % path.name)
-        elif want >= FIRST_SHORT:
-            problems += _short(path.name, want, text)
+        number = int(path.name[:4]) if path.name[:4].isdigit() else want
+        if number >= FIRST_SHORT and text.startswith("# %04d. " % number):
+            problems += _short(path.name, number, text)
         parts = dict(_sections(text, "## "))
         for need in ("Decision", "Why", "Boundaries"):
             if not parts.get(need, "").strip():
@@ -378,14 +379,14 @@ def _decisions(root: pathlib.Path) -> list:
 
 
 def _slug(title: str) -> str:
-    """A record's file name for `title`: lowercased, spaces to dashes, all else but a letter, a digit or a dash dropped."""
+    """A record's file name for `title`: lowercased, spaces to dashes, all but an ASCII letter, a digit or a dash dropped."""
     return re.sub(r" +", "-", re.sub(r"[^a-z0-9 -]", "", title.lower()).strip())
 
 
 def _short(name: str, number: int, text: str) -> list:
     """Why a record from FIRST_SHORT on has a long title, or a file not named by its title: nothing where it has neither."""
     title = text.split("\n", 1)[0][len("# %04d. " % number):].strip()
-    problems = []
+    problems = [] if _slug(title) else ["docs/decisions/%s: the title names nothing" % name]
     if len(title) > RECORD_TITLE:
         problems.append("docs/decisions/%s: the title is %d characters, and from record %04d on the most is %d"
                         % (name, len(title), FIRST_SHORT, RECORD_TITLE))
