@@ -283,6 +283,13 @@ class Transport(unittest.TestCase):
         made = [getattr(h, "_context", None) for h in handlers if isinstance(h, azure.urllib.request.HTTPSHandler)]
         self.assertEqual([(getattr(c, "verify_mode", None), getattr(c, "check_hostname", None)) for c in made],
                          [(azure.ssl.CERT_REQUIRED, True)])
+        self.assertGreaterEqual(made[0].minimum_version, azure.ssl.TLSVersion.TLSv1_2)
+        # It logs no session key where SSLKEYLOGFILE says: the default context, which would, is never made.
+        with mock.patch.dict(os.environ, {"SSLKEYLOGFILE": os.devnull}), \
+                mock.patch.object(azure.ssl, "create_default_context", side_effect=AssertionError("made")):
+            handlers = azure.Live(HOST, KEY, 30).opener.handlers
+        made = [h._context for h in handlers if isinstance(h, azure.urllib.request.HTTPSHandler)]
+        self.assertEqual([getattr(c, "keylog_filename", None) for c in made], [None])
 
     def test_the_azure_transport_reads_only_an_answer_framed_as_azure_frames_one(self):
         # Azure frames each of its answers, chunked or with one length of digits alone. Any other answer, a body's or
@@ -464,7 +471,7 @@ class Transport(unittest.TestCase):
             headers = {"Content-Type": "Application/JSON"}
         self.assertEqual(live(Capture(b"{}", Shouted)).send(azure.read(ID))["body"], {})
         self.assertEqual(live(Capture(b"{not json")).send(azure.read(ID))["body"], "{not json")
-        for text in (b'{"a": NaN}', b"[Infinity]", b"-Infinity", b'{"a": 1e999}', b"[-1e999]"):
+        for text in (b'{"a": NaN}', b"[Infinity]", b"-Infinity", b'{"a": 1e999}', b"[-1E999]", b"1e400"):
             self.assertEqual(live(Capture(text)).send(azure.read(ID))["body"], text.decode())
         # A number too large for a float would read as an infinity, so it is text as an infinity is; one finite is read.
         self.assertEqual(live(Capture(b'{"a": 1.5e3, "b": -2.5}')).send(azure.read(ID))["body"], {"a": 1500.0, "b": -2.5})
