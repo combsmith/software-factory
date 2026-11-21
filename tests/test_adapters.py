@@ -20,8 +20,8 @@ import urllib.parse
 import zipfile
 from unittest import mock
 
-from adapters import acceptance, applied, artifacts, checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
-    passes, pull, records, pause, rules, texts, threads, timeline
+from adapters import acceptance, applied, artifacts, checks, draft_checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
+    passes, pull, push, records, pause, rules, texts, threads, timeline
 from controller import shared
 from harness import task
 from kernel import brakes
@@ -973,6 +973,139 @@ class Diff(unittest.TestCase):
                   "Binary files a/logo.png and b/logo.png differ\n")
         self.assertEqual(pull.canonical(binary + text % "0e91505d0..9f114f5d8 100644"),
                          binary + text % "0e91505..9f114f5 100644")
+
+    def test_a_binary_files_change_is_bound_to_its_full_blob_id(self):  # issue 1016
+        # A binary file's change has no hunks, so its index line is all that tells it. GitHub abbreviates its ids to 8
+        # characters at one read and 9 at the next; cut to 7, a blob ground to share an approved one's first 7 would
+        # pass for it. So its head's id is written whole, from the compare's row for its own path, and its base's, of
+        # the base branch's history, cut to 7: one content at every read, and no other blob's.
+        head = "9f114f5d8" + "a" * 31
+        ground = "9f114f5d8" + "b" * 31
+        other = "77da7d97f" + "c" * 31
+
+        def binary(ids: str, mode: str = " 100644", name: str = "img.png") -> str:
+            return ("diff --git a/%s b/%s\nindex %s%s\nBinary files a/%s and b/%s differ\n"
+                    % (name, name, ids, mode, name, name))
+
+        def at(*shas, name: str = "img.png", before: str = None) -> tuple:
+            return tuple((before or name, name, sha) for sha in shas)
+        bound = binary("0e91505..%s" % head)
+        for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8", "0e91505..9f114f5", "0e91505d0" + "1" * 31 + ".." + head):
+            self.assertEqual(pull.canonical(binary(ids), at(other, head)), bound, ids)
+        # A blob ground to share the approved one's prefix is another content.
+        self.assertNotEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(ground)), bound)
+        # GitHub's whole abbreviation is matched, not its first 7: a blob it contradicts at its eighth digit is none.
+        near = "9f114f5e" + "d" * 32
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(head, near)), bound)
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(near)), binary("0e91505d..9f114f5d"))
+        # Only the row whose paths are the part's own header, word for word, binds it: a blob another path's row names,
+        # though the abbreviation begins it, is none (Astra's read), nor one of a path the header only ends with, as a
+        # space is not quoted (the security read).
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(head, name="other.png")), binary("0e91505d..9f114f5d"))
+        crafted = binary("0e91505d..9f114f5d", name="foo b/img.png")
+        self.assertEqual(pull.canonical(crafted, at(head)), crafted)
+        self.assertEqual(pull.canonical(crafted, at(head, name="foo b/img.png")), binary("0e91505..%s" % head, name="foo b/img.png"))
+        moved = ("diff --git a/old.png b/new.png\nsimilarity index 50%%\nrename from old.png\nrename to new.png\n"
+                 "index %s 100644\nBinary files a/old.png and b/new.png differ\n")
+        self.assertEqual(pull.canonical(moved % "0e91505d..9f114f5d", at(head, name="new.png", before="old.png") + at(ground, name="new.png")
+                                        + at(ground, name="old.png", before="old.png")),
+                         moved % ("0e91505..%s" % head))
+        # Without a mode, of another mode, of SHA-256, last in the diff with no newline after, and added.
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d", ""), at(head)), binary("0e91505..%s" % head, ""))
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d", " 100755"), at(head)), binary("0e91505..%s" % head, " 100755"))
+        wide = "9f114f5d8" + "e" * 55
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), at(wide)), binary("0e91505..%s" % wide))
+        self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d")[:-1], at(head)), bound[:-1])
+        added = "diff --git a/n.png b/n.png\nnew file mode 100644\nindex %s\nBinary files /dev/null and b/n.png differ\n"
+        self.assertEqual(pull.canonical(added % "00000000..9f114f5d", at(head, name="n.png")), added % ("0000000..%s" % head))
+        # A deleted file's head is no blob, so both its ids are cut, files or none.
+        gone = "diff --git a/g.png b/g.png\ndeleted file mode 100644\nindex %s\nBinary files a/g.png and /dev/null differ\n"
+        for ids in ("0e91505d..00000000", "0e91505d0..000000000"):
+            self.assertEqual(pull.canonical(gone % ids), gone % "0e91505..0000000", ids)
+        # The security read: a blob ground to as many leading zeros as GitHub abbreviates is all zeros too, so only a
+        # part that says it was deleted, by its mode line and by /dev/null, is read as a deletion; any other is bound to
+        # its own full id, and two such blobs are two contents.
+        zeros, more = "0" * 9 + "a" * 31, "0" * 9 + "b" * 31
+        for ids in ("0e91505d..00000000", "0e91505d0..000000000"):
+            self.assertEqual(pull.canonical(binary(ids), at(zeros)), binary("0e91505..%s" % zeros), ids)
+            self.assertNotEqual(pull.canonical(binary(ids), at(zeros)), pull.canonical(binary(ids), at(more)), ids)
+            self.assertEqual(pull.canonical(binary(ids)), binary(ids), ids)
+            for half in (gone.replace("deleted file mode 100644\n", ""), gone.replace(" and /dev/null", " and b/g.png")):
+                self.assertEqual(pull.canonical(half % ids), half % ids, half)
+        # Where the files name no blob the head's id begins, or more than one, or none at all, the line is kept as
+        # GitHub sent it: a content that may move, never one taken for another.
+        for given in ((), at(other), at(head, ground[:8] + "9" + ground[9:]), at("9f114f5d" + "e" * 32, head[:9] + "f" * 31)):
+            self.assertEqual(pull.canonical(binary("0e91505d..9f114f5d"), given), binary("0e91505d..9f114f5d"), given)
+        # A part that ends otherwise, says more after its binary line, or carries an id longer than git gives, is kept.
+        for kept in (binary("0e91505d..9f114f5d").replace(" differ\n", " differ\nmore\n"),
+                     binary("0e91505d..9f114f5d").replace("Binary files", "Binary Files"),
+                     binary("0e91505d..9f114f5d").replace("100644", "100644 and more"),
+                     binary("0e91505d.." + "9" * 65)):
+            self.assertEqual(pull.canonical(kept, at(head, "9" * 64)), kept, kept)
+        # Through the port: the content id, the bytes a Run is given and a review's content are one at either read,
+        # whichever file the binary one is; the compare's files are asked of the same pinned compare as the diff, and
+        # only for a diff that holds a binary file; a row whose sha is no blob id, of the wrong length or shape, a
+        # newline after it among them, is none.
+        data = body("P-29.base", 1)
+        data.update(changed_files=2, additions=1, deletions=1)
+        commit = data["head"]["sha"]
+        text = "diff --git a/f.py b/f.py\nindex %s\n--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
+        files = {"files": [{"filename": "f.py", "sha": "x" * 40}, {"filename": "img.png", "sha": head},
+                           {"filename": "img.png", "sha": other.upper()}, {"filename": "img.png", "sha": head[:9] + "Z" * 31},
+                           {"filename": "img.png", "sha": head[:39]}, {"filename": "img.png", "sha": head + "0"},
+                           {"filename": "img.png", "sha": head[:9] + "f" * 31 + "\n"}, {"filename": 7, "sha": ground},
+                           {"sha": ground}, {"filename": "img.png"}]}
+
+        class Sent:
+            def __init__(self, diff: str, compared):
+                self.answers, self.asked = {github.DIFF: diff, github.JSON: compared}, []
+
+            def send(self, req):
+                self.asked.append((req["method"], req["path"], req["accept"]))
+                found = self.answers[req["accept"]]
+                if found is github.Unanswered:
+                    raise github.Unanswered("no answer")
+                return found if isinstance(found, dict) and "status" in found else {"status": 200, "headers": {}, "body": found}
+        seen = set()
+        pinned = "/repos/%s/compare/%s...%s" % (data["base"]["repo"]["full_name"], PINNED_BASE, commit)
+        reviewed = "/repos/%s/compare/%s...%s" % (canary(), BASE_HEAD, commit)
+        for ids, short in (("0e91505d..9f114f5d", "1aab6ce4..2bbc7df5"), ("0e91505d0..9f114f5d8", "1aab6ce4a..2bbc7df5b")):
+            for sent in (binary(ids) + text % short, text % short + binary(ids)):
+                read, given_, review_ = Sent(sent, files), Sent(sent, files), Sent(sent, files)
+                got = pull.diff(read, data, PINNED_BASE)
+                given = pull.change(given_, data, PINNED_BASE)
+                review = timeline._content(review_, canary(), BASE_HEAD, commit)
+                first = sent.startswith("diff --git a/img.png")
+                seen.add((first, got["content_id"], "sha256:" + hashlib.sha256(given).hexdigest(), review))
+                for asked, path in ((read, pinned), (given_, pinned), (review_, reviewed)):
+                    self.assertEqual(asked.asked, [("GET", path, github.DIFF), ("GET", path, github.JSON)])
+        tail = text % "1aab6ce..2bbc7df"
+        self.assertEqual(seen, {(True,) + ("sha256:" + hashlib.sha256((bound + tail).encode()).hexdigest(),) * 3,
+                                (False,) + ("sha256:" + hashlib.sha256((tail + bound).encode()).hexdigest(),) * 3})
+        asked = Sent(text % "1aab6ce4..2bbc7df5", files)
+        pull.diff(asked, data, PINNED_BASE)
+        self.assertEqual(asked.asked, [("GET", pinned, github.DIFF)])
+        # A compare whose files cannot be read gives none: the binary file's line is GitHub's, at each read its own.
+        for unread in ({"status": 500, "headers": {}, "body": files}, {"files": "x"}, ["x"], {"files": [None, {"sha": 1}]},
+                       github.Unanswered):
+            got = {pull.diff(Sent(binary(ids) + text % "1aab6ce4..2bbc7df5", unread), data, PINNED_BASE)["content_id"]
+                   for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8")}
+            self.assertEqual(len(got), 2, unread)
+        # A row of no blob, all zeros, names none: a ground binary whose own row is not listed is kept, never bound to
+        # zeros (the security read).
+        # A renamed file's row binds it by the path it had and the path it has.
+        renamed = {"files": [{"filename": "new.png", "previous_filename": "old.png", "status": "renamed", "sha": head}]}
+        got = {pull.diff(Sent(moved % ids + text % "1aab6ce4..2bbc7df5", renamed), data, PINNED_BASE)["content_id"]
+               for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8")}
+        self.assertEqual(len(got), 1)
+        # A row of SHA-256's whole id binds as SHA-1's does.
+        got = {pull.diff(Sent(binary(ids) + text % "1aab6ce4..2bbc7df5", {"files": [{"filename": "img.png", "sha": wide}]}),
+                         data, PINNED_BASE)["content_id"] for ids in ("0e91505d..9f114f5d", "0e91505d0..9f114f5d8")}
+        self.assertEqual(len(got), 1)
+        nulls = {"files": [{"filename": "img.png", "sha": "0" * 40}]}
+        got = {pull.diff(Sent(binary(ids) + text % "1aab6ce4..2bbc7df5", nulls), data, PINNED_BASE)["content_id"]
+               for ids in ("0e91505d..00000000", "0e91505d0..000000000")}
+        self.assertEqual(len(got), 2)
 
     def test_a_diff_github_will_not_serve_is_truncated_and_new_content_at_every_push(self):
         # trials/P-29.truncated.json: 3,001 files, a 406 too_large. Read whole, so the Kernel holds it as too large;
@@ -4711,9 +4844,13 @@ NOT_READ = {
 }
 WHY = {"controller", "kernel", "issues_port"}
 # Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
-# as no answer, never as one (FR-56); a refusal recorded later fails here until it is placed.
+# as no answer, never as one (FR-56); a refusal recorded later fails here until it is placed. The push port hands its
+# three on as answers, which the push guard takes as none.
 REFUSALS = {
     ("P-68", 6): None,                 # the download of an artifact deleted, 404: the port downloads only what a list names
+    # A push by the git data API (P-71, issue 838): the branch made again where it stands, 422; and two moves without
+    # force that are no fast-forward, 422.
+    ("P-71", 12): "push", ("P-71.moved", 6): "push", ("P-71.moved", 8): "push",
     ("P-12", 16): None,                # an output past GitHub's limit, 422: no port writes the status until it is built
     ("P-41", 26): None,                # the controller's label on 64 at issues: write and pull_requests: read, 403
     ("P-41", 27): None,                # its removal, 403 too: no port writes a label until the label act is built
@@ -4749,6 +4886,9 @@ REFUSALS = {
     # The tree of a commit the canary does not hold, 422: the head port reads it as no tree, so no head (decision 0142).
     ("P-60.tree", 1): None,
 }
+# Every 404 a trial shows for a thing that does not stand, asked as that answer, never as a refusal: the work branch a
+# push reads before it is made, which the push guard reads as the branch admitted none of (P-71, issue 838).
+ABSENCES = {("P-71", 4): "push"}
 
 
 class Contract(unittest.TestCase):
@@ -4878,10 +5018,11 @@ class Contract(unittest.TestCase):
         short_events = timeline.events(github.Replay([per_hundred(p43[13]), second_page(per_hundred(p43[13]), {})]),
                                        {"number": 48, "base": {"repo": {"full_name": canary()}}})
         files = pull.changed_paths(github.Replay([as_compare(p43[10], body("P-43", 8))]), body("P-43", 8), PINNED_BASE)
-        # P-34: issue 42 edited, renamed, commented on, labelled, closed and reopened by the Maintainer, then closed; its
-        # timeline and the issue read by REST as the port reads them, its lastEditedAt as P-34's GraphQL read gave it.
-        # Not through read(): no trial has recorded the port's own GraphQL read, and P-34's, asked at another time,
-        # names another updatedAt (decision 0218). That trial is owed, issue 831.
+        # P-72: canary issue 130 edited, renamed, typed, closed and reopened by the Maintainer, read after the reopening
+        # through read() as the port reads it (issue 831); P-34's GraphQL read, of issue 42, gave lastEditedAt the
+        # body's edit alone, before its rename.
+        p72, p72_rec = p72_read()[0], exchanges("P-72")
+        # P-34.rest: issue 42's timeline by REST, as the port reads it, whose close follows its writer's reopening.
         p34 = issues.own(replay("P-34.rest", 1), canary(), 42)
         p34_events, p34_whole = timeline.events(replay("P-34.rest", 0), {"number": 42, "base": {"repo": {"full_name": canary()}}})
         p34_accounts = timeline.Accounts(Router(github.Replay([]), {"don-petry": "admin"}), canary(), MACHINE, {})
@@ -4913,14 +5054,19 @@ class Contract(unittest.TestCase):
             "a_push_is_new_content": ({"P-29.base"}, before != after),
             "a_push_can_leave_the_diff_as_it_was": ({"P-29.base"}, before == moved != after),
             # The title's rename, not the body's earlier edit nor updatedAt.
-            "an_issues_content_time_is_read_apart": ({"P-34", "P-34.rest"},
-                issues.content_changed_at(p34["created_at"], p34_edited, p34_events) == renamed > p34_edited
-                and renamed != p34["updated_at"]),
-            "a_reopening_names_its_actor": ({"P-34.rest"}, [p34_accounts.acted(ev) for ev in p34_events
-                                                            if ev["event"] == "reopened"] == [P41_WRITER]),
-            # The Maintainer's reopening began a life, whose first close is the trial's last.
-            "an_issues_close_and_reopening_say_when": ({"P-34.rest"}, p34_whole and p34["state"] == "closed"
-                and issues.life(p34["created_at"], p34_events, p34_accounts)
+            "an_issues_content_time_is_read_apart": ({"P-34", "P-72"}, p34_edited < renamed
+                and p72["content_changed_at"] == "2026-11-20T16:25:38Z"
+                > p72_rec[14]["response"]["body"]["data"]["repository"]["issue"]["lastEditedAt"]
+                and p72["content_changed_at"] != p72_rec[12]["response"]["body"]["updated_at"]),
+            # The Maintainer's reopening, read as a writer's, began the present life, which no close has ended yet.
+            "a_reopening_names_its_actor": ({"P-72"}, p72["reopened_last_by"] == "writer"
+                and [ev["actor"]["login"] for ev in p72_rec[13]["response"]["body"] if ev["event"] == "reopened"]
+                == ["don-petry"]),
+            # Each reopening began a life: P-72's has had no close yet; P-34's first close is the trial's last.
+            "an_issues_close_and_reopening_say_when": ({"P-34.rest", "P-72"}, p72["complete"]["timeline"]
+                and [p72[k] for k in ("life_started_at", "reopened_last_at", "closed_first_at")]
+                == ["2026-11-20T16:26:01Z", "2026-11-20T16:26:01Z", None]
+                and p34_whole and issues.life(p34["created_at"], p34_events, p34_accounts)
                 == {"life_started_at": "2026-10-20T21:21:54Z", "reopened_last_by": "writer",
                     "reopened_last_at": "2026-10-20T21:21:54Z", "closed_first_at": "2026-10-20T21:31:23Z"}),
             "a_check_names_its_run_and_suite": ({"P-65"}, self.run_and_suite_read()),
@@ -5651,8 +5797,20 @@ class Contract(unittest.TestCase):
                  and isinstance(e.get("response", {}).get("status"), int)
                  and (e["response"]["status"] >= 400
                       or (isinstance(e["response"].get("body"), dict) and e["response"]["body"].get("errors")))}
-        self.assertEqual(found, set(REFUSALS))
-        self.assertEqual(sorted({p for p in REFUSALS.values() if p}), ["diff", "dispatch", "graphql", "runs"])
+        self.assertEqual(found, set(REFUSALS) | set(ABSENCES))
+        self.assertFalse(set(REFUSALS) & set(ABSENCES))
+        # Each absence is asked by a port this test holds to its answer.
+        self.assertEqual(set(ABSENCES.values()), {"push"})
+        self.assertEqual(sorted({p for p in REFUSALS.values() if p}), ["diff", "dispatch", "graphql", "push", "runs"])
+        # The push port hands back each refusal it asks, and the absent branch's 404, as GitHub gave it.
+        for name, at in ABSENCES:
+            absent = exchanges(name)[at]
+            self.assertEqual(absent["request"]["call"].split()[:2], ["GET", "/repos/%s/git/ref/heads/%s" % (PUSHED, WORK)])
+            self.assertEqual(absent["response"]["status"], 404)
+        for name, at in sorted(k for k, port in list(REFUSALS.items()) + list(ABSENCES.items()) if port == "push"):
+            exchange = exchanges(name)[at]
+            self.assertEqual(sent(github.Replay([exchange]), pushed(exchange)),
+                             {"status": str(exchange["response"]["status"]), "body": exchange["response"]["body"]})
         missing = exchanges("P-44")[3]
         call = missing["request"]["call"].split()[1].rstrip(",")
         workflow = call.split("/workflows/")[1].split("/")[0]
@@ -6211,7 +6369,8 @@ class Items(unittest.TestCase):
         self.assertEqual(read(page([4], total=2))[1], False)
         # With no date no issue is served: none is listed, and nothing is asked. One that is no time lists nothing.
         self.assertEqual(items.open_issues(github.Replay([]), HOME, None, apart=()), ([], True))
-        for unreadable in ("2026-10-01", "0001-01-01T00:00:00Z"):     # no time, or none a second before it (Carbon)
+        # A date that is no text is no time either, never a crash (issue 965).
+        for unreadable in ("2026-10-01", "0001-01-01T00:00:00Z", 20261001, False, 0, ""):  # no time, or none a second before it (Carbon)
             with self.assertRaises(github.Unanswered):
                 items.open_issues(github.Replay([]), HOME, unreadable, apart=())
         # The Controller's tracking issue, 5, open and updated since the date, is one GitHub lists and counts. It is
@@ -6283,9 +6442,24 @@ def referenced(oid="c" * 40) -> dict:
 IDENTITIES = {"agent": {CONTROLLER_APP[1:]}, "maintainer": {(MAINTAINER, "User")}, "dependency": set()}
 
 
+def p72_read() -> tuple:
+    """`(facts, title, the transport)`: trials/P-72.json's read after the reopening, through `adapters/issues.py`'s
+    read() as the port sends it, the Maintainer's permission answered as P-53 records it. The linked pull requests'
+    query has asked commit references since P-72 ran (issue 734), so its read is a stub holding what P-72's answer said:
+    no reference and one close with no closer. The issue's own reads are P-72's."""
+    recorded = exchanges("P-72")
+    said = recorded[15]["response"]["body"]["data"]["repository"]["issue"]
+    stub = linked_read(events=said["timelineItems"]["nodes"], total=said["closedByPullRequestsReferences"]["totalCount"],
+                       updated=said["updatedAt"], repo=canary(), number=130)
+    router = Router(github.Replay(recorded[12:15] + [stub, recorded[16]]), {"don-petry": "admin"})
+    found, title = issues.read(router, canary(), 130, timeline.Accounts(router, canary(), MACHINE, {}),
+                               lambda: "2026-11-20T16:26:04Z", identities=IDENTITIES, earlier=[])
+    return found, title, router
+
+
 def issue_read(events=(), more=False, last=None, types=(), edits=None, closing=None, **change) -> list:
-    """The issues port's reads of issue 41 of o/r: the issue and its timeline by REST, its edits by GraphQL, which no
-    trial has recorded in the port's query yet (decision 0218), and its linked pull requests' reads, `closing`, by
+    """The issues port's reads of issue 41 of o/r: the issue and its timeline by REST, its edits by GraphQL, in the
+    port's query as trials/P-72.json recorded it (decision 0218), and its linked pull requests' reads, `closing`, by
     default none."""
     issue = dict({"number": 41, "state": "open", "title": "A title", "body": "A body", "created_at": CREATED,
                   "updated_at": UPDATED, "user": {"login": "don-petry", "id": MAINTAINER, "type": "User"},
@@ -6366,6 +6540,10 @@ class Issues(unittest.TestCase):
         self.assertEqual(facts.app_names_of(held, {"controller": catalogue["controller"]}), {(41, "Bot"): names[(41, "Bot")]})
         # One the catalogue names whose account `controller/1` does not hold is named by no id (Carbon).
         self.assertEqual(facts.app_names_of(held, dict(catalogue, **{"dev-lead": {"name": "combsmith-sf-dev-lead"}})), names)
+        # One the catalogue holds with no name, or an empty one, is named by its login, never by the suffix alone (issue 965).
+        for unnamed in ({}, {"name": ""}):
+            self.assertEqual(facts.app_names_of({"accounts": {"controller": {"id": 41}, "roles": {}}}, {"controller": unnamed}),
+                             {}, unnamed)
 
     def test_an_account_showing_a_configured_apps_name_by_another_id_is_refused(self):  # decision 0218, Astra
         # A slug reused after a rename: another Bot under the Controller's name, labelling or commenting. It is not that
@@ -6383,6 +6561,47 @@ class Issues(unittest.TestCase):
         reserved = timeline.Accounts(router, "o/r", MACHINE, {}, apps=names, reserved={"combsmith-sf-dev-lead[bot]"})
         with self.assertRaises(github.Unanswered):
             issues.read(router, "o/r", 41, reserved, lambda: self.NOW, identities=IDENTITIES, earlier=[])
+        # A name reserved refuses only the account that shows it: another Bot is read by its login (issue 965).
+        event = issue_event("labeled", 1, actor=("dependabot[bot]", 99, "Bot"), label={"name": "x"})
+        router = Router(github.Replay(issue_read([event])), {"don-petry": "admin"})
+        reserved = timeline.Accounts(router, "o/r", MACHINE, {}, apps=names, reserved={"combsmith-sf-dev-lead[bot]"})
+        found, _ = issues.read(router, "o/r", 41, reserved, lambda: self.NOW, identities=IDENTITIES, earlier=[])
+        self.assertEqual(found["label_events"][0]["by"]["name"], "dependabot[bot]")
+        # The queue App is read by its id as the queue, but under a name the configuration holds or reserves it is
+        # refused too: renamed onto it, it could be read as that App (issue 965).
+        queued = timeline.Accounts(router, "o/r", MACHINE, {}, queue=(99, "Bot"), apps=names,
+                                   reserved={"combsmith-sf-dev-lead[bot]"})
+        for login in ("combsmith-sf-controller[bot]", "combsmith-sf-dev-lead[bot]"):
+            with self.assertRaises(github.Unanswered, msg=login):
+                queued.actor({"login": login, "id": 99, "type": "Bot"})
+        self.assertEqual(queued.actor({"login": "combsmith-sf-queue[bot]", "id": 99, "type": "Bot"}),
+                         {"kind": "queue", "name": "combsmith-sf-queue[bot]", "can_write": False})
+        # A queue whose id is held among the Apps too is held to the login it shows, and named by it: another App's name
+        # is refused, a name of its own is read, and so is its own App's name, reserved or not (issue 965).
+        own = timeline.Accounts(router, "o/r", MACHINE, {}, queue=(99, "Bot"),
+                                apps={**names, (99, "Bot"): "combsmith-sf-queue[bot]"},
+                                reserved={"combsmith-sf-queue[bot]"})
+        with self.assertRaises(github.Unanswered):
+            own.actor({"login": "combsmith-sf-controller[bot]", "id": 99, "type": "Bot"})
+        for login in ("renamed-queue[bot]", "combsmith-sf-queue[bot]"):
+            self.assertEqual(own.actor({"login": login, "id": 99, "type": "Bot"}),
+                             {"kind": "queue", "name": login, "can_write": False}, login)
+        # A Lens is told by its id and read as its own name whatever login it shows, so no name it shows is read as an
+        # App's (issue 901).
+        lens = timeline.Accounts(router, "o/r", MACHINE, {(77, "Bot"): "verify"}, apps=names)
+        self.assertEqual(lens.actor({"login": "combsmith-sf-controller[bot]", "id": 77, "type": "Bot"}),
+                         {"kind": "lens", "name": "verify", "can_write": False})
+        # A User's login is compared as it is: a person may hold an App's name without its suffix (issue 965).
+        self.assertEqual(queued.named("combsmith-sf-controller", 17, "User"), "combsmith-sf-controller")
+        # GraphQL spells a Bot's login with no suffix, as the threads port passes it on: another account under either
+        # name is refused as REST's is, and the App itself is named by its id (issue 965).
+        for login in ("combsmith-sf-controller", "combsmith-sf-dev-lead"):
+            with self.assertRaises(github.Unanswered, msg=login):
+                queued.actor(threads._account({"__typename": "Bot", "login": login, "databaseId": 98}))
+        self.assertEqual(queued.actor(threads._account({"__typename": "Bot", "login": "combsmith-sf-controller",
+                                                        "databaseId": 41}))["name"], names[(41, "Bot")])
+        self.assertEqual(queued.actor(threads._account({"__typename": "Bot", "login": "dependabot", "databaseId": 98}))["name"],
+                         "dependabot")
         # The App itself, by its id, is read.
         events = [issue_event("labeled", 1, actor=("combsmith-sf-controller[bot]", 41, "Bot"), label={"name": "factory:triage"})]
         router = Router(github.Replay(issue_read(events)), {"don-petry": "admin"})
@@ -6400,6 +6619,69 @@ class Issues(unittest.TestCase):
         # A comment, a label, a close and updatedAt move nothing.
         self.assertEqual(changed([issue_event("commented", 0), issue_event("labeled", 1, label={"name": "bug"}),
                                   issue_event("closed", 2)], state="closed"), CREATED)
+
+    def test_the_ports_own_read_names_one_time_and_is_read_whole_as_trial_p72_recorded_it(self):  # P-72, issue 831
+        # trials/P-72.json: canary issue 130 edited, renamed, typed Task, Bug and none, closed and reopened by the
+        # Maintainer; after each act but the last, the port's REST read and its own query back to back (decision 0218),
+        # and after the reopening the read as read() sends it. Each read's state, type and time are its act's.
+        recorded, at = exchanges("P-72"), "2026-11-20T16:2%sZ"
+        acts = [("open", None, "5:33"), ("open", None, "5:38"), ("open", "Task", "5:42"), ("open", "Bug", "5:47"),
+                ("open", None, "5:51"), ("closed", None, "5:56"), ("open", None, "6:01")]
+        for (rest, asked), (state, kind, when) in zip([(n, n + 1) for n in range(0, 12, 2)] + [(12, 14)], acts):
+            issue = recorded[rest]["response"]["body"]
+            self.assertEqual((issue["state"], (issue["type"] or {}).get("name"), issue["updated_at"]),
+                             (state, kind, at % when), rest)
+            self.assertEqual(recorded[asked]["request"]["body"]["query"], issues.QUERY)
+            self.assertNotIn("errors", recorded[asked]["response"]["body"])
+            self.assertEqual(issues.edits(github.Replay([recorded[asked]]), canary(), 130)["updated_at"],
+                             recorded[rest]["response"]["body"]["updated_at"], rest)
+        # The read after the reopening, through read(), every exchange asked; the Maintainer's permission, unrecorded,
+        # answered as P-53 recorded it.
+        found, title, router = p72_read()
+        self.assertEqual((title, router.asked, router.replay._left),
+                         (recorded[12]["response"]["body"]["title"], ["don-petry"], []))
+        self.assertEqual(found["type_events"], [{"from": None, "to": "Task", "at": at % "5:44"},
+                                                {"from": "Task", "to": "Bug", "at": at % "5:49"},
+                                                {"from": "Bug", "to": None, "at": at % "5:54"}])
+        self.assertIsNone(found["type"])
+        # an_issues_content_time_is_read_apart: the rename, after the body's edit, before the last update.
+        last_edited = recorded[14]["response"]["body"]["data"]["repository"]["issue"]["lastEditedAt"]
+        self.assertEqual((found["content_changed_at"], last_edited), (at % "5:38", at % "5:33"))
+        # a_reopening_names_its_actor and an_issues_close_and_reopening_say_when: the Maintainer's began a life.
+        self.assertEqual([found[k] for k in ("life_started_at", "reopened_last_by", "reopened_last_at", "closed_first_at")],
+                         [at % "6:01", "writer", at % "6:01", None])
+        self.assertEqual((found["state"], found["author"]["kind"], found["complete"]),
+                         ("open", "human", {"timeline": True, "linked": True, "runs": True}))
+
+    def test_an_issue_whose_type_is_not_its_last_changes_is_refused_as_moved(self):  # P-72, issue 831
+        # A change of type is timed seconds after the update it made, so a read between gives REST's type changed with
+        # no change listed for it, under one updatedAt (trials/P-72.json): changed, Bug with only the first change;
+        # removed, none with the first two. Each such read is refused as moved, and every other passes; set, Task with
+        # no change yet, is read, REST's type standing (the Factory Builder's ruling, decision 0218).
+        recorded, refused = exchanges("P-72"), []
+        for rest, asked in [(n, n + 1) for n in range(0, 12, 2)] + [(12, 14)]:
+            issue = issues.own(github.Replay([recorded[rest]]), canary(), 130)
+            try:
+                issues.typed(issue, issues.edits(github.Replay([recorded[asked]]), canary(), 130))
+            except facts.Moved:
+                refused.append(rest)
+        self.assertEqual(refused, [6, 8])
+        # Through read(): the type is the last change's, never an earlier one's; with none, REST's, a type among them.
+        added = {"__typename": "IssueTypeAddedEvent", "createdAt": minute(-50), "issueType": {"name": "Bug"}}
+        moved = {"__typename": "IssueTypeChangedEvent", "createdAt": minute(-40), "prevIssueType": {"name": "Bug"},
+                 "issueType": {"name": "Task"}}
+        for types, kind in (([], None), ([], {"name": "Task"}), ([added], {"name": "Bug"}), ([added, moved], {"name": "Task"})):
+            self.assertEqual(self.read(issue_read(types=types, type=kind))["type"], kind and kind["name"])
+        for types, kind in (([added], {"name": "Task"}), ([added], None), ([added, moved], {"name": "Bug"})):
+            with self.assertRaises(facts.Moved):
+                self.read(issue_read(types=types, type=kind))
+        # A type with no change logged, as examples/issue-facts.json holds one, is read whole, never deferred for good.
+        stable = self.read(issue_read(types=[], type={"name": "Task"}))
+        self.assertEqual((stable["type"], stable["type_events"], stable["complete"]["timeline"]), ("Task", [], True))
+        # The changes read short end on no known change: the timeline is not whole, and the issue defers on that.
+        short = self.read(issue_read(type={"name": "Task"}, edits={"timelineItems": {"pageInfo": {"hasNextPage": True},
+                                                                                       "nodes": [added]}}))
+        self.assertEqual((short["type"], short["complete"]["timeline"]), ("Task", False))
 
     def test_a_reopening_by_a_writer_begins_a_life_and_anyone_elses_does_not(self):
         from kernel import issue
@@ -6526,6 +6808,18 @@ class Issues(unittest.TestCase):
         refused += [edits(issue + (key,)) for key in ("lastEditedAt", "updatedAt", "number", "timelineItems")]
         refused += [edits(issue + ("timelineItems", "pageInfo", "hasNextPage")),
                     issue_read(types=[{"__typename": "IssueTypeChangedEvent", "createdAt": minute(0), "issueType": None}])]
+        # A next page that is no boolean, edits answered other than 200, an answer that is no object where one is asked,
+        # and labels or assignees that are no list, or no objects, are no answer, never none (issue 973).
+        refused += [issue_read(edits={"timelineItems": {"pageInfo": {"hasNextPage": more}, "nodes": []}}) for more in (None, 0)]
+        for status in (502, 206):
+            refused.append(issue_read())
+            refused[-1][2]["response"]["status"] = status
+        unissued, unrepo, listed = issue_read(), issue_read(), issue_read()
+        unissued[2]["response"]["body"]["data"]["repository"]["issue"] = None
+        unrepo[2]["response"]["body"]["data"]["repository"] = None
+        listed[2]["response"]["body"]["data"]["repository"] = ["issue"]
+        refused += [unissued, unrepo, listed, issue_read(labels=None), issue_read(assignees=None), issue_read(labels={}), issue_read(assignees={}),
+                    issue_read(labels=["kernel"]), issue_read(assignees=["don-petry"])]
         # So is a key REST's issue left out that the facts rest on; an empty body is null, and read.
         for key in ("type", "body", "title", "updated_at", "performed_via_github_app"):
             left_out = issue_read()
@@ -6539,11 +6833,12 @@ class Issues(unittest.TestCase):
         for edits, issue in (("2026-10-11T11:00:01Z", UPDATED), (UPDATED, "2026-10-11T11:00:01Z")):
             with self.assertRaises(facts.Moved):
                 self.read(issue_read(edits={"updatedAt": edits}, updated_at=issue, closing=[linked_read(updated=edits)]))
-        # Or while its pull requests were read.
-        moved = issue_read()
-        moved[-1]["response"]["body"] = dict(moved[-1]["response"]["body"], updated_at="2026-10-11T11:00:01Z")
-        with self.assertRaises(facts.Moved):
-            self.read(moved)
+        # Or while its pull requests were read, its last read newer or older than its first (issue 972).
+        for last in ("2026-10-11T11:00:01Z", "2026-10-11T10:59:59Z"):
+            moved = issue_read()
+            moved[-1]["response"]["body"] = dict(moved[-1]["response"]["body"], updated_at=last)
+            with self.assertRaises(facts.Moved, msg=last):
+                self.read(moved)
 
     def test_the_issues_own_facts_hold_to_the_schema_with_its_linked_pull_requests(self):
         from kernel import issue
@@ -6689,6 +6984,11 @@ class Linked(unittest.TestCase):
         # In the same second, the timeline's order says which came last, never the time (Astra).
         self.assertEqual(listing(link("DisconnectedEvent", 2, 9), link("ConnectedEvent", 2, 9))[1], False)
         self.assertEqual(listing(link("ConnectedEvent", 2, 9), link("DisconnectedEvent", 2, 9))[1], True)
+        # The default branch is the repo's, whatever its name: where it is `trunk`, one to `main` is to another base
+        # (issue 970).
+        found, whole = self.listed([linked_read(ref(7, 8)), pull_read(7, base="trunk", default="trunk"), pull_timeline(7),
+                                    pull_read(8, default="trunk")])
+        self.assertEqual(([p["number"] for p in found], whole), ([7], True))
         # A base or default branch that cannot be read is refused, never left out.
         held = pull_read(7)
         held["response"]["body"]["base"]["repo"] = "o/r"
@@ -6719,9 +7019,43 @@ class Linked(unittest.TestCase):
         self.assertFalse(short)
         _, short = self.listed([linked_read((), [closed_by(30, 12, repo="a/fork")])], began)
         self.assertFalse(short)
+        # Nor is the commit's close credited to a listed pull request whose merge is another commit.
+        found, short = self.listed([linked_read(ref(14), [closed_by(30, oid="d" * 40)]),
+                                    pull_read(14, merged=29, closed=29, sha="b" * 40), pull_timeline(14)], began)
+        self.assertEqual(([p["closed_issue_at"] for p in found], short), ([None], False))
+        # Nor where the two merges share only a short prefix: the whole id is compared.
+        found, short = self.listed([linked_read(ref(14), [closed_by(30, oid="abcdef0" + "1" * 33)]),
+                                    pull_read(14, merged=29, closed=29, sha="abcdef0" + "2" * 33), pull_timeline(14)], began)
+        self.assertEqual(([p["closed_issue_at"] for p in found], short), ([None], False))
+        # A closer that names no type, or a type that is no name, is a read that failed, in any life, never a person's
+        # close; so is a commit closer whose id is no string, even one whose digits would spell one.
+        for m in (20, 5):
+            for typed in (None, False, 0, ""):
+                untyped = {"__typename": "ClosedEvent", "createdAt": minute(m), "closer": {"__typename": typed}}
+                with self.assertRaises(github.Unanswered):
+                    self.listed([linked_read((), [untyped])], began)
+        numeric = {"__typename": "ClosedEvent", "createdAt": minute(30), "closer": {"__typename": "Commit", "oid": int("1" * 40)}}
+        with self.assertRaises(github.Unanswered):
+            self.listed([linked_read((), [numeric])], began)
+        # One that cannot be listed, of a life before, is passed over, however often the timeline is read: a closer of
+        # another repo or another kind, a commit's that no listed pull request merged or that has no id. In the second
+        # the life began, it is of it.
+        kind = lambda m: {"__typename": "ClosedEvent", "createdAt": minute(m), "closer": {"__typename": "ProjectV2"}}
+        no_oid = lambda m: {"__typename": "ClosedEvent", "createdAt": minute(m), "closer": {"__typename": "Commit", "oid": None}}
+        absent = {"__typename": "ClosedEvent", "createdAt": minute(5), "closer": {"__typename": "Commit"}}
+        for past in (closed_by(5, 12, repo="a/fork"), kind(5), closed_by(5, oid="d" * 40), no_oid(5), absent):
+            self.assertEqual(self.listed([linked_read(ref(7), [past]), pull_read(7), pull_timeline(7)], began)[1], True, past)
+            # Passed over, it leaves a list read short as short.
+            self.assertEqual(self.listed([linked_read(ref(7), [past], total=2), pull_read(7), pull_timeline(7)], began)[1],
+                             False, past)
+        for now in (closed_by(10, 12, repo="a/fork"), kind(10)):
+            self.assertEqual(self.listed([linked_read((), [now])], began), ([], False), now)
+        with self.assertRaises(github.Unanswered):
+            self.listed([linked_read((), [no_oid(10)])], began)
         # Nor is one whose merge is that of a pull request to another base, or of one not merged; and a pull request's
         # close is the first of this life, its own or its merge commit's, of which the first is read.
-        for pr in (pull_read(15, base="trial", merged=29, closed=29, sha="e" * 40), pull_read(15, sha="e" * 40)):
+        for pr in (pull_read(15, base="trial", merged=29, closed=29, sha="e" * 40), pull_read(15, sha="e" * 40),
+                   pull_read(15, closed=29, sha="e" * 40)):
             _, short = self.listed([linked_read(ref(15), [closed_by(30, oid="e" * 40)]), pr, pull_timeline(15)], began)
             self.assertFalse(short)
         found, _ = self.listed([linked_read(ref(14), [closed_by(20, 14), closed_by(30, oid="b" * 40)]),
@@ -6732,6 +7066,14 @@ class Linked(unittest.TestCase):
             found, _ = self.listed([linked_read(ref(14), closes), pull_read(14, merged=4, closed=4, sha="b" * 40),
                                     pull_timeline(14)], began)
             self.assertEqual(found[0]["closed_issue_at"], minute(first), closes)
+        # One that closed it twice in the present life closed it at the first; one that closed it twice in a life before
+        # alone, at the first of those (issue 970).
+        found, _ = self.listed([linked_read((), [closed_by(20, 12), closed_by(25, 12)]), pull_read(12, merged=19, closed=19),
+                                pull_timeline(12)], began)
+        self.assertEqual([p["closed_issue_at"] for p in found], [minute(20)])
+        found, _ = self.listed([linked_read(ref(12), [closed_by(2, 12), closed_by(5, 12)]), pull_read(12, merged=1, closed=1),
+                                pull_timeline(12)], began)
+        self.assertEqual([p["closed_issue_at"] for p in found], [minute(2)])
         # A person's close names no closer, and is passed over; a pull request that closed it in a life before alone is
         # not read, whatever its base.
         self.assertEqual(self.listed([linked_read(ref(7), [closed_by(12)]), pull_read(7), pull_timeline(7)], began)[1], True)
@@ -6739,6 +7081,9 @@ class Linked(unittest.TestCase):
         # A close in the very second the life began is of it, a pull request's or a commit's.
         found, _ = self.listed([linked_read((), [closed_by(2, 16), closed_by(10, 16)]),
                                 pull_read(16, merged=9, closed=9), pull_timeline(16)], began)
+        self.assertEqual([(p["number"], p["closed_issue_at"]) for p in found], [(16, minute(10))])
+        found, _ = self.listed([linked_read((), [closed_by(10, 16), closed_by(30, oid="b" * 40)]),
+                                pull_read(16, merged=9, closed=9, sha="b" * 40), pull_timeline(16)], began)
         self.assertEqual([(p["number"], p["closed_issue_at"]) for p in found], [(16, minute(10))])
         self.assertFalse(self.listed([linked_read((), [closed_by(10, oid="d" * 40)])], began)[1])
         # A closer of this life to another base is no link, and could be one; a closer of another kind, or a merge commit
@@ -6768,6 +7113,14 @@ class Linked(unittest.TestCase):
         self.assertEqual([(p["number"], p["keyword"], p["merged_at"], p["closed_issue_at"]) for p in found],
                          [(114, True, "2026-11-13T13:06:32Z", "2026-11-13T13:06:35Z")])
         self.assertTrue(whole)
+        # The port asks the references as the trial did, closed pull requests among them, 25 at most and 100 events: a
+        # replay answers the query the port sends, so only this holds it (issue 970).
+        asked = exchanges("P-67")[8]["request"]["body"]["query"]
+        arguments = re.search(r"closedByPullRequestsReferences\(first:\d+,([^)]*)\)", asked).group(1)
+        self.assertEqual(arguments, "includeClosedPrs:true")
+        sent = re.sub(r"\s", "", linked.QUERY)
+        self.assertIn("closedByPullRequestsReferences(first:25,%s)" % arguments, sent)
+        self.assertIn("REFERENCED_EVENT],first:100)", sent)
         # trials/P-61.json: 120 linked to issue 123 by hand, unlinked and linked again, then merged, which closed the
         # issue and named 120 the closer; the pull request's references name the issue. The trial asked neither the
         # subject's repository nor the closer's, which the port asks: those are this test's.
@@ -6840,9 +7193,12 @@ class Linked(unittest.TestCase):
              "draft_events": [], "link_events": [{"action": "connected", "at": minute(2)},
                                                  {"action": "disconnected", "at": minute(3)}],
              "keyword": False, "keyword_spans": [], "close_events": []}])
+        # One closed without a merge reads no merge, whatever its close.
+        (closed,), _ = self.listed([linked_read(ref(6)), pull_read(6, closed=9), pull_timeline(6)])
+        self.assertEqual((closed["open"], closed["merged_at"], closed["closed_at"]), (False, None, minute(9)))
         # A count of files that cannot be read is refused.
-        for files in (None, -1):
-            with self.assertRaises(github.Unanswered):
+        for files in (None, -1, True, False):
+            with self.assertRaises(github.Unanswered, msg=files):
                 self.listed([linked_read(ref(5)), pull_read(5, files=files), pull_timeline(5)])
 
     def test_a_pull_request_whose_keyword_a_pass_saw_stays_listed_after_an_edit_takes_it_out_and_no_other_does(self):  # 0186 (1)
@@ -6872,32 +7228,66 @@ class Linked(unittest.TestCase):
         # Pass records that could not be read give no time and could hide one once seen: the list is not whole.
         self.assertEqual(self.read([linked_read()], None), ([], False))
 
-    def test_the_linked_pull_requests_are_whole_only_where_no_pull_request_names_the_issue(self):  # decision 0186
-        # While keyword spans are unread, a pull request listed or cross-referencing leaves the list short; an issue does not.
+    def test_the_linked_pull_requests_are_whole_where_the_list_and_the_spans_were_read_whole(self):  # decision 0186
+        # A pull request that names the issue is read, whole, with the spans the pass records give: none, where no pass
+        # before this one listed it.
+        named = lambda: [linked_read(ref(7)), pull_read(7), pull_timeline(7)]
         self.assertEqual(self.read([linked_read()]), ([], True))
-        self.assertEqual(self.read([linked_read((), [crossed("Issue")])]), ([], True))
-        self.assertEqual(self.read([linked_read((), [crossed()])]), ([], False))
-        # A source of no type, or not asked, names it; an issue's after it undoes nothing.
-        for events in ([crossed(None)], [crossed("Commit")], [crossed(), crossed("Issue")]):
-            self.assertEqual(self.read([linked_read((), events)]), ([], False), events)
-        # One the read names but leaves out, for its base or its life, names the issue all the same.
-        for named in ([linked_read((), [link("ConnectedEvent", 1, 8)]), pull_read(8, base="next")],
-                      [linked_read(ref(8)), pull_read(8, base="next")], [linked_read((), [closed_by(-70, 13)])]):
-            self.assertEqual(self.read(named), ([], False))
-        self.assertEqual(self.read([linked_read((), total=1)]), ([], False))
-        self.assertEqual(self.read([linked_read(more=True)]), ([], False))
+        self.assertEqual(self.read(named()), ([(7, True, [])], True))
+        self.assertEqual(self.read(named(), [seen_by(0), seen_by(3, [(7, True, [])])]), ([(7, True, [span(3)])], True))
+        # Records not read give no time: not whole.
+        self.assertEqual(self.read(named(), None), ([(7, True, [])], False))
+        self.assertEqual(self.read([linked_read()], None), ([], False))
+        # A list read short is not whole; the spans are still handed on.
+        short = [linked_read(ref(7), total=2), pull_read(7), pull_timeline(7)]
+        self.assertEqual(self.read(short, [seen_by(3, [(7, True, [])])]), ([(7, True, [span(3)])], False))
+        # One named to another base is left out, and the list is whole.
+        self.assertEqual(self.read([linked_read(ref(8)), pull_read(8, base="next")]), ([], True))
+        # A broken chain is whole only where nothing names the issue now.
+        broken = [seen_by(3, issues=[], alerts=["issue_apps_unreadable"])]
+        self.assertEqual(self.read([linked_read((), [crossed("Issue")])], broken), ([], True))
+        # Nor read short, or with a span listed.
+        self.assertEqual(self.read([linked_read((), total=1)], broken), ([], False))
+        self.assertEqual(self.read([linked_read((), more=True)], broken), ([], False))
+        left = [seen_by(3, [(7, True, [])]), seen_by(6, issues=[], left_out=[{"item": KeywordSpans.ITEM, "code": "facts_unanswered"}])]
+        self.assertEqual(self.read([linked_read((), [crossed("Issue")]), pull_read(7), pull_timeline(7)], left),
+                         ([(7, False, [span(3)])], False))
+        ended = [seen_by(12, [(7, False, [span(3)])]), seen_by(15, issues=[], left_out=left[1]["left_out"])]
+        self.assertEqual(self.read([linked_read(), pull_read(7), pull_timeline(7)], ended), ([(7, False, [span(3, 12)])], False))
+        # What names it, which leaves the list whole where the chain is whole: a pull request's cross-reference, or one
+        # of no source, a commit's, read or not, a reference, a link by hand, or a closer of any life or base, one that
+        # cannot be listed among them.
+        for named in ([linked_read((), [crossed()])], [linked_read((), [crossed(None)])], [linked_read((), [crossed("Commit")])],
+                      [linked_read((), [crossed(), crossed("Issue")])], [linked_read((), [{"__typename": "CrossReferencedEvent", "source": None}])],
+                      [linked_read((), [referenced()])], [linked_read((), [referenced(None)])],
+                      [linked_read((), [crossed("Issue"), referenced()])],
+                      [linked_read(ref(8)), pull_read(8, base="next")],
+                      [linked_read((), [closed_by(-70, 13)])],
+                      [linked_read((), [closed_by(-70, 13, repo="a/fork"), closed_by(-65)])], [linked_read((), [closed_by(-70, oid="d" * 40)])],
+                      [linked_read((), [{"__typename": "ClosedEvent", "createdAt": minute(-70), "closer": {"__typename": "ProjectV2"}}])],
+                      [linked_read((), [{"__typename": "ClosedEvent", "createdAt": minute(-70), "closer": {"__typename": "Commit", "oid": None}}])]):
+            self.assertEqual((self.read(named, broken), self.read(named)), (([], False), ([], True)), named)
+        # A link by hand now to another base names it too, and leaves the list not whole even where the chain is whole
+        # (decision 0236).
+        named = [linked_read((), [link("ConnectedEvent", 1, 8)]), pull_read(8, base="next")]
+        self.assertEqual((self.read(named, broken), self.read(named)), (([], False), ([], False)))
+        # A link by hand now to the default base names it as well: listed, and whole only where the chain is whole.
+        named = [linked_read((), [link("ConnectedEvent", 1, 7)]), pull_read(7), pull_timeline(7)]
+        self.assertEqual((self.read(named, broken), self.read(named)), (([(7, False, [])], False), ([(7, False, [])], True)))
+        # A person's close names no closer, and so names nothing.
+        self.assertEqual(self.read([linked_read((), [closed_by(-65)])], broken), ([], True))
+        # Read on past a commit's reference.
+        self.assertEqual(self.read([linked_read((), [referenced(), link("ConnectedEvent", 1, 7)]), pull_read(7), pull_timeline(7)], broken),
+                         ([(7, False, [])], False))
         self.assertIn("itemTypes: [CLOSED_EVENT, CONNECTED_EVENT, DISCONNECTED_EVENT, CROSS_REFERENCED_EVENT, REFERENCED_EVENT]",
                       linked.QUERY)
         self.assertIn("... on CrossReferencedEvent { source { __typename } }", linked.QUERY)
-        self.assertEqual(self.read([linked_read((), [{"__typename": "CrossReferencedEvent", "source": None}])]), ([], False))
-        self.assertEqual(self.read([linked_read(ref(7)), pull_read(7), pull_timeline(7)]), ([(7, True, [])], False))
-        # Pass records that break the chain of spans leave the list not whole, whatever names the issue.
-        self.assertEqual(self.read([linked_read()], [seen_by(3, issues=[], alerts=["issue_apps_unreadable"])]), ([], False))
+        self.assertIn("... on ReferencedEvent { commit { oid } }", linked.QUERY)
 
     def test_a_commits_reference_names_the_issue_and_the_timeline_is_read_on_past_it(self):  # issue 990
         # A commit's closing keyword leaves a reference by the commit, not a cross-reference: it names the issue, and so
         # does one whose commit cannot be read. The timeline is read on past it: a link by hand after it is listed.
-        named = ()
+        named = [seen_by(3, issues=[], alerts=["issue_apps_unreadable"])]
         self.assertIn("CROSS_REFERENCED_EVENT, REFERENCED_EVENT]", linked.QUERY)
         self.assertIn("... on ReferencedEvent { commit { oid } }", linked.QUERY)
         for events in ([referenced()], [referenced(None)], [crossed("Issue"), referenced()]):
@@ -6905,38 +7295,84 @@ class Linked(unittest.TestCase):
         self.assertEqual(self.read([linked_read((), [referenced(), link("ConnectedEvent", 1, 7)]), pull_read(7), pull_timeline(7)], named),
                          ([(7, False, [])], False))
 
-    def test_a_merge_beside_a_rival_keyword_link_is_never_read_with_no_spans(self):  # decision 0186
-        # The Controller's App's 5 merged and closed the issue; the Maintainer's 6 named it too. Read whole with no spans,
-        # the issue would be done; with the spans the passes would give, the two links held it. So it defers.
-        from kernel import issue
-        from tests.support import CONFIG
+    def rival(self, earlier, refs=(5, 6)):
+        """The issue's facts: the Controller's App's 5 merged at 10:19 and closed it; the Maintainer's 6 named it too."""
         merge = [issue_event("closed", 19, CONTROLLER_APP)]
         router = Router(github.Replay(issue_read([issue_event("closed", 20, CONTROLLER_APP)], state="closed", closing=[
-            linked_read(ref(5, 6), [closed_by(20, 5)]),
+            linked_read(ref(*refs), [closed_by(20, 5)]),
             pull_read(5, user=CONTROLLER_APP, merged=19, closed=19, files=2), pull_timeline(5, merge),
             pull_read(6), pull_timeline(6)])), {"don-petry": "admin"})
-        f, _ = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=[])
-        self.assertEqual(([p["number"] for p in f["linked"]], f["complete"]["linked"]), ([5, 6], False))
-        deferred = issue.derive(f, [], CONFIG)
+        return issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=earlier)[0]
+
+    def test_a_merge_beside_a_rival_keyword_link_is_read_by_the_spans_the_pass_records_give(self):  # decision 0186
+        from kernel import issue
+        from tests.support import CONFIG
+        facts_of = self.rival
+        reason = lambda f: issue.derive(f, [], CONFIG)["reason"]
+        # A pass saw both keywords before the merge: the issue is held.
+        both = [seen_by(3, [(5, True, []), (6, True, [])])]
+        f = facts_of(both)
+        self.assertEqual(([(p["number"], p["keyword"], p["keyword_spans"]) for p in f["linked"]], f["complete"]["linked"]),
+                         ([(5, True, [span(3)]), (6, True, [span(3)])], True))
+        self.assertEqual(reason(f), "merged_while_held")
+        # An edit taking the rival's keyword out after the merge moves nothing: it stays listed, the issue held,
+        # also once a pass has seen the keyword gone.
+        self.assertEqual(reason(facts_of(both, refs=(5,))), "merged_while_held")
+        gone = [seen_by(30, [(5, True, [span(3)]), (6, False, [span(3)])])]
+        self.assertEqual(reason(facts_of(gone, refs=(5,))), "merged_while_held")
+        # No pass saw either before the merge: no link stood at it, and it is done.
+        self.assertEqual(reason(facts_of([])), "merged")
+        self.assertEqual(reason(facts_of([seen_by(25, [(5, True, []), (6, True, [])])])), "merged")
+        # Records not read: the issue defers.
+        unread = facts_of(None)
+        self.assertEqual(([p["number"] for p in unread["linked"]], unread["complete"]["linked"]), ([5, 6], False))
+        deferred = issue.derive(unread, [], CONFIG)
         self.assertEqual((deferred["state"], deferred["reason"], deferred["evidence"]), (None, "facts_incomplete", ["linked"]))
-        whole = dict(f, complete=dict(f["complete"], linked=True))
-        self.assertEqual(issue.derive(whole, [], CONFIG)["reason"], "merged")
-        spans = [dict(p, keyword_spans=[{"seen_at": minute(0), "gone_at": None}]) for p in f["linked"]]
-        self.assertEqual(issue.derive(dict(whole, linked=spans), [], CONFIG)["reason"], "merged_while_held")
-        # The life a writer's reopening began is read: a pushed commit closed it.
+        # The life a writer's reopening began: a pushed commit closed it, merged by no listed pull request.
         events = [issue_event("closed", 0), issue_event("reopened", 5), issue_event("closed", 8)]
         router = Router(github.Replay(issue_read(events, state="closed", closing=[
             linked_read((), [closed_by(8, oid="d" * 40)])])), {"don-petry": "admin"})
         f, _ = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=[])
         self.assertEqual((f["life_started_at"], f["complete"]["linked"]), (minute(5), False))
 
+    def test_a_merge_beside_a_rival_defers_where_the_pass_records_at_hand_break_the_chain_of_spans(self):  # 0186
+        from kernel import issue
+        from tests.support import CONFIG
+        derived = lambda earlier: issue.derive(self.rival(earlier), [], CONFIG)
+        both = lambda at, whole=True, **more: seen_by(at, [(5, True, []), (6, True, [])], whole, **more)
+        # (i) A record not whole after a whole one that saw both keywords: the issue is held.
+        self.assertEqual(derived([both(3), both(25, False)])["reason"], "merged_while_held")
+        left = {"item": KeywordSpans.ITEM, "code": "facts_unanswered"}
+        for broken in ([both(22, False), both(25, False)],     # (i) no record at hand holds the issue whole
+                       [seen_by(22, issues=[], left_out=[left]), seen_by(25, issues=[], left_out=[left])],   # (ii) left out
+                       [seen_by(22, issues=[]), seen_by(25, issues=[], alerts=["issue_apps_unreadable"])],   # (iii) Apps untold
+                       [both(3), seen_by(25, issues=[], left_out=[left])]):     # a record newer than the base left it out
+            d = derived(broken)
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), (None, "facts_incomplete", ["linked"]), broken)
+        # Once nothing names the issue, a broken chain is whole again.
+        router = Router(github.Replay(issue_read(closing=[linked_read((), [crossed("Issue")])])), {"don-petry": "admin"})
+        f = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES,
+                        earlier=[seen_by(25, issues=[], alerts=["issue_apps_unreadable"])])[0]
+        self.assertEqual((f["linked"], f["complete"]["linked"]), ([], True))
+        self.assertNotEqual(issue.derive(f, [], CONFIG)["reason"], "facts_incomplete")
+
     def test_the_linked_pull_requests_read_short_are_not_whole_and_one_not_answered_refuses_the_issue(self):
+        def short7(*after, refs=(7, 8), events=()):
+            """7's timeline read short, then what is read after it."""
+            return [linked_read(ref(*refs), events), pull_read(7), pull_timeline(7, more=True),
+                    rest_answer("/repos/o/r/issues/7/timeline?per_page=100&page=2", {})] + list(after)
         short = [[linked_read((), total=1)], [linked_read(more=True)], [linked_read(ref(3, repo="a/fork"))],
                  [linked_read((), [link("ConnectedEvent", 1, 3, repo="a/fork")])],
                  [linked_read(ref(7)), pull_read(7), pull_timeline(7, more=True),
                   rest_answer("/repos/o/r/issues/7/timeline?per_page=100&page=2", {})],
                  [linked_read(ref(7), total=2), pull_read(7), pull_timeline(7)],
-                 [linked_read(ref(7, 7)), pull_read(7), pull_timeline(7)]]
+                 [linked_read(ref(7, 7)), pull_read(7), pull_timeline(7)],
+                 # What was read short is not forgotten by what is read after it: a link by hand after the references, or a
+                 # pull request read whole, one to another base, or a merge commit's close after a timeline (issue 970).
+                 [linked_read(ref(7), [link("ConnectedEvent", 1, 7)], total=2), pull_read(7), pull_timeline(7)],
+                 short7(pull_read(8), pull_timeline(8)), short7(pull_read(8, base="trial")),
+                 short7(pull_read(14, merged=29, closed=29, sha="b" * 40), pull_timeline(14), refs=(7, 14),
+                        events=[closed_by(30, oid="b" * 40)])]
         for at, found in enumerate(short):
             self.assertFalse(self.listed(found)[1], at)
 
@@ -6955,7 +7391,7 @@ class Linked(unittest.TestCase):
         another["response"]["body"]["data"]["repository"]["issue"]["number"] = 42
         refused = [erred, failed, other, another, answer(("closedByPullRequestsReferences",)),
                    answer(("closedByPullRequestsReferences", "totalCount")), answer(("timelineItems", "pageInfo", "hasNextPage")),
-                   answer(("timelineItems", "nodes")), answer(refs=[("7", "o/r")]),
+                   answer(("timelineItems", "nodes")), answer(more=None), answer(more=0), answer(refs=[("7", "o/r")]),
                    answer(events=[link("ConnectedEvent", 1, 41, repo="a/fork", typed="Issue")]), answer(refs=[(0, "a/fork")]),
                    answer(events=[{"__typename": "LabeledEvent", "createdAt": minute(1)}]),
                    answer(events=[{"__typename": "ConnectedEvent", "createdAt": minute(1)}]),
@@ -6967,9 +7403,13 @@ class Linked(unittest.TestCase):
         for at, found in enumerate(refused):
             with self.assertRaises(github.Unanswered, msg=at):
                 self.listed([found])
-        # An issue that changed while its pull requests were read is read again at the next pass.
-        with self.assertRaises(facts.Moved):
-            self.listed([answer(updated="2026-10-11T11:00:01Z")])
+        # A number that is a boolean is none, though a pull request 1 could be read.
+        with self.assertRaises(github.Unanswered):
+            self.listed([linked_read([(True, "o/r")]), pull_read(1), pull_timeline(1)])
+        # An issue that changed while its pull requests were read, newer or older, is read again at the next pass.
+        for updated in ("2026-10-11T11:00:01Z", "2026-10-11T10:59:59Z"):
+            with self.assertRaises(facts.Moved, msg=updated):
+                self.listed([answer(updated=updated)])
 
 
 def seen_by(at: int, pulls=(), linked_whole=True, repo="o/r", number=41, **more) -> dict:
@@ -7207,6 +7647,666 @@ class Rules(unittest.TestCase):
                 protected.load(path)
             with self.assertRaises(protected.Unreadable):
                 protected.load(pathlib.Path(d) / "nowhere.json")
+
+
+class DraftChecks(unittest.TestCase):
+    """A linked draft the Factory opened carries its head's required checks, where the issue rule would act on them
+    (decision 0217, issue 878: the Factory Builder's rulings Q1 to Q5, option A each)."""
+
+    @staticmethod
+    def kernel(author="dev-lead"):
+        from tests.support import CONFIG
+        return dict(CONFIG, author_role=author)
+
+    @staticmethod
+    def check(name, conclusion="success", app=15368, workflow=None, suite="success", run=7):
+        return {"name": name, "app_id": app, "workflow": workflow, "conclusion": conclusion,
+                "completed_at": "2026-10-20T00:51:22Z", "run_id": run, "suite_conclusion": suite}
+
+    def passing(self):
+        return [self.check("verify", workflow=".github/workflows/verify.yml", run=1),
+                self.check("Secret scan (gitleaks)", workflow=".github/workflows/ci.yml", run=2),
+                self.check("CodeQL", app=57789, run=None, suite=None)]
+
+    def test_a_drafts_checks_are_read_as_the_pull_requests_kernel_reads_each_required_lens(self):
+        kernel, ok = self.kernel(), self.passing()
+        self.assertEqual([lens["check"] for lens in kernel["required_lenses"]["deterministic"]],
+                         ["verify", "Secret scan (gitleaks)", "CodeQL"])
+        self.assertEqual(draft_checks.verdict(ok, kernel), "passing")
+        failed = [dict(ok[0], conclusion="failure")] + ok[1:]
+        self.assertEqual(draft_checks.verdict(failed, kernel), "failing")
+        # A failing Lens is failing beside one pending, not yet listed or concluding (Astra).
+        self.assertEqual(draft_checks.verdict(failed[:2], kernel), "failing")
+        self.assertEqual(draft_checks.verdict(failed[:2] + [dict(ok[2], conclusion="in_progress", completed_at=None)], kernel),
+                         "failing")
+        # A Lens not yet listed, as for a few seconds after a push (P-42), or still running, is pending, never failing.
+        self.assertEqual(draft_checks.verdict(ok[:2], kernel), "pending")
+        self.assertEqual(draft_checks.verdict([dict(ok[0], conclusion="in_progress", suite_conclusion=None)] + ok[1:], kernel), "pending")
+        # A failing check whose suite has not concluded is concluding: pending, since its run may yet be stopped (Q5).
+        self.assertEqual(draft_checks.verdict([dict(ok[0], conclusion="failure", suite_conclusion=None)] + ok[1:], kernel),
+                         "pending")
+        # A Lens with no verdict, or a check under a Lens's name from another App, leaves the checks unread, even beside
+        # a failing Lens: an unreadable fact defers (Q5).
+        for bad in ([dict(ok[0], conclusion="neutral")] + ok[1:],
+                    ok + [self.check("verify", app=99, workflow=".github/workflows/verify.yml")],
+                    [dict(ok[0], conclusion="neutral"), dict(ok[1], conclusion="failure"), ok[2]],
+                    [dict(ok[0], conclusion="failure"), dict(ok[1], conclusion="neutral"), ok[2]],
+                    [dict(ok[0], conclusion="failure")] + ok[1:] + [self.check("CodeQL", app=99)]):
+            self.assertIsNone(draft_checks.verdict(bad, kernel), bad)
+        # Read through the checks port: one it refuses, or reads short, leaves them unread (Q3).
+        with mock.patch.object(draft_checks.checks, "read", lambda t, p: {"checks": failed, "complete": True, "queue": False}):
+            self.assertEqual(draft_checks.read(None, {}, kernel), "failing")
+        with mock.patch.object(draft_checks.checks, "read", lambda t, p: {"checks": failed, "complete": False, "queue": False}):
+            self.assertIsNone(draft_checks.read(None, {}, kernel))
+
+        def moved(t, p):
+            raise github.Unanswered("the pull request's head moved while its checks were read")
+        with mock.patch.object(draft_checks.checks, "read", moved):
+            self.assertIsNone(draft_checks.read(None, {}, kernel))
+        # Through the real checks port, of REST's read of the draft: its rollup asked by owner, name and number, read of
+        # its head; one of another head is null.
+        def run(name, workflow, conclusion, n, app=15368):
+            return {"__typename": "CheckRun", "id": "c%d" % n, "name": name, "status": "COMPLETED", "conclusion": conclusion,
+                    "completedAt": "2026-10-20T00:51:22Z", "databaseId": n,
+                    "detailsUrl": "https://github.com/o/r/actions/runs/%d/job/%d" % (100 + n, n) if workflow else None,
+                    "checkSuite": {"app": {"databaseId": app}, "conclusion": conclusion,
+                                   "workflowRun": {"databaseId": 100 + n, "file": {"path": workflow}} if workflow else None}}
+
+        def answer(head, nodes):
+            asked = {"query": checks.QUERY, "variables": {"owner": "o", "name": "r", "number": 5, "after": None}}
+            node = {"headRefOid": head, "mergeQueueEntry": None, "commits": {"nodes": [{"commit": {"oid": head,
+                    "statusCheckRollup": {"contexts": {"totalCount": len(nodes), "pageInfo": {"hasNextPage": False,
+                                                                                            "endCursor": None},
+                                                       "nodes": nodes}}}}]}}
+            return {"request": {"via": "graphql", "call": "POST /graphql", "headers": {}, "body": asked},
+                    "response": {"status": 200, "headers": {}, "body": {"data": {"repository": {"pullRequest": node}}}}}
+        nodes = [run("verify", ".github/workflows/verify.yml", "FAILURE", 1),
+                 run("Secret scan (gitleaks)", ".github/workflows/ci.yml", "SUCCESS", 2),
+                 run("CodeQL", None, "SUCCESS", 3, app=57789)]
+        draft = pull_read(5, user=CONTROLLER_APP, draft=True)["response"]["body"]
+        self.assertEqual(draft_checks.read(github.Replay([answer("a" * 40, nodes)]), draft, kernel), "failing")
+        self.assertIsNone(draft_checks.read(github.Replay([answer("b" * 40, nodes)]), draft, kernel))
+        # A configuration that cannot be read leaves the checks unread, never raising out of the port.
+        self.assertIsNone(draft_checks.read(github.Replay([answer("a" * 40, nodes)]), draft, {}))
+
+    def test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read(self):  # Q2
+        mine = {"class": "agent", "state": "open", "is_draft": True}
+        self.assertTrue(draft_checks.asked(self.kernel(), mine))
+        for kernel, own in ((self.kernel(None), mine), (None, mine), (self.kernel(), dict(mine, **{"class": "maintainer"})),
+                            (self.kernel(), dict(mine, state="closed")), (self.kernel(), dict(mine, is_draft=False))):
+            self.assertFalse(draft_checks.asked(kernel, own), (kernel and kernel["author_role"], own))
+        # Through the linked read: the Factory's draft carries `checks`, read of its own head, and with no author Role
+        # named, or another's draft, none is read and none carried.
+        asked = []
+
+        def read(transport, got, kernel):
+            asked.append((got["number"], got["head"]["sha"]))
+            self.assertIs(kernel, given)
+            return "failing"
+        given = self.kernel()
+        router = lambda: Router(github.Replay([linked_read(ref(5, 6)), pull_read(5, user=CONTROLLER_APP, draft=True),
+                                               pull_timeline(5), pull_read(6, draft=True), pull_timeline(6)]),
+                                {"don-petry": "admin"})
+        with mock.patch.object(draft_checks, "read", read):
+            transport = router()
+            found = linked.listing(transport, "o/r", 41, UPDATED, CREATED, IDENTITIES, Linked().accounts(transport), {},
+                                   given)[0]
+            self.assertEqual([(p["number"], p.get("checks")) for p in found], [(5, "failing"), (6, None)])
+            self.assertEqual(("checks" in found[1], asked), (False, [(5, "a" * 40)]))
+            transport = router()
+            found = linked.listing(transport, "o/r", 41, UPDATED, CREATED, IDENTITIES, Linked().accounts(transport), {},
+                                   self.kernel(None))[0]
+            self.assertEqual([("checks" in p) for p in found], [False, False])
+            self.assertEqual(len(asked), 1)
+            # The issues port hands the linked read the configuration it is given.
+            transport = router()
+            accounts = Linked().accounts(transport)
+            exchanges_ = issue_read(closing=[linked_read(ref(5, 6)), pull_read(5, user=CONTROLLER_APP, draft=True),
+                                             pull_timeline(5), pull_read(6, draft=True), pull_timeline(6)])
+            transport = Router(github.Replay(exchanges_), {"don-petry": "admin"})
+            got = issues.read(transport, "o/r", 41, timeline.Accounts(transport, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]}),
+                              lambda: Issues.NOW, identities=IDENTITIES, earlier=[], kernel=given)[0]
+            self.assertEqual([p.get("checks") for p in got["linked"]], ["failing", None])
+
+
+PUSHED = json.loads((ROOT / "trials" / "P-71.json").read_text())["repo"]       # P-71's repo, and its work branch
+WORK = "factory-work/issue-9971-1"
+NAMED = "a" * 40
+MIXED = "0123456789abcdef" * 2 + "01234567"     # a name of digits and letters both
+
+
+def sent(transport, req):
+    """`req` sent through the push's own sender on `transport`, bound to P-71's repo and work branch."""
+    return push.send(push.transport(transport, PUSHED, WORK), PUSHED, WORK, req)
+
+
+def calmly(send, *args):
+    """What `send` gives, or the error it raised in its place."""
+    try:
+        return send(*args)
+    except Exception as raised:
+        return raised
+
+
+def pushed(exchange: dict) -> dict:
+    """The request the push port builds for one of P-71's exchanges, from the names it carries: the kind of request is
+    read from the path recorded, and the port must build that path itself for the replay to answer it."""
+    method, path = exchange["request"]["call"].split()[:2]
+    sent_, rest = exchange["request"]["body"], path.split("/git/", 1)[1]
+    kind, _, name = rest.partition("/")
+    if method == "GET" and kind == "ref":
+        return push.read_branch(PUSHED, name[len("heads/"):])
+    if method == "GET":
+        reader = {"commits": push.read_commit, "trees": push.read_tree, "blobs": push.read_blob}[kind]
+        return reader(PUSHED, name.split("?")[0])
+    if method == "PATCH":
+        return push.move_branch(PUSHED, name[len("heads/"):], sent_["sha"])
+    if kind == "blobs":
+        return push.make_blob(PUSHED, sent_["content"])
+    if kind == "trees":
+        return push.make_tree(PUSHED, sent_["base_tree"], sent_["tree"])
+    if kind == "commits":
+        return push.make_commit(PUSHED, sent_["message"], sent_["tree"], sent_["parents"][0])
+    return push.make_branch(PUSHED, sent_["ref"][len("refs/heads/"):], sent_["sha"])
+
+
+class Posing:
+    """No text, though it answers as text would: as base64, as a file's path, and as equal to any."""
+
+    def replace(self, old, new):
+        return "eA=="
+
+    def split(self, sep):
+        return ["a.md"]
+
+    def __eq__(self, other):
+        return True
+
+
+class Lying(str):
+    """Text of another kind: equal to any text and unequal to none, and read as other text by str(), replace and split."""
+    __hash__ = str.__hash__
+
+    def __eq__(self, other):
+        return True
+
+    def __ne__(self, other):
+        return False
+
+    def __str__(self):
+        return "main"
+
+    def replace(self, old, new, count=-1):
+        return "eA=="
+
+    def split(self, sep=None, maxsplit=-1):
+        return ["o", "a.md"]
+
+
+class Push(unittest.TestCase):
+    """The push port (issue 838): each request of a push by the git data API, built and sent, deciding nothing."""
+
+    class Recording:
+        """A transport that answers every request, so only the push's token can refuse one."""
+        def __init__(self):
+            self.sent = []
+
+        def send(self, req):
+            self.sent.append(req)
+            return {"status": 200, "headers": {}, "body": None}
+
+    def test_each_request_of_a_push_is_answered_as_github_recorded_it_with_its_status_as_text(self):
+        # P-71: push A, the branch absent and then made, and push B, moved forward, between them the branch made again
+        # and two moves that are no fast-forward: each through the push's own sender, in order.
+        for name in ("P-71", "P-71.moved"):
+            found = exchanges(name)
+            sending = push.transport(github.Replay(found), PUSHED, WORK)
+            for at, exchange in enumerate(found):
+                answer = push.send(sending, PUSHED, WORK, pushed(exchange))
+                self.assertEqual(answer, {"status": str(exchange["response"]["status"]),
+                                          "body": exchange["response"]["body"]}, (name, at))
+        self.assertEqual([sent(replay("P-71", at), pushed(exchanges("P-71")[at]))["status"] for at in (4, 11, 12)],
+                         ["404", "201", "422"])
+
+    def test_a_push_is_sent_by_its_own_sender_alone(self):
+        recording = self.Recording()
+        good = [push.read_commit(PUSHED, NAMED), push.make_blob(PUSHED, "eA=="),
+                push.make_commit(PUSHED, "m", NAMED, NAMED), push.move_branch(PUSHED, WORK, NAMED)]
+        main = push.make_branch(PUSHED, WORK, NAMED)
+        main["body"]["ref"] = "refs/heads/main"
+
+        class Claiming(self.Recording):
+            """A bare transport that says it is bound."""
+            bound = (PUSHED, WORK)
+
+        class Wide(effects.Allowed):
+            """An `Allowed` made another way, that says it is bound."""
+            bound = (PUSHED, WORK)
+
+        class Forged(type(push.transport(recording, PUSHED, WORK))):
+            """The sender's own kind, that permits whatever it is given."""
+            _permits = {(main["method"], main["path"]): lambda body: True}
+        claiming = Claiming()
+        for req in good:
+            self.assertIsNone(push.send(claiming, PUSHED, WORK, req), req)
+        self.assertEqual(claiming.sent, [])
+        wide = Wide(recording, {(main["method"], main["path"]): lambda body: True})
+        self.assertIsNone(push.send(wide, PUSHED, WORK, main))
+        self.assertIsNone(push.send(Forged(recording, PUSHED, WORK), PUSHED, WORK, main))
+        # Nor does a bare transport, a replay that holds the request, the push's `Allowed` made by hand, or a sender
+        # bound to another branch or repo.
+        p71 = exchanges("P-71")
+        self.assertIsNone(push.send(github.Replay(p71), PUSHED, WORK, pushed(p71[0])))
+        self.assertEqual(sent(github.Replay(p71), pushed(p71[0]))["status"], "200")
+        for sender in (recording, effects.Allowed(recording, *push.allowed(PUSHED, WORK)),
+                       push.transport(recording, PUSHED, "factory-work/issue-9971-2"),
+                       push.transport(recording, PUSHED[:-1] + "x", WORK)):
+            for req in good:
+                self.assertIsNone(push.send(sender, PUSHED, WORK, req), (sender, req))
+        self.assertEqual(recording.sent, [])
+        # A sender bound to one repo sends nothing for a send that claims another, even its own repo's request.
+        self.assertIsNone(push.send(push.transport(recording, "o/a", WORK), "o/b", WORK, push.make_blob("o/a", "eA==")))
+        self.assertEqual(recording.sent, [])
+        # No sender is made for a repo or a branch told wrongly, or on what has no send to call.
+        for live, repo, branch in ((recording, "o/..", WORK), (recording, PUSHED, "main"), (recording, PUSHED, None),
+                                   (None, PUSHED, WORK), (object(), PUSHED, WORK),
+                                   (type("Sendless", (), {"send": 1})(), PUSHED, WORK)):
+            self.assertIsNone(push.transport(live, repo, branch), (live, repo, branch))
+
+    def test_a_senders_binding_and_permits_are_its_own_and_a_request_is_one_request_builds(self):
+        # A sender whose send, binding, permits or patterns were rewritten, in place or as an attribute, sends no more.
+        recording = self.Recording()
+        delete = github.request("DELETE", "/repos/o/a/git/refs/heads/" + WORK)
+        replaced = push.transport(recording, "o/a", WORK)
+        replaced.send = recording.send
+        self.assertIsNone(push.send(replaced, "o/a", WORK, delete))
+        rewritten = push.transport(recording, "o/a", WORK)
+        calmly(setattr, rewritten, "bound", ("o/b", WORK))
+        vars(rewritten)["bound"] = ("o/b", WORK)
+        self.assertIsNone(push.send(rewritten, "o/b", WORK, push.make_blob("o/a", "eA==")))
+        permitting = {(delete["method"], delete["path"]): lambda body: True}
+        for rewrite in (lambda s: s._permits.update(permitting), lambda s: setattr(s, "_permits", permitting),
+                        lambda s: s._patterns.append(("DELETE", re.compile(".*"), lambda body: True)),
+                        lambda s: setattr(s, "_patterns", [("DELETE", re.compile(".*"), lambda body: True)])):
+            sender = push.transport(recording, "o/a", WORK)
+            calmly(rewrite, sender)
+            self.assertIsNone(push.send(sender, "o/a", WORK, delete))
+        self.assertEqual(recording.sent, [])
+        # Nor a request `request` would not build, of text of another kind, or for a repo or a branch of text of
+        # another kind; nor one with no Accept, for which a replay and the live transport raise.
+        sender, blob = push.transport(recording, PUSHED, WORK), push.make_blob(PUSHED, "eA==")
+        unaccepted = {k: v for k, v in blob.items() if k != "accept"}
+
+        class Raising:
+            """A key that hashes as `headers` does, and raises when compared."""
+            def __hash__(self):
+                return hash("headers")
+
+            def __eq__(self, other):
+                raise RuntimeError("compared")
+        keyed = dict(unaccepted, accept=blob["accept"])
+        del keyed["headers"]
+        keyed[Raising()] = {}
+        # Nor headers or an Accept but the builders', though `request` would build some.
+        for req in (None, [], "x", 1, dict(blob, follow=True), unaccepted, dict(blob, path=Lying(blob["path"])), keyed,
+                    dict(blob, headers={"Authorization": "token t"}), dict(blob, headers={"Cache-Control": "no-cache"}),
+                    dict(blob, accept="application/vnd.github.raw")):
+            self.assertIsNone(calmly(push.send, sender, PUSHED, WORK, req), req)
+        for repo, branch in ((Lying(PUSHED), WORK), (PUSHED, Lying(WORK))):
+            self.assertIsNone(calmly(push.send, sender, repo, branch, blob), (repo, branch))
+        self.assertEqual(recording.sent, [])
+        for live in (github.Replay(exchanges("P-71")), github.Live("t")):
+            self.assertIsNone(calmly(push.send, push.transport(live, PUSHED, WORK), PUSHED, WORK, unaccepted), live)
+        self.assertEqual(push.send(sender, PUSHED, WORK, blob), {"status": "200", "body": None})
+        # A transport set on a sender sends nothing: the one it was made on sends.
+        other, made = self.Recording(), self.Recording()
+        moved = push.transport(made, PUSHED, WORK)
+        calmly(setattr, moved, "_transport", other)
+        vars(moved)["_transport"] = other
+        self.assertEqual(push.send(moved, PUSHED, WORK, blob), {"status": "200", "body": None})
+        self.assertEqual((other.sent, made.sent), ([], [blob]))
+
+    def test_a_blobs_bytes_are_its_base64_read_past_githubs_newline_and_named_as_git_names_them(self):
+        found = exchanges("P-71")
+        for at, data in ((2, b"#!/bin/sh\necho run\n"), (3, b"run.sh")):
+            sha = found[at]["response"]["body"]["sha"]
+            answer = sent(replay("P-71", at), push.read_blob(PUSHED, sha))
+            self.assertTrue(answer["body"]["content"].endswith("\n"))
+            self.assertEqual(push.content(answer, sha), data)
+        link, run = found[3]["response"]["body"]["sha"], found[2]["response"]["body"]["sha"]
+        answer = sent(replay("P-71", 3), push.read_blob(PUSHED, link))
+        # Bytes whose git name is another blob's are none of this one's.
+        self.assertIsNone(push.content(answer, run))
+        # Base64 wrapped across lines, as GitHub sends a longer file, is read past every newline.
+        data = b"x" * 90
+        text = base64.b64encode(data).decode()
+        named = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+        wrapped = {"status": "200", "body": {"sha": named, "content": text[:60] + "\n" + text[60:] + "\n",
+                                             "encoding": "base64"}}
+        self.assertEqual(push.content(wrapped, named), data)
+        # Nor text that is no base64, another encoding, an answer that is no success or whose status is no text, or
+        # other bytes in an answer that names itself as asked.
+        body = answer["body"]
+        for told in ({"status": "200", "body": dict(body, content="cnVu!!!!LnNo\n")},
+                     {"status": "200", "body": dict(body, encoding="utf-8")},
+                     {"status": "200", "body": dict(body, content=None)},
+                     {"status": "200", "body": dict(body, content="eA==")},
+                     {"status": "404", "body": body}, {"status": 200, "body": body}, None):
+            self.assertIsNone(push.content(told, link), told)
+
+        class Mapping(dict):
+            """A mapping of another kind."""
+        for told in (Mapping(answer), dict(answer, body=Mapping(body)), dict(answer, status=mock.ANY),
+                     dict(answer, body=dict(body, encoding=mock.ANY))):
+            self.assertIsNone(push.content(told, link), told)
+        self.assertEqual(push.content(dict(answer), link), b"run.sh")
+        # An empty blob is its no bytes, named as git names them.
+        empty = {"status": "200", "body": {"sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391", "content": "",
+                                           "encoding": "base64"}}
+        self.assertEqual(push.content(empty, "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"), b"")
+        # Nor for a name, or of content, of text of another kind.
+        x = hashlib.sha1(b"blob 1\0x").hexdigest()
+        self.assertEqual(push.content({"status": "200", "body": dict(body, content="eA==")}, x), b"x")
+        self.assertIsNone(push.content({"status": "200", "body": dict(body, content="eA==")}, Lying(run)))
+        self.assertIsNone(push.content({"status": "200", "body": dict(body, content=Lying("!"))}, x))
+
+    def test_a_push_is_built_for_its_repos_git_data_alone_and_a_part_told_wrongly_builds_nothing(self):
+        built = [push.read_commit(PUSHED, NAMED), push.read_tree(PUSHED, NAMED), push.read_blob(PUSHED, NAMED),
+                 push.read_branch(PUSHED, WORK), push.make_blob(PUSHED, "eA=="), push.make_tree(PUSHED, NAMED, []),
+                 push.make_commit(PUSHED, "m", NAMED, NAMED), push.make_branch(PUSHED, WORK, NAMED),
+                 push.move_branch(PUSHED, WORK, NAMED)]
+        self.assertEqual([(r["method"], r["path"]) for r in built], [
+            ("GET", "/repos/%s/git/commits/%s" % (PUSHED, NAMED)),
+            ("GET", "/repos/%s/git/trees/%s?recursive=1" % (PUSHED, NAMED)),
+            ("GET", "/repos/%s/git/blobs/%s" % (PUSHED, NAMED)), ("GET", "/repos/%s/git/ref/heads/%s" % (PUSHED, WORK)),
+            ("POST", "/repos/%s/git/blobs" % PUSHED), ("POST", "/repos/%s/git/trees" % PUSHED),
+            ("POST", "/repos/%s/git/commits" % PUSHED), ("POST", "/repos/%s/git/refs" % PUSHED),
+            ("PATCH", "/repos/%s/git/refs/heads/%s" % (PUSHED, WORK))])
+        self.assertEqual(built[-1]["body"], {"sha": NAMED, "force": False})
+        self.assertEqual(push.read_branch("o/r", "factory-work/issue-42-2")["path"],
+                         "/repos/o/r/git/ref/heads/factory-work/issue-42-2")
+        # No tree of more entries than a body may hold is built, nor are they copied.
+        entry = {"path": "a.md", "mode": "100644", "type": "blob", "sha": NAMED}
+        self.assertIsNone(push.make_tree(PUSHED, NAMED, [entry] * (push.MOST + 1)))
+        most = push.make_tree(PUSHED, NAMED, [entry] * push.MOST)
+        self.assertEqual(len(most["body"]["tree"]) if most else None, push.MOST)
+        for repo in ("o", "o/..", "o/.", "o/r/x", "-o/r", "o/r?x", None):
+            for builder, args in ((push.read_commit, (NAMED,)), (push.read_tree, (NAMED,)), (push.read_blob, (NAMED,)),
+                                  (push.read_branch, (WORK,)), (push.make_blob, ("eA==",)),
+                                  (push.make_tree, (NAMED, [])), (push.make_commit, ("m", NAMED, NAMED)),
+                                  (push.make_branch, (WORK, NAMED)), (push.move_branch, (WORK, NAMED))):
+                self.assertIsNone(builder(repo, *args), (builder.__name__, repo))
+        # A name with more after it, a query among it, is no name.
+        self.assertIsNone(push.read_blob("o/r", NAMED + "?x=1"))
+        for sha in ("main", "A" * 40, "a" * 39, NAMED + "?x=1", None):
+            for builder in (push.read_commit, push.read_tree, push.read_blob):
+                self.assertIsNone(builder(PUSHED, sha), (builder.__name__, sha))
+            for builder, args in ((push.make_tree, (sha, [])), (push.make_commit, ("m", sha, NAMED)),
+                                  (push.make_commit, ("m", NAMED, sha)), (push.make_branch, (WORK, sha)),
+                                  (push.move_branch, (WORK, sha))):
+                self.assertIsNone(builder(PUSHED, *args), (builder.__name__, args))
+        for told in (None, 1, b"eA==", ["eA=="], Lying("eA==")):
+            self.assertIsNone(push.make_blob(PUSHED, told), told)
+        self.assertIsNone(push.read_commit(PUSHED, Lying(NAMED)))
+        for branch in ("main", "refs/heads/" + WORK, "factory-work/issue-0-1", "factory-work/issue-1-0",
+                       "factory-work/issue-1", WORK + "/../main", None):
+            for builder, args in ((push.read_branch, ()), (push.make_branch, (NAMED,)), (push.move_branch, (NAMED,))):
+                self.assertIsNone(builder(PUSHED, branch, *args), (builder.__name__, branch))
+        # A tree is built of its entries as they were then: a change made after reaches neither `permits` nor `send`.
+        entry = {"path": "a.md", "mode": "100644", "type": "blob", "sha": NAMED}
+        entries = [entry]
+        tree = push.make_tree(PUSHED, NAMED, entries)
+        entry["mode"] = "120000"
+        entries.append(dict(entry))
+        self.assertEqual(tree["body"]["tree"], [{"path": "a.md", "mode": "100644", "type": "blob", "sha": NAMED}])
+        # An entry nested deep, entries no list, or an entry no mapping, is copied without raising, for the token.
+        deep = NAMED
+        for _ in range(600):
+            deep = [deep]
+        recording = self.Recording()
+        for entries in ([dict(entry, sha=deep)], None, ["x"], {"a.md": entry}):
+            tree = calmly(push.make_tree, PUSHED, NAMED, entries)
+            self.assertIsInstance(tree, dict, entries)
+            self.assertIsNone(calmly(sent, recording, tree))
+        self.assertIsNone(calmly(sent, recording, None))
+        self.assertEqual(recording.sent, [])
+
+    def test_a_refusal_is_an_answer_and_no_answer_is_none(self):
+        class Answering:
+            def __init__(self, answer):
+                self.answer = answer
+
+            def send(self, req):
+                if isinstance(self.answer, type):
+                    raise self.answer("no answer")
+                return self.answer
+        asked = push.read_commit(PUSHED, NAMED)
+        for status in (100, 404, 503, 599):
+            self.assertEqual(sent(Answering({"status": status, "headers": {}, "body": "busy"}), asked),
+                             {"status": str(status), "body": "busy"}, status)
+        # No answer, one with no status from 100 to 599 or no body, or a transport's error, is none.
+        for answer in (github.Unanswered, OSError, TimeoutError, TypeError, ValueError, KeyError, AttributeError, None,
+                       {"status": True, "body": None},
+                       {"status": "200", "body": None}, {"status": 99, "body": None}, {"status": 600, "body": None},
+                       {"status": 200, "headers": {}}, {"body": None}, []):
+            self.assertIsNone(calmly(sent, Answering(answer), asked), answer)
+        # Anything else a transport raises is its bug, and stays raised.
+        self.assertIsInstance(calmly(sent, Answering(RuntimeError), asked), RuntimeError)
+
+    def test_a_pushs_token_sends_a_pushs_alone(self):
+        entry = {"path": "a.md", "mode": "100644", "type": "blob", "sha": NAMED}
+        recording = self.Recording()
+        sending = push.transport(recording, PUSHED, WORK)
+        git, other = "/repos/%s/git/" % PUSHED, "/repos/%sx/git/" % PUSHED[:-1]     # another repo, its name as long
+        tree = {"base_tree": NAMED, "tree": [entry]}
+        commit = {"message": "m", "tree": NAMED, "parents": [NAMED]}
+        blob = {"content": "eA==", "encoding": "base64"}
+        good = [github.request(method, path, body=body) for method, path, body in (
+            ("GET", git + "commits/" + NAMED, None), ("GET", git + "trees/" + NAMED + "?recursive=1", None),
+            ("GET", git + "blobs/" + NAMED, None), ("GET", git + "ref/heads/" + WORK, None),
+            ("GET", git + "blobs/" + MIXED, None), ("POST", git + "trees", dict(tree, base_tree=MIXED)),
+            ("POST", git + "blobs", blob), ("POST", git + "blobs", dict(blob, content="eHh4\neA==\n")),
+            ("POST", git + "blobs", dict(blob, content="")),
+            ("POST", git + "trees", dict(tree, tree=[entry, dict(entry, path="bin/b.sh", mode="100755"),
+                                                     dict(entry, path="docs/c..d", sha=None)])),
+            ("POST", git + "commits", commit), ("POST", git + "refs", {"ref": "refs/heads/" + WORK, "sha": NAMED}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": False}))]
+        for req in good:
+            self.assertEqual(calmly(sending.send, req), {"status": 200, "headers": {}, "body": None}, req)
+        self.assertEqual(recording.sent, good)
+        refused = [
+            # A read off the repo's git data, another repo's, of no name, of a tree's top alone, or with a body.
+            ("GET", "/repos/%s/contents/a.md" % PUSHED, None), ("GET", other + "commits/" + NAMED, None),
+            ("GET", git + "commits/main", None), ("GET", git + "trees/" + NAMED, None),
+            ("GET", git + "ref/heads/main", None), ("GET", git + "ref/heads/factory-work/issue-9971-2", None),
+            ("GET", git + "commits/" + NAMED, {}), ("GET", git + "ref/heads/" + WORK, {"sha": NAMED}),
+            # Of a name of 39 hex digits, or of 41.
+            ("GET", git + "blobs/" + NAMED[:-1], None), ("GET", git + "commits/" + NAMED + "a", None),
+            # A blob of another repo's, another encoding or one that is no text, a key more, no text, or no base64:
+            # alphabet, padding, length.
+            ("POST", other + "blobs", blob), ("POST", git + "blobs", dict(blob, encoding="utf-8")),
+            ("POST", git + "blobs", dict(blob, encoding=Posing())),
+            ("POST", git + "blobs", dict(blob, size=1)), ("POST", git + "blobs", dict(blob, content=Posing())),
+            ("POST", git + "blobs", dict(blob, content=b"eA==")), ("POST", git + "blobs", dict(blob, content=1)),
+            ("POST", git + "blobs", dict(blob, content="not base64!")), ("POST", git + "blobs", dict(blob, content="e!A==")),
+            ("POST", git + "blobs", dict(blob, content="eA=")), ("POST", git + "blobs", dict(blob, content="YWJj=")),
+            ("POST", git + "blobs", dict(blob, content="YWJj==")), ("POST", git + "blobs", dict(blob, content="YWJj====")),
+            ("POST", git + "blobs", dict(blob, content="eA==eA==")), ("POST", git + "blobs", dict(blob, content="eHh4e")),
+            # A tree of a symlink, a submodule, an entry of another type, with a key more or no name; with a key more,
+            # of no list, or of a good entry and then a bad one; of a path that is no text, names no file or holds a
+            # control character; upon a name with more after it, or of 39 or 41 hex digits.
+            ("POST", git + "trees", dict(tree, base_tree="main")), ("POST", other + "trees", tree),
+            ("POST", git + "trees", dict(tree, base_tree=NAMED[:-1])),
+            ("POST", git + "trees", dict(tree, base_tree=NAMED + "a")),
+            ("POST", git + "trees", dict(tree, mode="100644")), ("POST", git + "trees", dict(tree, tree={})),
+            ("POST", git + "trees", dict(tree, tree=[entry, dict(entry, mode="120000")])),
+            ("POST", git + "trees", dict(tree, tree=[entry, dict(entry, path=b"b.md")])),
+            ("POST", git + "trees", dict(tree, base_tree=NAMED + "\n"))] + [
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, **bad)]))
+            for bad in ({"mode": "120000"}, {"mode": "160000", "type": "commit"}, {"type": "commit"}, {"size": 1},
+                        {"sha": "x"}, {"path": b"a.md"}, {"path": 1}, {"path": Posing()})] + [
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path=path)]))
+            for path in ("", "/a.md", "docs/", "docs//a.md", "./a.md", "docs/./a.md", "../a.md", "docs/../a.md",
+                         ".", "..", "docs/a\x00b", "docs/a\nb", "\x1fa.md", "docs/a\x7fb")] + [
+            # A commit of no parent or two, a tree of no name, another repo's; with a key more; of a message no text,
+            # parents no list, or a parent of no name.
+            ("POST", git + "commits", dict(commit, parents=[])), ("POST", git + "commits", dict(commit, parents=[NAMED] * 2)),
+            ("POST", git + "commits", dict(commit, tree="main")), ("POST", other + "commits", commit),
+            ("POST", git + "commits", dict(commit, author={"name": "a"})),
+            ("POST", git + "commits", dict(commit, committer={"name": "a"})),
+            ("POST", git + "commits", dict(commit, signature="s")),
+            ("POST", git + "commits", dict(commit, message=1)), ("POST", git + "commits", dict(commit, parents={"0": NAMED})),
+            ("POST", git + "commits", dict(commit, parents=["main"])),
+            # Another ref made: the default branch, a tag, another work branch, by its own path, a key more; or at no name.
+            ("POST", git + "refs", {"ref": "refs/heads/main", "sha": NAMED}),
+            ("POST", git + "refs", {"ref": "refs/tags/factory/v1.0.0", "sha": NAMED}),
+            ("POST", git + "refs", {"ref": "refs/heads/factory-work/issue-9971-2", "sha": NAMED}),
+            ("POST", git + "refs", {"ref": "refs/heads/" + WORK, "sha": NAMED, "force": True}),
+            ("POST", git + "refs/heads/" + WORK, {"sha": NAMED, "force": False}),
+            ("POST", other + "refs", {"ref": "refs/heads/" + WORK, "sha": NAMED}),
+            ("POST", git + "refs", {"ref": "refs/heads/" + WORK, "sha": "main"}),
+            ("POST", git + "refs", {"ref": "refs/heads/" + WORK, "sha": None}),
+            # A force told any way, or none; another branch moved; by the read's path or another repo's; to no name.
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": True}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": 0}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": "false"}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": NAMED, "force": False, "extra": 1}),
+            ("PATCH", git + "refs/heads/main", {"sha": NAMED, "force": False}),
+            ("PATCH", git + "refs/heads/factory-work/issue-9971-2", {"sha": NAMED, "force": False}),
+            ("PATCH", git + "ref/heads/" + WORK, {"sha": NAMED, "force": False}),
+            ("PATCH", other + "refs/heads/" + WORK, {"sha": NAMED, "force": False}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": "main", "force": False}),
+            ("PATCH", git + "refs/heads/" + WORK, {"sha": None, "force": False}),
+            # Never a delete, and never a put.
+            ("DELETE", git + "refs/heads/" + WORK, None), ("PUT", git + "refs/heads/" + WORK, {"sha": NAMED, "force": False})]
+        for method, path, body in refused:
+            req = github.request(method, path, body=body)
+            self.assertIsInstance(calmly(sending.send, req), github.Unanswered, (method, path, body))
+            self.assertIsNone(push.send(sending, PUSHED, WORK, req), (method, path, body))
+        self.assertEqual(recording.sent, good)
+        # A read of another repo's whose name differs from this one's where it holds a dot, by any pattern.
+        dotted = effects.Allowed(recording, *push.allowed("o/a.b", WORK))
+        self.assertEqual(dotted.send(github.request("GET", "/repos/o/a.b/git/blobs/" + NAMED))["status"], 200)
+        for rest in ("blobs/" + NAMED, "trees/" + NAMED + "?recursive=1", "commits/" + NAMED):
+            self.assertIsInstance(calmly(dotted.send, github.request("GET", "/repos/o/axb/git/" + rest)),
+                                  github.Unanswered, rest)
+        self.assertEqual(recording.sent, good + [github.request("GET", "/repos/o/a.b/git/blobs/" + NAMED)])
+        # A token for a repo or a branch told wrongly, a work branch's name with more after it among them, sends
+        # nothing at all: nor one for a repo with more after it, or for the work branch of an issue or an attempt 0.
+        for repo, branch in (("o/..", WORK), (PUSHED, "main"), (PUSHED, None), (PUSHED, WORK + "/../main"),
+                             ("o/repo/extra", WORK), ("owner/repo/../other", WORK),
+                             (PUSHED, "factory-work/issue-9971-0"), (PUSHED, "factory-work/issue-0-1"),
+                             (PUSHED, "factory-work/issue-9971-01")):
+            self.assertEqual(push.allowed(repo, branch), ({}, []), (repo, branch))
+
+    def test_a_pushs_token_holds_each_thing_it_is_told_to_its_exact_kind(self):
+        # Text of another kind, that equals any text and reads as other text, as the repo or the branch: no token.
+        for repo, branch in ((Lying(PUSHED), WORK), (PUSHED, Lying(WORK))):
+            self.assertEqual(calmly(push.allowed, repo, branch), ({}, []), (repo, branch))
+        recording = self.Recording()
+        sending = effects.Allowed(recording, *push.allowed(PUSHED, WORK))
+        git = "/repos/%s/git/" % PUSHED
+        entry = {"path": "a.md", "mode": "100644", "type": "blob", "sha": NAMED}
+        tree = {"base_tree": NAMED, "tree": [entry]}
+        blob = {"content": "eA==", "encoding": "base64"}
+        holding, deep = [], NAMED
+        holding.append(holding)
+        for _ in range(600):
+            deep = [deep]
+        refused = [
+            # A body holding text of another kind: as the ref made, a file's mode, type or path, a blob's content or
+            # encoding, a key.
+            ("POST", git + "refs", {"ref": Lying("refs/heads/main"), "sha": NAMED}),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, mode=Lying("120000"))])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, type=Lying("commit"))])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path=Lying("../a.md"))])),
+            ("POST", git + "blobs", dict(blob, content=Lying("not base64!"))),
+            ("POST", git + "blobs", dict(blob, encoding=Lying("utf-8"))),
+            ("POST", git + "blobs", {Lying("content"): "eA==", "encoding": "base64"}),
+            # A body of more things than any push holds, and then one that holds itself, or is nested deep.
+            ("POST", git + "trees", dict(tree, tree=[entry] * (push.MOST // 5))),
+            ("POST", git + "trees", dict(tree, tree=holding)),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, sha=deep)]))]
+        for method, path, body in refused:
+            self.assertIsInstance(calmly(sending.send, github.request(method, path, body=body)), github.Unanswered,
+                                  (method, path))
+        self.assertEqual(recording.sent, [])
+        # The most a body may hold is sent.
+        most = github.request("POST", git + "trees", body=dict(tree, tree=[entry] * (push.MOST // 5 - 1)))
+        self.assertEqual(sending.send(most)["status"], 200)
+
+    def test_a_pushs_token_holds_a_path_base64_and_each_bound_at_its_edge(self):
+        recording = self.Recording()
+        sending = effects.Allowed(recording, *push.allowed(PUSHED, WORK))
+        git = "/repos/%s/git/" % PUSHED
+        entry = {"path": "a.md", "mode": "100644", "type": "blob", "sha": NAMED}
+        tree, blob = {"base_tree": NAMED, "tree": [entry]}, {"content": "eA==", "encoding": "base64"}
+
+        class Equal(int):
+            """A whole number of another kind, equal to any mode."""
+            __hash__ = int.__hash__
+
+            def __eq__(self, other):
+                return True
+        good = [("POST", git + "blobs", dict(blob, content=told)) for told in ("eA==", "YWI=", "YWJj")] + [
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path=path)]))
+            for path in ("docs/a\xa0b.md", "caf\xe9.md", "git", ".gitignore", "docs/.github/a.yml")] + [
+            # A file removed where one is written beneath it, names that begin alike, and 20 files.
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="docs", sha=None),
+                                                     dict(entry, path="docs/a.md")])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="docs/a"), dict(entry, path="docs/a.md")])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="f%d.md" % n) for n in range(20)]))]
+        refused = [
+            # Base64 padded past a four, by three, with = in its midst, of another alphabet, or longer than GitHub takes.
+            ("POST", git + "blobs", dict(blob, content=told))
+            for told in ("YWJj====", "YWJj=", "eA=", "eA===", "eA==eA==", "eHh4!!!!", "A" * 134217732)] + [
+            # A path with a C1 control, through git's own directory in any form, or with a backslash.
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path=path)]))
+            for path in ("docs/a\x80b", "docs/a\x9fb", ".git/config", ".GIT/config", ".Git/HEAD", "docs/.git/a",
+                         ".git", ".git./config", ".git:x/config", "GIT~1/config", "docs\\a.md")] + [
+            # A file written where another needs a directory, at the top or below it.
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="docs"), dict(entry, path="docs/a.md")])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, path="docs/a/b.md"), dict(entry, path="docs/a")])),
+            ("POST", git + "trees", dict(tree, tree=[dict(entry, mode=Equal(0))])),
+            # A blob's or a tree's read with a body; 40 characters of no hex, read or built upon.
+            ("GET", git + "blobs/" + NAMED, {}), ("GET", git + "trees/" + NAMED + "?recursive=1", {}),
+            ("GET", git + "blobs/" + "g" * 40, None), ("POST", git + "trees", dict(tree, base_tree="g" * 40))]
+        answered = {"status": 200, "headers": {}, "body": None}
+        for method, path, body in good:
+            self.assertEqual(calmly(sending.send, github.request(method, path, body=body)), answered, path)
+        for method, path, body in refused:
+            self.assertIsInstance(calmly(sending.send, github.request(method, path, body=body)), github.Unanswered,
+                                  (method, path))
+        self.assertEqual(len(recording.sent), len(good))
+        # The longest base64 is sent, newlines counted, and no longer.
+        with mock.patch.object(push, "MOST_BASE64", 8):
+            edge = github.request("POST", git + "blobs", body=dict(blob, content="eHh4eHh4"))
+            self.assertEqual(calmly(sending.send, edge), answered)
+            for told in ("eHh4eHh4eA==", "eHh4\neHh4"):
+                self.assertIsInstance(calmly(sending.send, github.request("POST", git + "blobs", body=dict(
+                    blob, content=told))), github.Unanswered, told)
+        # The most a body may hold, counted as `_plain` counts.
+        self.assertTrue(push._plain([None] * 99999))
+        self.assertFalse(push._plain([None] * 100000))
+        # A retry's token sends its own branch's requests, not the first attempt's.
+        retry = "factory-work/issue-9971-2"
+        again = effects.Allowed(recording, *push.allowed(PUSHED, retry))
+        for method, path, body in (("GET", git + "ref/heads/" + retry, None),
+                                   ("POST", git + "refs", {"ref": "refs/heads/" + retry, "sha": NAMED}),
+                                   ("PATCH", git + "refs/heads/" + retry, {"sha": NAMED, "force": False})):
+            self.assertEqual(calmly(again.send, github.request(method, path, body=body)), answered, method)
+        self.assertIsInstance(calmly(again.send, github.request("GET", git + "ref/heads/" + WORK)), github.Unanswered)
+        # An owner of 39 characters, a name of 100, an issue or attempt of 19 digits; none of one more, nor a repo `.`.
+        long_ = "9" * 19
+        for repo, branch in (("a" * 39 + "/r", WORK), ("o/" + "r" * 100, WORK),
+                             (PUSHED, "factory-work/issue-%s-1" % long_), (PUSHED, "factory-work/issue-1-%s" % long_)):
+            read = github.request("GET", "/repos/%s/git/ref/heads/%s" % (repo, branch))
+            self.assertEqual(calmly(effects.Allowed(recording, *push.allowed(repo, branch)).send, read), answered, repo)
+        for repo, branch in (("a" * 40 + "/r", WORK), ("o/" + "r" * 101, WORK), ("o/.", WORK),
+                             (PUSHED, "factory-work/issue-%s9-1" % long_),
+                             (PUSHED, "factory-work/issue-1-%s9" % long_)):
+            self.assertEqual(push.allowed(repo, branch), ({}, []), (repo, branch))
 
 
 if __name__ == "__main__":
