@@ -246,6 +246,7 @@
         }
       },
       "run": "r_01JA7Q",
+      "active_runs": 0,
       "head": "fc6f2b03e078f5d8de03dfaa142afbd00dec35ea"
     }
   ],
@@ -388,7 +389,8 @@
         "attention": "none",
         "outcome": "nothing"
       },
-      "run": null
+      "run": null,
+      "active_runs": 0
     }
   ]
 }

@@ -46,8 +46,9 @@ LINK_ACTIONS = ("connected", "disconnected")
 # A pull request's closes and reopenings on its own timeline, a merge's close among them (trials/P-48.json, issue 672).
 CLOSED = "closed"
 CLOSE_ACTIONS = ("closed", "reopened")
-# The kinds a declared Factory App may be read as: the Bot account of an App, a Lens's or any other.
-APP_KINDS = ("app", "lens", "queue")
+# The kinds a declared Factory App may be read as: the Bot account of an App, or a Lens's. The queue App's is never
+# read as one, whatever its name (issue 1033), as no issue is decided with its name declared (decision 0218).
+APP_KINDS = ("app", "lens")
 # What GitHub says of an issue: open, or closed.
 ISSUE_STATES = ("open", "closed")
 # The fewest and the most digits of a content id after its prefix, as schemas/issue-facts.schema.json gives them,

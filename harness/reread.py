@@ -40,16 +40,29 @@ def issue_stood(transport, config: dict, home: str, facts: dict, who) -> dict:
     return issue_holds.join([{"facts": facts}], stood, pass_.issue_config(config["kernel"]))[0]["facts"]
 
 
-def item(transport, config: dict, number: int, now: str, clock, name_pause: bool = False) -> tuple:
+def held(record) -> dict:
+    """What the pass record that admitted the Run already read of the Runs' outcomes, for the records port to keep and
+    not read again: `kept` and `engines`, as a pass keeps them from the records before it (`records.known` and
+    `records.engines`), from that one record; none from what is not a `pass/1` record. An outcome is written once, by
+    its attempt's last step, so one the pass read stands for that attempt; a Run that ended after the pass, or whose
+    outcome the pass read as none, is read as before. So a Run reads the outcomes of the Runs that failed since its
+    pass, not of every Run that ever failed."""
+    if not isinstance(record, dict) or shared.errors(record, "pass"):
+        return {"kept": {}, "engines": {}}
+    return {"kept": records.known([record]), "engines": records.engines([record])}
+
+
+def item(transport, config: dict, number: int, now: str, clock, name_pause: bool = False, record=None) -> tuple:
     """`(facts, head, runs, context)` of pull request `number` of the home repo, read through `transport`. `config` is
     `controller/configuration.load`'s; `clock` gives the facts' `read_at`, `now` the time the context is built at. With
     `name_pause`, a Pause that is unreadable because the port could not read a scope is raised, named by that scope's
-    part, the org's before the repo's; a scope that pauses, or a value that is no Pause, is the context's as before."""
+    part, the org's before the repo's; a scope that pauses, or a value that is no Pause, is the context's as before.
+    `record`, the pass record that admitted the Run, gives the outcomes it read, which are not read again (`held`)."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
     with shared.staged("run_records"):
         listed = records.runs(transport, home, branch, facts_.run_files_of(controller), facts_.dispatcher_of(controller),
-                              began={}, on={"repo": home, "type": "pull_request", "number": number})
+                              began={}, on={"repo": home, "type": "pull_request", "number": number}, **held(record))
     identities, approver, lenses, factory = facts_.accounts_of(controller)
     who = timeline.Accounts(transport, home, approver, lenses, factory, facts_.queue_of(controller))
     with shared.staged("lens_records"):

@@ -28,6 +28,7 @@
     {"path": ".github/", "is": "the workflows and the code owners"},
     {"path": "CODEOWNERS", "is": "the code owners, where GitHub also reads them, at the top of the repo"},
     {"path": "docs/CODEOWNERS", "is": "the code owners, where GitHub also reads them, under docs/"},
+    {"path": "sonar-project.properties", "is": "the settings the SonarCloud scan reads from a pull request's head beside its token"},
     {"path": ".claude/settings*.json", "is": "the hooks' wiring, or settings that could switch them off"},
     {"path": "tools/hooks/", "is": "a session hook"},
     {"path": "config/hooks.json", "is": "what the session hooks are told"},
