@@ -416,6 +416,11 @@
       ],
       "minLength": 1
     },
+    "base_head": {
+      "description": "The default branch's head as the pass read it: the commit an opening Run reads, and the parent of its one commit where the branch does not exist. Not required: left out, it is unread, and the Kernel defers the opening Run of a branch that does not exist",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
     "complete": {
       "type": "object",
       "additionalProperties": false,
