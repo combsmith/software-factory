@@ -203,6 +203,15 @@ def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.mo
         # The Kernel holds a pull request whose diff no Task carries whole; one admitted all the same is never reviewed
         # in part (issue 327).
         fault = "diff_not_whole"
+    elif len(engine.shown(the_task)) != len(the_task["findings"]):
+        # A Run rules on a Finding only if it is shown what its Lens said. One listed with no text the Task keeps, its
+        # words not the Lens's own or over the texts' room, is the item's own state: no model call is spent, the
+        # Run ends as the item's, and the thread gates on (issue 856).
+        fault = "findings_not_shown"
+    elif the_task["findings"] and any(o["kind"] == "issue" for o in the_task["omitted"]):
+        # Nor is it asked where the Findings' texts, kept first, left the issue's out: a review that rules Findings
+        # accepted is not one that reads no issue. The item's own too, by the same code.
+        fault = "findings_not_shown"
     elif reads and not (isinstance(head, str) and os.path.isdir(head)):
         fault = "head_unreadable"
     else:
@@ -215,7 +224,8 @@ def answer(the_task: dict, job_env: dict, config: dict, call=None, clock=time.mo
         except RubricUnreadable:
             fault = "rubric_unreadable"
     if fault:
-        # The Factory's fault, read before the CLI is started: a failed Result, and no model call spent (issue 330).
+        # A fault read before the CLI is started, the Factory's or, `findings_not_shown`, the item's own (decision 0227):
+        # a failed Result, and no model call spent (issue 330).
         return engine.failed(the_task, fault, engine.usage_of(the_task, config["harness"], session))
     asked = call or cli_call
 

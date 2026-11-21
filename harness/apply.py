@@ -37,7 +37,7 @@ from adapters.applied import OPENED
 from adapters.rules import UNREADABLE as LIST_UNREADABLE
 from harness import engine, shared
 from harness import task as task_
-from kernel import derive
+from kernel import derive, gate
 from kernel import terms as t
 from kernel.coverage import covered
 from kernel.decide import decide
@@ -66,6 +66,9 @@ UNREADABLE_PATH = re.compile(r"[\x00-\x1f\x7f\\]")
 # So does one another model answered: an item's text can call a fallback model, by a refusal, and must not pause the
 # Factory either (decision 0147).
 THE_ROLES = ("result_invalid", "task_too_large", "no_answer", "engine_model")
+# A Run never asked because a Finding it lists could not be shown: the thread's own state, an edited comment among them,
+# which anyone who can write may make, so it is the item's and must not pause the Factory either (issue 856).
+THE_ITEMS = THE_ROLES + ("findings_not_shown",)
 STANDS = "finding_stands"       # why a review sets a criterion aside whose only fault is a Finding it rules rejected
 # The branch a pull request the Factory opens stands on: the issue it serves and the count opened for it (decision 0068).
 WORK_BRANCH = re.compile(t.WORK_BRANCH)
@@ -129,6 +132,18 @@ def finding_id(lens: str, surface: dict) -> str:
     """A Finding's id, from its source and its surface's key, never from its text (section 3.7)."""
     said = "%s %s %s" % (lens, surface["type"], surface["key"])
     return "f_" + hashlib.sha256(said.encode()).hexdigest()[:16]
+
+
+def shown(facts: dict, role: dict, kernel: dict) -> list:
+    """`[(finding id, thread id)]`: the Findings a review is shown and must rule on, in the facts' order (issue 856). Each
+    is an open thread of the Role's own that gates, as `kernel/gate.py` reads one, of a category the Role owns and no
+    security Finding's, which no Run may yet accept. So an expired Run's thread, whose category cannot be read, is none.
+    The reader builds the Task's Findings from it. `apply` never reads it again: what a review was shown is what its
+    Result's `shown` says, which the Harness filled from the Task and the Result's digest binds."""
+    return [(finding_id(role["name"], {"type": "thread", "key": th["id"]}), th["id"])
+            for th in gate.gating_threads(facts, kernel)
+            if th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == role["name"]
+            and th["category"] in role.get("owns", ()) and th["category"] != gate.SECURITY]
 
 
 def posts(effects: dict) -> list:
@@ -381,7 +396,7 @@ def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, ke
         return "item", "reason_not_the_status"
     if result["status"] != "completed":
         reason = result["reason"] or result["status"]
-        return ("item" if reason in THE_ROLES or result["status"] != "failed" else "environment"), reason
+        return ("item" if reason in THE_ITEMS or result["status"] != "failed" else "environment"), reason
     if rubric is not None:
         said, _ = covered(rubric, result["coverage"], result["findings"], facts["changed_paths"])
         if said != "covered":
