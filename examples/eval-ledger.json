@@ -181,5 +181,35 @@
         "seconds": 24.0
       }
     }
+  ],
+  "cells": [
+    {
+      "kind": "finding",
+      "criterion": null,
+      "natural": false,
+      "cases": "1",
+      "few": 1
+    },
+    {
+      "kind": "finding",
+      "criterion": null,
+      "natural": true,
+      "cases": "1",
+      "few": 1
+    },
+    {
+      "kind": "met",
+      "criterion": null,
+      "natural": false,
+      "cases": "0",
+      "few": 0
+    },
+    {
+      "kind": "met",
+      "criterion": null,
+      "natural": true,
+      "cases": "0",
+      "few": 0
+    }
   ]
 }
