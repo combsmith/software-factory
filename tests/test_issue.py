@@ -523,7 +523,7 @@ class Unreadable(unittest.TestCase):
             for f in (facts(**over), facts(state="closed", **over)):
                 d = derive(f)
                 self.assertEqual((d["state"], d["reason"]), (None, "content_unreadable"), over)
-            self.assertEqual(what(decide(facts(**over))), ("defer", "content_unreadable", None), over)
+                self.assertEqual(what(decide(f)), ("defer", "content_unreadable", None), over)
 
     def test_what_cannot_be_read_is_read_in_its_order(self):
         f = facts(state=None, label_events=None, label_names=None, linked=None, life_started_at=None, content_id=None,

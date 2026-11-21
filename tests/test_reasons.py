@@ -25,8 +25,15 @@ from tests.support import ROOT
 KERNEL = ROOT / "kernel"
 # The one module whose Decisions are an issue's. A literal reason in any other is a pull request's, or both kinds'.
 ISSUE_MODULE = "issue.py"
-# The tables a reason is read against by name. `past` is `reading`'s, which `derive` gives QUEUE_WAITS.
-TABLES = ("NEEDS_YOU_REASONS", "QUIET_REASONS", "SCOPE_DEFERRALS", "GATE_REASONS", "QUEUE_WAITS", "past")
+# The sets themselves, which no Kernel rule reads.
+SETS = ("REASONS", "ISSUE_REASONS")
+# The tables a reason is read against by name, each bound once, at a module's top level, to a display of literals.
+TABLES = ("NEEDS_YOU_REASONS", "QUIET_REASONS", "SCOPE_DEFERRALS", "GATE_REASONS", "QUEUE_WAITS")
+# A table handed to a function: `reading`'s parameter `past`, which `derive` gives QUEUE_WAITS. It is never bound again.
+HANDED = ("reading", "past")
+# The names a reason is read on from, each bound to a reading or a Decision: `derive`'s and `_decide`'s `d`, and the
+# issue's `bare`. The scan trusts what they hold; the runtime test holds what the Kernel gives.
+HOLDERS = ("d", "bare")
 # What the binding test records: the Kernel's boundary suites, and each world on the fixed seeds, as the simulator's
 # own tests run them. SIM_SEEDS shortens a local run.
 SUITES = ("tests.test_decide", "tests.test_issue")
@@ -38,10 +45,20 @@ def _name(node):
     return node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else None
 
 
+def _keyed(node) -> bool:
+    """Whether `node` reads a holder's "reason": `d["reason"]` or `d.get("reason")`."""
+    if isinstance(node, ast.Subscript):
+        base, key = node.value, node.slice
+    elif isinstance(node, ast.Call) and _name(node.func) == "get" and len(node.args) == 1 and not node.keywords:
+        base, key = node.func.value, node.args[0]
+    else:
+        return False
+    return isinstance(key, ast.Constant) and key.value == "reason" and _name(base) in HOLDERS
+
+
 def _read_on(node) -> bool:
-    """Whether `node` is a reason made elsewhere: the name `reason`, or the "reason" of a Decision or a reading."""
-    return (isinstance(node, ast.Name) and node.id == "reason") or (
-        isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) and node.slice.value == "reason")
+    """Whether `node` is a reason made elsewhere: the name `reason`, or a holder's "reason"."""
+    return (isinstance(node, ast.Name) and node.id == "reason") or _keyed(node)
 
 
 def _give(node, found: list, unread: list) -> None:
@@ -53,6 +70,12 @@ def _give(node, found: list, unread: list) -> None:
         _give(node.orelse, found, unread)
     elif not _read_on(node):
         unread.append(node.lineno)
+
+
+def _reason_slot(target) -> bool:
+    """Whether `target`, bound or stored to, is a reason: the name `reason`, or any mapping's "reason"."""
+    return (isinstance(target, ast.Name) and target.id == "reason") or (
+        isinstance(target, ast.Subscript) and isinstance(target.slice, ast.Constant) and target.slice.value == "reason")
 
 
 def takers(trees: dict) -> dict:
@@ -68,21 +91,66 @@ def takers(trees: dict) -> dict:
     return out
 
 
+def _members(value, found: list, unread: list) -> None:
+    """A table's members: a tuple, list or set display, or `frozenset` of one, each member a literal."""
+    if isinstance(value, ast.Call) and _name(value.func) in ("frozenset", "set") and len(value.args) == 1:
+        value = value.args[0]
+    if isinstance(value, (ast.Tuple, ast.List, ast.Set)):
+        for member in value.elts:
+            (found.append((member.lineno, member.value)) if isinstance(member, ast.Constant)
+             and isinstance(member.value, str) else unread.append(member.lineno))
+    else:
+        unread.append(value.lineno)
+
+
+def _bound(target, value, found: list, unread: list) -> None:
+    """A binding of `target` to `value`: a reason given to a reason's slot, pair by pair for tuples."""
+    if isinstance(target, (ast.Tuple, ast.List)):
+        if isinstance(value, (ast.Tuple, ast.List)) and len(value.elts) == len(target.elts):
+            for part, given in zip(target.elts, value.elts):
+                _bound(part, given, found, unread)
+        elif any(_reason_slot(n) for n in ast.walk(target)):
+            unread.append(target.lineno)
+    elif _reason_slot(target):
+        _give(value, found, unread)
+
+
 def written(tree, taken: dict) -> tuple:
     """`(found, unread, calls)` of one module: each literal reason with its line, the lines of reasons that cannot be
-    read, and how many calls pass a reason on. A reason is written as a Decision's or a reading's "reason", as the
-    argument `reason`, by name or by place, to a function that takes one, as a value given the name `reason`, as a
-    literal compared with a reason or a table of them, and as a member of a table."""
+    read, and how many calls pass a reason on.
+
+    A reason is written as a "reason" in a dict display, as the argument `reason`, by name or by place, to a function
+    that takes one, or as its default, as a value bound or stored to the name `reason` or to a mapping's "reason", as a
+    literal compared with a reason or a table of them, and as a member of a table. A call that gives no reason by
+    place or name, a table bound anywhere but once at the top level, and a handed table bound again, cannot be read.
+    """
     found, unread, calls = [], [], 0
+    tops = {id(t) for node in tree.body if isinstance(node, ast.Assign) for t in node.targets}
+    handed = {id(n) for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef) and fn.name == HANDED[0]
+              for n in ast.walk(fn) if isinstance(n, ast.Name) and n.id == HANDED[1]}
+
+    def table(side) -> bool:
+        return _name(side) in TABLES or id(side) in handed
+
     for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load) and (
+                (node.id in TABLES and id(node) not in tops) or id(node) in handed):
+            unread.append(node.lineno)
+        if isinstance(node, ast.FunctionDef):
+            spots = node.args.posonlyargs + node.args.args
+            given = [None] * (len(spots) - len(node.args.defaults)) + node.args.defaults
+            given += node.args.kw_defaults
+            for arg, default in zip(spots + node.args.kwonlyargs, given):
+                if arg.arg == "reason" and default is not None:
+                    _give(default, found, unread)
         if isinstance(node, ast.Dict):
             for key, value in zip(node.keys, node.values):
                 if isinstance(key, ast.Constant) and key.value == "reason":
                     _give(value, found, unread)
         if isinstance(node, ast.Call):
-            for kw in node.keywords:
-                if kw.arg == "reason":
-                    _give(kw.value, found, unread)
+            named = [kw for kw in node.keywords if kw.arg == "reason"]
+            for kw in named:
+                _give(kw.value, found, unread)
             at = taken.get(_name(node.func))
             if at is not None:
                 calls += 1
@@ -91,28 +159,39 @@ def written(tree, taken: dict) -> tuple:
                     unread.append(node.lineno)
                 elif at < len(node.args):
                     _give(node.args[at], found, unread)
+                elif not named:
+                    unread.append(node.lineno)
         if isinstance(node, ast.Assign):
-            names = [_name(target) for target in node.targets]
-            if "reason" in names:
-                _give(node.value, found, unread)
-            if node in tree.body and any(name in TABLES for name in names):
-                found += [(n.lineno, n.value) for n in ast.walk(node.value)
-                          if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+            for target in node.targets:
+                _bound(target, node.value, found, unread)
+                if id(target) in tops and _name(target) in TABLES:
+                    _members(node.value, found, unread)
+        if isinstance(node, (ast.AnnAssign, ast.AugAssign)) and node.value is not None:
+            if isinstance(node, ast.AugAssign) and _reason_slot(node.target):
+                unread.append(node.lineno)
+            else:
+                _bound(node.target, node.value, found, unread)
         if isinstance(node, ast.Compare):
             sides = [node.left] + node.comparators
-            reads = any(_read_on(side) for side in sides)
-            if reads or any(_name(side) in TABLES for side in sides):
+            if any(_read_on(side) or table(side) for side in sides):
                 for side in sides:
                     if isinstance(side, (ast.Tuple, ast.List, ast.Set)):
                         for member in side.elts:
                             _give(member, found, unread)
-                    elif isinstance(side, ast.Constant) or (reads and _name(side) not in TABLES):
+                    elif not table(side):
                         _give(side, found, unread)
     return found, unread, calls
 
 
+def read_of_sets(tree) -> list:
+    """The lines where a module reads REASONS or ISSUE_REASONS: no Kernel rule may."""
+    return [n.lineno for n in ast.walk(tree) if _name(n) in SETS and isinstance(getattr(n, "ctx", None), ast.Load)]
+
+
 def kernel_trees() -> dict:
-    return {path.name: ast.parse(path.read_text(), path.name) for path in sorted(KERNEL.glob("*.py"))}
+    """Every module under kernel/, at any depth, by its path there."""
+    return {path.relative_to(KERNEL).as_posix(): ast.parse(path.read_text(), path.name)
+            for path in sorted(KERNEL.rglob("*.py"))}
 
 
 class Written(unittest.TestCase):
@@ -136,6 +215,12 @@ class Written(unittest.TestCase):
         # No member is written nowhere: each is a literal where a reason is made, passed on or compared.
         self.assertEqual(sorted((terms.REASONS | terms.ISSUE_REASONS) - seen), [])
 
+    def test_no_kernel_rule_reads_the_sets(self):
+        for name, tree in sorted(kernel_trees().items()):
+            with self.subTest(module=name):
+                self.assertEqual(read_of_sets(tree), [], "kernel/%s reads REASONS or ISSUE_REASONS: they are data" % name)
+        self.assertEqual(read_of_sets(ast.parse("if t.REASONS and c:\n    pass")), [1])
+
     def test_the_two_sets_are_apart_and_each_is_codes(self):
         self.assertIsInstance(terms.REASONS, frozenset)
         self.assertIsInstance(terms.ISSUE_REASONS, frozenset)
@@ -143,7 +228,7 @@ class Written(unittest.TestCase):
         self.assertEqual([why for why in terms.REASONS | terms.ISSUE_REASONS if not re.fullmatch(r"[a-z_]+", why)], [])
 
     def test_a_reason_written_any_way_is_read(self):
-        taken = {"_decision": 2, "out": 1, "twice": -1}
+        taken = {"_decision": 2, "out": 1, "twice": -1, "relay": 1}
         cases = (
             ('{"reason": "x"}', ["x"], []),
             ('_decision(f, s, "x", e, o)', ["x"], []),
@@ -152,8 +237,15 @@ class Written(unittest.TestCase):
             ('reason = "x"', ["x"], []),
             ('reason == "x"', ["x"], []),
             ('d["reason"] in ("a", "b")', ["a", "b"], []),
-            ('"x" not in past', ["x"], []),
-            ('entry["run"] not in past', [], []),
+            ('def reading(past):\n    return "x" not in past', ["x"], []),
+            ('def reading(past):\n    return entry["run"] not in past', [], [2]),
+            ('def unnamed_past(past):\n    return entry["run"] not in past', [], []),
+            ('def reading(past):\n    past = (*past, "x")\n    return d["reason"] in past', [], [2]),
+            ('def f(d, past):\n    past = (*past, "x")\n    return d["reason"] in past', [], [3]),
+            ('def f():\n    GATE_REASONS = ("x",)', [], [2]),
+            ('GATE_REASONS += ("x",)', [], [1]),
+            ('reason += "x"', [], [1]),
+            ('"x" not in past', [], []),
             ('GATE_REASONS = ("a", "b")', ["a", "b"], []),
             ('def f():\n    past = "a" if c else []', [], []),
             ('_decision(f, s, reason, e, o)', [], []),
@@ -164,6 +256,21 @@ class Written(unittest.TestCase):
             ('{"reason": "a" + b}', [], [1]),
             ('reason in OTHER', [], [1]),
             ('state == "x"', [], []),
+            ('out(s, {k: "x"}["reason"], [])', [], [1]),
+            ('_decision(f, s, facts["reason"], e, o)', [], [1]),
+            ('facts["reason"] == "x"', [], []),
+            ('def relay(s, reason="x"):\n    return {"reason": reason}', ["x"], []),
+            ('relay(s)', [], [1]),
+            ('out(s, **kw)', [], [1]),
+            ('d["reason"] = "x"', ["x"], []),
+            ('reason: str = "x"', ["x"], []),
+            ('state, reason = s, "x"', ["x"], []),
+            ('state, reason = pair', [], [1]),
+            ('GATE_REASONS = ("a" + "b",)', [], [1]),
+            ('GATE_REASONS = frozenset({"a"})', ["a"], []),
+            ('GATE_REASONS = make()', [], [1]),
+            ('("a" if c else "b") in GATE_REASONS', ["a", "b"], []),
+            ('d.get("reason") == "x"', ["x"], []),
         )
         for source, found, unread in cases:
             with self.subTest(source=source):
@@ -172,27 +279,28 @@ class Written(unittest.TestCase):
 
 
 def given() -> dict:
-    """`{"pull_request": reasons, "issue": reasons}` of every Decision the suites and the seeds give."""
-    seen = {"pull_request": set(), "issue": set()}
-    kept = {}
-    for module, kind in ((kernel.decide, "pull_request"), (kernel.issue, "issue")):
-        kept[module] = module._decision
-
-        def record(facts, state, reason, *rest, _kind=kind, _made=module._decision, **extra):
-            seen[_kind].add(reason)
-            return _made(facts, state, reason, *rest, **extra)
-
-        module._decision = record
+    """`{schema: reasons}` of every Decision the suites and the seeds give, read from what `decide` returns, and whether
+    the suites passed while recorded. Each `decide` returns what its `_decide` returns, with its attention alone changed."""
+    seen = {"decision/1": set(), "issue-decision/1": set(), "suites_passed": False}
+    kept = {kernel.decide: kernel.decide._decide, kernel.issue: kernel.issue._decide}
     try:
+        for module, made in kept.items():
+
+            def record(*args, _made=made, **kwargs):
+                d = _made(*args, **kwargs)
+                seen.setdefault(d.get("schema"), set()).add(d.get("reason"))
+                return d
+
+            module._decide = record
         suite = unittest.defaultTestLoader.loadTestsFromNames(SUITES)
-        unittest.TextTestRunner(stream=io.StringIO(), verbosity=0).run(suite)
+        seen["suites_passed"] = unittest.TextTestRunner(stream=io.StringIO(), verbosity=0).run(suite).wasSuccessful()
         for seed in SEEDS:
             for world in (World(seed), IssueWorld(seed)):
                 for _ in range(STEPS):
                     world.step()
     finally:
         for module, made in kept.items():
-            module._decision = made
+            module._decide = made
     return seen
 
 
@@ -202,12 +310,15 @@ class Given(unittest.TestCase):
         cls.seen = given()
 
     def test_every_decision_carries_a_reason_of_its_own_set(self):
-        self.assertEqual(sorted(self.seen["pull_request"] - terms.REASONS), [])
-        self.assertEqual(sorted(self.seen["issue"] - terms.REASONS - terms.ISSUE_REASONS), [])
+        self.assertEqual(sorted(set(self.seen) - {"decision/1", "issue-decision/1", "suites_passed"}), [])
+        self.assertEqual(sorted(self.seen["decision/1"] - terms.REASONS), [])
+        self.assertEqual(sorted(self.seen["issue-decision/1"] - terms.REASONS - terms.ISSUE_REASONS), [])
 
     def test_every_member_is_given_by_a_decision_of_its_kind(self):
-        self.assertEqual(sorted(terms.REASONS - self.seen["pull_request"]), [])
-        self.assertEqual(sorted(terms.ISSUE_REASONS - self.seen["issue"]), [])
+        # A suite that failed while it was recorded may have stopped short of a Decision: say so first.
+        self.assertTrue(self.seen["suites_passed"], "%s failed while recorded; run them alone" % ", ".join(SUITES))
+        self.assertEqual(sorted(terms.REASONS - self.seen["decision/1"]), [])
+        self.assertEqual(sorted(terms.ISSUE_REASONS - self.seen["issue-decision/1"]), [])
 
 
 if __name__ == "__main__":
