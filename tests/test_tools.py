@@ -2891,8 +2891,12 @@ class Repo(unittest.TestCase):
         self.assertEqual(validate(whole, schema), [])
         reader = {"host": "factory-readers.openai.azure.com", "deployment": "astra-reader", "model": "astra-model", "api": "responses",
                   "effort": {"critical": "max", "elsewhere": "xhigh"}, "output_tokens": 32000, "prompt_characters": 600000,
-                  "seconds": 900, "usd_per_million": {"input": 2.5, "output": 20}}
+                  "seconds": 900, "share": 540, "usd_per_million": {"input": 2.5, "output": 20}}
         self.assertEqual(validate(dict(whole, readers={"astra": reader, "kimi": dict(reader, api="chat")}), schema), [])
+        # A reader's share of the advise step is its own, from a minute to the step's whole (decision 0243).
+        for share in (59, 1441, None):
+            self.assertTrue(validate(dict(whole, readers={"astra": dict(reader, share=share)}), schema), share)
+        self.assertTrue(validate(dict(whole, readers={"astra": {k: v for k, v in reader.items() if k != "share"}}), schema))
         self.assertEqual(validate(dict(whole, readers={}), schema), [])
         for change in ({"host": "example.com"}, {"host": "factory.openai.azure.com:8443"}, {"host": "a.b.openai.azure.com"},
                        {"deployment": "a deployment"}, {"model": "A Model"}, {"api": "assistants"}, {"effort": "max"},
