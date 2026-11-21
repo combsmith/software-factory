@@ -3,6 +3,7 @@
 `make fast` runs the same checks and every test but the seeded simulation. `make checks` runs the checks alone, half a
 minute, and is what a session's hooks run after an edit and before a stop (`tools/hooks/after_edit.py`,
 `tools/hooks/before_stop.py`), and what the desk owes with the mutants of the files a change touches; the tests are CI's.
+It ends with the branch's size as the Factory will count it, `tools/desk.py`'s note, which fails nothing.
 
 CI runs `make verify` in legs, each told CHECKS_SHARD and CHECKS_SHARDS by its matrix: each leg runs every check and its
 share of the tests, so that across the legs every test runs once and no leg nears the step's limit. Neither set: every
@@ -18,7 +19,8 @@ import unittest
 
 from tools import (check_apps, check_authority, check_context, check_decisions, check_examples, check_gate_sets,
                    check_lifecycle,
-                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes)
+                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes,
+                   desk)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CHECKS = [
@@ -116,6 +118,9 @@ def main(argv: list, environ=None) -> int:
         return 1
     checks_failed = failed(CHECKS)
     if "--checks" in argv:
+        # The desk's run, which the hooks make after each edit: how large the Factory will count the branch, a note
+        # that fails nothing (issue 1109).
+        print("%-22s %s" % ("diff size", desk.size()))
         return 1 if checks_failed else 0
     for line in notes():
         print(line)
