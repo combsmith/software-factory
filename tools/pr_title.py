@@ -100,8 +100,10 @@ def read(environ, transport=None) -> tuple:
     except Unanswered as err:
         return None, None, "title_unreadable: pull request %d was not answered: %s" % (number, type(err).__name__)
     pull = answer.get("body")
+    base = pull.get("base") if isinstance(pull, dict) else None
+    held = base.get("repo") if isinstance(base, dict) else None
     if answer.get("status") != 200 or not isinstance(pull, dict) or type(pull.get("number")) is not int \
-            or pull["number"] != number or ((pull.get("base") or {}).get("repo") or {}).get("full_name") != repo:
+            or pull["number"] != number or not isinstance(held, dict) or held.get("full_name") != repo:
         return None, None, "title_unreadable: pull request %d was answered %s" % (number, answer.get("status"))
     opened = pull.get("created_at")
     try:
