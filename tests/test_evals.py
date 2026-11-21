@@ -2337,7 +2337,9 @@ class EvalJob(unittest.TestCase):
         reasons = set(re.findall(r'failed\(task, "([a-z_]+)"', said)) | set(re.findall(r'reason = "([a-z_]+)"', said)) | \
             set(re.findall(r'fault = "([a-z_]+)"', said))
         self.assertGreater(len(reasons), 5)
-        self.assertEqual(sorted(reasons - set(job.ENGINE_FAULTS) - {"result_invalid", "diff_not_whole"}), [])
+        # `findings_not_shown` is neither yet: no case lists a Finding, so none can end so, until a case shows a review
+        # its Lens's open Findings (issue 886), which rules whose it is then.
+        self.assertEqual(sorted(reasons - set(job.ENGINE_FAULTS) - {"result_invalid", "diff_not_whole", "findings_not_shown"}), [])
         self.assertNotIn("result_invalid", job.ENGINE_FAULTS)
 
     def test_a_case_whose_facts_are_not_current_says_so_by_a_code_alone(self):  # decision 0105
