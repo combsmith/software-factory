@@ -1,0 +1,20 @@
+{
+  "schema": "issue-decision/1",
+  "item": {
+    "repo": "combsmith/software-factory",
+    "type": "issue",
+    "number": 42
+  },
+  "state": "ready",
+  "reason": "ready",
+  "evidence": [],
+  "attention": "ready",
+  "outcome": "admit",
+  "admit": {
+    "role": "dev-lead",
+    "intent": "open-pull-request",
+    "content_id": "sha256:42c1",
+    "branch_head": null,
+    "base_head": null
+  }
+}
