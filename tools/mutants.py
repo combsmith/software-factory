@@ -109,6 +109,7 @@ ISSUE_WHOLE = ("tests.test_adapters.Issues.test_an_issues_timeline_is_whole_only
 ISSUE_CONTENT = ("tests.test_adapters.Issues.test_an_issues_content_time_is_the_newer_of_its_edit_and_its_rename",)
 ISSUE_LIFE = ("tests.test_adapters.Issues.test_a_reopening_by_a_writer_begins_a_life_and_anyone_elses_does_not",)
 ISSUE_REFUSED = ("tests.test_adapters.Issues.test_an_issue_github_did_not_answer_whole_is_refused",)
+ISSUE_TYPED = ("tests.test_adapters.Issues.test_an_issue_whose_type_is_not_its_last_changes_is_refused_as_moved",)
 INDEX_ONE = ("tests.test_adapters.Diff.test_index_ids_of_any_length_are_one_content",)
 INDEX_OWN = ("tests.test_adapters.Diff.test_only_a_files_own_index_line_is_cut",)
 ISSUE_OWN = ("tests.test_adapters.Issues.test_the_issues_own_facts_hold_to_the_schema_with_its_linked_pull_requests",)
@@ -15227,6 +15228,28 @@ MUTANTS = ISSUE + [
     ('the edits leave out lastEditedAt', 'adapters/issues.py',
      'number updatedAt lastEditedAt',
      'number updatedAt', ISSUE_OWN),
+    # trials/P-72.json recorded the port's own query, so a query changed since is no longer the one GitHub answered.
+    ("the issues port's query asks no removal of a type", 'adapters/issues.py',
+     'ISSUE_TYPE_CHANGED_EVENT, ISSUE_TYPE_REMOVED_EVENT]', 'ISSUE_TYPE_CHANGED_EVENT]',
+     ("tests.test_adapters.Issues.test_the_ports_own_read_names_one_time_and_is_read_whole_as_trial_p72_recorded_it",)),
+    # trials/P-72.json: a read between a change of type and its event, under one updatedAt, is refused as moved.
+    ("an issue whose type is not its last change's is read", 'adapters/issues.py',
+     '    if changes and changes[-1]["to"] != kind:\n', '    if False:\n', ISSUE_TYPED),
+    ("an issue whose type is any change's is read", 'adapters/issues.py',
+     'if changes and changes[-1]["to"] != kind:', 'if changes and kind not in [c["to"] for c in changes]:', ISSUE_TYPED),
+    ("an issue with a type and no change of type is refused", 'adapters/issues.py',
+     '    if changes and changes[-1]["to"] != kind:\n', '    if (changes[-1]["to"] if changes else None) != kind:\n',
+     ISSUE_TYPED),
+    ("an issue's first close is never read", 'adapters/issues.py',
+     '"reopened_last_at": last, "closed_first_at": closed}', '"reopened_last_at": last, "closed_first_at": None}',
+     ("tests.test_adapters.Contract.test_the_port_reads_each_grounded_rule_as_the_fake_assumes_it",)),
+    ("the issue is not read again after its pull requests", 'adapters/issues.py',
+     '    if _field(own(transport, repo, number), "updated_at") != _field(issue, "updated_at"):\n', '    if False:\n',
+     ("tests.test_adapters.Issues.test_the_ports_own_read_names_one_time_and_is_read_whole_as_trial_p72_recorded_it",)),
+    ("changes of type read short are held to the type", 'adapters/issues.py',
+     '    if not edited["whole"]:\n        return kind\n', '', ISSUE_TYPED),
+    ("an issue's type is read without its changes", 'adapters/issues.py',
+     '    kind = typed(issue, edited)\n', '    kind = _type(_field(issue, "type"))\n', ISSUE_TYPED),
     ("an issue's linked pull requests are read as whole", 'adapters/issues.py',
      '"linked": closing_whole, "runs": True',
      '"linked": True, "runs": True', S3_RIVAL),
