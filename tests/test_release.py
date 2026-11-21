@@ -1523,6 +1523,16 @@ class Notes(unittest.TestCase):
         self.assertIn("- hold \\<\\!-- x --\\> \\[a\\](b) \\`c\\` \\*d\\* @\u2060ada @\u2060org/team (#1) (#2)\n", said)
         self.assertIn("- \\<img src=x\\> @\u2060bob\n", said)
         self.assertNotRegex(said, r"@[A-Za-z0-9]")
+        # A character reference is shown as typed, so it neither renders nor makes a mention; a subject that would open
+        # a block (a heading, a quote, a list item, a numbered one, a rule) shows its first mark escaped; an area's heading
+        # is literal too; and an issue's number stays a link.
+        said = notes.notes(["api_v1_auth: a &lt;b&gt; &#64;ada (#1) (#2)", "# old change", "> quoted", "- dash", "+ plus",
+                            "1. one", "10) ten", "=== rule", ".github: x (#3) (#4)"], "factory/v0.1.1", "factory/v0.1.0")
+        self.assertIn("### api\\_v1\\_auth\n\n- a \\&lt;b\\&gt; \\&#64;ada (#1) (#2)\n", said)
+        self.assertIn("### .github\n\n- x (#3) (#4)\n", said)
+        for shown in ("\\# old change", "\\> quoted", "\\- dash", "\\+ plus", "1\\. one", "10\\) ten", "\\=== rule"):
+            self.assertIn("\n- %s\n" % shown, said)
+        self.assertNotIn("\\#1", said)
         for subject in ("", "  ", "a\nb", "a\rb", "a\u2028b", "a\x85b", None, 3):
             with self.assertRaises(ValueError):
                 notes.notes([subject], "factory/v0.1.1", "factory/v0.1.0")

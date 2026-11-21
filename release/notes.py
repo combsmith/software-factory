@@ -23,14 +23,18 @@ PLAIN = re.compile(r"(?P<area>[a-z0-9.][a-z0-9._/-]*): (?P<change>\S(?:.*\S)? \(
                    r" \(#(?P<pull>[1-9][0-9]*)\)")
 OTHER = "Other changes"
 # What GitHub's Markdown would read as markup in a subject, each shown as itself; and a mention, which would notify.
-MARKUP = re.compile(r"([\\`*_<>\[\]~|!])")
+MARKUP = re.compile(r"([\\`*_<>\[\]~|!&])")
+# What would open a block at a line's start, a heading, a quote, a list item or a rule, its first character escaped.
+BLOCK = re.compile(r"^([ \t]*)([-+=>#])")
+ORDERED = re.compile(r"^([ \t]*[0-9]+)([.)])")
 MENTION = re.compile(r"@(?=[A-Za-z0-9])")
 BREAKS = ("\r", "\n", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
 
 
 def literal(text: str) -> str:
-    """`text` as GitHub's Markdown shows it, character for character: markup escaped, and no mention."""
-    return MENTION.sub("@\u2060", MARKUP.sub(r"\\\1", text))
+    """`text` as GitHub's Markdown shows it, character for character: markup and a block's opening escaped, no
+    character reference read, and no mention."""
+    return ORDERED.sub(r"\1\\\2", BLOCK.sub(r"\1\\\2", MENTION.sub("@\u2060", MARKUP.sub(r"\\\1", text))))
 
 
 def notes(subjects: list, release: str, previous: str) -> str:
@@ -52,7 +56,7 @@ def notes(subjects: list, release: str, previous: str) -> str:
     count = len(subjects)
     lines = ["## %s" % release, "", "%d change%s since %s." % (count, "" if count == 1 else "s", previous)]
     for area in sorted(areas):
-        lines += ["", "### %s" % area, ""] + ["- %s" % change for change in areas[area]]
+        lines += ["", "### %s" % literal(area), ""] + ["- %s" % change for change in areas[area]]
     if other:
         lines += ["", "### %s" % OTHER, ""] + ["- %s" % subject for subject in other]
     return "\n".join(lines) + "\n"
