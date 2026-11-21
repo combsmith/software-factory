@@ -15703,8 +15703,8 @@ class Desk(unittest.TestCase):
         git(root, "checkout", "-q", "work")
         base = git(root, "merge-base", "HEAD", "origin/main").strip()
         counted = task.carried(task.numbered(git(root, "diff", "--no-color", base)))
-        self.assertEqual(desk.size(root), "%d of 60000 characters and 3 of 4000 lines against origin/main as last "
-                                          "fetched" % counted)
+        self.assertEqual(desk.size(root), "%d of 60000 characters and 3 of 4000 lines committed against origin/main as "
+                                          "last fetched" % counted)
         # Past 95% of either limit it warns, and under it does not: the Factory's count is a little apart from this.
         warned = "; split it before it opens, or the Factory holds it as too_large"
         for most, warns in (((int(counted / 0.96), 4000), True), ((60000, 3), True), ((60000, 4), False)):
@@ -15714,21 +15714,33 @@ class Desk(unittest.TestCase):
             with mock.patch.object(desk, "limits", return_value=most), mock.patch.object(desk, "counted", return_value=(9, 20)):
                 self.assertEqual(desk.size(root).endswith(warned), warns, most)
         self.assertEqual(desk.limits(root), (60000, 4000))
-        # The working tree's own edits count, a file git does not track yet is named, and nothing fails.
+        # What is committed counts, a line taken out as one; a working tree's edits are not read, staged ones named.
         (root / "a.py").write_text("a\nc\n" + "y" * 300 + "\n")
-        (root / "new.py").write_text("x\n")
-        counted = task.carried(task.numbered(git(root, "diff", "--no-color", base)))
-        self.assertEqual(desk.size(root), "%d of 60000 characters and 2 of 4000 lines against origin/main as last fetched, "
-                                          "and 1 file git does not track yet, not counted" % counted)
+        self.commit(root, "more")
+        counted = task.carried(task.numbered(git(root, "diff", "--no-color", base, "HEAD")))
+        self.assertEqual(desk.size(root), "%d of 60000 characters and 2 of 4000 lines committed against origin/main as "
+                                          "last fetched" % counted)
+        (root / "a.py").write_text("z\n" * 9000)
+        self.assertEqual(desk.size(root), "%d of 60000 characters and 2 of 4000 lines committed against origin/main as "
+                                          "last fetched" % counted)
+        git(root, "add", "a.py")
+        self.assertTrue(desk.size(root).endswith(", and staged edits not counted"))
         # Bytes that are no UTF-8 the Factory holds as too large; limits it cannot read, it says so.
         (root / "a.py").write_bytes(b"a\n\xff\n")
+        self.commit(root, "bytes")
         self.assertEqual(desk.size(root), "the diff holds bytes that are no UTF-8, which the Factory holds as too_large; "
                                           "take them out")
         (root / "a.py").write_text("a\n")
-        for config in ('{"limits": {}}', "{", '{"limits": {"max_diff_characters": "x", "max_diff_lines": 1}}'):
+        self.commit(root, "back")
+        for config in ('{"limits": {}}', "{", '{"limits": {"max_diff_characters": "x", "max_diff_lines": 1}}',
+                       '{"limits": {"max_diff_characters": 1%s, "max_diff_lines": 1}}' % ("0" * 400)):
             (root / "config" / "defaults.json").write_text(config)
             self.assertEqual(desk.size(root), "no limit to compare: config/defaults.json's limits cannot be read", config)
-        # With no clone, or no main to compare, it says so.
+        # A partial clone's reads may fetch, so it counts nothing; with no clone, or no main to compare, it says so.
+        git(root, "config", "extensions.partialclone", "origin")
+        self.assertEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
+        self.assertEqual(desk.merged(root), ["this is a partial clone, whose reads may fetch; check the merge by hand"])
+        git(root, "config", "--unset", "extensions.partialclone")
         self.assertEqual(desk.size(tree({"a.py": "a\n"})), "no base to compare: this tree is no clone")
         git(root, "update-ref", "-d", "refs/remotes/origin/main")
         self.assertEqual(desk.size(root), "no base to compare: origin/main cannot be read here")
@@ -15779,6 +15791,12 @@ class Desk(unittest.TestCase):
             "'g.py': only main changed it, and the merge does not hold its text as it was left",
             "'h.py': only the branch changed it, and the merge does not hold its text as it was left",
             "'s.py': neither side changed it, and the merge does not hold its text as it was left"])
+        # A line both sides hold twice counts twice, and a carriage return is a line's own.
+        self.assertEqual(self.staged(root, {"f.py": good.replace("x1\n", "x1\nm1\n"), "g.py": "g2\n", "h.py": "h2\n",
+                                            "s.py": "s\n"}), [
+            "'f.py': a line main took out, or no side wrote, is there: m1",
+            "'f.py': a line the branch took out, or no side wrote, is there: m1"])
+        self.assertEqual(len(self.staged(root, {"f.py": good.replace("\n", "\r\n")})), 4 * desk.SHOWN)     # each kind, cut
         self.assertEqual(self.staged(root, {"f.py": "a\nm1\nb\nc\nd\ne\nf\ng\ni\nj\n", "g.py": "g2\n", "h.py": "h2\n",
                                             "s.py": "s\n"}), [
             "'f.py': the branch's line is gone, and main did not take it out: x1",

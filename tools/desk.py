@@ -29,14 +29,17 @@ import sys
 from harness import task
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-BASE = "origin/main"
+BASE = "refs/remotes/origin/main"
 SHARE = 0.95            # of a limit, past which `size` warns: the Factory's count runs a few hundred characters apart
 SHOWN = 5               # the lines told of each file, at most, each cut to WIDTH
 WIDTH = 60
 SECONDS = 10
 # Each read is git's own: no program a repo's configuration names runs, no object is fetched, no lock is taken.
-SAFE = ("--no-replace-objects", "-c", "core.commitGraph=false", "-c", "core.fsmonitor=false", "-c", "diff.external=")
-DIFF = ("--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", "-U3", "-M")
+SAFE = ("--no-replace-objects", "--literal-pathspecs", "-c", "core.commitGraph=false", "-c", "core.fsmonitor=false",
+        "-c", "diff.external=", "-c", "diff.ignoreSubmodules=none")
+FORM = ("--no-color", "--no-ext-diff", "--no-textconv", "-M")
+DIFF = FORM + ("--src-prefix=a/", "--dst-prefix=b/", "-U3")
+MOST = 10 ** 9          # a limit past this is no limit this note can compare with
 
 
 def _git(root: pathlib.Path, *args: str) -> bytes:
@@ -66,7 +69,7 @@ def limits(root: pathlib.Path) -> tuple:
         most = said["max_diff_characters"], said["max_diff_lines"]
     except (OSError, ValueError, KeyError, TypeError):
         raise ValueError("config/defaults.json's limits cannot be read") from None
-    if not all(type(n) is int and n > 0 for n in most):
+    if not all(type(n) is int and 0 < n < MOST for n in most):
         raise ValueError("config/defaults.json's limits cannot be read")
     return most
 
@@ -77,17 +80,28 @@ def counted(diff: str, numstat: str) -> tuple:
     return task.carried(task.numbered(diff)), lines
 
 
+def _partial(root: pathlib.Path) -> bool:
+    """Whether this clone may fetch a missing object as it reads one: a partial clone's reads can."""
+    try:
+        return bool(_text(_git(root, "config", "--get", "extensions.partialclone")).strip())
+    except ValueError:
+        return False
+
+
 def size(root: pathlib.Path = ROOT) -> str:
-    """The note on the branch's size against BASE, the working tree's own edits counted; never a failure."""
+    """The note on the size of what the branch has committed against BASE; never a failure. A working tree's edits are
+    not read: a diff of them would run whatever clean filter the repo's attributes name."""
     if not os.path.lexists(str(root / ".git")):
         return "no base to compare: this tree is no clone"
+    if _partial(root):
+        return "no count: this is a partial clone, whose reads may fetch"
     try:
         base = _text(_git(root, "merge-base", "HEAD", BASE)).strip()
-        raw = _git(root, "diff", *DIFF, base)
-        numstat = _text(_git(root, "diff", "--numstat", *DIFF, base))
-        untracked = [rel for rel in _text(_git(root, "ls-files", "--others", "--exclude-standard", "-z")).split("\0") if rel]
+        raw = _git(root, "diff", *DIFF, base, "HEAD")
+        numstat = _text(_git(root, "diff", "--numstat", *FORM, base, "HEAD"))
+        edited = bool(_text(_git(root, "diff-index", "--cached", "--name-only", "HEAD")).strip())
     except ValueError:
-        return "no base to compare: %s cannot be read here" % BASE
+        return "no base to compare: origin/main cannot be read here"
     try:
         most_characters, most_lines = limits(root)
     except ValueError as err:
@@ -98,26 +112,26 @@ def size(root: pathlib.Path = ROOT) -> str:
         return "the diff holds bytes that are no UTF-8, which the Factory holds as too_large; take them out"
     characters, lines = counted(diff, numstat)
     over = characters > SHARE * most_characters or lines > SHARE * most_lines
-    return "%d of %d characters and %d of %d lines against %s as last fetched%s%s" % (
-        characters, most_characters, lines, most_lines, BASE,
-        ", and %d file%s git does not track yet, not counted" % (len(untracked), "" if len(untracked) == 1 else "s")
-        if untracked else "",
+    return "%d of %d characters and %d of %d lines committed against origin/main as last fetched%s%s" % (
+        characters, most_characters, lines, most_lines, ", and staged edits not counted" if edited else "",
         "; split it before it opens, or the Factory holds it as too_large" if over else "")
 
 
 def _read(root: pathlib.Path, where: str, rel: str):
-    """The bytes of `rel` at commit `where`, or in the index for ":", or None where it is not there. Raises ValueError
-    where it is listed and cannot be read, or the index holds it unmerged."""
+    """(the mode, the bytes) of `rel` at commit `where`, or in the index for ":", or None where no entry is that exact
+    path. Raises ValueError where it is listed and cannot be read, or the index holds it unmerged."""
     if where == ":":
-        entries = [entry for entry in _text(_git(root, "ls-files", "-s", "-z", "--", rel)).split("\0") if entry]
+        listed = _text(_git(root, "ls-files", "-s", "-z", "--", rel)).split("\0")
+        entries = [e for e in listed if e.partition("\t")[2] == rel]
         if not entries:
             return None
-        if any(entry.split(" ")[2].split("\t")[0] != "0" for entry in entries):
+        if any(e.split(" ")[2].split("\t")[0] != "0" for e in entries):
             raise ValueError("%r is not resolved: its conflict's stages are still in the index" % rel)
-        return _git(root, "show", ":%s" % rel)
-    if not _text(_git(root, "ls-tree", "-z", "--name-only", where, "--", rel)):
+        return entries[0].split(" ")[0], _git(root, "show", ":%s" % rel)
+    entries = [e for e in _text(_git(root, "ls-tree", "-z", where, "--", rel)).split("\0") if e.partition("\t")[2] == rel]
+    if not entries:
         return None
-    return _git(root, "show", "%s:%s" % (where, rel))
+    return entries[0].split(" ")[0], _git(root, "show", "%s:%s" % (where, rel))
 
 
 def _changed(root: pathlib.Path, *between: str) -> set:
@@ -137,9 +151,10 @@ def _renamed(root: pathlib.Path, base: str, side: str) -> set:
     return out
 
 
-def _counts(data) -> dict:
+def _counts(entry) -> dict:
+    """Each line of an entry's bytes, split at a newline alone so a carriage return is the line's own, and how often."""
     counts = {}
-    for line in _text(data or b"").splitlines():
+    for line in _text(entry[1]).split("\n") if entry else ():
         counts[line] = counts.get(line, 0) + 1
     return counts
 
@@ -155,6 +170,11 @@ def _told(rel: str, said: str, lines: dict) -> list:
 
 def merged(root: pathlib.Path = ROOT) -> list:
     """What the merge in progress, staged, or the merge commit at HEAD, lost of either side: [] when it kept both."""
+    if _partial(root):
+        return ["this is a partial clone, whose reads may fetch; check the merge by hand"]
+    heads = pathlib.Path(root, _text(_git(root, "rev-parse", "--git-path", "MERGE_HEAD")).strip())
+    if heads.is_file() and len(heads.read_text(encoding="utf-8", errors="replace").split()) != 1:
+        return ["a merge of more than one head is in progress, which this does not judge"]
     try:
         theirs = _text(_git(root, "rev-parse", "-q", "--verify", "MERGE_HEAD")).strip()
         ours, result = _text(_git(root, "rev-parse", "HEAD")).strip(), ":"
@@ -162,14 +182,16 @@ def merged(root: pathlib.Path = ROOT) -> list:
     except ValueError:
         parents = _text(_git(root, "rev-list", "--parents", "-n", "1", "HEAD")).split()
         if len(parents) != 3:
-            return ["HEAD is no merge of two parents and no merge is in progress: run git merge %s first" % BASE]
+            return ["HEAD is no merge of two parents and no merge is in progress: run git merge origin/main first"]
         result, ours, theirs = parents
         made = (ours, result)
     problems = []
     try:
-        _git(root, "merge-base", "--is-ancestor", theirs, BASE)
+        tip = _text(_git(root, "rev-parse", "-q", "--verify", BASE)).strip()
     except ValueError:
-        problems.append("the merge's other side is not %s as last fetched; fetch, then merge it" % BASE)
+        tip = None
+    if theirs != tip:
+        problems.append("the merge's other side is not origin/main as last fetched; fetch, then merge it")
     base = _text(_git(root, "merge-base", ours, theirs)).strip()
     mine, main = _changed(root, base, ours), _changed(root, base, theirs)
     renames = _renamed(root, base, ours) | _renamed(root, base, theirs)
@@ -184,8 +206,12 @@ def merged(root: pathlib.Path = ROOT) -> list:
             if have != _read(root, side, rel):
                 problems.append("%r: %s changed it, and the merge does not hold its text as it was left" % (rel, whose))
             continue
-        was, kept, wanted, held = (_counts(data) for data in (_read(root, base, rel), _read(root, ours, rel),
-                                                               _read(root, theirs, rel), have))
+        entries = _read(root, base, rel), _read(root, ours, rel), _read(root, theirs, rel)
+        if (have is None) != (entries[1] is None and entries[2] is None):
+            problems.append("%r: %s" % (rel, "both sides took it out, and the merge has it" if have else
+                                        "both sides kept it, and the merge took it out"))
+            continue
+        was, kept, wanted, held = (_counts(entry) for entry in entries + (have,))
         problems += _told(rel, "main's line is gone, and the branch did not take it out",
                           _less(_less(wanted, held), _less(was, kept)))
         problems += _told(rel, "the branch's line is gone, and main did not take it out",
