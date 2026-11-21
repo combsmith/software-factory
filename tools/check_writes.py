@@ -969,7 +969,7 @@ def _inert(mod, mods: dict, seen: frozenset = frozenset(), known: dict = None) -
     for node in mod.nodes if inert else ():
         said = [node.id] if isinstance(node, ast.Name) else [node.attr] if isinstance(node, ast.Attribute) else \
             [n for alias in node.names for n in (alias.name, alias.asname) if n] if isinstance(node, ast.ImportFrom) else []
-        if isinstance(node, (ast.Import, ast.Lambda, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) or any(
+        if isinstance(node, ast.Lambda) or any(       # a def, a class or an import is refused at the top level
                 n in REACHERS or n.startswith("__") for n in said):
             inert = False
         elif isinstance(node, ast.ImportFrom):
