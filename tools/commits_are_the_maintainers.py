@@ -108,10 +108,13 @@ def queued(payload: dict, environ, transport=None) -> tuple:
     except Unanswered as err:
         return None, "merge_group_pull_unreadable: pull request %d was not answered: %s" % (number, type(err).__name__)
     pull = answer["body"]
-    if answer["status"] != 200 or not isinstance(pull, dict) or pull.get("number") != number:
+    if answer["status"] != 200 or not isinstance(pull, dict) or type(pull.get("number")) is not int or pull["number"] != number:
         return None, "merge_group_pull_unreadable: pull request %d was answered %s" % (number, answer["status"])
-    if pull.get("state") != "open" or (pull.get("base") or {}).get("ref") != named.group(1):
+    base = pull.get("base")
+    if pull.get("state") != "open" or not isinstance(base, dict) or base.get("ref") != named.group(1):
         return None, "merge_group_pull_unreadable: pull request %d is not open on the merge group's base" % number
+    if not isinstance(base.get("repo"), dict) or base["repo"].get("full_name") != payload["repository"]["full_name"]:
+        return None, "merge_group_pull_unreadable: pull request %d is answered as another repo's" % number
     return pull, None
 
 
@@ -133,7 +136,7 @@ def opener(root: pathlib.Path, environ, transport=None) -> tuple:
         user, head, base = pull["user"], pull["head"]["repo"], pull["base"]["repo"]
         login, head_repo, own = user["login"], head and head["full_name"], base and base["full_name"]
         allowed = openers(root)
-        what = allowed.get((login, user["id"]))
+        what = allowed.get((login, user["id"])) if type(user["id"]) is int else None
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as err:
         return ["the pull request's opener cannot be read: %r" % err], ""
     found = []
