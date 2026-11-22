@@ -149,6 +149,7 @@ def _constant(node, held: frozenset = frozenset()) -> bool:
     if isinstance(node, ast.Tuple):
         return all(_constant(e, held) for e in node.elts)
     return (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in CONSTANT_CALLS
+            and not any(k.arg is None for k in node.keywords)
             and all(_inert(argument, held) for argument in node.args + [k.value for k in node.keywords]))
 
 
@@ -169,12 +170,14 @@ def _scopes(tree, held: frozenset) -> dict:
 
 def _inert(node, held: frozenset) -> bool:
     """Whether `node`, in a constant's argument, evaluates to a value that cannot change: it calls nothing but a
-    constant's own call, binds nothing, iterates nothing, an unpacking among it, and names only `held`, read once
-    each."""
+    constant's own call, binds nothing, iterates nothing, an unpacking of either kind among it, formats nothing into
+    text, which could write a set's order there, and names only `held`, read once each."""
     if isinstance(node, ast.Call):
         return _constant(node, held)
     if isinstance(node, (ast.GeneratorExp, ast.ListComp, ast.SetComp, ast.DictComp, ast.NamedExpr, ast.Yield,
-                         ast.YieldFrom, ast.Starred)):
+                         ast.YieldFrom, ast.Starred, ast.JoinedStr)):
+        return False
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod) or isinstance(node, ast.Dict) and None in node.keys:
         return False
     if isinstance(node, ast.Name):
         return node.id in held
@@ -837,7 +840,9 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
                 if mod.split(".")[0] == "kernel" and inner and inner + ".py" not in read and inner + "/__init__.py" not in read:
                     problems.append("%s:%d imports %s, which no file read here is: Python would import what this does "
                                     "not read" % (name, line, mod))
-            if isinstance(node, ast.ImportFrom) and (node.level or (node.module or "").split(".")[0] == "kernel"):
+            # The guards refuse every relative import by their own rule, whatever it names.
+            if isinstance(node, ast.ImportFrom) and ((node.level and package == "kernel")
+                                                     or (node.module or "").split(".")[0] == "kernel"):
                 for alias in node.names:
                     if not _answered(name, node, alias.name, read, bound):
                         problems.append("%s:%d imports %s from %s, which no file read here is and its module binds no "

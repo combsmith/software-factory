@@ -2206,7 +2206,10 @@ class Purity(unittest.TestCase):
                      "frozenset({B for B in (B,)})", "frozenset({B: B for B in (B,)})", "frozenset([B := 'b'])",
                      # The generator itself, which keeps its cursor, and an unpacking, which iterates a set in the
                      # order the hash seed gives it (Astra's reads).
-                     "frozenset([_box()])", "frozenset({(*frozenset({'a', 'b'}),)})", "frozenset([(*B,)])"):
+                     "frozenset([_box()])", "frozenset({(*frozenset({'a', 'b'}),)})", "frozenset([(*B,)])",
+                     # Text a set is formatted into, in the hash seed's order, and a mapping unpacked (Astra's reads).
+                     "frozenset(('%r' % frozenset(('a', 'b')),))", "frozenset((f'{B!r}',))", "frozenset({**{'a': 1}})",
+                     "frozenset(**{})"):
             self.assertTrue(caught(run({"kernel/x.py": box + "B = 'b'\n_KEPT = %s\n" % kept}), "x.py:6 holds a value that can change"), kept)
         self.assertEqual(run({"kernel/terms.py": "A = 'a'\n", "kernel/x.py": "from kernel import terms\n\nB = 'b'\n"
                               "HELD = frozenset({B, terms.A, ('c', 'd')})\nNONE = frozenset()\nNESTED = frozenset([frozenset()])\n"}), [])
@@ -2239,7 +2242,7 @@ class Purity(unittest.TestCase):
         # target changes what it names (Carbon's read).
         self.assertEqual(run({"kernel/terms.py": "A, B = 'a', 'b'\n", "kernel/x.py": "from kernel.terms import A\n\n"
                               "[C, (D, E)] = 'c', ('d', 'e')\nBOTH = frozenset((A, C, E))\n"}), [])
-        for text in ("A, *B = 'a', 'b'\n", "T = ('a',)\nT[0] = 'b'\n", "A, B = frozenset({'a', 'b'})\n", "A, B = 'a', 'b', 'c'\n",
+        for text in ("A, *B = 'a', 'b'\n", "A = B, *C = 'a', 'b'\n", "A, B = ('a',)\n", "T = ('a',)\nT[0] = 'b'\n", "A, B = frozenset({'a', 'b'})\n", "A, B = 'a', 'b', 'c'\n",
                      "[A, (B, C)] = 'a', 'bc'\n"):
             self.assertTrue(caught(run({"kernel/x.py": text}), "assigns other than to names"), text)
         # A list written out is unpacked by none: it is a value that can change (Carbon's read).
@@ -2283,9 +2286,10 @@ class Purity(unittest.TestCase):
         self.assertTrue(caught(run({"kernel/terms.py": "", "kernel/sub/y.py": "from .. import gone\n"}), "no such name"))
         self.assertEqual(run({"kernel/sub/__init__.py": "S = 's'\n", "kernel/x.py": "from kernel.sub import S\n"}), [])
         # The guards refuse every relative import by their own rule, once: this one is the Kernel's.
-        found = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": "from .. import tools\n"}))
-        self.assertEqual(len(found), 1, found)
-        self.assertTrue(caught(found, "guards/ imports itself alone") and not caught(found, "from above"), found)
+        for line in ("from .. import tools\n", "from . import missing\n"):    # the second, Astra's read
+            found = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": line}))
+            self.assertEqual(len(found), 1, found)
+            self.assertTrue(caught(found, "guards/ imports itself alone") and not caught(found, "from above"), found)
         # 6. A statement that calls a method of a value it is handed.
         for body, does in (("    with facts as f:\n        return f\n", "enters what it is handed"),
                            ("    assert facts, facts\n    return facts\n", "raises"),
