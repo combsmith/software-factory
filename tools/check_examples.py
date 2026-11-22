@@ -31,11 +31,12 @@ COVERAGE_AGAINST = ("config/rubric-pr-review.json", "examples/finding.json", "ex
 # reference, and carries nothing; a data file a person edits carries `schema`, its path being its identity and the commit
 # its Release. A document's class names its identity.
 ENVELOPE = {"task": ("document", "run"), "result": ("document", "run"), "applied": ("document", "run"),
-            "outcome": ("document", "run"), "verdict": ("document", "run"), "pass": ("document", "pass"), "writes": ("document", "pass"),
+            "outcome": ("document", "run"), "verdict": ("document", "run"), "advice": ("document", "run"), "pass": ("document", "pass"), "writes": ("document", "pass"),
             "written": ("document", "pass"), "view-meta": ("document", "pass"),
             "view-items": ("document", "pass"), "health": ("document", "pass"),
             "eval-report": ("document", "commit"), "eval-aggregate": ("document", "commit"), "eval-ledger": ("document", "commit"),
             "facts": "record", "issue-facts": "record", "seen": "record", "decision": "record", "issue-decision": "record", "finding": "record",
+            "advice-answer": "record",
             "effect": "part", "disposition": "part", "coverage": "part", "run-name": "part", "run-record": "part",
             "view-item": "part",
             "config": "data", "hooks": "data", "lifecycle": "data", "authority": "data", "apps": "data", "rubric": "data", "checklist": "data",
@@ -50,7 +51,7 @@ RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # a record RECORDS names, held by that kind's own rules, so the existing records are not swept.
 CODES_ONLY = ("task", "result", "effect", "disposition", "run-name", "coverage", "run-record",
               "pass", "writes", "written", "applied", "outcome", "view-meta", "view-items", "view-item", "health", "role", "feed",
-              "eval-set", "eval-report", "eval-aggregate", "eval-ledger", "rings")
+              "eval-set", "eval-report", "eval-aggregate", "eval-ledger", "rings", "advice")
 # The references out of CODES_ONLY into a record, each by the kind that makes it and the record whole, as they stand: the
 # pass record keeps facts and decisions as the ports and the Kernel made them, and the applied artifact keeps each
 # posted Finding's finding/1, whose path and criterion are free strings of its own (a limit record 0038 names). Any
