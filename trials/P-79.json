@@ -1,0 +1,1077 @@
+{
+ "schema": "trial/1",
+ "trial": "P-79",
+ "question": "At the shares and output caps ruled after P-78, does Astra at max read diffs of about 5,000, 25,000 and 60,000 characters within its 900 s share without meeting a 72,000-token output cap, and does Kimi at xhigh read the 60,000 one within its 540 s share without meeting its 64,000-token cap?",
+ "pass": "Written before the run, in issue 1130 at 2026-11-22T01:51Z, seconds before the run began, nothing having run (the re-trial of TA3 of decision 0224's plan, after P-78 failed). Eight reads: six of Astra at max, the 5k, 25k and 60k diffs twice each, two at once; two of Kimi at xhigh on the 60k diff, one after the other, beside Astra's. The requests left the desk, not a GitHub runner, with the desk resource's own key read in-process and never printed, logged or written (the Builder's ruling (a)); the times are the desk's. The code is the build's own at harness/advise-gives-each-reader-its-share-390 3ab1cb6f, with its config/harness.json changed for the trial alone: Astra's output_tokens 72,000, Kimi's 64,000, and the prices Azure bills (Astra $10 a million in, its input billed as cache writes, and $40 out; Kimi $2.30 and $11.50). Each read is given 1,080 s, so that one past its share is timed to its end. The diffs are P-78's canary branches trial/p-78-5k, -25k and -60k (5,185, 23,872 and 58,614 characters). Pass: at least five of Astra's six reads end within 900 s of their first request, and none ends incomplete, cut_short; both of Kimi's end within 540 s and neither ends cut_short. Result: every read completed with no reason. Astra at max took 568.2 and 360.5 s on the 5k diff, 731.4 and 737.0 on the 25k, 785.9 and 755.6 on the 60k: six of six within 900 s; it wrote 22,124 to 42,895 tokens out, none near 72,000. Kimi took 266.7 and 219.6 s on the 60k diff, within 540 s, and wrote 47,912 and 33,942 tokens out, under 64,000. The reads cost 10.28 dollars at those prices, against an estimate of 8 and a stop at 16. Recorded, deciding nothing: the issue said each stored response is deleted once read, but the share part's code is built on the part before the delete (harness/advise-deletes-each-response-390 is its sibling), so the run deleted none; the six were deleted from the desk after the run, at 02:27Z, each answered 200, deleted true. Passed.",
+ "repo": null,
+ "ran_at": "2026-11-22T01:51:17Z",
+ "exchanges": [
+  {
+   "request": {
+    "as": {
+     "kind": "subscription",
+     "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+    },
+    "via": "rest",
+    "call": "POST /openai/v1/responses (act create), astra at max, read 1 of 2 of canary branch trial/p-78-5k's diff of p78/edits.py (5,185 characters), given 1,080 s; the read took 568.2 s from its first request, within its 900 s share; 2,490 tokens in, 30,998 out; advice.read gave completed, no reason, 6 findings, cost 1.26482 at the trial's prices; 55 requests: the create, then 54 reads until it ended, the last answered 200, completed, its usage 2,490 tokens in and 30,998 out, 60 output items (that read, as redacted, 9589 bytes, sha256 97cbf6c2961851baea29c0d746f5c3a5519842ff63512882ff5abf8273288dcf); the run deleted nothing, and the response was deleted from the desk after the run, answered 200, deleted true; this is the create; client time 2026-11-22T01:51:17Z, answered in 1.6 s; texts written as length and sha256",
+    "headers": {},
+    "body": {
+     "model": "gpt-6.2-astra",
+     "input": "<9131 bytes of text, sha256 c1997a2178c4739383bb9631e4c1415530cfa833bb1a32e5c2313d7281f6c6f4>",
+     "reasoning": {
+      "effort": "max"
+     },
+     "background": true,
+     "store": true
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "id": "resp_07bb47248a849da4006b024a9538848196b6b05359c3608ed2",
+     "object": "response",
+     "created_at": 1795312277,
+     "status": "queued",
+     "access_programs": null,
+     "background": true,
+     "completed_at": null,
+     "content_filters": null,
+     "error": null,
+     "frequency_penalty": 0.0,
+     "incomplete_details": null,
+     "input_transformations": [],
+     "instructions": null,
+     "max_tool_calls": null,
+     "model": "gpt-6.2-astra",
+     "moderation": null,
+     "output": [],
+     "parallel_tool_calls": true,
+     "presence_penalty": 0.0,
+     "previous_response_id": null,
+     "prompt_cache_key": null,
+     "prompt_cache_retention": "24h",
+     "reasoning": {
+      "context": "all_turns",
+      "effort": "max",
+      "mode": "standard",
+      "summary": null
+     },
+     "safety_identifier": null,
+     "service_tier": "auto",
+     "store": true,
+     "temperature": 1.0,
+     "text": {
+      "format": {
+       "type": "text"
+      },
+      "verbosity": "medium"
+     },
+     "tool_choice": "auto",
+     "tool_usage": {
+      "image_gen": {
+       "input_tokens": 0,
+       "output_tokens": 0,
+       "output_tokens_details": {},
+       "total_tokens": 0
+      },
+      "web_search": {
+       "num_requests": 0
+      }
+     },
+     "tools": [],
+     "top_logprobs": 0,
+     "top_p": 0.98,
+     "truncation": "disabled",
+     "usage": null,
+     "user": null,
+     "metadata": {}
+    }
+   }
+  },
+  {
+   "request": {
+    "as": {
+     "kind": "subscription",
+     "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+    },
+    "via": "rest",
+    "call": "GET /openai/v1/responses/resp_07bb47248a849da4006b024a9538848196b6b05359c3608ed2 (act read), the last of p79-astra-max-5k-1's 54 reads after its create, the one it ended on: answered 200, completed; its 60 output items, the reasoning and the model's answer, and every field but how it ended and its usage are taken out here to keep the review's size bound, and the call of the create gives this read whole by its length and sha256; client time 2026-11-22T02:00:44Z, answered in 0.3 s",
+    "headers": {},
+    "body": {}
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "id": "resp_07bb47248a849da4006b024a9538848196b6b05359c3608ed2",
+     "object": "response",
+     "created_at": 1795312277,
+     "status": "completed",
+     "completed_at": 1795312834,
+     "error": null,
+     "incomplete_details": null,
+     "model": "gpt-6.2-astra",
+     "reasoning": {
+      "context": "all_turns",
+      "effort": "max",
+      "mode": "standard",
+      "summary": null
+     },
+     "usage": {
+      "input_tokens": 2490,
+      "output_tokens": 30998,
+      "output_tokens_details": {},
+      "total_tokens": 33488
+     },
+     "background": true,
+     "store": true
+    }
+   }
+  },
+  {
+   "request": {
+    "as": {
+     "kind": "subscription",
+     "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+    },
+    "via": "rest",
+    "call": "POST /openai/v1/responses (act create), astra at max, read 2 of 2 of canary branch trial/p-78-5k's diff of p78/edits.py (5,185 characters), given 1,080 s; the read took 360.5 s from its first request, within its 900 s share; 2,485 tokens in, 22,124 out; advice.read gave completed, no reason, 3 findings, cost 0.90981 at the trial's prices; 35 requests: the create, then 34 reads until it ended, the last answered 200, completed, its usage 2,485 tokens in and 22,124 out, 43 output items (that read, as redacted, 7616 bytes, sha256 83dd47339f0d24b4baf189eeb2947c6f06f8b8fa7751ada2817102c2d69a2a9e); the run deleted nothing, and the response was deleted from the desk after the run, answered 200, deleted true; this is the create; client time 2026-11-22T01:51:17Z, answered in 2.0 s; texts written as length and sha256",
+    "headers": {},
+    "body": {
+     "model": "gpt-6.2-astra",
+     "input": "<9131 bytes of text, sha256 60cb3a75e266ada6a66d247ff939c59a315e69bf96692fadef7e1a3a2d26a0af>",
+     "reasoning": {
+      "effort": "max"
+     },
+     "background": true,
+     "store": true
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "id": "resp_01f7644afb42df1f006b024a9539048197b78caed908c0673f",
+     "object": "response",
+     "created_at": 1795312277,
+     "status": "queued",
+     "access_programs": null,
+     "background": true,
+     "completed_at": null,
+     "content_filters": null,
+     "error": null,
+     "frequency_penalty": 0.0,
+     "incomplete_details": null,
+     "input_transformations": [],
+     "instructions": null,
+     "max_tool_calls": null,
+     "model": "gpt-6.2-astra",
+     "moderation": null,
+     "output": [],
+     "parallel_tool_calls": true,
+     "presence_penalty": 0.0,
+     "previous_response_id": null,
+     "prompt_cache_key": null,
+     "prompt_cache_retention": "24h",
+     "reasoning": {
+      "context": "all_turns",
+      "effort": "max",
+      "mode": "standard",
+      "summary": null
+     },
+     "safety_identifier": null,
+     "service_tier": "auto",
+     "store": true,
+     "temperature": 1.0,
+     "text": {
+      "format": {
+       "type": "text"
+      },
+      "verbosity": "medium"
+     },
+     "tool_choice": "auto",
+     "tool_usage": {
+      "image_gen": {
+       "input_tokens": 0,
+       "output_tokens": 0,
+       "output_tokens_details": {},
+       "total_tokens": 0
+      },
+      "web_search": {
+       "num_requests": 0
+      }
+     },
+     "tools": [],
+     "top_logprobs": 0,
+     "top_p": 0.98,
+     "truncation": "disabled",
+     "usage": null,
+     "user": null,
+     "metadata": {}
+    }
+   }
+  },
+  {
+   "request": {
+    "as": {
+     "kind": "subscription",
+     "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+    },
+    "via": "rest",
+    "call": "GET /openai/v1/responses/resp_01f7644afb42df1f006b024a9539048197b78caed908c0673f (act read), the last of p79-astra-max-5k-2's 34 reads after its create, the one it ended on: answered 200, completed; its 43 output items, the reasoning and the model's answer, and every field but how it ended and its usage are taken out here to keep the review's size bound, and the call of the create gives this read whole by its length and sha256; client time 2026-11-22T01:57:17Z, answered in 0.3 s",
+    "headers": {},
+    "body": {}
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "id": "resp_01f7644afb42df1f006b024a9539048197b78caed908c0673f",
+     "object": "response",
+     "created_at": 1795312277,
+     "status": "completed",
+     "completed_at": 1795312626,
+     "error": null,
+     "incomplete_details": null,
+     "model": "gpt-6.2-astra",
+     "reasoning": {
+      "context": "all_turns",
+      "effort": "max",
+      "mode": "standard",
+      "summary": null
+     },
+     "usage": {
+      "input_tokens": 2485,
+      "output_tokens": 22124,
+      "output_tokens_details": {},
+      "total_tokens": 24609
+     },
+     "background": true,
+     "store": true
+    }
+   }
+  },
+  {
+   "request": {
+    "as": {
+     "kind": "subscription",
+     "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+    },
+    "via": "rest",
+    "call": "POST /openai/v1/responses (act create), astra at max, read 1 of 2 of canary branch trial/p-78-25k's diff of p78/check_decisions.py (23,872 characters), given 1,080 s; the read took 731.4 s from its first request, within its 900 s share; 7,694 tokens in, 42,895 out; advice.read gave completed, no reason, 26 findings, cost 1.79274 at the trial's prices; 71 requests: the create, then 70 reads until it ended, the last answered 200, completed, its usage 7,694 tokens in and 42,895 out, 78 output items (that read, as redacted, 11678 bytes, sha256 18d22758217f3a5358e4d5c1ce8d0c9e90254f28b51a1fac537d15240b67b719); the run deleted nothing, and the response was deleted from the desk after the run, answered 200, deleted true; this is the create; client time 2026-11-22T02:00:45Z, answered in 1.6 s; texts written as length and sha256",
+    "headers": {},
+    "body": {
+     "model": "gpt-6.2-astra",
+     "input": "<27818 bytes of text, sha256 04f580592425a887ff59c4bf8e97c0a13c2f0131581aaca57ac823b26dbd24ed>",
+     "reasoning": {
+      "effort": "max"
+     },
+     "background": true,
+     "store": true
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "id": "resp_0e4d1b3e4b114381006b024ccd71748193a54dfb1fc7a46b5a",
+     "object": "response",
+     "created_at": 1795312845,
+     "status": "queued",
+     "access_programs": null,
+     "background": true,
+     "completed_at": null,
+     "content_filters": null,
+     "error": null,
+     "frequency_penalty": 0.0,
+     "incomplete_details": null,
+     "input_transformations": [],
+     "instructions": null,
+     "max_tool_calls": null,
+     "model": "gpt-6.2-astra",
+     "moderation": null,
+     "output": [],
+     "parallel_tool_calls": true,
+     "presence_penalty": 0.0,
+     "previous_response_id": null,
+     "prompt_cache_key": null,
+     "prompt_cache_retention": "24h",
+     "reasoning": {
+      "context": "all_turns",
+      "effort": "max",
+      "mode": "standard",
+      "summary": null
+     },
+     "safety_identifier": null,
+     "service_tier": "auto",
+     "store": true,
+     "temperature": 1.0,
+     "text": {
+      "format": {
+       "type": "text"
+      },
+      "verbosity": "medium"
+     },
+     "tool_choice": "auto",
+     "tool_usage": {
+      "image_gen": {
+       "input_tokens": 0,
+       "output_tokens": 0,
+       "output_tokens_details": {},
+       "total_tokens": 0
+      },
+      "web_search": {
+       "num_requests": 0
+      }
+     },
+     "tools": [],
+     "top_logprobs": 0,
+     "top_p": 0.98,
+     "truncation": "disabled",
+     "usage": null,
+     "user": null,
+     "metadata": {}
+    }
+   }
+  },
+  {
+   "request": {
+    "as": {
+     "kind": "subscription",
+     "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+    },
+    "via": "rest",
+    "call": "GET /openai/v1/responses/resp_0e4d1b3e4b114381006b024ccd71748193a54dfb1fc7a46b5a (act read), the last of p79-astra-max-25k-1's 70 reads after its create, the one it ended on: answered 200, completed; its 78 output items, the reasoning and the model's answer, and every field but how it ended and its usage are taken out here to keep the review's size bound, and the call of the create gives this read whole by its length and sha256; client time 2026-11-22T02:12:56Z, answered in 0.4 s",
+    "headers": {},
+    "body": {}
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "id": "resp_0e4d1b3e4b114381006b024ccd71748193a54dfb1fc7a46b5a",
+     "object": "response",
+     "created_at": 1795312845,
+     "status": "completed",
+     "completed_at": 1795313566,
+     "error": null,
+     "incomplete_details": null,
+     "model": "gpt-6.2-astra",
+     "reasoning": {
+      "context": "all_turns",
+      "effort": "max",
+      "mode": "standard",
+      "summary": null
+     },
+     "usage": {
+      "input_tokens": 7694,
+      "output_tokens": 42895,
+      "output_tokens_details": {},
+      "total_tokens": 50589
+     },
+     "background": true,
+     "store": true
+    }
+   }
+  },
+  {
+   "request": {
+    "as": {
+     "kind": "subscription",
+     "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+    },
+    "via": "rest",
+    "call": "POST /openai/v1/responses (act create), astra at max, read 2 of 2 of canary branch trial/p-78-25k's diff of p78/check_decisions.py (23,872 characters), given 1,080 s; the read took 737.0 s from its first request, within its 900 s share; 7,719 tokens in, 39,113 out; advice.read gave completed, no reason, 25 findings, cost 1.64171 at the trial's prices; 71 requests: the create, then 70 reads until it ended, the last answered 200, completed, its usage 7,719 tokens in and 39,113 out, 71 output items (that read, as redacted, 10866 bytes, sha256 6ea7f509b09160f73685a405cf7320bd70249d452bf246bc4e5aec9db47b2eb2); the run deleted nothing, and the response was deleted from the desk after the run, answered 200, deleted true; this is the create; client time 2026-11-22T01:57:17Z, answered in 1.6 s; texts written as length and sha256",
+    "headers": {},
+    "body": {
+     "model": "gpt-6.2-astra",
+     "input": "<27818 bytes of text, sha256 c9f17f29e088229d4ab3e3aa16d86d6a3ef3c71d5ce2087368df0e275c40e2ef>",
+     "reasoning": {
+      "effort": "max"
+     },
+     "background": true,
+     "store": true
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "id": "resp_0f657b731c746db8006b024bfdca6881908043f76c55c09a6e",
+     "object": "response",
+     "created_at": 1795312637,
+     "status": "queued",
+     "access_programs": null,
+     "background": true,
+     "completed_at": null,
+     "content_filters": null,
+     "error": null,
+     "frequency_penalty": 0.0,
+     "incomplete_details": null,
+     "input_transformations": [],
+     "instructions": null,
+     "max_tool_calls": null,
+     "model": "gpt-6.2-astra",
+     "moderation": null,
+     "output": [],
+     "parallel_tool_calls": true,
+     "presence_penalty": 0.0,
+     "previous_response_id": null,
+     "prompt_cache_key": null,
+     "prompt_cache_retention": "24h",
+     "reasoning": {
+      "context": "all_turns",
+      "effort": "max",
+      "mode": "standard",
+      "summary": null
+     },
+     "safety_identifier": null,
+     "service_tier": "auto",
+     "store": true,
+     "temperature": 1.0,
+     "text": {
+      "format": {
+       "type": "text"
+      },
+      "verbosity": "medium"
+     },
+     "tool_choice": "auto",
+     "tool_usage": {
+      "image_gen": {
+       "input_tokens": 0,
+       "output_tokens": 0,
+       "output_tokens_details": {},
+       "total_tokens": 0
+      },
+      "web_search": {
+       "num_requests": 0
+      }
+     },
+     "tools": [],
+     "top_logprobs": 0,
+     "top_p": 0.98,
+     "truncation": "disabled",
+     "usage": null,
+     "user": null,
+     "metadata": {}
+    }
+   }
+  },
+  {
+   "request": {
+    "as": {
+     "kind": "subscription",
+     "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+    },
+    "via": "rest",
+    "call": "GET /openai/v1/responses/resp_0f657b731c746db8006b024bfdca6881908043f76c55c09a6e (act read), the last of p79-astra-max-25k-2's 70 reads after its create, the one it ended on: answered 200, completed; its 71 output items, the reasoning and the model's answer, and every field but how it ended and its usage are taken out here to keep the review's size bound, and the call of the create gives this read whole by its length and sha256; client time 2026-11-22T02:09:34Z, answered in 0.4 s",
+    "headers": {},
+    "body": {}
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "id": "resp_0f657b731c746db8006b024bfdca6881908043f76c55c09a6e",
+     "object": "response",
+     "created_at": 1795312637,
+     "status": "completed",
+     "completed_at": 1795313363,
+     "error": null,
+     "incomplete_details": null,
+     "model": "gpt-6.2-astra",
+     "reasoning": {
+      "context": "all_turns",
+      "effort": "max",
+      "mode": "standard",
+      "summary": null
+     },
+     "usage": {
+      "input_tokens": 7719,
+      "output_tokens": 39113,
+      "output_tokens_details": {},
+      "total_tokens": 46832
+     },
+     "background": true,
+     "store": true
+    }
+   }
+  },
+  {
+   "request": {
+    "as": {
+     "kind": "subscription",
+     "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+    },
+    "via": "rest",
+    "call": "POST /openai/v1/responses (act create), astra at max, read 1 of 2 of canary branch trial/p-78-60k's diff of p78/check_trials.py (58,614 characters), given 1,080 s; the read took 785.9 s from its first request, within its 900 s share; 17,087 tokens in, 41,076 out; advice.read gave completed, no reason, 33 findings, cost 1.81391 at the trial's prices; 76 requests: the create, then 75 reads until it ended, the last answered 200, completed, its usage 17,087 tokens in and 41,076 out, 72 output items (that read, as redacted, 10983 bytes, sha256 cd26ad0691af041c6159ea6dcbd42589e387151924e2997de4f54a511dd397a2); the run deleted nothing, and the response was deleted from the desk after the run, answered 200, deleted true; this is the create; client time 2026-11-22T02:12:56Z, answered in 1.6 s; texts written as length and sha256",
+    "headers": {},
+    "body": {
+     "model": "gpt-6.2-astra",
+     "input": "<62560 bytes of text, sha256 42ee65a81e610e1e544daddfe97d4b3dd411ef9f11f728fc1ddb06830fa6e736>",
+     "reasoning": {
+      "effort": "max"
+     },
+     "background": true,
+     "store": true
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "id": "resp_0e0c859957a29b35006b024fa8ee988196be1b57d97eca3112",
+     "object": "response",
+     "created_at": 1795313576,
+     "status": "queued",
+     "access_programs": null,
+     "background": true,
+     "completed_at": null,
+     "content_filters": null,
+     "error": null,
+     "frequency_penalty": 0.0,
+     "incomplete_details": null,
+     "input_transformations": [],
+     "instructions": null,
+     "max_tool_calls": null,
+     "model": "gpt-6.2-astra",
+     "moderation": null,
+     "output": [],
+     "parallel_tool_calls": true,
+     "presence_penalty": 0.0,
+     "previous_response_id": null,
+     "prompt_cache_key": null,
+     "prompt_cache_retention": "24h",
+     "reasoning": {
+      "context": "all_turns",
+      "effort": "max",
+      "mode": "standard",
+      "summary": null
+     },
+     "safety_identifier": null,
+     "service_tier": "auto",
+     "store": true,
+     "temperature": 1.0,
+     "text": {
+      "format": {
+       "type": "text"
+      },
+      "verbosity": "medium"
+     },
+     "tool_choice": "auto",
+     "tool_usage": {
+      "image_gen": {
+       "input_tokens": 0,
+       "output_tokens": 0,
+       "output_tokens_details": {},
+       "total_tokens": 0
+      },
+      "web_search": {
+       "num_requests": 0
+      }
+     },
+     "tools": [],
+     "top_logprobs": 0,
+     "top_p": 0.98,
+     "truncation": "disabled",
+     "usage": null,
+     "user": null,
+     "metadata": {}
+    }
+   }
+  },
+  {
+   "request": {
+    "as": {
+     "kind": "subscription",
+     "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+    },
+    "via": "rest",
+    "call": "GET /openai/v1/responses/resp_0e0c859957a29b35006b024fa8ee988196be1b57d97eca3112 (act read), the last of p79-astra-max-60k-1's 75 reads after its create, the one it ended on: answered 200, completed; its 72 output items, the reasoning and the model's answer, and every field but how it ended and its usage are taken out here to keep the review's size bound, and the call of the create gives this read whole by its length and sha256; client time 2026-11-22T02:26:02Z, answered in 0.4 s",
+    "headers": {},
+    "body": {}
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "id": "resp_0e0c859957a29b35006b024fa8ee988196be1b57d97eca3112",
+     "object": "response",
+     "created_at": 1795313576,
+     "status": "completed",
+     "completed_at": 1795314354,
+     "error": null,
+     "incomplete_details": null,
+     "model": "gpt-6.2-astra",
+     "reasoning": {
+      "context": "all_turns",
+      "effort": "max",
+      "mode": "standard",
+      "summary": null
+     },
+     "usage": {
+      "input_tokens": 17087,
+      "output_tokens": 41076,
+      "output_tokens_details": {},
+      "total_tokens": 58163
+     },
+     "background": true,
+     "store": true
+    }
+   }
+  },
+  {
+   "request": {
+    "as": {
+     "kind": "subscription",
+     "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+    },
+    "via": "rest",
+    "call": "POST /openai/v1/responses (act create), astra at max, read 2 of 2 of canary branch trial/p-78-60k's diff of p78/check_trials.py (58,614 characters), given 1,080 s; the read took 755.6 s from its first request, within its 900 s share; 17,097 tokens in, 41,577 out; advice.read gave completed, no reason, 33 findings, cost 1.83405 at the trial's prices; 73 requests: the create, then 72 reads until it ended, the last answered 200, completed, its usage 17,097 tokens in and 41,577 out, 77 output items (that read, as redacted, 11563 bytes, sha256 c326ffa343b22110ef702da6022f8b007a38877dfd930ea73f715374884a9d5e); the run deleted nothing, and the response was deleted from the desk after the run, answered 200, deleted true; this is the create; client time 2026-11-22T02:09:34Z, answered in 1.8 s; texts written as length and sha256",
+    "headers": {},
+    "body": {
+     "model": "gpt-6.2-astra",
+     "input": "<62560 bytes of text, sha256 e818f00472ac580e660105ab307353f90d74b9cf55fec7f2264321457201b3e0>",
+     "reasoning": {
+      "effort": "max"
+     },
+     "background": true,
+     "store": true
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "id": "resp_0c72d2d770067ea4006b024edece348196ae4be7d13688f4ec",
+     "object": "response",
+     "created_at": 1795313374,
+     "status": "queued",
+     "access_programs": null,
+     "background": true,
+     "completed_at": null,
+     "content_filters": null,
+     "error": null,
+     "frequency_penalty": 0.0,
+     "incomplete_details": null,
+     "input_transformations": [],
+     "instructions": null,
+     "max_tool_calls": null,
+     "model": "gpt-6.2-astra",
+     "moderation": null,
+     "output": [],
+     "parallel_tool_calls": true,
+     "presence_penalty": 0.0,
+     "previous_response_id": null,
+     "prompt_cache_key": null,
+     "prompt_cache_retention": "24h",
+     "reasoning": {
+      "context": "all_turns",
+      "effort": "max",
+      "mode": "standard",
+      "summary": null
+     },
+     "safety_identifier": null,
+     "service_tier": "auto",
+     "store": true,
+     "temperature": 1.0,
+     "text": {
+      "format": {
+       "type": "text"
+      },
+      "verbosity": "medium"
+     },
+     "tool_choice": "auto",
+     "tool_usage": {
+      "image_gen": {
+       "input_tokens": 0,
+       "output_tokens": 0,
+       "output_tokens_details": {},
+       "total_tokens": 0
+      },
+      "web_search": {
+       "num_requests": 0
+      }
+     },
+     "tools": [],
+     "top_logprobs": 0,
+     "top_p": 0.98,
+     "truncation": "disabled",
+     "usage": null,
+     "user": null,
+     "metadata": {}
+    }
+   }
+  },
+  {
+   "request": {
+    "as": {
+     "kind": "subscription",
+     "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+    },
+    "via": "rest",
+    "call": "GET /openai/v1/responses/resp_0c72d2d770067ea4006b024edece348196ae4be7d13688f4ec (act read), the last of p79-astra-max-60k-2's 72 reads after its create, the one it ended on: answered 200, completed; its 77 output items, the reasoning and the model's answer, and every field but how it ended and its usage are taken out here to keep the review's size bound, and the call of the create gives this read whole by its length and sha256; client time 2026-11-22T02:22:09Z, answered in 0.4 s",
+    "headers": {},
+    "body": {}
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "id": "resp_0c72d2d770067ea4006b024edece348196ae4be7d13688f4ec",
+     "object": "response",
+     "created_at": 1795313374,
+     "status": "completed",
+     "completed_at": 1795314124,
+     "error": null,
+     "incomplete_details": null,
+     "model": "gpt-6.2-astra",
+     "reasoning": {
+      "context": "all_turns",
+      "effort": "max",
+      "mode": "standard",
+      "summary": null
+     },
+     "usage": {
+      "input_tokens": 17097,
+      "output_tokens": 41577,
+      "output_tokens_details": {},
+      "total_tokens": 58674
+     },
+     "background": true,
+     "store": true
+    }
+   }
+  },
+  {
+   "request": {
+    "as": {
+     "kind": "subscription",
+     "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+    },
+    "via": "rest",
+    "call": "POST /openai/v1/chat/completions (act chat), kimi at xhigh, read 1 of 2 of canary branch trial/p-78-60k's diff of p78/check_trials.py (58,614 characters), given 1,080 s; the read took 266.7 s from its first request, within its 540 s share; 17,137 tokens in, 47,912 out; advice.read gave completed, no reason, 7 findings, cost 0.590404 at the trial's prices; client time 2026-11-22T01:51:17Z, answered in 266.7 s; texts written as length and sha256",
+    "headers": {},
+    "body": {
+     "model": "kimi-k3.1-pro",
+     "messages": [
+      {
+       "role": "user",
+       "content": "<62560 bytes of text, sha256 b8c009ee472681bdd01730a715f657d5494d82f34329a3ec619abf7da6582e49>"
+      }
+     ],
+     "reasoning_effort": "xhigh"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "id": "chatcmpl-6b024a95dd1526e49f2ec9df",
+     "model": "Kimi-K3.1",
+     "choices": [
+      {
+       "index": 0,
+       "message": {
+        "role": "assistant",
+        "content": "<4548 bytes of text, sha256 842e18c9ed72dde2eac55d1935356464d32a04e48ae51e8eef746d02daee7e75>",
+        "reasoning_content": "<200953 bytes of text, sha256 6f937184862b4973c51cd91c0af3b9b99f751ca87705216e7a48eb03d2a6073a>"
+       },
+       "finish_reason": "stop"
+      }
+     ],
+     "usage": {
+      "total_tokens": 65049
+     },
+     "created": 1795312277,
+     "object": "chat.completion",
+     "prompt_filter_results": null
+    }
+   }
+  },
+  {
+   "request": {
+    "as": {
+     "kind": "subscription",
+     "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+    },
+    "via": "rest",
+    "call": "POST /openai/v1/chat/completions (act chat), kimi at xhigh, read 2 of 2 of canary branch trial/p-78-60k's diff of p78/check_trials.py (58,614 characters), given 1,080 s; the read took 219.6 s from its first request, within its 540 s share; 17,142 tokens in, 33,942 out; advice.read gave completed, no reason, 3 findings, cost 0.42976 at the trial's prices; client time 2026-11-22T01:55:43Z, answered in 219.6 s; texts written as length and sha256",
+    "headers": {},
+    "body": {
+     "model": "kimi-k3.1-pro",
+     "messages": [
+      {
+       "role": "user",
+       "content": "<62560 bytes of text, sha256 abe3aa00e69c0a0266bffff1a263fee20f74024c224e7b72709bd74c455245c8>"
+      }
+     ],
+     "reasoning_effort": "xhigh"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "id": "chatcmpl-6b024ba00db15280d71e4dbc",
+     "model": "Kimi-K3.1",
+     "choices": [
+      {
+       "index": 0,
+       "message": {
+        "role": "assistant",
+        "content": "<2514 bytes of text, sha256 09c41441d4bb7d22c43e3bb336a9b1e2f412159839c076e7a2b16d61a4c96e2e>",
+        "reasoning_content": "<145005 bytes of text, sha256 fe94271307532e67e8b10690004c7f048fed8904342bf74d3279b97233f8486f>"
+       },
+       "finish_reason": "stop"
+      }
+     ],
+     "usage": {
+      "total_tokens": 51084
+     },
+     "created": 1795312544,
+     "object": "chat.completion",
+     "prompt_filter_results": null
+    }
+   }
+  }
+ ],
+ "removed": [
+  "exchanges[0].request.body.max_output_tokens",
+  "exchanges[0].response.body.max_output_tokens",
+  "exchanges[0].response.body.tool_usage.image_gen.input_tokens_details",
+  "exchanges[0].response.body.tool_usage.image_gen.output_tokens_details.image_tokens",
+  "exchanges[0].response.body.tool_usage.image_gen.output_tokens_details.text_tokens",
+  "exchanges[1].response.body.usage.input_tokens_details",
+  "exchanges[1].response.body.usage.output_tokens_details.reasoning_tokens",
+  "exchanges[1].response.body.access_programs",
+  "exchanges[1].response.body.content_filters",
+  "exchanges[1].response.body.frequency_penalty",
+  "exchanges[1].response.body.input_transformations",
+  "exchanges[1].response.body.instructions",
+  "exchanges[1].response.body.max_tool_calls",
+  "exchanges[1].response.body.metadata",
+  "exchanges[1].response.body.moderation",
+  "exchanges[1].response.body.output",
+  "exchanges[1].response.body.parallel_tool_calls",
+  "exchanges[1].response.body.presence_penalty",
+  "exchanges[1].response.body.previous_response_id",
+  "exchanges[1].response.body.prompt_cache_key",
+  "exchanges[1].response.body.prompt_cache_retention",
+  "exchanges[1].response.body.safety_identifier",
+  "exchanges[1].response.body.service_tier",
+  "exchanges[1].response.body.temperature",
+  "exchanges[1].response.body.text",
+  "exchanges[1].response.body.tool_choice",
+  "exchanges[1].response.body.tool_usage",
+  "exchanges[1].response.body.tools",
+  "exchanges[1].response.body.top_logprobs",
+  "exchanges[1].response.body.top_p",
+  "exchanges[1].response.body.truncation",
+  "exchanges[1].response.body.user",
+  "exchanges[2].request.body.max_output_tokens",
+  "exchanges[2].response.body.max_output_tokens",
+  "exchanges[2].response.body.tool_usage.image_gen.input_tokens_details",
+  "exchanges[2].response.body.tool_usage.image_gen.output_tokens_details.image_tokens",
+  "exchanges[2].response.body.tool_usage.image_gen.output_tokens_details.text_tokens",
+  "exchanges[3].response.body.usage.input_tokens_details",
+  "exchanges[3].response.body.usage.output_tokens_details.reasoning_tokens",
+  "exchanges[3].response.body.access_programs",
+  "exchanges[3].response.body.content_filters",
+  "exchanges[3].response.body.frequency_penalty",
+  "exchanges[3].response.body.input_transformations",
+  "exchanges[3].response.body.instructions",
+  "exchanges[3].response.body.max_tool_calls",
+  "exchanges[3].response.body.metadata",
+  "exchanges[3].response.body.moderation",
+  "exchanges[3].response.body.output",
+  "exchanges[3].response.body.parallel_tool_calls",
+  "exchanges[3].response.body.presence_penalty",
+  "exchanges[3].response.body.previous_response_id",
+  "exchanges[3].response.body.prompt_cache_key",
+  "exchanges[3].response.body.prompt_cache_retention",
+  "exchanges[3].response.body.safety_identifier",
+  "exchanges[3].response.body.service_tier",
+  "exchanges[3].response.body.temperature",
+  "exchanges[3].response.body.text",
+  "exchanges[3].response.body.tool_choice",
+  "exchanges[3].response.body.tool_usage",
+  "exchanges[3].response.body.tools",
+  "exchanges[3].response.body.top_logprobs",
+  "exchanges[3].response.body.top_p",
+  "exchanges[3].response.body.truncation",
+  "exchanges[3].response.body.user",
+  "exchanges[4].request.body.max_output_tokens",
+  "exchanges[4].response.body.max_output_tokens",
+  "exchanges[4].response.body.tool_usage.image_gen.input_tokens_details",
+  "exchanges[4].response.body.tool_usage.image_gen.output_tokens_details.image_tokens",
+  "exchanges[4].response.body.tool_usage.image_gen.output_tokens_details.text_tokens",
+  "exchanges[5].response.body.usage.input_tokens_details",
+  "exchanges[5].response.body.usage.output_tokens_details.reasoning_tokens",
+  "exchanges[5].response.body.access_programs",
+  "exchanges[5].response.body.content_filters",
+  "exchanges[5].response.body.frequency_penalty",
+  "exchanges[5].response.body.input_transformations",
+  "exchanges[5].response.body.instructions",
+  "exchanges[5].response.body.max_tool_calls",
+  "exchanges[5].response.body.metadata",
+  "exchanges[5].response.body.moderation",
+  "exchanges[5].response.body.output",
+  "exchanges[5].response.body.parallel_tool_calls",
+  "exchanges[5].response.body.presence_penalty",
+  "exchanges[5].response.body.previous_response_id",
+  "exchanges[5].response.body.prompt_cache_key",
+  "exchanges[5].response.body.prompt_cache_retention",
+  "exchanges[5].response.body.safety_identifier",
+  "exchanges[5].response.body.service_tier",
+  "exchanges[5].response.body.temperature",
+  "exchanges[5].response.body.text",
+  "exchanges[5].response.body.tool_choice",
+  "exchanges[5].response.body.tool_usage",
+  "exchanges[5].response.body.tools",
+  "exchanges[5].response.body.top_logprobs",
+  "exchanges[5].response.body.top_p",
+  "exchanges[5].response.body.truncation",
+  "exchanges[5].response.body.user",
+  "exchanges[6].request.body.max_output_tokens",
+  "exchanges[6].response.body.max_output_tokens",
+  "exchanges[6].response.body.tool_usage.image_gen.input_tokens_details",
+  "exchanges[6].response.body.tool_usage.image_gen.output_tokens_details.image_tokens",
+  "exchanges[6].response.body.tool_usage.image_gen.output_tokens_details.text_tokens",
+  "exchanges[7].response.body.usage.input_tokens_details",
+  "exchanges[7].response.body.usage.output_tokens_details.reasoning_tokens",
+  "exchanges[7].response.body.access_programs",
+  "exchanges[7].response.body.content_filters",
+  "exchanges[7].response.body.frequency_penalty",
+  "exchanges[7].response.body.input_transformations",
+  "exchanges[7].response.body.instructions",
+  "exchanges[7].response.body.max_tool_calls",
+  "exchanges[7].response.body.metadata",
+  "exchanges[7].response.body.moderation",
+  "exchanges[7].response.body.output",
+  "exchanges[7].response.body.parallel_tool_calls",
+  "exchanges[7].response.body.presence_penalty",
+  "exchanges[7].response.body.previous_response_id",
+  "exchanges[7].response.body.prompt_cache_key",
+  "exchanges[7].response.body.prompt_cache_retention",
+  "exchanges[7].response.body.safety_identifier",
+  "exchanges[7].response.body.service_tier",
+  "exchanges[7].response.body.temperature",
+  "exchanges[7].response.body.text",
+  "exchanges[7].response.body.tool_choice",
+  "exchanges[7].response.body.tool_usage",
+  "exchanges[7].response.body.tools",
+  "exchanges[7].response.body.top_logprobs",
+  "exchanges[7].response.body.top_p",
+  "exchanges[7].response.body.truncation",
+  "exchanges[7].response.body.user",
+  "exchanges[8].request.body.max_output_tokens",
+  "exchanges[8].response.body.max_output_tokens",
+  "exchanges[8].response.body.tool_usage.image_gen.input_tokens_details",
+  "exchanges[8].response.body.tool_usage.image_gen.output_tokens_details.image_tokens",
+  "exchanges[8].response.body.tool_usage.image_gen.output_tokens_details.text_tokens",
+  "exchanges[9].response.body.usage.input_tokens_details",
+  "exchanges[9].response.body.usage.output_tokens_details.reasoning_tokens",
+  "exchanges[9].response.body.access_programs",
+  "exchanges[9].response.body.content_filters",
+  "exchanges[9].response.body.frequency_penalty",
+  "exchanges[9].response.body.input_transformations",
+  "exchanges[9].response.body.instructions",
+  "exchanges[9].response.body.max_tool_calls",
+  "exchanges[9].response.body.metadata",
+  "exchanges[9].response.body.moderation",
+  "exchanges[9].response.body.output",
+  "exchanges[9].response.body.parallel_tool_calls",
+  "exchanges[9].response.body.presence_penalty",
+  "exchanges[9].response.body.previous_response_id",
+  "exchanges[9].response.body.prompt_cache_key",
+  "exchanges[9].response.body.prompt_cache_retention",
+  "exchanges[9].response.body.safety_identifier",
+  "exchanges[9].response.body.service_tier",
+  "exchanges[9].response.body.temperature",
+  "exchanges[9].response.body.text",
+  "exchanges[9].response.body.tool_choice",
+  "exchanges[9].response.body.tool_usage",
+  "exchanges[9].response.body.tools",
+  "exchanges[9].response.body.top_logprobs",
+  "exchanges[9].response.body.top_p",
+  "exchanges[9].response.body.truncation",
+  "exchanges[9].response.body.user",
+  "exchanges[10].request.body.max_output_tokens",
+  "exchanges[10].response.body.max_output_tokens",
+  "exchanges[10].response.body.tool_usage.image_gen.input_tokens_details",
+  "exchanges[10].response.body.tool_usage.image_gen.output_tokens_details.image_tokens",
+  "exchanges[10].response.body.tool_usage.image_gen.output_tokens_details.text_tokens",
+  "exchanges[11].response.body.usage.input_tokens_details",
+  "exchanges[11].response.body.usage.output_tokens_details.reasoning_tokens",
+  "exchanges[11].response.body.access_programs",
+  "exchanges[11].response.body.content_filters",
+  "exchanges[11].response.body.frequency_penalty",
+  "exchanges[11].response.body.input_transformations",
+  "exchanges[11].response.body.instructions",
+  "exchanges[11].response.body.max_tool_calls",
+  "exchanges[11].response.body.metadata",
+  "exchanges[11].response.body.moderation",
+  "exchanges[11].response.body.output",
+  "exchanges[11].response.body.parallel_tool_calls",
+  "exchanges[11].response.body.presence_penalty",
+  "exchanges[11].response.body.previous_response_id",
+  "exchanges[11].response.body.prompt_cache_key",
+  "exchanges[11].response.body.prompt_cache_retention",
+  "exchanges[11].response.body.safety_identifier",
+  "exchanges[11].response.body.service_tier",
+  "exchanges[11].response.body.temperature",
+  "exchanges[11].response.body.text",
+  "exchanges[11].response.body.tool_choice",
+  "exchanges[11].response.body.tool_usage",
+  "exchanges[11].response.body.tools",
+  "exchanges[11].response.body.top_logprobs",
+  "exchanges[11].response.body.top_p",
+  "exchanges[11].response.body.truncation",
+  "exchanges[11].response.body.user",
+  "exchanges[12].request.body.max_completion_tokens",
+  "exchanges[12].response.body.usage.prompt_tokens",
+  "exchanges[12].response.body.usage.completion_tokens",
+  "exchanges[12].response.body.usage.reasoning_tokens",
+  "exchanges[12].response.body.usage.audio_prompt_tokens",
+  "exchanges[12].response.body.usage.prompt_tokens_details",
+  "exchanges[12].response.body.usage.completion_tokens_details",
+  "exchanges[13].request.body.max_completion_tokens",
+  "exchanges[13].response.body.usage.prompt_tokens",
+  "exchanges[13].response.body.usage.completion_tokens",
+  "exchanges[13].response.body.usage.reasoning_tokens",
+  "exchanges[13].response.body.usage.audio_prompt_tokens",
+  "exchanges[13].response.body.usage.prompt_tokens_details",
+  "exchanges[13].response.body.usage.completion_tokens_details"
+ ],
+ "verdict": "pass"
+}
