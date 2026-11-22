@@ -115,7 +115,7 @@ def _mark(item):
             one.get("submitted_at"))
 
 
-def _tail(transport, path: str, since: str) -> tuple:
+def _tail(transport, path: str, since: str, ends=()) -> tuple:
     """`(items, whole)`: a list GitHub gives oldest first, read from its end back to `since`, so that the writes since
     then and an item's close, which are at its end, are read however long it is (issue 1009, decision 0234). The first
     page names the last; the last pages are read back until one reaches before `since`, or the second, so the first
@@ -124,7 +124,9 @@ def _tail(transport, path: str, since: str) -> tuple:
     number or items changed leaves the read not whole (the Factory Builder's ruling of 2026-11-20); an item deleted
     from the first page moves them the other way, so a joined first page must read the same again (Claude). Items are
     kept once each, by their kind and id where they carry one. It serves a list GitHub gives in the order of the time
-    it reads, a timeline's; not the reviews, which it gives in the order they were started."""
+    it reads, a timeline's; not the reviews, which it gives in the order they were started. Given `ends`, an item read
+    as gone, whose close may be older than `since`, it reads on back, within the same bound, until one of them is
+    found (Claude)."""
     try:
         items, link = _page(transport, path, 1)
         last = LAST.search(link)
@@ -137,11 +139,11 @@ def _tail(transport, path: str, since: str) -> tuple:
             end = int(last.group(1))
             tail, end_link = _page(transport, path, end)
             found, page, reached = [tail], end, _before(tail, since)
-            while not reached and page > 2 and len(found) < timeline.BOUND - 3:
+            while not (reached and _ended(found, ends)) and page > 2 and len(found) < timeline.BOUND - 3:
                 page -= 1
                 got, _ = _page(transport, path, page)
                 found.insert(0, got)
-                reached = _before(got, since)
+                reached = reached or _before(got, since)
             joined = page == 2
             again, again_link = _page(transport, path, end)
             # An empty page before the end is no page GitHub would give (Astra).
@@ -162,6 +164,11 @@ def _tail(transport, path: str, since: str) -> tuple:
                 seen.add(key)
                 kept.append(one)
     return kept, (reached or joined) and steady
+
+
+def _ended(pages: list, ends) -> bool:
+    """Whether `pages` hold one of the events `ends`, or none is asked for."""
+    return not ends or any(_object(e).get("event") in ends for page in pages for e in page)
 
 
 def _readable(actor) -> bool:
@@ -300,6 +307,8 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str, 
         if state is None:
             return [], [], False
         ending = state == "closed"
+    # One read as gone is whole only with its close, of any age: its timeline is read back until the close is found.
+    gone = ((("closed", "merged") if item["type"] == "pull_request" else ("closed",)) if kept == GONE else ())
     if item["type"] == "pull_request" and kept not in (LEFT, GONE):
         parts = dict(kept) if isinstance(kept, dict) else {}
         # A timeline the snapshot cut at its bound is read again from its end, where the writes are; a reviews list
@@ -308,11 +317,11 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str, 
         if cut.get("events") is True:
             parts["events"] = _tail(transport, issue + "/timeline?per_page=%d" % PAGE, since)
     elif item["type"] == "pull_request":
-        parts = {"events": _tail(transport, issue + "/timeline?per_page=%d" % PAGE, since),
+        parts = {"events": _tail(transport, issue + "/timeline?per_page=%d" % PAGE, since, gone),
                  "reviews": _pages(transport, "/repos/%s/pulls/%d/reviews?per_page=%d" % (repo, number, PAGE)),
                  "threads": _threads(transport, item), "check_runs": _check_runs(transport, item)}
     else:
-        parts = {"events": _tail(transport, issue + "/timeline?per_page=%d" % PAGE, since), "reviews": ([], True),
+        parts = {"events": _tail(transport, issue + "/timeline?per_page=%d" % PAGE, since, gone), "reviews": ([], True),
                  "threads": ([], True), "check_runs": ([], True)}
     parts["comments"] = _pages(transport, issue + "/comments?since=%s&per_page=%d" % (since, PAGE))
     whole = True

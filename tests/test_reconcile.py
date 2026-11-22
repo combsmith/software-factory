@@ -608,6 +608,24 @@ class SeenPort(unittest.TestCase):
         self.assertIn("close", [w["kind"] for w in writes])
         self.assertTrue(any(w["kind"] != "close" and w["by"] == "controller" for w in writes))
 
+    def test_an_item_read_as_gone_is_read_back_to_its_close(self):  # issue 1009, the Claude read of part 4
+        # One read as gone is whole with its close of any age. Where events after the close, all before `since`, fill
+        # the pages after it, the read goes on back past `since`, within the bound, until it finds the close.
+        old = [{"event": "commented", "actor": PERSON, "created_at": EARLY}]
+        closed = [{"event": "closed", "actor": CONTROLLER, "created_at": EARLY, "id": 9}]
+        path = ISSUE + "/timeline?per_page=100"
+        for pages_ in ([old, closed, old], [old, old, closed, old], [old] * 5 + [closed] + [old] * 6):
+            github = Pages({path: pages_}, LEFT_ANSWERS)
+            self.assertIs(seen_.read(github, ITEM, seen_.GONE, IDENTITIES, APPS, SINCE)[2], True, len(pages_))
+            self.assertLessEqual(len([p for _, p in github.asked if "/timeline" in p]), 10)
+        # One that left is read back to `since` alone, its close in the window; and past the bound a close is short.
+        github = Pages({path: [old, closed, old]}, LEFT_ANSWERS)
+        self.assertIs(seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], False)
+        self.assertEqual([p for _, p in github.asked if "/timeline" in p][1:], [path + "&page=3", path + "&page=3"])
+        github = Pages({path: [old] * 3 + [closed] + [old] * 10}, LEFT_ANSWERS)
+        self.assertIs(seen_.read(github, ITEM, seen_.GONE, IDENTITIES, APPS, SINCE)[2], False)
+        self.assertLessEqual(len([p for _, p in github.asked if "/timeline" in p]), 10)
+
     def test_a_read_from_the_end_is_short_on_what_it_cannot_tell(self):  # issue 1009, the readers of a1b28476
         new = [{"event": "commented", "actor": PERSON, "created_at": AT}]
         old = [{"event": "commented", "actor": PERSON, "created_at": EARLY}]
@@ -721,7 +739,9 @@ class SeenPort(unittest.TestCase):
         writes, _, whole = seen_.read(github, ITEM, parts, IDENTITIES, APPS, SINCE)
         self.assertIs(whole, True)
         self.assertIn("label", [w["kind"] for w in writes])
-        self.assertTrue([p for _, p in github.asked if "/timeline" in p])
+        path = ISSUE + "/timeline?per_page=100"
+        self.assertEqual([p for _, p in github.asked if "/timeline" in p],
+                         [path] + [path + "&page=%d" % n for n in (29, 28, 29)])
         # A list whose first page names a next one but no last cannot be read from its end: short.
         github = Pages({ISSUE + "/timeline?per_page=100": [old] * 28 + [review]}, last=False)
         self.assertIs(seen_.read(github, ITEM, parts, IDENTITIES, APPS, SINCE)[2], False)
