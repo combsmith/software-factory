@@ -1,4 +1,4 @@
-# 0000. A pull request whose own timeline is cut waits on a person
+# 1149. A pull request whose own timeline is cut waits on a person
 
 Status: accepted. Extends decision 0234 with its rule for a pull request's own timeline, as "adapters: bound a pull request's timeline and seen-issue reads by pages" (issue 1009) asks, part 1 of 4: the Kernel's rule and the fact it reads, as the Factory Builder ruled on 2026-11-20 (the fact optional, absent read as not cut, as decision 1147's). The facts port bounds the reads in part 2. Decision 0234 stands as it is.
 
