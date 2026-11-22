@@ -327,4 +327,7 @@ MUTANTS = [
      'ends = ("closed", "merged") if item["type"] == "pull_request" else ("closed",)', 'ends = ("closed", "merged")', ("tests.test_reconcile.SeenPort.test_an_issue_that_left_is_read_with_its_close",)),
     ('the seen port reads the comments past ten pages', 'adapters/seen.py',
      'timeline._paged(transport, path, timeline.BOUND)', 'timeline._paged(transport, path, None)', ('tests.test_reconcile.SeenPort.test_a_list_is_read_to_ten_pages_and_past_them_what_was_seen_is_short',)),
+    ("the seen port reads the reviews of an item that left past ten pages", 'adapters/seen.py',
+     '"reviews": _pages(transport, "/repos/', '"reviews": timeline._pages(transport, "/repos/',
+     ('tests.test_reconcile.SeenPort.test_a_list_is_read_to_ten_pages_and_past_them_what_was_seen_is_short',)),
 ]
