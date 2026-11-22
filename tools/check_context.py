@@ -42,6 +42,9 @@ PATHLIKE = re.compile(r"^[\w.-]+(/[\w.-]+)*/?$")
 SUFFIXES = (".py", ".json", ".md", ".yml", ".yaml")
 EXTENSION = re.compile(r"\.[a-z0-9]{1,5}$")
 PENDING = "not held yet"
+# A record is numbered by the pull request that adds it, which tools/commits_are_the_maintainers.py holds, so numbers
+# leave gaps; the number is the file's, at least four digits, and no two records share one (decision 1121).
+RECORD_NUMBER = re.compile(r"^([0-9]{4,})-")
 WAITING = re.compile(r"waiting on `([^`\n]+)`", re.I)
 MODULE = re.compile(r"python3 -m ([\w.]*\w)")
 BARE_NUMBER = re.compile(r"(?<![&`])(?<!\]\()#\d+\b")
@@ -349,11 +352,18 @@ def _decisions(root: pathlib.Path) -> list:
     records = sorted((root / "docs" / "decisions").glob("*.md"))
     if not records:
         return ["docs/decisions/ holds no record"]
-    for want, path in enumerate(records, 1):
+    seen = {}
+    for path in records:
         text = _text(path)
-        if not path.name.startswith("%04d-" % want):
-            problems.append("docs/decisions/%s: records are numbered from 0001 with no gap" % path.name)
-        if not text.startswith("# %04d. " % want):
+        named = RECORD_NUMBER.match(path.name)
+        number = int(named.group(1)) if named else None
+        if named is None:
+            problems.append("docs/decisions/%s: a record's file opens with its number, four digits or more, and a dash"
+                            % path.name)
+        elif number in seen:
+            problems.append("docs/decisions/%s: shares its number with %s; no two records do" % (path.name, seen[number]))
+        seen.setdefault(number, path.name)
+        if named is None or not text.startswith("# %s. " % named.group(1)):
             problems.append("docs/decisions/%s: the title must open with its number" % path.name)
         parts = dict(_sections(text, "## "))
         for need in ("Decision", "Why", "Boundaries"):

@@ -61,6 +61,7 @@ RAW = {
     "adapters.rules._file_at": {"contents": R},                        # a file at the base: what a push may not touch
     "adapters.seen._check_runs": {"pull_requests": R, "checks": R},    # the pull request's head, then its checks
     "adapters.seen._threads": {"pull_requests": R},
+    "adapters.seen._state": {"issues": R},                            # an issue that left, by its own read (0235)
     "adapters.seen.pushes": {"contents": R},                           # the repo's activity, as P-47 reads a branch's
     "adapters.tags._ours": {"contents": R}, "adapters.tags._page": {"contents": R},
     "adapters.texts.issues": {"issues": R}, "adapters.threads._read": {"pull_requests": R},
@@ -116,6 +117,7 @@ SITES = {
     "adapters.records._list": 1,
     "adapters.rules._file_at": 1,
     "adapters.seen._check_runs": 2,
+    "adapters.seen._state": 1,
     "adapters.seen._threads": 1,
     "adapters.seen.pushes": 1,
     "adapters.tags._ours": 1,
@@ -141,6 +143,7 @@ APPROVING = [
     "adapters.effects.approval_of",
     "adapters.effects.approve",
     "adapters.effects.approver_of",
+    "adapters.issues.own",                     # how the issue a Factory pull request was opened for stands (0232)
     "adapters.passes.find",
     "adapters.pause._org_value",
     "adapters.pause._value",
@@ -363,6 +366,11 @@ class TokenNeeds(unittest.TestCase):
                         <= reached("harness.read", "step"))
         self.assertTrue({"adapters.passes.find", "adapters.checks._read", "adapters.pause._value"}
                         <= reached("harness.apply_step", "written"))
+        # The read again reads the issue a Factory pull request was opened for, as the pass joins it (decision 0232,
+        # issue 964): apply's token holds issues: read for it, and the approving act's reads name it.
+        self.assertIn("adapters.issues.own", reached("harness.reread", "issue_stood"))
+        self.assertIn("adapters.issues.own", reached("harness.apply_step", "written"))
+        self.assertIn("adapters.issues.own", reached("harness.approve_step", "written"))
         self.assertTrue({"adapters.queue.pull", "adapters.queue.enqueue"} <= reached("harness.queue_step", "written"))
         self.assertTrue({"adapters.items.open_pull_requests", "adapters.items.open_issues", "adapters.issues.own", "adapters.linked.joined",
                          "adapters.checks._read", "adapters.pause._value",

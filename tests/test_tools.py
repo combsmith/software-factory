@@ -3969,8 +3969,8 @@ class Workflows(unittest.TestCase):
         (local / "config" / "hooks.json").write_text(json.dumps({"maintainer": {"name": ada[0], "email": ada[1]},
                                                                  "openers": [{"login": "ada", "id": 1, "is": "the Maintainer"}]}))
         event = local.parent / "event.json"
-        event.write_text(json.dumps({"pull_request": {"user": {"login": "ada", "id": 1}, "head": {"repo": {"full_name": "o/r"}},
-                                                      "base": {"repo": {"full_name": "o/r"}}}}))
+        event.write_text(json.dumps({"pull_request": {"number": 7, "user": {"login": "ada", "id": 1},
+                                                      "head": {"repo": {"full_name": "o/r"}}, "base": {"repo": {"full_name": "o/r"}}}}))
         with contextlib.redirect_stdout(io.StringIO()) as printed:
             self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": second, "EVENT": "pull_request",
                                                                "GITHUB_EVENT_PATH": str(event)}, local), 0)
@@ -4245,9 +4245,11 @@ class Workflows(unittest.TestCase):
                                  "base": {"repo": {"full_name": "o/r"}}}}
         environ = {"BASE_SHA": "a" * 40, "HEAD_SHA": "b" * 40, "EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where)}
 
-        def ended(commits, payload):
+        def ended(commits, payload, records=()):
             where.write_text(json.dumps(payload))
+            records = list(records)
             with mock.patch.object(commits_are_the_maintainers, "problems", return_value=commits), \
+                    mock.patch.object(commits_are_the_maintainers, "record_problems", return_value=records), \
                     contextlib.redirect_stdout(io.StringIO()) as printed:
                 return commits_are_the_maintainers.main(environ, root), printed.getvalue()
 
@@ -4263,6 +4265,11 @@ class Workflows(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("opened by bob", printed)
         self.assertNotIn("names the Maintainer as", printed)
+        # And a decision record numbered otherwise than by the pull request refuses, beside the rest (decision 1121).
+        code, printed = ended([], ours, ["a record is numbered otherwise"])
+        self.assertEqual(code, 1)
+        self.assertIn("a record is numbered otherwise", printed)
+        self.assertNotIn("names the Maintainer as", printed)
         # A merge group's opener is read through the transport main is handed, and refuses or says the same.
         queue = {"merge_group": {"head_ref": "refs/heads/gh-readonly-queue/main/pr-44-" + "a" * 40, "base_ref": "refs/heads/main"},
                  "repository": {"full_name": "o/r"}}
@@ -4273,11 +4280,133 @@ class Workflows(unittest.TestCase):
             def send(self, asked):
                 return {"status": 200, "body": answer}
         with mock.patch.object(commits_are_the_maintainers, "problems", return_value=[]), \
+                mock.patch.object(commits_are_the_maintainers, "record_problems", return_value=[]), \
                 contextlib.redirect_stdout(io.StringIO()) as printed:
             told = dict(environ, EVENT="merge_group", WORKFLOW_TOKEN="t")
             self.assertEqual(commits_are_the_maintainers.main(told, root, Asked()), 0)
             self.assertEqual(commits_are_the_maintainers.main(dict(told, EVENT="pull_request"), root, Asked()), 1)
         self.assertIn("opened from o/r by ada, the Maintainer", printed.getvalue())
+
+    def test_each_record_a_pull_request_adds_is_numbered_by_it(self):
+        # Decision 1121: a decision record takes the number of the pull request that adds it, and a pull request adds
+        # one at most. The commits' job reads the records the head adds in git, the head fetched, and the number from
+        # the event's payload, or on a merge group from the queue's ref; until it drains, the chain numbered before
+        # this rule, from 0235, stands as well.
+        origin = tree({"docs/decisions/0001-a.md": "# 0001. A\n", "docs/decisions/0002-b.md": "# 0002. B\n"})
+        env = dict(os.environ, GIT_AUTHOR_NAME="A", GIT_AUTHOR_EMAIL="a@example.com", GIT_COMMITTER_NAME="A",
+                   GIT_COMMITTER_EMAIL="a@example.com", GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1")
+
+        def run(where, *args):
+            return subprocess.run(["git", *args], cwd=str(where), env=env, capture_output=True, text=True, timeout=60,
+                                  check=True).stdout.strip()
+
+        run(origin, "init", "-q", "-b", "main")
+        run(origin, "config", "uploadpack.allowReachableSHA1InWant", "true")
+        run(origin, "add", "-A")
+        run(origin, "commit", "-q", "-m", "base")
+        base = run(origin, "rev-parse", "HEAD")
+        local = origin.with_name(origin.name + "-local")     # beside origin: the scratch folder is shared by every test
+        run(origin.parent, "clone", "-q", str(origin), str(local))
+        event = origin.with_name(origin.name + "-event.json")
+
+        def head(added=(), removed=(), moved=(), changed=(), on=None):
+            run(origin, "checkout", "-q", "--detach", on or base)
+            for name in added:
+                (origin / name).parent.mkdir(parents=True, exist_ok=True)
+                (origin / name).write_text("# %s\n" % name)
+            for name in removed:
+                run(origin, "rm", "-q", name)
+            for old, new in moved:      # as git mv moves it, its text the same, so git would read it as renamed
+                run(origin, "mv", old, new)
+            for name in changed:
+                (origin / name).write_text((origin / name).read_text() + "Status: replaced.\n")
+            run(origin, "add", "-A")
+            run(origin, "commit", "-q", "--allow-empty", "-m", "change")
+            made = run(origin, "rev-parse", "HEAD")
+            run(local, "fetch", "-q", "--no-tags", "origin", made)
+            return made
+
+        def said(made, number=1130, event_name="pull_request", payload=None, since=None):
+            if payload is None:
+                payload = {"pull_request": {"number": number}} if event_name == "pull_request" else {"merge_group": {
+                    "head_ref": "refs/heads/gh-readonly-queue/main/pr-%d-%s" % (number, base)}}
+            event.write_text(json.dumps(payload))
+            return commits_are_the_maintainers.record_problems(local, {"BASE_SHA": since or base, "HEAD_SHA": made,
+                                                                      "EVENT": event_name, "GITHUB_EVENT_PATH": str(event)})
+
+        def refused(found, words):
+            self.assertTrue(caught(found, words), found)
+
+        # No record, or one numbered by its pull request, at four digits or more, stands; on a merge group too.
+        self.assertEqual(said(head(["kernel/x.py"])), [])
+        one = head(["docs/decisions/1130-x.md"])
+        self.assertEqual(said(one), [])
+        self.assertEqual(said(one, event_name="merge_group"), [])
+        # A merge group is read from the entry before it, which main does not hold yet: its record is not this one's.
+        before = head(["docs/decisions/1129-a.md"])
+        self.assertEqual(said(head(["docs/decisions/1130-b.md"], on=before), event_name="merge_group", since=before), [])
+        # A record a replacement changes is not one it adds.
+        self.assertEqual(said(head(["docs/decisions/1130-x.md"], changed=["docs/decisions/0001-a.md"])), [])
+        self.assertEqual(said(head(["docs/decisions/0999-x.md"]), 999), [])
+        self.assertEqual(said(head(["docs/decisions/10000-x.md"]), 10000), [])
+        # Another number refuses, and names the number it is to have; so does the same number written otherwise.
+        refused(said(one, 1131), "'docs/decisions/1130-x.md' is a decision record the pull request adds, and a record is "
+                                 "numbered by the pull request that adds it, 1131")
+        refused(said(one, 1131, "merge_group"), "numbered by the pull request that adds it, 1131")
+        for name in ("01130-x.md", "1130.md", "1130x.md", "x-1130.md"):
+            refused(said(head(["docs/decisions/" + name])), "'docs/decisions/%s' is a decision record" % name)
+        refused(said(head(["docs/decisions/0999-x.md"]), 9999), "0999-x.md' is a decision record")
+        # The chain numbered before the rule stands while it drains, both its ends, and not a number past either end.
+        first, last = commits_are_the_maintainers.CHAINED
+        self.assertEqual((first, last >= 253), (235, True))
+        for chained in ("%04d" % first, "%04d" % last):
+            self.assertEqual(said(head(["docs/decisions/%s-x.md" % chained])), [], chained)
+        for outside in ("%04d" % (first - 1), "%04d" % (last + 1)):
+            refused(said(head(["docs/decisions/%s-x.md" % outside])), "%s-x.md' is a decision record" % outside)
+        # One record at most, though each is numbered as it may be.
+        two = head(["docs/decisions/1130-x.md", "docs/decisions/0240-y.md"])
+        refused(said(two), "the pull request adds 2 decision records, 'docs/decisions/0240-y.md', "
+                           "'docs/decisions/1130-x.md'; it adds one at most")
+        self.assertEqual(len(said(two)), 1)
+        three = head(["docs/decisions/1130-x.md", "docs/decisions/0235-y.md", "docs/decisions/0236-z.md"])
+        refused(said(three), "the pull request adds 3 decision records")
+        # Every commit since the base is read, not the last alone.
+        refused(said(head(["kernel/y.py"], on=head(["docs/decisions/1131-x.md"]))), "1131-x.md' is a decision record")
+        # A rename adds the record it names: to the pull request's number it stands here, and check_decisions refuses
+        # the record gone; to another it refuses.
+        self.assertEqual(said(head(moved=[("docs/decisions/0001-a.md", "docs/decisions/1130-a.md")])), [])
+        refused(said(head(moved=[("docs/decisions/0001-a.md", "docs/decisions/1131-a.md")])), "1131-a.md' is a decision record")
+        # A name is shown quoted, so one that holds a new line prints on one line, and no line of it opens '::'.
+        found = said(head(["docs/decisions/0999-a\n::warning::x\n.md"]))
+        self.assertEqual(len(found), 1)
+        self.assertNotIn("\n", found[0])
+        # Only a record is read: a file of the folder's that is not one, or below it, is not counted.
+        self.assertEqual(said(head(["docs/decisions/9-notes.txt", "docs/decisions/old/0001-x.md", "docs/1131-x.md"])), [])
+        # What cannot be read refuses: a head origin does not hold, a payload with no number, or a ref of another shape.
+        refused(said("0" * 40), "cannot be read")
+        for payload in ({}, {"pull_request": {}}, {"pull_request": {"number": "1130"}}, {"pull_request": {"number": True}},
+                        {"pull_request": {"number": 0}}, {"pull_request": {"number": -1130}},
+                        {"merge_group": {"head_ref": "refs/heads/main"}}, {"merge_group": {}}, []):
+            with self.subTest(payload=payload):
+                refused(said(one, event_name="merge_group" if "merge_group" in payload else "pull_request",
+                             payload=payload), "the decision records the pull request adds cannot be read")
+        event.write_text("{")
+        refused(commits_are_the_maintainers.record_problems(local, {"BASE_SHA": base, "HEAD_SHA": one, "EVENT": "pull_request",
+                                                                    "GITHUB_EVENT_PATH": str(event)}), "cannot be read")
+        event.unlink()
+        refused(commits_are_the_maintainers.record_problems(local, {"BASE_SHA": base, "HEAD_SHA": one, "EVENT": "pull_request",
+                                                                    "GITHUB_EVENT_PATH": str(event)}), "cannot be read")
+        refused(commits_are_the_maintainers.record_problems(local, {"BASE_SHA": base, "HEAD_SHA": one, "EVENT": "pull_request"}),
+                "cannot be read")
+        # With no base or no head nothing is read: git would read an empty range as the checkout's own head.
+        for shas in ({"BASE_SHA": base}, {"HEAD_SHA": one}, {"BASE_SHA": "", "HEAD_SHA": ""}, {"BASE_SHA": base, "HEAD_SHA": ""}):
+            refused(commits_are_the_maintainers.record_problems(local, dict(shas, EVENT="pull_request", GITHUB_EVENT_PATH=str(event))),
+                    "BASE_SHA, HEAD_SHA and EVENT")
+        # Nor with an event it does not know, though the payload is a pull request's.
+        event.write_text(json.dumps({"pull_request": {"number": 1130}}))
+        for told in ({}, {"EVENT": "push"}):
+            refused(commits_are_the_maintainers.record_problems(local, dict(told, BASE_SHA=base, HEAD_SHA=one,
+                                                                            GITHUB_EVENT_PATH=str(event))), "BASE_SHA, HEAD_SHA and EVENT")
 
     def test_a_lens_run_by_actions_names_its_workflow_and_no_other_does(self):
         # GitHub Actions reports every job in the repo, so a Lens it runs must name its file; no other App runs one.
@@ -5799,8 +5928,28 @@ class Context(unittest.TestCase):
         root = tree({"docs/decisions/0001-x.md": extra, "docs/decisions/0003-y.md": extra, "tools/x.py": ""})
         problems = check_context._decisions(root)
         self.assertTrue(caught(problems, "a section 'Not yet held'"))
-        self.assertTrue(caught(problems, "0003-y.md: records are numbered from 0001 with no gap"))
         self.assertTrue(caught(problems, "0003-y.md: the title must open with its number"))
+
+    def test_no_two_records_share_a_number(self):
+        # Decision 1121: a record takes the number of the pull request that adds it, so numbers leave gaps. The number
+        # is the file's, four digits or more, its title opens with it, and no two records share one, however written.
+        body = "\n\n## Decision\n\nY.\n\n## Why\n\nZ.\n\n## Boundaries\n\n| B | Check |\n|---|---|\n| b | `tools/x.py` |\n"
+        files = {"docs/decisions/0001-x.md": "# 0001. X" + body, "docs/decisions/0003-y.md": "# 0003. Y" + body,
+                 "docs/decisions/1130-z.md": "# 1130. Z" + body, "docs/decisions/10000-w.md": "# 10000. W" + body,
+                 "tools/x.py": ""}
+        self.assertEqual(check_context._decisions(tree(files)), [])
+        for name, title, said in (("0003-again.md", "# 0003. Again", "0003-y.md: shares its number with 0003-again.md"),
+                                  ("00003-again.md", "# 00003. Again", "0003-y.md: shares its number with 00003-again.md"),
+                                  ("010000-again.md", "# 010000. Again", "shares its number with"),
+                                  ("003-short.md", "# 003. Short", "003-short.md: a record's file opens with its number"),
+                                  ("notes.md", "# Notes", "notes.md: a record's file opens with its number"),
+                                  ("\uff11\uff11\uff13\uff10-wide.md", "# \uff11\uff11\uff13\uff10. Wide", "-wide.md: a record's file opens with its number"),
+                                  ("0004-v.md", "# 0005. V", "0004-v.md: the title must open with its number"),
+                                  ("10001-u.md", "# 1000. U", "10001-u.md: the title must open with its number")):
+            with self.subTest(name):
+                problems = check_context._decisions(tree(dict(files, **{"docs/decisions/" + name: title + body})))
+                self.assertTrue(caught(problems, said), problems)
+                self.assertEqual(len(problems), 1 if "shares" in said or "title" in said else 2, problems)
 
     def test_a_lesson_with_no_check_is_caught(self):
         text = ("### L-01 A thing broke\n\n**Failure.** It broke.\n\n**Rule.** Do not.\n\n"
@@ -6064,6 +6213,23 @@ class Decisions(unittest.TestCase):
         for name, (files, base, words) in cases.items():
             with self.subTest(name):
                 self.assertTrue(refused(files, words, base=base), name)
+
+    def test_a_record_of_five_digits_comes_after_one_of_four(self):
+        # Decision 1121: a record is numbered by its pull request, so its number is read as a number, at four digits or
+        # more: one of five digits is later than 9999, though its digits sort first.
+        nine, ten = "docs/decisions/9999-nine.md", "docs/decisions/10000-ten.md"
+        old = RECORD.replace("# 0001. One thing", "# 9999. Nine")
+        new = RECORD.replace("# 0001. One thing", "# 10000. Ten").replace(
+            "Status: accepted.", "Status: accepted. Replaces `%s`." % nine)
+        self.assertEqual(check_decisions.run(edited(history({nine: old}), {
+            nine: old.replace("Status: accepted.", "Status: replaced by `%s`." % ten), ten: new})), [])
+        # And one of four digits does not replace one of five.
+        old, new = old.replace("# 9999. Nine", "# 10000. Ten"), new.replace("# 10000. Ten", "# 9999. Nine")
+        self.assertTrue(refused({ten: old.replace("Status: accepted.", "Status: replaced by `%s`." % nine),
+                                 nine: new.replace(nine, ten)}, "10000-ten.md, which is not an earlier record", base={ten: old}))
+        self.assertTrue(refused({ten: old.replace("Status: accepted.", "Status: replaced by `%s`." % nine),
+                                 nine: new.replace(nine, ten)}, "10000-ten.md: it names %s, which is not a later record" % nine,
+                                base={ten: old}))
 
     def test_a_boundary_row_added_is_allowed(self):
         added = RECORD + '| Another thing | `tools/check_x.py`, `tests/test_x.py::test_z`, mutant: "another thing is undone" |\n'
@@ -6631,6 +6797,111 @@ class Trials(unittest.TestCase):
         self.assertFalse([line for line in batches if "P-31" in line])
         self.assertIn("P-31, the relay's host, on which W-2 rests, belongs to the relay and runs before it is built, in slice 3 (decision 0107). "
                       "The first approval does not need W-2, since a Run's end starts its passes (decision 0043).", section)
+
+    def test_a_trial_may_have_a_page_of_its_own_read_as_its_row_is(self):  # decision 0249
+        # A trial's page, in place of its row in section 6, is read as the row was: a quote of its question holds, the
+        # check finds nothing new, and the table the check prints is the same, byte for byte.
+        design = (ROOT / check_trials.DESIGN).read_text()
+        row = next(line for line in design.split("\n") if line.startswith("| P-41 | "))
+        cells = re.fullmatch(r"\| P-41 \| (%s) \| (%s) \|" % (check_trials.CELL, check_trials.CELL), row)
+        page = "# P-41\n\nBatch: 2\n\n## Question\n\n%s\n\n## Pass\n\n%s\n" % cells.group(1, 2)
+        moved = clone({check_trials.DESIGN: design.replace(row + "\n", "", 1), check_trials.PAGES + "/P-41.md": page})
+        self.assertEqual(check_trials.run(moved), [])
+        self.assertEqual(check_trials.table(moved), check_trials.table(ROOT))
+        self.assertEqual(check_trials.questions(moved)["P-41"], check_trials.questions(ROOT)["P-41"])
+        # A new trial is a page alone: it is one of section 6's, its row is written from it in the order of the
+        # numbers, and it stands in the batch it names.
+        made = clone({check_trials.PAGES + "/P-97.md": "# P-97\n\nBatch: 4\n\n## Question\n\nIs it asked?\n\n## Pass\n\nYes\n"})
+        self.assertIn("P-97", check_trials.section_6(made))
+        self.assertEqual(check_trials.run(made), [])
+        self.assertEqual(check_trials.questions(made)["P-97"], "Is it asked?")
+        lines = check_trials.table(made).split("\n")
+        self.assertEqual(lines[lines.index("| Batch | Trials |") - 2], "| P-97 | Is it asked? | Yes |")
+        self.assertIn("P-97", re.findall(r"P-[0-9]+", next(line for line in lines if line.startswith("| 4 | "))))
+        none = clone({check_trials.PAGES + "/P-97.md": "# P-97\n\nBatch: none\n\n## Question\n\nIs it asked?\n\n## Pass\n\nYes\n"})
+        self.assertIn("P-97", re.findall(r"P-[0-9]+", next(line for line in check_trials.table(none).split("\n")
+                                                           if line.startswith("| none | "))))
+        # A pipe escaped is the cell's own, and kept as written in the row.
+        piped = clone({check_trials.PAGES + "/P-97.md": "# P-97\n\nBatch: 4\n\n## Question\n\nIs A \\| B asked?\n\n## Pass\n\nYes\n"})
+        self.assertIn("| P-97 | Is A \\| B asked? | Yes |", check_trials.table(piped).split("\n"))
+        # Anything else there is refused: a file not named for a trial, or nested, a page headed with another trial, a
+        # batch 6.1 has not, a question run over two lines, text past the pass, and a trial with a page and a row.
+        good = "# P-%s\n\nBatch: 4\n\n## Question\n\nIs it asked?\n\n## Pass\n\nYes\n"
+        files = {"README.md": "# Trials\n", "P-095.md": good % "095", "deep/P-96.md": good % "96",
+                 "P-90.md": good % "91", "P-92.md": (good % "92").replace("Batch: 4", "Batch: 5"),
+                 "P-93.md": (good % "93").replace("Is it asked?", "Is it\nasked?"), "P-94.md": good % "94" + "more\n",
+                 "P-98.md": (good % "98").replace("Is it asked?", "Is it <!-- hidden --> asked?"),
+                 "P-99.md": (good % "99").replace("Is it asked?", "```hidden"), "P-41.md": page,
+                 "P-88.md": (good % "88").replace("Is it asked?", "Is A | B asked?"), "P-87.md": (good % "87").replace("Yes", " "),
+                 "P-85.md": (good % "85").replace("Is it asked?", " "),
+                 "P-86.md\n": good % "86"}
+        planted = clone({check_trials.PAGES + "/" + k: v for k, v in files.items()})
+        (planted / check_trials.PAGES / "P-89.md").symlink_to(planted / check_trials.PAGES / "P-90.md")
+        problems = check_trials.run(planted)
+        for name in ("P-98.md", "P-99.md"):
+            self.assertTrue(caught(problems, "%s/%s: holds a fence or an HTML comment" % (check_trials.PAGES, name)), name)
+        for name in ("README.md", "P-095.md", "deep/P-96.md", "P-89.md", "P-86.md\n"):
+            self.assertTrue(caught(problems, "%s/%s: only a trial's page" % (check_trials.PAGES, name)), name)
+        self.assertTrue(caught(problems, "P-90.md: is headed P-91"), problems)
+        for name in ("P-87.md", "P-85.md"):
+            self.assertTrue(caught(problems, "%s: its question or its pass is blank" % name), name)
+        with self.assertRaises(ValueError):         # the table refuses what the check refuses
+            check_trials.table(planted)
+        for name in ("P-92.md", "P-93.md", "P-94.md", "P-88.md"):
+            self.assertTrue(caught(problems, "%s/%s: is not a trial's page" % (check_trials.PAGES, name)), name)
+        self.assertTrue(caught(problems, "P-41 has a page in %s and a row in section 6" % check_trials.PAGES), problems)
+        # A page's batch is the one 6.1 names it in, while 6.1 does; and a row the table could not write is refused,
+        # since dropping it would leave the table unchanged.
+        other = clone({check_trials.DESIGN: design.replace(row + "\n", "", 1),
+                       check_trials.PAGES + "/P-41.md": page.replace("Batch: 2", "Batch: 4")})
+        self.assertTrue(caught(check_trials.run(other), "P-41's page says Batch: 4, and 6.1 names it in batch 2"))
+        # The table refuses each of these alone, as the check does: a page beside its row, a page 6.1 contradicts.
+        for refused in (clone({check_trials.PAGES + "/P-41.md": page}), other):
+            with self.assertRaises(ValueError):
+                check_trials.table(refused)
+        twice = design.replace("| **4. As they come up** | P-6,", "| **4. As they come up** | P-13, P-6,", 1)
+        self.assertNotEqual(twice, design)
+        self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: twice})), "6.1 names P-13 in more than one batch"))
+        odd = clone({check_trials.DESIGN: design.replace(row, row + " ", 1)})
+        self.assertTrue(caught(check_trials.run(odd), "P-41's row in section 6 is not '| P-41 | question | pass |'"))
+        with self.assertRaises(ValueError):
+            check_trials.table(odd)
+        # A trial after the last row has a page, never a row; and 6.1 is read as it is seen, all four batches of it.
+        late = clone({check_trials.DESIGN: design.replace(row, row + "\n| P-79 | Is it asked? | Yes |", 1)})
+        self.assertTrue(caught(check_trials.run(late), "P-79 has a row in section 6; a trial after P-78 has a page"))
+        hidden = design.replace("\n### 6.1 The order to run them in\n",
+                                "\n### 6.1 The order to run them in\n\n<!--\n| **4. An example** | P-13 | x |\n-->\n", 1)
+        self.assertNotEqual(hidden, design)
+        self.assertEqual(check_trials.table(clone({check_trials.DESIGN: hidden})), check_trials.table(ROOT))
+        unbold = design.replace("| **3. Before the control room** |", "| 3. Before the control room |", 1)
+        self.assertNotEqual(unbold, design)
+        with self.assertRaises(ValueError):
+            check_trials.table(clone({check_trials.DESIGN: unbold}))
+        self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: unbold})), "6.1's four batches cannot all be read"))
+        # A batch whose trials have all moved to pages is still read, its row naming none.
+        section = design[design.index("\n### 6.1 "):]
+        three = next(line for line in section.split("\n") if line.startswith("| **3. "))
+        emptied = design.replace(three, "| **3. Before the control room** | each trial whose page says `Batch: 3` | x |", 1)
+        self.assertNotIn("6.1's four batches", " ".join(check_trials.catalog(clone({check_trials.DESIGN: emptied}))))
+        # An opener left open hides the rest of 6.1, as a renderer reads it.
+        unclosed = design.replace("\nP-31, the relay's host", "\n<!--\n| **4. An example** | P-13 | x |\n\nP-31, the relay's host", 1)
+        self.assertNotEqual(unclosed, design)
+        self.assertEqual(check_trials.table(clone({check_trials.DESIGN: unclosed})), check_trials.table(ROOT))
+
+    def test_the_table_is_printed_from_rows_and_pages_in_the_order_of_their_numbers(self):  # decision 0249
+        # No index is committed: `python3 -m tools.check_trials --table` prints section 6 and the batches of 6.1.
+        lines = check_trials.table(ROOT).split("\n")
+        numbers = [int(line.split(" ")[1][2:]) for line in lines if line.startswith("| P-")]
+        self.assertEqual(numbers, sorted(numbers))
+        self.assertEqual(len(numbers), len(check_trials.section_6(ROOT)))
+        self.assertTrue(next(line for line in lines if line.startswith("| 1 | ")).startswith("| 1 | P-1, P-3, P-7"))
+        self.assertIn("P-31", re.findall(r"P-[0-9]+", next(line for line in lines if line.startswith("| none | "))))
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            self.assertEqual(check_trials.front(["--table"]), 0)
+        self.assertEqual(printed.getvalue(), check_trials.table(ROOT))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(check_trials.front(["--tables"]), 1)
 
     def test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads(self):  # issue 438
         # The check keeps each fixture's finding between runs in one process, by its name, its text, the schema and the
@@ -12583,6 +12854,28 @@ class Verify(unittest.TestCase):
         self.assertIn("\nverify:\n\t$(PY) -m tools.verify\n", makefile)
         self.assertIn("\nfast:\n\t$(PY) -m tools.verify --fast\n", makefile)
         self.assertIn("\nchecks:\n\t$(PY) -m tools.verify --checks\n", makefile)
+
+    def test_make_reads_the_makefile_as_committed_and_remakes_it_from_nothing(self):  # issue 1048, decision 0240
+        # make tries to remake the makefile it read before it looks up a target, by an implicit rule from a file beside
+        # it: a newer Makefile.sh is copied over the Makefile, and its verify runs in place of the committed one (Astra's
+        # read). The Makefile's explicit rule with an empty recipe stops that.
+        with tempfile.TemporaryDirectory() as where:
+            where = pathlib.Path(where)
+            shutil.copy(ROOT / "Makefile", where / "Makefile")
+            os.utime(where / "Makefile", (1, 1))
+            (where / "Makefile.sh").write_text("verify:\n\t@echo not the committed verify\n")
+            # make's built-in rules on, whatever flags the run was given (Astra's read), and verify the goal of a bare
+            # make too.
+            env = {k: v for k, v in os.environ.items() if k not in ("MAKEFLAGS", "MFLAGS", "MAKEFILES", "GNUMAKEFLAGS")}
+            for goal in (["verify"], []):
+                ran = subprocess.run(["make", "-s"] + goal + ["PY=echo"], cwd=where, capture_output=True, text=True,
+                                     timeout=60, env=env)
+                self.assertEqual((ran.returncode, ran.stdout), (0, "-m tools.verify\n"), (goal, ran.stderr))
+                self.assertEqual((where / "Makefile").read_text(), (ROOT / "Makefile").read_text())
+                # And verify's failure is make's (Astra's read).
+                failed = subprocess.run(["make", "-s"] + goal + ["PY=false"], cwd=where, capture_output=True, text=True,
+                                        timeout=60, env=env)
+                self.assertNotEqual(failed.returncode, 0, goal)
 
     def test_every_test_file_is_discovered(self):
         found = set()
