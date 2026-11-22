@@ -12,7 +12,7 @@ path a section makes, as a new file or a rename's or a copy's, is no later secti
 may be named again, as `git diff -C` writes a copy and then a rename of one file, and a file changed in place is
 copied after, never renamed. No file made stands where another needs a directory. A section's hunks are as git writes
 them: in their order and apart, each new side where the hunks before it put it, each changing something, under an
-index line; and a rename's or a copy's below 100% alike, and none at it.
+index line; and a rename's or a copy's below 100% alike, and at it where lines only moved.
 
 An index line's hashes and how alike a rename or a copy says its files are, are read for their form alone, the second
 for whether it is 100% too, and nothing trusts them: what a patch lands is its hunks applied to the bytes it names,
@@ -281,9 +281,10 @@ def _section(lines: list, i: int):
         return None
     if not _in_order(hunks):
         return None
-    # git writes a rename's or a copy's hunks where its two files differ: below 100% alike, and never at it.
+    # git writes a rename's or a copy's hunks where its two files differ, as they do below 100% alike. At 100% it may
+    # still write them, where lines only moved: its score is rounded, and the bytes may differ.
     whole = said.get(SIMILARITY) == ALL_ALIKE + b"%"
-    if (renamed or copied) and ((whole and hunks) or (not whole and not hunks)):
+    if (renamed or copied) and not whole and not hunks:
         return None
     # A new file has no old line and a removed one no new line, in the one hunk git writes for either: it stands at
     # line 0 of the side that has none, so, held to its place, at line 1 of the other; a second hunk would stand past 0.
@@ -321,8 +322,8 @@ def read(patch):
     first section, or a line no section holds; a path twice, or a file where a directory is, as the module says;
     no section at all, or a NUL, which makes a change a binary one written as text (decision 0188). A section is read
     with its hunks: each as its header counts it and in a form git writes (`_hunk`), all where they stand as far as
-    the patch alone says (`_in_order`), under an index line, and a rename's or a copy's there exactly where its files
-    are less than wholly alike. Whether a hunk's lines are the file's is a question of the file it is applied to."""
+    the patch alone says (`_in_order`), under an index line, and a rename's or a copy's there where its files are
+    less than wholly alike. Whether a hunk's lines are the file's is a question of the file it is applied to."""
     if type(patch) is not bytes or NUL in patch:
         return None
     lines = patch.split(b"\n")

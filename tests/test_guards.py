@@ -239,6 +239,10 @@ class Patch(unittest.TestCase):
         self.assertEqual(said, [])
         # Two files wholly alike and wholly unlike are read: the first with no hunk, the second with its hunks.
         self.assertEqual([len(readable(data)) for data in (COPIED, RENAMED.replace(b"index 87%", b"index 0%"))], [1, 1])
+        # git says a rename is 100% alike where it only moved lines, and still writes the hunk that moves them.
+        moved = (b"diff --git a/f b/g\nsimilarity index 100%\nrename from f\nrename to g\nindex 422c2b7..0e1677a 100644\n"
+                 b"--- a/f\n+++ b/g\n@@ -1,2 +1,2 @@\n-a\n b\n+a\n")
+        self.assertEqual([len(section["hunks"]) for section in readable(moved)], [1])
         # What is bytes of a subclass is not read: its own methods would be read in place of the built-in ones.
 
         class Said(bytes):
@@ -371,9 +375,8 @@ class Patch(unittest.TestCase):
             section("f", b"@@ -1 +1 @@\n-a\n" + marker + b"+a\n" + marker),
             # Hunks with no index line, which git writes for every change of bytes.
             section("docs/a.md", b"@@ -1 +1 @@\n-a\n+A\n", extended=b""),
-            # A rename or a copy below 100% alike with no hunk, and one wholly alike with a hunk.
+            # A rename or a copy below 100% alike with no hunk.
             RENAMED[:RENAMED.index(b"--- ")], COPIED.replace(b"100%", b"87%") + b"index 1111111..2222222 100644\n",
-            RENAMED.replace(b"87%", b"100%"),
             # The old side's name, run on.
             good.replace(b"--- a/docs/a.md", b"--- a/docs/a.md.bak"),
         )
