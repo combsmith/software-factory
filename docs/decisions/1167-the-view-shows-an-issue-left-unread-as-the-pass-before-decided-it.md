@@ -4,7 +4,7 @@ Status: accepted. 2026-11-19, the Factory Builder (ruling B3); issue 849, split 
 
 ## Decision
 
-An issue a pass left unread for want of a read alone, its budget spent or its issue list read short, stays in the view. It is shown as the record before decided it, one pass deep (`carried` in `controller/feed.py`). Its age passes over such passes, so a leftover does not restart its time in its State. An issue the pass decided, or left out by name for any other reason, is not carried, nor is any pull request. A rebuild from the records shows the same view.
+An issue a pass left unread for want of a read alone, its budget spent or its issue list read short, stays in the view. It is shown as the record before decided it, one pass deep (`carried` in `controller/feed.py`). Its age passes over such passes, so a leftover does not restart its time in its State. An issue the pass decided, or left out by name for any other reason, is not carried, nor is any pull request. A rebuild given the same records shows the same view.
 
 Limits: the view carries an issue one pass deep, so one left unread two passes in a row is missing from it for the second. An issue's age reaches back only as far as the records the pass has at hand.
 
