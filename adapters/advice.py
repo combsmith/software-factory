@@ -30,7 +30,7 @@ FAILED = ("unparsed", "not_the_model", "no_key", "transport")
 # What the step may say with no answer in hand: nothing was asked, or nothing came back.
 UNASKED = ("too_large", "budget", "no_key", "timed_out", "transport", "rate_limited")
 # An answer wrapped in one fence, which a model asked for JSON alone still writes: the object inside is the answer.
-FENCED = re.compile(r"```(?:json)?[ \t]*\n(.*)\n[ \t]*```", re.S)
+FENCED = re.compile(r"```(?:json)?[ \t]*\r?\n(.*)\r?\n[ \t]*```", re.S)
 # A path advice/1 holds: one word, with no control and nothing that turns the line it is shown on.
 PLACE = re.compile(r"[^\s\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]{1,1024}")
 DIGITS = 64             # a whole number of this many digits no count or line needs: Python reads one of any length
@@ -80,9 +80,12 @@ def _responses(body: dict) -> tuple:
         return _fault(body) or "transport", None
     output = body.get("output")
     messages = [item for item in (output if isinstance(output, list) else [])
-                if isinstance(item, dict) and item.get("type") == "message" and isinstance(item.get("content"), list)]
+                if isinstance(item, dict) and item.get("type") == "message"]
     if any(item.get("status") == "incomplete" for item in messages):
         return "cut_short", None
+    if any(item.get("status", "completed") != "completed" or item.get("role", "assistant") != "assistant"
+           or not isinstance(item.get("content"), list) for item in messages):
+        return "unparsed", None             # a message unfinished, unreadable or another speaker's is no answer
     parts = [part for item in messages for part in item["content"]]
     if any(isinstance(part, dict) and part.get("type") == "refusal" for part in parts):
         return "refused", None
@@ -100,9 +103,10 @@ def _chat(body: dict) -> tuple:
     ended, message = choices[0].get("finish_reason"), choices[0].get("message")
     if ended == "length":
         return "cut_short", None
-    if ended == "content_filter" or (isinstance(message, dict) and message.get("refusal")):
+    if ended == "content_filter" or (isinstance(message, dict) and message.get("refusal") is not None):
         return "refused", None
-    if ended != "stop" or not isinstance(message, dict) or type(message.get("content")) is not str:
+    if ended != "stop" or not isinstance(message, dict) or message.get("role", "assistant") != "assistant" \
+            or type(message.get("content")) is not str:
         return "unparsed", None
     return None, message["content"]
 
@@ -122,7 +126,7 @@ def _once(pairs: list) -> dict:
 def _answered(text: str, schemas: dict):
     """The object a reader's text is, held to advice-answer/1, or None. A key given twice is no answer: JSON would keep
     the last, and a second `findings` that is empty would make a read with findings a clean one."""
-    text = text.strip()
+    text = text.strip(" \t\r\n")           # JSON's own whitespace: a control character before the object is no answer
     fenced = FENCED.fullmatch(text)
     try:
         answer = json.loads(fenced.group(1) if fenced else text, object_pairs_hook=_once, parse_int=_whole)
@@ -152,7 +156,8 @@ def _findings(told: dict, answer: dict) -> tuple:
             finding["location"] = {"path": path} if line is None else {"path": path, "start_line": line}
         findings.append(finding)
         texts.append({"id": ident, "category": said["category"], "criterion": said["criterion"],
-                      "body": ("%s\n\n%s" % (said["title"], said["message"]))[:told["characters"]]})
+                      "body": ("%s\n\n%s" % (said["title"], said["message"]))[:told["characters"]]
+                      .encode("utf-8", "replace").decode("utf-8")})       # a lone surrogate JSON allows is a "?"
     return findings, texts, off
 
 

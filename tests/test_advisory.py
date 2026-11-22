@@ -863,6 +863,9 @@ class Parser(unittest.TestCase):
         self.assertEqual(result["texts"][0], {"id": first["id"], "category": "functional", "criterion": "PR-3",
                                               "body": "A deferral is returned\n\n`decide` defers on a whole read."})
         self.assertEqual(len(read(answered(said(message="m" * 50000)))["texts"][0]["body"]), 40000)
+        self.assertEqual(read(answered(said()), dict(TOLD, characters=10))["texts"][0]["body"], "A deferral")
+        # A lone surrogate, which JSON allows and UTF-8 does not, cannot leave a text that no file can be written with.
+        self.assertEqual(read(answered(said(message="a\ud800b")))["texts"][0]["body"][-3:], "a?b")
         # An id is the Lens's name and a digest of the source, the content, the place and the severity: the same
         # for other words, another for another Lens, deployment, model, content, path, line or severity.
         ident = first["id"]
@@ -877,6 +880,8 @@ class Parser(unittest.TestCase):
         others += [read(chatted(said()), dict(KIMI, lens="astra", deployment="astra-reader", model="kimi-model"))["findings"][0]["id"]]
         self.assertEqual(len(set(others + [ident])), len(others) + 1)
         # Two findings alike in all of those are two Findings, told apart by their order and never by their words.
+        self.assertEqual(read(answered(said()), dict(TOLD, run="r_01JA7R"))["findings"][0]["id"], ident)
+        self.assertEqual(len({f["id"] for f in read(answered(said(), said(), said()))["findings"]}), 3)
         twice = read(answered(said(), said(title="Another")))["findings"]
         self.assertEqual((twice[0]["id"], len({f["id"] for f in twice})), (ident, 2))
         self.assertEqual(read(answered(said(title="Another"), said()))["findings"][0]["id"], ident)
@@ -901,6 +906,8 @@ class Parser(unittest.TestCase):
         self.assertEqual(outcome(chatted(said()), KIMI), ("completed", None, 1))
         fenced = "```json\n%s\n```" % json.dumps({"schema": "advice-answer/1", "findings": [said()]})
         self.assertEqual(outcome(chatted(text="\n" + fenced + "\n"), KIMI), ("completed", None, 1))
+        self.assertEqual(outcome(chatted(text=fenced.replace("\n", "\r\n")), KIMI), ("completed", None, 1))
+        self.assertEqual(outcome(answered(*[said()] * 100)), ("completed", None, 100))
         whole = json.dumps({"schema": "advice-answer/1", "findings": [said()]})
         cases = [
             # What Azure answered that is no response: a rate limit, a key refused, anything else.
@@ -928,6 +935,14 @@ class Parser(unittest.TestCase):
             (answered(said(), incomplete_details={"reason": "content_filter"}), "refused"),
             (answered(said(), output=[{"type": "message", "status": "incomplete",
                                        "content": [{"type": "output_text", "text": whole}]}]), "cut_short"),
+            # A message unfinished, unreadable or another speaker's beside the answer leaves no answer.
+            (answered(said(), output=answered(said())["body"]["output"] + [{"type": "message", "status": "incomplete",
+                                                                            "content": None}]), "cut_short"),
+            (answered(said(), output=[{"type": "message", "status": "in_progress",
+                                       "content": [{"type": "output_text", "text": whole}]}]), "unparsed"),
+            (answered(said(), output=[{"type": "message", "role": "user",
+                                       "content": [{"type": "output_text", "text": whole}]}]), "unparsed"),
+            (answered(said(), output=answered(said())["body"]["output"] + [{"type": "message", "content": None}]), "unparsed"),
             # A refusal beside a text is a refusal, and a text outside a message is none.
             (answered(said(), output=[{"type": "message", "content": [{"type": "output_text", "text": whole},
                                                                       {"type": "refusal", "refusal": "No."}]}]), "refused"),
@@ -945,6 +960,8 @@ class Parser(unittest.TestCase):
             (answered(text='{"schema": "advice-answer/1", "findings": [], "cost": NaN}'), "unparsed"),
             (answered(text='{"schema": "advice-answer/1", "findings": [], "verdict": "approve"}'), "unparsed"),
             (answered(text="[" * 100000), "unparsed"), (answered(text=whole[:-1] + ', "findings": []}'), "unparsed"),
+            (answered(text=whole.replace('"severity": "major"', '"severity": "major", "severity": "info"')), "unparsed"),
+            (answered(text="\x1e" + whole), "unparsed"),
             (answered(text=whole.replace('"line": 88', '"line": ' + "8" * 64)), "unparsed"),
             (answered(text=json.dumps({"schema": "advice-answer/1", "findings": [{}] * 101})), "unparsed"), (answered(said(), output=[]), "unparsed"), (answered(said(), output=None), "unparsed"),
             (answered(said(), output=[{"type": "message", "content": [{"type": "output_text", "text": whole}] * 2}]), "unparsed"),
@@ -959,6 +976,8 @@ class Parser(unittest.TestCase):
                  (chatted(said(), choices=[{"finish_reason": "stop", "message": {"content": None, "refusal": "No."}}]), "refused"),
                  (chatted(said(), choices=[{"finish_reason": "stop", "message": {"content": "{}", "refusal": "No."}}]), "refused"),
                  (chatted(said(), choices=[{"finish_reason": "stop", "message": {"content": None}}]), "unparsed"),
+                 (chatted(said(), choices=[{"finish_reason": "stop", "message": {"content": whole, "refusal": []}}]), "refused"),
+                 (chatted(said(), choices=[{"finish_reason": "stop", "message": {"role": "user", "content": whole}}]), "unparsed"),
                  (chatted(said(), choices=["stop"]), "unparsed"), (chatted(said(), model="kimi-model-2"), "not_the_model"),
                  (answered(said(), model="kimi-model"), "unparsed")]
         for answer, reason in chats:
@@ -969,6 +988,9 @@ class Parser(unittest.TestCase):
         with mock.patch.object(advice, "_whole", wraps=advice._whole) as counted:
             self.assertEqual(outcome(answered(text=whole_of(64))), ("failed", "unparsed", 0))
         self.assertIn(mock.call("8" * 64), counted.call_args_list)
+        self.assertEqual(advice._whole("8" * 63), int("8" * 63))
+        with self.assertRaises(ValueError):
+            advice._whole("8" * 64)
         with mock.patch.object(advice, "validate", wraps=advice.validate) as held:
             self.assertEqual(outcome(answered(text=json.dumps({"schema": "advice-answer/1", "findings": [{}] * 101}))),
                              ("failed", "unparsed", 0))
@@ -976,12 +998,22 @@ class Parser(unittest.TestCase):
         # A state checked before the model: a response cut short by another model is still cut short, and counted.
         self.assertEqual(outcome(answered(said(), status="incomplete", model="astra-model-mini")), ("incomplete", "cut_short", 0))
 
+    def test_no_reader_on_azure_is_configured_before_the_record_that_words_its_spend(self):
+        # Record 0224's Spend, The configuration and The model's name read as decision 0243 words them (pull request
+        # 1071). Until that record is on main, the configuration's own figures hold and no reader on Azure is asked:
+        # config/harness.json names none, among its advisory Lenses or beside them.
+        harness = json.loads((ROOT / "config" / "harness.json").read_text())
+        if not list((ROOT / "docs" / "decisions").glob("0243-*.md")):
+            self.assertEqual((harness["advisory"], "readers" in harness), (["coderabbit"], False))
+
     def test_a_result_says_what_the_read_cost_and_a_read_never_asked_says_why(self):
         usage = read(answered(said()), asks=2, seconds=318.4)["usage"]
         # What a read cost is not counted yet: never nought, it is not known, and the Controller counts it at its worst.
         self.assertEqual(usage, {"api": "responses", "deployment": "astra-reader", "model": "astra-model",
                                  "answering_model": None, "effort": "xhigh", "asks": 2, "input_tokens": None,
                                  "output_tokens": None, "cost_usd": None, "seconds": 318.4})
+        chat = read(chatted(said()), KIMI)["usage"]
+        self.assertEqual((chat["api"], chat["deployment"], chat["model"]), ("chat", "Kimi-Reader", "kimi-model"))
         # A response that says it completed and holds an error beside that is no read, in either API.
         for failed in (read(answered(said(), error={"code": "server_error"})), read(chatted(said(), error={"code": "x"}), KIMI)):
             self.assertEqual((failed["usage"]["cost_usd"], failed["usage"]["answering_model"], failed["reason"]),
