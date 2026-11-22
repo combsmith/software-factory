@@ -1312,23 +1312,22 @@ class Issues(unittest.TestCase):
         # Anything but exact true is no such word.
         self.assertEqual(len(decisions(passed(dict(told, issue_apps_unreadable="yes")))), 2)
 
-    def test_an_issue_left_unread_by_the_budget_or_the_list_raises_its_own_alert_and_no_other(self):  # decision 0234
-        # Two issues the budget left unread, and the list read short naming no item: each kept in the record by its
-        # code, the budget's alert once, the list's once, and no alert of facts unread; the pull request is decided.
+    def test_an_issue_left_unread_by_the_budget_raises_its_own_alert_and_no_other(self):  # decision 0234
+        # Two issues the budget left unread: each kept in the record by its code, the budget's alert once, and no alert
+        # of facts unread; the pull request is decided.
         home = support.ITEM["repo"]
         budget = lambda n: {"facts": {"item": {"repo": home, "type": "issue", "number": n}}, "title": None, "unread": "issue_budget"}
-        unlisted = {"facts": {"item": None}, "title": None, "unread": "issue_list_unreadable"}
-        out, plain = passed(reads(issues=[an_issue(7), budget(8), budget(9), unlisted])), passed(reads(issues=[an_issue(7)]))
+        out, plain = passed(reads(issues=[an_issue(7), budget(8), budget(9)])), passed(reads(issues=[an_issue(7)]))
         self.assertEqual(out["record"]["left_out"], [{"item": {"repo": home, "type": "issue", "number": n}, "code": "issue_budget"}
-                                                     for n in (8, 9)] + [{"item": None, "code": "issue_list_unreadable"}])
-        self.assertEqual(set(out["alerts"]) ^ set(plain["alerts"]), {"issue_budget_spent", "issue_list_unreadable"})
+                                                     for n in (8, 9)])
+        self.assertEqual(set(out["alerts"]) ^ set(plain["alerts"]), {"issue_budget_spent"})
         self.assertEqual(out["record"]["alerts"], sorted(out["alerts"]))
         self.assertEqual([d["item"]["type"] for d in decisions(out)], ["pull_request", "issue"])
         # Beside a fault of the facts, that alert is raised too, by the fault alone.
         unread = {"facts": {"item": {"repo": home, "type": "issue", "number": 10}}, "title": None, "unread": "facts_unanswered"}
         self.assertIn("facts_unreadable", passed(reads(issues=[budget(8), unread]))["alerts"])
         self.assertNotIn("facts_unreadable", passed(reads(issues=[budget(8)]))["alerts"])
-        # Those codes are the issues' alone: a pull request's entry with one is facts that are not facts.
+        # That code is the issues' alone: a pull request's entry with it is facts that are not facts.
         pull = {"facts": {"item": dict(support.ITEM, number=11)}, "title": None, "unread": "issue_budget"}
         for code in ("issue_budget", "issue_list_unreadable"):
             out = passed(reads(pulls=[dict(pull, unread=code)]))
@@ -1364,6 +1363,19 @@ class Issues(unittest.TestCase):
         moved = {"facts": {"item": {"repo": home, "type": "issue", "number": 7}}, "title": None, "unread": "facts_unanswered"}
         out = pass_.run(reads(issues=[moved]), cfg, "2026-10-11T13:20:00Z", list(kept), mint)
         self.assertEqual([i for i in out["view"]["items"]["items"] if i["item"]["type"] == "issue"], [])
+
+    def test_an_issue_list_read_short_raises_its_own_alert_and_no_other(self):  # decision 0252
+        # The list read short names no item: it is kept in the record by its code, raises its alert once and no alert of
+        # facts unread, and the pull request is decided. Beside an issue the budget left unread, each raises its own.
+        home = support.ITEM["repo"]
+        unlisted = {"facts": {"item": None}, "title": None, "unread": "issue_list_unreadable"}
+        out, plain = passed(reads(issues=[an_issue(7), unlisted])), passed(reads(issues=[an_issue(7)]))
+        self.assertEqual(out["record"]["left_out"], [{"item": None, "code": "issue_list_unreadable"}])
+        self.assertEqual(set(out["alerts"]) ^ set(plain["alerts"]), {"issue_list_unreadable"})
+        self.assertEqual([d["item"]["type"] for d in decisions(out)], ["pull_request", "issue"])
+        budget = {"facts": {"item": {"repo": home, "type": "issue", "number": 8}}, "title": None, "unread": "issue_budget"}
+        both = passed(reads(issues=[an_issue(7), budget, unlisted]))
+        self.assertEqual(set(both["alerts"]) ^ set(plain["alerts"]), {"issue_budget_spent", "issue_list_unreadable"})
 
     def test_a_person_whose_login_is_an_apps_name_without_its_suffix_is_not_that_app(self):  # ruling A
         # A User named as config/defaults.json writes the Controller's App is not it, with its token or through an App.
