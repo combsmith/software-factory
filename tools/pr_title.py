@@ -1,11 +1,10 @@
 """A pull request's title is `area: plain verb phrase (#issue)`, in at most LONGEST characters (issue 1089).
 
-The squash commit takes the title as its subject, so what a pull request is called is main's log for good. This module
-holds the rule, `check`, which reads a pull request's title, and the desk's command; nothing calls `check` yet, so no
-title is refused on a pull request here. Part 2 of issue 1089 has the required check's `commits` job call `check` from
-the base, so a change cannot make its own title pass. `check` reads the title from GitHub, never from the event's
-payload, so a title edited before review is read again when the failed job is re-run; on a merge group it reads the
-pull request the queue's ref names, as it is when it merges. A title that cannot be read refuses.
+The squash commit takes the title as its subject, so what a pull request is called is main's log for good. The
+`commits` job of the required check calls `check` through `commits_are_the_maintainers.py`, from the base, so a change
+cannot make its own title pass (decision 0244). `check` reads the title from GitHub, never from the event's payload, so
+a title edited before review is read again when the failed job is re-run; on a merge group it reads the pull request the
+queue's ref names, as it is when it merges. A title that cannot be read refuses.
 
 Only the mechanical half of the rule is held here: the length, the area, a phrase that starts with a lowercase letter
 and ends with no stop, the issue and the part's numbers, and the marks of a name from inside the code. Whether a title
@@ -60,6 +59,8 @@ def problems(title: str) -> list:
         if part < 1 or part > parts or parts < 2:
             found.append("title_part_out_of_range: part %d of %d: a part is at least 1 and at most the count, and the "
                          "count is at least 2" % (part, parts))
+    if any(c < " " or c == "\x7f" for c in title):
+        found.append("title_control_character: the title holds a tab, a line end or another control character")
     start = area.end() if area else 0
     end = tail.start() if tail else len(title)
     phrase = title[start:end] if end >= start else ""
