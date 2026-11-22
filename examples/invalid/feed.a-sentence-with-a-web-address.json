@@ -1,0 +1,15 @@
+{
+  "schema": "feed/1",
+  "next_actor": {
+    "by_outcome": [],
+    "by_attention": [],
+    "by_state": {
+      "rows": [],
+      "default": "factory"
+    }
+  },
+  "decision_required": [],
+  "sentences": {
+    "approved": "Approved; it waits at www.example.com."
+  }
+}
