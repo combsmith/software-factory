@@ -199,9 +199,8 @@ HAND_SECOND = ('tests.test_reconcile.HandApproval.test_a_second_approval_of_the_
 HAND_UNREAD = ('tests.test_reconcile.HandApproval.test_an_approval_of_a_head_the_pass_did_not_decide_or_whose_commit_cannot_be_read_is_unmatched',)
 HAND_TAKEN = ('tests.test_reconcile.HandApproval.test_an_unmatched_approval_takes_its_head',)
 HAND_SHORT = ('tests.test_reconcile.HandApproval.test_a_head_is_taken_by_any_approval_and_none_is_read_from_a_short_read_or_a_tie',)
-HAND_PASS = ('tests.test_controller.Record.test_a_hand_approval_is_carried_in_the_record_as_information',)
 HAND_CARRY = ('tests.test_reconcile.HandApproval.test_what_was_read_as_hand_or_taken_is_carried_until_the_window_passes_its_leaving',)
-HAND_REPLAY = ('tests.test_controller.Record.test_a_hand_approval_given_and_merged_between_two_passes_is_information_until_the_window_passes_its_leaving',)
+HAND_PASS = ('tests.test_controller.Record.test_a_hand_approval_given_and_merged_between_two_passes_is_information_until_the_window_passes_its_leaving',)
 HAND_CARRIED = ('tests.test_reconcile.HandApproval.test_a_carried_hand_approval_is_read_as_one_and_its_head_stays_taken',)
 PERSON_KERNEL = ("tests.test_decide.TheFactorysOwnRules.test_a_change_to_a_path_only_a_person_decides_waits_for_a_person",)
 PERSON_READ = ("tests.test_hooks.RulesChanged.test_a_path_only_a_person_decides_is_read_with_the_lists_and_given_after_a_model_lenss_inputs",)
@@ -2875,9 +2874,9 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("the pass carries no taken head for the next", 'controller/pass_.py',
      ', found["hand"], found["taken"],\n', ', found["hand"], (),\n', HAND_PASS),
     ("a pull request read as leaving drops what was carried at once", 'controller/reconcile.py',
-     ' - {e["number"] for e in held.get("left", [])} - set(gone)\n', ' | set(gone)\n', HAND_CARRY + HAND_REPLAY),
+     ' - {e["number"] for e in held.get("left", [])} - set(gone)\n', ' | set(gone)\n', HAND_CARRY + HAND_PASS),
     ("a leaving still held drops what was carried", 'controller/reconcile.py',
-     ' - {e["number"] for e in held.get("left", [])} - set(gone)\n', ' - set(gone)\n', HAND_CARRY + HAND_REPLAY),
+     ' - {e["number"] for e in held.get("left", [])} - set(gone)\n', ' - set(gone)\n', HAND_CARRY + HAND_PASS),
     ("a read of what was seen that cannot be read drops what was carried", 'controller/reconcile.py',
      ' - {e["number"] for e in held.get("left", [])} - set(gone)\n',
      ' - {e["number"] for e in held.get("left", []) if since is not None} - set(gone)\n', HAND_CARRY),
@@ -2885,7 +2884,7 @@ MUTANTS = ISSUE + OUTSIDE + [
      ' - {e["number"] for e in held.get("left", [])} - set(gone)\n', ' - {e["number"] for e in held.get("left", [])}\n',
      HAND_CARRY),
     ("a reopened pull request drops what was carried", 'controller/reconcile.py',
-     'not in dropped or item in opened\n', 'not in dropped\n', HAND_CARRY + HAND_REPLAY),
+     'not in dropped or item in opened\n', 'not in dropped\n', HAND_CARRY + HAND_PASS),
     ("another repository's pull request of the same number keeps what was carried", 'controller/reconcile.py',
      'not in dropped or item in opened\n', 'not in dropped or item.rsplit("/", 1)[1] in {o.rsplit("/", 1)[1] for o in opened}\n',
      HAND_CARRY),
@@ -2898,9 +2897,9 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("a leaving the window passes drops every taken head", 'controller/reconcile.py',
      '[e for e in held.pop("taken", []) if stays(e["item"])]', '[e for e in held.pop("taken", []) if not dropped]', HAND_CARRY),
     ("the pass reads no pull request as open", 'controller/pass_.py',
-     'found["hand"], found["taken"],\n                                               opened)}', 'found["hand"], found["taken"])}', HAND_REPLAY),
+     'found["hand"], found["taken"],\n                                               opened)}', 'found["hand"], found["taken"])}', HAND_PASS),
     ("a pull request the pass leaves out is not read as open", 'controller/pass_.py',
-     ' + [reads_.item(i) for i in left_out] if', ' if', HAND_REPLAY),
+     ' + [reads_.item(i) for i in left_out] if', ' if', HAND_PASS),
     ("a taken head is dropped once the window passes it", 'controller/reconcile.py',
      'if name in ("owed", "owed_issues", "hand", "taken") or since is None',
      'if name in ("owed", "owed_issues", "hand") or since is None', HAND_CARRY),

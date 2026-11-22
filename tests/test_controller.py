@@ -270,38 +270,6 @@ class Record(unittest.TestCase):
         self.assertEqual(decisions({"record": full})[0]["reason"], "concurrency")
         replays(full)
 
-    def test_a_hand_approval_is_carried_in_the_record_as_information(self):  # decision 0241
-        # The pass hands reconciliation the record before it, and carries what it read as a hand approval for the next.
-        from tests import test_decide
-        facts = test_decide.changing(changed_paths=["docs/notes.md", "harness/run.py"], **test_decide.DEPENDENCY)
-        facts["item"] = dict(support.ITEM, number=42)
-        head = "a" * 40
-        before = passed(reads(pulls=[{"facts": facts, "title": "t", "head": head}], runs=[run(number=42)]),
-                        now="2026-10-11T12:00:00Z")["record"]
-        self.assertEqual((before["pull_requests"][0]["decision"]["reason"], before["pull_requests"][0]["head"]),
-                         ("model_lens_input_needs_person", head))
-        approval = {"by": "approver", "kind": "approval", "item": dict(support.ITEM, number=42), "key": "PRR_h",
-                    "at": "2026-10-11T12:30:00Z", "commit": head}
-        seen = dict(SEEN, since="2026-10-11T00:00:00Z", writes=[approval])
-        record = passed(reads(pulls=[], seen=seen), previous=[before])["record"]
-        url = "https://github.com/%s/pull/42" % REPO
-        self.assertIn({"alert": "hand_approval", "by": "approver", "write": "approval", "item": url, "key": "PRR_h"},
-                      record["reconciliation"])
-        self.assertNotIn("write_unmatched", record["alerts"])
-        self.assertEqual(record["reconciled"]["hand"], [{"key": "PRR_h", "item": url, "head": head,
-                                                         "at": "2026-10-11T12:30:00Z"}])
-        self.assertEqual(shared.errors(record, "pass"), [])
-        # The next pass reads the record as written: no record at hand decided the pull request before the approval,
-        # and the carried entry alone still reads it as information, and carries it on.
-        later = passed(reads(pulls=[], seen=seen), now="2026-10-11T14:00:00Z", previous=[record])["record"]
-        self.assertNotIn("write_unmatched", later["alerts"])
-        self.assertEqual(later["reconciled"]["hand"], record["reconciled"]["hand"])
-        # On another head it is unmatched, and nothing is carried.
-        other = passed(reads(pulls=[], seen=dict(seen, writes=[dict(approval, commit="b" * 40)])), previous=[before])["record"]
-        self.assertIn("write_unmatched", other["alerts"])
-        self.assertNotIn("hand", other["reconciled"])
-        self.assertEqual(other["reconciled"]["taken"], [{"key": "PRR_h", "item": url, "head": "b" * 40}])
-
     def test_a_hand_approval_given_and_merged_between_two_passes_is_information_until_the_window_passes_its_leaving(self):
         # decision 0241: the passes after its merge read its writes until the window passes its leaving, the record
         # that decided it out of their reach, and read the approval as information all that while; a reopened one
@@ -323,9 +291,13 @@ class Record(unittest.TestCase):
             self.assertEqual(shared.errors(out, "pass"), [], now)
             self.assertIn(entry, out["reconciliation"], now)
             self.assertNotIn("write_unmatched", out["alerts"], now)
-            self.assertEqual([e["key"] for e in out["reconciled"]["hand"]], ["PRR_h"], now)
+            self.assertEqual(out["reconciled"]["hand"], [{"key": "PRR_h", "item": url, "head": head, "at": approval["at"]}], now)
             self.assertEqual(out["reconciled"]["left"], [{"number": 42, "at": "2026-10-11T13:00:00Z"}], now)
             records.append(out)
+        # On another head it is unmatched, and its head alone is carried, as taken.
+        other = passed(reads(pulls=[], seen=dict(seen, writes=[dict(approval, commit="b" * 40)])), previous=[first])["record"]
+        self.assertEqual(("write_unmatched" in other["alerts"], "hand" in other["reconciled"], other["reconciled"]["taken"]),
+                         (True, False, [{"key": "PRR_h", "item": url, "head": "b" * 40}]))
         # The pass whose window passes its leaving drops it; one that reads it open again keeps it.
         window = dict(SEEN, since="2026-10-11T14:00:00Z")
         gone = passed(reads(pulls=[], seen=window), now="2026-10-12T20:00:00Z", previous=records[-2:])["record"]
