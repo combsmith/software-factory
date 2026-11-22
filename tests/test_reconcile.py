@@ -469,7 +469,7 @@ class Override(unittest.TestCase):
         self.assertEqual(reconcile.entries(check(seen(merged=[merge]), before=[at("verifying")])),
                          [{"alert": "merged_by_override", "by": None, "write": "merge", "item": URL, "key": None}])
 
-    def test_an_issue_read_whole_by_its_end_is_named_once_as_information(self):  # decision 0235
+    def test_an_issue_read_whole_by_its_end_is_named_once_as_information(self):  # decision 1145
         issue = dict(ITEM, type="issue", number=41)
         told = dict(seen(), gone=[{"item": issue, "answer": 404}, {"item": issue, "answer": 404},
                                   {"item": dict(issue, number=43), "answer": 410}])
@@ -763,10 +763,11 @@ class SeenPort(unittest.TestCase):
                              ({"full_name": repo}, False), ({"status": 404, "body": {"full_name": repo, **on}}, False), (None, False)):
             self.assertIs(seen_.repo_read(GitHub({("GET", "/repos/" + repo): answer}), repo), read, answer)
 
-    def test_the_issues_read_whole_by_their_end_are_carried_in_what_was_seen(self):  # decision 0235
+    def test_the_issues_read_whole_by_their_end_are_carried_in_what_was_seen(self):  # decision 1145
         gone = [{"item": dict(ITEM, type="issue"), "answer": 410}]
         self.assertEqual(seen_.seen([([], [], True)], SINCE, gone)["gone"], gone)
         self.assertNotIn("gone", seen_.seen([([], [], True)], SINCE))
+        self.assertNotIn("gone", seen_.seen([([], [], True)], SINCE, []))
 
     def test_an_item_that_left_the_open_list_has_its_timeline_read_here(self):  # issue 329
         # A pull request merged or closed between the passes is no longer open, so no snapshot reads it: its timeline
