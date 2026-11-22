@@ -2303,6 +2303,9 @@ class Purity(unittest.TestCase):
         self.assertTrue(caught(run({"kernel/sub/y.py": "from ... import tools\n"}), "y.py:1 imports ..., from above kernel/"))
         self.assertEqual(run({"kernel/terms.py": "", "kernel/sub/y.py": "from .. import terms\n"}), [])
         self.assertTrue(caught(run({"kernel/terms.py": "", "kernel/sub/y.py": "from .. import gone\n"}), "no such name"))
+        # One dot is the module's own folder, not the package's (Astra's read).
+        self.assertTrue(caught(run({"kernel/terms.py": "", "kernel/sub/y.py": "from . import terms\n"}), "no such name"))
+        self.assertEqual(run({"kernel/sub/terms.py": "", "kernel/sub/y.py": "from . import terms\n"}), [])
         self.assertEqual(run({"kernel/sub/__init__.py": "S = 's'\n", "kernel/x.py": "from kernel.sub import S\n"}), [])
         # The guards refuse every relative import by their own rule, once: this one is the Kernel's.
         for line in ("from .. import tools\n", "from . import missing\n", "from .kernel import missing\n"):   # Astra's reads
@@ -2325,6 +2328,8 @@ class Purity(unittest.TestCase):
                            ("    return (item async for item in facts)\n", "drives what it is handed"),
                            ("    return await facts\n", "awaits what it is handed")):
             self.assertTrue(caught(run({"kernel/x.py": "async def f(facts):\n" + body}), "x.py:2 %s" % does), does)
+            found = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": "async def f(facts):\n" + body}))
+            self.assertTrue(caught(found, "x.py:2 %s" % does), (does, found))
 
     def test_the_kernel_is_the_package_python_imports_and_reads_nothing_off_a_value(self):  # issue 851
         # What the guards are held to (issue 838) is asked of the Kernel by the same lines. With no __init__.py Python
