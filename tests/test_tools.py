@@ -5757,7 +5757,7 @@ class PullBody(unittest.TestCase):
         # an empty one is no text. A fence and a comment hide each other's marks, and a fence's words open no comment.
         for code in ("```\n    ```\n", "```\n\t```\n", " ```\n    ```\n"):
             self.assertEqual(self.codes(code + self.body() + "```\n"), ["body_heading_missing"], code)
-        for hides in ("- ```\n  ## Why\n  ```\n", "```\n<!--\n```\n", "<!--\n```\n-->\n", "``` <!--\nx\n```\n"):
+        for hides in ("- ```\n  ## Why\n  ```\n", "```\n   ```\n", "```\n<!--\n```\n", "<!--\n```\n-->\n", "``` <!--\nx\n```\n"):
             self.assertEqual(self.codes(hides + self.body()), [], hides)
         self.assertEqual(self.codes(self.body({"Why": "```\n```"})), ["body_section_empty"])
         self.assertEqual(self.codes(self.body({"Why": "```\n-\n```"})), [])

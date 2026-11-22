@@ -9672,6 +9672,7 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("a comment after a heading's words is read as words", 'tools/pr_title.py', 'section = [_visible(words, [False, 0]).strip(" \\t"), []]', 'section = [words, []]', BODY_RULE),
     ('a code span starts inside a backtick run', 'tools/pr_title.py', 'CODE_SPAN = re.compile(r"(?<!`)(`', 'CODE_SPAN = re.compile(r"(`', BODY_RULE),
     ('a fenced list marker is no text', 'tools/pr_title.py', 'section[1].append("code" if line.strip() else "")', 'section[1].append(line)', BODY_RULE),
+    ('a fence closes only at its own indent', 'tools/pr_title.py', ' and indent <= column + 3:', ' and indent <= column:', BODY_RULE),
     ("a list item's fence closes only near the margin", 'tools/pr_title.py', '            fence, column = opening.group(1), len(line[:opening.start(1)].expandtabs(4))\n', '            fence, column = opening.group(1), 0\n', BODY_RULE),
     ("an indented fence's own indent lets it close further in", 'tools/pr_title.py', '            column = column if column > 3 or line.lstrip(" \\t")[0] not in "`~" else 0\n', '', BODY_RULE),
     ('a comment hides nothing', 'tools/pr_title.py', 'COMMENT = re.compile(r"<!--")', 'COMMENT = re.compile(r"(?!)")', BODY_RULE),
