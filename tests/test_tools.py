@@ -6672,6 +6672,7 @@ class Context(unittest.TestCase):
 
     def test_a_new_records_status_is_held_to_its_words(self):
         # Decision 1166: from the cutover, a Status is at most 40 words; the label and words in backticks are not counted.
+        self.assertEqual((check_context.BUDGET_FROM, check_context.STATUS_WORDS), (1166, 40))
         self.assertEqual(self.budgeted("Status: " + "w " * 40), [])
         self.assertEqual(self.budgeted("Status: " + "w " * 39 + "`a b c` `d`"), [])
         self.assertTrue(caught(self.budgeted("Status: " + "w " * 41), "the Status is 41 words"))
@@ -6688,6 +6689,7 @@ class Context(unittest.TestCase):
         self.assertEqual(self.budgeted(replacing, decision="w " * 400, why="w " * 50), [])
         self.assertTrue(caught(self.budgeted(replacing, decision="w " * 401, why="w " * 50), "are 451 words, and the most is 450"))
         self.assertTrue(caught(self.budgeted("Status: accepted. It Replaces one.", decision="w " * 301), "the most is 300"))
+        self.assertTrue(caught(self.budgeted("Status: Replaces `docs/decisions/0001-x.md`.", decision="w " * 301), "the most is 300"))
         # A Status wrapped onto a second line replaces as well, as tools/check_decisions.py reads it.
         wrapped = "Status: accepted.\nReplaces `docs/decisions/0001-x.md`."
         self.assertEqual(self.budgeted(wrapped, decision="w " * 400, why="w " * 50), [])

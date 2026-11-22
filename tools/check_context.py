@@ -61,7 +61,8 @@ REPLACING_WORDS = 450   # the same, for a record whose Status replaces others
 CELL_WORDS = 40         # a cell of a Decision table
 DECISION_ROWS = 8       # the rows of the Decision's tables together
 BEHAVIOUR_WORDS = 30    # a Boundary row's first cell
-REPLACING = re.compile(r"\AStatus: (?:accepted\. )?Replaces\b")
+# The one form tools/check_decisions.py lets a Status replace records in, which gives the larger budget.
+REPLACING = re.compile(r"\AStatus: accepted\. Replaces\b")
 ROW_MUTANT = re.compile(r'mutant: "[^"\n]+"')
 WAITING = re.compile(r"waiting on `([^`\n]+)`", re.I)
 MODULE = re.compile(r"python3 -m ([\w.]*\w)")
