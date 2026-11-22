@@ -689,7 +689,7 @@ class Schemas(unittest.TestCase):
                              ("title", "One\u2029Two"), ("title", "One\x7fTwo"), ("title", "Fix \u202eevil"), ("title", "ap\u200bprove"), ("title", "Fix \u061cevil"),
                              ("title", "soft\u00adhyphen"), ("title", "join\u2060ed"), ("title", "tag\U000e0041ged"), ("title", "lone\ud800"),
                              ("file", "f" * 1025), ("file", "a\nb"), ("file", "a\u202eb"), ("file", "a\U000e0041b"),
-                             ("message", "m" * 65536)):
+                             ("message", "m" * 65334)):
             answer = json.loads(json.dumps(whole))
             answer["findings"][0][field] = value
             self.assertTrue(jsonschema_lite.validate(answer, SCHEMAS["advice-answer"]), (field, value))
@@ -719,6 +719,24 @@ class Schemas(unittest.TestCase):
                 self.assertEqual(jsonschema_lite.validate(finding, SCHEMAS["finding"]), [], name)
         self.assertEqual(len(loaded("examples/advice.json")["findings"]), 1)
         self.assertEqual(lacking(loaded("examples/advice.json"), SCHEMAS["advice"], SCHEMAS["advice"]), [])
+        # What is required is listed here, apart from the schema, so a field dropped from a list is seen; a severity is
+        # one finding/1 has; a failed read is a Result too; and each figure summed is refused just past its bound.
+        held, advised = SCHEMAS["advice"], SCHEMAS["advice"]["$defs"]["advised"]
+        for place, fields in ((held, "findings lens off_change reason release run schema status texts usage"),
+                              (held["properties"]["texts"]["items"], "body category criterion id"),
+                              (held["properties"]["usage"], "answering_model api asks cost_usd deployment effort input_tokens "
+                                                            "model output_tokens seconds"),
+                              (advised, "category content_id criterion id schema severity source surface"),
+                              (advised["properties"]["source"], "actor kind lens"), (advised["properties"]["surface"], "key type"),
+                              (advised["properties"]["location"], "path")):
+            self.assertEqual(sorted(place["required"]), fields.split())
+        self.assertEqual(advised["properties"]["severity"]["enum"], SCHEMAS["finding"]["properties"]["severity"]["enum"])
+        failed = dict(loaded("examples/advice.rate-limited.json"), status="failed", reason="transport")
+        self.assertEqual(jsonschema_lite.validate(failed, SCHEMAS["advice"], schemas=SCHEMAS), [])
+        for field, most in (("cost_usd", 100000), ("seconds", 86400), ("input_tokens", 10 ** 9), ("output_tokens", 10 ** 9)):
+            figure = held["properties"]["usage"]["properties"][field]
+            self.assertEqual(jsonschema_lite.validate(most, figure), [], field)
+            self.assertTrue(jsonschema_lite.validate(most + 1, figure), field)
         # An id is short enough to be the key `result/1` adopts from, and a Lens's name is one it can name.
         adopted = SCHEMAS["result"]["$defs"]["raised"]["properties"]["adopted_from"]
         longest = "a" * 31 + ":" + "0" * 32
