@@ -13,7 +13,7 @@ import unittest
 from unittest import mock
 
 from adapters import azure
-from tools import jsonschema_lite
+from tools import check_examples, jsonschema_lite
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -724,6 +724,12 @@ class Schemas(unittest.TestCase):
                                                   adopted, SCHEMAS["result"], schemas=SCHEMAS), [])
         self.assertEqual(jsonschema_lite.validate(longest, SCHEMAS["advice"]["$defs"]["advised"]["properties"]["id"]), [])
         advised = SCHEMAS["advice"]["$defs"]["advised"]["properties"]
+        # A model is named as Azure names it, in either case, as Kimi's answer names Kimi-K3.1 (trial P-78); and the
+        # Result is held to codes, its reader's words under `body` alone, by the examples check.
+        self.assertIn("advice", check_examples.CODES_ONLY)
+        for field in ("model", "answering_model"):
+            self.assertEqual(jsonschema_lite.validate("Kimi-K3.1", SCHEMAS["advice"]["properties"]["usage"]["properties"][field]), [], field)
+        self.assertEqual(jsonschema_lite.validate("kimi-k3.1-pro@Kimi-K3.1", advised["source"]["properties"]["actor"]), [])
         for longer in ("a" * 32 + ":" + "0" * 32, "a" * 31 + ":" + "0" * 33):
             self.assertTrue(jsonschema_lite.validate(longer, advised["id"]), longer)
             self.assertTrue(jsonschema_lite.validate(longer, advised["surface"]["properties"]["key"]), longer)
