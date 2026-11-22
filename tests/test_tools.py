@@ -15722,7 +15722,7 @@ class Desk(unittest.TestCase):
         (root / ".git" / "info" / "attributes").write_text("*.py diff=upper\n")
         for key, value in (("diff.upper.textconv", "sed -e s/a/AAA/g"), ("color.ui", "always"), ("diff.noprefix", "true"),
                            ("diff.renames", "false"), ("core.abbrev", "4"), ("diff.interHunkContext", "20"),
-                           ("diff.suppressBlankEmpty", "true"), ("core.quotePath", "false")):
+                           ("diff.suppressBlankEmpty", "true"), ("core.quotePath", "false"), ("diff.algorithm", "histogram")):
             git(root, "config", key, value)
 
         said = "about %d of 60000 characters and %d of 4000 lines committed against origin/main as last fetched"
@@ -15777,7 +15777,7 @@ class Desk(unittest.TestCase):
         git(root, "config", "--unset", "extensions.partialclone")
         git(root, "config", "remote.origin.promisor", "false")
         self.assertNotEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
-        git(root, "config", "remote.origin.promisor", "true")
+        git(root, "config", "remote.other.promisor", "true")     # any of them, not the first alone
         self.assertEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
 
     def test_the_desk_runs_git_only_to_read_and_says_when_there_is_no_base(self):
@@ -15795,7 +15795,7 @@ class Desk(unittest.TestCase):
             desk.merged(root)
             self.commit(root, "merge")
             desk.merged(root)
-            for refused in (("fetch", "origin"), ("config", "user.name", "x"), ("config", "--unset", "x.y"),
+            for refused in (("fetch", "origin"), ("config", "user.name", "x"), ("config", "--unset", "x.y"), ("config",),
                             ("diff", "--output=f")):
                 with self.assertRaises(ValueError):
                     desk._git(root, *refused)
@@ -15804,7 +15804,8 @@ class Desk(unittest.TestCase):
         self.assertFalse({"fetch", "pull", "push", "clone", "ls-remote", "remote", "submodule", "fetch-pack",
                           "send-pack", "archive", "bundle", "maintenance", "gc"} & set(desk.READS))
         self.assertTrue(all(argv[0] == "git" and argv[1:len(desk.SAFE) + 1] == list(desk.SAFE) for argv, _ in ran))
-        self.assertTrue(all(env["GIT_NO_LAZY_FETCH"] == "1" and env["GIT_TERMINAL_PROMPT"] == "0" for _, env in ran))
+        self.assertTrue(all(env["GIT_NO_LAZY_FETCH"] == "1" and env["GIT_TERMINAL_PROMPT"] == "0" and env["LC_ALL"] == "C"
+                            for _, env in ran))
         # With no clone, or no main to compare with, there is no base, and it says so.
         self.assertEqual(desk.size(tree({"a.py": "a\n"})), "no base to compare: this tree is no clone")
         git(root, "update-ref", "-d", "refs/remotes/origin/main")

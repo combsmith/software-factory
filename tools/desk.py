@@ -54,19 +54,20 @@ SAFE = ("--no-replace-objects", "--literal-pathspecs", "-c", "core.commitGraph=f
         "-c", "diff.suppressBlankEmpty=false", "-c", "diff.submodule=short")
 # A diff as GitHub writes one: no colour, no external diff, no textconv, the whole tree, renames found, a/ and b/; its
 # index lines whole, for `canonical` to cut as the Factory's are cut, however long this clone abbreviates an id.
-FORM = ("--no-color", "--no-ext-diff", "--no-textconv", "--no-relative", "--submodule=short", "-M")
-DIFF = FORM + ("--src-prefix=a/", "--dst-prefix=b/", "-U3", "--inter-hunk-context=0", "--diff-algorithm=myers",
-               "--full-index")
+FORM = ("--no-color", "--no-ext-diff", "--no-textconv", "--no-relative", "--submodule=short", "--diff-algorithm=myers",
+        "-M")
+DIFF = FORM + ("--src-prefix=a/", "--dst-prefix=b/", "-U3", "--inter-hunk-context=0", "--full-index")
 MOST = 10 ** 9          # a limit past this is no limit this note can compare with
 
 
 def _git(root: pathlib.Path, *args: str) -> bytes:
     """What git prints for `args` in `root` alone, no GIT_ variable of whatever runs this read. Raises ValueError."""
-    if args[0] not in READS or (args[0] == "config" and args[1] not in GETS) or any(
+    if args[0] not in READS or (args[0] == "config" and args[1:2] not in [(get,) for get in GETS]) or any(
             arg.startswith("--output") for arg in args):
         raise ValueError("git %s is no read" % args[0])
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    env.update(GIT_CONFIG_NOSYSTEM="1", GIT_OPTIONAL_LOCKS="0", GIT_NO_LAZY_FETCH="1", GIT_TERMINAL_PROMPT="0")
+    env.update(GIT_CONFIG_NOSYSTEM="1", GIT_OPTIONAL_LOCKS="0", GIT_NO_LAZY_FETCH="1", GIT_TERMINAL_PROMPT="0",
+               LC_ALL="C", LANGUAGE="C")      # git's shortstat in English, whatever the desk's locale
     try:
         done = subprocess.run(["git", *SAFE, *args], cwd=str(root), env=env, stdin=subprocess.DEVNULL,
                               capture_output=True, timeout=SECONDS, check=False)
@@ -108,10 +109,10 @@ def _partial(root: pathlib.Path) -> bool:
     remote's on a git older than GIT_NO_LAZY_FETCH. Where git says nothing (an exit of 1) it may not."""
     for key in ("extensions.partialclone", r"^remote\..*\.promisor$"):
         try:
-            said = _text(_git(root, "config", "--get-regexp", key)).split()
+            said = _text(_git(root, "config", "--get-regexp", key)).splitlines()
         except ValueError:
             continue
-        if said[1:2] != ["false"]:
+        if any(line.split(" ", 1)[1:] != ["false"] for line in said):
             return True
     return False
 
