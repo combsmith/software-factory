@@ -481,9 +481,11 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     # tells (decision 0233). While that number is not read, no issue's writes are: the tracking issue could be among
     # those listed, and the passes' records read short leave reconciliation short already.
     served_issues = [e["facts"]["item"]["number"] for e in issues] if apart is not None else ()
+    # One listed that is neither served nor left out was told as the tracking issue at its own read: it never left (codex).
+    told = set(listed) - set(served_issues) if apart is not None else set()
     seen, unread, gone, unread_issues, gone_issues = writes_seen(
         transport, config, numbers, kept, before, since, clock, owed, stages, served_issues,
-        listed=apart is not None and served is not None, tracking=apart or ())
+        listed=apart is not None and served is not None, tracking=set(apart or ()) | told)
     effects = recorded_effects(transport, config, runs, before, since, from_passes, sleep, stages)
     with stages.stage("pause"):
         pause = pause_.read(transport, home.split("/")[0], [home])
