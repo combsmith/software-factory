@@ -17,7 +17,7 @@ import tempfile
 import unittest
 import unittest.mock
 
-from adapters import acceptance, effects, github, records
+from adapters import acceptance, effects, github, keyword_spans, records
 import controller.__main__ as entry
 from controller import configuration, pass_, shared
 from controller import credentials as credentials_
@@ -1331,6 +1331,19 @@ class Issues(unittest.TestCase):
         pull = {"facts": {"item": dict(support.ITEM, number=11)}, "title": None, "unread": "issue_budget"}
         self.assertEqual(passed(reads(pulls=[pull]))["record"]["left_out"], [{"item": dict(support.ITEM, number=11), "code": "not_facts"}])
 
+    def test_an_issue_list_read_short_raises_its_own_alert_and_no_other(self):  # decision 0252
+        # The list read short names no item: it is kept in the record by its code, raises its alert once and no alert of
+        # facts unread, and the pull request is decided. Beside an issue the budget left unread, each raises its own.
+        home = support.ITEM["repo"]
+        unlisted = {"facts": {"item": None}, "title": None, "unread": "issue_list_unreadable"}
+        out, plain = passed(reads(issues=[an_issue(7), unlisted])), passed(reads(issues=[an_issue(7)]))
+        self.assertEqual(out["record"]["left_out"], [{"item": None, "code": "issue_list_unreadable"}])
+        self.assertEqual(set(out["alerts"]) ^ set(plain["alerts"]), {"issue_list_unreadable"})
+        self.assertEqual([d["item"]["type"] for d in decisions(out)], ["pull_request", "issue"])
+        budget = {"facts": {"item": {"repo": home, "type": "issue", "number": 8}}, "title": None, "unread": "issue_budget"}
+        both = passed(reads(issues=[an_issue(7), budget, unlisted]))
+        self.assertEqual(set(both["alerts"]) ^ set(plain["alerts"]), {"issue_budget_spent", "issue_list_unreadable"})
+
     def test_a_person_whose_login_is_an_apps_name_without_its_suffix_is_not_that_app(self):  # ruling A
         # A User named as config/defaults.json writes the Controller's App is not it, with its token or through an App.
         from tests.test_adapters import issue_event
@@ -2099,10 +2112,17 @@ class Entry(unittest.TestCase):
         self.assertEqual((code, [r for r in files["pass.json"]["reads"] if r["read"] == "facts"]),
                          (0, [{"read": "facts", "date": "2026-10-12T11:59:30Z", "age": 2},
                               {"read": "facts", "date": "2026-10-12T11:59:00Z", "age": 0}]))
-        # A list read short, or not answered, stops the pass before any issue is read; nothing is written.
+        # A list read short, or not answered, reads no issue; the pull requests are decided as ever, and the pass leaves
+        # out one entry naming no item, by the list's code, with its alert and no other for it (decision 0234).
         for whole in (False, None):
-            self.assertEqual(entry_with([5], whole), (1, "issue_list_unreadable\n", {}), whole)
-            self.assertEqual(spied["read"], [])
+            code, printed, files = entry_with([5], whole)
+            record = files["pass.json"]
+            self.assertEqual((code, printed, spied["read"], record["issues"]), (0, "passed\n", [], []), whole)
+            self.assertEqual(record["left_out"], [{"item": None, "code": "issue_list_unreadable"}])
+            self.assertEqual(len(record["pull_requests"]), 1)
+            self.assertIn("issue_list_unreadable", record["alerts"])
+            self.assertNotIn("facts_unreadable", record["alerts"])
+            self.assertEqual(keyword_spans.UNLISTED, entry.reads_.UNLISTED)
         # The passes' records not read whole: the tracking issue's number may be one not read, so no issue is read, and
         # each listed is left out as unread; the pull requests are decided as ever (issue 901).
         code, printed, files = entry_with([5, 8], recorded=False)
@@ -2242,7 +2262,7 @@ class Entry(unittest.TestCase):
         intent = lambda app: {"label_apps": {"factory:triage": "combsmith-sf-controller", "factory:ready": None},
                               "intents": {"investigate-issue": {"role": "business-analyst", "app": app},
                                           "judge-readiness": None, "open-pull-request": None}}
-        whos = []
+        whos, asked = [], []
 
         def snapshot(transport, repo, number, identities, who, *a, **k):
             whos.append(who)
@@ -2257,14 +2277,16 @@ class Entry(unittest.TestCase):
             hub = Hub(self.table(numbers=[7]))
             with unittest.mock.patch.object(entry, "configuration", told), \
                     unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
-                    unittest.mock.patch.object(entry.items, "open_issues", lambda t, repo, since, **k: ([], since is None)):
+                    unittest.mock.patch.object(entry.items, "open_issues", lambda t, repo, since, **k: asked.append(since) or ([], since is None)):
                 code, printed, files, _ = self.run_entry(hub)
             record = files.get("pass.json", {})
             return (code, printed, "issue_apps_unreadable" in record.get("alerts", ()),
-                    [e["decision"]["item"]["number"] for e in record.get("pull_requests", ())], record.get("issues"))
+                    [e["decision"]["item"]["number"] for e in record.get("pull_requests", ())], record.get("issues"),
+                    record.get("left_out"), asked[-1])
         ready = lambda name: {"label_apps": {"factory:triage": "combsmith-sf-controller", "factory:ready": name}}
         # The issues are listed as with no date, so none is; pull request 7 is decided, and nothing is written for an issue.
-        refused = (0, "passed\n", True, [7], [])
+        # The listing is asked with no date (decision 0234: a list read short no longer stops the pass to show it).
+        refused = (0, "passed\n", True, [7], [], [], None)
         # The pull requests' reader does not reserve the name that collides, whichever App's it is and wherever it is
         # declared, so no snapshot is refused for it; a name that does not collide stays reserved.
         unreserved = lambda issues, **accounts: (entry_with(issues, **accounts), whos[-1].reserved)
@@ -2284,10 +2306,13 @@ class Entry(unittest.TestCase):
         self.assertEqual(unreserved(ready("combsmith-sf-queue"), queue=dict(queue, login="an-old-login[bot]")), refused)
         self.assertEqual(unreserved(ready("combsmith-sf-pr-review"), lenses=[dict(renamed, id=5000010)]), refused)
         # The queue's name with no queue App held, and any other App's, are no queue's and no Lens's: the issues are
-        # listed from their date, here by a listing that is whole only with no date, which stops the pass.
+        # listed from their date, here by a listing that is whole only with no date, so no issue is read and the pull
+        # requests are decided, with one entry naming no item (decision 0234).
         for issues, accounts in ((ready("combsmith-sf-queue"), {}), (ready("combsmith-sf-readiness"), {"queue": queue}),
                                  (intent("combsmith-sf-business-analyst"), {})):
-            self.assertEqual(entry_with(issues, **accounts)[:2], (1, "issue_list_unreadable\n"), issues)
+            self.assertEqual(entry_with(issues, **accounts),
+                             (0, "passed\n", False, [7], [], [{"item": None, "code": "issue_list_unreadable"}],
+                              "2026-10-01T00:00:00Z"), issues)
 
     def test_the_served_issues_writes_are_read_for_reconciliation(self):  # issue 837
         # Each served issue's writes are read by the seen port as an open pull request's are, with nothing kept by a

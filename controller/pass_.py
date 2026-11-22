@@ -57,8 +57,8 @@ CAPACITY, ENVIRONMENT = health_.CAPACITY, health_.ENVIRONMENT
 NOT_RUN = "not_run"
 NEVER_STARTED = "runs_never_started"
 ISSUE_APPS = "issue_apps_unreadable"
-# The alert each issue left out for want of a read raises, once a pass: the budget spent.
-ISSUE_ALERTS = {reads_.BUDGET: "issue_budget_spent"}
+# The alert each issue left out for want of a read raises, once a pass: the budget spent, and the list read short.
+ISSUE_ALERTS = {reads_.BUDGET: "issue_budget_spent", reads_.UNLISTED: "issue_list_unreadable"}
 __all__ = ["Refused", "run", "rebuild", "wait_before_reading", "context_of", "issue_config"]
 
 
@@ -348,7 +348,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     # the pass its change starts reads it again. Any other left out, or one that moved twice in a row, is the alert
     # (#658, decision 0229).
     graced = moved_once(left_out, why, before)
-    # An issue the budget left unread is its own alert, and no fact's fault.
+    # An issue the budget left unread, and the issue list read short, are each their own alert, and no fact's fault.
     alarmed = [i for i, code in zip(left_out, why) if code not in reads_.ISSUE_UNREAD
                and (reads_.item(i) is None or key(i) not in graced)]
     repos = {e["facts"]["item"]["repo"] for e in pulls + issues}
