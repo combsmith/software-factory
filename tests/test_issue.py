@@ -2493,6 +2493,11 @@ class Opening(unittest.TestCase):
                              (("admit", "ready", OPEN), "9f2c41d", False))
         # No other State's Run waits on it.
         self.assertEqual(what(decide(facts(label_events=ACCEPTED, base_head=1)))[2], INVESTIGATE)
+        # Nor does an act: an issue no one has triaged yet is accepted whatever the base reads, or with none at all.
+        new = facts()
+        del new["base_head"]
+        for f in (new, facts(base_head=None), facts(base_head=""), facts(base_head=1), facts(base_head="main")):
+            self.assertEqual(decide(f).get("action"), "accept", f.get("base_head", "left out"))
 
     def test_an_unreadable_branch_head_defers_the_opening_run_alone(self):
         for value in ("", 1, ["9f2c41d"]):
