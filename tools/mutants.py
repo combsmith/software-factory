@@ -9889,6 +9889,8 @@ MUTANTS = ISSUE + [
      'NUMBER = re.compile(r"^([0-9]{4,})-")', 'NUMBER = re.compile(r"^([0-9]{4})-")', ("tests.test_tools.Decisions.test_a_record_of_five_digits_comes_after_one_of_four",)),
     ("a record of another number than its pull request's stands", "tools/commits_are_the_maintainers.py",
      "        if named is None or named.group(1) not in allowed:\n", "        if named is None:\n", ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("a record of five digits is not read by the commits' job", "tools/commits_are_the_maintainers.py",
+     'RECORD = re.compile(r"docs/decisions/([0-9]{4,})-', 'RECORD = re.compile(r"docs/decisions/([0-9]{4})-', ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
     ("a pull request may add two records", "tools/commits_are_the_maintainers.py",
      "    if len(found) > 1:\n", "    if len(found) > 2:\n", ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
     ("a number under 1000 is written without its zero", "tools/commits_are_the_maintainers.py",
