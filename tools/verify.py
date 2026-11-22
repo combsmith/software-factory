@@ -39,8 +39,8 @@ CHECKS = [
     ("decision records", check_decisions.run),
     ("gate sets", check_gate_sets.run),
 ]
-# The test modules `make fast` leaves out. `make verify` runs them all.
-SLOW = ("test_simulator", "test_issue_simulator")
+# The test modules `make fast` leaves out, each of which runs the seeded simulation. `make verify` runs them all.
+SLOW = ("test_simulator", "test_issue_simulator", "test_reasons")
 
 
 def failed(checks: list) -> bool:
@@ -121,8 +121,14 @@ def desk_note() -> str:
 
 
 def quiet(stream) -> None:
-    """Points `stream`'s file at the null device once the note failed to write to it, so the flush at exit, which
-    tries again what is still held, finds nothing closed and cannot change make checks' answer (a closed pipe)."""
+    """Once the note failed to write to `stream`, writes out what the checks left held in it; only where that fails too
+    (a closed pipe) points the stream's file at the null device, so the flush at exit, which tries again what is still
+    held, finds nothing closed and cannot change make checks' answer."""
+    try:
+        stream.flush()      # a failure that is no closed pipe, an encoding say, leaves the checks' output to go out
+        return
+    except BaseException:       # NOSONAR: a closed pipe; the note never decides make checks' answer
+        pass
     try:
         fd = stream.fileno()
         null = os.open(os.devnull, os.O_WRONLY)
