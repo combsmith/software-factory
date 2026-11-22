@@ -721,17 +721,22 @@ class Examples(unittest.TestCase):
         # placeholder, slash, Markdown mark or other letter, and no more than 100 characters.
         for bad in ("Approved by @x.", "Approved; run `x`.", "Approved.\nNext.", "Approved.\rNext.", "Approved {x}.",
                     "Approved %s.", "See a://b.", "See [x](y).", "Approved **now**.", "See www.x.", "See www. It waits.",
-                    "Approved. It waits.", "Approved.\u2028Next.", "approved.", "Approved\u00e9.", "A" + "a" * 99 + ".", "Approved"):
+                    "Approved. It waits.", "Approved.\u2028Next.", "Approved.\n", "approved.", "Approved\u00e9.", "A" + "a" * 99 + ".", "Approved"):
             broken = copy.deepcopy(feed)
             broken["sentences"]["approved"] = bad
             self.assertTrue(caught(check_examples._table(broken, decision), "the sentence for approved is not a plain"), bad)
-        broken["sentences"]["approved"] = "A" + "a" * 98 + "."
+        broken["sentences"]["approved"] = "Z" + "z" * 98 + "."
         self.assertEqual(check_examples._table(broken, decision), [])
         # Nor what GitHub would make a link, an emoji or a reference of, though it is plain.
         for bad in ("Approved :x: now.", "Approved :ok-1: now.", "See GH-12 first.", "See ABC-3.", "See deadbee first.",
-                    "See d1b3c40af52eaa67910b3e8cccbe89afd1f9688a."):
+                    "See d1b3c40af52eaa67910b3e8cccbe89afd1f9688a.", "See D1B3C40.", "See " + "a" * 41 + ".",
+                    "See GHSA-jfh8-c2jp-5v3q."):
             broken["sentences"]["approved"] = bad
             self.assertTrue(caught(check_examples._table(broken, decision), "would be shown as a link, an emoji or a"), bad)
+        # For any reason, not one alone.
+        other = copy.deepcopy(feed)
+        other["sentences"]["paused"] = "See GH-12 first."
+        self.assertTrue(caught(check_examples._table(other, decision), "the sentence for paused would be shown as a link"))
         for good in ("Approved: it waits.", "Approved: x (y): z.", "A run-1 waits.", "It waits at noon - then: 2.",
                      "It is a decade old.", "See 123456 runs."):
             broken["sentences"]["approved"] = good
@@ -740,7 +745,7 @@ class Examples(unittest.TestCase):
         self.assertTrue(validate({k: v for k, v in feed.items() if k != "sentences"}, schema))
         sentence = schema["properties"]["sentences"]["additionalProperties"]
         self.assertEqual((sentence["maxLength"], sentence["pattern"]), (check_examples.SENTENCE_MOST, check_examples.SENTENCE_PATTERN))
-        for good in ("A" + "a" * 98 + ".", "Approved; it waits: it is (one) item, isn't it - yes, 2."):
+        for good in ("Z" + "z" * 98 + ".", "Approved; it waits: it is (one) item, isn't it - yes, 2."):
             self.assertEqual(validate(good, sentence), [], good)
         for bad in ("A" + "a" * 99 + ".", "approved.", "Approved", "Approved.x.", "Approved..", "Approved. Next.", "Approved?", "Approved /x.",
                     "Approved\u00e9.", ""):
@@ -800,8 +805,8 @@ class Examples(unittest.TestCase):
         held = {"type": "object", "additionalProperties": False, "properties": {"sentences": loose}}
         self.assertTrue(caught(check_examples._free(held, {}, held, "feed", "$", set()),
                                "schema feed admits text at $.sentences.*"))
-        self.assertTrue(check_examples._sentence_shaped(
-            dict(shaped, additionalProperties=dict(value, maxLength=check_examples.SENTENCE_MOST))))
+        for most in (1, 99, check_examples.SENTENCE_MOST):
+            self.assertTrue(check_examples._sentence_shaped(dict(shaped, additionalProperties=dict(value, maxLength=most))), most)
 
     def test_the_example_feed_follows_the_table(self):  # decision 0039
         feed = json.loads((ROOT / "config" / "feed.json").read_text())

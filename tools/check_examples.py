@@ -75,8 +75,8 @@ SENTENCE_MOST = 100
 # and one full stop, at the end. No @, backtick, line break, placeholder, slash or Markdown mark.
 SENTENCE_PATTERN = "^[A-Z][A-Za-z0-9 ,;:'()-]*[.]$"
 # What GitHub would still make of a plain sentence: a code between colons an emoji, letters, a dash and digits a
-# reference, and a word of seven or more hex digits a commit.
-AUTOLINKED = re.compile(r":[a-z0-9+-]+:|\b[A-Z]+-[0-9]+\b|\b[0-9a-f]{7,40}\b")
+# reference, an advisory's id a link, and a word of seven or more hex digits, in either case, a commit.
+AUTOLINKED = re.compile(r":[a-z0-9+-]+:|\b[A-Z]+-[0-9]+\b|\bGHSA-|\b(?i:[0-9a-f]{7,})\b")
 # The reasons the Kernel gives `needs_you` beside its own sets: a Hold deferred under a Pause, or one it cannot read
 # (tests/test_decide.py::test_an_approver_who_is_the_author_or_last_pusher_takes_it_out_of_the_queue,
 # tests/test_issue.py::test_placing_a_hold_is_stopped_only_by_the_pause_and_not_once_the_hold_is_there,
