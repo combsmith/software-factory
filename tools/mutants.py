@@ -1193,8 +1193,8 @@ ISSUE = [
     ("every Run counts as an implementing round", "kernel/brakes.py", 'r["intent"] == t.IMPLEMENT and ', '',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
     ("a writer's action does not renew the rounds", ISSUE_PY,
-     'brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"])',
-     'brakes.implementing_rounds(_decision, facts, mine, config["limits"])',
+     'brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"], unreadable)',
+     'brakes.implementing_rounds(_decision, facts, mine, config["limits"], unreadable)',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
     ("the implementing Run is not told its draft", ISSUE_PY, '{"pull_request": draft["number"]}', '{}',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
@@ -1221,8 +1221,8 @@ ISSUE = [
     ("an implementing rounds limit of nothing is read", "kernel/brakes.py",
      'type(bound) is int and bound >= 1)', 'type(bound) is int and bound >= 0)', ROUNDS_OWN),
     ("the unreadable implementing rounds limit's Hold leaves the State", "kernel/issue.py",
-     'return _decision(facts, t.HELD, "limits_unreadable", [], t.HOLD)',
-     'return _decision(facts, "in_progress", "limits_unreadable", [], t.HOLD)', ROUNDS_OWN),
+     '_decision(facts, t.HELD, "limits_unreadable", [], t.HOLD)',
+     '_decision(facts, "in_progress", "limits_unreadable", [], t.HOLD)', ROUNDS_OWN),
     ("the unreadable implementing rounds limit's Hold names the rounds", "kernel/issue.py",
      '"limits_unreadable", [], t.HOLD)', '"limits_unreadable", [r["run"] for r in since_writer(mine, facts)], t.HOLD)', ROUNDS_OWN),
     ("an implementing Run that failed by the item is no round", "kernel/brakes.py",
@@ -1319,9 +1319,12 @@ ISSUE = [
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
     ("the implementing rounds are spent whatever the draft's checks", ISSUE_PY,
      '    if draft["checks"] != "failing":\n        return _decision(facts, state, reason, evidence, t.NOTHING)\n'
-     '    held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"])\n'
+     '    # The Hold where the rounds\' own limit cannot be read, which the brakes alone read: its reason is an issue\'s.\n'
+     '    unreadable = _decision(facts, t.HELD, "limits_unreadable", [], t.HOLD)\n'
+     '    held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"], unreadable)\n'
      '    if held:\n        return held\n',
-     '    held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"])\n'
+     '    unreadable = _decision(facts, t.HELD, "limits_unreadable", [], t.HOLD)\n'
+     '    held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"], unreadable)\n'
      '    if held:\n        return held\n'
      '    if draft["checks"] != "failing":\n        return _decision(facts, state, reason, evidence, t.NOTHING)\n',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
