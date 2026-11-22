@@ -3618,7 +3618,7 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("a cut acceptance read defers as any read short", 'kernel/derive.py',
      '    if facts.get("acceptance_bounded") is True:\n        return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}\n', '', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
     ("a cut acceptance read is read after the lists read short", 'kernel/derive.py',
-     '    if facts.get("acceptance_bounded") is True:\n        return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}\n    gaps = incomplete(facts)\n', '    gaps = incomplete(facts)\n    if not gaps and facts.get("acceptance_bounded") is True:\n        return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}\n', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+     '    if facts.get("acceptance_bounded") is True:\n        return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}\n    gaps = incomplete(facts)\n', '    gaps = incomplete(facts)\n    if not [g for g in gaps if g != "acceptance"] and facts.get("acceptance_bounded") is True:\n        return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}\n', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
     ("a cut acceptance read names no evidence", 'kernel/derive.py',
      '"reason": "acceptance_bounded", "evidence": ["acceptance"]}', '"reason": "acceptance_bounded", "evidence": []}', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
     ("any truthy flag is a cut acceptance read", 'kernel/derive.py',
@@ -3627,6 +3627,8 @@ MUTANTS = ISSUE + OUTSIDE + [
      '    if facts.get("acceptance_bounded", False) is not False and "acceptance" not in gaps:\n        gaps = ["acceptance"] + gaps\n', '', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
     ("an absent cut flag is a gap", 'kernel/derive.py',
      'if facts.get("acceptance_bounded", False) is not False', 'if facts.get("acceptance_bounded") is not False', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+    ("a cut flag that is no truth value and falsy is read as not cut", 'kernel/derive.py',
+     'if facts.get("acceptance_bounded", False) is not False and', 'if facts.get("acceptance_bounded", False) and', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
 ]
 
 
