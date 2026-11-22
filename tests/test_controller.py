@@ -1325,7 +1325,7 @@ class Issues(unittest.TestCase):
         self.assertEqual([d["item"]["type"] for d in decisions(out)], ["pull_request", "issue"])
         # Beside a fault of the facts, that alert is raised too, by the fault alone.
         unread = {"facts": {"item": {"repo": home, "type": "issue", "number": 10}}, "title": None, "unread": "facts_unanswered"}
-        self.assertIn("facts_unreadable", passed(reads(issues=[budget(8), unread]))["alerts"])
+        self.assertLessEqual({"facts_unreadable", "issue_budget_spent"}, set(passed(reads(issues=[budget(8), unread]))["alerts"]))
         self.assertNotIn("facts_unreadable", passed(reads(issues=[budget(8)]))["alerts"])
         # That code is the issues' alone: a pull request's entry with it is facts that are not facts.
         pull = {"facts": {"item": dict(support.ITEM, number=11)}, "title": None, "unread": "issue_budget"}
@@ -2247,6 +2247,9 @@ class Entry(unittest.TestCase):
         bare = dict(record)
         del bare["left_out"]
         self.assertEqual(run(3, 1, [bare])[0], [1, 2, 3])
+        # Only the last record's debts are read first, never an older one's (Astra).
+        owing = lambda numbers, now: dict(record, now=now, left_out=[{"item": item(n), "code": "issue_budget"} for n in numbers])
+        self.assertEqual(run(1, 1, [owing([2, 3], "2026-10-12T10:00:00Z"), owing([3, 1], "2026-10-12T11:00:00Z")], listed=(1, 2, 3))[0], [3])
         # An issue the record before left out by the budget that is no longer listed is passed over; one left out twice
         # is read once; a pull request left out is no issue.
         self.assertEqual(run(3, 1, [dict(record, left_out=[{"item": item(9), "code": "issue_budget"},

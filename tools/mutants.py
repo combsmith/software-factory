@@ -15942,6 +15942,8 @@ MUTANTS = ISSUE + OUTSIDE + [
      'key=lambda n: owed.index(n) if n in owed else len(owed))', 'key=lambda n: 0 if n in owed else 1)', F849_BUDGET),
     ("any issue left out is read first", 'controller/pass_.py',
      'e.get("code") == reads_.BUDGET and isinstance(e.get("item"), dict)', 'isinstance(e.get("item"), dict)', F849_BUDGET),
+    ("the issues are read first by the oldest record's debts", 'controller/pass_.py',
+     '(decision 0234)."""\n    last = before[-1] if', '(decision 0234)."""\n    last = before[0] if', F849_BUDGET),
     ("a pull request the budget left out is read first as an issue", 'controller/pass_.py',
      '                and e["item"].get("type") == "issue":', '                and True:', F849_BUDGET),
     ("the issues' budget is never spent", 'controller/__main__.py',
