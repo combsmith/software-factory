@@ -2314,7 +2314,11 @@ class Entry(unittest.TestCase):
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
+        failing = []
+
         def issue_read(transport, repo, number, accounts, clock, *, identities, **_):
+            if number in failing:
+                raise github.Unanswered("no")
             return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "An issue"
         example = json.loads((ROOT / "examples" / "pass.json").read_text())
         example["pull_requests"] = [dict(example["pull_requests"][0], facts=dict(example["pull_requests"][0]["facts"],
@@ -2456,6 +2460,12 @@ class Entry(unittest.TestCase):
         record = entry_with(dict(unlisted, now="2026-10-12T11:00:00Z"))
         self.assertEqual([s for s in spied if s[1] == 41], [("issue", 41, entry.seen_.LEFT)])
         self.assertEqual(record["reconciled"]["left_issues"], [{"number": 41, "at": record["now"]}])
+        # So too where it was listed but its own read failed, and it was left out unread (Claude).
+        failing.append(41)
+        left_unread = entry_with(reopened, listing=(5, 41))
+        del failing[:]
+        self.assertEqual(([e["code"] for e in left_unread["left_out"]], "left_issues" in left_unread["reconciled"]),
+                         (["facts_unanswered"], False))
         # Not listed, a stamp past the window is owed no more (Claude).
         record = entry_with(dict(before, issues=[], reconciled=dict(held, left_issues=[{"number": 41, "at": "2026-10-01T10:00:00Z"}])),
                             serving=None)

@@ -15652,6 +15652,8 @@ MUTANTS = ISSUE + [
      '    held["owed_issues"] = sorted(set(unread_issues))\n', '    held["owed_issues"] = []\n', ("tests.test_reconcile.Carried.test_the_issues_owed_and_left_are_carried_as_the_pull_requests_are",)),
     ("an issue served again keeps its stamp", 'controller/reconcile.py',
      ' not in newly_gone | set(served_issues)] + [', ' not in newly_gone] + [', ("tests.test_reconcile.Carried.test_the_issues_owed_and_left_are_carried_as_the_pull_requests_are", "tests.test_controller.Entry.test_an_issue_that_left_is_read_with_its_close_and_one_read_short_is_owed")),
+    ("an issue left out unread is not one the pass served", 'controller/pass_.py',
+     'map(reads_.item, also)', 'map(reads_.item, [])', ("tests.test_controller.Entry.test_an_issue_that_left_is_read_with_its_close_and_one_read_short_is_owed",)),
     ("the pass hands its carry no issue it served", 'controller/pass_.py',
      'reads.get("gone_issues") or (), served)}', 'reads.get("gone_issues") or ())}', ("tests.test_controller.Entry.test_an_issue_that_left_is_read_with_its_close_and_one_read_short_is_owed",)),
     ("an issue that leaves again keeps its first stamp too", 'controller/reconcile.py',
