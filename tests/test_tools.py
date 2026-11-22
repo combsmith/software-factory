@@ -6662,6 +6662,95 @@ class Context(unittest.TestCase):
                 self.assertTrue(caught(problems, said), problems)
                 self.assertEqual(len(problems), 1 if "shares" in said or "title" in said else 2, problems)
 
+    @staticmethod
+    def budgeted(status="Status: accepted.", decision="Y.", why="Z.", rows=("| b | `tools/x.py` |",), before=0):
+        """The problems `_decisions` finds in one record numbered at the budget's cutover, less `before`."""
+        number = check_context.BUDGET_FROM - before
+        text = "# %04d. X\n\n%s\n\n## Decision\n\n%s\n\n## Why\n\n%s\n\n## Boundaries\n\n| B | Check |\n|---|---|\n%s\n" % (
+            number, status, decision, why, "\n".join(rows))
+        return check_context._decisions(tree({"docs/decisions/%04d-x.md" % number: text, "tools/x.py": ""}))
+
+    def test_a_new_records_status_is_held_to_its_words(self):
+        # Decision 1166: from the cutover, a Status is at most 40 words; the label and words in backticks are not counted.
+        self.assertEqual((check_context.BUDGET_FROM, check_context.STATUS_WORDS), (1166, 40))
+        self.assertEqual(self.budgeted("Status: " + "w " * 40), [])
+        self.assertEqual(self.budgeted("Status: " + "w " * 40 + "`a b c` `d`"), [])
+        self.assertEqual(self.budgeted("Status: " + "w " * 39 + "non-`None`-valued"), [])
+        self.assertTrue(caught(self.budgeted("Status: " + "w " * 41), "the Status is 41 words"))
+        self.assertTrue(caught(self.budgeted("Status: " + "w " * 41 + "\nmore"), "the Status is 42 words"))
+        self.assertEqual(self.budgeted("Status: " + "w " * 41, before=1), [])
+        self.assertTrue(caught(self.budgeted("Status: " + "w " * 41, before=-1), "the Status is 41 words"))
+
+    def test_a_new_records_decision_and_why_are_held_to_their_words(self):
+        # Decision 1166: the Decision and the Why are at most 300 words together, or 450 for a record that replaces.
+        self.assertEqual(self.budgeted(decision="w " * 150, why="w " * 150), [])
+        self.assertTrue(caught(self.budgeted(decision="w " * 151, why="w " * 150), "are 301 words, and the most is 300"))
+        self.assertTrue(caught(self.budgeted(decision="w " * 300, why="w"), "are 301 words"))
+        replacing = "Status: accepted. Replaces `docs/decisions/0001-x.md`."
+        self.assertEqual(self.budgeted(replacing, decision="w " * 400, why="w " * 50), [])
+        self.assertTrue(caught(self.budgeted(replacing, decision="w " * 401, why="w " * 50), "are 451 words, and the most is 450"))
+        self.assertTrue(caught(self.budgeted("Status: accepted. It Replaces one.", decision="w " * 301), "the most is 300"))
+        self.assertTrue(caught(self.budgeted("Status: Replaces `docs/decisions/0001-x.md`.", decision="w " * 301), "the most is 300"))
+        self.assertTrue(caught(self.budgeted("Status: accepted. Replaces? No.", decision="w " * 301), "the most is 300"))
+        # Words in backticks count in the Decision; only the Status leaves them out. Only the Decision and Why count.
+        self.assertTrue(caught(self.budgeted(decision="`%s`" % ("w " * 300).strip()), "are 301 words"))
+        self.assertTrue(caught(self.budgeted(decision="w " * 301, why=""), "are 301 words"))
+        self.assertEqual(self.budgeted(decision="w " * 299, why="Z.", rows=("| %s| `tools/x.py` |" % ("w " * 20),)), [])
+        # A Status wrapped onto a second line replaces as well, as tools/check_decisions.py reads it.
+        wrapped = "Status: accepted.\nReplaces `docs/decisions/0001-x.md`."
+        self.assertEqual(self.budgeted(wrapped, decision="w " * 400, why="w " * 50), [])
+        # A section given twice is counted whole, and a letter outside ASCII makes a word.
+        twice = self.budgeted(decision="w " * 200 + "\n\n## Decision\n\n" + "w " * 200)
+        self.assertTrue(caught(twice, "are 401 words"), twice)
+        self.assertTrue(caught(self.budgeted(decision="\u00e9 " * 300), "are 301 words"))
+        self.assertEqual(self.budgeted(decision="w " * 299 + "\u00bd"), [])
+        self.assertTrue(caught(self.budgeted(decision="w " * 299 + "7"), "are 301 words"))
+        # A table's pipes and a dash alone are no words: 2 + 8 + 289 and the Why's one make 300.
+        self.assertEqual(self.budgeted(decision="| a | b |\n|---|---|\n" + "| w — | w |\n" * 4 + "w " * 289), [])
+        self.assertEqual(self.budgeted(decision="w " * 301, before=1), [])
+
+    def test_a_new_records_decision_table_is_short(self):
+        # Decision 1166: the Decision's tables have at most 8 rows together, and no cell over 40 words.
+        head = "| What | Decided |\n|---|---|\n"
+        self.assertEqual(self.budgeted(decision=head + "| a | b |\n" * 5 + "\nThen:\n\n" + head + "| a | b |\n" * 3), [])
+        many = self.budgeted(decision=head + "| a | b |\n" * 5 + "\nThen:\n\n" + head + "| a | b |\n" * 4)
+        self.assertTrue(caught(many, "the Decision has 9 rows, and the most is 8"), many)
+        self.assertEqual(self.budgeted(decision=head + "| a | %s|\n" % ("w " * 40)), [])
+        self.assertTrue(caught(self.budgeted(decision=head + "| a | b |\n| a | %s|\n" % ("w " * 41)),
+                               "Decision row 2 has a cell over 40 words"))
+        self.assertTrue(caught(self.budgeted(decision=head + "| %s| b |\n" % ("w " * 41)), "row 1 has a cell over 40"))
+        self.assertEqual(self.budgeted(decision=head + "| a | b |\n" * 9, before=1), [])
+        # A header's cells are held to the same 40 words, and are not counted as a row.
+        self.assertEqual(self.budgeted(decision="| %s| b |\n|---|---|\n" % ("w " * 40) + "| a | b |\n" * 8), [])
+        self.assertTrue(caught(self.budgeted(decision="| b | %s|\n|---|---|\n| a | b |\n" % ("w " * 41)),
+                               "a Decision table's header has a cell over 40 words"))
+        second = head + "| a | b |\n\nThen:\n\n| %s| b |\n|---|---|\n| a | b |\n" % ("w " * 41)
+        self.assertTrue(caught(self.budgeted(decision=second), "a Decision table's header has a cell over 40 words"))
+
+    def test_a_new_records_boundary_rows_are_short_and_name_one_mutant(self):
+        # Decision 1166: a Boundary row's behaviour is at most 30 words, and its Check names one mutant at most.
+        one = '`tools/x.py`, mutant: "m"'
+        self.assertEqual(self.budgeted(rows=("| %s| %s |" % ("w " * 30, one),)), [])
+        self.assertTrue(caught(self.budgeted(rows=("| b | `tools/x.py` |", "| %s| %s |" % ("w " * 31, one))),
+                               "boundary 2: the behaviour is over 30 words"))
+        two = self.budgeted(rows=('| b | %s, mutant: "n" |' % one,))
+        self.assertTrue(caught(two, "boundary 1: the Check names more than one mutant"), two)
+        self.assertEqual(self.budgeted(rows=('| %s| %s, mutant: "n" |' % ("w " * 31, one),), before=1), [])
+
+    def test_from_the_cutover_a_record_may_give_an_issue_by_its_number(self):
+        # Decision 1166: a record from the cutover may give an issue or a pull request by its number alone; a bare #N
+        # is still refused, and a record before it, or any other page, still gives the title.
+        new, old = "docs/decisions/%04d-x.md" % check_context.BUDGET_FROM, "docs/decisions/%04d-x.md" % (check_context.BUDGET_FROM - 1)
+        page, later = "docs/%04d-x.md" % check_context.BUDGET_FROM, "docs/decisions/%04d-y.md" % (check_context.BUDGET_FROM + 1)
+        root = tree({new: "", old: "", page: "", later: "", "docs/decisions/sub/%04d-x.md" % check_context.BUDGET_FROM: ""})
+        for said in ("Asked in issue 12.\n", "Built by pull request 13.\n"):
+            self.assertEqual(check_context._references(root / new, said, root), [])
+            self.assertEqual(check_context._references(root / later, said, root), [])
+            for name in (old, page, "docs/decisions/sub/%04d-x.md" % check_context.BUDGET_FROM):
+                with self.subTest(name, said=said):
+                    self.assertTrue(caught(check_context._references(root / name, said, root), "numbered without its title"))
+        self.assertTrue(caught(check_context._references(root / new, "Asked in #12.\n", root), "a bare issue"))
+
     def test_a_lesson_with_no_check_is_caught(self):
         text = ("### L-01 A thing broke\n\n**Failure.** It broke.\n\n**Rule.** Do not.\n\n"
                 "## L-02 Another\n\n**Failure.** It broke.\n\n**Rule.** Do not.\n")
