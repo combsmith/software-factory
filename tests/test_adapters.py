@@ -4672,6 +4672,7 @@ class Snapshot(unittest.TestCase):
                                 lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
         self.assertIs(got["complete"]["timeline"], False)
         self.assertIs(got["timeline_bounded"], True)
+        self.assertIs(got["complete"]["reviews"], True)       # with no dismissal, the reviews stay whole (Carbon)
         self.assertEqual([asked[1] for asked, _ in replay._left], [eleventh["request"]["call"].split(" ", 1)[1]])
         # A review dismissed past the cut, whose dismissal the timeline read does not hold, leaves the reviews not
         # whole, never the snapshot refused: the cut is still said (Claude, security).
@@ -4700,6 +4701,14 @@ class Snapshot(unittest.TestCase):
             got = snap(seq)
             self.assertIs(got["complete"][part], True, part)
             self.assertIs(got["timeline_bounded"], False, part)
+        # Reviews cut beside a timeline read short within its bound are a cut all the same (Carbon).
+        seq = self.sequence(1)
+        seq[5] = copy.deepcopy(seq[5])
+        seq[5]["response"]["body"] = {"message": "not a list"}
+        paged(seq, 6, "/repos/%s/pulls/26/reviews?per_page=100" % canary())
+        got = snap(seq)
+        self.assertEqual((got["complete"]["timeline"], got["complete"]["reviews"], got["timeline_bounded"]),
+                         (False, False, True))
         # Both cut is a cut (Astra).
         seq = self.sequence(1)
         paged(seq, 6, "/repos/%s/pulls/26/reviews?per_page=100" % canary())
@@ -4713,11 +4722,11 @@ class Snapshot(unittest.TestCase):
         paged(seq, 5, "/repos/%s/issues/26/timeline?per_page=100" % canary())
         seq[6]["response"]["body"] = {"message": "not a list"}
         del seq[7:15]
-        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        router = Router(github.Replay(seq), {"don-petry": "admin"}, {dismissed["commit_id"]: "diff --git a/x b/x\n"})
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                                 lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
-        self.assertEqual((got["complete"]["timeline"], got["complete"]["reviews"], got["timeline_bounded"]),
-                         (False, False, False))
+        self.assertEqual((got["complete"]["timeline"], got["complete"]["reviews"], got["timeline_bounded"], got["reviews"]),
+                         (False, False, False, []))     # its diff readable, it is the dismissal that leaves it out (Carbon)
         # A timeline read short within the bound, a page that is no list, is not cut: it defers as any read short.
         seq = self.sequence(1)
         paged(seq, 5, "/repos/%s/issues/26/timeline?per_page=100" % canary())
@@ -4726,6 +4735,7 @@ class Snapshot(unittest.TestCase):
         got = snap(seq)
         self.assertIs(got["complete"]["timeline"], False)
         self.assertIs(got["timeline_bounded"], False)
+        self.assertIs(got["complete"]["reviews"], True)       # with no dismissal, the reviews stay whole (Carbon)
 
     def test_a_snapshot_reads_the_ask_of_the_openers_pull_request_by_its_branch(self):  # issue 295
         # Told that the App that opens pull requests is this one's author, the snapshot reads its branch, which is no
