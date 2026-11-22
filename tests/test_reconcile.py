@@ -640,6 +640,9 @@ class SeenPort(unittest.TestCase):
         self.assertEqual([p for _, p in github.asked if "/timeline" in p][1:], [path + "&page=3", path + "&page=3"])
         github = Pages({path: [old] * 3 + [closed] + [old] * 10}, LEFT_ANSWERS)
         self.assertIs(seen_.read(github, ITEM, seen_.GONE, IDENTITIES, APPS, SINCE)[2], False)
+        # Its close on the eighth page from the end is past the bound too (Carbon).
+        github = Pages({path: [old] * 5 + [closed] + [old] * 7}, LEFT_ANSWERS)
+        self.assertIs(seen_.read(github, ITEM, seen_.GONE, IDENTITIES, APPS, SINCE)[2], False)
         self.assertLessEqual(len([p for _, p in github.asked if "/timeline" in p]), 10)
         # Its close found on the last page, the read still goes back to `since`: what was written before the close in
         # the window is read too, and the read is whole (Carbon).
@@ -688,6 +691,14 @@ class SeenPort(unittest.TestCase):
         label = [{"event": "labeled", "actor": CONTROLLER, "created_at": AT, "id": 5, "label": {"name": "factory:ready"}}]
         writes, _, whole = left(Pages({path: [label, new, close]}, LEFT_ANSWERS))
         self.assertEqual((whole, sorted(w["kind"] for w in writes)), (True, ["close", "label"]))
+        # Joined at the bound: eight pages are read whole in ten requests, nine are not (Carbon).
+        for between, whole in ((6, True), (7, False)):
+            github = Pages({path: [label] + [new] * between + [close]}, LEFT_ANSWERS)
+            self.assertIs(left(github)[2], whole, between)
+            self.assertLessEqual(len([p for _, p in github.asked if "/timeline" in p]), 10, between)
+        # A steady timeline that ends with a commit, which carries no id and no moment, is whole (Carbon).
+        commit = {"event": "committed", "sha": "a" * 40}
+        self.assertIs(left(Pages({path: [old] * 27 + [old + new, new, close + [commit]]}, LEFT_ANSWERS))[2], True)
         # An issue's timeline is read from its end too.
         issue = dict(ITEM, type="issue")
         github = Pages({path: [old] * 27 + [old + new, new, close]})
