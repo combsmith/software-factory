@@ -765,6 +765,13 @@ class Examples(unittest.TestCase):
         refers = {"type": "object", "additionalProperties": False, "properties": {"context": {"$ref": "feed.schema.json"}}}
         self.assertTrue(caught(check_examples._free(refers, schemas, refers, "task", "$", set()),
                                "admits text at $.context.sentences.*"))
+        # Even at the top: another kind that is the feed by a reference, and the feed that is another kind by one.
+        whole = {"$ref": "feed.schema.json"}
+        self.assertTrue(caught(check_examples._free(whole, schemas, whole, "task", "$", set()), "admits text at $.sentences.*"))
+        other = dict(schemas, role={"type": "object", "additionalProperties": False, "properties": {"sentences": shaped}})
+        whole = {"$ref": "role.schema.json"}
+        self.assertTrue(caught(check_examples._free(whole, other, whole, "feed", "$", set()),
+                               "schema role admits text at $.sentences.*"))
         # Nor a property of that name deeper in the feed: the sentences sit at its top alone.
         deeper = copy.deepcopy(feed)
         deeper["properties"]["next_actor"]["properties"]["sentences"] = shaped
