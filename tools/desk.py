@@ -16,12 +16,13 @@ answers. The hooks show make checks only when a check fails, so they show the no
 `python3 -m tools.desk merged` lists lines a merge of `origin/main` may have lost of either side, or made up, for a
 person to read each. While a merge is in progress (MERGE_HEAD is there) the merge is the index, and a path in it still
 unmerged is refused; once committed, it is HEAD, which must have exactly two parents. A merge of more heads, or of two
-sides with more than one merge base, is refused, since it cannot tell. A file one side changed must hold that side's
-blob and mode, and a file neither side changed the base's. In a file both changed, lines are compared as counts, not in
-order, so a line moved is not seen, nor one of two alike that both sides added. A rename on either side is named,
-"renamed: not compared", and not judged. A line it lists is not always wrong: where both sides changed one line, the
-right resolution may be a line neither side wrote, combined by hand, and the person reading it says so. It is never
-wired into anything that blocks.
+sides with more than one merge base, or in a shallow clone, which may hide a base, is refused, since it cannot tell. A
+file one side changed, or both alike, must hold that blob and mode, and a file neither side changed the base's. In a
+file both changed otherwise, lines are compared as counts, not in order, so a line moved is not seen, nor one of two
+alike that both sides added or took out, nor a final newline. A rename on either side is named, "renamed: not
+compared", and not judged, and so is a submodule both changed. A line it lists is not always wrong: where both sides
+changed one line, the right resolution may be a line neither side wrote, combined by hand, and the person reading it
+says so. It is never wired into anything that blocks.
 
 Each read is git's own, with no program a repo's configuration names, no fetch and a timeout: `origin/main` is whatever
 this clone last fetched.
@@ -194,12 +195,12 @@ def _renamed(root: pathlib.Path, base: str, side: str) -> set:
 
 def _counts(root: pathlib.Path, entry) -> dict:
     """Each line of an entry's blob, split at a newline alone so a carriage return is the line's own, and how often;
-    a blob that holds a NUL byte, binary, is counted as {None: 1}."""
+    a blob that holds a NUL byte, binary, is counted as {None: 1}. A final newline ends a line, and begins none."""
     blob = _git(root, "cat-file", "blob", entry[1]) if entry else b""
     if b"\0" in blob:
         return {None: 1}
-    counts = {}
-    for line in _text(blob).split("\n") if entry else ():
+    counts, lines = {}, _text(blob).split("\n")
+    for line in lines[:-1] if lines[-1] == "" else lines:
         counts[line] = counts.get(line, 0) + 1
     return counts
 
@@ -210,8 +211,9 @@ def _less(more: dict, fewer: dict) -> dict:
 
 
 def _told(rel: str, said: str, lines: dict) -> list:
-    """SHOWN of `lines` at most, each escaped as a path is, and how many more there are."""
-    told = ["%r: %s: %r" % (rel, said, line[:WIDTH]) for line in sorted(lines)[:SHOWN]]
+    """SHOWN of `lines` at most, each escaped as a path is, with how often it is gone, and how many more there are."""
+    told = ["%r: %s: %r%s" % (rel, said, line[:WIDTH], " (%d times)" % lines[line] if lines[line] > 1 else "")
+            for line in sorted(lines)[:SHOWN]]
     more = sum(lines.values()) - sum(lines[line] for line in sorted(lines)[:SHOWN])
     return told + (["%r: %s: and %d more" % (rel, said, more)] if more else [])
 
@@ -243,6 +245,8 @@ def merged(root: pathlib.Path = ROOT) -> list:
     side or made up, and what it cannot tell; [] when it kept both. Raises ValueError where git cannot read it."""
     if _partial(root):
         return ["cannot tell: this is a partial clone, whose reads may fetch; read the merge by hand"]
+    if _text(_git(root, "rev-parse", "--is-shallow-repository")).strip() != "false":
+        return ["cannot tell: this is a shallow clone, whose history may hide a merge base; read the merge by hand"]
     sides = _sides(root)
     if isinstance(sides, list):
         return sides
@@ -278,10 +282,17 @@ def merged(root: pathlib.Path = ROOT) -> list:
             problems.append("%r: %s" % (rel, "both sides took it out, and the merge has it" if have else
                                         "both sides kept it, and the merge took it out"))
             continue
+        if entries[1] == entries[2]:
+            if have != entries[1]:
+                problems.append("%r: both sides left it alike, and the merge does not hold that blob and mode" % rel)
+            continue
+        if any(entry and entry[0] == "160000" for entry in entries + (have,)):
+            problems.append("%r: a submodule both sides changed: not compared" % rel)
+            continue
         problems += ["%r: %s changed its mode, and the merge does not hold it" % (rel, whose)
                      for side, whose in ((entries[1], "the branch"), (entries[2], "main"))
                      if side and have and side[0] != (entries[0] or ("",))[0] and have[0] != side[0]]
-        if entries[1] and entries[2] and have and entries[1][0] == entries[2][0] != have[0]:
+        if all(entries) and have and entries[0][0] == entries[1][0] == entries[2][0] != have[0]:
             problems.append("%r: both sides left its mode as it was, and the merge does not hold it" % rel)
         was, kept, wanted, held = (_counts(root, entry) for entry in entries + (have,))
         if any(None in counts for counts in (was, kept, wanted, held)):

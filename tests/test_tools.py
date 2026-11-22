@@ -16185,3 +16185,95 @@ class Desk(unittest.TestCase):
         self.commit(root, "y takes other")
         self.merge(root, "x")
         self.assertEqual(desk.merged(root), ["cannot tell: the two sides have 2 merge bases, not one"])
+
+    def sides(self, base: dict, work: dict, main: dict, modes=()) -> pathlib.Path:
+        """A base, a branch and a main, each side's files written over the base's (None takes one out) and each path in
+        `modes` made executable on both sides, merged with nothing committed, whatever conflicts."""
+        root = self.repo(base)
+        for branch, files in (("work", work), ("main", main)):
+            git(root, "checkout", "-q", "-b" if branch == "work" else "-B", branch, "refs/remotes/origin/main")
+            for rel, text in files.items():
+                (root / rel).unlink() if text is None else (root / rel).write_text(text)
+            for rel in modes:
+                (root / rel).chmod(0o755)
+            self.commit(root, branch)
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        git(root, "checkout", "-q", "work")
+        self.merge(root, "origin/main", check=False)
+        return root
+
+    def test_a_file_both_sides_left_alike_is_held_whole_and_lines_are_told_as_often_as_lost(self):
+        # Both sides left x.py alike, so the merge must hold that blob, whatever a count of lines would excuse; both
+        # gave g.py one mode; a final newline begins no line, so it cannot stand in for a blank line the branch added;
+        # a line lost three times is told so, and one past WIDTH is cut; a mode both sides changed is no mode both left.
+        root = self.sides({"x.py": "x\nx\nx\nz", "g.py": "g\n", "e.py": "a\nb", "r.py": "a\nz\n", "m.py": "a\nb\n"},
+                          {"x.py": "x\nz", "e.py": "a\n\nb", "r.py": "a\nz\nw\n", "m.py": "A\nb\n"},
+                          {"x.py": "x\nz", "e.py": "A\nb", "r.py": "a\n" + "y" * 100 + "\ncheck()\ncheck()\ncheck()\nz\n",
+                           "m.py": "a\nB\n"}, modes=("g.py", "m.py"))
+        (root / "g.py").chmod(0o644)
+        (root / "m.py").chmod(0o644)
+        self.assertEqual(self.staged(root, {"x.py": "z", "e.py": "A\nb\n", "r.py": "a\nz\nw\n", "m.py": "A\nB\n"}), [
+            "'e.py': the branch's line is gone, and main did not take it out: ''",
+            "'g.py': both sides left it alike, and the merge does not hold that blob and mode",
+            "'m.py': the branch changed its mode, and the merge does not hold it",
+            "'m.py': main changed its mode, and the merge does not hold it",
+            "'r.py': main's line is gone, and the branch did not take it out: 'check()' (3 times)",
+            "'r.py': main's line is gone, and the branch did not take it out: %r" % ("y" * desk.WIDTH),
+            "'x.py': both sides left it alike, and the merge does not hold that blob and mode"])
+
+    def test_a_committed_merge_a_rename_by_main_a_file_both_took_out_and_a_shallow_clone_are_each_read(self):
+        # Committed, the merge is HEAD's tree, not what is staged after it.
+        root = self.merging()
+        lost = ["'f.py': main's line is gone, and the branch did not take it out: 'm1'"]
+        self.assertEqual(self.staged(root, {"f.py": "a\nb\nc\ne\nf\ng\ni\nj\nx1\n"}), lost)
+        self.commit(root, "merge")
+        self.staged(root, {"f.py": "a\nm1\nb\nc\ne\nf\ng\ni\nj\nx1\n"})
+        self.assertEqual(desk.merged(root), lost)
+        # A shallow clone may hide a merge base, so it cannot tell.
+        (root / ".git" / "shallow").write_text(git(root, "rev-parse", "HEAD^1"))
+        self.assertEqual(desk.merged(root), ["cannot tell: this is a shallow clone, whose history may hide a merge base; "
+                                             "read the merge by hand"])
+        # A file both sides kept and the merge took out, or both took out and the merge has, is told.
+        self.assertEqual(self.staged(self.merging(), {"f.py": None}), ["'f.py': both sides kept it, and the merge took "
+                                                                       "it out"])
+        root = self.sides({"f.py": "a\n", "k.py": "k\n"}, {"f.py": None}, {"f.py": None, "k.py": "k2\n"})
+        self.assertEqual(self.staged(root, {"f.py": "a\n"}), ["'f.py': both sides took it out, and the merge has it"])
+        # A rename by main is named as one by the branch is.
+        root = self.repo({"f.py": "a\nb\nc\nd\ne\nf\ng\n", "k.py": "k\n"})
+        git(root, "checkout", "-q", "-b", "work")
+        (root / "k.py").write_text("k2\n")
+        self.commit(root, "work")
+        git(root, "checkout", "-q", "main")
+        git(root, "mv", "f.py", "r.py")
+        self.commit(root, "rename")
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        git(root, "checkout", "-q", "work")
+        self.merge(root, "origin/main")
+        self.assertEqual(desk.merged(root), ["'f.py': renamed: not compared", "'r.py': renamed: not compared"])
+
+    def test_a_submodule_both_sides_changed_is_named_and_the_other_files_still_read(self):
+        root = self.repo({"a.py": "a\nb\n"})
+        ids = [git(root, "rev-parse", "HEAD").strip()]
+        commit = ("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m")
+        git(root, "update-index", "--add", "--cacheinfo", "160000,%s,vendor" % ids[0])
+        git(root, *commit, "a submodule")
+        ids.append(git(root, "rev-parse", "HEAD").strip())
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        for branch, text in (("work", "A\nb\n"), ("main", "a\nB\n")):     # each points it at its own commit
+            git(root, "checkout", "-q", "-b" if branch == "work" else "-B", branch, "refs/remotes/origin/main")
+            (root / "a.py").write_text(text)
+            git(root, "add", "a.py")
+            git(root, *commit, branch)
+            ids.append(git(root, "rev-parse", "HEAD").strip())
+            git(root, "update-index", "--cacheinfo", "160000,%s,vendor" % ids[-1])
+            git(root, *commit, branch + "'s submodule")
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        git(root, "checkout", "-q", "work")
+        self.merge(root, "origin/main", check=False)
+        git(root, "update-index", "--cacheinfo", "160000,%s,vendor" % ids[2])
+        (root / "a.py").write_text("A\nb\n")
+        git(root, "add", "a.py")
+        self.assertEqual(desk.merged(root), [
+            "'a.py': main's line is gone, and the branch did not take it out: 'B'",
+            "'a.py': a line main took out, or no side wrote, is there: 'b'",
+            "'vendor': a submodule both sides changed: not compared"])
