@@ -56,7 +56,7 @@ PATCHERS = {"tools/make_corpus.py": {"sim.world.decide"}}
 RUNNERS = ("harness/steps.py", "tools/check_decisions.py", "tools/check_trials.py", "tools/check_workflows.py",
            "tools/commits_are_the_maintainers.py", "tools/desk.py",
            "tools/hooks/before_stop.py", "tools/hooks/identity.py", "tools/hooks/make.py", "tools/hooks/protected.py",
-           "tools/hooks/rules_changed.py", "tools/hooks/shell.py", "tools/mutants.py", "tools/untested.py")
+           "tools/hooks/rules_changed.py", "tools/hooks/shell.py", "tools/untested.py")
 # The mutants of the files outside kernel/, as data: each names a command as the text a mutant finds in its target, and
 # runs none, since it imports no module, and names from no file but another there that imports none either (issue 1101;
 # allowed by the Maintainer, 2026-11-21). Its top level is a docstring, imports and assignments, with no def or class
