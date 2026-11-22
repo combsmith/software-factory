@@ -12586,7 +12586,7 @@ class Verify(unittest.TestCase):
     def test_make_reads_the_makefile_as_committed_and_remakes_it_from_nothing(self):  # issue 1048, decision 0240
         # make tries to remake the makefile it read before it looks up a target, by an implicit rule from a file beside
         # it: a newer Makefile.sh is copied over the Makefile, and its verify runs in place of the committed one (Astra's
-        # read). The Makefile's explicit rule with no recipe stops that.
+        # read). The Makefile's explicit rule with an empty recipe stops that.
         with tempfile.TemporaryDirectory() as where:
             where = pathlib.Path(where)
             shutil.copy(ROOT / "Makefile", where / "Makefile")
