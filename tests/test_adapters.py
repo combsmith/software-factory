@@ -2427,6 +2427,15 @@ class Timeline(unittest.TestCase):
                                                                     "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"})
         got, whole, _ = timeline.reviews(router, p7_pull(), events, self.accounts(router), BASE_HEAD, timeline_whole=False)
         self.assertEqual(([r["state"] for r in got], whole), (["dismissed", "dismissed", "approved"], True))
+        # With one dismissal past the cut and one read, the one read stays, with who dismissed it, and the reviews are
+        # not whole (Carbon).
+        first = [i for i, e in enumerate(events) if e.get("event") == "review_dismissed"][0]
+        router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "d",
+                                                                    "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"})
+        got, whole, cut = timeline.reviews(router, p7_pull(), events[:first] + events[first + 1:], self.accounts(router),
+                                           BASE_HEAD, timeline_whole=False)
+        self.assertEqual(([r["state"] for r in got], whole, cut), (["dismissed", "approved"], False, False))
+        self.assertEqual(got[0]["dismissed_by"]["name"], "combsmith-sf-trial-author[bot]")
 
     def test_a_reviews_commit_too_large_to_diff_or_gone_is_its_own_id(self):
         commit = "f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb"
