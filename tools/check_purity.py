@@ -842,7 +842,7 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
                                     "not read" % (name, line, mod))
             # The guards refuse every relative import by their own rule, whatever it names.
             if isinstance(node, ast.ImportFrom) and ((node.level and package == "kernel")
-                                                     or (node.module or "").split(".")[0] == "kernel"):
+                                                     or (not node.level and (node.module or "").split(".")[0] == "kernel")):
                 for alias in node.names:
                     if not _answered(name, node, alias.name, read, bound):
                         problems.append("%s:%d imports %s from %s, which no file read here is and its module binds no "

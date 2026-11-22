@@ -2286,7 +2286,7 @@ class Purity(unittest.TestCase):
         self.assertTrue(caught(run({"kernel/terms.py": "", "kernel/sub/y.py": "from .. import gone\n"}), "no such name"))
         self.assertEqual(run({"kernel/sub/__init__.py": "S = 's'\n", "kernel/x.py": "from kernel.sub import S\n"}), [])
         # The guards refuse every relative import by their own rule, once: this one is the Kernel's.
-        for line in ("from .. import tools\n", "from . import missing\n"):    # the second, Astra's read
+        for line in ("from .. import tools\n", "from . import missing\n", "from .kernel import missing\n"):   # Astra's reads
             found = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": line}))
             self.assertEqual(len(found), 1, found)
             self.assertTrue(caught(found, "guards/ imports itself alone") and not caught(found, "from above"), found)
@@ -2295,6 +2295,9 @@ class Purity(unittest.TestCase):
                            ("    assert facts, facts\n    return facts\n", "raises"),
                            ("    yield from facts\n", "drives what it is handed")):
             self.assertTrue(caught(run({"kernel/x.py": "def f(facts):\n" + body}), "x.py:2 %s" % does), does)
+            # The guards are held to it too (Astra's read).
+            found = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": "def f(facts):\n" + body}))
+            self.assertTrue(caught(found, "x.py:2 %s" % does), (does, found))
         for body, does in (("    async with facts as f:\n        return f\n", "enters what it is handed"),
                            ("    async for item in facts:\n        return item\n", "drives what it is handed"),
                            ("    return [item async for item in facts]\n", "drives what it is handed"),
