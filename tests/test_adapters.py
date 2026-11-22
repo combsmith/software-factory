@@ -2607,7 +2607,7 @@ class Timeline(unittest.TestCase):
         self.assertEqual(accounts.actor({"login": login, "id": who["id"], "type": who["type"]}),
                          {"kind": "human", "name": login, "can_write": False})
 
-    def test_a_permission_is_asked_once_however_many_threads_ask_it(self):  # decision 0000
+    def test_a_permission_is_asked_once_however_many_threads_ask_it(self):  # decision 1138
         # The pass reads pull requests at once and they share one reader: a login two threads ask together is asked
         # once, and both read the one answer kept.
         found = next(e for e in exchanges("P-27") if "/permission" in e["request"].get("call", ""))

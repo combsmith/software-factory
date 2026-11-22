@@ -84,7 +84,7 @@ class Accounts:
         self.queue = tuple(queue) if queue is not None else None
         self.apps, self.reserved = dict(apps or {}), set(reserved)
         # The pass reads pull requests at once, each in a thread, and they share this reader: a login is asked by the
-        # first thread to ask it, and every thread waits on and reads the one answer kept (decision 0000).
+        # first thread to ask it, and every thread waits on and reads the one answer kept (decision 1138).
         self.asked = {}
 
     def named(self, login: str, ident: int, kind: str) -> str:

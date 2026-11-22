@@ -1,4 +1,4 @@
-# 0000. Four open pull requests are read at once, and a rate limit is no answer
+# 1138. Four open pull requests are read at once, and a rate limit is no answer
 
 Status: accepted. The Solution Architect's ruling of 2026-11-22 on the stage timings of "controller: reconciliation reads grow until a pass runs out of time" (issue 1025), as the Factory Builder relayed it.
 

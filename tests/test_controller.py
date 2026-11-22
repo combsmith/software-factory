@@ -2551,7 +2551,7 @@ class Entry(unittest.TestCase):
         self.assertEqual({json.loads(line)["seconds"] for line in failing[4].getvalue().splitlines()}, {None})
         self.assertEqual(entered(err=Closed())[:4], (code, printed, files, sent))
 
-    def test_the_open_pull_requests_are_read_four_at_once_and_kept_in_the_listed_order(self):  # decision 0000
+    def test_the_open_pull_requests_are_read_four_at_once_and_kept_in_the_listed_order(self):  # decision 1138
         # Each snapshot is read whole in a thread of its own, at most four at once, the first listed ending last; the
         # record is the one a pass reading them one at a time writes. A rate limit's answer is GitHub not answering: that
         # pull request is left out, read no second time, and the rest are read one at a time, in the pass's own thread.
@@ -2594,7 +2594,7 @@ class Entry(unittest.TestCase):
         self.assertIn({"item": dict(support.ITEM, number=9), "code": "facts_unanswered"}, limited["left_out"])
         self.assertEqual((sorted(read[n][0] for n in (3, 5, 7, 9)), read[11], read[13]), ([1, 2, 3, 4], [1], [1]))
 
-    def test_a_rate_limit_is_a_429_or_a_403_with_no_request_left_or_a_time_to_wait(self):  # decision 0000
+    def test_a_rate_limit_is_a_429_or_a_403_with_no_request_left_or_a_time_to_wait(self):  # decision 1138
         def answer(status, **headers):
             return {"status": status, "headers": headers, "body": None}
         for limited in (answer(429), answer(403, **{"x-ratelimit-remaining": "0"}), answer(403, **{"retry-after": "60"})):

@@ -56,7 +56,7 @@ RUN_ID = re.compile(r"[1-9][0-9]{0,18}")
 ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 VIEW = ("meta", "items", "health")
 FOLDER = "pass"     # what the workflow's form writes into, for the upload and the effects step
-# The open pull requests' snapshots read at once, each serial inside, the rest of the pass serial (decision 0000).
+# The open pull requests' snapshots read at once, each serial inside, the rest of the pass serial (decision 1138).
 POOL = 4
 WINDOW = 24 * 60 * 60   # reconciliation's window, with `not_run_seconds`, so a pass after a gap still covers it (decision 0061)
 
@@ -190,7 +190,7 @@ def rate_limited(answer) -> bool:
 class Limited:
     """The transport of the open pull requests' snapshots: a rate limit's answer is no answer, so the pull request it
     was read for is left out as GitHub not answering, with no retry; and once one is seen, the snapshots left are read
-    one at a time (decision 0000)."""
+    one at a time (decision 1138)."""
 
     def __init__(self, transport):
         self.transport, self.hit = transport, False
@@ -205,7 +205,7 @@ class Limited:
 
 def snapshots(numbers: list, one, pool: int, limited) -> list:
     """`one(number)` for each of `numbers`, in their order whatever order the reads end in: up to `pool` at once, each
-    in a thread of its own, until `limited.hit`; then the rest one at a time, in this thread (decision 0000)."""
+    in a thread of its own, until `limited.hit`; then the rest one at a time, in this thread (decision 1138)."""
     out, at = [None] * len(numbers), 0
     if pool > 1:
         with concurrent.futures.ThreadPoolExecutor(max_workers=pool) as running:
@@ -385,7 +385,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
          stages=QUIET, pool: int = 1) -> dict:
     """Everything the pass reads after the wait, as `pass_.run` takes it. Each port that waits waits by `sleep`, the
     entry's (issue 709). `stages` times each stage of it (issue 1025). `pool` open pull requests are read at once, one
-    to a recorded exchange, whose answers come in order (decision 0000)."""
+    to a recorded exchange, whose answers come in order (decision 1138)."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
     with stages.stage("accounts"):
@@ -553,7 +553,7 @@ def main(argv=None, environ=None, base=None, clock=time.time, sleep=time.sleep, 
     """The step. It writes only into an empty folder inside the directory it runs in, `base`, by default the working
     directory, and names no path, key or token in what it prints. The token is revoked whatever happened, and one GitHub
     did not revoke fails the step, `token_not_revoked`. Each stage's seconds go to `err`, standard error by default,
-    timed by `timer` (issue 1025). `pool` open pull requests are read at once (decision 0000)."""
+    timed by `timer` (issue 1025). `pool` open pull requests are read at once (decision 1138)."""
     argv = sys.argv[1:] if argv is None else argv
     environ = os.environ if environ is None else environ
     inside = os.path.realpath(str(pathlib.Path.cwd() if base is None else base))
