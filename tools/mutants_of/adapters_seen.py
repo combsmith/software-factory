@@ -385,4 +385,7 @@ MUTANTS = [
      '            if joined:\n                first, _ = _page(transport, path, 1)\n', '            if joined and not reached:\n                first, _ = _page(transport, path, 1)\n', ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_holds_its_edges',)),
     ('a list the snapshot cut is not read again', 'adapters/seen.py',
      '        if cut.get("events") is True:\n', '        if False:\n', ('tests.test_reconcile.SeenPort.test_a_timeline_the_snapshot_cut_is_read_again_from_its_end',)),
+    ("the seen port reads the reviews of an item that left past ten pages", 'adapters/seen.py',
+     '"reviews": _pages(transport, "/repos/', '"reviews": timeline._pages(transport, "/repos/',
+     ('tests.test_reconcile.SeenPort.test_a_list_is_read_to_ten_pages_and_past_them_what_was_seen_is_short',)),
 ]
