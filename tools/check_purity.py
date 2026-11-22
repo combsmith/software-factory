@@ -105,12 +105,12 @@ def _assigned(node) -> list:
 
 
 def _shaped(target, value) -> bool:
-    """Whether an assignment at a module's top binds names alone, and unpacks only a tuple or list written out with as
-    many elements, each of its own shape: so that no starred name keeps a list, and no name is a set's element in an
-    order the hash seed picks."""
+    """Whether an assignment at a module's top binds names alone, and unpacks into a tuple or list of them only a tuple
+    written out with as many elements, each of its own shape: so that no starred name keeps a list, and no name is a
+    set's element in an order the hash seed picks. A list written out is a value that can change, refused before."""
     if isinstance(target, ast.Name):
         return True
-    return (isinstance(target, (ast.Tuple, ast.List)) and isinstance(value, (ast.Tuple, ast.List))
+    return (isinstance(target, (ast.Tuple, ast.List)) and isinstance(value, ast.Tuple)
             and len(target.elts) == len(value.elts) and all(_shaped(t, v) for t, v in zip(target.elts, value.elts)))
 
 

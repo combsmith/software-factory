@@ -2242,6 +2242,8 @@ class Purity(unittest.TestCase):
         for text in ("A, *B = 'a', 'b'\n", "T = ('a',)\nT[0] = 'b'\n", "A, B = frozenset({'a', 'b'})\n", "A, B = 'a', 'b', 'c'\n",
                      "[A, (B, C)] = 'a', 'bc'\n"):
             self.assertTrue(caught(run({"kernel/x.py": text}), "assigns other than to names"), text)
+        # A list written out is unpacked by none: it is a value that can change (Carbon's read).
+        self.assertTrue(caught(run({"kernel/x.py": "A, B = ['a', 'b']\n"}), "x.py:1 holds a value that can change"))
         # 2. A builtin site adds, each of which reads a file, asks the help system or ends the process, as a value.
         for word in ("license", "copyright", "credits", "help", "exit", "quit"):
             self.assertTrue(caught(run({"kernel/x.py": "def f():\n    return str(%s)\n" % word}), "x.py:2 uses %s" % word), word)
