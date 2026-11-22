@@ -16,6 +16,7 @@ from controller import pass_, writes as writes_
 from tests import support
 from tests.support import pending
 from tests.test_controller import config, passed, pr, reads, run
+from tools import walk
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROLLER = json.loads((ROOT / "config" / "controller.json").read_text())
@@ -965,13 +966,17 @@ class Status(unittest.TestCase):
             answer = self.answers.pop(0)
             if answer is None:
                 raise github.Unanswered("no answer")
-            return answer
+            return answer(req) if callable(answer) else answer
 
     def run_on(self, **change):
         """A status check run as P-12 read one, with the node id the port's other writes read back."""
         base = json.loads((ROOT / "trials" / "P-12.json").read_text())["exchanges"][2]["response"]["body"]
         return dict(base, name="factory", head_sha=self.HEAD, app={"id": self.APP, "slug": "combsmith-sf-controller"},
                     node_id="CR_kw", **change)
+
+    def took(self, status: int, run: dict):
+        """GitHub's answer to a write, with `run` holding the output the write sent, as P-12 read every one back."""
+        return lambda req: {"status": status, "headers": {}, "body": dict(run, output=dict(run.get("output") or {}, **req["body"]["output"]))}
 
     def listing(self, *runs, total=None):
         return {"status": 200, "headers": {}, "body": {"total_count": len(runs) if total is None else total, "check_runs": list(runs)}}
@@ -1000,7 +1005,7 @@ class Status(unittest.TestCase):
             self.assertNotEqual(effects.status_id(dict(decision, **{name: ["changed"]})), want, name)
         self.assertEqual(effects.status_id(dict(reversed(list(decision.items())))), want)
         # None on the head: one is made, on that head, by name.
-        got, sent = self.write(o, self.listing(), {"status": 201, "headers": {}, "body": self.run_on(external_id=want)})
+        got, sent = self.write(o, self.listing(), self.took(201, self.run_on(external_id=want)))
         self.assertEqual(got, ("applied", "CR_kw", None, True))
         self.assertEqual([r["method"] for r in sent], ["GET", "POST"])
         self.assertEqual(sent[0]["path"], "/repos/combsmith/software-factory/commits/%s/check-runs?check_name=factory&app_id=%d&filter=all&per_page=100" % (self.HEAD, self.APP))
@@ -1012,7 +1017,7 @@ class Status(unittest.TestCase):
         self.assertEqual(len(sent), 1)
         # One carrying another: it is edited in place, the whole output sent, and it stays one run.
         old = self.run_on(external_id="d" + "a" * 32)
-        got, sent = self.write(o, self.listing(old), {"status": 200, "headers": {}, "body": dict(old, external_id=want)})
+        got, sent = self.write(o, self.listing(old), self.took(200, dict(old, external_id=want)))
         self.assertEqual(got, ("applied", "CR_kw", None, True))
         self.assertEqual((sent[1]["method"], sent[1]["path"]), ("PATCH", "/repos/combsmith/software-factory/check-runs/%d" % old["id"]))
         self.assertEqual(sent[1]["body"]["external_id"], want)
@@ -1020,34 +1025,47 @@ class Status(unittest.TestCase):
         # P-12: created twice, the later of the two is what GitHub shows. It alone is edited, and it alone says the Decision
         # is written: an older run carrying this Decision, the later another, is written again.
         newer = dict(old, id=old["id"] + 1)
-        _, sent = self.write(o, self.listing(old, newer), {"status": 200, "headers": {}, "body": dict(newer, external_id=want)})
+        _, sent = self.write(o, self.listing(old, newer), self.took(200, dict(newer, external_id=want)))
         self.assertEqual(sent[1]["path"], "/repos/combsmith/software-factory/check-runs/%d" % newer["id"])
         self.assertEqual(self.write(o, self.listing(old, dict(newer, external_id=want)))[0][0], "already_applied")
-        _, sent = self.write(o, self.listing(dict(old, external_id=want), newer), {"status": 200, "headers": {}, "body": dict(newer, external_id=want)})
+        _, sent = self.write(o, self.listing(dict(old, external_id=want), newer), self.took(200, dict(newer, external_id=want)))
         self.assertEqual((sent[1]["method"], sent[1]["path"]), ("PATCH", "/repos/combsmith/software-factory/check-runs/%d" % newer["id"]))
         # One carrying this Decision but not neutral and finished is not the status as written: it is edited back.
         for change in ({"status": "in_progress"}, {"conclusion": "success"}):
             got, sent = self.write(o, self.listing(dict(self.run_on(external_id=want), **change)),
-                                   {"status": 200, "headers": {}, "body": self.run_on(external_id=want)})
+                                   self.took(200, self.run_on(external_id=want)))
             self.assertEqual((got[0], sent[1]["method"]), ("applied", "PATCH"), change)
         # Another App's run of the name, or another name, is not the status: one is made.
         for other in (dict(old, app={"id": 9, "slug": "x"}, external_id=want), dict(old, name="other", external_id=want)):
-            got, sent = self.write(o, self.listing(other), {"status": 201, "headers": {}, "body": self.run_on(external_id=want)})
+            got, sent = self.write(o, self.listing(other), self.took(201, self.run_on(external_id=want)))
             self.assertEqual((got[0], sent[1]["method"]), ("applied", "POST"), other["name"])
 
     def test_what_is_not_read_back_fails_and_says_so(self):
         o = self.record()
         want = effects.status_id(o["record"]["pull_requests"][0]["decision"])
-        made = lambda **c: {"status": 201, "headers": {}, "body": dict(self.run_on(external_id=want), **c)}
+        made = lambda **c: self.took(201, dict(self.run_on(external_id=want), **c))
         # P-12: GitHub answers a 200 that may not hold what was sent, so each field is read back.
         for change in ({"external_id": "x"}, {"head_sha": "0" * 40}, {"name": "other"}, {"app": {"id": 9}}, {"app": None},
                        {"status": "queued"}, {"conclusion": "success"}, {"node_id": None}, {"node_id": ""}, {"id": "1"},
                        {"node_id": "CR kw"}, {"node_id": "C" * 101}):
             got, _ = self.write(o, self.listing(), made(**change))
             self.assertEqual(got, ("failed", None, "not_read_back", True), change)
+        # The output is read back whole: a title or a summary GitHub does not hold as sent, or none.
+        bad = lambda output: lambda req: {"status": 201, "headers": {}, "body": dict(self.run_on(external_id=want), output=output(req["body"]["output"]))}
+        for output in (lambda o: dict(o, title=o["title"] + "x"), lambda o: dict(o, summary=o["summary"][1:]),
+                       lambda o: dict(o, summary=o["summary"].split("\n", 1)[1]), lambda o: {"title": o["title"]},
+                       lambda o: {"summary": o["summary"]}, lambda o: None, lambda o: "x"):
+            got, _ = self.write(o, self.listing(), bad(output))
+            self.assertEqual(got, ("failed", None, "not_read_back", True), output(dict(title="t", summary="s\nx")))
+        # An edit that holds the sentence and the title, but not a code line below them, is not read back either.
+        old = self.run_on(external_id="d" + "a" * 32)
+        stale = lambda req: {"status": 200, "headers": {}, "body": dict(old, external_id=want, output=dict(
+            req["body"]["output"], summary=req["body"]["output"]["summary"].replace("action: ", "action: x", 1)))}
+        got, sent = self.write(o, self.listing(old), stale)
+        self.assertEqual((got, sent[1]["method"]), (("failed", None, "not_read_back", True), "PATCH"))
         # An edit that answers of another run.
         old = self.run_on(external_id="d" + "a" * 32)
-        got, _ = self.write(o, self.listing(old), {"status": 200, "headers": {}, "body": dict(old, id=old["id"] + 1, external_id=want)})
+        got, _ = self.write(o, self.listing(old), self.took(200, dict(old, id=old["id"] + 1, external_id=want)))
         self.assertEqual(got, ("failed", None, "not_read_back", True))
         # One carrying this Decision with a node id `written/1` cannot hold cannot be matched by reconciliation.
         for node in (None, "CR kw", "C" * 101):
@@ -1063,16 +1081,16 @@ class Status(unittest.TestCase):
         self.assertEqual(self.write(o, self.listing(), {"status": 500, "headers": {}, "body": {}})[0], ("failed", None, "write_unanswered", True))
         self.assertEqual(self.write(o, self.listing(), None)[0], ("failed", None, "write_unanswered", True))
         # An edit answered as a create was not taken, and the other way about.
-        self.assertEqual(self.write(o, self.listing(), {"status": 200, "headers": {}, "body": self.run_on(external_id=want)})[0][0], "failed")
-        self.assertEqual(self.write(o, self.listing(self.run_on(external_id="x")), {"status": 201, "headers": {}, "body": self.run_on(external_id=want)})[0][0], "failed")
+        self.assertEqual(self.write(o, self.listing(), self.took(200, self.run_on(external_id=want)))[0][0], "failed")
+        self.assertEqual(self.write(o, self.listing(self.run_on(external_id="x")), self.took(201, self.run_on(external_id=want)))[0][0], "failed")
 
     def test_the_status_neither_passes_nor_fails(self):
         o = self.record()
         want = effects.status_id(o["record"]["pull_requests"][0]["decision"])
-        _, sent = self.write(o, self.listing(), {"status": 201, "headers": {}, "body": self.run_on(external_id=want)})
+        _, sent = self.write(o, self.listing(), self.took(201, self.run_on(external_id=want)))
         self.assertEqual((sent[1]["body"]["status"], sent[1]["body"]["conclusion"]), ("completed", "neutral"))
         old = self.run_on(external_id="x")
-        _, sent = self.write(o, self.listing(old), {"status": 200, "headers": {}, "body": dict(old, external_id=want)})
+        _, sent = self.write(o, self.listing(old), self.took(200, dict(old, external_id=want)))
         self.assertEqual((sent[1]["body"]["status"], sent[1]["body"]["conclusion"]), ("completed", "neutral"))
         # The Controller's token may send no other, and no other field: it never reaches GitHub.
         cfg = controller()
@@ -1140,10 +1158,61 @@ class Status(unittest.TestCase):
             self.assertLessEqual(len(got), effects.SUMMARY_MOST, first)
         # The pass's run is where it points; with none that can be read it names none.
         want = effects.status_id(d)
-        _, sent = self.write(o, self.listing(), {"status": 201, "headers": {}, "body": self.run_on(external_id=want)})
+        _, sent = self.write(o, self.listing(), self.took(201, self.run_on(external_id=want)))
         self.assertEqual(sent[1]["body"]["details_url"], "https://github.com/combsmith/software-factory/actions/runs/777")
-        _, sent = self.write(o, self.listing(), {"status": 201, "headers": {}, "body": self.run_on(external_id=want)}, status=dict(self.STATUS, run_id=None))
+        _, sent = self.write(o, self.listing(), self.took(201, self.run_on(external_id=want)), status=dict(self.STATUS, run_id=None))
         self.assertNotIn("details_url", sent[1]["body"])
+
+    def test_the_status_opens_with_its_reasons_sentence_and_changes_only_with_its_decision(self):  # decision 1123
+        feed = self.STATUS["feed"]
+        o = self.record(reason="awaiting_checks", state="verifying")
+        d = o["record"]["pull_requests"][0]["decision"]
+        before = json.dumps(d, sort_keys=True)
+        output = effects.status_output(d, o["record"], feed)
+        lines = output["summary"].split("\n")
+        # The sentence is the first line, a paragraph of its own, the codes after it as they were, and the title is the
+        # codes alone.
+        self.assertTrue(output["summary"].startswith(feed["sentences"]["awaiting_checks"] + "\n\nattention: "))
+        self.assertEqual(lines[0], feed["sentences"]["awaiting_checks"])
+        self.assertEqual(lines[2:], effects.status_output(d, o["record"], dict(feed, sentences={}))["summary"].split("\n"))
+        self.assertEqual(lines[1:3], ["", "attention: %s" % d["attention"]])
+        self.assertEqual(output["title"], "verifying: awaiting_checks")
+        # Each reason its own sentence.
+        for reason in ("empty_diff", "approved", "merged"):
+            self.assertEqual(effects.status_output(dict(d, reason=reason), o["record"], feed)["summary"].split("\n")[0],
+                             feed["sentences"][reason], reason)
+        # A sentence that is not plain when it is written is not shown: the codes alone.
+        for bad in ("Approved by @x.", "See GH-12 first.", "A" + "z" * 100 + ".", "two\nlines.", 7, None):
+            loose = dict(feed, sentences=dict(feed["sentences"], awaiting_checks=bad))
+            self.assertEqual(effects.status_output(d, o["record"], loose)["summary"].split("\n")[0],
+                             "attention: %s" % d["attention"], bad)
+        # A reason the feed gives no sentence shows the codes alone; a Decision with no reason too.
+        self.assertEqual(effects.status_output(dict(d, reason="not_in_the_feed"), o["record"], feed)["summary"].split("\n")[0],
+                         "attention: %s" % d["attention"])
+        self.assertEqual(effects.status_output(dict(d, reason=None), o["record"], feed)["summary"].split("\n")[0],
+                         "attention: %s" % d["attention"])
+        # The key is the Decision's alone: the same Decision under another sentence writes nothing.
+        want = effects.status_id(d)
+        changed = dict(feed, sentences=dict(feed["sentences"], awaiting_checks="Another sentence."))
+        got, sent = self.write(o, self.listing(self.run_on(external_id=want)), status=dict(self.STATUS, feed=changed))
+        self.assertEqual((got, len(sent)), (("already_applied", "CR_kw", None, False), 1))
+        # A changed Decision carries the sentence as the feed gives it when it is written.
+        old = self.run_on(external_id="d" + "a" * 32)
+        got, sent = self.write(o, self.listing(old), self.took(200, dict(old, external_id=want)), status=dict(self.STATUS, feed=changed))
+        self.assertEqual(got[0], "applied")
+        self.assertEqual(sent[1]["body"]["output"]["summary"].split("\n")[0], "Another sentence.")
+        self.assertEqual(sent[1]["body"]["output"]["title"], "verifying: awaiting_checks")
+        # And the Decision is as it was, byte for byte, and so is its key.
+        self.assertEqual(json.dumps(d, sort_keys=True), before)
+        self.assertEqual(effects.status_id(d), want)
+
+    def test_the_sentence_is_read_for_the_status_alone(self):  # decision 1123
+        # Not the view, a Task, the Harness or the Kernel: no module outside the tests and the checks but the status's
+        # writer reads a sentence.
+        readers = sorted(path.relative_to(ROOT).as_posix() for path in walk.files(ROOT)
+                         if path.suffix == ".py" and path.relative_to(ROOT).parts[0] not in ("tests", "tools")
+                         and "sentences" in path.read_text(encoding="utf-8"))
+        self.assertEqual(readers, ["adapters/effects.py"])
 
     def test_no_status_is_written_on_an_item_left_alone(self):
         def entry(**facts):
@@ -1198,7 +1267,8 @@ class Status(unittest.TestCase):
 
     def test_the_status_reads_p12s_answers_as_they_stand(self):
         # P-12's trial named its run `status_on_item`, and the configuration names it `factory`; and it recorded no node id, as
-        # the fixture's bodies list none, where the port's key is the id reconciliation reads. Both are varied, and no other.
+        # the fixture's bodies list none, where the port's key is the id reconciliation reads. Both are varied, and the output,
+        # which GitHub answers as it was sent, as P-12's create and edits did; no other.
         exchanges = json.loads((ROOT / "trials" / "P-12.json").read_text())["exchanges"]
         made = [e for e in exchanges if e["request"]["call"].startswith("POST") and e["request"]["call"].endswith("/check-runs")][0]
         all_two = [e for e in exchanges if "filter=all" in e["request"]["call"] and (e["response"]["body"] or {}).get("total_count") == 2][0]
@@ -1208,11 +1278,11 @@ class Status(unittest.TestCase):
         later = max(runs, key=lambda r: r["id"])
         o = self.record()
         want = effects.status_id(o["record"]["pull_requests"][0]["decision"])
-        got, sent = self.write(o, self.listing(*runs), {"status": 200, "headers": {}, "body": dict(later, external_id=want)})
+        got, sent = self.write(o, self.listing(*runs), self.took(200, dict(later, external_id=want)))
         self.assertEqual(got, ("applied", later["node_id"], None, True))
         self.assertEqual(sent[1]["path"], "/repos/combsmith/software-factory/check-runs/%d" % later["id"])
         # What is sent is what the trial sent, and details_url beside it.
-        _, sent = self.write(o, self.listing(), {"status": 201, "headers": {}, "body": dict(runs[0], external_id=want)})
+        _, sent = self.write(o, self.listing(), self.took(201, dict(runs[0], external_id=want)))
         self.assertLessEqual(set(sent[1]["body"]) - {"details_url"}, set(made["request"]["body"]))
         self.assertLessEqual(set(sent[1]["body"]["output"]), set(made["request"]["body"]["output"]))
 
@@ -1254,7 +1324,7 @@ class Status(unittest.TestCase):
         cfg = controller()
         o = self.record()
         want = effects.status_id(o["record"]["pull_requests"][0]["decision"])
-        made = {"status": 201, "headers": {}, "body": self.run_on(external_id=want)}
+        made = self.took(201, self.run_on(external_id=want))
         issue = {"status": 201, "headers": {}, "body": {"number": 1, "assignees": [{"login": cfg["accounts"]["maintainer"]["login"]}]}}
         got, sent = self.apply(o, cfg, self.listing(), made, issue)
         self.assertEqual((got["status_on_item"]["state"], got["status_on_item"]["key"]), ("applied", "CR_kw"))
@@ -1277,7 +1347,7 @@ class Status(unittest.TestCase):
         wants = [effects.status_id(e["decision"]) for e in two["record"]["pull_requests"]]
         bound = dict(cfg, max_status_writes=1)
         plan = writes_.plan(two)
-        asked = self.Asked(bound, self.listing(self.run_on(external_id=wants[0])), self.listing(), {"status": 201, "headers": {}, "body": self.run_on(external_id=wants[1])}, issue)
+        asked = self.Asked(bound, self.listing(self.run_on(external_id=wants[0])), self.listing(), self.took(201, self.run_on(external_id=wants[1])), issue)
         done = effects.apply(plan, two["record"], {"workflow": None, "controller": asked.allowed}, bound, OWNER, pause=clear(plan, bound), issues=[], status=self.STATUS)
         statuses = [(w["state"], w["reason"]) for w in done["writes"] if w["type"] == "status_on_item"]
         self.assertEqual(statuses, [("already_applied", None), ("applied", None), ("refused", "status_bounded")])
@@ -1308,6 +1378,8 @@ class StatusFixture(unittest.TestCase):
         self.assertEqual(calls[-1]["response"]["status"], 204)
         made, read, mine, named, edited, again, one, second, latest, both, long_id, long_read, full, full_read, past, after_past = [e["response"] for e in calls[1:-1]]
         sent = calls[1]["request"]["body"]["external_id"]
+        # A create answers its output as sent, as an edit does below: the status's read-back holds both.
+        self.assertEqual(made["body"]["output"], calls[1]["request"]["body"]["output"])
         # The external_id reads back exactly; the list by name and App finds this App's alone, and by name alone both.
         self.assertEqual((made["status"], read["body"]["external_id"], read["body"]["id"]), (201, sent, made["body"]["id"]))
         self.assertEqual([c["id"] for c in mine["body"]["check_runs"]], [made["body"]["id"]])
