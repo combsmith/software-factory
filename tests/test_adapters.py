@@ -7025,15 +7025,38 @@ class Linked(unittest.TestCase):
                                    None if earlier is None else list(earlier))
         return [(p["number"], p["keyword"], p["keyword_spans"]) for p in found], whole
 
-    def test_only_a_pull_request_to_the_default_branch_is_listed_as_linked(self):  # P-33, decision 0028
-        # 8 is to another base, which carries no closing reference (P-33), as 9, linked by hand, is.
-        found, whole = self.listed([
-            linked_read(ref(7, 8), [link("ConnectedEvent", 1, 9), link("ConnectedEvent", 2, 10)]),
-            pull_read(7), pull_timeline(7), pull_read(8, base="trial"), pull_read(9, base="trial"), pull_read(10),
-            pull_timeline(10)])
+    def test_only_a_pull_request_to_the_default_branch_is_listed_as_linked(self):  # P-33, P-69, decisions 0028, 0236
+        # 8 is to another base, which carries no closing reference (P-33), and 9 was linked by hand and unlinked: neither
+        # is listed, and the list is whole.
+        def listing(*hand):
+            return self.listed([
+                linked_read(ref(7, 8), list(hand) + [link("ConnectedEvent", 5, 10)]),
+                pull_read(7), pull_timeline(7), pull_read(8, base="trial"), pull_read(9, base="trial"), pull_read(10),
+                pull_timeline(10)])
+        found, whole = listing(link("ConnectedEvent", 1, 9), link("DisconnectedEvent", 2, 9))
         self.assertEqual([(p["number"], p["keyword"], p["link_events"]) for p in found],
-                         [(7, True, []), (10, False, [{"action": "connected", "at": minute(2)}])])
+                         [(7, True, []), (10, False, [{"action": "connected", "at": minute(5)}])])
         self.assertTrue(whole)
+        # 9 linked by hand now, on another base, keeps its link there (trials/P-69.json): it is not listed, and the list
+        # is not whole, since it could have been linked before any pass saw it (decision 0236). The last of its links
+        # and unlinkings is read, never the first.
+        for hand in ([link("ConnectedEvent", 1, 9)], [link("DisconnectedEvent", 1, 9), link("ConnectedEvent", 2, 9)]):
+            found, whole = listing(*hand)
+            self.assertEqual(([p["number"] for p in found], whole), ([7, 10], False), hand)
+        self.assertEqual(listing(link("DisconnectedEvent", 2, 9))[1], True)
+        # As P-69 recorded it, the pull request linked by hand on another base is still among the references (Muse).
+        found, whole = self.listed([linked_read(ref(7, 9), [link("ConnectedEvent", 1, 9)]), pull_read(7), pull_timeline(7),
+                                    pull_read(9, base="trial")])
+        self.assertEqual(([p["number"] for p in found], whole), ([7], False))
+        # Merged or closed on another base, as a stacked pull request is, it still leaves the list not whole until it is
+        # unlinked, as record 0236's cost row says (Muse).
+        for done in (dict(merged=20, closed=20), dict(closed=20)):
+            found, whole = self.listed([linked_read(ref(7), [link("ConnectedEvent", 1, 9)]), pull_read(7), pull_timeline(7),
+                                        pull_read(9, base="trial", **done)])
+            self.assertEqual(([p["number"] for p in found], whole), ([7], False), done)
+        # In the same second, the timeline's order says which came last, never the time (Astra).
+        self.assertEqual(listing(link("DisconnectedEvent", 2, 9), link("ConnectedEvent", 2, 9))[1], False)
+        self.assertEqual(listing(link("ConnectedEvent", 2, 9), link("DisconnectedEvent", 2, 9))[1], True)
         # The default branch is the repo's, whatever its name: where it is `trunk`, one to `main` is to another base
         # (issue 970).
         found, whole = self.listed([linked_read(ref(7, 8)), pull_read(7, base="trunk", default="trunk"), pull_timeline(7),
@@ -7312,11 +7335,18 @@ class Linked(unittest.TestCase):
                       [linked_read((), [referenced()])], [linked_read((), [referenced(None)])],
                       [linked_read((), [crossed("Issue"), referenced()])],
                       [linked_read(ref(8)), pull_read(8, base="next")],
-                      [linked_read((), [link("ConnectedEvent", 1, 8)]), pull_read(8, base="next")], [linked_read((), [closed_by(-70, 13)])],
+                      [linked_read((), [closed_by(-70, 13)])],
                       [linked_read((), [closed_by(-70, 13, repo="a/fork"), closed_by(-65)])], [linked_read((), [closed_by(-70, oid="d" * 40)])],
                       [linked_read((), [{"__typename": "ClosedEvent", "createdAt": minute(-70), "closer": {"__typename": "ProjectV2"}}])],
                       [linked_read((), [{"__typename": "ClosedEvent", "createdAt": minute(-70), "closer": {"__typename": "Commit", "oid": None}}])]):
             self.assertEqual((self.read(named, broken), self.read(named)), (([], False), ([], True)), named)
+        # A link by hand now to another base names it too, and leaves the list not whole even where the chain is whole
+        # (decision 0236).
+        named = [linked_read((), [link("ConnectedEvent", 1, 8)]), pull_read(8, base="next")]
+        self.assertEqual((self.read(named, broken), self.read(named)), (([], False), ([], False)))
+        # A link by hand now to the default base names it as well: listed, and whole only where the chain is whole.
+        named = [linked_read((), [link("ConnectedEvent", 1, 7)]), pull_read(7), pull_timeline(7)]
+        self.assertEqual((self.read(named, broken), self.read(named)), (([(7, False, [])], False), ([(7, False, [])], True)))
         # A person's close names no closer, and so names nothing.
         self.assertEqual(self.read([linked_read((), [closed_by(-65)])], broken), ([], True))
         # Read on past a commit's reference.
