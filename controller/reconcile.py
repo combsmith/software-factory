@@ -211,7 +211,8 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
         del held["hands"]       # or the next pass judges threads from before the rule it never read
     held["owed_issues"] = sorted(set(unread_issues))
     newly_gone = set(gone_issues)
-    held["left_issues"] = [e for e in held.get("left_issues", []) if e["number"] not in newly_gone | set(served_issues)] + [
+    unstamped = newly_gone | set(served_issues)
+    held["left_issues"] = [e for e in held.get("left_issues", []) if e["number"] not in unstamped] + [
         {"number": n, "at": now} for n in sorted(newly_gone)]
     # A record with no issue to carry carries neither, as one written before them (issue 916).
     for name in ("owed_issues", "left_issues"):

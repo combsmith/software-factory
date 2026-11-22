@@ -1076,6 +1076,9 @@ class Carried(unittest.TestCase):
         served = reconcile.carried([{"now": self.NOW, "pull_requests": [], "reconciled": two}], self.effects(), seen(),
                                    self.NEXT, served_issues=[41])
         self.assertEqual(served["left_issues"], [{"number": 42, "at": self.NOW}])
+        # So too in a pass where another leaves (Astra).
+        both = reconcile.carried(before, self.effects(), seen(), self.NEXT, served_issues=[41], gone_issues=[42])
+        self.assertEqual(both["left_issues"], [{"number": 42, "at": self.NEXT}])
         late = reconcile.carried(before, self.effects(), dict(seen(), since="2026-10-11T14:00:00Z"), self.NEXT)
         self.assertNotIn("left_issues", late)
         self.assertEqual(reconcile.left_issues(before, "2026-10-11T14:00:00Z"), [])
