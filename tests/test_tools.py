@@ -31,7 +31,7 @@ import zlib
 from unittest import mock
 
 from controller import pass_
-from harness import engine, shared
+from harness import engine, shared, task
 from kernel import decide as decide_module, derive, issue, terms
 from kernel.decide import decide
 from sim import world
@@ -39,7 +39,7 @@ from adapters import github
 from tests import support
 from tools import (check_apps, check_authority, commits_are_the_maintainers, pr_title, check_context, check_decisions, check_examples, check_gate_sets, check_lifecycle, context_eval,
                    check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, redact_trial,
-                   environments_drift, machine_user_drift, rulesets_drift, verify, walk)
+                   desk, environments_drift, machine_user_drift, rulesets_drift, verify, walk)
 from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
 
@@ -4074,9 +4074,10 @@ class Workflows(unittest.TestCase):
         (local / "config" / "hooks.json").write_text(json.dumps({"maintainer": {"name": ada[0], "email": ada[1]},
                                                                  "openers": [{"login": "ada", "id": 1, "is": "the Maintainer"}]}))
         event = local.parent / "event.json"
-        event.write_text(json.dumps({"pull_request": {"user": {"login": "ada", "id": 1}, "head": {"repo": {"full_name": "o/r"}},
-                                                      "base": {"repo": {"full_name": "o/r"}}}}))
-        with contextlib.redirect_stdout(io.StringIO()) as printed:
+        event.write_text(json.dumps({"pull_request": {"number": 7, "user": {"login": "ada", "id": 1},
+                                                      "head": {"repo": {"full_name": "o/r"}}, "base": {"repo": {"full_name": "o/r"}}}}))
+        # The title is held by tools/pr_title.py, tested on its own (decision 0244).
+        with contextlib.redirect_stdout(io.StringIO()) as printed, mock.patch.object(pr_title, "check", return_value=[]):
             self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": second, "EVENT": "pull_request",
                                                                "GITHUB_EVENT_PATH": str(event)}, local), 0)
             self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": base, "EVENT": "pull_request",
@@ -4350,9 +4351,13 @@ class Workflows(unittest.TestCase):
                                  "base": {"repo": {"full_name": "o/r"}}}}
         environ = {"BASE_SHA": "a" * 40, "HEAD_SHA": "b" * 40, "EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where)}
 
-        def ended(commits, payload):
+        def ended(commits, payload, title=(), records=()):
+            title = list(title)
             where.write_text(json.dumps(payload))
+            records = list(records)
             with mock.patch.object(commits_are_the_maintainers, "problems", return_value=commits), \
+                    mock.patch.object(pr_title, "check", return_value=title), \
+                    mock.patch.object(commits_are_the_maintainers, "record_problems", return_value=records), \
                     contextlib.redirect_stdout(io.StringIO()) as printed:
                 return commits_are_the_maintainers.main(environ, root), printed.getvalue()
 
@@ -4368,6 +4373,15 @@ class Workflows(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("opened by bob", printed)
         self.assertNotIn("names the Maintainer as", printed)
+        # And a decision record numbered otherwise than by the pull request refuses, beside the rest (decision 1121).
+        code, printed = ended([], ours, records=["a record is numbered otherwise"])
+        self.assertEqual(code, 1)
+        self.assertIn("a record is numbered otherwise", printed)
+        # The title is read too, beside both and in place of neither (decision 0244): a title that breaks the rule refuses.
+        code, printed = ended([], ours, ["title_no_area: planted"])
+        self.assertEqual(code, 1)
+        self.assertIn("title_no_area: planted", printed)
+        self.assertNotIn("names the Maintainer as", printed)
         # A merge group's opener is read through the transport main is handed, and refuses or says the same.
         queue = {"merge_group": {"head_ref": "refs/heads/gh-readonly-queue/main/pr-44-" + "a" * 40, "base_ref": "refs/heads/main"},
                  "repository": {"full_name": "o/r"}}
@@ -4378,11 +4392,145 @@ class Workflows(unittest.TestCase):
             def send(self, asked):
                 return {"status": 200, "body": answer}
         with mock.patch.object(commits_are_the_maintainers, "problems", return_value=[]), \
+                mock.patch.object(pr_title, "check", return_value=[]), \
+                mock.patch.object(commits_are_the_maintainers, "record_problems", return_value=[]), \
                 contextlib.redirect_stdout(io.StringIO()) as printed:
             told = dict(environ, EVENT="merge_group", WORKFLOW_TOKEN="t")
             self.assertEqual(commits_are_the_maintainers.main(told, root, Asked()), 0)
             self.assertEqual(commits_are_the_maintainers.main(dict(told, EVENT="pull_request"), root, Asked()), 1)
         self.assertIn("opened from o/r by ada, the Maintainer", printed.getvalue())
+        # On a merge group too the title is read, and a title that breaks the rule is a refusal on its own.
+        # The job hands the check the transport it was handed.
+        asked = Asked()
+        with mock.patch.object(commits_are_the_maintainers, "problems", return_value=[]), \
+                mock.patch.object(commits_are_the_maintainers, "record_problems", return_value=[]), \
+                mock.patch.object(pr_title, "check", side_effect=lambda env, transport=None:
+                                  ["title_no_area: planted"] if env.get("EVENT") == "merge_group" and transport is asked
+                                  else []), \
+                contextlib.redirect_stdout(io.StringIO()) as printed:
+            self.assertEqual(commits_are_the_maintainers.main(told, root, asked), 1)
+        self.assertIn("title_no_area: planted", printed.getvalue())
+
+    def test_each_record_a_pull_request_adds_is_numbered_by_it(self):
+        # Decision 1121: a decision record takes the number of the pull request that adds it, and a pull request adds
+        # one at most. The commits' job reads the records the head adds in git, the head fetched, and the number from
+        # the event's payload, or on a merge group from the queue's ref; until it drains, the chain numbered before
+        # this rule, from 0235, stands as well.
+        origin = tree({"docs/decisions/0001-a.md": "# 0001. A\n", "docs/decisions/0002-b.md": "# 0002. B\n"})
+        env = dict(os.environ, GIT_AUTHOR_NAME="A", GIT_AUTHOR_EMAIL="a@example.com", GIT_COMMITTER_NAME="A",
+                   GIT_COMMITTER_EMAIL="a@example.com", GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1")
+
+        def run(where, *args):
+            return subprocess.run(["git", *args], cwd=str(where), env=env, capture_output=True, text=True, timeout=60,
+                                  check=True).stdout.strip()
+
+        run(origin, "init", "-q", "-b", "main")
+        run(origin, "config", "uploadpack.allowReachableSHA1InWant", "true")
+        run(origin, "add", "-A")
+        run(origin, "commit", "-q", "-m", "base")
+        base = run(origin, "rev-parse", "HEAD")
+        local = origin.with_name(origin.name + "-local")     # beside origin: the scratch folder is shared by every test
+        run(origin.parent, "clone", "-q", str(origin), str(local))
+        event = origin.with_name(origin.name + "-event.json")
+
+        def head(added=(), removed=(), moved=(), changed=(), on=None):
+            run(origin, "checkout", "-q", "--detach", on or base)
+            for name in added:
+                (origin / name).parent.mkdir(parents=True, exist_ok=True)
+                (origin / name).write_text("# %s\n" % name)
+            for name in removed:
+                run(origin, "rm", "-q", name)
+            for old, new in moved:      # as git mv moves it, its text the same, so git would read it as renamed
+                run(origin, "mv", old, new)
+            for name in changed:
+                (origin / name).write_text((origin / name).read_text() + "Status: replaced.\n")
+            run(origin, "add", "-A")
+            run(origin, "commit", "-q", "--allow-empty", "-m", "change")
+            made = run(origin, "rev-parse", "HEAD")
+            run(local, "fetch", "-q", "--no-tags", "origin", made)
+            return made
+
+        def said(made, number=1130, event_name="pull_request", payload=None, since=None):
+            if payload is None:
+                payload = {"pull_request": {"number": number}} if event_name == "pull_request" else {"merge_group": {
+                    "head_ref": "refs/heads/gh-readonly-queue/main/pr-%d-%s" % (number, base)}}
+            event.write_text(json.dumps(payload))
+            return commits_are_the_maintainers.record_problems(local, {"BASE_SHA": since or base, "HEAD_SHA": made,
+                                                                      "EVENT": event_name, "GITHUB_EVENT_PATH": str(event)})
+
+        def refused(found, words):
+            self.assertTrue(caught(found, words), found)
+
+        # No record, or one numbered by its pull request, at four digits or more, stands; on a merge group too.
+        self.assertEqual(said(head(["kernel/x.py"])), [])
+        one = head(["docs/decisions/1130-x.md"])
+        self.assertEqual(said(one), [])
+        self.assertEqual(said(one, event_name="merge_group"), [])
+        # A merge group is read from the entry before it, which main does not hold yet: its record is not this one's.
+        before = head(["docs/decisions/1129-a.md"])
+        self.assertEqual(said(head(["docs/decisions/1130-b.md"], on=before), event_name="merge_group", since=before), [])
+        # A record a replacement changes is not one it adds.
+        self.assertEqual(said(head(["docs/decisions/1130-x.md"], changed=["docs/decisions/0001-a.md"])), [])
+        self.assertEqual(said(head(["docs/decisions/0999-x.md"]), 999), [])
+        self.assertEqual(said(head(["docs/decisions/10000-x.md"]), 10000), [])
+        # Another number refuses, and names the number it is to have; so does the same number written otherwise.
+        refused(said(one, 1131), "'docs/decisions/1130-x.md' is a decision record the pull request adds, and a record is "
+                                 "numbered by the pull request that adds it, 1131")
+        refused(said(one, 1131, "merge_group"), "numbered by the pull request that adds it, 1131")
+        for name in ("01130-x.md", "1130.md", "1130x.md", "x-1130.md"):
+            refused(said(head(["docs/decisions/" + name])), "'docs/decisions/%s' is a decision record" % name)
+        refused(said(head(["docs/decisions/0999-x.md"]), 9999), "0999-x.md' is a decision record")
+        # The chain numbered before the rule stands while it drains, both its ends, and not a number past either end.
+        first, last = commits_are_the_maintainers.CHAINED
+        self.assertEqual((first, last >= 253), (235, True))
+        for chained in ("%04d" % first, "%04d" % last):
+            self.assertEqual(said(head(["docs/decisions/%s-x.md" % chained])), [], chained)
+        for outside in ("%04d" % (first - 1), "%04d" % (last + 1)):
+            refused(said(head(["docs/decisions/%s-x.md" % outside])), "%s-x.md' is a decision record" % outside)
+        # One record at most, though each is numbered as it may be.
+        two = head(["docs/decisions/1130-x.md", "docs/decisions/0240-y.md"])
+        refused(said(two), "the pull request adds 2 decision records, 'docs/decisions/0240-y.md', "
+                           "'docs/decisions/1130-x.md'; it adds one at most")
+        self.assertEqual(len(said(two)), 1)
+        three = head(["docs/decisions/1130-x.md", "docs/decisions/0235-y.md", "docs/decisions/0236-z.md"])
+        refused(said(three), "the pull request adds 3 decision records")
+        # Every commit since the base is read, not the last alone.
+        refused(said(head(["kernel/y.py"], on=head(["docs/decisions/1131-x.md"]))), "1131-x.md' is a decision record")
+        # A rename adds the record it names: to the pull request's number it stands here, and check_decisions refuses
+        # the record gone; to another it refuses.
+        self.assertEqual(said(head(moved=[("docs/decisions/0001-a.md", "docs/decisions/1130-a.md")])), [])
+        refused(said(head(moved=[("docs/decisions/0001-a.md", "docs/decisions/1131-a.md")])), "1131-a.md' is a decision record")
+        # A name is shown quoted, so one that holds a new line prints on one line, and no line of it opens '::'.
+        found = said(head(["docs/decisions/0999-a\n::warning::x\n.md"]))
+        self.assertEqual(len(found), 1)
+        self.assertNotIn("\n", found[0])
+        # Only a record is read: a file of the folder's that is not one, or below it, is not counted.
+        self.assertEqual(said(head(["docs/decisions/9-notes.txt", "docs/decisions/old/0001-x.md", "docs/1131-x.md"])), [])
+        # What cannot be read refuses: a head origin does not hold, a payload with no number, or a ref of another shape.
+        refused(said("0" * 40), "cannot be read")
+        for payload in ({}, {"pull_request": {}}, {"pull_request": {"number": "1130"}}, {"pull_request": {"number": True}},
+                        {"pull_request": {"number": 0}}, {"pull_request": {"number": -1130}},
+                        {"merge_group": {"head_ref": "refs/heads/main"}}, {"merge_group": {}}, []):
+            with self.subTest(payload=payload):
+                refused(said(one, event_name="merge_group" if "merge_group" in payload else "pull_request",
+                             payload=payload), "the decision records the pull request adds cannot be read")
+        event.write_text("{")
+        refused(commits_are_the_maintainers.record_problems(local, {"BASE_SHA": base, "HEAD_SHA": one, "EVENT": "pull_request",
+                                                                    "GITHUB_EVENT_PATH": str(event)}), "cannot be read")
+        event.unlink()
+        refused(commits_are_the_maintainers.record_problems(local, {"BASE_SHA": base, "HEAD_SHA": one, "EVENT": "pull_request",
+                                                                    "GITHUB_EVENT_PATH": str(event)}), "cannot be read")
+        refused(commits_are_the_maintainers.record_problems(local, {"BASE_SHA": base, "HEAD_SHA": one, "EVENT": "pull_request"}),
+                "cannot be read")
+        # With no base or no head nothing is read: git would read an empty range as the checkout's own head.
+        for shas in ({"BASE_SHA": base}, {"HEAD_SHA": one}, {"BASE_SHA": "", "HEAD_SHA": ""}, {"BASE_SHA": base, "HEAD_SHA": ""}):
+            refused(commits_are_the_maintainers.record_problems(local, dict(shas, EVENT="pull_request", GITHUB_EVENT_PATH=str(event))),
+                    "BASE_SHA, HEAD_SHA and EVENT")
+        # Nor with an event it does not know, though the payload is a pull request's.
+        event.write_text(json.dumps({"pull_request": {"number": 1130}}))
+        for told in ({}, {"EVENT": "push"}):
+            refused(commits_are_the_maintainers.record_problems(local, dict(told, BASE_SHA=base, HEAD_SHA=one,
+                                                                            GITHUB_EVENT_PATH=str(event))), "BASE_SHA, HEAD_SHA and EVENT")
 
     def test_a_lens_run_by_actions_names_its_workflow_and_no_other_does(self):
         # GitHub Actions reports every job in the repo, so a Lens it runs must name its file; no other App runs one.
@@ -5387,6 +5535,145 @@ class Workflows(unittest.TestCase):
             # No step before it holds a secret, and it names its Release before it reads one (tests/test_steps.py).
             self.assertFalse([e for step in these[:factory[0]] for e in step if "secrets." in e["value"]], job)
 
+    def test_no_job_of_a_run_runs_the_items_code(self):  # decision 0239, issue 952
+        # Every job of a Run's workflow can reach ACTIONS_RUNTIME_TOKEN, and the run job the model's credential, so none
+        # runs the item's code (decision 0219): each checkout names its ref, the Release's own commit, and a later job's is
+        # the one the run job's `commit` step handed on; each `run:` runs a module of the Release's harness from the folder
+        # the job starts in, the CLI's install from the vendor word for word, or the wake's one call; the other steps are
+        # the pinned checkout, upload and download actions, each with its own inputs and one of the data folders below; the CLI is
+        # the one installed, on the runner named; and no key moves where or how a step runs, or hands it more environment:
+        # no `working-directory:`, `shell:`, `defaults:`, `container:`, and no name of `env:` outside the set below. Each
+        # is named here, not read from tools/check_workflows.py, so that a step added there and here alike is still refused.
+        release = {"${{ job.workflow_sha }}", "${{ needs.run.outputs.commit }}"}
+        keys = {(): {"name", "on", "permissions", "jobs"},
+                ("job",): {"env", "environment", "if", "needs", "outputs", "permissions", "runs-on", "steps", "timeout-minutes"},
+                ("step",): {"env", "id", "if", "name", "run", "timeout-minutes", "uses", "with"},
+                ("env",): {"CLAUDE_CLI", "CLAUDE_CODE_OAUTH_TOKEN", "CLI_CHECKSUM", "CLI_VERSION", "GH_TOKEN", "ITEM", "NAME",
+                           "NEEDS", "PASS", "PR_REVIEW_APP_KEY", "READER_APP_KEY", "REPO", "RUN_DIGEST", "APPROVER_TOKEN",
+                           "FACTORY_PAUSED", "GITHUB_TOKEN", "QUEUE_APP_KEY"},
+                "actions/checkout": {"ref", "fetch-tags", "persist-credentials"},
+                "actions/upload-artifact": {"name", "path", "if-no-files-found"},
+                "actions/download-artifact": {"artifact-ids", "path"}}
+        fixed = {"runs-on": "ubuntu-24.04", "CLAUDE_CLI": "/usr/local/bin/claude", "commit": "${{ steps.commit.outputs.commit }}"}
+        paths = {"result/", "result", "task/outcome.json", "verdict/", "reader-outcome", "applied/applied.json",
+                 "outcome/outcome.json"}
+        shapes = {"CLI_VERSION": r"[0-9]+\.[0-9]+\.[0-9]+", "CLI_CHECKSUM": r"[0-9a-f]{64}"}
+        debs = " ".join("'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://%s/ubuntu %s main'" % (host, suite)
+                        for host in ("azure.archive.ubuntu.com", "mirrors.edge.kernel.org")
+                        for suite in ("noble", "noble-updates", "noble-security"))
+        apt = ("sudo RES_OPTIONS='timeout:5 attempts:2' apt-get %s -o Dir::Etc::sourcelist=/tmp/ubuntu.list "
+               "-o Dir::Etc::sourceparts=- -o Acquire::Retries=%d -o Acquire::https::Timeout=10%s")
+        install = ['url="https://downloads.claude.ai/claude-code-releases/${CLI_VERSION}/linux-x64/claude"',
+                   "curl -sSfL --proto '=https' --proto-redir '=https' -o /tmp/claude \"${url}\"",
+                   'echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c', "chmod 0755 /tmp/claude",
+                   "sudo mv /tmp/claude /usr/local/bin/claude", "printf '%s\\n' " + debs + " > /tmp/ubuntu.list",
+                   apt % ("update -q", 0, " || true"), apt % ("install -y --no-install-recommends", 2, " bubblewrap")]
+        wake = ('timeout 60 gh api -X POST "repos/$REPO/actions/workflows/poller.yml/dispatches" -f ref=main || '
+                'echo "the next pass waits for the backstop"')
+
+        def runs_the_items_code(text):
+            entries, bad = check_workflows.read(text)
+            lines = text.splitlines()
+
+            def needs(job):
+                # A job's `needs`, inline or as a list on the lines after it.
+                said = [e for e in entries if e["key"] == "needs" and e["path"] == ["jobs", job]]
+                if not said or said[0]["value"]:
+                    return {n.strip() for n in (said[0]["value"] if said else "").strip("[]").split(",") if n.strip()}
+                listed, i = set(), said[0]["line"]
+                while i < len(lines) and lines[i].strip().startswith("- "):
+                    listed.add(lines[i].strip()[2:].strip())
+                    i += 1
+                return listed
+
+            def of_step(key):
+                return {(e["path"][1], e["step"]): e["value"] for e in entries
+                        if e["key"] == key and len(e["path"]) == 3 and e["path"][2] == "steps"}
+            named, actions = of_step("name"), {k: v.split("@")[0] for k, v in of_step("uses").items()}
+            refs = {(e["path"][1], e["step"]) for e in entries if e["key"] == "ref" and e["path"][2:] == ["steps", "with"]}
+            paths_of = {(e["path"][1], e["step"]) for e in entries if e["key"] == "path" and e["path"][2:] == ["steps", "with"]}
+            found = [step for step, action in actions.items() if action == "actions/checkout" and step not in refs
+                     or action in ("actions/upload-artifact", "actions/download-artifact") and step not in paths_of
+                     or step[0] == "wake"]
+            if any(e["value"] == "${{ needs.run.outputs.commit }}" for e in entries) and not (
+                    [e["value"] for e in entries if e["path"] == ["jobs", "run", "outputs"] and e["key"] == "commit"]
+                    == [fixed["commit"]] and of_step("id").get(("run", 2)) == "commit"
+                    and of_step("run").get(("run", 2)) == "python3 -m harness.steps"):
+                found.append("the run job's commit is not the Release's")
+            for e in entries:
+                path, job = e["path"], e["path"][1] if len(e["path"]) > 1 else None
+                where = (() if path == [] else ("job",) if len(path) == 2 and path[0] == "jobs" else
+                         ("step",) if path[2:] == ["steps"] else ("env",) if path[-1] == "env" else
+                         actions.get((job, e["step"])) if path[2:] == ["steps", "with"] else None)
+                if where is not None and e["key"] not in keys.get(where, ()):
+                    found.append(e["key"])
+                elif e["key"] in fixed and (where in (("job",), ("env",)) or path == ["jobs", job, "outputs"]) and \
+                        e["value"] != fixed[e["key"]]:
+                    found.append(e["value"])
+                elif e["key"] == "path" and path[2:] == ["steps", "with"] and e["value"] not in paths:
+                    found.append(e["value"])
+                elif where == ("env",) and e["key"] in shapes and not re.fullmatch(shapes[e["key"]], e["value"]):
+                    found.append(e["value"])
+                elif e["key"] == "ref" and (e["value"] not in release or e["value"] == "${{ needs.run.outputs.commit }}" and (
+                        job == "run" or "run" not in needs(job))) or e["key"] == "uses" and not re.fullmatch(
+                        r"actions/(checkout|upload-artifact|download-artifact)@[0-9a-f]{40}", e["value"]):
+                    found.append(e["value"])
+                elif e["key"] == "run" and e["body"]:
+                    if named.get((job, e["step"])) != "Install the CLI at the Engine's pin" or e["body"] != install:
+                        found.append(e["body"])
+                elif e["key"] == "run" and path[2:] == ["steps"] and \
+                        not re.fullmatch(r"python3 -m harness\.\w+", e["value"]) and (job, e["value"]) != ("wake", wake):
+                    found.append(e["value"])
+            return bad + found
+
+        for name in ("run-jobs.yml", "approve-job.yml", "queue-job.yml"):
+            self.assertEqual(runs_the_items_code((self.LIVE / name).read_text()), [], name)
+        good = (self.LIVE / "run-jobs.yml").read_text()
+        engine_step = "        id: engine\n"
+        for why, text in (
+                ("the item's tests beside the model", good.replace(
+                    "        run: python3 -m harness.run\n",
+                    "        run: python3 -m harness.run\n      - name: Test\n        run: python3 -m unittest\n")),
+                ("the item's build in verify", good.replace("        run: python3 -m harness.verify\n", "        run: make\n")),
+                ("the item checked out", good.replace("          ref: ${{ job.workflow_sha }}\n",
+                                                      "          ref: ${{ inputs.item }}\n")),
+                ("the install runs a script", good.replace("          chmod 0755 /tmp/claude\n",
+                                                           "          chmod 0755 /tmp/claude\n          sh ./setup.sh\n")),
+                ("a command after an allowed start", good.replace('-o /tmp/claude "${url}"\n', '-o /tmp/claude "${url}"; make\n')),
+                ("a version that is a path", good.replace('CLI_VERSION: "2.1.306"', 'CLI_VERSION: "2.1.306/../x"')),
+                ("a local action", good.replace("        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
+                                                " # v7.0.2\n        with:\n          name: result\n",
+                                                "        uses: ./\n        with:\n          name: result\n")),
+                ("the Engine from the head's folder", good.replace(engine_step, engine_step + "        working-directory: task/head\n")),
+                ("the Engine in another shell", good.replace(engine_step, engine_step + "        shell: bash ./x {0}\n")),
+                ("the run job's defaults", good.replace("    environment: factory-run\n", "    environment: factory-run\n"
+                                                        "    defaults:\n      run:\n        working-directory: task/head\n")),
+                ("more environment for the Engine", good.replace("          CLAUDE_CLI: /usr/local/bin/claude\n",
+                                                                 "          CLAUDE_CLI: /usr/local/bin/claude\n          PYTHONPATH: task/head\n")),
+                ("a checkout into the head's folder", good.replace("          persist-credentials: false\n",
+                                                                   "          persist-credentials: false\n          path: task/head\n", 1)),
+                ("a checkout with no ref", good.replace("          ref: ${{ job.workflow_sha }}\n", "")),
+                ("the CLI from the head's folder", good.replace("CLAUDE_CLI: /usr/local/bin/claude", "CLAUDE_CLI: task/head/claude")),
+                ("the item handed on as the commit", good.replace("      commit: ${{ steps.commit.outputs.commit }}\n",
+                                                                  "      commit: ${{ inputs.item }}\n")),
+                ("the commit handed on by another step", good.replace("        id: commit\n", "        id: other\n")),
+                ("a runner of its own", good.replace("    runs-on: ubuntu-24.04\n    timeout-minutes: 33\n",
+                                                     "    runs-on: self-hosted\n    timeout-minutes: 33\n")),
+                ("the Result uploaded from the harness", good.replace("          path: result/\n", "          path: harness/\n")),
+                ("the Result downloaded into the Release's folder", good.replace(
+                    "          artifact-ids: ${{ needs.run.outputs.artifact }}\n          path: result\n      - name: Verify the Result\n",
+                    "          artifact-ids: ${{ needs.run.outputs.artifact }}\n      - name: Verify the Result\n")),
+                ("the Result downloaded into the harness", good.replace("          path: result\n", "          path: harness\n", 1)),
+                ("the wake runs more", good.replace('-f ref=main || echo', '-f ref=main; make || echo')),
+                ("the wake checks out", good.replace("    steps:\n      - name: Wake the next pass",
+                                                     "    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+                                                     "\n        with:\n          ref: ${{ job.workflow_sha }}\n      - name: Wake the next pass")),
+                ("the run job checks out what it hands on", good.replace(
+                    "          ref: ${{ job.workflow_sha }}\n", "          ref: ${{ needs.run.outputs.commit }}\n", 1)),
+                ("a job that needs no run checks out what the run handed on", good.replace("    needs: run\n", "", 1))):
+            self.assertNotEqual(text, good, why)
+            self.assertNotEqual(runs_the_items_code(text), [], why)
+
     def test_the_pass_uploads_its_record_before_it_dispatches(self):  # design section 2.3, steps 5 and 6
         good = (self.LIVE / "pass.yml").read_text()
         self.assertEqual(check_workflows.pass_problems(good), [])
@@ -5450,7 +5737,7 @@ class Workflows(unittest.TestCase):
 
 
 class PullTitle(unittest.TestCase):
-    """A pull request's title is `area: plain verb phrase (#issue)`, held by tools/pr_title.py (issue 1089)."""
+    """A pull request's title is `area: plain verb phrase (#issue)`, held by tools/pr_title.py (decision 0244)."""
 
     GOOD = "review: use full blob id for binary files so diffs stop flapping (#1016)"
 
@@ -5487,11 +5774,15 @@ class PullTitle(unittest.TestCase):
         self.assertFalse(any("99999" in p for p in said))
         self.assertEqual(self.codes("kernel: hold an item... (#1)"), ["title_ends_with_stop"])
         for title in ("kernel: hold an item, (#1)", "kernel: hold an item; (#1)", "kernel: hold an item: (#1)",
-                      "kernel: hold an item  (#1)", "kernel: hold an item\t (#1)"):
+                      "kernel: hold an item  (#1)"):
             self.assertEqual(self.codes(title), ["title_ends_with_stop"], title)
+        # A title is one line of printable characters: a tab, a line end or another control character refuses.
+        self.assertEqual(self.codes("kernel: hold an item\t (#1)"), ["title_control_character", "title_ends_with_stop"])
+        for title in ("kernel: hold\tan item (#1)", "kernel: hold\nan item (#1)", "kernel: hold\x7fan item (#1)"):
+            self.assertEqual(self.codes(title), ["title_control_character"], title)
         # The issue, at the end: a number with no leading zero, and a part K of M with 1 <= K <= M and M >= 2.
         for title in ("kernel: hold an item", "kernel: hold an item (1)", "kernel: hold an item #1",
-                      "kernel: hold an item (#01)", "kernel: hold an item (#1) now",
+                      "kernel: hold an item (#01)", "kernel: hold an item (#0)", "kernel: hold an item (#1) now",
                       "kernel: hold an item (#1, part 1 of 02)", "kernel: hold an item (#1 part 1 of 2)",
                       "kernel: hold an item (#1)\n", "kernel: hold an item(#1)", "kernel: hold an item (#1, part 01 of 2)"):
             self.assertIn("title_no_issue", self.codes(title), title)
@@ -5502,7 +5793,7 @@ class PullTitle(unittest.TestCase):
         # A name from inside the code, each mark on its own, and none in the area.
         for title in ("kernel: hold an item with `x` (#1)", "kernel: hold max_rounds (#1)", "kernel: amend record 0219 (#1)",
                       "kernel: amend decision 0219 (#1)", "kernel: amend Records #0219 (#1)", "trials: record P-73 (#1)",
-                      "kernel: amend decision  0219 (#1)", "kernel: amend record\t0219 (#1)",
+                      "kernel: amend decision  0219 (#1)", "kernel: amend record\u00a00219 (#1)",
                       "trials: record p-73 (#1)",
                       "kernel: bound effect/1 (#1)"):
             self.assertEqual(self.codes(title), ["title_internal_term"], title)
@@ -5641,6 +5932,12 @@ class PullTitle(unittest.TestCase):
         environ = {"BASE_SHA": "a" * 40, "HEAD_SHA": "b" * 40, "EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where),
                    "WORKFLOW_TOKEN": "t"}
         out = "\n".join(pr_title.check(environ, Asked()))
+        # So does the job, which prints what the check said (decision 0244).
+        with mock.patch.object(commits_are_the_maintainers, "problems", return_value=[]), \
+                contextlib.redirect_stdout(io.StringIO()) as printed:
+            self.assertEqual(commits_are_the_maintainers.main(environ, root, Asked()), 1)
+        out += printed.getvalue()
+        self.assertIn("title_no_area", printed.getvalue())
         self.assertIn("title_no_area", out)
         self.assertIn("title_internal_term", out)
         for word in ("::", "Pwned", "add-mask", "%0A", "max_rounds", "effect/1", "P-1"):
@@ -5904,8 +6201,86 @@ class Context(unittest.TestCase):
         root = tree({"docs/decisions/0001-x.md": extra, "docs/decisions/0003-y.md": extra, "tools/x.py": ""})
         problems = check_context._decisions(root)
         self.assertTrue(caught(problems, "a section 'Not yet held'"))
-        self.assertTrue(caught(problems, "0003-y.md: records are numbered from 0001 with no gap"))
         self.assertTrue(caught(problems, "0003-y.md: the title must open with its number"))
+
+    def test_a_new_records_title_is_short_and_names_its_file(self):
+        # Decision 0245: from FIRST_SHORT on, a record's title is at most 72 characters and its file is named by it.
+        self.assertEqual((check_context.FIRST_SHORT, check_context.RECORD_TITLE), (245, 72))
+        body = "\n\n## Decision\n\nY.\n\n## Why\n\nZ.\n\n## Boundaries\n\n| B | Check |\n|---|---|\n| b | `tools/x.py` |\n"
+
+        def found(name, title, first=2):
+            files = {"docs/decisions/0001-a-long-title.md": "# 0001. " + "A long title " * 10 + body, "tools/x.py": ""}
+            files["docs/decisions/" + name] = "# 0002. %s" % title + body
+            with mock.patch.object(check_context, "FIRST_SHORT", first):
+                return check_context._decisions(tree(files))
+
+        at_most = "A" + " b" * 35 + "c"
+        self.assertEqual(len(at_most), 72)
+        self.assertEqual(found("0002-" + check_context._slug(at_most) + ".md", at_most), [])
+        over = at_most + "d"
+        self.assertTrue(caught(found("0002-" + check_context._slug(over) + ".md", over), "the title is 73 characters"))
+        # The file is the title lowercased, spaces to dashes, other punctuation dropped; any other name refuses.
+        title = "A pull request's title — names its area, and (#1) its issue"
+        self.assertEqual(check_context._slug(title), "a-pull-requests-title-names-its-area-and-1-its-issue")
+        self.assertEqual(found("0002-a-pull-requests-title-names-its-area-and-1-its-issue.md", title), [])
+        for name in ("0002-a-pull-requests-title.md", "0002-A-pull-requests-title-names-its-area-and-1-its-issue.md",
+                     "0002-a-pull-request-s-title-names-its-area-and-1-its-issue.md",
+                     "0002-a-pull-requests-title-names-its-area-and-1-its-issue-.md"):
+            self.assertTrue(caught(found(name, title), "the file is named by its title"), name)
+        self.assertEqual(check_context._slug("Self-held  x-y"), "self-held-x-y")
+        self.assertEqual(check_context._slug("X--Y and Queue / merge"), "x--y-and-queue-merge")
+        # The boundary, with its file named independently of the function under test, and counted in characters.
+        self.assertEqual(found("0002-" + "a" * 72 + ".md", "A" * 72), [])
+        self.assertTrue(caught(found("0002-" + "a" * 73 + ".md", "A" * 73), "the title is 73 characters"))
+        self.assertEqual(found("0002-" + "a" * 71 + ".md", "A" * 71 + "\u2014"), [])
+        # A space after the number's own one is counted.
+        self.assertTrue(caught(found("0002-" + "a" * 72 + ".md", " " + "A" * 72), "the title is 73 characters"))
+        # A record after the first short one is held too.
+        later = {"docs/decisions/0001-x.md": "# 0001. X" + body, "docs/decisions/0002-y.md": "# 0002. Y" + body,
+                 "docs/decisions/0003-z.md": "# 0003. Wrong name" + body, "tools/x.py": ""}
+        with mock.patch.object(check_context, "FIRST_SHORT", 2):
+            self.assertTrue(caught(check_context._decisions(tree(later)), "0003-z.md: from record 0002 on the file is named"))
+        self.assertEqual(check_context._slug("A b \u2014"), "a-b")
+        self.assertEqual(check_context._slug("\u2014 A b"), "a-b")
+        self.assertEqual(check_context._slug("Caf\u00e9 au lait"), "caf-au-lait")
+        # A title of 72 characters with spaces or a carriage return after it is still 72; a title that names nothing refuses.
+        self.assertEqual(found("0002-" + check_context._slug(at_most) + ".md", at_most + "  \r"), [])
+        for empty in ("", "\u2014", "??", "-", "- --"):
+            self.assertTrue(caught(found("0002-.md", empty), "the title names nothing"), empty)
+        # The file's own number decides, past a gap too.
+        files = {"docs/decisions/0001-x.md": "# 0001. X" + body, "docs/decisions/0003-y.md": "# 0003. " + over + body,
+                 "tools/x.py": ""}
+        with mock.patch.object(check_context, "FIRST_SHORT", 3):
+            problems = check_context._decisions(tree(files))
+        self.assertTrue(caught(problems, "0003-y.md: the title is 73 characters"))
+        # A number padded with zeros is held as written.
+        files["docs/decisions/00004-z.md"] = "# 00004. " + over + body
+        with mock.patch.object(check_context, "FIRST_SHORT", 3):
+            self.assertTrue(caught(check_context._decisions(tree(files)), "00004-z.md: the title is 73 characters"))
+        # A record below FIRST_SHORT keeps its long title and its name, and so does every record before it.
+        self.assertEqual(found("0002-x.md", over, first=3), [])
+        self.assertTrue(caught(found("0002-x.md", over, first=2), "the title is 73 characters"))
+
+    def test_no_two_records_share_a_number(self):
+        # Decision 1121: a record takes the number of the pull request that adds it, so numbers leave gaps. The number
+        # is the file's, four digits or more, its title opens with it, and no two records share one, however written.
+        body = "\n\n## Decision\n\nY.\n\n## Why\n\nZ.\n\n## Boundaries\n\n| B | Check |\n|---|---|\n| b | `tools/x.py` |\n"
+        files = {"docs/decisions/0001-x.md": "# 0001. X" + body, "docs/decisions/0003-y.md": "# 0003. Y" + body,
+                 "docs/decisions/1130-z.md": "# 1130. Z" + body, "docs/decisions/10000-w.md": "# 10000. W" + body,
+                 "tools/x.py": ""}
+        self.assertEqual(check_context._decisions(tree(files)), [])
+        for name, title, said in (("0003-again.md", "# 0003. Again", "0003-y.md: shares its number with 0003-again.md"),
+                                  ("00003-again.md", "# 00003. Again", "0003-y.md: shares its number with 00003-again.md"),
+                                  ("010000-again.md", "# 010000. Again", "shares its number with"),
+                                  ("003-short.md", "# 003. Short", "003-short.md: a record's file opens with its number"),
+                                  ("notes.md", "# Notes", "notes.md: a record's file opens with its number"),
+                                  ("\uff11\uff11\uff13\uff10-wide.md", "# \uff11\uff11\uff13\uff10. Wide", "-wide.md: a record's file opens with its number"),
+                                  ("0004-v.md", "# 0005. V", "0004-v.md: the title must open with its number"),
+                                  ("10001-u.md", "# 1000. U", "10001-u.md: the title must open with its number")):
+            with self.subTest(name):
+                problems = check_context._decisions(tree(dict(files, **{"docs/decisions/" + name: title + body})))
+                self.assertTrue(caught(problems, said), problems)
+                self.assertEqual(len(problems), 1 if "shares" in said or "title" in said else 2, problems)
 
     def test_a_lesson_with_no_check_is_caught(self):
         text = ("### L-01 A thing broke\n\n**Failure.** It broke.\n\n**Rule.** Do not.\n\n"
@@ -6169,6 +6544,23 @@ class Decisions(unittest.TestCase):
         for name, (files, base, words) in cases.items():
             with self.subTest(name):
                 self.assertTrue(refused(files, words, base=base), name)
+
+    def test_a_record_of_five_digits_comes_after_one_of_four(self):
+        # Decision 1121: a record is numbered by its pull request, so its number is read as a number, at four digits or
+        # more: one of five digits is later than 9999, though its digits sort first.
+        nine, ten = "docs/decisions/9999-nine.md", "docs/decisions/10000-ten.md"
+        old = RECORD.replace("# 0001. One thing", "# 9999. Nine")
+        new = RECORD.replace("# 0001. One thing", "# 10000. Ten").replace(
+            "Status: accepted.", "Status: accepted. Replaces `%s`." % nine)
+        self.assertEqual(check_decisions.run(edited(history({nine: old}), {
+            nine: old.replace("Status: accepted.", "Status: replaced by `%s`." % ten), ten: new})), [])
+        # And one of four digits does not replace one of five.
+        old, new = old.replace("# 9999. Nine", "# 10000. Ten"), new.replace("# 10000. Ten", "# 9999. Nine")
+        self.assertTrue(refused({ten: old.replace("Status: accepted.", "Status: replaced by `%s`." % nine),
+                                 nine: new.replace(nine, ten)}, "10000-ten.md, which is not an earlier record", base={ten: old}))
+        self.assertTrue(refused({ten: old.replace("Status: accepted.", "Status: replaced by `%s`." % nine),
+                                 nine: new.replace(nine, ten)}, "10000-ten.md: it names %s, which is not a later record" % nine,
+                                base={ten: old}))
 
     def test_a_boundary_row_added_is_allowed(self):
         added = RECORD + '| Another thing | `tools/check_x.py`, `tests/test_x.py::test_z`, mutant: "another thing is undone" |\n'
@@ -6736,6 +7128,111 @@ class Trials(unittest.TestCase):
         self.assertFalse([line for line in batches if "P-31" in line])
         self.assertIn("P-31, the relay's host, on which W-2 rests, belongs to the relay and runs before it is built, in slice 3 (decision 0107). "
                       "The first approval does not need W-2, since a Run's end starts its passes (decision 0043).", section)
+
+    def test_a_trial_may_have_a_page_of_its_own_read_as_its_row_is(self):  # decision 0249
+        # A trial's page, in place of its row in section 6, is read as the row was: a quote of its question holds, the
+        # check finds nothing new, and the table the check prints is the same, byte for byte.
+        design = (ROOT / check_trials.DESIGN).read_text()
+        row = next(line for line in design.split("\n") if line.startswith("| P-41 | "))
+        cells = re.fullmatch(r"\| P-41 \| (%s) \| (%s) \|" % (check_trials.CELL, check_trials.CELL), row)
+        page = "# P-41\n\nBatch: 2\n\n## Question\n\n%s\n\n## Pass\n\n%s\n" % cells.group(1, 2)
+        moved = clone({check_trials.DESIGN: design.replace(row + "\n", "", 1), check_trials.PAGES + "/P-41.md": page})
+        self.assertEqual(check_trials.run(moved), [])
+        self.assertEqual(check_trials.table(moved), check_trials.table(ROOT))
+        self.assertEqual(check_trials.questions(moved)["P-41"], check_trials.questions(ROOT)["P-41"])
+        # A new trial is a page alone: it is one of section 6's, its row is written from it in the order of the
+        # numbers, and it stands in the batch it names.
+        made = clone({check_trials.PAGES + "/P-97.md": "# P-97\n\nBatch: 4\n\n## Question\n\nIs it asked?\n\n## Pass\n\nYes\n"})
+        self.assertIn("P-97", check_trials.section_6(made))
+        self.assertEqual(check_trials.run(made), [])
+        self.assertEqual(check_trials.questions(made)["P-97"], "Is it asked?")
+        lines = check_trials.table(made).split("\n")
+        self.assertEqual(lines[lines.index("| Batch | Trials |") - 2], "| P-97 | Is it asked? | Yes |")
+        self.assertIn("P-97", re.findall(r"P-[0-9]+", next(line for line in lines if line.startswith("| 4 | "))))
+        none = clone({check_trials.PAGES + "/P-97.md": "# P-97\n\nBatch: none\n\n## Question\n\nIs it asked?\n\n## Pass\n\nYes\n"})
+        self.assertIn("P-97", re.findall(r"P-[0-9]+", next(line for line in check_trials.table(none).split("\n")
+                                                           if line.startswith("| none | "))))
+        # A pipe escaped is the cell's own, and kept as written in the row.
+        piped = clone({check_trials.PAGES + "/P-97.md": "# P-97\n\nBatch: 4\n\n## Question\n\nIs A \\| B asked?\n\n## Pass\n\nYes\n"})
+        self.assertIn("| P-97 | Is A \\| B asked? | Yes |", check_trials.table(piped).split("\n"))
+        # Anything else there is refused: a file not named for a trial, or nested, a page headed with another trial, a
+        # batch 6.1 has not, a question run over two lines, text past the pass, and a trial with a page and a row.
+        good = "# P-%s\n\nBatch: 4\n\n## Question\n\nIs it asked?\n\n## Pass\n\nYes\n"
+        files = {"README.md": "# Trials\n", "P-095.md": good % "095", "deep/P-96.md": good % "96",
+                 "P-90.md": good % "91", "P-92.md": (good % "92").replace("Batch: 4", "Batch: 5"),
+                 "P-93.md": (good % "93").replace("Is it asked?", "Is it\nasked?"), "P-94.md": good % "94" + "more\n",
+                 "P-98.md": (good % "98").replace("Is it asked?", "Is it <!-- hidden --> asked?"),
+                 "P-99.md": (good % "99").replace("Is it asked?", "```hidden"), "P-41.md": page,
+                 "P-88.md": (good % "88").replace("Is it asked?", "Is A | B asked?"), "P-87.md": (good % "87").replace("Yes", " "),
+                 "P-85.md": (good % "85").replace("Is it asked?", " "),
+                 "P-86.md\n": good % "86"}
+        planted = clone({check_trials.PAGES + "/" + k: v for k, v in files.items()})
+        (planted / check_trials.PAGES / "P-89.md").symlink_to(planted / check_trials.PAGES / "P-90.md")
+        problems = check_trials.run(planted)
+        for name in ("P-98.md", "P-99.md"):
+            self.assertTrue(caught(problems, "%s/%s: holds a fence or an HTML comment" % (check_trials.PAGES, name)), name)
+        for name in ("README.md", "P-095.md", "deep/P-96.md", "P-89.md", "P-86.md\n"):
+            self.assertTrue(caught(problems, "%s/%s: only a trial's page" % (check_trials.PAGES, name)), name)
+        self.assertTrue(caught(problems, "P-90.md: is headed P-91"), problems)
+        for name in ("P-87.md", "P-85.md"):
+            self.assertTrue(caught(problems, "%s: its question or its pass is blank" % name), name)
+        with self.assertRaises(ValueError):         # the table refuses what the check refuses
+            check_trials.table(planted)
+        for name in ("P-92.md", "P-93.md", "P-94.md", "P-88.md"):
+            self.assertTrue(caught(problems, "%s/%s: is not a trial's page" % (check_trials.PAGES, name)), name)
+        self.assertTrue(caught(problems, "P-41 has a page in %s and a row in section 6" % check_trials.PAGES), problems)
+        # A page's batch is the one 6.1 names it in, while 6.1 does; and a row the table could not write is refused,
+        # since dropping it would leave the table unchanged.
+        other = clone({check_trials.DESIGN: design.replace(row + "\n", "", 1),
+                       check_trials.PAGES + "/P-41.md": page.replace("Batch: 2", "Batch: 4")})
+        self.assertTrue(caught(check_trials.run(other), "P-41's page says Batch: 4, and 6.1 names it in batch 2"))
+        # The table refuses each of these alone, as the check does: a page beside its row, a page 6.1 contradicts.
+        for refused in (clone({check_trials.PAGES + "/P-41.md": page}), other):
+            with self.assertRaises(ValueError):
+                check_trials.table(refused)
+        twice = design.replace("| **4. As they come up** | P-6,", "| **4. As they come up** | P-13, P-6,", 1)
+        self.assertNotEqual(twice, design)
+        self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: twice})), "6.1 names P-13 in more than one batch"))
+        odd = clone({check_trials.DESIGN: design.replace(row, row + " ", 1)})
+        self.assertTrue(caught(check_trials.run(odd), "P-41's row in section 6 is not '| P-41 | question | pass |'"))
+        with self.assertRaises(ValueError):
+            check_trials.table(odd)
+        # A trial after the last row has a page, never a row; and 6.1 is read as it is seen, all four batches of it.
+        late = clone({check_trials.DESIGN: design.replace(row, row + "\n| P-79 | Is it asked? | Yes |", 1)})
+        self.assertTrue(caught(check_trials.run(late), "P-79 has a row in section 6; a trial after P-78 has a page"))
+        hidden = design.replace("\n### 6.1 The order to run them in\n",
+                                "\n### 6.1 The order to run them in\n\n<!--\n| **4. An example** | P-13 | x |\n-->\n", 1)
+        self.assertNotEqual(hidden, design)
+        self.assertEqual(check_trials.table(clone({check_trials.DESIGN: hidden})), check_trials.table(ROOT))
+        unbold = design.replace("| **3. Before the control room** |", "| 3. Before the control room |", 1)
+        self.assertNotEqual(unbold, design)
+        with self.assertRaises(ValueError):
+            check_trials.table(clone({check_trials.DESIGN: unbold}))
+        self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: unbold})), "6.1's four batches cannot all be read"))
+        # A batch whose trials have all moved to pages is still read, its row naming none.
+        section = design[design.index("\n### 6.1 "):]
+        three = next(line for line in section.split("\n") if line.startswith("| **3. "))
+        emptied = design.replace(three, "| **3. Before the control room** | each trial whose page says `Batch: 3` | x |", 1)
+        self.assertNotIn("6.1's four batches", " ".join(check_trials.catalog(clone({check_trials.DESIGN: emptied}))))
+        # An opener left open hides the rest of 6.1, as a renderer reads it.
+        unclosed = design.replace("\nP-31, the relay's host", "\n<!--\n| **4. An example** | P-13 | x |\n\nP-31, the relay's host", 1)
+        self.assertNotEqual(unclosed, design)
+        self.assertEqual(check_trials.table(clone({check_trials.DESIGN: unclosed})), check_trials.table(ROOT))
+
+    def test_the_table_is_printed_from_rows_and_pages_in_the_order_of_their_numbers(self):  # decision 0249
+        # No index is committed: `python3 -m tools.check_trials --table` prints section 6 and the batches of 6.1.
+        lines = check_trials.table(ROOT).split("\n")
+        numbers = [int(line.split(" ")[1][2:]) for line in lines if line.startswith("| P-")]
+        self.assertEqual(numbers, sorted(numbers))
+        self.assertEqual(len(numbers), len(check_trials.section_6(ROOT)))
+        self.assertTrue(next(line for line in lines if line.startswith("| 1 | ")).startswith("| 1 | P-1, P-3, P-7"))
+        self.assertIn("P-31", re.findall(r"P-[0-9]+", next(line for line in lines if line.startswith("| none | "))))
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            self.assertEqual(check_trials.front(["--table"]), 0)
+        self.assertEqual(printed.getvalue(), check_trials.table(ROOT))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(check_trials.front(["--tables"]), 1)
 
     def test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads(self):  # issue 438
         # The check keeps each fixture's finding between runs in one process, by its name, its text, the schema and the
@@ -12269,6 +12766,113 @@ class Writes(unittest.TestCase):
         # Nor can what an import of all of such a package binds (issue 640).
         self.assertTrue(caught(problems, "harness/nsstar.py:2 imports * from adapters"), problems)
 
+    def test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one(self):
+        # Issue 1101: the mutants of a file outside kernel/ live in tools/mutants_of/, and a mutant of a script or a
+        # hook names gh or git as the text it finds. Such a file imports no module, and names only from another file
+        # there that imports none either, read through in turn, so nothing it reaches runs a command. One that imports
+        # anything else, anywhere in it, is read as any other file: a module (pathlib hands on os), a name from a file
+        # that imported a module and hands it on, from one that does so a step further off, from a ring of imports,
+        # the package itself, a relative import, or a file beside the folder whose name starts as its does. Only its
+        # top-level assignments may name one, never a def: a def handed a runner would run what it names. Nor a lambda,
+        # whatever its parameters are called, and none of the calls it may make bound to another value, by a
+        # comprehension, an assignment, a walrus or an import, or set as an attribute, which would make any call one;
+        # nor an item set, which would change another file's list.
+        # A module named from a package is read as any file named from, and a ring of them through it is no data; a
+        # module below a package there is named from by none, since Python runs that package first.
+        entry = "MUTANTS = [\n    ('a push is not read', 'tools/hooks/identity.py', \"subprocess.run(['git', 'push'])\", '', ()),\n]\n"
+        files = {"tools/mutants_of/common.py": "\"\"\"Shared.\"\"\"\n\nX = ('t',)\nY = X + ('u',)\n",
+                 "tools/mutants_of/data.py": "\"\"\"Data.\"\"\"\n\nfrom tools.mutants_of.common import X, Y\n\nZ = tuple('ab'.replace('a', 'c'))\n" + entry,
+                 "tools/mutants_of/launder.py": "import subprocess\n\nrun = subprocess.run\n",
+                 "tools/mutants_of/runs.py": "import subprocess\n\n" + entry,
+                 "tools/mutants_of/path.py": "import pathlib\n\n" + entry,
+                 "tools/mutants_of/handed.py": "from tools.mutants_of.launder import run\n\n" + entry,
+                 "tools/mutants_of/further.py": "from tools.mutants_of.handed import run\n\n" + entry,
+                 "tools/mutants_of/ring.py": "from tools.mutants_of.round import X\n\n" + entry,
+                 "tools/mutants_of/round.py": "from tools.mutants_of.ring import MUTANTS\n\nX = 1\n",
+                 "tools/mutants_of/package.py": "from tools.mutants_of import common\n\n" + entry,
+                 "tools/mutants_of/later.py": entry + "\n\ndef go():\n    import os\n",
+                 "tools/mutants_of/runner.py": "def version(run):\n    return run(['git', 'push'])\n",
+                 "tools/mutants_of/lambda.py": "version = lambda run: run(['git', 'push'])\n",
+                 "tools/mutants_of/named.py": "RUN = lambda tuple: tuple(['git', 'push'])\n",
+                 "tools/mutants_of/bare.py": "RUN = lambda: X\n" + entry,
+                 "tools/mutants_of/exited.py": "E = exit\n",
+                 "tools/mutants_of/rebound.py": "X = [tuple() for tuple in (exit,)]\n" + entry,
+                 "tools/mutants_of/renamed.py": "tuple = exit\nX = tuple()\n" + entry,
+                 "tools/mutants_of/imported.py": "from tools.mutants_of.exited import E as tuple\n\nX = tuple()\n" + entry,
+                 "tools/mutants_of/attribute_set.py": "exit.replace = print\nX = exit.replace('x')\n" + entry,
+                 "tools/mutants_of/walrus.py": "X = (tuple := exit)\nY = tuple()\n" + entry,
+                 "tools/mutants_of/item_set.py": "from tools.mutants_of.common import Y\n\nY[0] = 1\n" + entry,
+                 "tools/mutants_of/deep/__init__.py": "",
+                 "tools/mutants_of/deep/helper.py": "import subprocess\n\nX = 1\n",
+                 "tools/mutants_of/fromdeep.py": "from tools.mutants_of.deep import helper\n\n" + entry,
+                 "tools/mutants_of/deep/a.py": "from tools.mutants_of.deep import b\n\n" + entry,
+                 "tools/mutants_of/deep/b.py": "from tools.mutants_of.deep import a\n\nX = 1\n",
+                 "tools/mutants_of/deep/values.py": "X = 1\n",
+                 "tools/mutants_of/dotted.py": "from tools.mutants_of.deep.values import X\n\n" + entry,
+                 "tools/mutants_of/dunder.py": "RUN = ().__class__\n" + entry,
+                 "tools/mutants_of/builtin.py": "RUN = __import__\n" + entry,
+                 "tools/mutants_of/reaches.py": "RUN = getattr\n" + entry,
+                 "tools/mutants_of/alias.py": "from tools.mutants_of.common import X as __builtins__\n" + entry,
+                 "tools/mutants_of/attribute.py": "RUN = X.open\n" + entry,
+                 "tools/mutants_of/wrapper.py": "def bind(argv):\n    return argv\n\n\n" + entry,
+                 "tools/mutants_of/beside.py": "TARGETS = ('x.py',); print('git push')\n" + entry,
+                 "tools/mutants_of/raises.py": entry + "raise SystemExit(0)\n",
+                 "tools/mutants_of/exits.py": "RUN = exit()\n" + entry,
+                 "tools/mutants_of/calls.py": "RUN = 'x'.upper()\n" + entry,
+                 "tools/mutants_of/near.py": "from tools.mutants_ofx import X\n\n" + entry,
+                 "tools/mutants_of/relative.py": "from .tools.mutants_of.common import X\n\n" + entry,
+                 "tools/mutants_ofx.py": "X = 1\n" + entry}
+        problems = check_writes.run(clone(files))
+        self.assertFalse(caught(problems, "tools/mutants_of/data.py"), problems)
+        for name in ("runs", "path", "handed", "further", "ring", "package", "later", "runner", "lambda", "named", "bare",
+                     "rebound", "renamed", "imported", "attribute_set", "walrus", "item_set", "fromdeep", "deep/a", "dotted",
+                     "dunder",
+                     "builtin", "reaches", "alias", "attribute", "wrapper", "beside", "raises", "exits", "calls", "near", "relative",
+                     "../mutants_ofx"):
+            rel = os.path.normpath("tools/mutants_of/%s.py" % name)
+            self.assertTrue(any(p.startswith(rel + ":") and "names gh or git as a command" in p for p in problems), rel)
+
+    def test_a_command_a_file_of_mutants_names_as_text_is_taken_only_by_another_or_a_runner(self):
+        # Issue 1101 (Astra, and a Claude read): a command a file of mutants names as text is exempt only while no
+        # code runs it, so a file that runs code takes it from there, or from a file there that names from one, only
+        # where RUNNERS names that file: by any import, plain, of the module, of a name, or relative, and from a file
+        # of the folder that is no data either. A file that names no command is imported freely, and a runner may
+        # import any, though it hands what it took on to no other file. A module is a package's by its file's name, so a
+        # package's own relative import counts from itself, and an import of a module runs each package above it.
+        untested = (ROOT / "tools" / "untested.py").read_text() + "\nfrom tools.mutants_of.argv import VERSION\n"
+        files = {"tools/mutants_of/argv.py": "VERSION = ('git', '--version')\n",
+                 "tools/mutants_of/relay.py": "from tools.mutants_of.argv import VERSION\n",
+                 "tools/mutants_of/launders.py": "import subprocess\n\nfrom tools.mutants_of.argv import VERSION\n",
+                 "tools/mutants_of/after.py": "import os\n\nfrom tools.mutants_of.launders import VERSION\n",
+                 "tools/consumer.py": "import subprocess\nfrom tools.mutants_of.argv import VERSION\nsubprocess.run(VERSION)\n",
+                 "tools/relayed.py": "import subprocess\nfrom tools.mutants_of.relay import VERSION\n",
+                 "tools/whole.py": "from tools.mutants_of import argv\n",
+                 "tools/plainimport.py": "import tools.mutants_of.argv\n",
+                 "tools/relative.py": "from .mutants_of.argv import VERSION\n",
+                 "tools/shared.py": "from tools.mutants_of.common import X\n",
+                 "tools/via_runner.py": "from tools.untested import VERSION\n",
+                 "tools/not__init__.py": "from .mutants_of.argv import VERSION\n",
+                 "tools/example/__init__.py": "from ..mutants_of.argv import VERSION\n",
+                 "tools/mutants_of/pkg/__init__.py": "VERSION = ('git', '--version')\n",
+                 "tools/mutants_of/pkg/values.py": "X = 1\n",
+                 "tools/parent.py": "import tools.mutants_of.pkg.values\n",
+                 "tools/mutants_of/chain_z.py": "VERSION = ('git', '--version')\n",
+                 "tools/mutants_of/chain_b.py": "from tools.mutants_of.chain_z import VERSION\n",
+                 "tools/mutants_of/chain_a.py": "from tools.mutants_of.chain_b import VERSION\n",
+                 "tools/chained.py": "from tools.mutants_of.chain_a import VERSION\n",
+                 "tools/mutants_of/common.py": "X = ('t',)\n",
+                 "tools/untested.py": untested}
+        problems = check_writes.run(clone(files))
+        taken = "imports from a file of the mutants' data that names a command as text"
+        for rel, line in (("tools/consumer.py", 2), ("tools/relayed.py", 2), ("tools/whole.py", 1),
+                          ("tools/plainimport.py", 1), ("tools/relative.py", 1), ("tools/mutants_of/launders.py", 3),
+                          ("tools/via_runner.py", 1), ("tools/not__init__.py", 1), ("tools/parent.py", 1),
+                          ("tools/chained.py", 1), ("tools/example/__init__.py", 1)):
+            self.assertTrue(caught(problems, "%s:%d %s" % (rel, line, taken)), (rel, problems))
+        for rel in ("tools/mutants_of/argv.py", "tools/mutants_of/relay.py", "tools/mutants_of/after.py",
+                    "tools/shared.py", "tools/untested.py"):
+            self.assertFalse(caught(problems, rel + ":"), (rel, problems))
+
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
         queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
             "    return effects.role_write(transport, item, 'review', req, 'me')\n"
@@ -12605,7 +13209,8 @@ class Verify(unittest.TestCase):
         real = (verify.failed, verify.unittest.TextTestRunner)
         verify.failed, verify.unittest.TextTestRunner = (lambda checks: False), Runner
         try:
-            with contextlib.redirect_stdout(io.StringIO()):     # main prints the unverified rules
+            # main prints the unverified rules, and on --checks the desk's note, here none
+            with contextlib.redirect_stdout(io.StringIO()), mock.patch.object(verify, "desk_note", return_value=""):
                 # `make checks` is the checks alone, whether they pass or not: it runs no test (issue 438).
                 self.assertEqual((verify.main(["--checks"]), ran), (0, {}))
                 verify.failed = lambda checks: True
@@ -12621,6 +13226,28 @@ class Verify(unittest.TestCase):
         self.assertIn("\nverify:\n\t$(PY) -m tools.verify\n", makefile)
         self.assertIn("\nfast:\n\t$(PY) -m tools.verify --fast\n", makefile)
         self.assertIn("\nchecks:\n\t$(PY) -m tools.verify --checks\n", makefile)
+
+    def test_make_reads_the_makefile_as_committed_and_remakes_it_from_nothing(self):  # issue 1048, decision 0240
+        # make tries to remake the makefile it read before it looks up a target, by an implicit rule from a file beside
+        # it: a newer Makefile.sh is copied over the Makefile, and its verify runs in place of the committed one (Astra's
+        # read). The Makefile's explicit rule with an empty recipe stops that.
+        with tempfile.TemporaryDirectory() as where:
+            where = pathlib.Path(where)
+            shutil.copy(ROOT / "Makefile", where / "Makefile")
+            os.utime(where / "Makefile", (1, 1))
+            (where / "Makefile.sh").write_text("verify:\n\t@echo not the committed verify\n")
+            # make's built-in rules on, whatever flags the run was given (Astra's read), and verify the goal of a bare
+            # make too.
+            env = {k: v for k, v in os.environ.items() if k not in ("MAKEFLAGS", "MFLAGS", "MAKEFILES", "GNUMAKEFLAGS")}
+            for goal in (["verify"], []):
+                ran = subprocess.run(["make", "-s"] + goal + ["PY=echo"], cwd=where, capture_output=True, text=True,
+                                     timeout=60, env=env)
+                self.assertEqual((ran.returncode, ran.stdout), (0, "-m tools.verify\n"), (goal, ran.stderr))
+                self.assertEqual((where / "Makefile").read_text(), (ROOT / "Makefile").read_text())
+                # And verify's failure is make's (Astra's read).
+                failed = subprocess.run(["make", "-s"] + goal + ["PY=false"], cwd=where, capture_output=True, text=True,
+                                        timeout=60, env=env)
+                self.assertNotEqual(failed.returncode, 0, goal)
 
     def test_every_test_file_is_discovered(self):
         found = set()
@@ -12931,6 +13558,68 @@ class Mutants(unittest.TestCase):
         with self.assertRaises(ValueError) as raised:
             mutants.selected({}, mutants=[("m", "k.py", "rule\n", "x\n")])
         self.assertIn("1 mutant(s) name no test", str(raised.exception))
+
+    def test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone(self):
+        # Issue 1101: a mutant of a file outside kernel/ lives in tools/mutants_of/, one file to a target, so that two
+        # changes adding mutants of different files never meet in one. The runner finds each file there by the walk, in
+        # the order of the names, so that no list names one; each holds the mutants of the paths its TARGETS name and
+        # no other; and no path is two files' targets, the Kernel's, or a target of a mutant tools/mutants.py holds.
+        from tools import mutants_of
+        names = mutants.area_names(ROOT)
+        self.assertEqual(names, sorted(names))
+        self.assertEqual([name for name in names if not mutants.AREA_NAME.fullmatch(name)], [])
+        self.assertEqual([area.__name__ for area in mutants.AREAS], ["tools.mutants_of." + name for name in names])
+        self.assertEqual(mutants.area_names(tree({"tools/mutants_of/%s" % rel: "" for rel in (
+            "a.py", "b.py", "deep/c.py", "common.py", "__init__.py", "AGENTS.md", "d.txt")})), ["a", "b"])
+        # Each is loaded, in that order, and a name that is no module name is never handed to the import.
+        loaded = mutants.areas(tree({"tools/mutants_of/%s" % rel: "" for rel in ("a.py", "b.py", "x.y.py", "C.py")}),
+                               load=lambda name: name)
+        self.assertEqual(loaded, ("tools.mutants_of.a", "tools.mutants_of.b"))
+        held = {}
+        for area in mutants.AREAS:
+            self.assertTrue(area.TARGETS and isinstance(area.TARGETS, tuple), area.__name__)
+            self.assertIn(area.__name__.rpartition(".")[2], [mutants_of.named(t) for t in area.TARGETS])
+            for target in area.TARGETS:
+                self.assertFalse(target.startswith("kernel/"), (area.__name__, target))
+                self.assertNotIn(target, held, area.__name__)
+                held[target] = area.__name__
+            self.assertEqual([m[0] for m in area.MUTANTS if m[1] not in area.TARGETS], [], area.__name__)
+        self.assertEqual(mutants.OUTSIDE, [mutant for area in mutants.AREAS for mutant in area.MUTANTS])
+        self.assertTrue(mutants.OUTSIDE)
+        start, end = len(mutants.ISSUE), len(mutants.ISSUE) + len(mutants.OUTSIDE)
+        self.assertEqual(mutants.MUTANTS[start:end], mutants.OUTSIDE)
+        own = mutants.MUTANTS[:start] + mutants.MUTANTS[end:]
+        self.assertEqual([m[0] for m in own if m[1] in held], [])
+        # The runner's list is the one assignment that reads them, right after ISSUE.
+        made = [n.value for n in ast.parse((ROOT / "tools" / "mutants.py").read_text(encoding="utf-8")).body
+                if isinstance(n, ast.Assign) and [getattr(t, "id", None) for t in n.targets] == ["MUTANTS"]]
+        self.assertEqual(len(made), 1)
+        self.assertTrue(ast.unparse(made[0]).startswith("ISSUE + OUTSIDE + "))
+        # A file is named for one of its targets, so that a mutant's file is found from its target alone.
+        for target, name in (("adapters/pull.py", "adapters_pull"), (".github/workflows/verify.yml", "github_workflows_verify_yml"),
+                             ("controller/__main__.py", "controller_main"), ("Makefile", "makefile"), ("3d/x.py", "_3d_x")):
+            self.assertEqual(mutants_of.named(target), name)
+
+    def test_every_mutant_finds_its_text_once_in_its_target(self):
+        # Issue 1101: a mutant whose text is not in its target exactly once is STALE, which only a run of the mutants
+        # told, and they decline on a pull request, so code moved by a change merged first was found in the merge
+        # group (#1037). Read here, as the run reads it, a stale mutant fails the pull request's own tests.
+        if os.environ.get("MUTATING"):
+            self.skipTest("a copy broken on purpose no longer holds the text it was broken from")
+        texts, stale = {}, []
+        for mutant in mutants.MUTANTS:
+            name, rel, old = mutant[:3]
+            if rel not in texts:
+                # A target is a plain path in the tree, as git names it, so that none is read outside it.
+                path = ROOT / rel
+                plain = rel == os.path.normpath(rel) and not rel.startswith(("/", "../")) and rel != ".."
+                try:
+                    texts[rel] = path.read_bytes().decode() if plain and path.is_file() else None
+                except (OSError, UnicodeDecodeError):
+                    texts[rel] = None
+            if texts[rel] is None or texts[rel].count(old) != 1:
+                stale.append("%s: %s" % (rel, name))
+        self.assertEqual(stale, [], "update each stale mutant to the code as it now reads")
 
     def test_a_test_module_is_read_in_a_process_of_its_own(self):  # issue 511
         # The runner learns whether a named test exists in another process, so a test module whose import patches the
@@ -15776,3 +16465,206 @@ if mode == "cut":
         self.assertEqual(done.returncode, 2, done.stderr)
         self.assertIn("is inside the repo", done.stderr)
         self.assertFalse(out.exists())
+
+
+class Desk(unittest.TestCase):
+    """What the desk runs beside the checks, for a person, and no check: about the size the Factory will count a branch
+    at (issue 1109)."""
+
+    def repo(self, files: dict) -> pathlib.Path:
+        limits = {"limits": {"max_diff_characters": 60000, "max_diff_lines": 4000}}
+        root = tree(dict({"config/defaults.json": json.dumps(limits)}, **files))
+        git(root, "init", "-q", "-b", "main")
+        self.commit(root, "base")
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        return root
+
+    def commit(self, root: pathlib.Path, message: str) -> None:
+        git(root, "add", "-A")
+        git(root, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", message)
+
+    def test_the_size_is_counted_as_the_factory_counts_it_and_warned_past_its_share(self):
+        root = self.repo({"a.py": "a\nb\nc\n", "m.py": "".join("line %d\n" % n for n in range(40)),
+                          "\u00e9.py": "".join("line %d\n\n" % n for n in range(20))})
+        git(root, "checkout", "-q", "-b", "work")
+        (root / "a.py").write_text("a\nB\nc\nd\n")
+        (root / "\u00e9.py").write_text("".join("line %d\n\n" % n if n not in (2, 8) else "new\n\n" for n in range(20)))
+        git(root, "mv", "m.py", "moved.py")
+        self.commit(root, "work")
+        # Main moving on past the branch's base counts nothing of main's: the base is where the branch left it.
+        git(root, "checkout", "-q", "main")
+        (root / "big.py").write_text("x = 1\n" * 5000)
+        self.commit(root, "main")
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        git(root, "checkout", "-q", "work")
+        base = git(root, "merge-base", "HEAD", "origin/main").strip()
+
+        def factory(*args: str) -> int:     # as adapters/pull.py counts it: index lines cut, numbered, escaped
+            plain = git(root, "-c", "core.quotePath=true", "-c", "diff.suppressBlankEmpty=false", "diff", "--no-color",
+                        "--full-index", "-M", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/",
+                        "--inter-hunk-context=0", *args, "--")
+            return task.carried(task.numbered(desk.pull.canonical(plain)))
+
+        # However this clone's configuration would write a diff, it is counted as GitHub writes one.
+        (root / ".git" / "info" / "attributes").write_text("*.py diff=upper\n")
+        for key, value in (("diff.upper.textconv", "sed -e s/a/AAA/g"), ("color.ui", "always"), ("diff.noprefix", "true"),
+                           ("diff.renames", "false"), ("core.abbrev", "4"), ("diff.interHunkContext", "20"),
+                           ("diff.suppressBlankEmpty", "true"), ("core.quotePath", "false"), ("diff.algorithm", "histogram")):
+            git(root, "config", key, value)
+
+        said = "about %d of 60000 characters and %d of 4000 lines committed against origin/main as last fetched"
+        self.assertEqual(desk.size(root), said % (factory(base), 7))
+        # Past 95% of either limit it warns, and under it does not: the Factory's count is a little apart from this.
+        warned = "; split it before it opens, or the Factory holds it as too_large"
+        for most, warns in (((int(factory(base) / 0.96), 4000), True), ((60000, 7), True), ((60000, 8), False)):
+            with mock.patch.object(desk, "limits", return_value=most):
+                self.assertEqual(desk.size(root).endswith(warned), warns, most)
+        for most, warns in (((60000, 21), True), ((60000, 22), False)):       # 20 lines: past 95% of 21, not of 22
+            with mock.patch.object(desk, "limits", return_value=most), mock.patch.object(desk, "counted", return_value=(9, 20)):
+                self.assertEqual(desk.size(root).endswith(warned), warns, most)
+        for count in ((95, 1), (1, 19)):        # at 95% of either, and not past it, it does not warn
+            with mock.patch.object(desk, "limits", return_value=(100, 20)), mock.patch.object(desk, "counted", return_value=count):
+                self.assertFalse(desk.size(root).endswith(warned), count)
+        self.assertEqual(desk.limits(root), (60000, 4000))
+        # What is committed counts, a line taken out as one; a working tree's edits are not read, staged ones and
+        # untracked files are named; each index line is cut as the Factory cuts it, however git abbreviates.
+        (root / "a.py").write_text("a\nc\n" + "y" * 300 + "\n")
+        self.commit(root, "more")
+        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6))
+        self.assertNotEqual(factory(base, "HEAD"), task.carried(task.numbered(git(root, "diff", "--no-color", "--full-index",
+                                                                                  "-M", "--no-textconv", base, "HEAD", "--"))))
+        (root / "a.py").write_text("z\n" * 9000)
+        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6))
+        (root / "HEAD").write_text("n\n")      # a file of that name is no revision to the reads
+        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6) + ", 1 untracked file not counted")
+        (root / "other.py").write_text("o\n")
+        git(root, "add", "a.py")
+        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6) +
+                         ", staged edits and 2 untracked files not counted")
+        git(root, "reset", "-q")
+        (root / "HEAD").unlink()
+        (root / "other.py").unlink()
+        git(root, "checkout", "-q", "--", "a.py")
+        # Text that is no UTF-8 the Factory holds; limits it cannot read, it says so.
+        (root / "a.py").write_bytes(b"a\n\xff\n")
+        self.commit(root, "bytes")
+        self.assertEqual(desk.size(root), "the diff holds text that is no UTF-8, which the Factory holds and counts no "
+                                          "size of; take it out")
+        (root / "a.py").write_text("a\n")
+        self.commit(root, "back")
+        # The limits are main's, as the Factory reads them: not this tree's, nor this branch's.
+        (root / "config" / "defaults.json").write_text('{"limits": {"max_diff_characters": 9, "max_diff_lines": 9}}')
+        self.assertEqual(desk.limits(root), (60000, 4000))
+        self.commit(root, "limits")
+        self.assertEqual(desk.limits(root), (60000, 4000))
+        for config in ('{"limits": {}}', "{", '{"limits": {"max_diff_characters": "x", "max_diff_lines": 1}}',
+                       '{"limits": {"max_diff_characters": 1%s, "max_diff_lines": 1}}' % ("0" * 400), "\udcff"):
+            (root / "config" / "defaults.json").write_bytes(config.encode("utf-8", "surrogateescape"))
+            self.commit(root, "config")
+            git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+            self.assertEqual(desk.size(root), "no limit to compare: config/defaults.json's limits cannot be read", config)
+        # A partial clone's reads may fetch, so it reads nothing.
+        git(root, "config", "extensions.partialclone", "origin")
+        self.assertEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
+        git(root, "config", "--unset", "extensions.partialclone")
+        git(root, "config", "remote.origin.promisor", "false")
+        self.assertNotEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
+        git(root, "config", "remote.other.promisor", "true")     # any of them, not the first alone
+        self.assertEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
+        git(root, "config", "--unset", "remote.other.promisor")
+        partial = "no count: this is a partial clone, whose reads may fetch"
+        for key, value, said in (("remote.other.promisor", "no", False), ("remote.other.promisor", "maybe", True),
+                                 ("extensions.partialclone", "false", True),     # a remote's name, never a boolean
+                                 ("remote.origin.partialclonefilter", "blob:none", True)):
+            git(root, "config", key, value)
+            self.assertEqual(desk.size(root) == partial, said, (key, value))
+            git(root, "config", "--unset", key)
+        with mock.patch.object(desk, "SECONDS", 0):      # git that cannot say in time is read as one that may fetch
+            self.assertTrue(desk._partial(root))
+
+    def test_the_desk_runs_git_only_to_read_and_says_when_there_is_no_base(self):
+        root = self.repo({"a.py": "a\n"})
+        (root / "a.py").write_text("b\n")
+        self.commit(root, "work")
+        ran, real = [], subprocess.run
+
+        def run(argv, **kwargs):
+            ran.append((argv, kwargs["env"]))
+            self.assertEqual(kwargs["timeout"], desk.SECONDS)
+            return real(argv, **kwargs)
+
+        with mock.patch.object(desk, "subprocess", mock.NonCallableMock(
+                run=run, DEVNULL=subprocess.DEVNULL, TimeoutExpired=subprocess.TimeoutExpired)):
+            desk.size(root)
+            for refused in (("fetch", "origin"), ("config", "user.name", "x"), ("config", "--unset", "x.y"), ("config",),
+                            ("diff", "--output=f")):
+                with self.assertRaises(ValueError):
+                    desk._git(root, *refused)
+        verbs = {argv[len(desk.SAFE) + 1] for argv, _ in ran}
+        self.assertTrue(verbs and verbs <= set(desk.READS), verbs)
+        self.assertFalse({"fetch", "pull", "push", "clone", "ls-remote", "remote", "submodule", "fetch-pack",
+                          "send-pack", "archive", "bundle", "maintenance", "gc"} & set(desk.READS))
+        self.assertTrue(all(argv[0] == "git" and argv[1:len(desk.SAFE) + 1] == list(desk.SAFE) for argv, _ in ran))
+        self.assertTrue(all(env["GIT_NO_LAZY_FETCH"] == "1" and env["GIT_TERMINAL_PROMPT"] == "0" and env["LC_ALL"] == "C"
+                            for _, env in ran))
+        # With no clone, or no main to compare with, there is no base, and it says so.
+        self.assertEqual(desk.size(tree({"a.py": "a\n"})), "no base to compare: this tree is no clone")
+        git(root, "update-ref", "-d", "refs/remotes/origin/main")
+        self.assertEqual(desk.size(root), "no base to compare: origin/main cannot be read here")
+
+    def test_make_checks_note_fails_nothing(self):
+        # The note is printed after the checks have answered, and nothing it does, an error or an exit, changes the
+        # answer. CI's legs never run it.
+        def ran(argv: list, checks_failed: bool, note) -> tuple:
+            printed = io.StringIO()
+            with mock.patch.object(verify, "failed", return_value=checks_failed), \
+                    mock.patch.object(desk, "size", side_effect=note), contextlib.redirect_stdout(printed):
+                return verify.main(argv), printed.getvalue()
+
+        for checks_failed in (False, True):
+            self.assertEqual(ran(["--checks"], checks_failed, lambda: "the note"),
+                             (int(checks_failed), "%-22s the note\n" % "diff size"))
+            for note, name in ((RuntimeError, "RuntimeError"), (lambda: sys.exit(int(not checks_failed)), "SystemExit"),
+                               (KeyboardInterrupt, "KeyboardInterrupt")):
+                self.assertEqual(ran(["--checks"], checks_failed, note),
+                                 (int(checks_failed), "%-22s no note: it raised %s\n" % ("diff size", name)))
+        for checks_failed in (False, True):
+            read, write = os.pipe()
+            os.close(read)      # a reader that closed before the note
+            stream = open(write, "w", encoding="utf-8")
+            with mock.patch.object(verify, "failed", return_value=checks_failed), \
+                    mock.patch.object(desk, "size", return_value="n"), mock.patch.object(sys, "stdout", stream):
+                self.assertEqual(verify.main(["--checks"]), int(checks_failed))
+            stream.close()      # the flush at exit: what the note left held goes nowhere, and raises nothing
+        read, write = os.pipe()
+        try:        # the null device opened as the stream's own number, closed already: that number is left open
+            with mock.patch.object(verify.os, "open", return_value=write):
+                verify.quiet(mock.Mock(fileno=lambda: write))
+            os.fstat(write)
+        finally:
+            os.close(read)
+            os.close(write)
+        printed = io.StringIO()
+        with mock.patch.object(verify, "failed", return_value=True), mock.patch.object(desk, "size", return_value="n"), \
+                mock.patch("builtins.print", side_effect=BrokenPipeError), contextlib.redirect_stdout(printed):
+            self.assertEqual(verify.main(["--checks"]), 1)      # a stream with no file to point elsewhere
+        for argv, code, said in ((["size"], 0, "the note\n"), ([], 1, "usage: python3 -m tools.desk size\n"),
+                                 (["size", "x"], 1, "usage: python3 -m tools.desk size\n")):
+            printed = io.StringIO()      # the command prints the note, and anything else asked is refused
+            with mock.patch.object(desk, "size", return_value="the note"), contextlib.redirect_stdout(printed):
+                self.assertEqual(desk.main(argv), code, argv)
+            self.assertEqual(printed.getvalue(), said, argv)
+        package = sys.modules["tools"]
+        del package.desk
+        try:
+            with mock.patch.dict(sys.modules, {"tools.desk": None}):       # one that cannot be imported
+                self.assertEqual(verify.desk_note(), "no note: it raised ModuleNotFoundError")
+        finally:
+            package.desk = desk
+        note = mock.Mock(return_value="the note")
+        with mock.patch.object(verify, "failed", return_value=False), mock.patch.object(desk, "size", note), \
+                mock.patch.object(verify, "suite", return_value=unittest.TestSuite()), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(verify.main([], {}), 0)
+            self.assertEqual(verify.main([], {"CHECKS_SHARD": "0", "CHECKS_SHARDS": "2"}), 0)
+        note.assert_not_called()
