@@ -35,14 +35,15 @@ BASE = "refs/remotes/origin/main"
 NO_GRAFTS = "/dev/null/grafts"      # a path that cannot exist: below a file, not a directory
 SECONDS = 30                        # for each git command
 FOLDER = "docs/decisions"
-PATH = r"`(%s/(\d{4})-[^`/\s]+\.md)`" % FOLDER
+PATH = r"`(%s/([0-9]{4,})-[^`/\s]+\.md)`" % FOLDER
 # How decision 0012 says it was replaced, from the start of its Status: the path, then a comma, a stop or the end.
 REPLACED = re.compile(r"^Status: replaced by %s(?=[,.]|$)" % PATH)
 # How decision 0015 says what it replaces: one record, or a list of them, straight after its own Status.
 REPLACES = re.compile(r"^Status: accepted\. Replaces (`[^`]+`(?:(?:, and |, | and )`[^`]+`)*)(?=[,.]|$)")
 # Words that claim a replacement. Past the one declaration a Status makes, none of them, and no record's path, stands.
 CLAIM = re.compile(r"replace|supersede", re.I)
-NUMBER = re.compile(r"^(\d{4})-")
+# A record's number, at least four digits, compared as a number: one of five digits comes after 9999 (decision 1121).
+NUMBER = re.compile(r"^([0-9]{4,})-")
 BOUNDARIES = "## Boundaries"
 # A mutant a row names, by its description in tools/mutants.py (issue 590).
 MUTANT = re.compile(r'mutant: "([^"\n]+)"')
@@ -338,7 +339,7 @@ def _status(rel: str, old: str, new: str, before: dict, root: pathlib.Path) -> s
     target = root / path
     if target.is_symlink() or not target.is_file():
         return "it names %s, which does not exist" % path
-    if own is None or number <= own.group(1):
+    if own is None or int(number) <= int(own.group(1)):
         return "it names %s, which is not a later record" % path
     said = parse(target.read_text(encoding="utf-8", errors="replace"))
     if rel not in (_replaces(said[0]) if isinstance(said, tuple) else []):
@@ -368,7 +369,7 @@ def _replacing(rel: str, status: str, before: dict, current: dict) -> list:
         said = _declared(REPLACED, now[0]) if isinstance(now, tuple) else None
         if name not in before or number is None or now is None:
             why.append("it replaces %s, which is not a record main holds" % name)
-        elif own is None or number.group(1) >= own.group(1):
+        elif own is None or int(number.group(1)) >= int(own.group(1)):
             why.append("it replaces %s, which is not an earlier record" % name)
         elif said is None or said.group(1) != rel:
             why.append("it replaces %s, whose Status does not say 'replaced by' and this record's path" % name)
