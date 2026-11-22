@@ -7645,6 +7645,16 @@ class Linked(unittest.TestCase):
         router = Router(github.Replay(issue_read(closing=[linked_read((), [crossed("PullRequest")])])), {"don-petry": "admin"})
         f = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=broke)[0]
         self.assertEqual((f["linked"], f["complete"]["linked"], f["spans_broken"]), ([], False, True))
+        # A broken chain that gives 7 a span while nothing names the issue says no break: the list is short while the
+        # span is in the records at hand, and whole once it has left them, two passes on (decision 0253, ruling (d)).
+        nothing = lambda *more: Router(github.Replay([linked_read((), [crossed("Issue")])] + list(more)), {"don-petry": "admin"})
+        gave = [seen_by(3, [(7, True, [])], False)]
+        steps = [(gave, [7], False), (gave + [seen_by(4, [(7, False, [span(3)])], False)], [7], False),
+                 ([seen_by(4, [(7, False, [span(3)])], False), seen_by(5, [], False)], [], True)]
+        for earlier, listed, whole in steps:
+            router = nothing(*([pull_read(7), pull_timeline(7)] if listed else []))
+            found, *said = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), earlier)
+            self.assertEqual(([p["number"] for p in found], said), (listed, [whole, False, False]), earlier)
 
     def test_the_linked_pull_requests_read_short_are_not_whole_and_one_not_answered_refuses_the_issue(self):
         def short7(*after, refs=(7, 8), events=()):
