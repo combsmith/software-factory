@@ -15685,6 +15685,8 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("an issue the pass before served is not read when it left", 'controller/__main__.py',
      '        newly_issues = sorted((was_served - set(issues)) | (owing - set(issues) - kept_left))\n',
      '        newly_issues = sorted(owing - set(issues) - kept_left)\n', ("tests.test_controller.Entry.test_an_issue_that_left_is_read_with_its_close_and_one_read_short_is_owed",)),
+    ("the tracking issue told at its read is read as one that left", 'controller/__main__.py',
+     'tracking=set(apart or ()) | told)', 'tracking=set(apart or ()))', ("tests.test_controller.Entry.test_an_issue_that_left_is_read_with_its_close_and_one_read_short_is_owed",)),
     ("the tracking issue is read as one that left", 'controller/__main__.py',
      '    was_served -= set(tracking)\n', '', ("tests.test_controller.Entry.test_an_issue_that_left_is_read_with_its_close_and_one_read_short_is_owed",)),
     ("the tracking issue owed is read as one that left", 'controller/__main__.py',
@@ -16577,12 +16579,12 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("the Runs' Effects are read before the writes are seen", 'controller/__main__.py',
      '    seen, unread, gone, unread_issues, gone_issues = writes_seen(\n'
      '        transport, config, numbers, kept, before, since, clock, owed, stages, served_issues,\n'
-     '        listed=apart is not None and served is not None, tracking=apart or ())\n'
+     '        listed=apart is not None and served is not None, tracking=set(apart or ()) | told)\n'
      '    effects = recorded_effects(transport, config, runs, before, since, from_passes, sleep, stages)\n',
      '    effects = recorded_effects(transport, config, runs, before, since, from_passes, sleep, stages)\n'
      '    seen, unread, gone, unread_issues, gone_issues = writes_seen(\n'
      '        transport, config, numbers, kept, before, since, clock, owed, stages, served_issues,\n'
-     '        listed=apart is not None and served is not None, tracking=apart or ())\n',
+     '        listed=apart is not None and served is not None, tracking=set(apart or ()) | told)\n',
      ('tests.test_controller.Entry.test_the_served_issues_writes_are_read_for_reconciliation',)),
     ("the issues' writes are read while the tracking issue's number is not", 'controller/__main__.py',
      'for e in issues] if apart is not None else ()', 'for e in issues]',
