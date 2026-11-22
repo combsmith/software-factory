@@ -4386,6 +4386,9 @@ class Workflows(unittest.TestCase):
             with self.subTest(payload=payload):
                 refused(said(one, event_name="merge_group" if "merge_group" in payload else "pull_request",
                              payload=payload), "the decision records the pull request adds cannot be read")
+        event.write_text("{")
+        refused(commits_are_the_maintainers.record_problems(local, {"BASE_SHA": base, "HEAD_SHA": one, "EVENT": "pull_request",
+                                                                    "GITHUB_EVENT_PATH": str(event)}), "cannot be read")
         event.unlink()
         refused(commits_are_the_maintainers.record_problems(local, {"BASE_SHA": base, "HEAD_SHA": one, "EVENT": "pull_request",
                                                                     "GITHUB_EVENT_PATH": str(event)}), "cannot be read")
