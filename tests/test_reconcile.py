@@ -603,6 +603,20 @@ class HandApproval(unittest.TestCase):
         self.assertEqual(validate(dict(record, reconciled=taken), SCHEMAS["pass"], schemas=SCHEMAS), [])
         again = [dict(decided_as(hand), reconciled=taken)]
         self.assertEqual(reconcile.carried(again, recorded(), seen(), NOW, taken=second["taken"])["taken"], taken["taken"])
+        # Two keyless approvals of a head in one pass are carried as one.
+        twice = check(seen(approval(None, at="2026-10-11T12:40:00Z"), approval(None, at="2026-10-11T12:45:00Z")), before=aged)
+        self.assertEqual(reconcile.carried(aged, recorded(), seen(), NOW, taken=twice["taken"])["taken"],
+                         [{"key": None, "item": URL, "head": HEAD}])
+        # A matched approval's head and a Role's are carried as an unmatched one's is.
+        role = dict(wrote("pr-review", "approval", "PRR_9", at="2026-10-11T12:20:00Z"), commit=HEAD)
+        own = check(seen(approval("PRR_4"), role), recorded([applied(("approve", "PRR_4", "applied"))]), before=[decided_as(hand)])
+        self.assertEqual(sorted(t["key"] for t in reconcile.carried([decided_as(hand)], recorded(), seen(), NOW,
+                                                                    taken=own["taken"])["taken"]), ["PRR_4", "PRR_9"])
+        # A pass whose read is short, of the Effects or of what was seen, drops neither.
+        for name, effects, s in (("effects unread", None, seen()), ("seen unread", recorded(), None),
+                                 ("seen short", recorded(), seen(whole=False))):
+            short = reconcile.carried(again, effects, s, "2026-10-13T12:00:00Z")
+            self.assertEqual((short["hand"], short["taken"]), (taken["hand"], taken["taken"]), name)
         # Dropped by the pass that reads the pull request leave, which carries nothing new for it, either kind; and
         # nothing new is carried while a leaving read of it is in the window, though what came before stays.
         for name in ("hand", "taken"):

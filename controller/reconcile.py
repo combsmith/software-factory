@@ -199,8 +199,8 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     than that; so a late first read does not stretch it. So a record holds what the Effects said, not the records
     themselves, and a pass reads only what is new (decision 0112). Each pull request `gone`, first read as left by this
     pass, is stamped with now, and one a record before stamped is kept until the window passes it (issue 787). So are
-    the issues, `unread_issues` and `gone_issues` (issue 916). So is each hand approval, `hand`, and each head an
-    unmatched approval took, `taken`, until its pull request leaves (decision 0241)."""
+    the issues, `unread_issues` and `gone_issues` (issue 916). So is each hand approval, `hand`, and each head any
+    other approval took, `taken`, until its pull request leaves (decision 0241)."""
     since = seen["since"] if seen is not None and not errors(seen, "seen") else None
     held = {name: [e for e in rows if name in ("owed", "owed_issues", "hand", "taken") or since is None
                    or _within(e["at"], since, name == "items")]
@@ -223,6 +223,7 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
         {"key": t["key"], "item": key(t["item"]), "head": t["head"]} for t in taken
         if (t["key"], key(t["item"]), t["head"]) not in known_taken and (t["key"] is None or FITS_KEY.fullmatch(t["key"]))
         and FITS_ITEM.fullmatch(key(t["item"])) and t["item"]["number"] not in left_]
+    heads_ = [e for i, e in enumerate(heads_) if e not in heads_[:i]]      # two keyless of a head in a pass are one
     if heads_:
         held["taken"] = heads_
     held["left"] = [e for e in held.get("left", []) if e["number"] not in set(gone)] + [

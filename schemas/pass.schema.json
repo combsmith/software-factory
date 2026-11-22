@@ -402,7 +402,7 @@
           }
         },
         "taken": {
-          "description": "Each head an approval by the machine user took that no Effect records and was not read as the Maintainer's hand: its review's key, null where none could be read, its pull request and the head, kept until the pull request leaves, so a later approval of that head is a second (decision 0241). Absent where there is none.",
+          "description": "Each head an approval took that was not read as the Maintainer's hand, the machine user's matched or not, a Role's or a keyless one: its review's key, null where none could be read, its pull request and the head, kept until the pull request leaves, so a later approval of that head is a second (decision 0241). Absent where there is none.",
           "type": "array",
           "items": {
             "type": "object",
