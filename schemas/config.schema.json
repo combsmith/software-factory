@@ -173,6 +173,7 @@
       "additionalProperties": false,
       "required": [
         "max_attempts",
+        "max_implementing_rounds",
         "max_rounds",
         "max_runs_per_item",
         "max_environment_runs_per_item",
@@ -188,6 +189,11 @@
       ],
       "properties": {
         "max_attempts": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_implementing_rounds": {
+          "description": "The most implementing rounds an issue may spend since a writer acted, a round being an implementing Run that completed, whatever it concluded: a limit of their own, apart from max_attempts (issue 1038)",
           "type": "integer",
           "minimum": 1
         },
@@ -295,18 +301,22 @@
           ],
           "properties": {
             "factory:triage": {
+              "description": "An App's name as config/apps.json writes it, with no [bot]: the pass adds the suffix",
               "type": [
                 "string",
                 "null"
               ],
-              "minLength": 1
+              "minLength": 1,
+              "pattern": "^[a-z0-9][a-z0-9-]*$"
             },
             "factory:ready": {
+              "description": "An App's name as config/apps.json writes it, with no [bot]: the pass adds the suffix",
               "type": [
                 "string",
                 "null"
               ],
-              "minLength": 1
+              "minLength": 1,
+              "pattern": "^[a-z0-9][a-z0-9-]*$"
             }
           }
         },
@@ -336,9 +346,10 @@
                   "minLength": 1
                 },
                 "app": {
-                  "description": "The name of the Role's App, whose comment or label stands in for its Run once the run record has expired",
+                  "description": "The name of the Role's App, whose comment or label stands in for its Run once the run record has expired, as config/apps.json writes it, with no [bot]: the pass adds the suffix",
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "pattern": "^[a-z0-9][a-z0-9-]*$"
                 }
               }
             },
@@ -358,9 +369,10 @@
                   "minLength": 1
                 },
                 "app": {
-                  "description": "The name of the Role's App, whose comment or label stands in for its Run once the run record has expired",
+                  "description": "The name of the Role's App, whose comment or label stands in for its Run once the run record has expired, as config/apps.json writes it, with no [bot]: the pass adds the suffix",
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "pattern": "^[a-z0-9][a-z0-9-]*$"
                 }
               }
             },
@@ -380,9 +392,10 @@
                   "minLength": 1
                 },
                 "app": {
-                  "description": "The name of the Role's App, whose comment or label stands in for its Run once the run record has expired",
+                  "description": "The name of the Role's App, whose comment or label stands in for its Run once the run record has expired, as config/apps.json writes it, with no [bot]: the pass adds the suffix",
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "pattern": "^[a-z0-9][a-z0-9-]*$"
                 }
               }
             }

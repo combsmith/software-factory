@@ -41,7 +41,11 @@ MARGIN = 1 / 24     # a day's hour: a period is asked only if it covers the wind
 PAGE = 100          # the activity is read once: a list as long as a page may be cut short
 AT = re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z")
 KEY = re.compile(r"[A-Za-z0-9_=:-]{1,100}")
+COMMIT = re.compile(r"[0-9a-f]{40}")
+NO_COMMIT = object()    # a write that is no approval carries no commit; any value GitHub gives is an approval's
 PARTS = ("events", "reviews", "threads", "check_runs")
+HAND = "hand"       # who a write is by when a person resolved a thread a Role opened: no identity, and no Role's name
+NOT_ROLES = ("approver", "controller", "queue")     # the identities that are no Role's App
 # The timeline's events that are writes, and what each is: those a Factory write makes, and those that change a pull
 # request's state, which none makes yet.
 EVENTS = {"labeled": "label", "unlabeled": "label", "added_to_merge_queue": "enqueue",
@@ -65,6 +69,12 @@ ACTIVITY = {"push": "push", "force_push": "force_push", "branch_creation": "bran
             "branch_deletion": "branch_deleted", "pr_merge": "merge", "merge_queue_merge": "merge"}
 
 
+# What REST answers of an issue that left once nothing more can be read there: 404, not found, or 410, deleted. Each is
+# the end of the issue only where the same token read its repo in the same pass; else access may be what was lost, and
+# what was seen is short. A transfer's 301 is not among them: the transport keeps no redirect's code (decision 0235).
+ENDED = (404, 410)
+
+
 def _pages(transport, path: str) -> tuple:
     """Every item of a list GitHub gives page by page, and whether it was read whole; nothing, not whole, if not."""
     try:
@@ -81,6 +91,27 @@ def _readable(actor) -> bool:
 
 def _who(actor, identities: dict):
     return identities.get((actor["id"], actor["type"])) if _readable(actor) else None
+
+
+def _opener(thread: dict, identities: dict) -> tuple:
+    """`(code, told)`: the identity that opened a thread, by its first comment's author as GraphQL gives it, or None;
+    and whether it could be told from one. A first comment GitHub does not say replies to none is not the opener's.
+    An author GitHub no longer names, or of a type no identity has, is none; one whose type is not said cannot be told.
+    A thread whose first comment was deleted reads its next as its first (trials P-49 and P-53), so its opener is
+    whoever replied: that is not told here."""
+    nodes = _object(thread.get("comments")).get("nodes")
+    if not isinstance(nodes, list) or not nodes or not isinstance(nodes[0], dict) or nodes[0].get("replyTo", 0) is not None:
+        return None, False
+    author = nodes[0].get("author", 0)
+    if author is None:
+        return None, True
+    kind = _object(author).get("__typename")
+    if not isinstance(kind, str) or not kind:
+        return None, False
+    if kind not in ("User", "Bot"):
+        return None, True
+    actor = {"id": author.get("databaseId"), "type": kind}
+    return _who(actor, identities), _readable(actor)
 
 
 def _at(text, since: str):
@@ -138,15 +169,56 @@ def _check_runs(transport, item: dict) -> tuple:
     return kept, body.get("total_count") == len(runs) < PAGE
 
 
-def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) -> tuple:
+def _state(transport, issue: str, number: int):
+    """What REST's read of an issue that left answers: `open` or `closed`, a status of `ENDED`, or None for any other
+    answer, a body of another number, of a pull request, or none at all (decision 0235)."""
+    try:
+        answer = transport.send(request("GET", issue))
+    except Unanswered:
+        return None
+    if answer.get("status") in ENDED:
+        return answer["status"]
+    body = _object(answer.get("body")) if answer.get("status") == 200 else {}
+    own = type(body.get("number")) is int and body["number"] == number and "pull_request" not in body
+    return body.get("state") if own and body.get("state") in ("open", "closed") else None
+
+
+def repo_read(transport, repo: str) -> bool:
+    """Whether REST answered the repo `repo` itself, by its full name, with its issues on, through `transport`: with
+    them off, every issue answers 410, and none has ended (decision 0235)."""
+    try:
+        answer = transport.send(request("GET", "/repos/%s" % repo))
+    except Unanswered:
+        return False
+    body = _object(answer.get("body")) if answer.get("status") == 200 else {}
+    full = body.get("full_name")
+    return isinstance(full, str) and full.lower() == repo.lower() and body.get("has_issues") is True
+
+
+def read(transport, item: dict, kept, identities: dict, apps: dict, since: str, repo_read=False, told=None) -> tuple:
     """`(writes, merged, whole)` for one served item. `kept` is what the snapshot of `adapters/facts.py` kept of a
     pull request, or None where it kept nothing; an issue's is not read. For an item the pass before served that is no
     longer open, a pull request merged or closed between the passes, `kept` is `LEFT`: no snapshot reads it, so its
     timeline, reviews, threads and the check runs on its head are read here, and with them its close or its merge
-    (decision 0063). One whose timeline names no close is not one that left, and what was seen of it is short."""
+    (decision 0063). One whose timeline names no close is not one that left, and what was seen of it is short. An issue
+    that left is read first by its state: one still open, left out of the issues served, is read as an open one is, with
+    no close; one REST answers 404 or 410 is whole, with nothing read, only where `repo_read`, the same token having read
+    its repo in this pass, and is then added to `told` with its answer; any other answer is short (decision 0235)."""
     repo, number = item["repo"], item["number"]
     issue = "/repos/%s/issues/%d" % (repo, number)
     writes, merged = [], []
+    ending = kept in (LEFT, GONE)
+    if item["type"] == "issue" and ending:
+        state = _state(transport, issue, number)
+        if state in ENDED:
+            # Whole only where the end can be told: with nowhere to tell it, the issue would end unseen.
+            ended = repo_read is True and told is not None
+            if ended:
+                told.append({"item": dict(item), "answer": state})
+            return [], [], ended
+        if state is None:
+            return [], [], False
+        ending = state == "closed"
     if item["type"] == "pull_request" and kept not in (LEFT, GONE):
         parts = dict(kept) if isinstance(kept, dict) else {}
     elif item["type"] == "pull_request":
@@ -162,12 +234,20 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         got = parts.get(name)
         whole &= isinstance(got, tuple) and len(got) == 2 and isinstance(got[0], list) and got[1] is True
         parts[name] = got[0] if isinstance(got, tuple) and len(got) == 2 and isinstance(got[0], list) else []
-    if kept in (LEFT, GONE) and item["type"] == "pull_request":
-        whole &= any(_object(e).get("event") in ("closed", "merged")
+    # One that left is read with its close: an issue's close, or a pull request's close or merge, in the window, or any
+    # for one a pass before read as gone (issues 787 and 916).
+    if ending:
+        ends = ("closed", "merged") if item["type"] == "pull_request" else ("closed",)
+        whole &= any(_object(e).get("event") in ends
                      and (kept == GONE or _at(_object(e).get("created_at"), since)) for e in parts["events"])
 
-    def add(by, kind, key, at):
-        writes.append({"by": by, "kind": kind, "item": dict(item), "key": key, "at": at})
+    def add(by, kind, key, at, commit=NO_COMMIT):
+        write = {"by": by, "kind": kind, "item": dict(item), "key": key, "at": at}
+        if commit is not NO_COMMIT:
+            # An approval carries the commit it approved, null where GitHub gave none that can be read, so that
+            # reconciliation never takes it for a hand approval by its item alone (issue 1026).
+            write["commit"] = commit if isinstance(commit, str) and COMMIT.fullmatch(commit) else None
+        writes.append(write)
 
     # What each dismissed review was before, from the timeline's dismissals, by the review's id.
     before = {}
@@ -191,7 +271,11 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
             state = DISMISSED.get(before.get(r.get("id"))) if _positive(r.get("id")) else None
             whole &= state is not None
         whole &= at is not False and _key(r.get("node_id")) is not None
-        add(by, "approval" if state in ("APPROVED", None) else "review", _key(r.get("node_id")), at or None)
+        if state in ("APPROVED", None):
+            # Its commit only where its state read as approved: one whose state before cannot be read has none.
+            add(by, "approval", _key(r.get("node_id")), at or None, r.get("commit_id") if state == "APPROVED" else None)
+        else:
+            add(by, "review", _key(r.get("node_id")), at or None)
     for c in map(_object, parts["comments"]):
         whole &= _readable(c.get("user"))
         by, at = _who(c.get("user"), identities), _at(c.get("created_at"), since)
@@ -233,8 +317,16 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         # account id alone, which names one account whatever its type (decision 0067).
         by = "unattributed" if resolver is None else next(
             (code for (told, _), code in identities.items() if told == ident and _positive(ident)), None)
+        if by is None and not _positive(ident):
+            continue        # what was seen is short already: who resolved it cannot be told, a person least of all
         if by is None:
-            continue
+            # A resolver that is no Factory identity is a person's hand. The Kernel takes it as closing a Lens's Finding,
+            # so its resolution of a thread a Role opened is a write to reconcile (issue 854); of any other, nobody's.
+            opened, told = _opener(t, identities)
+            whole &= told
+            if opened is None or opened in NOT_ROLES:
+                continue
+            by = HAND
         whole &= _key(t.get("id")) is not None
         add(by, "resolution", _key(t.get("id")), None)
     for r in map(_object, parts["check_runs"]):

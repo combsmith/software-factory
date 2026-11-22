@@ -37,7 +37,7 @@ from adapters.applied import OPENED
 from adapters.rules import UNREADABLE as LIST_UNREADABLE
 from harness import engine, shared
 from harness import task as task_
-from kernel import derive
+from kernel import derive, gate
 from kernel import terms as t
 from kernel.coverage import covered
 from kernel.decide import decide
@@ -66,6 +66,10 @@ UNREADABLE_PATH = re.compile(r"[\x00-\x1f\x7f\\]")
 # So does one another model answered: an item's text can call a fallback model, by a refusal, and must not pause the
 # Factory either (decision 0147).
 THE_ROLES = ("result_invalid", "task_too_large", "no_answer", "engine_model")
+# A Run never asked because a Finding it lists could not be shown: the thread's own state, an edited comment among them,
+# which anyone who can write may make, so it is the item's and must not pause the Factory either (issue 856).
+THE_ITEMS = THE_ROLES + ("findings_not_shown",)
+STANDS = "finding_stands"       # why a review sets a criterion aside whose only fault is a Finding it rules rejected
 # The branch a pull request the Factory opens stands on: the issue it serves and the count opened for it (decision 0068).
 WORK_BRANCH = re.compile(t.WORK_BRANCH)
 # A reason as applied/1 holds one: a code, never a sentence.
@@ -128,6 +132,18 @@ def finding_id(lens: str, surface: dict) -> str:
     """A Finding's id, from its source and its surface's key, never from its text (section 3.7)."""
     said = "%s %s %s" % (lens, surface["type"], surface["key"])
     return "f_" + hashlib.sha256(said.encode()).hexdigest()[:16]
+
+
+def shown(facts: dict, role: dict, kernel: dict) -> list:
+    """`[(finding id, thread id)]`: the Findings a review is shown and must rule on, in the facts' order (issue 856). Each
+    is an open thread of the Role's own that gates, as `kernel/gate.py` reads one, of a category the Role owns and no
+    security Finding's, which no Run may yet accept. So an expired Run's thread, whose category cannot be read, is none.
+    The reader builds the Task's Findings from it. `apply` never reads it again: what a review was shown is what its
+    Result's `shown` says, which the Harness filled from the Task and the Result's digest binds."""
+    return [(finding_id(role["name"], {"type": "thread", "key": th["id"]}), th["id"])
+            for th in gate.gating_threads(facts, kernel)
+            if th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == role["name"]
+            and th["category"] in role.get("owns", ()) and th["category"] != gate.SECURITY]
 
 
 def posts(effects: dict) -> list:
@@ -300,17 +316,22 @@ def _head_name(said: str):
 
 def _dispositions(task: dict, result: dict, facts: dict, role: dict, authority: dict):
     """A Disposition gives one half, the one this Run's Role may make: a proposal is the author's, and a decision the
-    owner's of the Finding's category, read from its thread in the facts (section 3.8)."""
+    owner's of the Finding's category, read from its thread in the facts (section 3.8). A Run rules on every Finding it
+    was shown and on no other. What it was shown is the Result's own `shown`, the Harness's word from the Task, which
+    the model is never handed and the Result's digest binds; it is never worked out again from the item as it is now,
+    where a thread opened or reopened since would pass for one the Run read (issue 856)."""
     threads = {fid: th for th in facts["threads"] for fid in _findings_of(facts, th["id"])}
     named = [d["finding"] for d in result["dispositions"]]
+    asked = [s["finding"] for s in result.get("shown", ())]
+    listed = set(asked)
     if len(named) != len(set(named)):
         return "disposition_given_twice"
     for d in result["dispositions"]:
         halves = [h for h in ("proposal", "decision") if h in d]
         if len(halves) != 1:
             return "disposition_halves"
-        # A Disposition is on a Finding the Task lists, whose thread is on this item.
-        if d["finding"] not in task["findings"] or d["finding"] not in threads:
+        # A Disposition is on a Finding the Run was shown, whose thread is on this item.
+        if d["finding"] not in listed or d["finding"] not in threads:
             return "disposition_of_no_finding"
         if halves[0] == "proposal":
             if role["kind"] != PROPOSES or role["name"] != authority["author_role"]:
@@ -326,6 +347,14 @@ def _dispositions(task: dict, result: dict, facts: dict, role: dict, authority: 
     for d in result["dispositions"]:
         if d.get("decision", {}).get("result") == "accepted" and threads[d["finding"]]["category"] == "security":
             return "security_proposal_unread"
+    # Silence on a Finding the review was shown is no ruling on it.
+    if any(fid not in named for fid in asked):
+        return "finding_not_ruled"
+    # A criterion set aside because a Finding stands needs a Finding this Result rules as standing. With none shown the
+    # code is a reason as any other, as it was before a review could be shown one.
+    stands = asked and any(c.get("reason") == STANDS for c in result["coverage"])
+    if stands and not any(d.get("decision", {}).get("result") == "rejected" for d in result["dispositions"]):
+        return "finding_stands_unruled"
     return None
 
 
@@ -361,7 +390,7 @@ def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, ke
         return "item", "reason_not_the_status"
     if result["status"] != "completed":
         reason = result["reason"] or result["status"]
-        return ("item" if reason in THE_ROLES or result["status"] != "failed" else "environment"), reason
+        return ("item" if reason in THE_ITEMS or result["status"] != "failed" else "environment"), reason
     if rubric is not None:
         said, _ = covered(rubric, result["coverage"], result["findings"], facts["changed_paths"])
         if said != "covered":

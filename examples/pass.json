@@ -211,6 +211,7 @@
         "acts_since_writer": 2,
         "acceptance": null,
         "opened_for": 36,
+        "issue_stands": "open",
         "complete": {
           "acceptance": true,
           "reviews": true,
@@ -245,6 +246,7 @@
         }
       },
       "run": "r_01JA7Q",
+      "active_runs": 0,
       "head": "fc6f2b03e078f5d8de03dfaa142afbd00dec35ea"
     }
   ],
@@ -372,6 +374,7 @@
           "linked": true,
           "runs": true
         },
+        "timeline_bounded": false,
         "read_at": "2026-10-11T12:00:00Z"
       },
       "decision": {
@@ -387,7 +390,8 @@
         "attention": "none",
         "outcome": "nothing"
       },
-      "run": null
+      "run": null,
+      "active_runs": 0
     }
   ]
 }

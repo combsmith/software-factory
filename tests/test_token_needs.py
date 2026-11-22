@@ -47,6 +47,7 @@ RAW = {
     # FACTORY_PAUSED, the repo's and the org's through the repo.
     "adapters.pause._org_value": {"actions_variables": R}, "adapters.pause._value": {"actions_variables": R},
     "adapters.pull.read": {"pull_requests": R}, "adapters.pull.base": {"contents": R},
+    "adapters.pull.blobs": {"contents": R},                            # a compare's files, a binary file's blob ids
     "adapters.pull.change": {"contents": R}, "adapters.pull.changed_paths": {"contents": R},
     "adapters.pull.diff": {"contents": R},
     "adapters.pull.last_push": {"contents": R},                        # a branch's activity (decision 0048, P-47)
@@ -60,9 +61,11 @@ RAW = {
     "adapters.rules._file_at": {"contents": R},                        # a file at the base: what a push may not touch
     "adapters.seen._check_runs": {"pull_requests": R, "checks": R},    # the pull request's head, then its checks
     "adapters.seen._threads": {"pull_requests": R},
+    "adapters.seen._state": {"issues": R},                            # an issue that left, by its own read (0235)
     "adapters.seen.pushes": {"contents": R},                           # the repo's activity, as P-47 reads a branch's
     "adapters.tags._ours": {"contents": R}, "adapters.tags._page": {"contents": R},
     "adapters.texts.issues": {"issues": R}, "adapters.threads._read": {"pull_requests": R},
+    "adapters.texts.findings": {"pull_requests": R},                   # a review thread and its first comment (issue 856)
     "adapters.timeline.Accounts": {"metadata": R},                     # a login's permission on the repo
     "adapters.timeline._content": {"contents": R},                     # a commit's content, compared with its base
     "adapters.timeline._pages": {"issues": R, "pull_requests": R},     # the timeline, and the reviews
@@ -98,6 +101,7 @@ SITES = {
     "adapters.pause._org_value": 1,
     "adapters.pause._value": 1,
     "adapters.pull.base": 1,
+    "adapters.pull.blobs": 1,
     "adapters.pull.change": 1,
     "adapters.pull.changed_paths": 1,
     "adapters.pull.diff": 1,
@@ -113,10 +117,12 @@ SITES = {
     "adapters.records._list": 1,
     "adapters.rules._file_at": 1,
     "adapters.seen._check_runs": 2,
+    "adapters.seen._state": 1,
     "adapters.seen._threads": 1,
     "adapters.seen.pushes": 1,
     "adapters.tags._ours": 1,
     "adapters.tags._page": 1,
+    "adapters.texts.findings": 1,
     "adapters.texts.issues": 1,
     "adapters.threads._read": 1,
     "adapters.timeline.Accounts": 1,
@@ -141,6 +147,7 @@ APPROVING = [
     "adapters.pause._org_value",
     "adapters.pause._value",
     "adapters.pull.base",
+    "adapters.pull.blobs",
     "adapters.pull.changed_paths",
     "adapters.pull.diff",
     "adapters.pull.last_push",
@@ -284,7 +291,8 @@ STEPS = {
                                           "adapters.effects._threads"),
                                          "each Effect's own token, minted from that Effect's need (harness/apply.py)")),
     "the queue App's act": (("harness.queue_step", "written"),
-                            lambda: identity.granted(APPS["apps"]["queue"], APPS["needs"], queue_step.NEEDS, "write"),
+                            lambda: dict(identity.granted(APPS["apps"]["queue"], APPS["needs"], queue_step.READS, "read"),
+                                         **identity.granted(APPS["apps"]["queue"], APPS["needs"], queue_step.NEEDS, "write")),
                             dict.fromkeys(("adapters.passes.find", "adapters.artifacts._listed", "adapters.artifacts.read"),
                                           "the pass record, read through the job's own token, `GITHUB_TOKEN`, before any "
                                           "is minted")),
@@ -293,11 +301,9 @@ STEPS = {
     "the pass's writes": (("adapters.effects", "main"), effects_minted,
                           {"adapters.effects._dispatch": "the pass job's own token, `WORKFLOW_TOKEN`, with actions: write"}),
 }
-# What a step is owed, by the issue that holds it, while that step is not live: the queue App's act reads the pull
-# request with no pull_requests grant, "queue_step mints no pull_requests read, and the queue App holds none" (#711).
-# It is no exception once the Controller names the queue App's account: then the step is live, and held as any other.
-OWED = {"the queue App's act": {("adapters.queue.pull", "pull_requests"), ("adapters.queue.queued", "pull_requests"),
-                                ("adapters.queue.threads", "pull_requests")}}
+# What a step is owed, by the issue that holds it, while that step is not live. None is owed now: the queue App's act
+# mints the pull_requests read its port takes (#711).
+OWED = {}
 
 
 def short(held: dict, leaf: str) -> set:
