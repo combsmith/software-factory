@@ -703,6 +703,111 @@ class Examples(unittest.TestCase):
         root = clone({"config/feed.json": json.dumps(dict(feed, decision_required=feed["decision_required"][1:]))})
         self.assertTrue(caught(check_examples.run(root), "config/feed.json: feed: the reason"))
 
+    def test_every_reason_a_pull_request_carries_has_one_plain_sentence(self):  # decision 1123
+        feed = json.loads((ROOT / "config" / "feed.json").read_text())
+        decision = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
+        schema = json.loads((ROOT / "schemas" / "feed.schema.json").read_text())
+        self.assertEqual(set(feed["sentences"]), set(terms.REASONS))
+        self.assertEqual(check_examples._table(feed, decision), [])
+        # A reason with no sentence, and a sentence for an issue's reason, which no pull request carries.
+        broken = copy.deepcopy(feed)
+        del broken["sentences"]["approved"]
+        self.assertTrue(caught(check_examples._table(broken, decision), "the reason approved has no sentence"))
+        broken = copy.deepcopy(feed)
+        broken["sentences"]["acceptance_due"] = "Waiting."
+        self.assertTrue(caught(check_examples._table(broken, decision),
+                               "a sentence for acceptance_due, which is no reason a pull request's Decision carries"))
+        # A sentence is held to the plain pattern here, whatever the schema lets through: no mention, backtick, line break,
+        # placeholder, slash, Markdown mark or other letter, and no more than 100 characters.
+        for bad in ("Approved by @x.", "Approved; run `x`.", "Approved.\nNext.", "Approved.\rNext.", "Approved {x}.",
+                    "Approved %s.", "See a://b.", "See [x](y).", "Approved **now**.", "See www.x.", "See www. It waits.",
+                    "Approved. It waits.", "Approved.\u2028Next.", "Approved.\n", "approved.", "Approved\u00e9.", "A" + "a" * 99 + ".", "Approved"):
+            broken = copy.deepcopy(feed)
+            broken["sentences"]["approved"] = bad
+            self.assertTrue(caught(check_examples._table(broken, decision), "the sentence for approved is not a plain"), bad)
+        broken["sentences"]["approved"] = "Z" + "z" * 98 + "."
+        self.assertEqual(check_examples._table(broken, decision), [])
+        # Nor what GitHub would make a link, an emoji or a reference of, though it is plain.
+        for bad in ("Approved :x: now.", "Approved :ok-1: now.", "See GH-12 first.", "See ABC-3.", "See deadbee first.",
+                    "See d1b3c40af52eaa67910b3e8cccbe89afd1f9688a.", "See D1B3C40.", "See " + "a" * 41 + ".",
+                    "See GHSA-jfh8-c2jp-5v3q."):
+            broken["sentences"]["approved"] = bad
+            self.assertTrue(caught(check_examples._table(broken, decision), "would be shown as a link, an emoji or a"), bad)
+        # For any reason, not one alone.
+        other = copy.deepcopy(feed)
+        other["sentences"]["paused"] = "See GH-12 first."
+        self.assertTrue(caught(check_examples._table(other, decision), "the sentence for paused would be shown as a link"))
+        for good in ("Approved: it waits.", "Approved: x (y): z.", "A run-1 waits.", "It waits at noon - then: 2.",
+                     "It is a decade old.", "See 123456 runs."):
+            broken["sentences"]["approved"] = good
+            self.assertEqual(check_examples._table(broken, decision), [], good)
+        # The schema: a capital first, a full stop only before a space and at the end, and at most 100 characters.
+        self.assertTrue(validate({k: v for k, v in feed.items() if k != "sentences"}, schema))
+        sentence = schema["properties"]["sentences"]["additionalProperties"]
+        self.assertEqual((sentence["maxLength"], sentence["pattern"]), (check_examples.SENTENCE_MOST, check_examples.SENTENCE_PATTERN))
+        for good in ("Z" + "z" * 98 + ".", "Approved; it waits: it is (one) item, isn't it - yes, 2."):
+            self.assertEqual(validate(good, sentence), [], good)
+        for bad in ("A" + "a" * 99 + ".", "approved.", "Approved", "Approved.x.", "Approved..", "Approved. Next.", "Approved?", "Approved /x.",
+                    "Approved\u00e9.", ""):
+            self.assertTrue(validate(bad, sentence), bad)
+        # And from the front door, on the live file.
+        root = clone({"config/feed.json": json.dumps(dict(feed, sentences=dict(feed["sentences"], approved="See GH-12 first.")))})
+        self.assertTrue(caught(check_examples.run(root), "config/feed.json: feed: the sentence for approved would be shown"))
+
+    def test_the_feeds_sentences_are_text_only_on_the_feed_and_in_their_shape(self):  # decision 1123
+        schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
+                   for p in (ROOT / "schemas").glob("*.schema.json")}
+        feed = schemas["feed"]
+        self.assertEqual(check_examples._free(feed, schemas, feed, "feed", "$", set()), [])
+        shaped = feed["properties"]["sentences"]
+        self.assertTrue(check_examples._sentence_shaped(shaped))
+        held = {"type": "object", "additionalProperties": False, "properties": {"sentences": shaped}}
+        self.assertEqual(check_examples._free(held, {}, held, "feed", "$", set()), [])
+        # The same property on any other kind, or under any other name on the feed, is text a Run carries.
+        self.assertTrue(caught(check_examples._free(held, {}, held, "task", "$", set()),
+                               "schema task admits text at $.sentences.*"))
+        # Nor the feed's schema reached by a reference from another kind: the walk began elsewhere.
+        refers = {"type": "object", "additionalProperties": False, "properties": {"context": {"$ref": "feed.schema.json"}}}
+        self.assertTrue(caught(check_examples._free(refers, schemas, refers, "task", "$", set()),
+                               "admits text at $.context.sentences.*"))
+        # Even at the top: another kind that is the feed by a reference, and the feed that is another kind by one.
+        whole = {"$ref": "feed.schema.json"}
+        self.assertTrue(caught(check_examples._free(whole, schemas, whole, "task", "$", set()), "admits text at $.sentences.*"))
+        other = dict(schemas, role={"type": "object", "additionalProperties": False, "properties": {"sentences": shaped}})
+        whole = {"$ref": "role.schema.json"}
+        self.assertTrue(caught(check_examples._free(whole, other, whole, "feed", "$", set()),
+                               "schema role admits text at $.sentences.*"))
+        # Nor a property of that name deeper in the feed: the sentences sit at its top alone.
+        deeper = copy.deepcopy(feed)
+        deeper["properties"]["next_actor"]["properties"]["sentences"] = shaped
+        self.assertTrue(caught(check_examples._free(deeper, schemas, deeper, "feed", "$", set()),
+                               "schema feed admits text at $.next_actor.sentences.*"))
+        named = {"type": "object", "additionalProperties": False, "properties": {"phrases": shaped}}
+        self.assertTrue(caught(check_examples._free(named, {}, named, "feed", "$", set()),
+                               "schema feed admits text at $.phrases.*"))
+        # A shape loosened in any one way is no exemption: a later schema edit cannot let text in silently.
+        value = shaped["additionalProperties"]
+        for loose in (dict(shaped, type="array"), dict(shaped, properties={"x": {"type": "string"}}),
+                      dict(shaped, additionalProperties=True), dict(shaped, additionalProperties=dict(value, type=["string", "null"])),
+                      dict(shaped, additionalProperties=dict(value, pattern=value["pattern"][1:])),
+                      dict(shaped, additionalProperties=dict(value, pattern="^.*$")),
+                      dict(shaped, additionalProperties=dict(value, pattern="^[\\s\\S]*$")),
+                      dict(shaped, additionalProperties=dict(value, pattern="^[^@`]*[.]$")),
+                      dict(shaped, additionalProperties={k: v for k, v in value.items() if k != "pattern"}),
+                      dict(shaped, additionalProperties={k: v for k, v in value.items() if k != "maxLength"}),
+                      dict(shaped, additionalProperties=dict(value, maxLength=check_examples.SENTENCE_MOST + 1)),
+                      dict(shaped, additionalProperties=dict(value, maxLength=0)),
+                      dict(shaped, additionalProperties=dict(value, maxLength=True)),
+                      dict(shaped, additionalProperties=dict(value, minLength=1)), "sentences"):
+            self.assertFalse(check_examples._sentence_shaped(loose), loose)
+        # One loosened is swept as any text is.
+        loose = dict(shaped, additionalProperties={k: v for k, v in value.items() if k != "pattern"})
+        held = {"type": "object", "additionalProperties": False, "properties": {"sentences": loose}}
+        self.assertTrue(caught(check_examples._free(held, {}, held, "feed", "$", set()),
+                               "schema feed admits text at $.sentences.*"))
+        for most in (1, 99, check_examples.SENTENCE_MOST):
+            self.assertTrue(check_examples._sentence_shaped(dict(shaped, additionalProperties=dict(value, maxLength=most))), most)
+
     def test_the_example_feed_follows_the_table(self):  # decision 0039
         feed = json.loads((ROOT / "config" / "feed.json").read_text())
 
@@ -2235,6 +2340,144 @@ class Purity(unittest.TestCase):
         root = planted({"kernel/a.py": "from kernel.extra import clock\n", "kernel/extra/clock.py": "import time\n"})
         self.assertTrue(caught(check_purity.run(root), "extra/clock.py:1 imports time"))
 
+    def test_six_older_ways_past_the_kernels_rules_are_caught(self):  # issue 909
+        run = lambda files: check_purity.run(planted(files))
+        # 1. State kept through frozenset: a call in its argument is read, so a list a generator yields is not kept.
+        box = "def _box():\n    yield []\n\n\n"
+        self.assertTrue(caught(run({"kernel/x.py": box + "_KEPT = frozenset([next(_box())])\n"}), "x.py:5 holds a value that can change"))
+        self.assertTrue(caught(run({"kernel/x.py": box + "def f(x, _k=frozenset([next(_box())])):\n    return x\n"}),
+                               "x.py:5 has a default that can change"))
+        for kept in ("frozenset((x for x in ()))", "frozenset([y := 1])", "frozenset(iterable=[next(_box())])",
+                     "frozenset([x for x in ()])", "frozenset({x for x in ()})", "frozenset({x: 1 for x in ()})",
+                     "frozenset([frozenset([next(_box())])])", "frozenset([B for B in (B,)])", "frozenset([(B for B in (B,))])",
+                     "frozenset({B for B in (B,)})", "frozenset({B: B for B in (B,)})", "frozenset([B := 'b'])",
+                     # The generator itself, which keeps its cursor, and an unpacking, which iterates a set in the
+                     # order the hash seed gives it (Astra's reads).
+                     "frozenset([_box()])", "frozenset({(*frozenset({'a', 'b'}),)})", "frozenset([(*B,)])",
+                     # Text a set is formatted into, in the hash seed's order, and a mapping unpacked (Astra's reads).
+                     "frozenset(('%r' % frozenset(('a', 'b')),))", "frozenset((f'{B!r}',))", "frozenset({**{'a': 1}})",
+                     "frozenset(**{})"):
+            self.assertTrue(caught(run({"kernel/x.py": box + "B = 'b'\n_KEPT = %s\n" % kept}), "x.py:6 holds a value that can change"), kept)
+        self.assertEqual(run({"kernel/terms.py": "A = 'a'\n", "kernel/x.py": "from kernel import terms\n\nB = 'b'\n"
+                              "HELD = frozenset({B, terms.A, ('c', 'd')})\nNONE = frozenset()\nNESTED = frozenset([frozenset()])\n"}), [])
+        # A name in its argument is one bound at the module's top: a local value, a generator say, is kept by no default.
+        local = ("def values():\n    yield 0\n\n\ndef build():\n    cursor = values()\n\n"
+                 "    def kept(saved=frozenset({cursor})):\n        return saved\n    return kept\n")
+        self.assertTrue(caught(run({"kernel/x.py": local}), "x.py:8 has a default that can change"))
+        # So too a name the module's top binds that a function around the default binds again, as a local or a
+        # parameter: the default is evaluated there, to the local (Carbon's read). At the top, it is the module's.
+        for shadow in ("def build():\n    B = values()\n\n", "def build(B):\n", "def build():\n    from kernel.terms import A as B\n\n"):
+            text = "B = 'b'\n\n\ndef values():\n    yield 0\n\n\n" + shadow + "    def kept(saved=frozenset({B})):\n        return saved\n    return kept\n"
+            self.assertTrue(caught(run({"kernel/terms.py": "A = 'a'\n", "kernel/x.py": text}), "has a default that can change"), shadow)
+        # And a yield's value, which is what a caller sends (Astra's read).
+        self.assertTrue(caught(run({"kernel/x.py": "def build():\n    def kept(saved=frozenset({(yield)})):\n        return saved\n"
+                                    "    yield kept\n"}), "x.py:2 has a default that can change"))
+        self.assertTrue(caught(run({"kernel/x.py": "B = ()\n\n\ndef build():\n    def kept(saved=frozenset({(yield from B)})):\n"
+                                    "        return saved\n    yield kept\n"}), "x.py:5 has a default that can change"))
+        self.assertEqual(run({"kernel/x.py": "B = 'b'\n\n\ndef f(B, x=frozenset({B})):\n    return B, x\n\n\n"
+                              "def g():\n    def h(x=frozenset({B})):\n        return x\n    return h\n"}), [])
+        # Read once a node, so that a deep constant is read in time (Astra's read).
+        deep = "KEPT = " + "frozenset([" * 60 + "frozenset()" + "])" * 60 + "\n"
+        self.assertEqual(run({"kernel/x.py": deep}), [])
+        # And frozenset is the builtin: a name the Kernel binds to it, by a function, an import or a parameter, is refused.
+        for text in ("def frozenset():\n    return []\n\n\nKEPT = frozenset()\n", "from kernel.terms import A as frozenset\n",
+                     "def f(frozenset):\n    return frozenset\n", "def f(*, frozenset=None):\n    return frozenset\n",
+                     "def f():\n    frozenset = list\n    return frozenset\n", "def f():\n    for frozenset in ():\n        pass\n",
+                     "def f():\n    return (frozenset := list)\n", "from kernel import terms as frozenset\n"):
+            self.assertTrue(caught(run({"kernel/terms.py": "A = 'a'\n", "kernel/x.py": text}), "binds frozenset"), text)
+        # A name a tuple or a list at the top unpacks into is bound there; a starred one would keep a list, and any other
+        # target changes what it names (Carbon's read).
+        self.assertEqual(run({"kernel/terms.py": "A, B = 'a', 'b'\n", "kernel/x.py": "from kernel.terms import A\n\n"
+                              "[C, (D, E)] = 'c', ('d', 'e')\nBOTH = frozenset((A, C, E))\n"}), [])
+        for text in ("A, *B = 'a', 'b'\n", "A = B, *C = 'a', 'b'\n", "A, B = ('a',)\n", "T = ('a',)\nT[0] = 'b'\n", "A, B = frozenset({'a', 'b'})\n", "A, B = 'a', 'b', 'c'\n",
+                     "[A, (B, C)] = 'a', 'bc'\n"):
+            self.assertTrue(caught(run({"kernel/x.py": text}), "assigns other than to names"), text)
+        # A list written out is unpacked by none: it is a value that can change (Carbon's read).
+        self.assertTrue(caught(run({"kernel/x.py": "A, B = ['a', 'b']\n"}), "x.py:1 holds a value that can change"))
+        # 2. A builtin site adds, each of which reads a file, asks the help system or ends the process, as a value.
+        for word in ("license", "copyright", "credits", "help", "exit", "quit"):
+            self.assertTrue(caught(run({"kernel/x.py": "def f():\n    return str(%s)\n" % word}), "x.py:2 uses %s" % word), word)
+        # 3. A folder that holds a .git is another working tree, which the walk leaves out, and so does this check; but
+        # each way the Kernel could import from it is refused, as an import no file read here answers to.
+        for line, words in (("from kernel.sub import now\n", "x.py:1 imports kernel.sub, a folder here that is not read"),
+                            ("import kernel.sub.y as y\n", "x.py:1 imports kernel.sub.y, which no file read"),
+                            ("from kernel import sub\n", "x.py:1 imports sub from kernel, which no file read"),
+                            ("from .sub import now\n", "x.py:1 imports now from .sub, which no file read"),
+                            ("from . import sub\n", "x.py:1 imports sub from ., which no file read")):
+            hidden = planted({"kernel/x.py": line})
+            (hidden / "kernel" / "sub").mkdir()
+            (hidden / "kernel" / "sub" / ".git").write_text("gitdir: elsewhere\n")
+            (hidden / "kernel" / "sub" / "__init__.py").write_text("import os\n\ndef now():\n    return os.times()\n")
+            (hidden / "kernel" / "sub" / "y.py").write_text("import os\n")
+            found = check_purity.run(hidden)
+            self.assertTrue(caught(found, words), (line, found))
+            self.assertFalse(caught(found, "sub/__init__.py") or caught(found, "sub/y.py"), (line, found))
+        # Nor does a read file vouch for such a folder: Python imports a folder before a file of its name, and a name a
+        # module binds by importing it is no answer (Astra's read).
+        for files, words in (({"kernel/x.py": "import kernel.m as m\n", "kernel/m.py": "SOURCE = 'file'\n"},
+                              "x.py:1 imports kernel.m, a folder here that is not read"),
+                             ({"kernel/x.py": "from .m import SOURCE\n", "kernel/m.py": "SOURCE = 'file'\n"},
+                              "x.py:1 imports SOURCE from .m, which no file read"),
+                             ({"kernel/x.py": "from kernel import m\n", "kernel/m.py": "SOURCE = 'file'\n"},
+                              "x.py:1 imports m from kernel, which no file read")):
+            hidden = planted(files)
+            (hidden / "kernel" / "m").mkdir()
+            (hidden / "kernel" / "m" / ".git").write_text("gitdir: elsewhere\n")
+            (hidden / "kernel" / "m" / "__init__.py").write_text("SOURCE = 'package'\n")
+            self.assertTrue(caught(check_purity.run(hidden), words), files)
+        hidden = planted({"kernel/x.py": "import kernel.sub as s\n", "kernel/sub/__init__.py": "from . import child\n"})
+        (hidden / "kernel" / "sub" / "child").mkdir()
+        (hidden / "kernel" / "sub" / "child" / ".git").write_text("gitdir: elsewhere\n")
+        (hidden / "kernel" / "sub" / "child" / "__init__.py").write_text("import os\n")
+        self.assertTrue(caught(check_purity.run(hidden), "sub/__init__.py:1 imports child from ., which no file read"))
+        for line in ("import kernel.gone as g\n", "from kernel.gone import x\n", "from kernel.terms.deeper import x\n"):
+            self.assertTrue(caught(run({"kernel/terms.py": "", "kernel/x.py": line}), "which no file read here is"), line)
+        self.assertEqual(run({"kernel/terms.py": "A = 'a'\n", "kernel/sub/y.py": "B = 'b'\n", "kernel/x.py":
+                              "import kernel.terms as t\nimport kernel.sub.y as y\nfrom kernel.sub import y as z\n"
+                              "from kernel import terms\n\n\ndef f():\n    return t.A, y.B, z.B, terms.A\n"}), [])
+        # And each name a from-import takes, absolute or relative, is a module read here or a name its module binds.
+        for line in ("from kernel import gone\n", "from .gone import now\n", "from kernel.sub import missing\n",
+                     "from . import gone\n", "from kernel.terms import B\n"):
+            self.assertTrue(caught(run({"kernel/terms.py": "A = 'a'\n", "kernel/sub/__init__.py": "", "kernel/x.py": line}),
+                                   "no file read here is and its module binds no such name"), line)
+        self.assertEqual(run({"kernel/terms.py": "A = 'a'\n", "kernel/sub/y.py": "", "kernel/x.py":
+                              "from kernel.terms import A\nfrom . import terms\nfrom .sub import y\nfrom .terms import A as C\n"}), [])
+        # 4. The package itself, imported under a name, is no module of it: nothing is read off it.
+        self.assertTrue(caught(run({"kernel/q.py": "", "kernel/x.py": "import kernel as k\n\n\ndef f():\n    return k.q\n"}),
+                               "x.py:5 reads q off a value"))
+        # 5. A relative import that climbs past the package; one within it is read by the other rules.
+        self.assertTrue(caught(run({"kernel/x.py": "from .. import tools\n"}), "x.py:1 imports .., from above kernel/"))
+        self.assertTrue(caught(run({"kernel/sub/y.py": "from ... import tools\n"}), "y.py:1 imports ..., from above kernel/"))
+        self.assertEqual(run({"kernel/terms.py": "", "kernel/sub/y.py": "from .. import terms\n"}), [])
+        self.assertTrue(caught(run({"kernel/terms.py": "", "kernel/sub/y.py": "from .. import gone\n"}), "no such name"))
+        # One dot is the module's own folder, not the package's (Astra's read).
+        self.assertTrue(caught(run({"kernel/terms.py": "", "kernel/sub/y.py": "from . import terms\n"}), "no such name"))
+        self.assertEqual(run({"kernel/sub/terms.py": "", "kernel/sub/y.py": "from . import terms\n"}), [])
+        self.assertEqual(run({"kernel/sub/__init__.py": "S = 's'\n", "kernel/x.py": "from kernel.sub import S\n"}), [])
+        # The guards refuse every relative import by their own rule, once: this one is the Kernel's.
+        for line in ("from .. import tools\n", "from . import missing\n", "from .kernel import missing\n"):   # Astra's reads
+            found = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": line}))
+            self.assertEqual(len(found), 1, found)
+            self.assertTrue(caught(found, "guards/ imports itself alone") and not caught(found, "from above"), found)
+        # 6. A statement that calls a method of a value it is handed.
+        for body, does in (("    with facts as f:\n        return f\n", "enters what it is handed"),
+                           ("    assert facts, facts\n    return facts\n", "raises"),
+                           ("    yield from facts\n", "drives what it is handed")):
+            self.assertTrue(caught(run({"kernel/x.py": "def f(facts):\n" + body}), "x.py:2 %s" % does), does)
+            # The guards are held to it too (Astra's read).
+            found = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": "def f(facts):\n" + body}))
+            self.assertTrue(caught(found, "x.py:2 %s" % does), (does, found))
+        for body, does in (("    async with facts as f:\n        return f\n", "enters what it is handed"),
+                           ("    async for item in facts:\n        return item\n", "drives what it is handed"),
+                           ("    return [item async for item in facts]\n", "drives what it is handed"),
+                           ("    return {item async for item in facts}\n", "drives what it is handed"),
+                           ("    return {item: 1 async for item in facts}\n", "drives what it is handed"),
+                           ("    return (item async for item in facts)\n", "drives what it is handed"),
+                           ("    return await facts\n", "awaits what it is handed")):
+            self.assertTrue(caught(run({"kernel/x.py": "async def f(facts):\n" + body}), "x.py:2 %s" % does), does)
+            found = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": "async def f(facts):\n" + body}))
+            self.assertTrue(caught(found, "x.py:2 %s" % does), (does, found))
+
     def test_the_kernel_is_the_package_python_imports_and_reads_nothing_off_a_value(self):  # issue 851
         # What the guards are held to (issue 838) is asked of the Kernel by the same lines. With no __init__.py Python
         # may import a kernel.py at the root in the package's place, which nothing reads.
@@ -2798,7 +3041,7 @@ class Purity(unittest.TestCase):
                  "    return None\n"
         derive = "from kernel import brakes, gate\nfrom kernel.gate import gates\nimport kernel.gate as gate\n\n\n" \
                  "def derive(facts):\n    pause = brakes.paused(derive, facts)\n    return pause or gates(facts, {})\n"
-        clean = {"kernel/gate.py": gate, "kernel/brakes.py": brakes, "kernel/derive.py": derive}
+        clean = {"kernel/gate.py": gate, "kernel/brakes.py": brakes, "kernel/derive.py": derive, "kernel/terms.py": "HELD = 'h'\n"}
         self.assertEqual(check_purity.run(planted(clean)), [])
         # Any binding of a name either owns stands in for theirs, at any depth and in any form, and so does a binding
         # of either module's own name to anything but that module. Each also binds no name of the other's.
@@ -5890,6 +6133,206 @@ class PullTitle(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()) as printed:
             self.assertEqual(pr_title.main([]), 2)
             self.assertEqual(pr_title.main(["a", "b"]), 2)
+
+
+class PullBody(unittest.TestCase):
+    """A pull request's body keeps the template's shape, held by tools/pr_title.py (decision 0246)."""
+
+    HEADS = ("Why", "What changed", "What to look at", "Record and protected edits")
+
+    def body(self, sections=None, order=None):
+        sections = dict({name: "Words about %s." % name for name in self.HEADS}, **(sections or {}))
+        return "\n\n".join("## %s\n%s" % (name, sections[name]) for name in (order or self.HEADS)) + "\n"
+
+    def codes(self, body):
+        return sorted({p.split(":", 1)[0] for p in pr_title.body_problems(body)})
+
+    def test_a_body_keeps_the_templates_shape_or_says_which_part_it_breaks(self):
+        self.assertEqual(pr_title.HEADINGS, self.HEADS)
+        template = (ROOT / ".github" / "pull_request_template.md").read_text()
+        self.assertEqual([line[3:] for line in template.splitlines() if line.startswith("## ")], list(self.HEADS))
+        self.assertEqual(pr_title.body_problems(self.body()), [])
+        # "None." is text, and so is anything but whitespace and the template's own scaffolding; the details block, an
+        # extra section and a level-three heading are allowed.
+        self.assertEqual(pr_title.body_problems(self.body({"Record and protected edits": "None."})), [])
+        self.assertEqual(pr_title.body_problems(self.body({"Record and protected edits": "None.\n\n<details>x</details>"})
+                                                + "## Notes\nmore\n### Sub\nx\n"), [])
+        self.assertEqual(pr_title.body_problems("Lead text.\n" + self.body().replace("\n", "\r\n")), [])
+        # The untouched template keeps no section.
+        self.assertEqual([p.split(": ", 1)[1] for p in pr_title.body_problems(template)],
+                         ["the section '## %s' holds nothing but the template's own" % name for name in self.HEADS])
+        for name in self.HEADS:
+            # Each heading missing, held twice, or over nothing but scaffolding, refuses with its own code.
+            missing = "\n".join(line for line in self.body().splitlines() if line != "## " + name)
+            self.assertIn("body_heading_missing: the body has no heading '## %s'" % name, pr_title.body_problems(missing))
+            self.assertEqual(self.codes(self.body() + "## %s\nagain\n" % name), ["body_heading_twice"], name)
+            for empty in ("", "   \n\t", "<!-- write here -->", "- \n- \n1.", "<details>tallies</details>",
+                          "<!-- a\nb -->\n- <!-- c -->"):
+                self.assertEqual(self.codes(self.body({name: empty})), ["body_section_empty"], (name, empty))
+        # Out of order: any two swapped.
+        for i in range(3):
+            order = list(self.HEADS)
+            order[i], order[i + 1] = order[i + 1], order[i]
+            self.assertEqual(self.codes(self.body(order=order)), ["body_heading_out_of_order"], order)
+        # A heading inside a code fence is no heading, and one outside it is: all four fenced, with none outside, refuses.
+        fenced = "```\n" + self.body() + "```\n"
+        self.assertEqual(self.codes(fenced), ["body_heading_missing"])
+        self.assertEqual(len(pr_title.body_problems(fenced)), 4)
+        self.assertEqual(self.codes("~~~~\n" + self.body() + "~~~\nstill fenced\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes(self.body() + "```md\n## Why\n```\n"), [])
+        self.assertEqual(self.codes("```\n```js\n" + self.body() + "```\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes("```\n``` not a close\n" + self.body() + "```\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes("~~~~\n~~~\n" + self.body() + "~~~~\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes("```\n~~~\n" + self.body() + "```\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes(self.body({"Why": "```\n## What changed\n```"})), [])
+        # A fence closes at most three columns further in than it opened, so a list item's closes at its own indent;
+        # an empty one is no text. A fence and a comment hide each other's marks, and a fence's words open no comment.
+        for code in ("```\n    ```\n", "```\n\t```\n", " ```\n    ```\n"):
+            self.assertEqual(self.codes(code + self.body() + "```\n"), ["body_heading_missing"], code)
+        for hides in ("- ```\n  ## Why\n  ```\n", "```\n   ```\n", "1. ```\n   ## Why\n      ```\n", "~~old~~\n", "```\n<!--\n```\n", "<!--\n```\n-->\n", "``` <!--\nx\n```\n"):
+            self.assertEqual(self.codes(hides + self.body()), [], hides)
+        self.assertEqual(self.codes(self.body({"Why": "```\n```"})), ["body_section_empty"])
+        self.assertEqual(self.codes(self.body({"Why": "```\n-\n```"})), [])
+        # A heading is "## " and its words, up to three spaces in, closing hashes and spaces dropped; nothing else is.
+        self.assertEqual(self.codes(self.body().replace("## Why", "   ## Why ##")), [])
+        # It is read on a line that starts outside the scaffolding, as written, and a comment after its words is none.
+        self.assertEqual(self.codes(self.body().replace("## Why\n", "## Why <!-- a note -->\n")), [])
+        for odd in ("# Why", "### Why", "##Why", "    ## Why", "## why", "## Why?", "<!-- x --> ## Why",
+                    "<!--\n## x --> ## Why", "## Why ## <!-- x -->"):
+            self.assertEqual(self.codes(self.body().replace("## Why\n", odd + "\n")), ["body_heading_missing"], odd)
+        # A section ends at any second-level heading, its own or not, and a bare "##" is one.
+        self.assertEqual(self.codes(self.body({"Why": "## Notes\nText for notes."})), ["body_section_empty"])
+        self.assertEqual(self.codes(self.body({"Why": "##\nText under an empty heading."})), ["body_section_empty"])
+        self.assertEqual(self.codes(self.body({"Why": "## ###\nText under a heading of closing hashes."})),
+                         ["body_section_empty"])
+        # A fence closes on a longer one of its kind; a backtick fence's words hold no backtick, so that is inline code;
+        # and only spaces or tabs may follow a closing fence.
+        self.assertEqual(self.codes(self.body({"Why": "~~~\nsample\n~~~~"})), [])
+        self.assertEqual(self.codes("```example```\n" + self.body()), [])
+        self.assertEqual(self.codes("```\n```\u00a0\n" + self.body() + "```\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes("```\n```\t \n" + self.body()), [])
+        # A fence in a list item hides what it holds.
+        listed = "- ```\n" + "".join("  ## %s\n  x\n" % name for name in self.HEADS) + "  ```\n"
+        self.assertEqual(len(pr_title.body_problems(listed)), 4)
+        # A heading's words are its own: a hash run is closing only after a space or a tab; a tab may follow "##" but
+        # not lead it.
+        self.assertEqual(self.codes(self.body().replace("## Why\n", "## Why#\n")), ["body_heading_missing"])
+        self.assertEqual(self.codes(self.body().replace("## Why\n", "##\tWhy\t#\n")), [])
+        self.assertEqual(self.codes(self.body().replace("## Why\n", "\t## Why\n")), ["body_heading_missing"])
+        # A heading inside a comment or a details block is hidden, as GitHub hides it: whole, nested, of any case, with
+        # attributes, or left open to the end.
+        for wrap in ("<!--\n%s-->\n", "<details>\n%s</details>\n", "<DETAILS open>\n%s</Details>\n",
+                     "<details><details>x</details>\n%s</details>\n", "<!-- left open\n%s",
+                     "<details>\n`</details>`\n%s</details>\n", "<details>\n<!-- </details> -->\n%s</details>\n"):
+            self.assertEqual(len(pr_title.body_problems(wrap % self.body())), 4, wrap)
+        self.assertEqual(self.codes(self.body({"Why": "<!-- an edit dropped its close"})),
+                         ["body_heading_missing", "body_section_empty"])
+        for empty in ("<details open>checks</details>", "<details><details>a</details></details>", "<!-- x --> - "):
+            self.assertEqual(self.codes(self.body({"Why": empty})), ["body_section_empty"], empty)
+        # A list item, inline code alone, or what follows a closed block of any case, is text.
+        for text in ("<!-- x --> words", "<DETAILS>x</Details> words", "- a change", "1. a step", "`code`",
+                     "``a ` <!-- b``", "<details>\nAn unmatched `` then </details> then `ok`.",
+                     "- a\n  - b\n    ```\n    code\n    ```"):
+            self.assertEqual(pr_title.body_problems(self.body({"Why": text})), [], text)
+        # Inline code holds no markup: a tag or a comment's opening named in backticks hides nothing.
+        self.assertEqual(self.codes(self.body({"Why": "A `<details>` block and a `` <!-- `` stay text."})), [])
+        self.assertEqual(self.codes(self.body({"Why": "`<details>` then <details>hidden</details>"})), [])
+        self.assertEqual(self.codes(self.body({"Why": "<details>a `x` b"})), ["body_heading_missing", "body_section_empty"])
+        # Line ends of any kind are line ends, as the web editor's CRLF and the desk's LF are one body.
+        self.assertEqual([p.split(": ", 1)[1] for p in pr_title.body_problems(template.replace("\n", "\r\n"))],
+                         ["the section '## %s' holds nothing but the template's own" % name for name in self.HEADS])
+        self.assertEqual(self.codes(self.body().replace("\n", "\r")), [])
+        # A heading held twice is still read for its order and for whether each of its sections says something.
+        twice = self.body(order=["What changed", "Why", "What to look at", "Record and protected edits"]) + "## Why\n- \n"
+        self.assertEqual(self.codes(twice), ["body_heading_out_of_order", "body_heading_twice", "body_section_empty"])
+        self.assertEqual(pr_title.body_problems(self.body({"Why": "- "}) + "## Why\nwords\n"),
+                         ["body_heading_twice: the body has the heading '## Why' 2 times",
+                          "body_section_empty: the section '## Why' holds nothing but the template's own"])
+        # Every problem at once, never the first alone, and none holds a word of the body.
+        planted = "::error::x\n## Why\n::add-mask::y\n## Why\n"
+        said = pr_title.body_problems(planted)
+        self.assertEqual(self.codes(planted), ["body_heading_missing", "body_heading_twice", "body_section_empty"])
+        self.assertFalse(any("::" in p or "add-mask" in p for p in said))
+
+    @support.wall_clock
+    def test_a_body_of_the_largest_size_is_read_in_time(self):
+        # Whatever its shape: GitHub keeps a body to 65,536 characters.
+        started = time.monotonic()
+        for long in ("## " + "#" * 65000 + "a", "## a" + " #" * 32000, "<!--" * 16000, "<details " * 7000,
+                     "<details>" * 7000, ("```\n" * 16000), "- " * 32000 + "```",
+                     "<details>" + "<!---->" * 9000, "`<!--` " * 9300, "## Why\n" + " " * 65000 + "x", "<!---->" * 4000 + "<details " * 4000):
+            pr_title.body_problems(long)
+        self.assertLess(time.monotonic() - started, 5.0)
+
+    def test_the_body_is_read_on_both_events_from_its_cutover(self):
+        root = tree({})
+        where = root / "event.json"
+        ref = "refs/heads/gh-readonly-queue/main/pr-44-" + "a" * 40
+        good = {"number": 44, "title": PullTitle.GOOD, "body": self.body(), "created_at": pr_title.BODY_CUTOVER,
+                "base": {"repo": {"full_name": "o/r"}}}
+
+        class Asked:
+            def __init__(self, body):
+                self.body, self.asked = body, []
+
+            def send(self, asked):
+                self.asked.append(asked["path"])
+                return {"status": 200, "body": self.body}
+
+        asked = []
+
+        def checked(answer, event="pull_request", stale=None):
+            told = ({"pull_request": {"number": 44}, "repository": {"full_name": "o/r"}} if event == "pull_request" else
+                    {"merge_group": {"head_ref": ref}, "repository": {"full_name": "o/r"}})
+            if stale is not None and event == "pull_request":
+                told["pull_request"]["body"] = stale
+            where.write_text(json.dumps(told))
+            transport = Asked(answer)
+            said = pr_title.check({"EVENT": event, "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"}, transport)
+            asked.append(transport.asked)
+            return said
+
+        self.assertEqual(pr_title.BODY_CUTOVER, "2026-11-23T00:00:00Z")
+        for event in ("pull_request", "merge_group"):
+            self.assertEqual(checked(good, event), [], event)
+            # A body out of shape refuses on each event, the merge group's among them, which main's log takes.
+            self.assertIn("body_heading_missing", checked(dict(good, body="Just words."), event)[0])
+            # The body is the one read's, once, never the event's, and nothing of it reaches what the job prints.
+            said = checked(dict(good, body="Just words.\nprivate-draft-marker ::error::x"), event, stale=self.body())
+            self.assertEqual(len(said), 4)
+            self.assertFalse(any("private-draft-marker" in p or "::" in p for p in said))
+            self.assertEqual(asked[-1], ["/repos/o/r/pulls/44"])
+            # A null body, or one of no text type, cannot be read, and refuses.
+            for body in (None, 3, ["## Why"]):
+                self.assertEqual(checked(dict(good, body=body), event),
+                                 ["body_unreadable: the pull request's body cannot be read"])
+            self.assertEqual(checked({k: v for k, v in good.items() if k != "body"}, event),
+                             ["body_unreadable: the pull request's body cannot be read"])
+        # The cutover: a pull request opened one second before it is not read for its body; one opened at it is; the
+        # title is held from its own cutover, before it.
+        self.assertEqual(checked(dict(good, body=None, created_at="2026-11-22T23:59:59Z")), [])
+        self.assertEqual(len(checked(dict(good, body=None, created_at="2026-11-23T00:00:01Z"))), 1)
+        self.assertEqual(checked(dict(good, body=None, title="Bad", created_at="2026-11-22T23:59:59Z"))[0][:13],
+                         "title_no_area")
+        self.assertEqual(len(checked(dict(good, body=None, title="Bad"))), 3)
+        # Title and body are both said, each in full.
+        both = checked(dict(good, title="Bad", body="## Why\nx\n"))
+        self.assertTrue(any(p.startswith("title_no_area") for p in both) and any(p.startswith("body_heading_missing")
+                                                                                 for p in both))
+
+    def test_the_desk_checks_a_bodys_file(self):
+        root = tree({"good.md": self.body(), "bad.md": "::error::x\n"})
+        (root / "latin.md").write_bytes(b"## Why\n\xe9\n")
+        for name, code, said in (("good.md", 0, "keeps the template's shape"), ("bad.md", 1, "body_heading_missing"),
+                                 ("missing.md", 1, "body_unreadable"), ("latin.md", 1, "body_unreadable")):
+            with contextlib.redirect_stdout(io.StringIO()) as printed:
+                self.assertEqual(pr_title.main(["--body", str(root / name)]), code)
+            self.assertIn(said, printed.getvalue())
+            self.assertNotIn("::", printed.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(pr_title.main(["--body"]), 2)
+            self.assertEqual(pr_title.main(["--body", "a", "b"]), 2)
+            self.assertEqual(pr_title.main(["--title", "x"]), 2)
 
 
 class TheList(unittest.TestCase):
@@ -13527,6 +13970,7 @@ class Mutants(unittest.TestCase):
         self.assertEqual(mutants.MUTANTS[start:end], mutants.OUTSIDE)
         own = mutants.MUTANTS[:start] + mutants.MUTANTS[end:]
         self.assertEqual([m[0] for m in own if m[1] in held], [])
+        self.assertEqual([m[0] for m in own if not m[1].startswith("kernel/")], [], "tools/mutants.py holds the Kernel's alone")
         # The runner's list is the one assignment that reads them, right after ISSUE.
         made = [n.value for n in ast.parse((ROOT / "tools" / "mutants.py").read_text(encoding="utf-8")).body
                 if isinstance(n, ast.Assign) and [getattr(t, "id", None) for t in n.targets] == ["MUTANTS"]]
@@ -16576,15 +17020,27 @@ class Desk(unittest.TestCase):
         read, write = os.pipe()
         try:        # the null device opened as the stream's own number, closed already: that number is left open
             with mock.patch.object(verify.os, "open", return_value=write):
-                verify.quiet(mock.Mock(fileno=lambda: write))
+                verify.quiet(mock.Mock(fileno=lambda: write, flush=mock.Mock(side_effect=BrokenPipeError)))
             os.fstat(write)
         finally:
             os.close(read)
             os.close(write)
-        printed = io.StringIO()
+        closed = mock.Mock(flush=mock.Mock(side_effect=OSError(28, "no space left")),     # no closed pipe either
+                           fileno=mock.Mock(side_effect=io.UnsupportedOperation))
         with mock.patch.object(verify, "failed", return_value=True), mock.patch.object(desk, "size", return_value="n"), \
-                mock.patch("builtins.print", side_effect=BrokenPipeError), contextlib.redirect_stdout(printed):
+                mock.patch("builtins.print", side_effect=BrokenPipeError), mock.patch.object(sys, "stdout", closed):
             self.assertEqual(verify.main(["--checks"]), 1)      # a stream with no file to point elsewhere
+        with tempfile.TemporaryDirectory() as folder:       # a note that fails for any other cause, an encoding say,
+            stream = open(os.path.join(folder, "out"), "w", encoding="utf-8")        # leaves the checks' output to go out
+            stream.write("what the checks said\n")
+            with mock.patch.object(verify, "failed", return_value=False), \
+                    mock.patch.object(desk, "size", return_value="n"), mock.patch.object(sys, "stdout", stream), \
+                    mock.patch("builtins.print", side_effect=UnicodeEncodeError("ascii", "\u00e9", 0, 1, "no ascii")):
+                self.assertEqual(verify.main(["--checks"]), 0)
+            stream.write("and what comes after\n")         # the stream is left as it was, not pointed elsewhere
+            stream.close()
+            with open(os.path.join(folder, "out"), encoding="utf-8") as written:
+                self.assertEqual(written.read(), "what the checks said\nand what comes after\n")
         for argv, code, said in ((["size"], 0, "the note\n"), ([], 1, "usage: python3 -m tools.desk size\n"),
                                  (["size", "x"], 1, "usage: python3 -m tools.desk size\n")):
             printed = io.StringIO()      # the command prints the note, and anything else asked is refused
