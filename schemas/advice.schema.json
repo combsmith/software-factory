@@ -103,7 +103,8 @@
           },
           "body": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 65535
           }
         }
       }
@@ -215,6 +216,7 @@
           "const": "finding/1"
         },
         "id": {
+          "description": "The Lens's name and the first 32 hex digits of a sha256, so that the id fits the 64 characters of the key result/1 adopts from",
           "type": "string",
           "pattern": "^[a-z]{1,31}:[0-9a-f]{32}$"
         },
@@ -266,7 +268,7 @@
           "properties": {
             "path": {
               "type": "string",
-              "pattern": "^[^\\s\\x00-\\x1f\\x7f-\\x9f\u202a-\u202e\u2066-\u2069]{1,1024}$"
+              "pattern": "^[^\\s\\x00-\\x1f\\x7f-\\x9f\u061c\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]{1,1024}$"
             },
             "start_line": {
               "type": "integer",
