@@ -219,6 +219,7 @@ class IssueWorld:
             # The default branch moves as the world's clock does: no Run in flight is stopped by it (decision 0226).
             "base_head": "%040x" % (0xba5e0000 + self.minute),
             "complete": {"timeline": True, "linked": True, "runs": True}, "timeline_bounded": False,
+            "spans_broken": False,
             "read_at": self.now(),
         })
 
@@ -323,7 +324,7 @@ class IssueWorld:
             # 0.11 that read one of them short, by the draw already made: so no other draw moves (decision 0234).
             facts["timeline_bounded"] = short in ("linked", "timeline") and fault < 0.11
             # The records' chain of keyword spans broken, beside the linked list read short alone, in the draws from 0.11 to
-            # 0.125, by the draw already made (decision 0234).
+            # 0.125, by the draw already made (decision 0253).
             facts["spans_broken"] = short == "linked" and 0.11 <= fault < 0.125
         elif fault < 0.20 and runs:
             # GitHub: a_new_run_is_listed_late
