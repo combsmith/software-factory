@@ -2607,8 +2607,8 @@ class Timeline(unittest.TestCase):
                          {"kind": "human", "name": login, "can_write": False})
 
     def test_a_permission_is_asked_once_however_many_threads_ask_it(self):  # decision 1138
-        # A login two threads ask together is asked once and both read the one answer: the first ask is held until the
-        # second has found it under way.
+        # A login two threads ask together, by a reader and its copy, is asked once and both read the one answer: the
+        # first ask is held until the second has found it under way.
         found = next(e for e in exchanges("P-27") if "/permission" in e["request"].get("call", ""))
         login = found["request"]["call"].split("/collaborators/")[1].split("/")[0]
         who = found["response"]["body"]["user"]
@@ -2634,7 +2634,7 @@ class Timeline(unittest.TestCase):
         accounts = timeline.Accounts(Held("first"), canary(), MACHINE, {})
         accounts.asked = Watched()
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            asked = [pool.submit(accounts.actor, raw) for _ in range(2)]
+            asked = [pool.submit(view.actor, raw) for view in (accounts, accounts.through(Held("second")))]
             got = [a.result() for a in asked]
         self.assertEqual((len(sent), got), (1, [human] * 2))
         # A copy asking by another transport shares the answers, and asks by its own.

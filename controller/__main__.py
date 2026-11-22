@@ -461,7 +461,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
                      "unread": reads_.MOVED if isinstance(err, facts_.Moved) else reads_.UNANSWERED},
                     None, [], stages.since(began))
     pulls, kept, facts_reads, tally = [], {}, [], {}
-    # Each thread times its own reads; they are added up here, in the listed order, as the entries are.
+    # Each thread timed its own reads; added up here in the listed order.
     for number, (pull, held, dates, seconds) in zip(numbers, snapshots(numbers, one, pool, seen)):
         pulls.append(pull)
         if held is not None:

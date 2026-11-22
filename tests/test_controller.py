@@ -1432,7 +1432,7 @@ class Entry(unittest.TestCase):
         }
 
     def run_entry(self, hub, timer=None, err=None, quiet=False, pool=1, **environ):
-        # One snapshot at a time unless told: a recorded exchange answers in order. None runs the entry's own pool.
+        # None reads by the entry's own pool (decision 1138).
         env = {"RELEASE": "factory/v0.3.1", "GITHUB_RUN_ID": self.RUN, entry.KEY: self.key}
         env.update(environ)
         slept, printed = [], io.StringIO()
@@ -2682,7 +2682,7 @@ class Entry(unittest.TestCase):
         carried = ("runs", "passes", "keys", "items", "dispatched", "owed", "left", "owed_issues", "left_issues", "hands")
         decided, held = lines[stages.index("decide")], files["pass.json"]["reconciled"]
         self.assertEqual({k: decided[k] for k in carried if k in decided}, {k: len(held[k]) for k in carried if k in held})
-        # Each by its name, those a record holds alone: the issues owed and left, and a hand's threads, among them.
+        # Each by its name, the issues' and the hands' among them.
         full = {k: [{"number": 1}] * (n + 1) for n, k in enumerate(carried)}
         self.assertEqual(entry.Stages().carried({"reconciled": dict(full, other=[1])}), {k: len(full[k]) for k in carried})
         for line in lines:
@@ -2717,7 +2717,8 @@ class Entry(unittest.TestCase):
 
     def test_the_open_pull_requests_are_read_four_at_once_and_kept_in_the_listed_order(self):  # decision 1138
         # By default four snapshots at once and no more, the record the one read one at a time writes, in the listed
-        # order though the first listed ends last; one login asked once. Threads wait on each other, not on a clock.
+        # order though the first listed ends last; one login asked once. Threads wait on each other; the one bounded
+        # wait is for a fifth that never comes.
         numbers, login, rate = [3, 5, 7, 9, 11, 13], "alice", {"status": 403, "headers": {"x-ratelimit-remaining": "0"}}
         pulls = {n: "/repos/%s/pulls/%d" % (self.HOME, n) for n in numbers}
         permission = "/repos/%s/collaborators/%s/permission" % (self.HOME, login)
@@ -2746,12 +2747,12 @@ class Entry(unittest.TestCase):
             def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded,
                          opened):
                 live.append(number)
-                at, worker = len(live), not in_pass()
+                at, worker = live.index(number) + 1, not in_pass()     # how many live before it, and it
                 read.setdefault(number, []).append((at, not worker))
                 try:
+                    once(five) if at >= 5 else None
                     if worker and not four.done():
                         once(four) if at >= 4 else None
-                        once(five) if at >= 5 else None
                         four.result(timeout=10)
                         with contextlib.suppress(concurrent.futures.TimeoutError):
                             five.result(timeout=0.3)    # a fifth thread, were there one, begins
