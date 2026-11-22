@@ -69,6 +69,12 @@ ACTIVITY = {"push": "push", "force_push": "force_push", "branch_creation": "bran
             "branch_deletion": "branch_deleted", "pr_merge": "merge", "merge_queue_merge": "merge"}
 
 
+# What REST answers of an issue that left once nothing more can be read there: 404, not found, or 410, deleted. Each is
+# the end of the issue only where the same token read its repo in the same pass; else access may be what was lost, and
+# what was seen is short. A transfer's 301 is not among them: the transport keeps no redirect's code (decision 0235).
+ENDED = (404, 410)
+
+
 def _pages(transport, path: str) -> tuple:
     """Every item of a list GitHub gives page by page, and whether it was read whole; nothing, not whole, if not."""
     try:
@@ -163,15 +169,56 @@ def _check_runs(transport, item: dict) -> tuple:
     return kept, body.get("total_count") == len(runs) < PAGE
 
 
-def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) -> tuple:
+def _state(transport, issue: str, number: int):
+    """What REST's read of an issue that left answers: `open` or `closed`, a status of `ENDED`, or None for any other
+    answer, a body of another number, of a pull request, or none at all (decision 0235)."""
+    try:
+        answer = transport.send(request("GET", issue))
+    except Unanswered:
+        return None
+    if answer.get("status") in ENDED:
+        return answer["status"]
+    body = _object(answer.get("body")) if answer.get("status") == 200 else {}
+    own = type(body.get("number")) is int and body["number"] == number and "pull_request" not in body
+    return body.get("state") if own and body.get("state") in ("open", "closed") else None
+
+
+def repo_read(transport, repo: str) -> bool:
+    """Whether REST answered the repo `repo` itself, by its full name, with its issues on, through `transport`: with
+    them off, every issue answers 410, and none has ended (decision 1145)."""
+    try:
+        answer = transport.send(request("GET", "/repos/%s" % repo))
+    except Unanswered:
+        return False
+    body = _object(answer.get("body")) if answer.get("status") == 200 else {}
+    full = body.get("full_name")
+    return isinstance(full, str) and full.lower() == repo.lower() and body.get("has_issues") is True
+
+
+def read(transport, item: dict, kept, identities: dict, apps: dict, since: str, repo_read=False, told=None) -> tuple:
     """`(writes, merged, whole)` for one served item. `kept` is what the snapshot of `adapters/facts.py` kept of a
     pull request, or None where it kept nothing; an issue's is not read. For an item the pass before served that is no
     longer open, a pull request merged or closed between the passes, `kept` is `LEFT`: no snapshot reads it, so its
     timeline, reviews, threads and the check runs on its head are read here, and with them its close or its merge
-    (decision 0063). One whose timeline names no close is not one that left, and what was seen of it is short."""
+    (decision 0063). One whose timeline names no close is not one that left, and what was seen of it is short. An issue
+    that left is read first by its state: one still open, left out of the issues served, is read as an open one is, with
+    no close; one REST answers 404 or 410 is whole, with nothing read, only where `repo_read`, the same token having read
+    its repo in this pass, and is then added to `told` with its answer; any other answer is short (decision 0235)."""
     repo, number = item["repo"], item["number"]
     issue = "/repos/%s/issues/%d" % (repo, number)
     writes, merged = [], []
+    ending = kept in (LEFT, GONE)
+    if item["type"] == "issue" and ending:
+        state = _state(transport, issue, number)
+        if state in ENDED:
+            # Whole only where the end can be told: with nowhere to tell it, the issue would end unseen.
+            ended = repo_read is True and told is not None
+            if ended:
+                told.append({"item": dict(item), "answer": state})
+            return [], [], ended
+        if state is None:
+            return [], [], False
+        ending = state == "closed"
     if item["type"] == "pull_request" and kept not in (LEFT, GONE):
         parts = dict(kept) if isinstance(kept, dict) else {}
     elif item["type"] == "pull_request":
@@ -187,8 +234,11 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         got = parts.get(name)
         whole &= isinstance(got, tuple) and len(got) == 2 and isinstance(got[0], list) and got[1] is True
         parts[name] = got[0] if isinstance(got, tuple) and len(got) == 2 and isinstance(got[0], list) else []
-    if kept in (LEFT, GONE) and item["type"] == "pull_request":
-        whole &= any(_object(e).get("event") in ("closed", "merged")
+    # One that left is read with its close: an issue's close, or a pull request's close or merge, in the window, or any
+    # for one a pass before read as gone (issues 787 and 916).
+    if ending:
+        ends = ("closed", "merged") if item["type"] == "pull_request" else ("closed",)
+        whole &= any(_object(e).get("event") in ends
                      and (kept == GONE or _at(_object(e).get("created_at"), since)) for e in parts["events"])
 
     def add(by, kind, key, at, commit=NO_COMMIT):
@@ -360,14 +410,16 @@ def pushes(transport, repo: str, approver: dict, since: str, clock=_utc) -> tupl
     return writes, bool(whole)
 
 
-def seen(parts: list, since: str) -> dict:
-    """`seen/1` from each `read`'s and `pushes`'s answer: whole only when every part was."""
+def seen(parts: list, since: str, gone=()) -> dict:
+    """`seen/1` from each `read`'s and `pushes`'s answer: whole only when every part was. `gone` is each issue that left
+    read as whole by its 404 or 410, with that answer, carried only where there is one (decision 1145)."""
     writes, merged, whole = [], [], True
     for part in parts:
         writes += part[0]
         merged += part[1] if len(part) == 3 else []
         whole &= part[-1] is True
-    return {"schema": "seen/1", "since": since, "whole": whole, "writes": writes, "merged": merged}
+    found = {"schema": "seen/1", "since": since, "whole": whole, "writes": writes, "merged": merged}
+    return dict(found, gone=list(gone)) if gone else found
 
 
 def apps_of(accounts: dict, apps: dict) -> dict:

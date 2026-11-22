@@ -108,6 +108,15 @@
       ]
     },
     {
+      "reason": "issue_stopped",
+      "question": "issue_held_or_closed",
+      "choices": [
+        "end_hold",
+        "reopen",
+        "close"
+      ]
+    },
+    {
       "reason": "merged_while_held",
       "question": "merged_while_held",
       "choices": [
@@ -251,6 +260,13 @@
       ]
     },
     {
+      "reason": "issue_stands_unreadable",
+      "question": "fact_unreadable",
+      "choices": [
+        "fix_the_source"
+      ]
+    },
+    {
       "reason": "acceptance_unreadable",
       "question": "fact_unreadable",
       "choices": [
@@ -312,6 +328,13 @@
       "question": "fact_unreadable",
       "choices": [
         "fix_the_source"
+      ]
+    },
+    {
+      "reason": "timeline_bounded",
+      "question": "timeline_bounded",
+      "choices": [
+        "close"
       ]
     },
     {
@@ -412,5 +435,66 @@
         "fix_the_source"
       ]
     }
-  ]
+  ],
+  "sentences": {
+    "acceptance_evidence_missing": "Waiting for passing evidence on every acceptance criterion of this version.",
+    "acceptance_failed": "An acceptance criterion failed on this version; the author fixes the change.",
+    "acceptance_reporters_unreadable": "Who may report acceptance results could not be read; a person checks why.",
+    "acceptance_unreadable": "The acceptance contract or its results could not be read; a person checks why.",
+    "act_ceiling": "The Factory has acted on it as often as allowed; a person decides whether it goes on.",
+    "acts_unreadable": "The count of the Factory's acts on it could not be read; the Factory reads again.",
+    "approval_due": "Every required check and review passed; the Factory approves it next.",
+    "approval_lost": "Its approval no longer stands, so it leaves the merge queue to be approved again.",
+    "approved": "Approved; the Factory adds it to the merge queue.",
+    "approver_is_author_or_last_pusher": "The Factory's approver wrote or last pushed it, so its approval would not count; a person decides.",
+    "attempts_exhausted": "Its runs failed as often as allowed; a person decides whether to try again.",
+    "awaiting_checks": "Waiting for the required checks to finish.",
+    "awaiting_human": "An open review thread waits for a person to answer it.",
+    "awaiting_review": "Waiting for a reviewer to review this version.",
+    "base_not_protected": "The branch it targets is not protected, so the Factory does not serve it.",
+    "capacity": "The model provider asked the Factory to wait; it tries again later.",
+    "capacity_unreadable": "How much the Factory may run now could not be read; it reads again.",
+    "check_failed": "A required check failed; the author fixes the change.",
+    "check_unreadable": "A required check gave no result or came from the wrong source; a person checks why.",
+    "closed": "Closed without a merge; the Factory does nothing more.",
+    "concurrency": "The Factory is running as many jobs as it may; it waits for one to end.",
+    "conflict": "It conflicts with the branch it targets; the author resolves the conflict.",
+    "contract_changed": "The acceptance contract changed after a person approved it; a person approves it again.",
+    "contract_not_approved": "The acceptance contract has no standing approval by a person; a person approves it.",
+    "description_edited_after_approval": "The description changed after the approval; a person reads it and approves again.",
+    "description_unreadable": "When the description was last edited could not be read; a person checks why.",
+    "draft": "A draft; the Factory waits until it is marked ready for review.",
+    "empty_diff": "It changes no files, so there is nothing to review; a person decides.",
+    "environment_ceiling": "Its runs failed to start as often as allowed; a person decides whether to try again.",
+    "facts_incomplete": "Some facts about it could not be read whole; the Factory reads again.",
+    "findings_open": "A reviewer's finding is open; the author addresses it.",
+    "gate_open": "An open review thread takes it out of the merge queue; it is addressed first.",
+    "hands_off": "A person marked it hands-off; the Factory leaves it alone.",
+    "human_finding": "A person's review thread is open; the author addresses it.",
+    "human_hold": "A hold label is on it; it waits until a person removes the label.",
+    "in_merge_queue": "In the merge queue; it merges once the queue's checks pass.",
+    "issue_stands_unreadable": "Whether its issue is open could not be read; a person checks why.",
+    "issue_stopped": "Its issue is held or closed, so it is held too; a person decides.",
+    "label_unreadable": "Who placed or removed its labels could not be read; a person checks why.",
+    "last_pusher_unreadable": "Who pushed it last could not be read; a person checks why.",
+    "max_rounds": "Its findings went through as many rounds of rulings as allowed; a person decides.",
+    "mergeable_unreadable": "GitHub has not yet worked out whether it merges cleanly; the Factory reads again.",
+    "merged": "Merged; the Factory does nothing more.",
+    "model_lens_input_needs_person": "It changes what a model reviewer reads, so a person approves it as well.",
+    "outside_not_admitted": "Opened from outside the Factory and not admitted; a person decides whether it is taken.",
+    "path_needs_person": "It changes a file only a person may approve; a person approves it.",
+    "paths_unreadable": "The files it changes could not be read; a person checks why.",
+    "pause_unreadable": "Whether the Factory is paused could not be read; it waits for a person.",
+    "paused": "The Factory is paused and does nothing until a person ends the pause.",
+    "proposals_await_owner": "The author answered a finding; the reviewer that owns it rules next.",
+    "protected_paths_unreadable": "The list of protected files could not be read; a person checks why.",
+    "resolve_due": "A reviewer's thread is settled; the Factory resolves it next.",
+    "review_unreadable": "A review on it could not be read; a person checks why.",
+    "run_ceiling": "It has used every run it is allowed; a person decides whether to renew them.",
+    "run_unidentified": "A recent job is not yet matched to its item; the Factory waits before starting another.",
+    "run_unreadable": "A run's record could not be read or contradicts itself; a person checks why.",
+    "runs_unnamed": "Too many recent jobs are not matched to their items; the Factory waits.",
+    "thread_unreadable": "A review thread could not be read; a person checks why.",
+    "too_large": "It is too large to review whole; a person splits it or closes it."
+  }
 }

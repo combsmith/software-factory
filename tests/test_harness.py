@@ -33,6 +33,7 @@ HARNESS = json.loads((ROOT / "config" / "harness.json").read_text())
 PIN = HARNESS["engine"]["version"]
 MODEL = HARNESS["engine"]["model"]
 MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
+LENS = {"kind": "lens", "name": "pr-review", "can_write": False}
 # The change Run RUN judges, as GitHub serves a pull request's diff: two files, each its own part.
 DIFF = (b"diff --git a/kernel/decide.py b/kernel/decide.py\n--- a/kernel/decide.py\n+++ b/kernel/decide.py\n"
         b"@@ -88,1 +88,1 @@\n-    return \"hold\"\n+    return \"act\"\n"
@@ -192,10 +193,46 @@ class Task(unittest.TestCase):
         deep = built(role=manifest(tier="deep"))
         self.assertEqual((deep["tier"], deep["limits"]), ("deep", HARNESS["limits"]["deep"]))
         self.assertEqual((t["result_schema"], t["omitted"]), ("result/1", []))
-        self.assertEqual(built(findings=["f_9c1e", "f_2b7d"])["findings"], ["f_9c1e", "f_2b7d"])
+        said = [text("finding:f_9c1e", LENS), text("finding:f_2b7d", LENS)]
+        self.assertEqual(built(said, findings=["f_9c1e", "f_2b7d"])["findings"], ["f_9c1e", "f_2b7d"])
         for findings in (None, 1, {"f_9c1e": "x"}, "f_9c1e"):
             with self.assertRaises(task.Refused, msg=repr(findings)):
                 built(findings=findings)
+
+    def test_a_run_is_asked_only_if_shown_each_finding(self):  # issue 856
+        # A review rules on a Finding only if it is shown what its Lens said: the text `finding:` and the Finding's id,
+        # under its writer's trust, before the issue's. A Task that lists one with no such text among those it keeps,
+        # its words not the Lens's own or over the texts' room, is never asked: a failed Result, `findings_not_shown`,
+        # no model call spent, which `apply` ends as the item's own and never the Factory's.
+        said = text("finding:f_9c1e", LENS, "It reads the head before the push.")
+        t = built([text("issue:7"), said], findings=["f_9c1e"])
+        self.assertEqual(others(t), [{"id": "finding:f_9c1e", "trust": "role", "source": "pr-review",
+                                      "body": "It reads the head before the push."},
+                                     {"id": "issue:7", "trust": "outside", "source": MAINTAINER["name"],
+                                      "body": text()["body"]}])
+        with tempfile.TemporaryDirectory() as d:
+            def asked(texts, findings=("f_9c1e",), config_=None):
+                the_task = built(texts, findings=list(findings), config=config_ or config())
+                cli = CLI()
+                r = run.answer(the_task, JOB, dict(run.configuration(), release=the_task["release"]), cli, Clock(), SESSION, d)
+                return r["status"], r["reason"], len(cli.calls) > 0
+            self.assertEqual(asked([said]), ("completed", None, True))
+            for why, texts, findings, config_ in (
+                    ("no text", [], ("f_9c1e",), None), ("another Finding's", [text("finding:f_2b7d", LENS)], ("f_9c1e",), None),
+                    ("a thread's", [text("thread:f_9c1e", LENS)], ("f_9c1e",), None),
+                    ("one of two", [said], ("f_9c1e", "f_2b7d"), None),
+                    ("a text left out", [said], ("f_9c1e",), config(texts={"characters": 10}))):
+                self.assertEqual(asked(texts, findings, config_), ("failed", "findings_not_shown", False), why)
+            # Nor is it asked where the Findings' texts, kept first, leave the issue's out; with no Finding listed an
+            # issue left out is as it was.
+            room = config(texts={"characters": len(said["body"]) + 5})
+            self.assertEqual(asked([text("issue:7"), said], config_=room), ("failed", "findings_not_shown", False))
+            self.assertEqual(asked([text("issue:7"), said], (), room), ("completed", None, True))
+            # A Finding's text with no Finding listed is a text as any other.
+            self.assertEqual(asked([said], ()), ("completed", None, True))
+        self.assertIn("findings_not_shown", engine.HARNESS_REASONS)
+        failed = engine.failed(t, "findings_not_shown", engine.usage_of(t, HARNESS, SESSION))
+        self.assertEqual(shared.errors(failed, "result"), [])
 
     def test_a_run_no_decision_admitted_finds_none_and_does_nothing(self):  # section 3.5
         moved = facts()
@@ -848,6 +885,51 @@ class Engine(unittest.TestCase):
             self.assertEqual(plain.asked()[0]["args"][-2:], ["--tools", ""])
             self.assertEqual([c for c in plain.calls if "head" in c], [])
             self.assertNotIn(engine.BASE, plain.asked()[0]["args"][2])
+
+    def test_no_run_is_given_a_tool_that_runs_code_or_writes(self):  # decision 0239, issue 952
+        # No phase of any Role holds a tool that runs code or writes. The Engine alone names a Run's tools, by its Task:
+        # config/harness.json and each Role's manifest are what their schemas allow and nothing more, and name no tool or
+        # argument of the CLI; a review and a Run that writes code have exactly the read tools, and any other Run none
+        # (decisions 0138 and 0219). `--tools` is the flag that restricts; `--allowedTools` only pre-approves, so it is
+        # never read in its place. The read tools are named here, not read from READ_TOOLS, so that a change there is refused.
+        from tools.jsonschema_lite import validate
+
+        def strings(value):
+            if isinstance(value, dict):
+                return [w for k, v in value.items() for w in [k] + strings(v)]
+            return [w for v in value for w in strings(v)] if isinstance(value, list) else [value]
+        manifests = [p for p in walk.files(ROOT, "roles") if p.parent == ROOT / "roles" and p.suffix == ".json"]
+        self.assertIn(ROOT / "roles" / "pr-review.json", manifests)
+        named = {"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch", "Task", "Agent"}
+        for path, schema in [(ROOT / "config" / "harness.json", "harness")] + [(p, "role") for p in manifests]:
+            held = json.loads(path.read_text())
+            self.assertEqual(validate(held, shared.SCHEMAS[schema], schemas=shared.SCHEMAS), [], path)
+            words = [w for w in strings(held) if isinstance(w, str)]
+            self.assertEqual([w for w in words if re.search("tool|argv|args", w, re.I) or w.startswith("-")
+                              or w in named], [], path)
+        reads = {"Read", "Grep", "Glob"}
+        settings = dict(run.configuration(), release=writing()["release"])
+        with tempfile.TemporaryDirectory() as d:
+            for the_task, said, want in ((built(), answer(), reads), (writing(), answer(result=pushed()), reads),
+                                         (dict(writing(), permitted_effects=["comment"]),
+                                          answer(result=judged(findings=[], effects={})), set())):
+                cli = CLI(said=said)
+                self.assertEqual(run.answer(the_task, JOB, settings, cli, Clock(), SESSION, d)["status"], "completed")
+                self.assertEqual(len(cli.asked()), 1, the_task["permitted_effects"])
+                args = cli.asked()[0]["args"]
+                tools = [i for i, a in enumerate(args) if a.split("=", 1)[0] == "--tools"]
+                self.assertEqual(len(tools), 1, args)
+                given = args[tools[0]].split("=", 1)[1] if "=" in args[tools[0]] else args[tools[0] + 1]
+                self.assertEqual({t for t in given.split(",") if t}, want, args)
+                allowed = [(a.split("=", 1)[1], i) if "=" in a else (args[i + 1], i + 1) for i, a in enumerate(args)
+                           if a.split("=", 1)[0] in ("--allowedTools", "--allowed-tools")]
+                self.assertEqual([{t for t in a.split(",") if t} for a, _ in allowed], [want] if want else [], args)
+                # Nor is a tool brought in another way: no server, plugin, agent, settings or folder is loaded.
+                loaders = {"--mcp-config", "--plugin-dir", "--plugin-url", "--agents", "--agent", "--settings", "--add-dir"}
+                self.assertEqual([a for a in args if a.split("=", 1)[0] in loaders], [], args)
+                # Both flags take any number of values: what follows each one's value is an option, or nothing.
+                for i in [tools[0] + ("=" not in args[tools[0]])] + [i for _, i in allowed]:
+                    self.assertTrue(i + 1 == len(args) or args[i + 1].startswith("-"), args)
 
     def test_a_writing_run_with_no_commit_is_never_asked(self):  # issue 880
         # As a review with no head: the Factory's fault, read before the CLI starts, and no model call spent.
