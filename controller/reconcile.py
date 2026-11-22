@@ -383,7 +383,7 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
             approvals.append((w, entry if kind == "approver" else None))
     # A carried hand approval stands; any other is judged in the order given, one to a head (decision 0241).
     carried_hand = {e["key"]: e for e in _last(before).get("hand", [])}
-    # Each head an approval took, a hand one or an unmatched one, by the keys that took it, until its pull request leaves.
+    # Each head an approval took, a hand one or any other, by the keys that took it, until its pull request leaves.
     heads, seconds = {}, []
     for e in list(carried_hand.values()) + _last(before).get("taken", []):
         heads.setdefault((e["item"], e["head"]), set()).add(e["key"])
