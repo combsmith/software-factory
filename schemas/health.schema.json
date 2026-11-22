@@ -229,8 +229,7 @@
           "credential_due",
           "runs_never_started",
           "issue_apps_unreadable",
-          "issue_budget_spent",
-          "issue_list_unreadable"
+          "issue_budget_spent"
         ]
       }
     },

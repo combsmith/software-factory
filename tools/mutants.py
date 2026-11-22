@@ -166,7 +166,7 @@ F849_LINKED = ("tests.test_adapters.Linked.test_a_linked_pull_requests_own_facts
 F849_WORLD = ("tests.test_issue.Unreadable.test_the_issue_world_meets_a_timeline_past_the_bound_under_faults_and_calls_a_person",)
 F931_PORT = ("tests.test_adapters.Issues.test_the_controllers_tracking_issue_is_told_at_its_first_read_by_its_opener_and_its_body",)
 F849_BUDGET = ("tests.test_controller.Entry.test_the_issue_reads_stop_at_the_passs_budget_and_those_left_out_by_it_are_read_first_by_the_next",)
-F849_ALERTS = ("tests.test_controller.Issues.test_an_issue_left_unread_by_the_budget_or_the_list_raises_its_own_alert_and_no_other",)
+F849_ALERTS = ("tests.test_controller.Issues.test_an_issue_left_unread_by_the_budget_raises_its_own_alert_and_no_other",)
 S3_ROW10 = ("tests.test_controller.Issues.test_with_no_app_declared_for_factory_triage_an_accepted_served_issue_gets_no_acceptance_act",)
 COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers",)
 ALSO_AT = ("tests.test_evals.Scoring.test_a_finding_at_any_place_the_case_gives_is_at_the_place",)
@@ -5842,8 +5842,8 @@ MUTANTS = ISSUE + OUTSIDE + [
      '               for r in mine if (r.get("began_at") or r["started_at"]) == last)\n', ('tests.test_issue.RunStarts.test_an_issues_decision_is_the_same_whatever_began_at_its_runs_carry',)),
     # Asked once the issues are listed, as a pass that read their Runs would: `listed` exists only after the records are read.
     ("the entry asks the served issues' Runs when they began", 'controller/__main__.py',
-     '    issues = [] if listed_whole else [{"facts": {"item": None}, "title": None, "unread": reads_.UNLISTED}]\n',
-     '    issues = [] if listed_whole else [{"facts": {"item": None}, "title": None, "unread": reads_.UNLISTED}]\n'
+     '        raise Stop("issue_list_unreadable")\n',
+     '        raise Stop("issue_list_unreadable")\n'
      '    records.runs(transport, home, branch, run_files(controller), dispatcher(controller), kept=records.known(earlier), '
      'began=records.begun(earlier), engines=records.engines(earlier), sleep=sleep, '
      'of=[{"repo": home, "type": "issue", "number": number} for number in listed])\n',
@@ -15424,7 +15424,8 @@ MUTANTS = ISSUE + OUTSIDE + [
      'dict(who, app=bot(who.get("app")))',
      'dict(who)', S3_NAMED),
     ('an open issue list read short is decided from', 'controller/__main__.py',
-     'issue_order(listed if listed_whole else [], before)', 'issue_order(listed, before)', S3_ENTRY),
+     '    if not listed_whole:\n        raise Stop("issue_list_unreadable")\n',
+     '', S3_ENTRY),
     ("an issue's linked pull requests not read are read as whole", 'controller/__main__.py',
      '            issues.append({"facts": facts, "title": title})\n',
      '            facts["complete"]["linked"] = True\n            issues.append({"facts": facts, "title": title})\n', S3_LINKED),
@@ -15452,8 +15453,8 @@ MUTANTS = ISSUE + OUTSIDE + [
     # Issues 963 and 965, the reader audits of #918 and #912: each issue's read dated by its own answer, the issues'
     # configuration left as written and its Apps named plain, and every account held to the names an App's id holds.
     ("each issue's facts read is dated by the first issue's answer", 'controller/__main__.py',
-     '    for number in pass_.issue_order(listed if listed_whole else [], before):\n        began, through = stages.now(), Dated(counted)\n',
-     '    through = Dated(counted)\n    for number in pass_.issue_order(listed if listed_whole else [], before):\n        began = stages.now()\n', S3_ENTRY),
+     '    for number in pass_.issue_order(listed, before):\n        began, through = stages.now(), Dated(counted)\n',
+     '    through = Dated(counted)\n    for number in pass_.issue_order(listed, before):\n        began = stages.now()\n', S3_ENTRY),
     ("the issues' Kernel configuration rewrites the caller's", 'controller/pass_.py',
      'issues = copy.deepcopy(kernel.get("issues"))',
      'issues = kernel.get("issues")', S3_REPLAY),
@@ -15656,12 +15657,10 @@ MUTANTS = ISSUE + OUTSIDE + [
      'codes = UNREAD + (ISSUE_UNREAD if kind == "issue-facts" else ())', 'codes = UNREAD', F849_ALERTS),
     ("a pull request may be left out by the issues' codes", 'controller/reads.py',
      '(ISSUE_UNREAD if kind == "issue-facts" else ())', 'ISSUE_UNREAD', F849_ALERTS),
-    ("an issue left unread by the budget or the list is a fault of the facts", 'controller/pass_.py',
+    ("an issue left unread by the budget is a fault of the facts", 'controller/pass_.py',
      'if code not in reads_.ISSUE_UNREAD\n               and (', 'if (', F849_ALERTS),
-    ("the issues left unread by the budget or the list raise no alert of their own", 'controller/pass_.py',
+    ("an issue left unread by the budget raises no alert of its own", 'controller/pass_.py',
      '    alerts = sorted(set(alerts) | {ISSUE_ALERTS[code] for code in why if code in ISSUE_ALERTS})\n', '', F849_ALERTS),
-    ("the issue list read short raises the budget's alert", 'controller/pass_.py',
-     'reads_.UNLISTED: "issue_list_unreadable"}', 'reads_.UNLISTED: "issue_budget_spent"}', F849_ALERTS),
     ("the issues are read in the listing's order whatever the budget left out", 'controller/pass_.py',
      '    return sorted(listed, key=lambda n: owed.index(n) if n in owed else len(owed))\n', '    return list(listed)\n', F849_BUDGET),
     ("those the budget left out are read in the listing's order", 'controller/pass_.py',
@@ -15675,7 +15674,7 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("the issues' budget is spent a request late", 'controller/__main__.py',
      'counted.sent >= controller["max_issue_requests"]', 'counted.sent > controller["max_issue_requests"]', F849_BUDGET),
     ("the issues are read in the listing's order", 'controller/__main__.py',
-     'pass_.issue_order(listed if listed_whole else [], before)', '(listed if listed_whole else [])', F849_BUDGET),
+     'pass_.issue_order(listed, before)', 'list(listed)', F849_BUDGET),
     ("the issues' permission reads are not counted", 'controller/__main__.py',
      '    asking.transport = counted\n', '', F849_BUDGET),
     ("a number listed twice and owed is read once", 'controller/pass_.py',
@@ -15686,15 +15685,6 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("an issue request that fails is not counted", 'controller/__main__.py',
      '        self.sent += 1\n        return self.transport.send(req)\n',
      '        answer = self.transport.send(req)\n        self.sent += 1\n        return answer\n', F849_BUDGET),
-    ("an issue list read short stops the pass", 'controller/__main__.py',
-     '    issues = [] if listed_whole else [{"facts": {"item": None}, "title": None, "unread": reads_.UNLISTED}]\n',
-     '    issues = []\n    if not listed_whole:\n        raise Stop("issue_list_unreadable")\n', S3_ENTRY),
-    ("a list read short serves its itemless entry", 'controller/__main__.py',
-     ' for e in issues if e["facts"]["item"] is not None]', ' for e in issues]',
-     ("tests.test_controller.Entry.test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is",)),
-    ("an issue list read short leaves nothing out", 'controller/__main__.py',
-     '    issues = [] if listed_whole else [{"facts": {"item": None}, "title": None, "unread": reads_.UNLISTED}]\n',
-     '    issues = []\n', S3_ENTRY),
     ("a linked pull request's timeline is read past the bound", 'adapters/linked.py',
      'events, whole, cut = timeline.bounded(transport, read)', 'events, whole = timeline.events(transport, read)\n    cut = False', F849_LINKED),
     ("a linked pull request's timeline cut at its bound is not said to be", 'adapters/linked.py',
@@ -16581,7 +16571,7 @@ MUTANTS = ISSUE + OUTSIDE + [
      'parts.append(seen_.read(transport, {"repo": home, "type": "issue", "number": number}, None, identities, apps,\n                                    since)[:2] + (True,))',
      ('tests.test_controller.Entry.test_the_served_issues_writes_are_read_for_reconciliation',)),
     ("a served issue left out unread has no writes read", 'controller/__main__.py',
-     'if e["facts"]["item"] is not None]', 'if e["facts"]["item"] is not None and "unread" not in e]',
+     'for e in issues] if apart is not None else ()', 'for e in issues if "unread" not in e] if apart is not None else ()',
      ('tests.test_controller.Entry.test_the_served_issues_writes_are_read_for_reconciliation',)),
     ("the Runs' Effects are read before the writes are seen", 'controller/__main__.py',
      '    seen, unread, gone = writes_seen(transport, config, numbers, kept, before, since, clock, owed, stages, served_issues)\n'
@@ -16590,7 +16580,7 @@ MUTANTS = ISSUE + OUTSIDE + [
      '    seen, unread, gone = writes_seen(transport, config, numbers, kept, before, since, clock, owed, stages, served_issues)\n',
      ('tests.test_controller.Entry.test_the_served_issues_writes_are_read_for_reconciliation',)),
     ("the issues' writes are read while the tracking issue's number is not", 'controller/__main__.py',
-     'is not None] \\\n        if apart is not None else ()', 'is not None]',
+     'for e in issues] if apart is not None else ()', 'for e in issues]',
      ('tests.test_controller.Entry.test_the_served_issues_writes_are_read_for_reconciliation',)),
     ("an issue not read takes the pull requests' debt with it", 'controller/__main__.py',
      '                                    since))\n        except Unanswered:\n            parts.append(([], [], False))\n',
