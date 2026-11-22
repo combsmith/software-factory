@@ -4885,6 +4885,9 @@ REFUSALS = {
     ("P-2.queue", 20): None, ("P-2.queue", 26): None, ("P-2.queue", 27): None,
     # The tree of a commit the canary does not hold, 422: the head port reads it as no tree, so no head (decision 0142).
     ("P-60.tree", 1): None,
+    # Azure's answers to the advisory reader, a key it does not know, 401, and a burst's 429: no port asks Azure; the
+    # advisory parser reads them (P-76, decision 0224).
+    ("P-76", 0): None, ("P-76", 6): None,
 }
 # Every 404 a trial shows for a thing that does not stand, asked as that answer, never as a refusal: the work branch a
 # push reads before it is made, which the push guard reads as the branch admitted none of (P-71, issue 838).
@@ -6493,6 +6496,40 @@ class Issues(unittest.TestCase):
         self.assertNotIn(title, json.dumps(found))
         return found
 
+    def test_how_an_issue_stands_is_read_from_its_state_and_its_own_label_events_alone(self):  # decision 0232
+        # The issue, its timeline, and the issue once more: no edit, no content and no linked pull request is asked.
+        def stood(events=(), more=False, again=None, **change):
+            read = issue_read(list(events), more=more, **change)
+            later = [rest_answer("/repos/o/r/issues/41/timeline?per_page=100&page=2", {})] if more else []
+            exchanges = read[:2] + later + [again or read[-1]]
+            router = Router(github.Replay(exchanges), {"don-petry": "admin", "sf-machine": "write"})
+            accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]})
+            return issues.stood(router, "o/r", 41, accounts)
+        held = stood([issue_event("labeled", 1, label={"name": "factory:hold"}), issue_event("commented", 2)])
+        self.assertEqual(held, {"state": "open", "complete": {"timeline": True}, "label_events": [
+            {"label": "factory:hold", "action": "labeled", "at": minute(1),
+             "by": {"kind": "human", "name": "don-petry", "can_write": True}}]})
+        # A closed issue is closed from its state alone: its timeline is not asked, so one that cannot be read keeps
+        # nothing from being closed (Muse).
+        router = Router(github.Replay(issue_read(state="closed")[:1]), {"don-petry": "admin"})
+        self.assertEqual(issues.stood(router, "o/r", 41, timeline.Accounts(router, "o/r", MACHINE, {})),
+                         {"state": "closed", "label_events": [], "complete": {"timeline": False}})
+        # Each label is told by the account reader the caller hands it: the machine user's is the machine user's, never
+        # a person's, so its removal of a person's Hold releases nothing (Astra).
+        machine = stood([issue_event("labeled", 1, actor=("sf-machine", MACHINE[0], "User"), label={"name": "factory:hold"})])
+        self.assertEqual(machine["label_events"][0]["by"]["kind"], "machine_user")
+        # A timeline whose next page cannot be read is not whole, so `stands` reads the labels as unread.
+        self.assertFalse(stood(more=True)["complete"]["timeline"])
+        # A state GitHub does not give is refused; so is an issue that moved while it was read.
+        with self.assertRaises(github.Unanswered):
+            stood(state="Closed")
+        last = issue_read()[-1]
+        # Moved: its time, or in the same second its state or its labels, since a time is to the second (Astra).
+        for change in ({"updated_at": "2026-10-11T12:59:00Z"}, {"state": "closed"}, {"labels": [{"name": "factory:hold"}]}):
+            moved = dict(last, response=dict(last["response"], body=dict(last["response"]["body"], **change)))
+            with self.assertRaises(facts.Moved, msg=change):
+                stood(again=moved)
+
     def test_an_issues_timeline_is_whole_only_when_its_last_page_names_no_next(self):  # P-33, decision 0218
         said = issue_event("commented", 0)
         whole = self.read(issue_read([said]))
@@ -6839,6 +6876,42 @@ class Issues(unittest.TestCase):
             moved[-1]["response"]["body"] = dict(moved[-1]["response"]["body"], updated_at=last)
             with self.assertRaises(facts.Moved, msg=last):
                 self.read(moved)
+
+    def test_the_controllers_tracking_issue_is_told_at_its_first_read_by_its_opener_and_its_body(self):  # decision 0233
+        record = {"pass": "p_01JA7Q", "now": "2026-10-11T10:00:00Z", "release": "factory/v0.3.1"}
+        body = effects.rendered(record, ["write_failed"])
+        app, mine = {"login": CONTROLLER_APP[0], "id": CONTROLLER_APP[1], "type": CONTROLLER_APP[2]}, CONTROLLER_APP[1:]
+
+        def read(exchanges, controller=mine):
+            router = Router(github.Replay(exchanges), {"don-petry": "admin", "stranger": "read"})
+            accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]})
+            return issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES, earlier=[], controller=controller)[0]
+        # Opened by the Controller's App with the body its write step writes, whenever that was: it is refused at its
+        # first read, and nothing more is asked, its timeline among them (the replay holds the first read alone).
+        with self.assertRaises(issues.Tracking):
+            read(issue_read(user=app, body=body)[:1])
+        self.assertTrue(effects.causes_of(body) == ["write_failed"] and issues.tracking({"user": app, "body": body}, mine))
+        # So is one whose body lists no cause, as the write step writes one once its causes have cleared (Muse).
+        empty = effects.rendered(record, [])
+        self.assertTrue(effects.causes_of(empty) == [] and issues.tracking({"user": app, "body": empty}, mine))
+        # The App's issue with any other body is a Work item, a follow-on a Role opens among them, and so is one whose
+        # body anyone edited; and that body on a person's issue, another App's, or an account of the App's id that is no
+        # Bot. With no App named, none is the tracking issue. Each is read whole, as any issue is.
+        for change, controller in ((dict(user=app), mine), (dict(user=app, body=body + "More.\n"), mine),
+                                   (dict(body=body), mine),
+                                   (dict(user={"login": "dependabot[bot]", "id": 99, "type": "Bot"}, body=body), mine),
+                                   (dict(user={"login": "stranger", "id": CONTROLLER_APP[1], "type": "User"}, body=body), mine),
+                                   (dict(user=app, body=body), None)):
+            self.assertEqual(read(issue_read(**change), controller)["item"]["number"], 41, change)
+        # An opener that cannot be read refuses the issue at the test itself: it is never served for want of it.
+        for user in (None, {"login": CONTROLLER_APP[0], "id": CONTROLLER_APP[1]}, dict(app, id=str(CONTROLLER_APP[1]))):
+            with self.assertRaises(github.Unanswered, msg=user):
+                issues.tracking({"user": user, "body": body}, mine)
+            with self.assertRaises(github.Unanswered, msg=user):
+                read(issue_read(user=user, body=body)[:1])
+        # So does a body left out of the App's issue: never read as null (Kimi).
+        with self.assertRaises(github.Unanswered):
+            issues.tracking({"user": app}, mine)
 
     def test_the_issues_own_facts_hold_to_the_schema_with_its_linked_pull_requests(self):
         from kernel import issue
