@@ -1,12 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "feed/1: how a Decision's codes become who acts next and what is asked of a person, as data the Controller and the page both read. next_actor is read in order: by_outcome first, then by_attention, where an actor of by_state sends the reader to by_state and its default. decision_required has one row for each reason the Kernel gives needs_you.",
+  "title": "feed/1: how a Decision's codes become who acts next and what is asked of a person, as data the Controller and the page both read. next_actor is read in order: by_outcome first, then by_attention, where an actor of by_state sends the reader to by_state and its default. decision_required has one row for each reason the Kernel gives needs_you. sentences gives each reason a pull request's Decision can carry one fixed plain sentence, shown to a person beside the codes and never read back: a capital, then letters, digits, spaces and plain punctuation, one full stop, at the end, so no @, link, backtick, line break or placeholder.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schema",
     "next_actor",
-    "decision_required"
+    "decision_required",
+    "sentences"
   ],
   "properties": {
     "schema": {
@@ -166,6 +167,14 @@
             }
           }
         }
+      }
+    },
+    "sentences": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 100,
+        "pattern": "^[A-Z][A-Za-z0-9 ,;:'()-]*[.]$"
       }
     }
   },

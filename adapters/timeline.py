@@ -21,6 +21,8 @@ never skipped. No text of GitHub's reaches a part: a review's body, a dismissal'
 """
 from __future__ import annotations
 
+import concurrent.futures
+import copy
 import datetime
 import hashlib
 import re
@@ -85,6 +87,8 @@ class Accounts:
         self.lenses, self.factory, self.answers, self.roles = dict(lenses), set(factory), {}, set(roles)
         self.queue = tuple(queue) if queue is not None else None
         self.apps, self.reserved = dict(apps or {}), set(reserved)
+        # The first thread to ask a login asks it; the rest wait on and read its answer (decision 1138).
+        self.asked = {}
 
     def named(self, login: str, ident: int, kind: str) -> str:
         """A Bot's name: the one configured for its id, else the login it shows. A User's login, which holds no bracket,
@@ -111,19 +115,35 @@ class Accounts:
 
     def _permission(self, login: str) -> dict:
         """The repo's permission answer for `login`, read once a login for all the reader serves."""
-        if login not in self.answers:
-            path = "/repos/%s/collaborators/%s/permission" % (self.repo, urllib.parse.quote(login, safe=""))
-            # An answer that failed is kept too, one that never came among them, so a login is asked once however
-            # often it appears.
+        mine = concurrent.futures.Future()
+        held = self.asked.setdefault(login, mine)       # one step, so one thread alone finds its own
+        if held is mine:
             try:
-                answer = self.transport.send(request("GET", path))
-            except Unanswered:
-                answer = {"status": "no answer", "body": None}
-            ok = answer["status"] == 200 and isinstance(answer["body"], dict)
-            self.answers[login] = answer["body"] if ok else answer["status"]
-        if not isinstance(self.answers[login], dict):
-            raise Unanswered("the permission of %s answered %s" % (login, self.answers[login]))
-        return self.answers[login]
+                self._ask(login)
+            finally:
+                mine.set_result(None)
+        held.result()
+        found = self.answers.get(login, "no answer")      # none where the first ask failed but for want of an answer
+        if not isinstance(found, dict):
+            raise Unanswered("the permission of %s answered %s" % (login, found))
+        return found
+
+    def _ask(self, login: str) -> None:
+        path = "/repos/%s/collaborators/%s/permission" % (self.repo, urllib.parse.quote(login, safe=""))
+        # An answer that failed is kept too, one that never came among them, so a login is asked once however often it
+        # appears.
+        try:
+            answer = self.transport.send(request("GET", path))
+        except Unanswered:
+            answer = {"status": "no answer", "body": None}
+        ok = answer["status"] == 200 and isinstance(answer["body"], dict)
+        self.answers[login] = answer["body"] if ok else answer["status"]
+
+    def through(self, transport) -> "Accounts":
+        """This reader asking by `transport`, sharing its answers and asks under way (decision 1138)."""
+        view = copy.copy(self)
+        view.transport = transport
+        return view
 
     def _can_write(self, login: str) -> bool:
         level = self._permission(login).get("permission")
