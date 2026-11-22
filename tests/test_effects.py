@@ -1157,7 +1157,7 @@ class Status(unittest.TestCase):
         _, sent = self.write(o, self.listing(), self.took(201, self.run_on(external_id=want)), status=dict(self.STATUS, run_id=None))
         self.assertNotIn("details_url", sent[1]["body"])
 
-    def test_the_status_opens_with_its_reasons_sentence_and_changes_only_with_its_decision(self):  # decision 0000
+    def test_the_status_opens_with_its_reasons_sentence_and_changes_only_with_its_decision(self):  # decision 1123
         feed = self.STATUS["feed"]
         o = self.record(reason="awaiting_checks", state="verifying")
         d = o["record"]["pull_requests"][0]["decision"]
@@ -1191,7 +1191,7 @@ class Status(unittest.TestCase):
         self.assertEqual(json.dumps(d, sort_keys=True), before)
         self.assertEqual(effects.status_id(d), want)
 
-    def test_the_sentence_is_read_for_the_status_alone(self):  # decision 0000
+    def test_the_sentence_is_read_for_the_status_alone(self):  # decision 1123
         # Not the view, a Task, the Harness or the Kernel: only the status's writer reads a sentence, and the checks that
         # hold the feed.
         readers = sorted(path.relative_to(ROOT).as_posix() for top in ("adapters", "controller", "harness", "kernel", "sim", "release", "roles", "guards")

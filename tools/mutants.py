@@ -22260,7 +22260,7 @@ MUTANTS = ISSUE + [
     ('a status that passes', 'adapters/effects.py',
      'fields = {"external_id": want, "status": "completed", "conclusion": "neutral",',
      'fields = {"external_id": want, "status": "completed", "conclusion": "success",', ('tests.test_effects.Status',)),
-    # The feed's plain sentence opens the status, read as it is written (decision 0000).
+    # The feed's plain sentence opens the status, read as it is written (decision 1123).
     ('the status opens with no sentence', 'adapters/effects.py',
      '    lines = ([said, ""] if isinstance(said, str) else []) + ["attention: %s"',
      '    lines = ["attention: %s"', ('tests.test_effects.Status.test_the_status_opens_with_its_reasons_sentence_and_changes_only_with_its_decision',)),

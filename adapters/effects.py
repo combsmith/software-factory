@@ -408,7 +408,7 @@ def status_id(decision: dict) -> str:
 
 def status_output(decision: dict, record: dict, feed: dict) -> dict:
     """What a person reads: the feed's plain sentence for the Decision's reason first, then codes and identifiers alone
-    (decision 0000). No title, login, branch name or comment reaches it, and an evidence item that is not a code is
+    (decision 1123). No title, login, branch name or comment reaches it, and an evidence item that is not a code is
     counted, never shown. The sentence is read as the status is written, and the key hashes the Decision alone, so a
     Release that changes a sentence writes nothing. P-12: an edit with no output keeps the old, so the whole is sent."""
     def code(value) -> str:
