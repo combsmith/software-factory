@@ -1382,6 +1382,13 @@ ISSUE = [
      "    if state == NEW:\n        return _accept(",
      '    if state == NEW:\n        if not readable_base(facts):\n            return _decision(facts, state, "base_unreadable", evidence, t.DEFER)\n        return _accept(',
      ("tests.test_issue.Opening.test_the_opening_run_of_a_branch_that_does_not_exist_is_admitted_for_the_commit_it_lands_on",)),
+    ("an unread base is said before an unread branch head", ISSUE_PY,
+     '    if not readable_head(facts):\n        return _decision(facts, state, "branch_unreadable", evidence, t.DEFER)\n'
+     '    if facts["branch_head"] is not None:\n',
+     '    if not readable_base(facts):\n        return _decision(facts, state, "base_unreadable", evidence, t.DEFER)\n'
+     '    if not readable_head(facts):\n        return _decision(facts, state, "branch_unreadable", evidence, t.DEFER)\n'
+     '    if facts["branch_head"] is not None:\n',
+     ("tests.test_issue.Opening.test_the_opening_run_of_a_branch_that_does_not_exist_is_admitted_for_the_commit_it_lands_on",)),
     ("an unread base at the second asking is still admitted", ISSUE_PY,
      '    was, now = admitted.get("admit"), again.get("admit")\n',
      '    if again.get("reason") == "base_unreadable":\n        return True\n    was, now = admitted.get("admit"), again.get("admit")\n',
