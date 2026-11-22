@@ -1,0 +1,82 @@
+"""The mutants of `tools/trial_p52_pause.sh`: tools/mutants.py runs them."""
+
+TARGETS = ("tools/trial_p52_pause.sh",)
+MUTANTS = [
+    # Issue 481: the first signal stops the run, a later one stops neither the revocation nor the redaction, and the
+    # script's own words reach OUT.
+    ("P-52 forgets a token its refused mint carried", "tools/trial_p52_pause.sh",
+     '    # A token the refusal carried all the same is left set, for the exit trap to revoke; its answer is not shown.\n',
+     '    token=""\n',
+     ("tests.test_tools.PauseReadTrial.test_a_mint_refused_reads_nothing",)),
+    # The #193 PR 2 ruling, read:pass.pause: P-52's pause read, against a stand-in curl and openssl.
+    ('P-52 reads on with no token minted', "tools/trial_p52_pause.sh",
+     'if [ "$minted_status" != 201 ]; then', 'if false; then',
+     ('tests.test_tools.PauseReadTrial.test_a_mint_refused_reads_nothing',)),
+    ('P-52 finishes though its token was not revoked', "tools/trial_p52_pause.sh",
+     'if [ "$revoked" != 204 ]; then\n    echo "trial_p52_pause: revoking the token returned', 'if false; then\n    echo "trial_p52_pause: revoking the token returned',
+     ('tests.test_tools.PauseReadTrial.test_a_revocation_refused_stops_it_and_says_so',)),
+    ("P-52 keeps the mint's whole answer", "tools/trial_p52_pause.sh",
+     'json.dump({"permissions": answer.get("permissions"), "repository_selection": answer.get("repository_selection")},', 'json.dump(dict(answer, permissions=answer.get("permissions")),',
+     ('tests.test_tools.PauseReadTrial.test_one_token_reads_three_times_and_is_revoked_and_never_kept',)),
+    # Issue 424: the check on OUT's parent in the three that lacked it, an ACL in all, and the rest of what the reads left.
+    ("P-52's trial loses a token still in the answer it holds when stopped", 'tools/trial_p52_pause.sh',
+     'if [ -z "$token" ] && [ -n "${minted:-}" ]; then', 'if false; then', ('tests.test_tools.ReachScript.test_a_stop_while_the_token_is_read_revokes_it_from_the_answer_still_held',)),
+    ("P-52's trial takes an ACL that lets another write", 'tools/trial_p52_pause.sh',
+     'then found="an ACL"; fi', 'then :; fi', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ("P-52's trial takes an ACL it cannot read", 'tools/trial_p52_pause.sh',
+     '??????????+*) found="an ACL" ;; esac', '??????????+*) ;; esac', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ("P-52's trial takes an ls that fails both ways", 'tools/trial_p52_pause.sh',
+     'found="ls failed"', 'found=""', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ("P-52's trial reads OUT's parent's ACL alone", 'tools/trial_p52_pause.sh',
+     'listed=$(ls -lde "$above" 2>/dev/null)', 'listed=$(ls -lde "$(dirname -- "$1")" 2>/dev/null)', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ("P-52's trial reads OUT's parent's + alone", 'tools/trial_p52_pause.sh',
+     'elif listed=$(ls -ld "$above"); then', 'elif listed=$(ls -ld "$(dirname -- "$1")"); then', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ("P-52's trial takes an ACL that allows add_file", 'tools/trial_p52_pause.sh',
+     '(add_file|add_subdirectory|delete|write|chown)', '(add_subdirectory|delete|write|chown)', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ("P-52's trial takes an ACL that allows add_subdirectory", 'tools/trial_p52_pause.sh',
+     '(add_file|add_subdirectory|delete|write|chown)', '(add_file|delete|write|chown)', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ("P-52's trial takes an ACL that allows delete", 'tools/trial_p52_pause.sh',
+     '(add_file|add_subdirectory|delete|write|chown)', '(add_file|add_subdirectory|write|chown)', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ("P-52's trial takes an ACL that allows write", 'tools/trial_p52_pause.sh',
+     '(add_file|add_subdirectory|delete|write|chown)', '(add_file|add_subdirectory|delete|chown)', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ("P-52's trial takes an ACL that allows its owner's change", 'tools/trial_p52_pause.sh',
+     '(add_file|add_subdirectory|delete|write|chown)', '(add_file|add_subdirectory|delete|write)', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    ("P-52's trial reads the ACL's first line as an entry", 'tools/trial_p52_pause.sh',
+     ' | sed 1d | grep', ' | grep', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
+    # Issue 502 (Argon): each of the four takes no OUT another made between its check and its mkdir.
+    ("P-52's trial reads a head in the body", 'tools/trial_p52_pause.sh',
+     'found = $2; else exit }', 'found = $2 }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+    ("P-52's trial takes the first of several heads", 'tools/trial_p52_pause.sh',
+     '/) found = $2; else exit }', '/ && found == "") found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+    # Issue 502 (Argon): P-4's second read of a head, the first of several in its first, and a head with a carriage return.
+    ("P-52's trial reads a head's carriage return as part of it", 'tools/trial_p52_pause.sh',
+     '{ sub(/\\r$/, "") } ', '', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+    # Issue 367: OUT is made by the trial alone, never taken as another made it after the check.
+    ("P-52's trial takes an OUT another made after the check", "tools/trial_p52_pause.sh",
+     'if ! mkdir -m 700 "$out"; then', 'if ! mkdir -p -m 700 "$out"; then',
+     ("tests.test_tools.OutputMadeAlone.test_an_output_directory_made_after_the_check_is_refused_and_nothing_is_written_through_it",)),
+    # Issue 367, its private parent: OUT is never made under a directory other users can write to, unless it is sticky.
+    ("P-52's trial makes OUT under a directory its group can write to", "tools/trial_p52_pause.sh",
+     '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0002 ! -perm -1000', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-52's trial makes OUT under a directory others can write to", "tools/trial_p52_pause.sh",
+     '\\( -perm -0020 -o -perm -0002 \\) ! -perm -1000', '-perm -0020 ! -perm -1000', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-52's trial makes OUT under a directory another user owns", "tools/trial_p52_pause.sh",
+     '\\( ! -user 0 ! -user "$uid" -o \\(', '\\( \\(', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-52's trial takes a find that fails for a directory none can write to", "tools/trial_p52_pause.sh",
+     '        found="find failed"\n', '        found=""\n', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    ("P-52's trial reads OUT's parent alone, not the directories above it", "tools/trial_p52_pause.sh",
+     '    above=$(dirname -- "$above")\n', '    break\n', ("tests.test_tools.OutputMadeAlone.test_an_output_directory_under_one_others_can_write_to_is_refused_unless_it_is_sticky",)),
+    # Issue 406: a mint answered 201 whose token cannot be read is written nowhere, and its token revoked or told.
+    ("P-52's trial reads a 201 it cannot read as no token minted", "tools/trial_p52_pause.sh",
+     'if [ "$minted_status" = 201 ] && [ -z "$token" ]; then\n', 'if false; then\n', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("P-52's trial leaves a token found in a mint's answer it cannot read unrevoked", "tools/trial_p52_pause.sh",
+     '    token=$(token_in "$minted")\n    minted=""\n    if [ -n "$token" ]; then\n',
+     '    token=""\n    minted=""\n    if [ -n "$token" ]; then\n', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("P-52's trial drops a token a refused mint held", "tools/trial_p52_pause.sh",
+     '    minted=""\n    echo "trial_p52_pause: $slug: the mint answered', '    token=""\n    minted=""\n    echo "trial_p52_pause: $slug: the mint answered',
+     ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    ("P-52's trial loses a token a refused mint's cut answer held", "tools/trial_p52_pause.sh",
+     '    token=$(token_in "$minted")    # a refusal cut short', '    token=""    # a refusal cut short', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+    # Issue 502: token_in reads its answer as bytes, so one cut inside a character still gives up its token.
+    ("P-52 loses the token of a 201 cut inside a character", "tools/trial_p52_pause.sh", 'sys.stdin.buffer.read().decode("utf-8", "replace"))', 'sys.stdin.read())', ('tests.test_tools.ReachScript.test_a_mint_answer_cut_inside_a_character_still_gives_up_its_token',)),
+]
