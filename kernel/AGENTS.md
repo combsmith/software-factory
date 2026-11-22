@@ -14,8 +14,8 @@ A queued item is read as if it were not, and stays only if that reading is appro
 | No text from outside: no function takes a comment body or a title | `examples/invalid/facts.carries-prose.json` |
 | A reason is a code that matches `^[a-z_]+$`, never a sentence | `examples/invalid/decision.sentence-as-reason.json` |
 | Fail to a deferral or a Hold. Defaults: `opened_for` unread is no fix (0216); the next rows' | `tests/test_decide.py::test_unreadable_capacity_defers`, `tests/test_decide.py::test_the_authors_fix_is_admitted_only_on_a_pull_request_the_factory_opened` |
-| `acceptance_bounded` absent is not cut: its read short defers all the same (record 0234) | `tests/test_decide.py::test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person` |
-| `timeline_bounded` absent is not cut: its read short defers all the same (record 0234) | `tests/test_decide.py::test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person` |
+| `acceptance_bounded` absent is not cut: its read short defers all the same (record 1147) | `tests/test_decide.py::test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person` |
+| `timeline_bounded` absent is not cut: its read short defers all the same (record 0000) | `tests/test_decide.py::test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person` |
 | The gate imports no Kernel code, the brakes only its codes. Nothing else binds their names or their own; no attribute is assigned | `tests/test_tools.py::test_the_brakes_and_the_gate_stand_apart`, `tests/test_tools.py::test_an_attribute_assigned_is_caught` |
 | No number but 0 and 1, but the calendar's that `tools/check_purity.py` pins. A limit is read from `config` | `tests/test_tools.py::test_a_limit_written_into_the_kernel_is_caught`, `tests/test_tools.py::test_only_the_calendar_may_write_a_number` |
 
