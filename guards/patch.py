@@ -1,5 +1,6 @@
-"""A Role's patch, read as `git diff` writes it (issue 838; FR-14; decision 0188's residual, "the push's write must
-land exactly that patch, and no other bytes"). What applies the patch that is read here is still to come.
+"""A Role's patch, read as `git diff` writes it, and its hunks applied to a file's bytes (issue 838; FR-14; decision
+0188's residual, "the push's write must land exactly that patch, and no other bytes"). What applies a whole patch to a
+tree is still to come.
 
 `read(patch)` gives a patch's sections, or None for what it does not read. It reads a narrower patch than
 `harness/bundle.py` does, on purpose, and what it does not read it refuses: a name is read one way only, unquoted, of
@@ -17,6 +18,14 @@ index line; and a rename's or a copy's below 100% alike, and none at it.
 An index line's hashes and how alike a rename or a copy says its files are, are read for their form alone, the second
 for whether it is 100% too, and nothing trusts them: what a patch lands is its hunks applied to the bytes it names,
 and a section whose hashes differ but that has no hunk changes no bytes.
+
+`sources(patch)` names the files whose bytes a patch needs, and `content(old, hunks)` applies one file's hunks to its
+bytes. Nothing is searched for and nothing is guessed: a hunk's lines are the file's lines at the place the hunk names,
+or the hunks are not this file's. It is what `git apply --unidiff-zero` lands, which holds a hunk to the place its
+header names, but for one shape: removals alone that end at a last line with no newline, which git takes a line higher
+where the line above reads alike or differs only in white space at its end. Plain `git apply` parts from both where a
+hunk's last line is a change and the file goes on after it: git looks for such a hunk at the file's end, lands it
+there where the lines read alike, and refuses it otherwise. `git diff` writes no such hunk but with `-U0`.
 """
 from __future__ import annotations
 
@@ -351,3 +360,62 @@ def read(patch):
         sections.append(found[0])
         i = found[1]
     return sections if _apart([s["new"] for s in sections if s["kind"] != "deleted"]) else None
+
+
+def sources(patch):
+    """The paths whose bytes the patch is applied to, each once, in its order, or None for a patch this does not read:
+    every file a section changes, removes, renames or copies. A new file has none."""
+    sections = read(patch)
+    if sections is None:
+        return None
+    out, named = [], {}
+    for section in sections:
+        if section["kind"] != "new" and section["old"] not in named:
+            named[section["old"]] = True
+            out.append(section["old"])
+    return out
+
+
+def content(old: bytes, hunks: list):
+    """The bytes a file holds once `hunks`, a section's as `read` gives them, are applied to `old`, or None where they
+    are not this file's. Each hunk stands where its header says, and each line of its old side is the file's line
+    there, byte for byte; `read` has held the hunks to their order and each new side to where the hunks before it put
+    it. git's marker stands on the file's last line exactly where that line has no newline at its end, and on a new
+    line only where nothing follows it: `read` gives a marker in a section's last hunk alone, and here no line of the
+    file follows that hunk's. An `old` that is no bytes is no file's content, an empty one's least of all: None.
+    `hunks` are `read`'s own, and no other shape is asked for."""
+    if not isinstance(old, bytes):
+        return None
+    held = old.split(b"\n") if old else []
+    bare = bool(held) and held[-1] != b""
+    if held and not bare:
+        held.pop()
+    last = len(held) - 1
+    out, cursor, open_end = [], 0, False
+    for hunk in hunks:
+        count = hunk["old_count"]
+        at = hunk["old_start"] - 1 if count else hunk["old_start"]
+        if at + count > len(held):
+            return None
+        if at > cursor:
+            out += held[cursor:at]
+            open_end = bare and at > last
+        for line in hunk["lines"]:
+            if line["sign"] != b"+":
+                if held[at] != line["text"] or line["bare"] != (bare and at == last):
+                    return None
+                at += 1
+            if line["sign"] != b"-":
+                if open_end:
+                    return None
+                out.append(line["text"])
+                open_end = line["bare"]
+        cursor = at
+    if cursor < len(held):
+        if open_end:
+            return None
+        out += held[cursor:]
+        open_end = bare
+    if not out:
+        return b""
+    return b"\n".join(out) + (b"" if open_end else b"\n")
