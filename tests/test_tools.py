@@ -717,16 +717,28 @@ class Examples(unittest.TestCase):
         broken["sentences"]["acceptance_due"] = "Waiting."
         self.assertTrue(caught(check_examples._table(broken, decision),
                                "a sentence for acceptance_due, which is no reason a pull request's Decision carries"))
-        # What no sentence holds, whatever the schema lets through: each form alone, in either case.
+        # A sentence is held to the plain pattern here, whatever the schema lets through: no mention, backtick, line break,
+        # placeholder, slash, Markdown mark or other letter, and no more than 100 characters.
         for bad in ("Approved by @x.", "Approved; run `x`.", "Approved.\nNext.", "Approved.\rNext.", "Approved {x}.",
-                    "Approved %s.", "See www.x.", "See WWW.x.", "See a://b.", "See x://y."):
+                    "Approved %s.", "See a://b.", "See [x](y).", "Approved **now**.", "See www.x.", "approved.",
+                    "Approved\u00e9.", "A" + "a" * 99 + ".", "Approved"):
             broken = copy.deepcopy(feed)
             broken["sentences"]["approved"] = bad
-            self.assertTrue(caught(check_examples._table(broken, decision), "the sentence for approved holds"), bad)
+            self.assertTrue(caught(check_examples._table(broken, decision), "the sentence for approved is not a plain"), bad)
+        broken["sentences"]["approved"] = "A" + "a" * 98 + "."
+        self.assertEqual(check_examples._table(broken, decision), [])
+        # Nor what GitHub would make a link, an emoji or a reference of, though it is plain.
+        for bad in ("See www. It waits.", "See WWW. It waits.", "Approved :x: now.", "Approved :ok-1: now.", "See GH-12 first.",
+                    "See ABC-3."):
+            broken["sentences"]["approved"] = bad
+            self.assertTrue(caught(check_examples._table(broken, decision), "would be shown as a link, an emoji or a"), bad)
+        for good in ("Approved: it waits.", "Approved: x (y): z.", "A run-1 waits.", "It waits at noon - then: 2."):
+            broken["sentences"]["approved"] = good
+            self.assertEqual(check_examples._table(broken, decision), [], good)
         # The schema: a capital first, a full stop only before a space and at the end, and at most 100 characters.
         self.assertTrue(validate({k: v for k, v in feed.items() if k != "sentences"}, schema))
         sentence = schema["properties"]["sentences"]["additionalProperties"]
-        self.assertEqual(sentence["maxLength"], check_examples.SENTENCE_MOST)
+        self.assertEqual((sentence["maxLength"], sentence["pattern"]), (check_examples.SENTENCE_MOST, check_examples.SENTENCE_PATTERN))
         for good in ("A" + "a" * 98 + ".", "Approved; it waits. It is (one) item, isn't it: yes - 2."):
             self.assertEqual(validate(good, sentence), [], good)
         for bad in ("A" + "a" * 99 + ".", "approved.", "Approved", "Approved.x.", "Approved..", "Approved?", "Approved /x.",
@@ -734,7 +746,7 @@ class Examples(unittest.TestCase):
             self.assertTrue(validate(bad, sentence), bad)
         # And from the front door, on the live file.
         root = clone({"config/feed.json": json.dumps(dict(feed, sentences=dict(feed["sentences"], approved="See www. It waits.")))})
-        self.assertTrue(caught(check_examples.run(root), "config/feed.json: feed: the sentence for approved holds"))
+        self.assertTrue(caught(check_examples.run(root), "config/feed.json: feed: the sentence for approved would be shown"))
 
     def test_the_feeds_sentences_are_text_only_on_the_feed_and_in_their_shape(self):  # decision 0000
         schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
@@ -748,6 +760,10 @@ class Examples(unittest.TestCase):
         # The same property on any other kind, or under any other name on the feed, is text a Run carries.
         self.assertTrue(caught(check_examples._free(held, {}, held, "task", "$", set()),
                                "schema task admits text at $.sentences.*"))
+        # Nor the feed's schema reached by a reference from another kind: the walk began elsewhere.
+        refers = {"type": "object", "additionalProperties": False, "properties": {"context": {"$ref": "feed.schema.json"}}}
+        self.assertTrue(caught(check_examples._free(refers, schemas, refers, "task", "$", set()),
+                               "admits text at $.context.sentences.*"))
         named = {"type": "object", "additionalProperties": False, "properties": {"phrases": shaped}}
         self.assertTrue(caught(check_examples._free(named, {}, named, "feed", "$", set()),
                                "schema feed admits text at $.phrases.*"))
@@ -756,6 +772,9 @@ class Examples(unittest.TestCase):
         for loose in (dict(shaped, type="array"), dict(shaped, properties={"x": {"type": "string"}}),
                       dict(shaped, additionalProperties=True), dict(shaped, additionalProperties=dict(value, type=["string", "null"])),
                       dict(shaped, additionalProperties=dict(value, pattern=value["pattern"][1:])),
+                      dict(shaped, additionalProperties=dict(value, pattern="^.*$")),
+                      dict(shaped, additionalProperties=dict(value, pattern="^[\\s\\S]*$")),
+                      dict(shaped, additionalProperties=dict(value, pattern="^[^@`]*[.]$")),
                       dict(shaped, additionalProperties={k: v for k, v in value.items() if k != "pattern"}),
                       dict(shaped, additionalProperties={k: v for k, v in value.items() if k != "maxLength"}),
                       dict(shaped, additionalProperties=dict(value, maxLength=check_examples.SENTENCE_MOST + 1)),
