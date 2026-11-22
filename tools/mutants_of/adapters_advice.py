@@ -175,6 +175,8 @@ MUTANTS = [
     ('a model that answered is told by its start alone', ADVICE,
      'MODEL.fullmatch(model) else None',
      'MODEL.match(model) else None', ADVICE_COST),
+    ('a model named in capitals is no model that answered', ADVICE,
+     're.compile(r"[A-Za-z0-9][A-Za-z0-9.-]{0,127}")', 're.compile(r"[a-z0-9][a-z0-9.-]{0,127}")', ADVICE_COST),
     ('a response still running is priced by the tokens it shows', ADVICE,
      '(body.get("status") in ("completed", "incomplete") if told["api"] == "responses" else _finished(body))',
      '(True if told["api"] == "responses" else _finished(body))', ADVICE_COST),

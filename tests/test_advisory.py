@@ -1010,9 +1010,9 @@ class Parser(unittest.TestCase):
         self.assertEqual(read(chatted(said()), KIMI)["usage"]["cost_usd"], 0.0125)
         # A read that failed after it was paid for still says what it cost. One another model answered names that
         # model, and is not priced at the pinned model's prices, which are not its own: its cost is not known.
-        other = read(answered(said(), model="astra-model-mini"))
+        other = read(answered(said(), model="Astra-Model-Mini"))
         self.assertEqual((other["reason"], other["usage"]["answering_model"], other["usage"]["model"], other["usage"]["cost_usd"],
-                          other["usage"]["input_tokens"]), ("not_the_model", "astra-model-mini", "astra-model", None, 1000))
+                          other["usage"]["input_tokens"]), ("not_the_model", "Astra-Model-Mini", "astra-model", None, 1000))
         self.assertIsNone(read(chatted(said(), model="kimi-model-2"), KIMI)["usage"]["cost_usd"])
         self.assertEqual(read(answered(text="No."))["usage"]["cost_usd"], 0.0125)
         self.assertEqual(read(answered(said(), status="incomplete"))["usage"]["cost_usd"], 0.0125)

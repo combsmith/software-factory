@@ -28,7 +28,7 @@ FAILED = ("unparsed", "not_the_model", "no_key", "transport")
 UNASKED = ("too_large", "budget", "no_key", "timed_out", "transport", "rate_limited")
 # An answer wrapped in one fence, which a model asked for JSON alone still writes: the object inside is the answer.
 FENCED = re.compile(r"```(?:json)?[ \t]*\r?\n(.*)\r?\n[ \t]*```", re.S)
-MODEL = re.compile(r"[a-z0-9][a-z0-9.-]{0,127}")
+MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]{0,127}")   # as advice/1 holds a model, in either case
 # A path advice/1 holds: one word, with no control and nothing that turns the line it is shown on.
 PLACE = re.compile(r"[^\s\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]{1,1024}")
 DIGITS = 64             # a whole number of this many digits no count or line needs: Python reads one of any length
