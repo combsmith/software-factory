@@ -6684,6 +6684,43 @@ class Issues(unittest.TestCase):
         found, _ = issues.read(router, "o/r", 41, timeline.Accounts(router, "o/r", MACHINE, {}, apps=names), lambda: self.NOW, identities=IDENTITIES, earlier=[])
         self.assertEqual(found["label_events"][0]["by"]["name"], names[(41, "Bot")])
 
+    def test_an_issues_timeline_is_read_to_its_bound_and_past_it_is_bounded_and_not_whole(self):  # issue 849, decision 0234
+        # Anyone can comment, so an issue's timeline is read to ten pages at most. Ten that end there are whole; a tenth
+        # that names an eleventh leaves it not whole and bounded, and the eleventh is never asked (the replay holds none).
+        said = issue_event("commented", 0)
+        nxt = '<https://x>; rel="next"'
+
+        def pages(count, last_more):
+            first = issue_read([said], more=True)
+            later = [rest_answer("/repos/o/r/issues/41/timeline?per_page=100&page=%d" % n, [issue_event("commented", n)],
+                                 nxt if n < count or last_more else "") for n in range(2, count + 1)]
+            return first[:2] + later + first[2:]
+        whole = self.read(pages(10, False))
+        self.assertEqual((whole["complete"]["timeline"], whole["timeline_bounded"], whole["last_writer_comment_at"]),
+                         (True, False, minute(10)))
+        cut = self.read(pages(10, True))
+        self.assertEqual((cut["complete"]["timeline"], cut["timeline_bounded"], cut["last_writer_comment_at"]),
+                         (False, True, minute(10)))
+        self.assertEqual(timeline.BOUND, 10)
+        # A page that is no list is short, never bounded; one page with no next is whole.
+        short = pages(3, True)
+        short[3]["response"]["body"] = {}
+        found = self.read(short)
+        self.assertEqual((found["complete"]["timeline"], found["timeline_bounded"]), (False, False))
+        self.assertEqual(self.read(issue_read([said]))["timeline_bounded"], False)
+        # A linked pull request's timeline cut at its bound says so too, the issue's own whole: the issue calls a person
+        # (decision 0234, ruling A1). Its pull requests are read whatever the issue's own bound did (decision 0186).
+        linked_pages = [pull_timeline(5, [issue_event("commented", 1)], more=True)] + [
+            rest_answer("/repos/o/r/issues/5/timeline?per_page=100&page=%d" % n, [issue_event("commented", n)],
+                        '<https://x>; rel="next"') for n in range(2, 11)]
+        found = self.read(issue_read([said], closing=[linked_read(ref(5)), pull_read(5)] + linked_pages))
+        self.assertEqual((found["complete"]["timeline"], found["complete"]["linked"], found["timeline_bounded"]),
+                         (True, False, True))
+        both = pages(10, True)
+        both[-2:-1] = [linked_read(ref(5)), pull_read(5), pull_timeline(5)]
+        found = self.read(both)
+        self.assertEqual(([p["number"] for p in found["linked"]], found["timeline_bounded"]), ([5], True))
+
     def test_an_issues_content_time_is_the_newer_of_its_edit_and_its_rename(self):  # P-34
         def changed(events=(), **change):
             return self.read(issue_read(list(events), **change))["content_changed_at"]
@@ -7060,8 +7097,8 @@ class Linked(unittest.TestCase):
     def read(self, exchanges, earlier=()) -> tuple:
         """The linked pull requests as the port reads them, `(number, keyword, spans)` each, and whether whole."""
         router = Router(github.Replay(exchanges), {"don-petry": "admin", "stranger": "read"})
-        found, whole = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router),
-                                   None if earlier is None else list(earlier))
+        found, whole, _ = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router),
+                                      None if earlier is None else list(earlier))
         return [(p["number"], p["keyword"], p["keyword_spans"]) for p in found], whole
 
     def test_only_a_pull_request_to_the_default_branch_is_listed_as_linked(self):  # P-33, P-69, decisions 0028, 0236
@@ -7308,6 +7345,61 @@ class Linked(unittest.TestCase):
         # One closed without a merge reads no merge, whatever its close.
         (closed,), _ = self.listed([linked_read(ref(6)), pull_read(6, closed=9), pull_timeline(6)])
         self.assertEqual((closed["open"], closed["merged_at"], closed["closed_at"]), (False, None, minute(9)))
+        # Each one's timeline is read to ten pages at most, as the issue's is: a tenth that names an eleventh leaves the
+        # list not whole, and the eleventh is never asked (decision 0234).
+        for last, want in ((False, True), (True, False)):
+            pages = [pull_timeline(5, [issue_event("commented", 1)], more=True)] + [
+                rest_answer("/repos/o/r/issues/5/timeline?per_page=100&page=%d" % n, [issue_event("commented", n)],
+                            '<https://x>; rel="next"' if n < 10 or last else "") for n in range(2, 11)]
+            router = Router(github.Replay([linked_read(ref(5)), pull_read(5)] + pages), {"don-petry": "admin"})
+            found, whole, _, cut = linked.listing(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), {})
+            self.assertEqual(([e["number"] for e in found], whole, cut), ([5], want, not want), last)
+        # Twenty-five pull requests to read are read; a twenty-sixth leaves none read, the list not whole and cut, so the
+        # issue calls a person; within the bound one not whole is read on, so its keywords are seen (decisions 0234, 0186).
+        many = lambda count: [linked_read(ref(*range(1, count + 1)))] + sum(
+            ([pull_read(n), pull_timeline(n)] for n in range(1, count + 1)), [])
+        router = Router(github.Replay(many(25)), {})
+        got = linked.listing(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), {})
+        self.assertEqual((len(got[0]), got[1], got[3]), (25, True, False))
+        router = Router(github.Replay(many(26)[:1]), {})
+        got = linked.listing(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), {})
+        self.assertEqual((got[0], got[1], got[3]), ([], False, True))
+        self.assertEqual(linked.CANDIDATES, 25)
+        # Pull requests linked by hand count toward the bound as referenced ones do (Muse).
+        router = Router(github.Replay([linked_read((), [link("ConnectedEvent", 1, n) for n in range(1, 27)])]), {})
+        got = linked.listing(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), {})
+        self.assertEqual((got[0], got[1], got[3]), ([], False, True))
+        # A pull request a pass saw with its keyword counts toward the bound as a referenced one does (Astra).
+        router = Router(github.Replay([linked_read(ref(*range(1, 26)))]), {})
+        got = linked.listing(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router),
+                             {26: [{"seen_at": minute(1), "gone_at": None}]})
+        self.assertEqual((got[0], got[1], got[3]), ([], False, True))
+        # One pull request's timeline cut, another's whole: both are read and listed, the list cut (Astra).
+        cut_pages = [pull_timeline(5, [issue_event("commented", 1)], more=True)] + [
+            rest_answer("/repos/o/r/issues/5/timeline?per_page=100&page=%d" % n, [issue_event("commented", n)],
+                        '<https://x>; rel="next"') for n in range(2, 11)]
+        router = Router(github.Replay([linked_read(ref(5, 7)), pull_read(5)] + cut_pages + [pull_read(7), pull_timeline(7)]),
+                        {"don-petry": "admin"})
+        got = linked.listing(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), {})
+        self.assertEqual(([e["number"] for e in got[0]], got[1], got[3]), ([5, 7], False, True))
+        # More references than the read's one page holds, or more of the issue's timeline, are cut too (Claude): the list
+        # is not whole and the issue calls a person; those read are read on.
+        router = Router(github.Replay([linked_read(ref(*range(1, 26)), total=26)] + many(25)[1:]), {})
+        got = linked.listing(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), {})
+        self.assertEqual((len(got[0]), got[1], got[3]), (25, False, True))
+        router = Router(github.Replay([linked_read(ref(1, 2, 3), [crossed("Issue")] * 100, more=True)] + many(3)[1:]), {})
+        got = linked.listing(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), {})
+        self.assertEqual(([e["number"] for e in got[0]], got[1], got[3]), ([1, 2, 3], False, True))
+        # A page not full that says there is more is a read short, not a bound: not whole, and not cut.
+        for found in (linked_read(ref(1, 2, 3), total=4), linked_read(ref(1, 2, 3), more=True)):
+            router = Router(github.Replay([found] + many(3)[1:]), {})
+            got = linked.listing(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), {})
+            self.assertEqual(([e["number"] for e in got[0]], got[1], got[3]), ([1, 2, 3], False, False))
+        short = many(3)
+        short[0] = linked_read(ref(1, 2, 3), total=2)
+        router = Router(github.Replay(short), {})
+        got = linked.listing(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), {})
+        self.assertEqual(([e["number"] for e in got[0]], got[1], got[3]), ([1, 2, 3], False, False))
         # A count of files that cannot be read is refused.
         for files in (None, -1, True, False):
             with self.assertRaises(github.Unanswered, msg=files):
@@ -7322,7 +7414,7 @@ class Linked(unittest.TestCase):
         self.assertEqual(found, ([(7, False, [span(3)])], True))
         # The Kernel reads it as listed for something; with no span it would be listed for nothing.
         router = Router(github.Replay([linked_read(), pull_read(7), pull_timeline(7)]), {})
-        (kept,), _ = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), before)
+        (kept,), _, _ = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), before)
         self.assertTrue(issue.readable_keyword(kept))
         self.assertFalse(issue.readable_keyword(dict(kept, keyword_spans=[])))
         # The pass after, whose record holds the span and the keyword gone, ends it; the pull request stays listed.

@@ -33,6 +33,9 @@ from adapters.pull import blobs, canonical
 from kernel.terms import BOT_SUFFIX
 
 PAGE = 100
+# The pages of an issue's timeline, or of a pull request it lists as linked, read at most: a thousand events. Anyone can
+# comment, so the read is bounded; past the bound it is not whole, and an issue's own is said to be bounded (decision 0234).
+BOUND = 10
 WRITE = {"admin", "maintain", "write"}
 PERMISSIONS = WRITE | {"triage", "read", "none"}
 STATES = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes_requested", "COMMENTED": "commented",
@@ -238,16 +241,25 @@ def via_app(event: dict) -> bool:
 def _pages(transport, path: str) -> tuple:
     """Every item of a list, page by page, each page the one the last named as next; whole only when the last page
     names no next one."""
+    items, whole, _ = _paged(transport, path, None)
+    return items, whole
+
+
+def _paged(transport, path: str, most) -> tuple:
+    """`(items, whole, bounded)`: `_pages`, but with `most` no page past that many is asked, and a last page read that
+    still names a next one leaves the list not whole and `bounded`."""
     items, page = [], 1
     while True:
         answer = transport.send(request("GET", path if page == 1 else "%s&page=%d" % (path, page)))
         if answer["status"] != 200:
             raise Unanswered("%s answered %d" % (path.split("?")[0], answer["status"]))
         if not isinstance(answer["body"], list):
-            return items, False
+            return items, False, False
         items += answer["body"]
         if not NEXT.search(str((answer.get("headers") or {}).get("link", ""))):
-            return items, True
+            return items, True, False
+        if most is not None and page >= most:
+            return items, False, True
         page += 1
 
 
@@ -255,6 +267,13 @@ def events(transport, pull: dict) -> tuple:
     """The pull request's timeline, as GitHub lists it, oldest first, and whether it was read whole."""
     repo = pull["base"]["repo"]["full_name"]
     return _pages(transport, "/repos/%s/issues/%d/timeline?per_page=%d" % (repo, pull["number"], PAGE))
+
+
+def bounded(transport, pull: dict) -> tuple:
+    """`(events, whole, bounded)`: the timeline as `events` reads it, but no more than `BOUND` pages of it; one that
+    names a page past them is not whole, and bounded (decision 0234)."""
+    repo = pull["base"]["repo"]["full_name"]
+    return _paged(transport, "/repos/%s/issues/%d/timeline?per_page=%d" % (repo, pull["number"], PAGE), BOUND)
 
 
 def reopened_at(timeline: list):
