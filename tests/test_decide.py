@@ -3393,6 +3393,16 @@ class Ceilings(unittest.TestCase):
             d = go(approved, REVIEWED + queue, cfg=cfg)
             self.assertEqual((d["outcome"], d["reason"]), ("hold", "attempts_exhausted"), (attempts, rounds))
             self.assertEqual(go(approved, REVIEWED + queue[1:], cfg=cfg).get("action"), "enqueue", (attempts, rounds))
+        # Nor does a rounds' key that cannot be read hold either loop: it is the implementing rounds' alone.
+        for bad in (None, "3", 0):
+            cfg = copy.deepcopy(CONFIG)
+            cfg["limits"].update(max_attempts=2, max_implementing_rounds=bad)
+            self.assertEqual(go(facts(), REVIEWED + approvals(1), cfg=cfg).get("action"), "issue_approval", bad)
+            queue = [dict(landed, run="r_0EQ001", intent="enqueue-merge", started_at=at(13), conclusion="failure", outcome="item")]
+            self.assertEqual(go(approved, REVIEWED + queue, cfg=cfg).get("action"), "enqueue", bad)
+            del cfg["limits"]["max_implementing_rounds"]
+            self.assertEqual(go(facts(), REVIEWED + approvals(1), cfg=cfg).get("action"), "issue_approval", bad)
+            self.assertEqual(go(approved, REVIEWED + queue, cfg=cfg).get("action"), "enqueue", bad)
 
     def test_a_queue_job_spends_no_run_when_it_lands_and_is_held_by_its_own_when_it_does_not(self):  # issue 381
         # The queue App's enqueue and dequeue are each a Run once the queue workflow is named. One that landed is on the
