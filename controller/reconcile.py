@@ -317,7 +317,10 @@ def decided(before, item, at):
     """`(reason, head)` of `item` in the last pass record before `at`, or None (decision 0241)."""
     if not isinstance(before, list) or moment(at) is None:
         return None
-    last = [r for r in before if isinstance(r, dict) and moment(r.get("now")) is not None and r["now"] < at]
+    # A record whose time cannot be read may be the last before it, so none is read: what cannot be read is no information.
+    if any(not isinstance(r, dict) or moment(r.get("now")) is None for r in before):
+        return None
+    last = [r for r in before if r["now"] < at]
     if not last:
         return None
     for e in last[-1].get("pull_requests", []):

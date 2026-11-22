@@ -656,6 +656,10 @@ class HandApproval(unittest.TestCase):
         self.assertIsNone(reconcile.decided([decided_as(hand)], ITEM, "soon"))
         self.assertIsNone(reconcile.decided([decided_as(hand, now="2026-11-30T12:00:00Z")], ITEM, "2026-11-31T12:30:00Z"))
         self.assertIsNone(reconcile.decided([decided_as(hand, now="2026-10-11")], ITEM, GIVEN))
+        # A record whose time cannot be read may be the last before the approval: an earlier hand wait is not read.
+        self.assertIsNone(reconcile.decided([decided_as(hand, now="2026-11-30T12:00:00Z"),
+                                             decided_as("awaiting_review", now="2026-11-31T12:20:00Z")], ITEM,
+                                            "2026-12-01T12:30:00Z"))
         self.assertEqual(reconcile.decided([decided_as(hand)], ITEM, GIVEN), (hand, HEAD))
         # The last before is read, so an earlier no-hand wait does not spoil one that is.
         self.assertEqual(len(check(seen(approval()), before=[decided_as("awaiting_review", now="2026-10-11T11:00:00Z"),
