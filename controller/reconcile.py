@@ -420,12 +420,15 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
     ties = {}
     for w, _ in of_head:
         ties[(key(w["item"]), w["commit"], w["at"])] = ties.get((key(w["item"]), w["commit"], w["at"]), 0) + 1
+    # Nor can a head one approval of which has a time that cannot be read.
+    unordered = {(key(w["item"]), w["commit"]) for w, _ in of_head if moment(w["at"]) is None}
     taken = []
     # Read only from a whole read, every source of a short one counted: what cannot be read is never information.
     whole = not short
     for w, entry in sorted(of_head, key=lambda a: (a[0]["at"] if isinstance(a[0]["at"], str) else "", a[0]["key"] or "")):
         held = carried_hand.get(w["key"]) if w["key"] is not None else None
-        alone = whole and entry is not None and ties[(key(w["item"]), w["commit"], w["at"])] == 1
+        alone = whole and entry is not None and ties[(key(w["item"]), w["commit"], w["at"])] == 1 \
+            and (key(w["item"]), w["commit"]) not in unordered
         if alone and held is not None and held["item"] == key(w["item"]) \
                 and (held["head"], held["at"]) == (w["commit"], w["at"]):
             hand.append({"item": w["item"], "key": w["key"], "head": held["head"], "at": held["at"]})
