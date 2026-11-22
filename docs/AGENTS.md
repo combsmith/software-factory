@@ -13,9 +13,10 @@ Build from the sections the design's own section 1.2 calls rules, and never from
 | `decisions/`: one decision to a file, with sections Decision, Why and Boundaries | `tests/test_tools.py::test_a_decision_with_no_boundary_is_caught` |
 | `decisions/`: a record takes the number of the pull request that adds it, one at most; no two share one | `tests/test_tools.py::test_each_record_a_pull_request_adds_is_numbered_by_it`, `tests/test_tools.py::test_no_two_records_share_a_number` |
 | `decisions/`: from record 0245 on, a title of at most 72 characters, and the file named by it: lowercased, all but a-z, 0-9, spaces, dashes dropped, a run of spaces one dash | `tests/test_tools.py::test_a_new_records_title_is_short_and_names_its_file` |
+| `decisions/`: from record 1166 on, a record keeps to a budget of words, rows and mutants | `tools/check_context.py`, `tests/test_tools.py::test_a_new_records_decision_and_why_are_held_to_their_words` |
 | `decisions/`: a record is never edited. A new one replaces it, its Status saying so; the old Status then says "replaced by" and its path, and is fixed. Boundaries only gain rows or change a Check cell | `tools/check_decisions.py` |
 | `lessons.md`: a failure that happened, its rule, its check, on lines starting "**Failure.**", "**Rule.**" and "**Check.**" | `tests/test_tools.py::test_a_lesson_with_no_check_is_caught` |
-| An issue or pull request is given by its title in quotes, then its number in words | `tests/test_tools.py::test_a_number_without_its_title_is_caught` |
+| An issue or pull request is given by its title in quotes, then its number in words; a record from 1166 on may give the number alone | `tests/test_tools.py::test_a_number_without_its_title_is_caught`, `tools/check_context.py` |
 | A secret is named, never written | `tools/check_repo.py` |
 
 A decision record states what is decided now, not how it was reached. Adding a boundary row when a

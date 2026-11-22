@@ -17,7 +17,7 @@ A word is a run between spaces with a letter or a digit in it.
 
 From this record on, a record may also give an issue or a pull request by its number alone, as "issue 1165". A bare number after a hash is still refused, and other pages still give the title.
 
-Limits: the check counts words, not clarity. A row names one mutant, so the rule's other mutants run "first" against their tests and then the whole suite, not "only" against them. A test elsewhere that kills one can hide a wrong name.
+Limits: the check counts words, not clarity, and trusts what an author puts in backticks in the Status. A row names one mutant, so the rule's other mutants run "first" against their tests and then the whole suite, not "only" against them. A test elsewhere that kills one can hide a wrong name.
 
 ## Why
 

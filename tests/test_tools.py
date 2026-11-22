@@ -6687,6 +6687,13 @@ class Context(unittest.TestCase):
         self.assertEqual(self.budgeted(replacing, decision="w " * 400, why="w " * 50), [])
         self.assertTrue(caught(self.budgeted(replacing, decision="w " * 401, why="w " * 50), "are 451 words, and the most is 450"))
         self.assertTrue(caught(self.budgeted("Status: accepted. It Replaces one.", decision="w " * 301), "the most is 300"))
+        # A Status wrapped onto a second line replaces as well, as tools/check_decisions.py reads it.
+        wrapped = "Status: accepted.\nReplaces `docs/decisions/0001-x.md`."
+        self.assertEqual(self.budgeted(wrapped, decision="w " * 400, why="w " * 50), [])
+        # A section given twice is counted whole, and a letter outside ASCII makes a word.
+        twice = self.budgeted(decision="w " * 200 + "\n\n## Decision\n\n" + "w " * 200)
+        self.assertTrue(caught(twice, "are 401 words"), twice)
+        self.assertTrue(caught(self.budgeted(decision="\u00e9 " * 300), "are 301 words"))
         # A table's pipes and a dash alone are no words: 2 + 8 + 289 and the Why's one make 300.
         self.assertEqual(self.budgeted(decision="| a | b |\n|---|---|\n" + "| w — | w |\n" * 4 + "w " * 289), [])
         self.assertEqual(self.budgeted(decision="w " * 301, before=1), [])
@@ -6717,11 +6724,12 @@ class Context(unittest.TestCase):
         # Decision 1166: a record from the cutover may give an issue or a pull request by its number alone; a bare #N
         # is still refused, and a record before it, or any other page, still gives the title.
         new, old = "docs/decisions/%04d-x.md" % check_context.BUDGET_FROM, "docs/decisions/%04d-x.md" % (check_context.BUDGET_FROM - 1)
-        root = tree({new: "", old: "", "docs/a.md": "", "docs/decisions/sub/%04d-x.md" % check_context.BUDGET_FROM: ""})
+        page = "docs/%04d-x.md" % check_context.BUDGET_FROM
+        root = tree({new: "", old: "", page: "", "docs/decisions/sub/%04d-x.md" % check_context.BUDGET_FROM: ""})
         said = "Asked in issue 12, and built by pull request 13.\n"
         self.assertEqual(check_context._references(root / new, said, root), [])
         self.assertTrue(caught(check_context._references(root / new, "Asked in #12.\n", root), "a bare issue"))
-        for name in (old, "docs/a.md", "docs/decisions/sub/%04d-x.md" % check_context.BUDGET_FROM):
+        for name in (old, page, "docs/decisions/sub/%04d-x.md" % check_context.BUDGET_FROM):
             with self.subTest(name):
                 self.assertTrue(caught(check_context._references(root / name, said, root), "numbered without its title"))
 

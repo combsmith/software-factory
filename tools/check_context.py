@@ -395,7 +395,7 @@ def _decisions(root: pathlib.Path) -> list:
             problems.append("docs/decisions/%s: a section '%s'; a record has Decision, Why and Boundaries"
                             % (path.name, extra))
         if named and number >= BUDGET_FROM:
-            problems += _budget("docs/decisions/" + path.name, text, parts)
+            problems += _budget("docs/decisions/" + path.name, text, _sections(text, "## "))
         rows = _rows(parts.get("Boundaries", ""))
         if not rows:
             problems.append("docs/decisions/%s: names no boundary a check can assert" % path.name)
@@ -406,29 +406,32 @@ def _decisions(root: pathlib.Path) -> list:
 
 def _words(text: str) -> int:
     """The words in `text`: each run between spaces with a letter or a digit in it."""
-    return sum(1 for word in text.split() if re.search(r"[A-Za-z0-9]", word))
+    return sum(1 for word in text.split() if re.search(r"[^\W_]", word))
 
 
-def _budget(where: str, text: str, parts: dict) -> list:
-    """Why a record from BUDGET_FROM on is over its budget of words, rows or mutants: nothing where it is not."""
+def _budget(where: str, text: str, sections: list) -> list:
+    """Why a record from BUDGET_FROM on is over its budget of words, rows or mutants: nothing where it is not. The
+    Status is all that comes before the first section, its lines joined; a section given twice is counted whole."""
     head = text.split("\n## ", 1)[0]
-    status = head.split("\n", 1)[1].strip() if "\n" in head else ""
+    status = " ".join(head.split("\n", 1)[1].split()) if "\n" in head else ""
+    parts = {name: "\n\n".join(body for heading, body in sections if heading == name)
+             for name in ("Decision", "Why", "Boundaries")}
     problems = []
     said = _words(TOKEN.sub(" ", status[len("Status:"):] if status.startswith("Status:") else status))
     if said > STATUS_WORDS:
         problems.append("%s: the Status is %d words, and the most is %d, not counting words in backticks"
                         % (where, said, STATUS_WORDS))
     most = REPLACING_WORDS if REPLACING.match(status) else REASONS_WORDS
-    reasons = _words(parts.get("Decision", "")) + _words(parts.get("Why", ""))
+    reasons = _words(parts["Decision"]) + _words(parts["Why"])
     if reasons > most:
         problems.append("%s: the Decision and the Why are %d words, and the most is %d" % (where, reasons, most))
-    rows = [cells for table in _tables(parts.get("Decision", "")) for cells in table[2:]]
+    rows = [cells for table in _tables(parts["Decision"]) for cells in table[2:]]
     if len(rows) > DECISION_ROWS:
         problems.append("%s: the Decision has %d rows, and the most is %d" % (where, len(rows), DECISION_ROWS))
     for i, cells in enumerate(rows, 1):
         if any(_words(cell) > CELL_WORDS for cell in cells):
             problems.append("%s: Decision row %d has a cell over %d words" % (where, i, CELL_WORDS))
-    for i, cells in enumerate(_rows(parts.get("Boundaries", "")), 1):
+    for i, cells in enumerate(_rows(parts["Boundaries"]), 1):
         if _words(cells[0]) > BEHAVIOUR_WORDS:
             problems.append("%s, boundary %d: the behaviour is over %d words" % (where, i, BEHAVIOUR_WORDS))
         if len(ROW_MUTANT.findall(cells[-1])) > 1:
