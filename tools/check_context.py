@@ -428,9 +428,12 @@ def _budget(where: str, text: str, sections: list) -> list:
     rows = [cells for table in _tables(parts["Decision"]) for cells in table[2:]]
     if len(rows) > DECISION_ROWS:
         problems.append("%s: the Decision has %d rows, and the most is %d" % (where, len(rows), DECISION_ROWS))
+    heads = [table[0] for table in _tables(parts["Decision"])]
     for i, cells in enumerate(rows, 1):
         if any(_words(cell) > CELL_WORDS for cell in cells):
             problems.append("%s: Decision row %d has a cell over %d words" % (where, i, CELL_WORDS))
+    if any(_words(cell) > CELL_WORDS for cells in heads for cell in cells):
+        problems.append("%s: a Decision table's header has a cell over %d words" % (where, CELL_WORDS))
     for i, cells in enumerate(_rows(parts["Boundaries"]), 1):
         if _words(cells[0]) > BEHAVIOUR_WORDS:
             problems.append("%s, boundary %d: the behaviour is over %d words" % (where, i, BEHAVIOUR_WORDS))

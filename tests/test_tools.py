@@ -6677,6 +6677,7 @@ class Context(unittest.TestCase):
         self.assertTrue(caught(self.budgeted("Status: " + "w " * 41), "the Status is 41 words"))
         self.assertTrue(caught(self.budgeted("Status: " + "w " * 41 + "\nmore"), "the Status is 42 words"))
         self.assertEqual(self.budgeted("Status: " + "w " * 41, before=1), [])
+        self.assertTrue(caught(self.budgeted("Status: " + "w " * 41, before=-1), "the Status is 41 words"))
 
     def test_a_new_records_decision_and_why_are_held_to_their_words(self):
         # Decision 1166: the Decision and the Why are at most 300 words together, or 450 for a record that replaces.
@@ -6709,6 +6710,10 @@ class Context(unittest.TestCase):
                                "Decision row 2 has a cell over 40 words"))
         self.assertTrue(caught(self.budgeted(decision=head + "| %s| b |\n" % ("w " * 41)), "row 1 has a cell over 40"))
         self.assertEqual(self.budgeted(decision=head + "| a | b |\n" * 9, before=1), [])
+        # A header's cells are held to the same 40 words, and are not counted as a row.
+        self.assertEqual(self.budgeted(decision="| %s| b |\n|---|---|\n" % ("w " * 40) + "| a | b |\n" * 8), [])
+        self.assertTrue(caught(self.budgeted(decision="| b | %s|\n|---|---|\n| a | b |\n" % ("w " * 41)),
+                               "a Decision table's header has a cell over 40 words"))
 
     def test_a_new_records_boundary_rows_are_short_and_name_one_mutant(self):
         # Decision 1166: a Boundary row's behaviour is at most 30 words, and its Check names one mutant at most.
@@ -6724,10 +6729,11 @@ class Context(unittest.TestCase):
         # Decision 1166: a record from the cutover may give an issue or a pull request by its number alone; a bare #N
         # is still refused, and a record before it, or any other page, still gives the title.
         new, old = "docs/decisions/%04d-x.md" % check_context.BUDGET_FROM, "docs/decisions/%04d-x.md" % (check_context.BUDGET_FROM - 1)
-        page = "docs/%04d-x.md" % check_context.BUDGET_FROM
-        root = tree({new: "", old: "", page: "", "docs/decisions/sub/%04d-x.md" % check_context.BUDGET_FROM: ""})
+        page, later = "docs/%04d-x.md" % check_context.BUDGET_FROM, "docs/decisions/%04d-y.md" % (check_context.BUDGET_FROM + 1)
+        root = tree({new: "", old: "", page: "", later: "", "docs/decisions/sub/%04d-x.md" % check_context.BUDGET_FROM: ""})
         said = "Asked in issue 12, and built by pull request 13.\n"
         self.assertEqual(check_context._references(root / new, said, root), [])
+        self.assertEqual(check_context._references(root / later, said, root), [])
         self.assertTrue(caught(check_context._references(root / new, "Asked in #12.\n", root), "a bare issue"))
         for name in (old, page, "docs/decisions/sub/%04d-x.md" % check_context.BUDGET_FROM):
             with self.subTest(name):
