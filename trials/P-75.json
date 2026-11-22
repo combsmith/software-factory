@@ -1,0 +1,563 @@
+{
+  "schema": "trial/1",
+  "trial": "P-75",
+  "question": "Does the desk's Kimi deployment, asked through Chat Completions with no format enforced, answer twenty reads in the form advice-answer/1 asks; what does each body hold, which model does it name, and does its cost at the configured prices agree with Azure's own figure?",
+  "pass": "Written before the run, in issue 1036 at 2026-11-20T18:50Z, nothing having run (trial TA6 of decision 0224's plan). The requests left the desk, the Mac mini's network and the desk Python's LibreSSL, not a GitHub runner, with the desk resource's own key read in-process from the desk keychain and never printed, logged or written (the Builder's ruling (a)). The code is the build's own, from harness/advise-asks-the-readers-390 with trial P-74's rewording: harness.advise.one, adapters/azure.Live, adapters/advice.read; the reader config/harness.json's kimi (deployment and model kimi-k3.1-pro, chat, output cap 40,000) at xhigh; the prompt harness.advise.prompt_of over an empty rules folder; five diffs, one per commit on canary branch trial/p-75, p75/a_retry.py, b_cache.py, c_paths.py, d_dates.py, e_auth.py, each read four times. Pass: at least 18 of 20 parse whole against advice-answer/1, advice.read giving completed; every body has model, choices[0].finish_reason, usage.prompt_tokens and usage.completion_tokens; the model named is recorded; the twenty's cost at the configured $3 and $15 a million is within a factor of two of Azure's own figure, which the desk session reads and the Builder relays, owed till then. Result, round 1: every one of the twenty answered 200, finish_reason stop, and named the model Kimi-K3.1, not kimi-k3.1-pro, so advice.read gave failed, not_the_model, for all twenty: none completed, and the plan's condition fails as written. harness/1, as the advise step's branch then had it, could not pin that name: a model there was lower case alone. Each body held model, choices[0].finish_reason and usage with prompt_tokens and completion_tokens (both taken out of the fixture by tools.redact_trial, which removes every field named for tokens; their places are in removed) and total_tokens: 72,380 in round 1, 3,619 a read, and 69,057 in round 2. Round 2, twenty more reads of the same five diffs, each prompt built afresh (of the same length, its sha256 another, as a prompt's markers carry a code made anew), with the build's parser asked of each answer's text whatever model it names (advice._chat then advice._answered, unchanged): 20 of 20 are one advice-answer/1, whole, with 1 to 3 findings each. So Kimi answered round 2 in the form with no format enforced. Round 1's texts, refused at the pin first, were not parsed, so whether they would have parsed is not measured. Cost: no read was priced, since the parser prices only the pinned model. At the configured $3 and $15 a million, the forty reads' 141,437 total tokens come to between $0.42, were all of them prompt, and $2.12, were all completion: the split is in the two counts the redaction takes out, so the fixture cannot price the reads closer. Nor does it keep the output cap sent, max_completion_tokens: the 40,000 is the configuration's. Azure's figure is owed. Failed as written. What follows, by the Builder's ruling (b) of 2026-11-20, made after the run: the pin is written as the answers write it, Kimi-K3.1, and compared exactly, harness/1 and advice/1 taking a model's capitals (the build's pin and configuration parts). The answers name Kimi-K3.1, with no Pro, though the deployment is named kimi-k3.1-pro; which model it serves Azure's answer says no more than that. What is kept (2026-11-21, to fit the review's size bound): of the forty reads, the first read of each of the five diffs in each round, ten exchanges; each kept call states all four reads of its diff in that round, the model each named, its finish_reason, its token total, what advice.read and the parser gave, and the sha256 of each dropped exchange as it was recorded whole, so every count the verdict rests on is still read from the fixture. Every prompt and every text of an answer is written as its length in bytes and sha256.",
+  "repo": null,
+  "ran_at": "2026-11-20T19:03:11Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/chat/completions (act chat), round 1, the build's prompt over an empty rules folder and canary branch trial/p-75's diff of p75/a_retry.py, read 1 of 4; client time 2026-11-20T19:03:11Z, answered in 18.2 s; advice.read gave failed, not_the_model; the one kept of this diff's four reads in this round: read 1 (model Kimi-K3.1, finish_reason stop, 4757 tokens, advice.read gave failed, not_the_model); read 2 (model Kimi-K3.1, finish_reason stop, 5927 tokens, advice.read gave failed, not_the_model), dropped, sha256 feb0c91002e6de4c8bf330b4d71350ad6b61bfc97e4e4220cfe57f5c37df5476; read 3 (model Kimi-K3.1, finish_reason stop, 3021 tokens, advice.read gave failed, not_the_model), dropped, sha256 b83d5f4c53c393ccfda1657b89f643eab75fce07ea04379f7c5a4f872d72d158; read 4 (model Kimi-K3.1, finish_reason stop, 4017 tokens, advice.read gave failed, not_the_model), dropped, sha256 102e4a687bd330569a0e2594045d2c6052bcaac1bc46f23dd3877c0409e955f5",
+        "headers": {},
+        "body": {
+          "model": "kimi-k3.1-pro",
+          "messages": [
+            {
+              "role": "user",
+              "content": "<4533 bytes of text, sha256 a4419b716d8542528537e3a7caf4f37b4112286a8af158d572e38f02547a969a>"
+            }
+          ],
+          "reasoning_effort": "xhigh"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "chatcmpl-6b009970636169980a93b0ac",
+          "model": "Kimi-K3.1",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "<1029 bytes of text, sha256 086379f05556f605ba37267f9b153f185777b2b1aeebb1ac5ce21130b5e58994>",
+                "reasoning_content": "<14747 bytes of text, sha256 b3667479279850d0716946626e769a77dd3944c2c46c131fd75f9d7f292a74b5>"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "total_tokens": 4757
+          },
+          "created": 1795201392,
+          "object": "chat.completion",
+          "prompt_filter_results": null
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/chat/completions (act chat), round 1, the build's prompt over an empty rules folder and canary branch trial/p-75's diff of p75/b_cache.py, read 1 of 4; client time 2026-11-20T19:04:16Z, answered in 22.8 s; advice.read gave failed, not_the_model; the one kept of this diff's four reads in this round: read 1 (model Kimi-K3.1, finish_reason stop, 5563 tokens, advice.read gave failed, not_the_model); read 2 (model Kimi-K3.1, finish_reason stop, 3154 tokens, advice.read gave failed, not_the_model), dropped, sha256 8c099f641e127b32ee819f077d77ad7c7725e671468b5e0dc3c62ad1e51a9a7b; read 3 (model Kimi-K3.1, finish_reason stop, 2901 tokens, advice.read gave failed, not_the_model), dropped, sha256 5a0346b3fc459468d53e816e6b9426df53984613892b6135dc1d9fba52afe938; read 4 (model Kimi-K3.1, finish_reason stop, 3473 tokens, advice.read gave failed, not_the_model), dropped, sha256 e7da0684506d7398ff42e040c806a42c8bc6a60c5e1abfd6db3e5b0891ed12dc",
+        "headers": {},
+        "body": {
+          "model": "kimi-k3.1-pro",
+          "messages": [
+            {
+              "role": "user",
+              "content": "<4586 bytes of text, sha256 6a7ae496832594df43007f89ed4d0932d6c1b5abf318c78fc3031c759ed13517>"
+            }
+          ],
+          "reasoning_effort": "xhigh"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "chatcmpl-6b0099b114e97e72ee71b850",
+          "model": "Kimi-K3.1",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "<1474 bytes of text, sha256 50a3f7a9626b915d98dda407055a8cbdb056a873427f3c2edc0965dedbdeac6f>",
+                "reasoning_content": "<17652 bytes of text, sha256 965f4771ac156d3883a7cead0762625e8ca092022ac67722d3270fd49902e6b9>"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "total_tokens": 5563
+          },
+          "created": 1795201457,
+          "object": "chat.completion",
+          "prompt_filter_results": null
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/chat/completions (act chat), round 1, the build's prompt over an empty rules folder and canary branch trial/p-75's diff of p75/c_paths.py, read 1 of 4; client time 2026-11-20T19:05:08Z, answered in 4.9 s; advice.read gave failed, not_the_model; the one kept of this diff's four reads in this round: read 1 (model Kimi-K3.1, finish_reason stop, 1895 tokens, advice.read gave failed, not_the_model); read 2 (model Kimi-K3.1, finish_reason stop, 2332 tokens, advice.read gave failed, not_the_model), dropped, sha256 4b9e742f731480e65617df5584e2f77036c67e54afe78d841ae88e0d3a928a28; read 3 (model Kimi-K3.1, finish_reason stop, 1917 tokens, advice.read gave failed, not_the_model), dropped, sha256 ca995aabac9d794fa57c991b3b10fcede09d159a18e2aae6c037e5e9cd606ee1; read 4 (model Kimi-K3.1, finish_reason stop, 1999 tokens, advice.read gave failed, not_the_model), dropped, sha256 87cd8ed9fff7f16036e96149dcb3bc629fe82313ededababfc67f1f3b42c7ff7",
+        "headers": {},
+        "body": {
+          "model": "kimi-k3.1-pro",
+          "messages": [
+            {
+              "role": "user",
+              "content": "<4422 bytes of text, sha256 3b0775fe2b0941c14cbb4616b755c214910feb30f5c74a7f503803dca5a2a344>"
+            }
+          ],
+          "reasoning_effort": "xhigh"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "chatcmpl-6b0099e59f41802e59fe40f5",
+          "model": "Kimi-K3.1",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "<473 bytes of text, sha256 ceec1b75fd967f583115155a0d39cd4fff980ac5d68ea35c0e0c05adad8ff677>",
+                "reasoning_content": "<2080 bytes of text, sha256 cc0c4ef08fb6c733be20a8b382994a593e243ea1925b2a858a921b87789cf4d3>"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "total_tokens": 1895
+          },
+          "created": 1795201509,
+          "object": "chat.completion",
+          "prompt_filter_results": null
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/chat/completions (act chat), round 1, the build's prompt over an empty rules folder and canary branch trial/p-75's diff of p75/d_dates.py, read 1 of 4; client time 2026-11-20T19:05:29Z, answered in 5.6 s; advice.read gave failed, not_the_model; the one kept of this diff's four reads in this round: read 1 (model Kimi-K3.1, finish_reason stop, 2248 tokens, advice.read gave failed, not_the_model); read 2 (model Kimi-K3.1, finish_reason stop, 2379 tokens, advice.read gave failed, not_the_model), dropped, sha256 c10189cb48afb0203a3ea6c6ed966175e99198cee7db7a0a27eff74dcc9ad113; read 3 (model Kimi-K3.1, finish_reason stop, 2924 tokens, advice.read gave failed, not_the_model), dropped, sha256 85345e2da4741d9753ff0e954c69cbae305cbe6e522294f10914b4ba47520c8b; read 4 (model Kimi-K3.1, finish_reason stop, 2470 tokens, advice.read gave failed, not_the_model), dropped, sha256 6f83076412b9d681d7ad37d4330619ecc4a571e7b8fddf7745b6678a69c617ba",
+        "headers": {},
+        "body": {
+          "model": "kimi-k3.1-pro",
+          "messages": [
+            {
+              "role": "user",
+              "content": "<4507 bytes of text, sha256 a4433e3bab0e27fbdd5ee30281d5bf9f9aecf379f70d985d4c31293e4749e1c8>"
+            }
+          ],
+          "reasoning_effort": "xhigh"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "chatcmpl-6b0099f9c11b54a2a23aaa38",
+          "model": "Kimi-K3.1",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "<866 bytes of text, sha256 556d648aac43ec3fa3945248efc5d10736395a94350cb453aac76e5eb7d88805>",
+                "reasoning_content": "<2369 bytes of text, sha256 7e7cb546baebf9acece94e3b77f2a4fade62f7240547f503074e3d2d34a79acc>"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "total_tokens": 2248
+          },
+          "created": 1795201529,
+          "object": "chat.completion",
+          "prompt_filter_results": null
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/chat/completions (act chat), round 1, the build's prompt over an empty rules folder and canary branch trial/p-75's diff of p75/e_auth.py, read 1 of 4; client time 2026-11-20T19:05:52Z, answered in 24.2 s; advice.read gave failed, not_the_model; the one kept of this diff's four reads in this round: read 1 (model Kimi-K3.1, finish_reason stop, 5327 tokens, advice.read gave failed, not_the_model); read 2 (model Kimi-K3.1, finish_reason stop, 4989 tokens, advice.read gave failed, not_the_model), dropped, sha256 a6c4d22699ec84e0042b6fa0d7c992f2c24955c2ffa84b3a7449176748b00a7f; read 3 (model Kimi-K3.1, finish_reason stop, 4745 tokens, advice.read gave failed, not_the_model), dropped, sha256 6893983eb6370e03da3435ea6f63d0081abd38e29c0c39d84005192833af9b81; read 4 (model Kimi-K3.1, finish_reason stop, 6342 tokens, advice.read gave failed, not_the_model), dropped, sha256 fd0686a6b122543e1f4a427a89f61b15300f0a0786c9edbf1c634bb586620d4e",
+        "headers": {},
+        "body": {
+          "model": "kimi-k3.1-pro",
+          "messages": [
+            {
+              "role": "user",
+              "content": "<4415 bytes of text, sha256 bb96ce3619fe2bd4c9a72b7d1cb52f8839c1e680d275ba1aee7fc7b1cda0b28f>"
+            }
+          ],
+          "reasoning_effort": "xhigh"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "chatcmpl-6b009a111b09dab63a9e4cdc",
+          "model": "Kimi-K3.1",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "<1845 bytes of text, sha256 ef7846155a94d125bebcbdadc2e62bf6fbdfec092f9c7987d22ce010d0fdb2ca>",
+                "reasoning_content": "<17402 bytes of text, sha256 4c4c4e3d972d1867f5d2f3cec9f54cc2ce5476fcd528760718b76c014dee7b98>"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "total_tokens": 5327
+          },
+          "created": 1795201553,
+          "object": "chat.completion",
+          "prompt_filter_results": null
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/chat/completions (act chat), round 2, the build's prompt over an empty rules folder and canary branch trial/p-75's diff of p75/a_retry.py, read 1 of 4; client time 2026-11-20T19:09:16Z, answered in 14.3 s; advice.read gave failed, not_the_model; the build's parser read its text (advice._chat, advice._answered): one advice-answer/1, whole, 2 finding(s); the one kept of this diff's four reads in this round: read 1 (model Kimi-K3.1, finish_reason stop, 3985 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 2 finding(s)); read 2 (model Kimi-K3.1, finish_reason stop, 3347 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 2 finding(s)), dropped, sha256 f2164cd6f89568f2be598766253c91440a7aa90ea3b75e9ed5531cf64fb6d6d8; read 3 (model Kimi-K3.1, finish_reason stop, 3724 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 3 finding(s)), dropped, sha256 d39447b025fa4de0e8756717c952c624dfe0b86cad7dc9ccb2275c17898115ac; read 4 (model Kimi-K3.1, finish_reason stop, 3581 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 2 finding(s)), dropped, sha256 2d6988c89c73b2d4d9bc931b8e02b336764c3576021da7195794f406b157d4e4",
+        "headers": {},
+        "body": {
+          "model": "kimi-k3.1-pro",
+          "messages": [
+            {
+              "role": "user",
+              "content": "<4533 bytes of text, sha256 d45276cc4a0f0beb43a603c06c7fccd335f8d34c90211263ee6c7a6e588b7748>"
+            }
+          ],
+          "reasoning_effort": "xhigh"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "chatcmpl-6b009adda4c4cb7895edf565",
+          "model": "Kimi-K3.1",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "<968 bytes of text, sha256 40850173f5ac93b2e63cb6d4dfaf298a4e463cff6dc9791ee6bbc47bb29fd3c8>",
+                "reasoning_content": "<11324 bytes of text, sha256 62822e70c79abf51e88ad888c41f4edcbdacfac4a1395c4c24a1ffd96d776de7>"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "total_tokens": 3985
+          },
+          "created": 1795201757,
+          "object": "chat.completion",
+          "prompt_filter_results": null
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/chat/completions (act chat), round 2, the build's prompt over an empty rules folder and canary branch trial/p-75's diff of p75/b_cache.py, read 1 of 4; client time 2026-11-20T19:10:09Z, answered in 15.3 s; advice.read gave failed, not_the_model; the build's parser read its text (advice._chat, advice._answered): one advice-answer/1, whole, 2 finding(s); the one kept of this diff's four reads in this round: read 1 (model Kimi-K3.1, finish_reason stop, 4071 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 2 finding(s)); read 2 (model Kimi-K3.1, finish_reason stop, 3131 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 2 finding(s)), dropped, sha256 a464ec1fe20037dfb4f79ed935c1af528abd1b9ec166c19d07efa818c8477573; read 3 (model Kimi-K3.1, finish_reason stop, 5110 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 3 finding(s)), dropped, sha256 45ce1314fefee5311a43919499aa9365884873e8b8a5fb6cb5d1cea6f5014862; read 4 (model Kimi-K3.1, finish_reason stop, 4436 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 2 finding(s)), dropped, sha256 e4092c5dbd95afe3668ec0b5df9427348feed3c5edf572ed71cfe263ee4713d1",
+        "headers": {},
+        "body": {
+          "model": "kimi-k3.1-pro",
+          "messages": [
+            {
+              "role": "user",
+              "content": "<4586 bytes of text, sha256 df60081100a714641b7c8847eb018f531bebe588876df9f1da33d4a3423a7975>"
+            }
+          ],
+          "reasoning_effort": "xhigh"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "chatcmpl-6b009b11c3195d11c0bc360a",
+          "model": "Kimi-K3.1",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "<1116 bytes of text, sha256 35b2bdbbeb063ff8e582417828362252e992969ab586fc584f6d427c3ca3bef9>",
+                "reasoning_content": "<10916 bytes of text, sha256 44dcb9dd0cbb24c43e5d21bdc57337ac86b4d1698bc4ef93dfa21e5e3c1ef5dd>"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "total_tokens": 4071
+          },
+          "created": 1795201809,
+          "object": "chat.completion",
+          "prompt_filter_results": null
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/chat/completions (act chat), round 2, the build's prompt over an empty rules folder and canary branch trial/p-75's diff of p75/c_paths.py, read 1 of 4; client time 2026-11-20T19:11:12Z, answered in 5.8 s; advice.read gave failed, not_the_model; the build's parser read its text (advice._chat, advice._answered): one advice-answer/1, whole, 1 finding(s); the one kept of this diff's four reads in this round: read 1 (model Kimi-K3.1, finish_reason stop, 2179 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 1 finding(s)); read 2 (model Kimi-K3.1, finish_reason stop, 1888 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 1 finding(s)), dropped, sha256 befba83e19630e009563dd0c42b96a5df934d4b5f6101abaadc4587c387af5fe; read 3 (model Kimi-K3.1, finish_reason stop, 1962 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 1 finding(s)), dropped, sha256 6ba0ad3e64c5ec868fb0c5e9fb1ffd8402597dcf402a85e00bdf71ce3987549a; read 4 (model Kimi-K3.1, finish_reason stop, 2481 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 1 finding(s)), dropped, sha256 032854fea9a89973d6f5872d5e35468a4c6cfc7d298ffeb0fb9b8ebcb4c753db",
+        "headers": {},
+        "body": {
+          "model": "kimi-k3.1-pro",
+          "messages": [
+            {
+              "role": "user",
+              "content": "<4422 bytes of text, sha256 190bf46832664ad568f9927efcd26b8081e073c1f25be9bde1b53106a6cd7f36>"
+            }
+          ],
+          "reasoning_effort": "xhigh"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "chatcmpl-6b009b5091ca362d7b52bf49",
+          "model": "Kimi-K3.1",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "<605 bytes of text, sha256 f55afbb81c9dd5f2069a59c1c8002d03756e588d601919f53580a86ab3840c38>",
+                "reasoning_content": "<3431 bytes of text, sha256 79aaa4e800d0426fb9c4db30aa5354b4de2f224692ba85e1978040a21c7515bd>"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "total_tokens": 2179
+          },
+          "created": 1795201872,
+          "object": "chat.completion",
+          "prompt_filter_results": null
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/chat/completions (act chat), round 2, the build's prompt over an empty rules folder and canary branch trial/p-75's diff of p75/d_dates.py, read 1 of 4; client time 2026-11-20T19:11:33Z, answered in 4.3 s; advice.read gave failed, not_the_model; the build's parser read its text (advice._chat, advice._answered): one advice-answer/1, whole, 2 finding(s); the one kept of this diff's four reads in this round: read 1 (model Kimi-K3.1, finish_reason stop, 2106 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 2 finding(s)); read 2 (model Kimi-K3.1, finish_reason stop, 2661 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 2 finding(s)), dropped, sha256 f2680fd61695b4403133fe722731768b5df485b4815d74f83029690c212b141d; read 3 (model Kimi-K3.1, finish_reason stop, 1987 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 2 finding(s)), dropped, sha256 745798e672ee15b94d26088ecf30dc8faf32f9ae6994aa151ce8e295cdcb5228; read 4 (model Kimi-K3.1, finish_reason stop, 2337 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 2 finding(s)), dropped, sha256 f6357b0c3292c14cf4cb1afc488ae6d5d7473b5a90d4b7a32e8448bde6782fe5",
+        "headers": {},
+        "body": {
+          "model": "kimi-k3.1-pro",
+          "messages": [
+            {
+              "role": "user",
+              "content": "<4507 bytes of text, sha256 af792e69e8972d66a49f5fcc32e9393e50c38b248156b2e7ee5eaf3c8c982b28>"
+            }
+          ],
+          "reasoning_effort": "xhigh"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "chatcmpl-6b009b66867802f42bc78aed",
+          "model": "Kimi-K3.1",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "<891 bytes of text, sha256 d8ad616329e33ff379bc6e5e0719eb55bee2e5a53f19e50b816fe23af5840d1e>",
+                "reasoning_content": "<1950 bytes of text, sha256 348fcdb708dad27e67c3321f76d1b1b7c173489b9a9894490d5dad166af0ad3c>"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "total_tokens": 2106
+          },
+          "created": 1795201894,
+          "object": "chat.completion",
+          "prompt_filter_results": null
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/chat/completions (act chat), round 2, the build's prompt over an empty rules folder and canary branch trial/p-75's diff of p75/e_auth.py, read 1 of 4; client time 2026-11-20T19:11:53Z, answered in 21.9 s; advice.read gave failed, not_the_model; the build's parser read its text (advice._chat, advice._answered): one advice-answer/1, whole, 3 finding(s); the one kept of this diff's four reads in this round: read 1 (model Kimi-K3.1, finish_reason stop, 5158 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 3 finding(s)); read 2 (model Kimi-K3.1, finish_reason stop, 4681 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 3 finding(s)), dropped, sha256 fd5350eec49b9f3474acf37d21f70adb0d73c555ba9847868c208e0024bb63f2; read 3 (model Kimi-K3.1, finish_reason stop, 5585 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 3 finding(s)), dropped, sha256 bf3bb8d073309ce22632cfef97effe8962ec63d8c211d51a49f7f6b0812528a1; read 4 (model Kimi-K3.1, finish_reason stop, 4647 tokens, advice.read gave failed, not_the_model; the parser read one advice-answer/1, whole, 3 finding(s)), dropped, sha256 c8651a2e6bb697593696415ffdb93b5b7a083f3340f794479482a0a87ede4e90",
+        "headers": {},
+        "body": {
+          "model": "kimi-k3.1-pro",
+          "messages": [
+            {
+              "role": "user",
+              "content": "<4415 bytes of text, sha256 b720a8a0f8666cb132d117c5040ecad7c71de57abbbc5a1b961d12e97d9ccc5b>"
+            }
+          ],
+          "reasoning_effort": "xhigh"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "chatcmpl-6b009b7ae219c9abb4dfc242",
+          "model": "Kimi-K3.1",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "<1844 bytes of text, sha256 fa5a21ed1876aba0534086e4e0c43b98a7954e202fbcd09038918e5724a88a2b>",
+                "reasoning_content": "<16696 bytes of text, sha256 2fd35cd74b584edb68b3e8a627eb16f99b2c177f883796052d17d335d142ceff>"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "total_tokens": 5158
+          },
+          "created": 1795201914,
+          "object": "chat.completion",
+          "prompt_filter_results": null
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.body.max_completion_tokens",
+    "exchanges[0].response.body.usage.prompt_tokens",
+    "exchanges[0].response.body.usage.completion_tokens",
+    "exchanges[0].response.body.usage.reasoning_tokens",
+    "exchanges[0].response.body.usage.audio_prompt_tokens",
+    "exchanges[0].response.body.usage.prompt_tokens_details",
+    "exchanges[0].response.body.usage.completion_tokens_details",
+    "exchanges[1].request.body.max_completion_tokens",
+    "exchanges[1].response.body.usage.prompt_tokens",
+    "exchanges[1].response.body.usage.completion_tokens",
+    "exchanges[1].response.body.usage.reasoning_tokens",
+    "exchanges[1].response.body.usage.audio_prompt_tokens",
+    "exchanges[1].response.body.usage.prompt_tokens_details",
+    "exchanges[1].response.body.usage.completion_tokens_details",
+    "exchanges[2].request.body.max_completion_tokens",
+    "exchanges[2].response.body.usage.prompt_tokens",
+    "exchanges[2].response.body.usage.completion_tokens",
+    "exchanges[2].response.body.usage.reasoning_tokens",
+    "exchanges[2].response.body.usage.audio_prompt_tokens",
+    "exchanges[2].response.body.usage.prompt_tokens_details",
+    "exchanges[2].response.body.usage.completion_tokens_details",
+    "exchanges[3].request.body.max_completion_tokens",
+    "exchanges[3].response.body.usage.prompt_tokens",
+    "exchanges[3].response.body.usage.completion_tokens",
+    "exchanges[3].response.body.usage.reasoning_tokens",
+    "exchanges[3].response.body.usage.audio_prompt_tokens",
+    "exchanges[3].response.body.usage.prompt_tokens_details",
+    "exchanges[3].response.body.usage.completion_tokens_details",
+    "exchanges[4].request.body.max_completion_tokens",
+    "exchanges[4].response.body.usage.prompt_tokens",
+    "exchanges[4].response.body.usage.completion_tokens",
+    "exchanges[4].response.body.usage.reasoning_tokens",
+    "exchanges[4].response.body.usage.audio_prompt_tokens",
+    "exchanges[4].response.body.usage.prompt_tokens_details",
+    "exchanges[4].response.body.usage.completion_tokens_details",
+    "exchanges[5].request.body.max_completion_tokens",
+    "exchanges[5].response.body.usage.prompt_tokens",
+    "exchanges[5].response.body.usage.completion_tokens",
+    "exchanges[5].response.body.usage.reasoning_tokens",
+    "exchanges[5].response.body.usage.audio_prompt_tokens",
+    "exchanges[5].response.body.usage.prompt_tokens_details",
+    "exchanges[5].response.body.usage.completion_tokens_details",
+    "exchanges[6].request.body.max_completion_tokens",
+    "exchanges[6].response.body.usage.prompt_tokens",
+    "exchanges[6].response.body.usage.completion_tokens",
+    "exchanges[6].response.body.usage.reasoning_tokens",
+    "exchanges[6].response.body.usage.audio_prompt_tokens",
+    "exchanges[6].response.body.usage.prompt_tokens_details",
+    "exchanges[6].response.body.usage.completion_tokens_details",
+    "exchanges[7].request.body.max_completion_tokens",
+    "exchanges[7].response.body.usage.prompt_tokens",
+    "exchanges[7].response.body.usage.completion_tokens",
+    "exchanges[7].response.body.usage.reasoning_tokens",
+    "exchanges[7].response.body.usage.audio_prompt_tokens",
+    "exchanges[7].response.body.usage.prompt_tokens_details",
+    "exchanges[7].response.body.usage.completion_tokens_details",
+    "exchanges[8].request.body.max_completion_tokens",
+    "exchanges[8].response.body.usage.prompt_tokens",
+    "exchanges[8].response.body.usage.completion_tokens",
+    "exchanges[8].response.body.usage.reasoning_tokens",
+    "exchanges[8].response.body.usage.audio_prompt_tokens",
+    "exchanges[8].response.body.usage.prompt_tokens_details",
+    "exchanges[8].response.body.usage.completion_tokens_details",
+    "exchanges[9].request.body.max_completion_tokens",
+    "exchanges[9].response.body.usage.prompt_tokens",
+    "exchanges[9].response.body.usage.completion_tokens",
+    "exchanges[9].response.body.usage.reasoning_tokens",
+    "exchanges[9].response.body.usage.audio_prompt_tokens",
+    "exchanges[9].response.body.usage.prompt_tokens_details",
+    "exchanges[9].response.body.usage.completion_tokens_details"
+  ],
+  "verdict": "fail"
+}

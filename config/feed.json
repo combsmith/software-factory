@@ -108,6 +108,15 @@
       ]
     },
     {
+      "reason": "issue_stopped",
+      "question": "issue_held_or_closed",
+      "choices": [
+        "end_hold",
+        "reopen",
+        "close"
+      ]
+    },
+    {
       "reason": "merged_while_held",
       "question": "merged_while_held",
       "choices": [
@@ -251,6 +260,13 @@
       ]
     },
     {
+      "reason": "issue_stands_unreadable",
+      "question": "fact_unreadable",
+      "choices": [
+        "fix_the_source"
+      ]
+    },
+    {
       "reason": "acceptance_unreadable",
       "question": "fact_unreadable",
       "choices": [
@@ -312,6 +328,13 @@
       "question": "fact_unreadable",
       "choices": [
         "fix_the_source"
+      ]
+    },
+    {
+      "reason": "timeline_bounded",
+      "question": "timeline_bounded",
+      "choices": [
+        "close"
       ]
     },
     {
