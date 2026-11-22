@@ -1056,7 +1056,7 @@ class Status(unittest.TestCase):
                        lambda o: dict(o, summary=o["summary"].split("\n", 1)[1]), lambda o: {"title": o["title"]},
                        lambda o: {"summary": o["summary"]}, lambda o: None, lambda o: "x"):
             got, _ = self.write(o, self.listing(), bad(output))
-            self.assertEqual(got, ("failed", None, "not_read_back", True))
+            self.assertEqual(got, ("failed", None, "not_read_back", True), output(dict(title="t", summary="s\nx")))
         # An edit that answers of another run.
         old = self.run_on(external_id="d" + "a" * 32)
         got, _ = self.write(o, self.listing(old), self.took(200, dict(old, id=old["id"] + 1, external_id=want)))
@@ -1171,6 +1171,11 @@ class Status(unittest.TestCase):
         self.assertEqual(lines[2:], effects.status_output(d, o["record"], dict(feed, sentences={}))["summary"].split("\n"))
         self.assertEqual(lines[1:3], ["", "attention: %s" % d["attention"]])
         self.assertEqual(output["title"], "verifying: awaiting_checks")
+        # A sentence that is not plain when it is written is not shown: the codes alone.
+        for bad in ("Approved by @x.", "See GH-12 first.", "A" + "b" * 100 + ".", "two\nlines.", 7, None):
+            loose = dict(feed, sentences=dict(feed["sentences"], awaiting_checks=bad))
+            self.assertEqual(effects.status_output(d, o["record"], loose)["summary"].split("\n")[0],
+                             "attention: %s" % d["attention"], bad)
         # A reason the feed gives no sentence shows the codes alone; a Decision with no reason too.
         self.assertEqual(effects.status_output(dict(d, reason="not_in_the_feed"), o["record"], feed)["summary"].split("\n")[0],
                          "attention: %s" % d["attention"])
@@ -1252,7 +1257,8 @@ class Status(unittest.TestCase):
 
     def test_the_status_reads_p12s_answers_as_they_stand(self):
         # P-12's trial named its run `status_on_item`, and the configuration names it `factory`; and it recorded no node id, as
-        # the fixture's bodies list none, where the port's key is the id reconciliation reads. Both are varied, and no other.
+        # the fixture's bodies list none, where the port's key is the id reconciliation reads. Both are varied, and the output,
+        # which GitHub answers as it was sent, as P-12's create and edits did; no other.
         exchanges = json.loads((ROOT / "trials" / "P-12.json").read_text())["exchanges"]
         made = [e for e in exchanges if e["request"]["call"].startswith("POST") and e["request"]["call"].endswith("/check-runs")][0]
         all_two = [e for e in exchanges if "filter=all" in e["request"]["call"] and (e["response"]["body"] or {}).get("total_count") == 2][0]
@@ -1362,6 +1368,8 @@ class StatusFixture(unittest.TestCase):
         self.assertEqual(calls[-1]["response"]["status"], 204)
         made, read, mine, named, edited, again, one, second, latest, both, long_id, long_read, full, full_read, past, after_past = [e["response"] for e in calls[1:-1]]
         sent = calls[1]["request"]["body"]["external_id"]
+        # A create answers its output as sent, as an edit does below: the status's read-back holds both.
+        self.assertEqual(made["body"]["output"], calls[1]["request"]["body"]["output"])
         # The external_id reads back exactly; the list by name and App finds this App's alone, and by name alone both.
         self.assertEqual((made["status"], read["body"]["external_id"], read["body"]["id"]), (201, sent, made["body"]["id"]))
         self.assertEqual([c["id"] for c in mine["body"]["check_runs"]], [made["body"]["id"]])

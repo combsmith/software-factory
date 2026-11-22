@@ -39,6 +39,7 @@ from adapters.github import Live, Unanswered, request
 from controller import feed as feed_
 from controller import writes as writes_
 from kernel import terms as t
+from tools.check_examples import AUTOLINKED, SENTENCE_MOST, SENTENCE_PATTERN
 from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -414,8 +415,11 @@ def status_output(decision: dict, record: dict, feed: dict) -> dict:
     def code(value) -> str:
         return "null" if value is None else str(value)
     said = (feed.get("sentences") or {}).get(decision.get("reason"))
+    # Shown only while it keeps the plain pattern, its length and the refusals the checks hold it to.
+    plain = isinstance(said, str) and re.fullmatch(SENTENCE_PATTERN, said) is not None and len(said) <= SENTENCE_MOST \
+        and AUTOLINKED.search(said) is None
     # Its own paragraph: GitHub renders the summary as Markdown, where a line below would join the sentence.
-    lines = ([said, ""] if isinstance(said, str) else []) + ["attention: %s" % code(decision.get("attention")), "outcome: %s" % code(decision.get("outcome")),
+    lines = ([said, ""] if plain else []) + ["attention: %s" % code(decision.get("attention")), "outcome: %s" % code(decision.get("outcome")),
              "action: %s" % code(decision.get("action")), "next_actor: %s" % code(feed_.next_actor(decision, feed)),
              "content_id: %s" % code(decision.get("content_id")), "pass: %s" % record["pass"], "release: %s" % record["release"]]
     evidence = decision.get("evidence") or []
