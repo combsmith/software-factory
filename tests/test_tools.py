@@ -12164,6 +12164,72 @@ class Writes(unittest.TestCase):
         # Nor can what an import of all of such a package binds (issue 640).
         self.assertTrue(caught(problems, "harness/nsstar.py:2 imports * from adapters"), problems)
 
+    def test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one(self):
+        # Issue 1101: the mutants of a file outside kernel/ live in tools/mutants_of/, and a mutant of a script or a
+        # hook names gh or git as the text it finds. Such a file imports no module, and names only from another file
+        # there that imports none either, read through in turn, so nothing it reaches runs a command. One that imports
+        # anything else, anywhere in it, is read as any other file: a module (pathlib hands on os), a name from a file
+        # that imported a module and hands it on, from one that does so a step further off, from a ring of imports,
+        # the package itself, a relative import, or a file beside the folder whose name starts as its does. Only its
+        # top-level assignments may name one, never a def: a def handed a runner would run what it names. Nor a lambda,
+        # whatever its parameters are called, and none of the calls it may make bound to another value, by a
+        # comprehension, an assignment, a walrus or an import, or set as an attribute, which would make any call one;
+        # nor an item set, which would change another file's list.
+        # A module named from a package is read as any file named from, and a ring of them through it is no data; a
+        # module below a package there is named from by none, since Python runs that package first.
+        entry = "MUTANTS = [\n    ('a push is not read', 'tools/hooks/identity.py', \"subprocess.run(['git', 'push'])\", '', ()),\n]\n"
+        files = {"tools/mutants_of/common.py": "\"\"\"Shared.\"\"\"\n\nX = ('t',)\nY = X + ('u',)\n",
+                 "tools/mutants_of/data.py": "\"\"\"Data.\"\"\"\n\nfrom tools.mutants_of.common import X, Y\n\nZ = tuple('ab'.replace('a', 'c'))\n" + entry,
+                 "tools/mutants_of/launder.py": "import subprocess\n\nrun = subprocess.run\n",
+                 "tools/mutants_of/runs.py": "import subprocess\n\n" + entry,
+                 "tools/mutants_of/path.py": "import pathlib\n\n" + entry,
+                 "tools/mutants_of/handed.py": "from tools.mutants_of.launder import run\n\n" + entry,
+                 "tools/mutants_of/further.py": "from tools.mutants_of.handed import run\n\n" + entry,
+                 "tools/mutants_of/ring.py": "from tools.mutants_of.round import X\n\n" + entry,
+                 "tools/mutants_of/round.py": "from tools.mutants_of.ring import MUTANTS\n\nX = 1\n",
+                 "tools/mutants_of/package.py": "from tools.mutants_of import common\n\n" + entry,
+                 "tools/mutants_of/later.py": entry + "\n\ndef go():\n    import os\n",
+                 "tools/mutants_of/runner.py": "def version(run):\n    return run(['git', 'push'])\n",
+                 "tools/mutants_of/lambda.py": "version = lambda run: run(['git', 'push'])\n",
+                 "tools/mutants_of/named.py": "RUN = lambda tuple: tuple(['git', 'push'])\n",
+                 "tools/mutants_of/bare.py": "RUN = lambda: X\n" + entry,
+                 "tools/mutants_of/exited.py": "E = exit\n",
+                 "tools/mutants_of/rebound.py": "X = [tuple() for tuple in (exit,)]\n" + entry,
+                 "tools/mutants_of/renamed.py": "tuple = exit\nX = tuple()\n" + entry,
+                 "tools/mutants_of/imported.py": "from tools.mutants_of.exited import E as tuple\n\nX = tuple()\n" + entry,
+                 "tools/mutants_of/attribute_set.py": "exit.replace = print\nX = exit.replace('x')\n" + entry,
+                 "tools/mutants_of/walrus.py": "X = (tuple := exit)\nY = tuple()\n" + entry,
+                 "tools/mutants_of/item_set.py": "from tools.mutants_of.common import Y\n\nY[0] = 1\n" + entry,
+                 "tools/mutants_of/deep/__init__.py": "",
+                 "tools/mutants_of/deep/helper.py": "import subprocess\n\nX = 1\n",
+                 "tools/mutants_of/fromdeep.py": "from tools.mutants_of.deep import helper\n\n" + entry,
+                 "tools/mutants_of/deep/a.py": "from tools.mutants_of.deep import b\n\n" + entry,
+                 "tools/mutants_of/deep/b.py": "from tools.mutants_of.deep import a\n\nX = 1\n",
+                 "tools/mutants_of/deep/values.py": "X = 1\n",
+                 "tools/mutants_of/dotted.py": "from tools.mutants_of.deep.values import X\n\n" + entry,
+                 "tools/mutants_of/dunder.py": "RUN = ().__class__\n" + entry,
+                 "tools/mutants_of/builtin.py": "RUN = __import__\n" + entry,
+                 "tools/mutants_of/reaches.py": "RUN = getattr\n" + entry,
+                 "tools/mutants_of/alias.py": "from tools.mutants_of.common import X as __builtins__\n" + entry,
+                 "tools/mutants_of/attribute.py": "RUN = X.open\n" + entry,
+                 "tools/mutants_of/wrapper.py": "def bind(argv):\n    return argv\n\n\n" + entry,
+                 "tools/mutants_of/beside.py": "TARGETS = ('x.py',); print('git push')\n" + entry,
+                 "tools/mutants_of/raises.py": entry + "raise SystemExit(0)\n",
+                 "tools/mutants_of/exits.py": "RUN = exit()\n" + entry,
+                 "tools/mutants_of/calls.py": "RUN = 'x'.upper()\n" + entry,
+                 "tools/mutants_of/near.py": "from tools.mutants_ofx import X\n\n" + entry,
+                 "tools/mutants_of/relative.py": "from .tools.mutants_of.common import X\n\n" + entry,
+                 "tools/mutants_ofx.py": "X = 1\n" + entry}
+        problems = check_writes.run(clone(files))
+        self.assertFalse(caught(problems, "tools/mutants_of/data.py"), problems)
+        for name in ("runs", "path", "handed", "further", "ring", "package", "later", "runner", "lambda", "named", "bare",
+                     "rebound", "renamed", "imported", "attribute_set", "walrus", "item_set", "fromdeep", "deep/a", "dotted",
+                     "dunder",
+                     "builtin", "reaches", "alias", "attribute", "wrapper", "beside", "raises", "exits", "calls", "near", "relative",
+                     "../mutants_ofx"):
+            rel = os.path.normpath("tools/mutants_of/%s.py" % name)
+            self.assertTrue(any(p.startswith(rel + ":") and "names gh or git as a command" in p for p in problems), rel)
+
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
         queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
             "    return effects.role_write(transport, item, 'review', req, 'me')\n"
@@ -12826,6 +12892,68 @@ class Mutants(unittest.TestCase):
         with self.assertRaises(ValueError) as raised:
             mutants.selected({}, mutants=[("m", "k.py", "rule\n", "x\n")])
         self.assertIn("1 mutant(s) name no test", str(raised.exception))
+
+    def test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone(self):
+        # Issue 1101: a mutant of a file outside kernel/ lives in tools/mutants_of/, one file to a target, so that two
+        # changes adding mutants of different files never meet in one. The runner finds each file there by the walk, in
+        # the order of the names, so that no list names one; each holds the mutants of the paths its TARGETS name and
+        # no other; and no path is two files' targets, the Kernel's, or a target of a mutant tools/mutants.py holds.
+        from tools import mutants_of
+        names = mutants.area_names(ROOT)
+        self.assertEqual(names, sorted(names))
+        self.assertEqual([name for name in names if not mutants.AREA_NAME.fullmatch(name)], [])
+        self.assertEqual([area.__name__ for area in mutants.AREAS], ["tools.mutants_of." + name for name in names])
+        self.assertEqual(mutants.area_names(tree({"tools/mutants_of/%s" % rel: "" for rel in (
+            "a.py", "b.py", "deep/c.py", "common.py", "__init__.py", "AGENTS.md", "d.txt")})), ["a", "b"])
+        # Each is loaded, in that order, and a name that is no module name is never handed to the import.
+        loaded = mutants.areas(tree({"tools/mutants_of/%s" % rel: "" for rel in ("a.py", "b.py", "x.y.py", "C.py")}),
+                               load=lambda name: name)
+        self.assertEqual(loaded, ("tools.mutants_of.a", "tools.mutants_of.b"))
+        held = {}
+        for area in mutants.AREAS:
+            self.assertTrue(area.TARGETS and isinstance(area.TARGETS, tuple), area.__name__)
+            self.assertIn(area.__name__.rpartition(".")[2], [mutants_of.named(t) for t in area.TARGETS])
+            for target in area.TARGETS:
+                self.assertFalse(target.startswith("kernel/"), (area.__name__, target))
+                self.assertNotIn(target, held, area.__name__)
+                held[target] = area.__name__
+            self.assertEqual([m[0] for m in area.MUTANTS if m[1] not in area.TARGETS], [], area.__name__)
+        self.assertEqual(mutants.OUTSIDE, [mutant for area in mutants.AREAS for mutant in area.MUTANTS])
+        self.assertTrue(mutants.OUTSIDE)
+        start, end = len(mutants.ISSUE), len(mutants.ISSUE) + len(mutants.OUTSIDE)
+        self.assertEqual(mutants.MUTANTS[start:end], mutants.OUTSIDE)
+        own = mutants.MUTANTS[:start] + mutants.MUTANTS[end:]
+        self.assertEqual([m[0] for m in own if m[1] in held], [])
+        # The runner's list is the one assignment that reads them, right after ISSUE.
+        made = [n.value for n in ast.parse((ROOT / "tools" / "mutants.py").read_text(encoding="utf-8")).body
+                if isinstance(n, ast.Assign) and [getattr(t, "id", None) for t in n.targets] == ["MUTANTS"]]
+        self.assertEqual(len(made), 1)
+        self.assertTrue(ast.unparse(made[0]).startswith("ISSUE + OUTSIDE + "))
+        # A file is named for one of its targets, so that a mutant's file is found from its target alone.
+        for target, name in (("adapters/pull.py", "adapters_pull"), (".github/workflows/verify.yml", "github_workflows_verify_yml"),
+                             ("controller/__main__.py", "controller_main"), ("Makefile", "makefile"), ("3d/x.py", "_3d_x")):
+            self.assertEqual(mutants_of.named(target), name)
+
+    def test_every_mutant_finds_its_text_once_in_its_target(self):
+        # Issue 1101: a mutant whose text is not in its target exactly once is STALE, which only a run of the mutants
+        # told, and they decline on a pull request, so code moved by a change merged first was found in the merge
+        # group (#1037). Read here, as the run reads it, a stale mutant fails the pull request's own tests.
+        if os.environ.get("MUTATING"):
+            self.skipTest("a copy broken on purpose no longer holds the text it was broken from")
+        texts, stale = {}, []
+        for mutant in mutants.MUTANTS:
+            name, rel, old = mutant[:3]
+            if rel not in texts:
+                # A target is a plain path in the tree, as git names it, so that none is read outside it.
+                path = ROOT / rel
+                plain = rel == os.path.normpath(rel) and not rel.startswith(("/", "../")) and rel != ".."
+                try:
+                    texts[rel] = path.read_bytes().decode() if plain and path.is_file() else None
+                except (OSError, UnicodeDecodeError):
+                    texts[rel] = None
+            if texts[rel] is None or texts[rel].count(old) != 1:
+                stale.append("%s: %s" % (rel, name))
+        self.assertEqual(stale, [], "update each stale mutant to the code as it now reads")
 
     def test_a_test_module_is_read_in_a_process_of_its_own(self):  # issue 511
         # The runner learns whether a named test exists in another process, so a test module whose import patches the
