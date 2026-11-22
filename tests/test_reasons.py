@@ -196,6 +196,9 @@ def written(tree, taken: dict) -> tuple:
             # A reason handed on goes only to a parameter named `reason`: any other is followed nowhere. A foreign
             # mapping's "reason", such as a reviewing Result's in kernel/coverage.py, is no Decision's.
             slot = taken.get(_name(node.func))
+            if _name(node.func) == "setdefault" and node.args and isinstance(node.args[0], ast.Constant) \
+                    and node.args[0].value == "reason":
+                slot = 1
             unread += [node.lineno for i, a in enumerate(node.args) if _flows(a, False) and i != slot]
             unread += [node.lineno for kw in node.keywords if kw.arg != "reason" and _flows(kw.value, False)]
             named = [kw for kw in node.keywords if kw.arg == "reason"]
@@ -234,6 +237,8 @@ def written(tree, taken: dict) -> tuple:
                 bound.add(id(node.target))
             else:
                 _bound(node.target, node.value, found, unread, bound)
+        if isinstance(node, (ast.For, ast.comprehension)) and _flows(node.iter):
+            unread.append(node.iter.lineno)
         if isinstance(node, ast.NamedExpr):
             _bound(node.target, node.value, found, unread, bound)
         if isinstance(node, ast.Subscript) and _flows(node.slice):
@@ -243,7 +248,7 @@ def written(tree, taken: dict) -> tuple:
         if isinstance(node, ast.Compare):
             sides = [node.left] + node.comparators
             unread += [node.lineno for side in sides if _keyed_any(side) and not _keyed(side)]
-            if any(_read_on(side) or table(side) for side in sides):
+            if any(_flows(side, False) or table(side) for side in sides):
                 for side in sides:
                     if isinstance(side, (ast.Tuple, ast.List, ast.Set)):
                         for member in side.elts:
@@ -287,7 +292,8 @@ class Written(unittest.TestCase):
         self.assertGreater(passed, 100)
         # `reading` takes the handed table where the scan reads it, and each table is bound once in a module, somewhere.
         reading = [fn for fn in ast.walk(trees["derive.py"]) if isinstance(fn, ast.FunctionDef) and fn.name == HANDED[0]]
-        self.assertEqual([[a.arg for a in fn.args.args].index(HANDED[1]) for fn in reading], [HANDED_AT])
+        self.assertEqual([[a.arg for a in fn.args.posonlyargs + fn.args.args].index(HANDED[1]) for fn in reading],
+                         [HANDED_AT])
         self.assertEqual([fn.args.defaults for fn in reading], [[]])
         bound = [(name, t.id) for name, tree in trees.items() for node in tree.body if isinstance(node, ast.Assign)
                  for t in node.targets if isinstance(t, ast.Name) and t.id in TABLES]
@@ -367,6 +373,9 @@ class Written(unittest.TestCase):
             ('f = lambda reason: reason', [], [1]),
             ('_decision(f, s, "x", e, o, extra={"why": reason})', ["x"], [1]),
             ('d = {"reason": reason, "why": d["reason"]}', [], [1]),
+            ('d.setdefault("reason", bare["reason"])', [], []),
+            ('for why in (d["reason"], bare["reason"]):\n    pass', [], [1]),
+            ('"x" in (d["reason"], bare["reason"])', ["x"], []),
             ('_decision(f, s, reason, e, o)\nout(s, d["reason"], [])', [], []),
             ('d.setdefault("reason", "x")', ["x"], []),
             ('d.setdefault("reason")', [], [1]),
