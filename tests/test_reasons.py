@@ -21,6 +21,7 @@ from kernel import terms
 from sim.issues import IssueWorld
 from sim.world import World
 from tests.support import ROOT
+from tools import walk
 
 KERNEL = ROOT / "kernel"
 # The one module whose Decisions are an issue's. A literal reason in any other is a pull request's, or both kinds'.
@@ -127,7 +128,10 @@ def _flows(value, foreign: bool = True) -> bool:
     if isinstance(value, ast.IfExp):
         return _flows(value.body, foreign) or _flows(value.orelse, foreign)
     parts = value.values if isinstance(value, ast.BoolOp) else value.elts if isinstance(
-        value, (ast.Tuple, ast.List, ast.Set)) else [value.value] if isinstance(value, ast.Starred) else []
+        value, (ast.Tuple, ast.List, ast.Set)) else [value.value] if isinstance(value, ast.Starred) else [
+        part for key, given in zip(value.keys, value.values) for part in (key, given) if part is not None
+        and not (isinstance(key, ast.Constant) and key.value == "reason" and part is given)] if isinstance(
+        value, ast.Dict) else []
     return any(_flows(part, foreign) for part in parts)
 
 
@@ -157,10 +161,9 @@ def written(tree, taken: dict) -> tuple:
     that takes one, or as its default, as a value bound or stored to the name `reason` or to a mapping's "reason", as a
     literal compared with a reason or a table of them, and as a member of a table. A call that gives no reason by
     place or name, a table bound anywhere but once at the top level, a handed table bound again, and the name `reason`
-    bound any other way, by a loop, a comprehension or `:=`, cannot be read. The scan assumes good faith, as the
-    Kernel's other source checks do: it reads the forms the Kernel writes and refuses the plain others, not a form
-    made to slip past it (a dict built from pairs, a callee imported under another name). The runtime test is the
-    binding hold.
+    bound any other way, by a loop, a comprehension or `:=`, is put in `unread`. The scan assumes good faith, as the
+    Kernel's other source checks do: it reads the forms the Kernel writes and refuses the ones the record lists, and
+    no others (decision 0248's limit row). The runtime test is the binding hold.
     """
     found, unread, calls, bound = [], [], 0, set()
     tops = {id(t) for node in tree.body if isinstance(node, ast.Assign) for t in node.targets}
@@ -261,7 +264,7 @@ def read_of_sets(tree) -> list:
 def kernel_trees() -> dict:
     """Every module under kernel/, at any depth, by its path there."""
     return {path.relative_to(KERNEL).as_posix(): ast.parse(path.read_text(), path.name)
-            for path in sorted(KERNEL.rglob("*.py"))}
+            for path in walk.files(ROOT, "kernel") if path.suffix == ".py"}
 
 
 class Written(unittest.TestCase):
@@ -362,6 +365,8 @@ class Written(unittest.TestCase):
             ('ACTIONS[d["reason"]]', [], [1]),
             ('from kernel.decide import _decision as make', [], [1]),
             ('f = lambda reason: reason', [], [1]),
+            ('_decision(f, s, "x", e, o, extra={"why": reason})', ["x"], [1]),
+            ('d = {"reason": reason, "why": d["reason"]}', [], [1]),
             ('_decision(f, s, reason, e, o)\nout(s, d["reason"], [])', [], []),
             ('d.setdefault("reason", "x")', ["x"], []),
             ('d.setdefault("reason")', [], [1]),
