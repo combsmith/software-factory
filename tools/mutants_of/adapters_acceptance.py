@@ -157,4 +157,6 @@ MUTANTS = [
      '        ended, cut = ended or asked or not read_whole, cut or past\n', '        ended, cut = ended or asked or not read_whole, cut or past or not read_whole\n', ('tests.test_adapters.Acceptance.test_a_bound_issues_timeline_is_read_to_ten_pages_and_past_them_is_not_whole', 'tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut')),
     ("an acceptance read cut at its bound is not said to be", 'adapters/acceptance.py',
      '        ended, cut = ended or asked or not read_whole, cut or past\n', '        ended, cut = ended or asked or not read_whole, cut\n', ('tests.test_adapters.Acceptance.test_a_bound_issues_timeline_is_read_to_ten_pages_and_past_them_is_not_whole', 'tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut')),
+    ("an issue that ended the read is forgotten at the next issue", 'adapters/acceptance.py',
+     '        ended, cut = ended or asked or not read_whole, cut or past\n', '        ended, cut = asked or not read_whole, cut or past\n', ('tests.test_adapters.Acceptance.test_a_bound_issues_timeline_is_read_to_ten_pages_and_past_them_is_not_whole',)),
 ]

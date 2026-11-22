@@ -7623,7 +7623,7 @@ class Linked(unittest.TestCase):
         self.assertEqual((f["linked"], f["complete"]["linked"]), ([], True))
         self.assertNotEqual(issue.derive(f, [], CONFIG)["reason"], "facts_incomplete")
 
-    def test_a_chain_of_spans_the_records_broke_while_something_names_the_issue_is_said(self):  # decision 0234, (C)
+    def test_a_chain_of_spans_the_records_broke_while_something_names_the_issue_is_said(self):  # decision 0253, (C)
         # The records break the chain while a pull request names the issue: the linked read says so, and the issue's facts
         # carry it, so the Kernel calls a person; with nothing naming the issue, nothing is said.
         from kernel import issue
@@ -7642,6 +7642,10 @@ class Linked(unittest.TestCase):
         router = Router(github.Replay(issue_read(closing=[linked_read((), [crossed("Issue")])])), {"don-petry": "admin"})
         f = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=broke)[0]
         self.assertEqual((f["linked"], f["spans_broken"]), ([], False))
+        # A pull request's cross-reference alone, its keyword gone, names the issue too: the break is said (Carbon).
+        router = Router(github.Replay(issue_read(closing=[linked_read((), [crossed("PullRequest")])])), {"don-petry": "admin"})
+        f = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=broke)[0]
+        self.assertEqual((f["linked"], f["complete"]["linked"], f["spans_broken"]), ([], False, True))
 
     def test_the_linked_pull_requests_read_short_are_not_whole_and_one_not_answered_refuses_the_issue(self):
         def short7(*after, refs=(7, 8), events=()):
