@@ -1,0 +1,23 @@
+{
+  "schema": "advice/1",
+  "run": "r_01JA7Q",
+  "release": "factory/v0.3.1",
+  "lens": "astra",
+  "status": "incomplete",
+  "reason": "budget",
+  "findings": [],
+  "texts": [],
+  "off_change": 0,
+  "usage": {
+    "api": "responses",
+    "deployment": "astra-reader",
+    "model": "astra-model",
+    "answering_model": null,
+    "effort": "xhigh",
+    "asks": 0,
+    "input_tokens": null,
+    "output_tokens": null,
+    "cost_usd": null,
+    "seconds": 0
+  }
+}
