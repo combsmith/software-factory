@@ -65,8 +65,9 @@ QUEUE_WAITS = ("mergeable_unreadable", "awaiting_checks", "awaiting_review", "re
 # holds the reasons only an issue's Decision gives, issue-decision/1's. Each reason the Kernel writes or compares is in
 # one, and each member is given by a Decision of its kind (tests/test_reasons.py). A new reason goes in one of them.
 REASONS = frozenset({
-    "acceptance_evidence_missing", "acceptance_failed", "acceptance_reporters_unreadable", "acceptance_unreadable",
-    "act_ceiling", "acts_unreadable", "approval_due", "approval_lost", "approved", "approver_is_author_or_last_pusher",
+    "acceptance_bounded", "acceptance_evidence_missing", "acceptance_failed", "acceptance_reporters_unreadable",
+    "acceptance_unreadable", "act_ceiling", "acts_unreadable", "approval_due", "approval_lost", "approved",
+    "approver_is_author_or_last_pusher",
     "attempts_exhausted", "awaiting_checks", "awaiting_human", "awaiting_review", "base_not_protected", "capacity",
     "capacity_unreadable", "check_failed", "check_unreadable", "closed", "concurrency", "conflict", "contract_changed",
     "contract_not_approved", "description_edited_after_approval", "description_unreadable", "draft", "empty_diff",
