@@ -574,6 +574,14 @@ class HandApproval(unittest.TestCase):
         running = [{"run": "r_01JA7Q", "item": OTHER, "started_at": GIVEN, "status": "in_progress"}]
         busy = check(seen(approval(), role), r=running, before=[decided_as(hand)])
         self.assertEqual((busy["hand"], busy["short"]), ([], True))
+        # So does one found in the Runs, once the pass job's token is an identity: a list that cannot be read, or a
+        # re-run whose re-runner cannot be read, read before any approval is judged.
+        rerun = [{"run": "r_01JA7R", "item": OTHER, "started_at": GIVEN, "dispatched_at": GIVEN, "status": "completed",
+                  "rerun_by_dispatcher": None}]
+        for name, r_ in (("runs unread", None), ("re-runner unread", rerun)):
+            token = check(seen(approval()), r=r_, before=[decided_as(hand)], accounts=TOKEN)
+            self.assertEqual((("approver", "approval") in kinds(token), token["hand"], token["short"]), (True, [], True),
+                             name)
         # The Factory's own approval, matched, is neither unmatched nor a hand approval, but takes its head.
         own = check(seen(approval()), recorded([applied(("approve", "PRR_1", "applied"))]), before=[decided_as(hand)])
         self.assertEqual((own["unmatched"], own["hand"], [t["key"] for t in own["taken"]]), ([], [], ["PRR_1"]))
