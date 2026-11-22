@@ -122,6 +122,19 @@
         }
       }
     },
+    "gone": {
+      "description": "Each issue that left read as whole by REST's 404 or 410, its read of the repo answered in the same pass, with that answer; absent where there is none (decision 1145)",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item", "answer"],
+        "properties": {
+          "item": {"type": "object", "additionalProperties": false, "required": ["repo", "type", "number"], "properties": {"repo": {"type": "string", "pattern": "^[^/]+/[^/]+$"}, "type": {"const": "issue"}, "number": {"type": "integer", "minimum": 1}}},
+          "answer": {"enum": [404, 410]}
+        }
+      }
+    },
     "merged": {
       "type": "array",
       "items": {

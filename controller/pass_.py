@@ -371,6 +371,9 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
 
     # Every write a Factory identity made, matched to an Effect the Factory recorded; one alert for any that is not, and
     # one for a reconciliation that is short (I-33, decision 0061). What it found is in the record before it is checked.
+    # The issues this pass served, read or left out, as the next pass's entry reads them from this record (issue 916).
+    served = [e["facts"]["item"]["number"] for e in issues] \
+        + [i["number"] for i in map(reads_.item, also) if i is not None and i["type"] == "issue"]
     found = reconcile_.reconcile(reads.get("seen"), reads.get("effects"), runs if listed and whole else None, before,
                                  rules["accounts"])
     # The pull requests this pass read as open, decided or left out: one reopened keeps what was carried (decision 0241).
@@ -384,7 +387,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
               "reconciliation": reconcile_.entries(found),
               "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or (),
                                                reads.get("gone") or (), reads.get("unread_issues") or (),
-                                               reads.get("gone_issues") or (), found["hand"], found["taken"],
+                                               reads.get("gone_issues") or (), served, found["hand"], found["taken"],
                                                opened)}
     checked(record, "pass")
     entries = record["pull_requests"] + record["issues"]
