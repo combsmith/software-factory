@@ -625,8 +625,9 @@ class Patch(unittest.TestCase):
                 self.assertEqual(landed(data), (None, patch.NOT_APPLIED))
         # A removal that leaves bytes is no removal: the tree holds more than the patch takes.
         self.assertEqual(landed(gone, held=dict(HELD, **{"tests/t.py": b"x\ny\n"})), (None, patch.NOT_APPLIED))
-        # An empty file is removed with no hunk, as git writes it; one whose bytes were not handed over is not.
-        self.assertEqual(landed(gone[:gone.index(b"--- ")], held={}), (None, patch.NOT_APPLIED))
+        # An empty file is removed with no hunk, as git writes it; one whose bytes were not handed over is not, and that
+        # is the Factory's.
+        self.assertEqual(landed(gone[:gone.index(b"--- ")], held={}), (None, patch.TREE_UNREAD))
         self.assertEqual(landed(gone[:gone.index(b"--- ")], held=dict(HELD, **{"tests/t.py": b""}))[0]["removed"], ["tests/t.py"])
         # A file the tree does not hold is not the patch's to change, whatever bytes were read for its name.
         self.assertEqual(landed(section("docs/none.md", b"@@ -1 +1 @@\n-a\n+b\n"), held={"docs/none.md": b"a\n"}),
@@ -637,7 +638,7 @@ class Patch(unittest.TestCase):
             pass
         for data in (CHANGE, moved % ((b"docs/b.md",) * 2), copied % ((b"docs/c.md",) * 2), MODE):
             for held in ({}, {"docs/a.md": OLD.decode()}, {"docs/a.md": Said(OLD)}):
-                self.assertEqual(landed(data, held=held), (None, patch.NOT_APPLIED), (data, held))
+                self.assertEqual(landed(data, held=held), (None, patch.TREE_UNREAD), (data, held))
         away = b"diff --git a/tests/t.py b/x\nsimilarity index 100%\nrename from tests/t.py\nrename to x\n"
         twice = (CHANGE + CHANGE, CHANGE + moved % ((b"docs/b.md",) * 2), moved % ((b"docs/b.md",) * 2) + CHANGE,
                  gone + new % ((b"tests/t.py",) * 3), new % ((b"n",) * 3) + new % ((b"n",) * 3),
@@ -737,6 +738,59 @@ class Patch(unittest.TestCase):
         # The code is its own, by its letters, and no other's.
         self.assertEqual(patch.PATH_TWIN, "push_path_collision")
         self.assertNotIn(patch.PATH_TWIN, (patch.UNREADABLE, patch.NOT_APPLIED, patch.NOT_A_FILE))
+
+
+    def test_what_a_port_did_not_read_is_the_factorys_under_its_own_code(self):
+        # A tree or contents in no shape a port gives is the Factory's, whatever the patch is: a path is text.
+        for tree, held in ((None, HELD), (TREE, None), ([], HELD), (TREE, []), ({**TREE, b"f": FILE}, HELD),
+                           ({**TREE, None: FILE}, HELD), ({1: FILE}, HELD), ({**TREE, "unread": None}, HELD),
+                           ({**TREE, "lone": "040000"}, HELD), ({**TREE, "n": 100644}, HELD), ({**TREE, "n": b"100644"}, HELD),
+                           # a tree that holds a file where it holds a directory; contents whose path is no text, or
+                           # that are no bytes, though the patch reads none of them
+                           ({**TREE, "run.sh/x": FILE}, HELD), ({**TREE, "docs/a.md/x/y": FILE}, HELD),
+                           ({**TREE, "link/x": FILE}, HELD), ({**TREE, "vendored/x": FILE}, HELD),     # or a link, or a submodule
+                           # a path git holds in no tree: an empty one, one with an empty part, one with a NUL
+                           ({**TREE, "": FILE}, HELD), ({**TREE, "docs//x": FILE}, HELD), ({**TREE, "x/": FILE}, HELD),
+                           ({**TREE, "a\x00b": FILE}, HELD),
+                           (TREE, {**HELD, b"other": b""}), (TREE, {**HELD, "other": None}), (TREE, {**HELD, "other": "text"})):
+            self.assertEqual(patch.applied(CHANGE, tree, held), (None, patch.TREE_UNREAD))
+            self.assertEqual(patch.applied(b"no patch\n", tree, held), (None, patch.TREE_UNREAD))
+        # Each is of its type exactly: a subclass of dict, str or bytes would be read by its own methods.
+        class Map(dict):
+            pass
+
+        class Text(str):
+            pass
+
+        class Said(bytes):
+            pass
+        for tree, held in ((Map(TREE), HELD), (TREE, Map(HELD)), ({**TREE, Text("n"): FILE}, HELD),
+                           ({**TREE, "n": Text(FILE)}, HELD), (TREE, {**HELD, Text("other"): b""}),
+                           (TREE, {**HELD, "other": Said(b"")})):
+            self.assertEqual(patch.applied(CHANGE, tree, held), (None, patch.TREE_UNREAD), (tree, held))
+        # A path of more parts than DEEPEST has characters is in no tree a port gives; one of as many parts is.
+        deepest = "/".join(["d"] * len(patch.DEEPEST))
+        self.assertEqual(patch.applied(CHANGE, {**TREE, deepest + "/e": FILE}, HELD), (None, patch.TREE_UNREAD))
+        self.assertIsNone(patch.applied(CHANGE, {**TREE, deepest: FILE}, HELD)[1])
+        # So is a file the tree holds whose bytes were not handed over, or are no bytes: with hunks or with none, it is
+        # not guessed at. What is no patch is the Role's all the same, and so is a file the tree does not hold.
+        moved = b"diff --git a/docs/a.md b/docs/b.md\nsimilarity index 100%\nrename from docs/a.md\nrename to docs/b.md\n"
+        for data in (CHANGE, moved, COPIED, MODE):
+            for held in ({}, {"docs/a.md": OLD.decode()}, {"docs/a.md": None}):
+                self.assertEqual(landed(data, held=held), (None, patch.TREE_UNREAD), (data, held))
+        # Missing bytes are the Factory's whatever else the section says: beside a mode that is not the tree's too.
+        self.assertEqual(landed(CHANGE.replace(b"2222222 100644", b"2222222 100755"), held={}), (None, patch.TREE_UNREAD))
+        # The Factory's code is its own, by its letters, and none of the Role's three.
+        self.assertEqual(patch.TREE_UNREAD, "push_tree_unreadable")
+        self.assertNotIn(patch.TREE_UNREAD, (patch.UNREADABLE, patch.NOT_APPLIED, patch.NOT_A_FILE, patch.PATH_TWIN))
+        for data in (GONE, GONE[:GONE.index(b"--- ")]):      # a file removed, by its hunk or with none
+            self.assertEqual(landed(data, held={}), (None, patch.TREE_UNREAD), data)
+        self.assertEqual(landed(b"no patch\n", held={}), (None, patch.UNREADABLE))
+        self.assertEqual(landed(section("docs/none.md", b"@@ -1 +1 @@\n-a\n+b\n"), held={}), (None, patch.NOT_APPLIED))
+        # A link and a submodule are refused before any bytes of one are asked for.
+        for name, mode in (("link", b"120000"), ("vendored", b"160000")):
+            hunks, extended = b"@@ -1 +1 @@\n-a\n+b\n", b"index 1111111..2222222 %s\n" % mode
+            self.assertEqual(landed(section(name, hunks, extended=extended), held={}), (None, patch.NOT_A_FILE), name)
 
 
 if __name__ == "__main__":
