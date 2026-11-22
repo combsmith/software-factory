@@ -1,5 +1,5 @@
 """The guards on a Role's own writes (issue 838). `guards/patch.py`: a Role's patch, read as git writes it and applied
-byte for byte, or not at all. `guards/push.py`: what a push may read, and the answers it takes."""
+byte for byte, or not at all. `guards/push.py`: what a push may send, in what order, up to the tree it makes."""
 from __future__ import annotations
 
 import os
@@ -902,7 +902,7 @@ GIT = "/repos/%s/git/" % REPO
 BRANCH = "factory-work/issue-838-1"
 PARENT, ROOT_TREE, MADE_TREE, MADE = "a" * 40, "b" * 40, "c" * 40, "d" * 40
 BLOB_A, BLOB_RUN, BLOB_T, BLOB_LINK, PINNED = "1" * 40, "2" * 40, "3" * 40, "4" * 40, "5" * 40
-NEW_A = "e" * 40
+NEW_A, NEW_N = "e" * 40, "f" * 40
 BEFORE = {"docs/a.md": (FILE, BLOB_A), "run.sh": ("100755", BLOB_RUN), "tests/t.py": (FILE, BLOB_T),
           "link": ("120000", BLOB_LINK), "vendored": ("160000", PINNED)}
 WROTE = {"written": {"docs/a.md": (FILE, b"A\n"), "docs/n.md": ("100755", b"x\n")}, "removed": ["tests/t.py"],
@@ -912,6 +912,10 @@ PUSH = {"repo": REPO, "branch": BRANCH, "parent": PARENT, "head": None, "message
         "changes": WROTE, "blobs": BLOBS}
 MOVE = dict(PUSH, head=PARENT)
 READING = dict(PUSH, changes=None, blobs=None)
+ENTRIES = [{"path": "docs/a.md", "mode": FILE, "type": "blob", "sha": NEW_A},
+           {"path": "docs/n.md", "mode": "100755", "type": "blob", "sha": NEW_N},
+           {"path": "tests/t.py", "mode": FILE, "type": "blob", "sha": None}]
+NEW_TREE = {"base_tree": ROOT_TREE, "tree": ENTRIES}
 
 
 
@@ -939,6 +943,11 @@ def honest(told: dict) -> list:
     steps = [("commit", "GET", "commits/" + PARENT, None, answer(200, {"sha": PARENT, "tree": {"sha": ROOT_TREE}})),
              ("tree", "GET", "trees/" + ROOT_TREE + "?recursive=1", None, answer(200, listed(ROOT_TREE, BEFORE))),
              ("branch", "GET", "ref/heads/" + BRANCH, None, answer(200, ref(PARENT)) if moves else answer(404))]
+    if told["changes"] is None:
+        return steps
+    steps += [("blob a", "POST", "blobs", {"content": "QQo=", "encoding": "base64"}, answer(201, {"sha": NEW_A})),
+              ("blob n", "POST", "blobs", {"content": "eAo=", "encoding": "base64"}, answer(201, {"sha": NEW_N})),
+              ("new tree", "POST", "trees", NEW_TREE, answer(201, {"sha": MADE_TREE}))]
     return steps
 
 
@@ -965,6 +974,54 @@ class Odd(str):
         return False
 
     __hash__ = str.__hash__
+
+
+class Posing(str):
+    """Text of another kind that passes for the key it is told: it hashes as that key and equals anything."""
+    def __new__(cls, text: str, posing: str):
+        made = str.__new__(cls, text)
+        made.posing = posing
+        return made
+
+    def __eq__(self, other):
+        return True
+
+    def __ne__(self, other):
+        return False
+
+    def __hash__(self):
+        return hash(self.posing)
+
+
+class Raising(str):
+    """Text of another kind that hashes as its text and raises when it is compared."""
+    def __eq__(self, other):
+        raise ValueError("compared")
+
+    __hash__ = str.__hash__
+
+
+class Unequal(type):
+    """A kind whose kinds raise when they are compared."""
+    def __eq__(cls, other):
+        raise ValueError("compared")
+
+    __hash__ = type.__hash__
+
+
+class Uncomparable(metaclass=Unequal):
+    """A value of a kind that raises when it is compared."""
+
+
+def odd(value):
+    """`value` with each text in it, but a mapping's keys, made text of another kind."""
+    if type(value) is str:
+        return Odd(value)
+    if type(value) is dict:
+        return {key: odd(held) for key, held in value.items()}
+    if type(value) is list:
+        return [odd(held) for held in value]
+    return value
 
 
 def may(state, method: str, rest: str, body=None) -> bool:
@@ -1070,11 +1127,21 @@ class Push(unittest.TestCase):
             self.assertIsNone(push.existing(bad["changes"], {}), said)
 
     def test_nothing_leaves_outside_this_repos_git_data(self):
-        requests = [before(step, told) for told in (PUSH, MOVE) for step in ("commit", "tree", "branch")]
+        requests = [before(step, told) for told in (PUSH, MOVE) for step in
+                    ("commit", "tree", "branch", "blob a", "new tree")]
         requests.append((before(None)[0], ("GET", "blobs/" + BLOB_A, None, answer(200, {"sha": BLOB_A}))))
-        self.assertEqual(sorted({request[0] for _, request in requests}), ["GET"])
+        self.assertEqual(sorted({request[0] for _, request in requests}), ["GET", "POST"])
         for state, (method, rest, body, said) in requests:
             self.assertTrue(push.permits(state, method, GIT + rest, body), rest)
+            # A body that holds text of another kind is held to nothing: it says it equals what is asked.
+            if body is not None:
+                self.assertFalse(push.permits(state, method, GIT + rest, odd(body)), rest)
+                self.assertIsNone(push.seen(state, method, GIT + rest, odd(body), said), rest)
+                posed = {(Posing("x", key) if key == min(body) else key): held for key, held in body.items()}
+                self.assertFalse(push.permits(state, method, GIT + rest, posed), rest)
+                self.assertFalse(push.permits(state, method, GIT + rest, dict(body, more=Uncomparable())), rest)
+            # Another owner's and another repo's, of a name as long as this one's and of another length; this repo's
+            # other data; and a path that only holds this repo's.
             for root in ("/repos/combsmiht/software-factory/git/", "/repos/combsmith/software-fictory/git/",
                          "/repos/combsmith/other/git/", "/repos/other/software-factory/git/",
                          "/repos/%s-canary/git/" % REPO, "/repos/%s/" % REPO, "/repos/%s/pulls/" % REPO,
@@ -1087,7 +1154,7 @@ class Push(unittest.TestCase):
             self.assertFalse(push.permits(state, method, None, body))
             self.assertFalse(push.permits(state, method, [GIT + rest], body))
         # A state that is none of `began`'s lets nothing leave: none, one of a key fewer or more, or of a push told wrongly.
-        state, (method, rest, body, said) = requests[-1]
+        state, (method, rest, body, said) = before("new tree")
         less = {k: v for k, v in state.items() if k != "landed"}
 
         class Mapping(dict):
@@ -1232,6 +1299,160 @@ class Push(unittest.TestCase):
                       answer(200, ref(PARENT, "main")), answer(200, {"ref": "refs/heads/" + BRANCH, "object": PARENT}),
                       answer(200, {"object": {"sha": PARENT}}), answer(200, [ref(PARENT)]), answer(201, ref(PARENT))):
             self.assertIsNone(then(state, method, rest, body, other), other)
+
+    def test_nothing_is_written_before_the_tree_and_the_branch_were_read(self):
+        writes = [(told, request) for told in (PUSH, MOVE)
+                  for step in ("blob a", "new tree") for request in [before(step, told)[1]]]
+        for told, (method, rest, body, said) in writes:
+            for step in ("commit", "tree", "branch"):
+                self.assertFalse(push.permits(before(step, told)[0], method, GIT + rest, body), (step, rest))
+            # The branch read with the tree unread, and the tree read with the branch unread: neither is enough.
+            first = push.began(told)
+            method_b, rest_b, body_b, said_b = before("branch", told)[1]
+            unread = then(first, method_b, rest_b, body_b, said_b)
+            self.assertTrue(unread["branch_read"])
+            self.assertFalse(push.permits(unread, method, GIT + rest, body), rest)
+        self.assertTrue(may(before("blob a")[0], "POST", "blobs", {"content": "QQo=", "encoding": "base64"}))
+        state, (method, rest, body, said) = before("branch", MOVE)
+        # Read again before it is written, a branch that moved stops the push.
+        for step in ("blob a", "new tree"):
+            state, _ = before(step, MOVE)
+            self.assertEqual(then(state, method, rest, body, said), state)
+            self.assertIsNone(then(state, method, rest, body, answer(200, ref(MADE))))
+            state, _ = before(step)
+            self.assertEqual(then(state, method, rest, body, answer(404)), state)
+            self.assertIsNone(then(state, method, rest, body, answer(200, ref(MADE))))
+        # A push of no changes reads, and writes nothing whatever it read.
+        state, _ = before(None, READING)
+        self.assertTrue(state["branch_read"] and state["before"] == BEFORE)
+        for told, (method, rest, body, said) in writes:
+            self.assertFalse(push.permits(state, method, GIT + rest, body), rest)
+            self.assertIsNone(push.seen(state, method, GIT + rest, body, said), rest)
+
+    def test_a_blob_is_made_once_of_each_written_files_base64(self):
+        state, (method, rest, body, said) = before("blob a")
+        self.assertTrue(may(state, method, rest, body))
+        self.assertTrue(may(state, method, rest, {"content": "eAo=", "encoding": "base64"}))
+        for bad in (None, {"content": "QQo=", "encoding": "base64", "x": 1}, {"content": "A\n", "encoding": "utf-8"},
+                    {"content": "QQo=", "encoding": "utf-8"}, {"content": b"QQo=", "encoding": "base64"},
+                    {"content": "QQo="}, {"content": "QUEK", "encoding": "base64"}, {"content": "", "encoding": "base64"},
+                    {"content": None, "encoding": "base64"}, ["QQo="], "QQo="):
+            self.assertFalse(may(state, method, rest, bad), bad)
+        self.assertFalse(may(state, method, "blobs/" + BLOB_A, body))
+        self.assertFalse(may(state, "PATCH", rest, body))
+        after_a = then(state, method, rest, body, said)
+        self.assertEqual(after_a["made"], {"docs/a.md": NEW_A})
+        self.assertEqual(state["made"], {})
+        for other in (answer(200, {"sha": NEW_A}), answer(201), answer(201, {"sha": "main"}), answer(201, {}),
+                      answer(201, [NEW_A]), answer(201, {"sha": None}), answer(404), answer(422, {"sha": NEW_A})):
+            self.assertIsNone(then(state, method, rest, body, other), other)
+        # Once to each content: the blob made, its base64 is no longer one to send, and the other file's still is.
+        self.assertFalse(may(after_a, method, rest, body))
+        self.assertIsNone(then(after_a, method, rest, body, said))
+        self.assertTrue(may(after_a, method, rest, {"content": "eAo=", "encoding": "base64"}))
+        state, _ = before("new tree")
+        self.assertEqual(state["made"], {"docs/a.md": NEW_A, "docs/n.md": NEW_N})
+        for content in ("QQo=", "eAo="):
+            self.assertFalse(may(state, method, rest, {"content": content, "encoding": "base64"}))
+        # Two files of the same bytes are one blob, made once and kept beside both.
+        same = dict(PUSH, changes=dict(WROTE, written={"a": (FILE, b"A\n"), "b": ("100755", b"A\n"), "c": (FILE, b"")}),
+                    blobs={"a": "QQo=", "b": "QQo=", "c": ""})
+        state = push.began(same)
+        for name, method_r, rest_r, body_r, said_r in honest(same)[:3]:
+            state = then(state, method_r, rest_r, body_r, said_r)
+        state = then(state, method, rest, body, said)
+        self.assertEqual(state["made"], {"a": NEW_A, "b": NEW_A})
+        self.assertFalse(may(state, method, rest, body))
+        state = then(state, method, rest, {"content": "", "encoding": "base64"}, answer(201, {"sha": NEW_N}))
+        self.assertEqual(state["made"], {"a": NEW_A, "b": NEW_A, "c": NEW_N})
+
+    def test_the_one_tree_names_exactly_the_changes_by_the_blobs_made(self):
+        state, (method, rest, body, said) = before("new tree")
+        self.assertTrue(may(state, method, rest, NEW_TREE))
+        self.assertTrue(may(state, method, rest, dict(NEW_TREE, tree=ENTRIES[::-1])))
+        self.assertTrue(may(state, method, rest, dict(NEW_TREE, tree=ENTRIES[:2] + [dict(ENTRIES[2], mode="100755")])))
+        entry = lambda at, **changed: ENTRIES[:at] + [dict(ENTRIES[at], **changed)] + ENTRIES[at + 1:]
+        without = [{k: v for k, v in ENTRIES[0].items() if k != "type"}] + ENTRIES[1:]
+        for why, entries in (
+                ("a path the changes do not hold", entry(0, path="config/hooks.json")),
+                ("a path more", ENTRIES + [dict(ENTRIES[0], path="docs/more.md")]),
+                ("a path fewer", ENTRIES[:2]), ("a path twice", [ENTRIES[0], ENTRIES[0], ENTRIES[2]]),
+                ("a path twice in place of a removal", [ENTRIES[0], ENTRIES[1], ENTRIES[0]]),
+                ("a removal twice in place of a file", [ENTRIES[0], ENTRIES[2], ENTRIES[2]]),
+                ("a file in a mode the changes do not give it", entry(0, mode="100755")),
+                ("a link", entry(0, mode="120000")), ("a submodule", entry(0, mode="160000", type="commit")),
+                ("a tree", entry(0, type="tree", mode="040000")), ("a file named a tree", entry(0, type="tree")),
+                ("a file written as no blob", entry(0, sha=None)), ("a blob named by no name", entry(0, sha="main")),
+                ("the blob the admitted commit holds", entry(0, sha=BLOB_A)),
+                ("the blob made for another file", entry(0, sha=NEW_N)),
+                ("a blob nothing made", entry(1, sha=MADE)), ("a removal that names a blob", entry(2, sha=BLOB_T)),
+                ("a removal in no file's mode", entry(2, mode="120000")),
+                ("an entry that says more", entry(0, content="x")), ("an entry that says less", without),
+                ("a path that is no text", entry(0, path=["docs/a.md"])), ("an entry that is none", [None] + ENTRIES[1:]),
+                ("no list", {"docs/a.md": ENTRIES[0]})):
+            self.assertFalse(may(state, method, rest, dict(NEW_TREE, tree=entries)), why)
+        for bad in (None, dict(NEW_TREE, x=1), {"tree": ENTRIES}, dict(NEW_TREE, base_tree=MADE_TREE),
+                    dict(NEW_TREE, base_tree=PARENT), dict(NEW_TREE, base_tree=None), [NEW_TREE]):
+            self.assertFalse(may(state, method, rest, bad), bad)
+        self.assertFalse(may(state, method, "trees/" + ROOT_TREE, NEW_TREE))
+        self.assertFalse(may(state, "PATCH", rest, NEW_TREE))
+        # No tree before every written file's blob was made: a file's entry names the blob made of its bytes.
+        unmade = dict(NEW_TREE, tree=[dict(entry, sha=None) for entry in ENTRIES])
+        for step in ("blob a", "blob n"):
+            self.assertFalse(may(before(step)[0], method, rest, NEW_TREE), step)
+            self.assertFalse(may(before(step)[0], method, rest, unmade), step)
+        made = then(state, method, rest, body, said)
+        self.assertEqual(made["new"], MADE_TREE)
+        for other in (answer(200, {"sha": MADE_TREE}), answer(201), answer(201, {"sha": "main"}), answer(201, {}),
+                      answer(201, [MADE_TREE]), answer(422, {"sha": MADE_TREE})):
+            self.assertIsNone(then(state, method, rest, body, other), other)
+        # A tree that is the admitted one is no change: nothing follows it.
+        self.assertIsNone(then(state, method, rest, body, answer(201, {"sha": ROOT_TREE})))
+        # One tree: once it is made, no other is.
+        self.assertFalse(may(made, method, rest, NEW_TREE))
+        self.assertIsNone(then(made, method, rest, body, said))
+
+    def test_an_answer_is_githubs_to_that_request_or_the_push_stops(self):
+        for told in (PUSH, MOVE):
+            for name, method, rest, body, said in honest(told):
+                state = before(name, told)[0]
+                self.assertIsNotNone(then(state, method, rest, body, said), name)
+                for why, wrong in (
+                        ("no answer", None), ("a thing more", dict(said, headers={})), ("the body alone", said["body"]),
+                        ("no status", {"body": said["body"]}), ("no body", {"status": said["status"]}),
+                        ("a status as a number", dict(said, status=int(said["status"]))),
+                        ("a status that is true", dict(said, status=True)), ("a status in bytes", dict(said, status=said["status"].encode())),
+                        ("a status with a space", dict(said, status=said["status"] + " ")),
+                        ("no status at all", dict(said, status=None)), ("a pair", (said["status"], said["body"])),
+                        ("a redirect", dict(said, status="301")), ("a refusal", dict(said, status="403")),
+                        ("a fault", dict(said, status="500")), ("nothing changed", dict(said, status="304")),
+                        ("no content", dict(said, status="204")), ("a status past any number", dict(said, status=10 ** 5000))):
+                    self.assertIsNone(then(state, method, rest, body, wrong), (name, why))
+                # An answer that holds text of another kind, or what JSON does not, is none GitHub gave.
+                self.assertIsNone(then(state, method, rest, body, odd(said)), name)
+                self.assertIsNone(then(state, method, rest, body, {Raising("status"): said["status"], "body": said["body"]}), name)
+                if said["body"] is not None:
+                    self.assertIsNone(then(state, method, rest, body, dict(said, body=odd(said["body"]))), name)
+                if type(said["body"]) is dict:
+                    self.assertIsNone(then(state, method, rest, body, dict(said, body=dict(said["body"], more=1.5))), name)
+                    for key, held in said["body"].items():
+                        if type(held) is list:
+                            self.assertIsNone(then(state, method, rest, body, dict(said, body=dict(said["body"], **{key: odd(held)}))),
+                                              (name, key))
+                # A request that may not leave has no answer this takes: its body changed, it is none of this push.
+                self.assertIsNone(then(state, method, rest, {"x": 1}, said), name)
+                self.assertIsNone(then(state, "DELETE", rest, body, said), name)
+        self.assertIsNone(push.seen(None, "GET", GIT + "commits/" + PARENT, None, answer(200, {"sha": PARENT, "tree": {"sha": ROOT_TREE}})))
+        # A value held deeper than any answer of GitHub's is refused, and so one that holds itself ends there.
+        state, (method, rest, body, said) = before("tree")
+        deep = None
+        for _ in patch.DEEPEST[2:]:  # the answer and its body are two levels, the listing's lists all the rest
+            deep = [deep]
+        self.assertIsNotNone(then(state, method, rest, body, answer(200, listed(ROOT_TREE, BEFORE, more=deep))))
+        self.assertIsNone(then(state, method, rest, body, answer(200, listed(ROOT_TREE, BEFORE, more=[deep]))))
+        looped = listed(ROOT_TREE, BEFORE)
+        looped["more"] = looped
+        self.assertIsNone(then(state, method, rest, body, answer(200, looped)))
 
     def test_the_paths_apply_is_asked_about_are_the_paths_that_land(self):
         changes = {"written": {"docs/b.md": (FILE, b"x\n"), "docs/a.md": (FILE, b"A\n"), "tests/new.py": (FILE, b"")},
