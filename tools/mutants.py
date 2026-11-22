@@ -5046,7 +5046,7 @@ MUTANTS = ISSUE + OUTSIDE + [
      '"maxItems": 100',
      '"maxItems": 1000', ADVICE_ANSWERED),
     ("a reader's title may run over lines", 'schemas/advice-answer.schema.json',
-     '"pattern": "^[^\\\\x00-\\\\x1f\\\\x7f-\\\\x9f\\\\u200b-\\\\u200f\\\\u2028-\\\\u202e\\\\u2066-\\\\u2069\\\\ufeff]{1,200}$"',
+     '"pattern": "^[^\\\\x00-\\\\x1f\\\\x7f-\\\\x9f\\\\u061c\\\\u200b-\\\\u200f\\\\u2028-\\\\u202e\\\\u2066-\\\\u2069\\\\ufeff]{1,200}$"',
      '"minLength": 1', ADVICE_ANSWERED),
     ("a reader's line may be 0", 'schemas/advice-answer.schema.json',
      '"minimum": 1,',

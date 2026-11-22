@@ -686,7 +686,7 @@ class Schemas(unittest.TestCase):
         for field, value in (("file", ""), ("line", 0), ("criterion", "the third criterion"), ("line", 1.5), ("line", True), ("message", ""), ("title", ""), ("severity", None),
                              ("category", "style"), ("criterion", "PR-3\nPR-4"), ("line", 10 ** 9),
                              ("title", "One\u2028Two"), ("title", "One\x0bTwo"), ("title", "One\x85Two"), ("title", "t" * 201),
-                             ("title", "One\u2029Two"), ("title", "One\x7fTwo"), ("title", "Fix \u202eevil"), ("title", "ap\u200bprove"),
+                             ("title", "One\u2029Two"), ("title", "One\x7fTwo"), ("title", "Fix \u202eevil"), ("title", "ap\u200bprove"), ("title", "Fix \u061cevil"),
                              ("message", "m" * 65536)):
             answer = json.loads(json.dumps(whole))
             answer["findings"][0][field] = value
