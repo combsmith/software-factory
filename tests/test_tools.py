@@ -13970,6 +13970,7 @@ class Mutants(unittest.TestCase):
         self.assertEqual(mutants.MUTANTS[start:end], mutants.OUTSIDE)
         own = mutants.MUTANTS[:start] + mutants.MUTANTS[end:]
         self.assertEqual([m[0] for m in own if m[1] in held], [])
+        self.assertEqual([m[0] for m in own if not m[1].startswith("kernel/")], [], "tools/mutants.py holds the Kernel's alone")
         # The runner's list is the one assignment that reads them, right after ISSUE.
         made = [n.value for n in ast.parse((ROOT / "tools" / "mutants.py").read_text(encoding="utf-8")).body
                 if isinstance(n, ast.Assign) and [getattr(t, "id", None) for t in n.targets] == ["MUTANTS"]]
