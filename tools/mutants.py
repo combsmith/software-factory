@@ -1,7 +1,9 @@
 """Can the tests fail? Break the Kernel on purpose, one rule at a time, and see.
 
 Each mutant removes or inverts one rule. A mutant that the tests do not catch
-is a rule nothing is checking. Run with `python3 -m tools.mutants`.
+is a rule nothing is checking. Run with `python3 -m tools.mutants`. The Kernel's
+mutants are here; those of every other file are in tools/mutants_of/, one file
+to a target, and run after ISSUE.
 """
 from __future__ import annotations
 
@@ -158,6 +160,8 @@ F901_ROLE = ("tests.test_adapters.Issues.test_a_role_apps_comment_is_its_roles_a
 F901_NAMES = ("tests.test_controller.Entry.test_a_queues_or_a_lenss_name_declared_as_an_issues_app_refuses_the_issues_alone_and_the_pull_requests_are_decided",)
 F901_PASS = ("tests.test_controller.Issues.test_issues_whose_apps_cannot_be_told_are_not_decided_and_the_pull_requests_are",)
 F901_TRACKED = ("tests.test_reconcile.Tracking.test_the_tracking_issues_number_is_what_the_passes_recorded_and_none_while_their_records_are_not_whole",)
+F849_KERNEL = ("tests.test_issue.Unreadable.test_a_timeline_past_the_ports_bound_defers_on_its_own_code_and_calls_a_person",)
+F849_WORLD = ("tests.test_issue.Unreadable.test_the_issue_world_meets_a_timeline_past_the_bound_under_faults_and_calls_a_person",)
 F931_PORT = ("tests.test_adapters.Issues.test_the_controllers_tracking_issue_is_told_at_its_first_read_by_its_opener_and_its_body",)
 S3_ROW10 = ("tests.test_controller.Issues.test_with_no_app_declared_for_factory_triage_an_accepted_served_issue_gets_no_acceptance_act",)
 COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers",)
@@ -193,6 +197,10 @@ PERSON_READ = ("tests.test_hooks.RulesChanged.test_a_path_only_a_person_decides_
 BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_of_tests",)
 NAMED_MUTANTS = ("tests.test_tools.Decisions.test_a_new_or_changed_row_names_the_mutant_its_test_kills",)
 MAIN_ROWS = ("tests.test_tools.Decisions.test_a_row_main_holds_names_no_mutant_until_its_check_changes",)
+# Issue 1101: the tests that hold the files of tools/mutants_of/.
+WRITES_DATA = ("tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one",)
+LOADER = ("tests.test_tools.Mutants.test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone",)
+UNTESTED_DATA = ("Reverts.test_the_lists_of_mutants_are_data_and_the_runner_below_them_is_read",)
 DECLINE_TESTS = ("tests.test_tools.Mutants.test_on_a_pull_request_the_mutants_decline_and_on_a_merge_group_every_shard_runs",)
 ROUTES_655 = ("tests.test_tools.Writes.test_the_routes_issue_655_names_are_refused",)
 RUN_ALONE = ("tests.test_tools.Mutants.test_a_mutant_a_boundary_names_is_run_against_its_own_tests_alone",)
@@ -342,7 +350,8 @@ PATCH_UNREAD = ('tests.test_guards.Patch.test_what_is_not_a_patch_as_git_writes_
 ISSUE = [
     # What is read short or cannot be read, before row 1.
     ("an issue's lists read short are trusted", ISSUE_PY,
-     "    gaps = unread_lists(facts)\n", "    gaps = []\n", ISSUE_TESTS),
+     "    gaps = [name for name in ISSUE_READ_IN_FULL if name in unread_lists(facts) or (name == \"timeline\" and bounded is not False)]\n",
+     "    gaps = []\n", ISSUE_TESTS),
     ("an issue's flag that is not exactly true counts as whole", ISSUE_PY,
      "if flags.get(name) is not True]", "if not flags.get(name, True)]", ISSUE_TESTS),
     ("an issue's unreadable state is trusted", ISSUE_PY,
@@ -1625,7 +1634,28 @@ ISSUE = [
      'closers = [p for p in merged if p["merged_at"] == first and p["closed_issue_at"] is not None]', 'closers = [p for p in merged if p["merged_at"] == first]', ISSUE_TESTS),
 ]
 
-MUTANTS = ISSUE + [
+# The files of tools/mutants_of/, each the mutants of files outside kernel/, found by the walk in the order of their
+# names, so that a change adding one edits no list here or there (issue 1101). OUTSIDE is their mutants, in that order.
+AREA_NAME = re.compile(r"[a-z_][a-z0-9_]*")
+
+
+def area_names(root: pathlib.Path) -> list:
+    """The name of each file of mutants in `root`'s tools/mutants_of/: its Python files but __init__.py and common.py,
+    directly in it, as the walk gives them."""
+    folder = root / "tools" / "mutants_of"
+    return [path.stem for path in walk.files(root, "tools/mutants_of")
+            if path.parent == folder and path.suffix == ".py" and path.stem not in ("__init__", "common")]
+
+
+def areas(root: pathlib.Path, load=importlib.import_module) -> tuple:
+    """Each file of mutants in `root`, loaded by `load` in the order of the names. Each name is a module name, by
+    AREA_NAME, before it is loaded: nothing but a file of tools/mutants_of/ is imported."""
+    return tuple(load("tools.mutants_of." + name) for name in area_names(root) if AREA_NAME.fullmatch(name))
+
+
+AREAS = areas(ROOT)
+OUTSIDE = [mutant for area in AREAS for mutant in area.MUTANTS]
+MUTANTS = ISSUE + OUTSIDE + [
     # Issue 1016: a binary file's change is bound to its full blob id.
     ("a compare's files not answered make the diff unread", 'adapters/pull.py',
      '    except Unanswered:\n        return ()\n    rows = answer["body"]', '    except ValueError:\n        return ()\n    rows = answer["body"]', ('tests.test_adapters.Diff.test_a_binary_files_change_is_bound_to_its_full_blob_id',)),
@@ -2243,8 +2273,8 @@ MUTANTS = ISSUE + [
      ' or _at(_object(e).get("created_at"), since)) for e in parts["events"])',
      ' or True) for e in parts["events"])', ("tests.test_reconcile",)),
     ('only a merge says it left', 'adapters/seen.py',
-     'in ("closed", "merged")\n                     and (kept == GONE',
-     '== "merged"\n                     and (kept == GONE', ("tests.test_reconcile",)),
+     'ends = ("closed", "merged") if item["type"] == "pull_request" else ("closed",)',
+     'ends = ("merged",) if item["type"] == "pull_request" else ("closed",)', ("tests.test_reconcile",)),
     ("a left item's threads of more pages are whole", 'adapters/seen.py',
      ' and _object(listed.get("pageInfo")).get("hasNextPage") is False',
      '', ("tests.test_reconcile",)),
@@ -2303,8 +2333,8 @@ MUTANTS = ISSUE + [
      '"check_runs": _check_runs(transport, item)}',
      '"check_runs": ([], True)}', ("tests.test_reconcile",)),
     ('a left item need not have closed', 'adapters/seen.py',
-     '        whole &= any(_object(e).get("event") in ("closed", "merged")\n',
-     '        whole &= True or any(_object(e).get("event") in ("closed", "merged")\n', ("tests.test_reconcile",)),
+     '        whole &= any(_object(e).get("event") in ends\n',
+     '        whole &= True or any(_object(e).get("event") in ends\n', ("tests.test_reconcile",)),
     ('a dismissal of no positive id is paired', 'adapters/seen.py',
      '            if _positive(ident) and isinstance(state, str):',
      '            if isinstance(state, str):', ("tests.test_reconcile",)),
@@ -8863,7 +8893,7 @@ MUTANTS = ISSUE + [
     ("a new record may replace one that another record replaces", "tools/check_decisions.py",
      "elif said is None or said.group(1) != rel:", "elif said is None:", ("tests.test_tools.Decisions",)),
     ("a new record may replace a later one", "tools/check_decisions.py",
-     "number.group(1) >= own.group(1)", "False", ("tests.test_tools.Decisions",)),
+     "int(number.group(1)) >= int(own.group(1))", "False", ("tests.test_tools.Decisions",)),
     ("a new record may say what it replaces in any words", "tools/check_decisions.py",
      "    if not names:\n", "    if False:\n", ("tests.test_tools.Decisions",)),
     ("a Status may claim more past its declaration", "tools/check_decisions.py",
@@ -9759,7 +9789,7 @@ MUTANTS = ISSUE + [
     ('what is owed is not read', 'controller/reconcile.py', '    return list(_last(before)["owed"])\n', '    return []\n', WIRE_CARRY),
     ('the first record is read for what was reconciled', 'controller/reconcile.py', 'held = before[-1].get("reconciled") if', 'held = before[0].get("reconciled") if', WIRE_CARRY),
     ('a record holding none stops the read', 'controller/reconcile.py', 'return held if isinstance(held, dict) else EMPTY', 'return held', WIRE_CARRY),
-    ('nothing is dropped from what is carried', 'controller/reconcile.py', 'held = {name: [e for e in rows if name == "owed" or since is None or _within(e["at"], since, name == "items")]\n            for name, rows in _last(before).items()}', 'held = dict(_last(before))', WIRE_CARRY),
+    ('nothing is dropped from what is carried', 'controller/reconcile.py', 'held = {name: [e for e in rows if name in ("owed", "owed_issues") or since is None\n                   or _within(e["at"], since, name == "items")]\n            for name, rows in _last(before).items()}', 'held = dict(_last(before))', WIRE_CARRY),
     ('what was owed stays owed', 'controller/reconcile.py', 'held["owed"] = sorted(set(unread))', 'held["owed"] = sorted(set(unread) | set(held["owed"]))', WIRE_CARRY),
     ('what could not be read is not owed', 'controller/reconcile.py', 'held["owed"] = sorted(set(unread))', 'held["owed"] = []', WIRE_CARRY),
     ('what cannot be read carries nothing on', 'controller/reconcile.py', '    if not _readable(effects):\n        return held\n', '    if not _readable(effects):\n        return {name: [] for name in held}\n', WIRE_CARRY),
@@ -9796,7 +9826,7 @@ MUTANTS = ISSUE + [
     ("the Controller's own write waits on a Run", 'controller/reconcile.py', 'if not landed and kind != "controller" and w["item"]', 'if not landed and w["item"]', WIRE_CARRY),
     ('a write waits on a Run of another item', 'controller/reconcile.py', 'and key(w["item"]) in running:', 'and running:', WIRE_CARRY),
     ('a finished Run makes a write short', 'controller/reconcile.py', 'for r in runs if r.get("status") != "completed"} if', 'for r in runs} if', WIRE_CARRY),
-    ('the pass record carries nothing', 'controller/pass_.py', '              "reconciliation": reconcile_.entries(found),\n              "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or (),\n                                               reads.get("gone") or ())}\n', '              "reconciliation": reconcile_.entries(found)}\n', WIRE_ENTRY),
+    ('the pass record carries nothing', 'controller/pass_.py', '              "reconciliation": reconcile_.entries(found),\n              "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or (),\n                                               reads.get("gone") or (), reads.get("unread_issues") or (),\n                                               reads.get("gone_issues") or ())}\n', '              "reconciliation": reconcile_.entries(found)}\n', WIRE_ENTRY),
     ('the pass record owes nothing', 'controller/pass_.py', ', now, reads.get("unread") or (),', ', now, (),', WIRE_ENTRY),
     ('the entry hands the seen port no read', 'controller/__main__.py', 'kept[number] = held\n', 'pass\n', WIRE_ENTRY),
     ('what a failed snapshot kept is handed on', 'controller/__main__.py', '            facts, title, head = facts_.snapshot(through, home, number, identities, who, runs_whole, lambda: utc(clock),\n                                                 kept=held, with_head=True, opener=opens, recorded=found[number], opened=made)\n', '            kept[number] = held\n            facts, title, head = facts_.snapshot(through, home, number, identities, who, runs_whole, lambda: utc(clock),\n                                                 kept=held, with_head=True, opener=opens, recorded=found[number], opened=made)\n', WIRE_ENTRY),
@@ -9925,6 +9955,66 @@ MUTANTS = ISSUE + [
     ("a committer is read by name alone", "tools/commits_are_the_maintainers.py",
      "        if (committer_name, committer_email) != who and not made_by_github:\n",
      "        if committer_name != who[0] and not made_by_github:\n", COMMITS_TESTS),
+    # Decision 1121: a decision record takes the number of the pull request that adds it, one at most; no two share one.
+    ("two records may share a number", "tools/check_context.py", "        elif number in seen:\n", "        elif False:\n", ("tests.test_tools.Context.test_no_two_records_share_a_number",)),
+    ("a record's number is read as written, not as a number", "tools/check_context.py",
+     "        number = int(named.group(1)) if named else None\n", "        number = named.group(1) if named else None\n", ("tests.test_tools.Context.test_no_two_records_share_a_number",)),
+    ("a record may be numbered in three digits", "tools/check_context.py",
+     'RECORD_NUMBER = re.compile(r"^([0-9]{4,})-")', 'RECORD_NUMBER = re.compile(r"^([0-9]{3,})-")', ("tests.test_tools.Context.test_no_two_records_share_a_number",)),
+    ("a record of five digits is refused", "tools/check_context.py",
+     'RECORD_NUMBER = re.compile(r"^([0-9]{4,})-")', 'RECORD_NUMBER = re.compile(r"^([0-9]{4})-")', ("tests.test_tools.Context.test_no_two_records_share_a_number",)),
+    ("a title need not open with its file's number", "tools/check_context.py",
+     '        if named is None or not text.startswith("# %s. " % named.group(1)):\n', "        if named is None:\n", ("tests.test_tools.Context.test_no_two_records_share_a_number",)),
+    ("a replaced record's number is compared as text", "tools/check_decisions.py",
+     "int(number) <= int(own.group(1))", "number <= own.group(1)", ("tests.test_tools.Decisions.test_a_record_of_five_digits_comes_after_one_of_four",)),
+    ("a replacing record's number is compared as text", "tools/check_decisions.py",
+     "int(number.group(1)) >= int(own.group(1))", "number.group(1) >= own.group(1)", ("tests.test_tools.Decisions.test_a_record_of_five_digits_comes_after_one_of_four",)),
+    ("a record's path of five digits is not read", "tools/check_decisions.py",
+     'PATH = r"`(%s/([0-9]{4,})-', 'PATH = r"`(%s/([0-9]{4})-', ("tests.test_tools.Decisions.test_a_record_of_five_digits_comes_after_one_of_four",)),
+    ("a record's own number of five digits is not read", "tools/check_decisions.py",
+     'NUMBER = re.compile(r"^([0-9]{4,})-")', 'NUMBER = re.compile(r"^([0-9]{4})-")', ("tests.test_tools.Decisions.test_a_record_of_five_digits_comes_after_one_of_four",)),
+    ("a record of another number than its pull request's stands", "tools/commits_are_the_maintainers.py",
+     "        if named is None or named.group(1) not in allowed:\n", "        if named is None:\n", ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("a record of five digits is not read by the commits' job", "tools/commits_are_the_maintainers.py",
+     'RECORD = re.compile(r"docs/decisions/([0-9]{4,})-', 'RECORD = re.compile(r"docs/decisions/([0-9]{4})-', ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("a pull request may add two records", "tools/commits_are_the_maintainers.py",
+     "    if len(found) > 1:\n", "    if len(found) > 2:\n", ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("a number under 1000 is written without its zero", "tools/commits_are_the_maintainers.py",
+     'allowed = {"%04d" % own} |', "allowed = {str(own)} |", ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("a rename is not read as a record added", "tools/commits_are_the_maintainers.py",
+     '"diff", "--no-renames", "--diff-filter=A"', '"diff", "--diff-filter=A"', ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("a file below the records' folder is counted", "tools/commits_are_the_maintainers.py",
+     ' and "/" not in path[len(RECORDS):]]', "]", ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("a file of the records' folder that is not a record is counted", "tools/commits_are_the_maintainers.py",
+     'if path.endswith(".md") and "/"', 'if "/"', ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("a merge group's number is read from a pull request's payload", "tools/commits_are_the_maintainers.py",
+     '    if environ.get("EVENT") == "merge_group":\n        return int(', '    if False:\n        return int(', ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("a pull request's number that is not a number is read", "tools/commits_are_the_maintainers.py",
+     "    if type(told) is not int or told < 1:\n", "    if told < 1:\n", ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("a pull request's number of 0 is read", "tools/commits_are_the_maintainers.py",
+     "    if type(told) is not int or told < 1:\n", "    if type(told) is not int:\n", ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("a record changed is read as one added", "tools/commits_are_the_maintainers.py",
+     '"--diff-filter=A", "--name-only"', '"--diff-filter=AM", "--name-only"', ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("records the check cannot read pass", "tools/commits_are_the_maintainers.py",
+     '        return ["the decision records the pull request adds cannot be read: %r" % err]\n', "        return []\n", ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("the records are read with no base or no head", "tools/commits_are_the_maintainers.py",
+     "    if not base or not head or environ.get(\"EVENT\") not in", "    if False and environ.get(\"EVENT\") not in", ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("the records are read on an event the check does not know", "tools/commits_are_the_maintainers.py",
+     '    if not base or not head or environ.get("EVENT") not in ("pull_request", "merge_group"):\n',
+     '    if not base or not head:\n', ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("a record's path is printed as it is written", "tools/commits_are_the_maintainers.py",
+     '            why.append("%r is a decision record', '            why.append("%s is a decision record', ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("the job reads no record", "tools/commits_are_the_maintainers.py",
+     "    found = problems(root, environ) + opened + record_problems(root, environ)\n",
+     "    found = problems(root, environ) + opened\n", OPENER_JOB),
+    ("the chain stands to no record", "tools/commits_are_the_maintainers.py",
+     ' | {"%04d" % chained for chained in range(CHAINED[0], CHAINED[1] + 1)}', "", ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("the chain's last number is refused", "tools/commits_are_the_maintainers.py",
+     "range(CHAINED[0], CHAINED[1] + 1)", "range(CHAINED[0], CHAINED[1])", ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("a number past the chain's last stands", "tools/commits_are_the_maintainers.py",
+     "range(CHAINED[0], CHAINED[1] + 1)", "range(CHAINED[0], CHAINED[1] + 2)", ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("a number before the chain's first stands", "tools/commits_are_the_maintainers.py",
+     "range(CHAINED[0], CHAINED[1] + 1)", "range(CHAINED[0] - 1, CHAINED[1] + 1)", ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
     # Decision 0041: the job commits reads every commit the pull request carries from the base.
     ("the commits job need not exist", "tools/check_workflows.py",
      '    if "commits" not in jobs:\n', "    if False:\n", COMMITS_JOB_TESTS),
@@ -12172,8 +12262,8 @@ MUTANTS = ISSUE + [
     # Issue 787: a pull request that left the open set is read for the window, so a write nobody matched keeps its alert.
     ("a pull request that left is read once", 'controller/__main__.py', '\n                         + [(n, seen_.GONE) for n in sorted(gone)]', '', ("tests.test_controller.Entry.test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it",)),
     ("a pull request that left is read past the window", 'controller/reconcile.py',
-     'if since is None or _within(e["at"], since)]',
-     'if True]', ("tests.test_controller.Entry.test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it", "tests.test_reconcile.Carried.test_a_pull_request_that_left_is_kept_until_the_window_passes_it")),
+     'for e in _last(before).get("left", []) if since is None or _within(e["at"], since)]',
+     'for e in _last(before).get("left", []) if True]', ("tests.test_controller.Entry.test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it", "tests.test_reconcile.Carried.test_a_pull_request_that_left_is_kept_until_the_window_passes_it")),
     ("a pull request that left is kept past the window", 'controller/reconcile.py',
      'held["left"] = [e for e in held.get("left", []) if', 'held["left"] = [e for e in _last(before).get("left", []) if', ("tests.test_reconcile.Carried.test_a_pull_request_that_left_is_kept_until_the_window_passes_it",)),
     ("a pull request that left is not stamped", 'controller/reconcile.py',
@@ -15606,6 +15696,24 @@ MUTANTS = ISSUE + [
     ("an account held as a Role and a Lens is not read as a Lens", 'adapters/timeline.py',
      '            if (ident, kind) in self.lenses:\n',
      '            if (ident, kind) in self.lenses and (ident, kind) not in self.roles:\n', F901_ROLE),
+    # Decision 0234: an issue's timeline and its linked pull requests' are read to a bound, and past it the issue defers on
+    # its own code and calls a person.
+    ("a timeline past the port's bound defers as any short one", 'kernel/issue.py',
+     '    if bounded is True:\n        return out(None, "timeline_bounded", ["timeline"])\n', '', F849_KERNEL),
+    ("a bound flag of any truth is a bound", 'kernel/issue.py',
+     '    if bounded is True:\n', '    if bounded:\n', F849_KERNEL),
+    ("a bound flag that cannot be read is read as within the bound", 'kernel/issue.py',
+     ' or (name == "timeline" and bounded is not False)]', ']', F849_KERNEL),
+    ("only a cut of the issue's own timeline is a bound", 'kernel/issue.py',
+     '    if bounded is True:\n', '    if bounded is True and "timeline" in unread_lists(facts):\n', F849_KERNEL),
+    ("a timeline past the port's bound calls no one", 'kernel/issue.py',
+     '    "human_hold",\n    "timeline_bounded",\n', '    "human_hold",\n', F849_KERNEL),
+    ("the issue world never bounds a timeline", 'sim/issues.py',
+     'facts["timeline_bounded"] = short in ("linked", "timeline") and fault < 0.11', 'facts["timeline_bounded"] = False', F849_WORLD),
+    ("the issue world bounds only a linked read", 'sim/issues.py',
+     'facts["timeline_bounded"] = short in ("linked", "timeline") and fault < 0.11', 'facts["timeline_bounded"] = short == "linked" and fault < 0.11', F849_WORLD),
+    ("the issue world bounds a read it did not read short", 'sim/issues.py',
+     'facts["timeline_bounded"] = short in ("linked", "timeline") and fault < 0.11', 'facts["timeline_bounded"] = short not in ("linked", "timeline") and fault < 0.11', F849_WORLD),
     # Decision 0217's row, issue 878: a linked draft the Factory opened carries its head's required checks.
     ("a foreign check under a Lens's name is read past", 'adapters/draft_checks.py',
      '    if derive.foreign_checks(found, kernel):\n        return None\n', '', ("tests.test_adapters.DraftChecks.test_a_drafts_checks_are_read_as_the_pull_requests_kernel_reads_each_required_lens",)),
@@ -15650,6 +15758,53 @@ MUTANTS = ISSUE + [
      'identities, accounts, earlier, kernel)', 'identities, accounts, earlier, None)', ("tests.test_adapters.DraftChecks.test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read",)),
     ("the entry hands the issues port no Kernel configuration", 'controller/__main__.py',
      'earlier=before, kernel=config["kernel"],', 'earlier=before, kernel=None,', ("tests.test_controller.Entry.test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is",)),
+    # Decision 0235: an issue a pass served that has left is read with its close, and one read short is owed (issue 916).
+    # An issue that left is read first by its state: open needs no close, 404 or 410 ends it where its repo was read.
+    ("a 404 is whole with the repo unread", 'adapters/seen.py',
+     'ended = repo_read is True and told is not None', 'ended = told is not None', ("tests.test_reconcile.SeenPort.test_an_issue_that_left_is_read_with_its_close",)),
+    ("a 403 is read as gone", 'adapters/seen.py', 'ENDED = (404, 410)', 'ENDED = (403, 404, 410)', ("tests.test_reconcile.SeenPort.test_an_issue_that_left_is_read_with_its_close",)),
+    ("a 410 is short", 'adapters/seen.py', 'ENDED = (404, 410)', 'ENDED = (404,)', ("tests.test_reconcile.SeenPort.test_an_issue_that_left_is_read_with_its_close",)),
+    ("a left open issue waits for a close", 'adapters/seen.py', '        ending = state == "closed"\n', '', ("tests.test_reconcile.SeenPort.test_an_issue_that_left_is_read_with_its_close",)),
+    ("an issue that left is read with no state", 'adapters/seen.py',
+     '        if state is None:\n            return [], [], False\n', '', ("tests.test_reconcile.SeenPort.test_an_issue_that_left_is_read_with_its_close",)),
+    ("an issue read whole by its end is not told", 'adapters/seen.py',
+     '            if ended:\n                told.append({"item": dict(item), "answer": state})\n', '', ("tests.test_reconcile.SeenPort.test_an_issue_that_left_is_read_with_its_close",)),
+    ("the state of another issue is read", 'adapters/seen.py', ' and body["number"] == number', '', ("tests.test_reconcile.SeenPort.test_an_issue_that_left_is_read_with_its_close",)),
+    ("an issue ended with nowhere to tell it is whole", 'adapters/seen.py',
+     'ended = repo_read is True and told is not None', 'ended = repo_read is True', ("tests.test_reconcile.SeenPort.test_an_issue_that_left_is_read_with_its_close",)),
+    ("a number of any type is an issue's", 'adapters/seen.py', 'type(body.get("number")) is int and ', '', ("tests.test_reconcile.SeenPort.test_an_issue_that_left_is_read_with_its_close",)),
+    ("a pull request's body gives an issue's state", 'adapters/seen.py', ' and "pull_request" not in body', '', ("tests.test_reconcile.SeenPort.test_an_issue_that_left_is_read_with_its_close",)),
+    ("a state answered with no 200 is read", 'adapters/seen.py',
+     '    body = _object(answer.get("body")) if answer.get("status") == 200 else {}\n    own =',
+     '    body = _object(answer.get("body"))\n    own =', ("tests.test_reconcile.SeenPort.test_an_issue_that_left_is_read_with_its_close",)),
+    ("a repo with its issues off is read", 'adapters/seen.py', ' and body.get("has_issues") is True', '', ("tests.test_reconcile.SeenPort.test_the_repo_is_read_by_its_full_name",)),
+    ("a repo of another name is read as this one", 'adapters/seen.py',
+     'isinstance(full, str) and full.lower() == repo.lower()', 'isinstance(full, str)', ("tests.test_reconcile.SeenPort.test_the_repo_is_read_by_its_full_name",)),
+    ("a repo's name is read case by case", 'adapters/seen.py',
+     'full.lower() == repo.lower()', 'full == repo', ("tests.test_reconcile.SeenPort.test_the_repo_is_read_by_its_full_name",)),
+    ("a repo not found is read", 'adapters/seen.py',
+     '    body = _object(answer.get("body")) if answer.get("status") == 200 else {}\n    full =', '    body = _object(answer.get("body"))\n    full =', ("tests.test_reconcile.SeenPort.test_the_repo_is_read_by_its_full_name",)),
+    ("an issue that left is read with no close", 'adapters/seen.py',
+     '    if ending:\n', '    if ending and item["type"] == "pull_request":\n', ("tests.test_reconcile.SeenPort.test_an_issue_that_left_is_read_with_its_close",)),
+    ("a merge closes an issue that left", 'adapters/seen.py',
+     'ends = ("closed", "merged") if item["type"] == "pull_request" else ("closed",)', 'ends = ("closed", "merged")', ("tests.test_reconcile.SeenPort.test_an_issue_that_left_is_read_with_its_close",)),
+    ("the issues owed are not carried", 'controller/reconcile.py',
+     '    held["owed_issues"] = sorted(set(unread_issues))\n', '    held["owed_issues"] = []\n', ("tests.test_reconcile.Carried.test_the_issues_owed_and_left_are_carried_as_the_pull_requests_are",)),
+    ("an issue that leaves again keeps its first stamp too", 'controller/reconcile.py',
+     '[e for e in held.get("left_issues", []) if e["number"] not in set(gone_issues)] + [', 'held.get("left_issues", []) + [', ("tests.test_reconcile.Carried.test_the_issues_owed_and_left_are_carried_as_the_pull_requests_are",)),
+    ("the issues read as left are not stamped", 'controller/reconcile.py',
+     '{"number": n, "at": now} for n in sorted(set(gone_issues))]', '{"number": n, "at": now} for n in []]', ("tests.test_reconcile.Carried.test_the_issues_owed_and_left_are_carried_as_the_pull_requests_are",)),
+    ("an issue kept as left is never dropped by the window", 'controller/reconcile.py',
+     'if name in ("owed", "owed_issues") or since is None', 'if name in ("owed", "owed_issues", "left_issues") or since is None', ("tests.test_reconcile.Carried.test_the_issues_owed_and_left_are_carried_as_the_pull_requests_are",)),
+    ("the issues owed before are not read", 'controller/reconcile.py',
+     '    return list(_last(before).get("owed_issues", []))\n', '    return []\n', ("tests.test_reconcile.Carried.test_the_issues_owed_and_left_are_carried_as_the_pull_requests_are",)),
+    ("the issues kept as left are read past the window", 'controller/reconcile.py',
+     'for e in _last(before).get("left_issues", []) if since is None or _within(e["at"], since)]',
+     'for e in _last(before).get("left_issues", [])]', ("tests.test_reconcile.Carried.test_the_issues_owed_and_left_are_carried_as_the_pull_requests_are",)),
+    ("the pass carries no issue left unread", 'controller/pass_.py',
+     'reads.get("unread_issues") or (),', '(),', ("tests.test_controller.Issues.test_the_pass_carries_the_issues_its_reads_owe_and_read_as_left",)),
+    ("the pass stamps no issue as left", 'controller/pass_.py',
+     'reads.get("gone_issues") or ())}', '())}', ("tests.test_controller.Issues.test_the_pass_carries_the_issues_its_reads_owe_and_read_as_left",)),
     ('the tracking issue is listed as an open issue', 'adapters/items.py',
      'return [number for number in numbers if number not in apart], whole',
      'return numbers, whole', S3_LIST + S3_LINKED),
@@ -18408,7 +18563,8 @@ MUTANTS = ISSUE + [
     ('a text constant set on a class from a function is refused', 'tools/check_writes.py',
      'or isinstance(node.value, ast.Name) and node.value.id in mod.texts \\\n', 'or False and node.value.id in mod.texts \\\n',
      ('tests.test_tools.Writes.test_on_main_only_the_callers_listed_reach_a_write_and_each_what_it_lists',)),
-    ("gh or git may be run from Python", 'tools/check_writes.py', '        if mod.rel not in RUNNERS:\n', '        if False:\n',
+    ("gh or git may be run from Python", 'tools/check_writes.py',
+     '        if mod.rel not in RUNNERS:\n            data = _mutant_data(mod, mods, inert)\n', '        if False:\n            data = _mutant_data(mod, mods, inert)\n',
      ('tests.test_tools.Writes.test_what_cannot_be_read_fails',)),
     ('a command line is read only as its program alone', 'tools/check_writes.py',
      '%s%s(\\s|$|[;&|)}])', '%s%s($|[;&|)}])',
@@ -18434,8 +18590,69 @@ MUTANTS = ISSUE + [
     ("a RUNNERS entry that holds no command is kept", 'tools/check_writes.py',
      'for rel in RUNNERS if rel not in commanding]', 'for rel in RUNNERS if False]',
      ('tests.test_tools.Writes.test_a_listed_caller_that_reaches_a_new_writer_or_none_fails',)),
-    ("a runner's own gh or git is refused", 'tools/check_writes.py', '        if mod.rel not in RUNNERS:\n', '        if True:\n',
+    ("a runner's own gh or git is refused", 'tools/check_writes.py',
+     '        if mod.rel not in RUNNERS:\n            data = _mutant_data(mod, mods, inert)\n', '        if True:\n            data = _mutant_data(mod, mods, inert)\n',
      ('tests.test_tools.Writes.test_on_main_only_the_callers_listed_reach_a_write_and_each_what_it_lists',)),
+    # Issue 1101: the mutants of the files outside kernel/ are read after ISSUE, in tools/mutants_of/.
+    ("the mutants of the files outside kernel are not run", 'tools/mutants.py',
+     'MUTANTS = ISSUE + OUTSIDE + [\n', 'MUTANTS = ISSUE + [\n', LOADER),
+    ("the files' mutants are dropped", 'tools/mutants.py',
+     'OUTSIDE = [mutant for area in AREAS for mutant in area.MUTANTS]\n', 'OUTSIDE = []\n', LOADER),
+    ('a file nested below tools/mutants_of is read as one of its files', 'tools/mutants.py',
+     '            if path.parent == folder and path.suffix == ".py" and path.stem not in ("__init__", "common")]\n', '            if path.suffix == ".py" and path.stem not in ("__init__", "common")]\n', LOADER),
+    ('common.py of the mutants is read as a file of them', 'tools/mutants.py',
+     '            if path.parent == folder and path.suffix == ".py" and path.stem not in ("__init__", "common")]\n', '            if path.parent == folder and path.suffix == ".py" and path.stem not in ("__init__",)]\n', LOADER),
+    # Issue 1101: a file of the mutants' data may name gh or git as text, and imports nothing that could run either.
+    ("a file of mutants is held to the rule for gh or git", 'tools/check_writes.py',
+     'for line in _commands(mod) if line not in data]', 'for line in _commands(mod)]', WRITES_DATA),
+    ('any file of tools/mutants_of is data, whatever it imports', 'tools/check_writes.py',
+     '    for node in mod.nodes if inert else ():\n', '    for node in ():\n', WRITES_DATA),
+    ('a file of mutants may hold any statement at its top level', 'tools/check_writes.py',
+     '    inert = all(isinstance(node, (ast.ImportFrom, ast.Assign)) or (', '    inert = True or all(isinstance(node, (ast.ImportFrom, ast.Assign)) or (', WRITES_DATA),
+    ('a file of mutants may call anything', 'tools/check_writes.py',
+     '        elif called is not None and getattr(called, "attr", getattr(called, "id", None)) not in DATA_CALLS:\n', '        elif False:\n', WRITES_DATA),
+    ('a file of mutants may hold a lambda', 'tools/check_writes.py',
+     'if isinstance(node, ast.Lambda) or DATA_CALLS.intersection(bound):', 'if DATA_CALLS.intersection(bound):', WRITES_DATA),
+    ('a file of mutants may bind a call of data to another value', 'tools/check_writes.py',
+     'if isinstance(node, ast.Lambda) or DATA_CALLS.intersection(bound):', 'if isinstance(node, ast.Lambda):', WRITES_DATA),
+    ('a file of mutants may set an attribute', 'tools/check_writes.py',
+     '        elif isinstance(node, (ast.Attribute, ast.Subscript)) and not isinstance(node.ctx, ast.Load):', '        elif False:', WRITES_DATA),
+    ('a file of mutants may set an item', 'tools/check_writes.py',
+     'isinstance(node, (ast.Attribute, ast.Subscript)) and not isinstance(node.ctx, ast.Load)', 'isinstance(node, ast.Attribute) and not isinstance(node.ctx, ast.Load)', WRITES_DATA),
+    ('a name read is a name bound', 'tools/check_writes.py',
+     'bound = [node.id] if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) else', 'bound = [node.id] if isinstance(node, ast.Name) else', WRITES_DATA),
+    ('an import binds no name', 'tools/check_writes.py',
+     '            [alias.asname or alias.name for alias in node.names] if isinstance(node, ast.ImportFrom) else []\n', '            []\n', WRITES_DATA),
+    ("an import binds its source's name, not the one it gives", 'tools/check_writes.py',
+     '[alias.asname or alias.name for alias in node.names]', '[alias.name for alias in node.names]', WRITES_DATA),
+    ('a file of mutants is loaded whatever its name', 'tools/mutants.py',
+     '    return tuple(load("tools.mutants_of." + name) for name in area_names(root) if AREA_NAME.fullmatch(name))\n', '    return tuple(load("tools.mutants_of." + name) for name in area_names(root))\n', LOADER),
+    ('only the first file of mutants is loaded', 'tools/mutants.py',
+     '    return tuple(load("tools.mutants_of." + name) for name in area_names(root) if AREA_NAME.fullmatch(name))\n', '    return tuple(load("tools.mutants_of." + name) for name in area_names(root)[:1] if AREA_NAME.fullmatch(name))\n', LOADER),
+    ('a module named from a package need not be data', 'tools/check_writes.py',
+     '                _inert(mods[whole], mods, seen | {mod.name}, known) for whole in (', '                True for whole in (', WRITES_DATA),
+    ('a file of mutants may import from a module below a package there', 'tools/check_writes.py',
+     ' or node.module.count(".") != MUTANT_DATA.count("/") else mods.get(node.module)', ' else mods.get(node.module)', WRITES_DATA),
+    ('a file of mutants may import from itself, relatively', 'tools/check_writes.py',
+     '            source = None if node.level or node.module.count(".")', '            source = None if node.module.count(".")', WRITES_DATA),
+    ('a file of mutants may import from any module of the tree', 'tools/check_writes.py',
+     '            inert = source is not None and _inert(source, mods, seen | {mod.name}, known) and all(\n', '            inert = source is not None and all(\n', WRITES_DATA),
+    ("a text's replace is no call of data", 'tools/check_writes.py',
+     'DATA_CALLS = {"replace", "tuple"}', 'DATA_CALLS = {"tuple"}', WRITES_DATA),
+    ('a file of mutants may read a builtin that reaches code', 'tools/check_writes.py',
+     'n in REACHERS or n.startswith("__") for n in said', 'n.startswith("__") for n in said', WRITES_DATA),
+    ('a file of mutants may read a name of two underscores', 'tools/check_writes.py',
+     'n in REACHERS or n.startswith("__") for n in said', 'n in REACHERS for n in said', WRITES_DATA),
+    ('a file of mutants may read any attribute', 'tools/check_writes.py',
+     '[node.attr] if isinstance(node, ast.Attribute) else', '[] if isinstance(node, ast.Attribute) else', WRITES_DATA),
+    ('a file of mutants may import any name', 'tools/check_writes.py',
+     'for n in (alias.name, alias.asname) if n]', 'for n in () if n]', WRITES_DATA),
+    ('a file of mutants may import from one that imports a module', 'tools/check_writes.py',
+     'and _inert(source, mods, seen | {mod.name}, known)', 'and source.rel.startswith(MUTANT_DATA)', WRITES_DATA),
+    ("a ring of imports among the files of mutants is read as inert", 'tools/check_writes.py',
+     '    if not mod.rel.startswith(MUTANT_DATA) or mod.name in seen:\n', '    if not mod.rel.startswith(MUTANT_DATA):\n', WRITES_DATA),
+    ("a file beside tools/mutants_of whose name starts as it does is data", 'tools/check_writes.py',
+     'MUTANT_DATA = "tools/mutants_of/"', 'MUTANT_DATA = "tools/mutants_of"', WRITES_DATA),
     # Issue 640: a name read back through what it is given, an object's class, setattr by another name, a for or
     # with target, a shadow by a nested def, class or catch, a setter under an if, another module's name set or
     # filled, sys and loads reached other ways, code run from text, and a command a shell runs.
@@ -24226,6 +24443,21 @@ MUTANTS = ISSUE + [
     ("a trailer's span is read line by line", "tools/untested.py",
      "        if not any(start <= line <= end for line in touched):", "        if not touched & set(range(start, end + 1)):",
      ("Trailers.test_a_trailers_span_is_never_read_line_by_line",)),
+    # Issue 1101: the lists of a file of tools/mutants_of/ are data, as tools/mutants.py's are.
+    ("a file of tools/mutants_of is read as code", "tools/untested.py",
+     'else DATA_FOLDER[1] if rel.startswith(DATA_FOLDER[0]) and plain else ()', 'else ()', UNTESTED_DATA),
+    ("a file whose path starts as tools/mutants_of does is data", "tools/untested.py",
+     'DATA_FOLDER = ("tools/mutants_of/",', 'DATA_FOLDER = ("tools/mutants_of",', UNTESTED_DATA),
+    ("an ISSUE of a file of tools/mutants_of is data", "tools/untested.py",
+     'DATA_FOLDER = ("tools/mutants_of/", ("MUTANTS",))', 'DATA_FOLDER = ("tools/mutants_of/", ("ISSUE", "MUTANTS"))', UNTESTED_DATA),
+    ("the lists of common.py of the mutants are data", "tools/untested.py",
+     '    plain = rel[len(DATA_FOLDER[0]):] not in ("common.py", "__init__.py") and "/" not in rel[len(DATA_FOLDER[0]):]\n', '    plain = True\n', UNTESTED_DATA),
+    ("a file in a folder below tools/mutants_of holds data", "tools/untested.py",
+     ' and "/" not in rel[len(DATA_FOLDER[0]):]\n', '\n', UNTESTED_DATA),
+    ("a mutants' file is read as code wherever it is", "tools/untested.py",
+     '            names = holds_data(rel)\n', '            names = holds_data(rel) if rel == DATA[0] else ()\n', UNTESTED_DATA),
+    ("every file's lists are read by the names of tools/mutants.py's", "tools/untested.py",
+     'isinstance(target, ast.Name) and target.id in names', 'isinstance(target, ast.Name) and target.id in DATA[1]', UNTESTED_DATA),
 )]
 
 
