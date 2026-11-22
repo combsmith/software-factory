@@ -6884,9 +6884,20 @@ class Context(unittest.TestCase):
                 "docs/decisions/0002-b.md": "# 0002. B\n\nStatus: replaced by `docs/decisions/0001-a.md`." + body % "`tools/x.py`",
                 "docs/decisions/0003-c.md": "# 0003. C\n\nStatus: replaced by `docs/decisions/0009-gone.md`." + body % "`tools/x.py`"}
         self.assertTrue(records.render(tree({**loop, **dirs})).endswith("| 0001 | 0002 |\n| 0002 | 0001 |\n| 0009 | 0003 |\n"))
-        # This repo's records all read, the latest among them.
-        latest = max((check_context.RECORD_NUMBER.match(p.name).group(1) for p in (ROOT / "docs/decisions").glob("*.md")), key=int)
-        self.assertIn("\n| %s | " % latest, records.render(ROOT))
+        # A record whose Status cannot be read is unread, never live; a file not named by a number is no record; and
+        # a linked docs/ is not read.
+        other = tree({"docs/decisions/0001-a.md": "# 0001. A\n" + body % "`tools/x.py`",
+                      "docs/decisions/notes.md": files["docs/decisions/0004-d.md"], **dirs})
+        self.assertIn("| 0001 | A | unread |  |\n", records.render(other))
+        self.assertNotIn("notes", records.render(other))
+        above = tree({"elsewhere/decisions/0004-d.md": files["docs/decisions/0004-d.md"]})
+        (above / "docs").symlink_to(above / "elsewhere")
+        self.assertNotIn("| 0004 |", records.render(above))
+        # This repo's records all read, each to one row.
+        numbers = sorted(p.name.split("-", 1)[0] for p in (ROOT / "docs/decisions").glob("*.md"))
+        rows = records.render(ROOT).split("\n## Chains")[0].split("|---|---|---|---|\n")[1].splitlines()
+        self.assertEqual(sorted(row.split(" | ")[0][2:] for row in rows), numbers)
+        self.assertFalse(any(" | unread | " in row for row in rows))
 
 
 RECORD = ("# 0001. One thing\n\nStatus: accepted.\n\n## Decision\n\nWe do one thing.\nAnd only that.\n\n"

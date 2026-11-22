@@ -41,15 +41,16 @@ def _order(rel: str) -> tuple:
 
 
 def _read(path: pathlib.Path, root: pathlib.Path) -> tuple:
-    """(title, replaced by, area) of one record: the title after its number, the path of the record that replaced it
-    or "", and the top directories of this repo that the paths its Boundaries name are in."""
+    """(title, replaced by, area) of one record: the title after its number, the path of the record that replaced it,
+    "" when none did or None when its Status cannot be read, and the top directories of this repo that the paths its Boundaries name are in."""
     text = path.read_text(encoding="utf-8", errors="replace")
     first = text.split("\n", 1)[0]
     digits = path.name.split("-", 1)[0]
     title = first[len("# %s. " % digits):] if first.startswith("# %s. " % digits) else first.lstrip("# ")
     said = check_decisions.parse(text)
-    status = said[0] if isinstance(said, tuple) else ""
-    replaced = check_decisions.REPLACED.match(status)
+    if isinstance(said, str):
+        return title.strip(), None, []
+    replaced = check_decisions.REPLACED.match(said[0])
     tops = set()
     for cells, check in check_decisions.boundaries(text):
         for token in check_context.TOKEN.findall(" ".join(cells + (check,))):
@@ -70,12 +71,14 @@ def render(root: pathlib.Path = ROOT) -> str:
     """The index the records under `root` make."""
     # A link is never followed, as tools/check_decisions.py follows none: a record is a file, or it is not read.
     folder = root / FOLDER
-    found = folder.glob("*.md") if folder.is_dir() and not folder.is_symlink() else []
-    kept = [("%s/%s" % (FOLDER, p.name), p) for p in found if p.is_file() and not p.is_symlink()]
+    linked = (root / "docs").is_symlink() or folder.is_symlink()
+    found = folder.glob("*.md") if folder.is_dir() and not linked else []
+    kept = [("%s/%s" % (FOLDER, p.name), p) for p in found
+            if check_context.RECORD_NUMBER.match(p.name) and p.is_file() and not p.is_symlink()]
     records = {rel: _read(p, root) for rel, p in sorted(kept, key=lambda pair: _order(pair[0]))}
     rows, heads = [], {}
     for rel, (title, replaced, area) in records.items():
-        status = "replaced by " + _number(replaced) if replaced else "live"
+        status = "unread" if replaced is None else "replaced by " + _number(replaced) if replaced else "live"
         cell = title.replace("\\", "\\\\").replace("|", "\\|")
         rows.append("| %s | %s | %s | %s |\n" % (_number(rel), cell, status, ", ".join(area)))
         # A replaced record's Status names only the record that replaced it, so a chain is read from the old end.
