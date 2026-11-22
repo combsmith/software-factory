@@ -20,6 +20,7 @@ from adapters.facts import Moved
 from harness import apply, bundle, engine, run, shared
 from harness import task as task_
 from tests import support
+from tools import walk
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 APPS = json.loads((ROOT / "config" / "apps.json").read_text())
@@ -609,6 +610,30 @@ class Apply(unittest.TestCase):
                          [("e1", "refused", "finding_gates"), ("e2", "refused", "finding_gates")])
         self.assertEqual(record["findings"], [])
         self.assertEqual(apply.outcome(the_task(), record, ("item", "finding_gates"))["outcome"], "item")
+
+    def test_an_opening_the_task_does_not_permit_is_refused_by_the_permission_not_by_the_schema(self):  # issue 838
+        # effect/1 lets a Result ask to open a pull request, so a Result that asks for it reads as result/1 whole: what
+        # refuses it, where its Role does not permit it, is the permission. The CLI is handed no list for it, so it is
+        # no Result there, and apply refuses it as an Effect the Task does not permit before it writes anything.
+        opening = {"id": "e3", "title": {"body": "A title"}, "body": "A body."}
+        asked = result(effects=dict(result()["effects"], open_pull_request=[opening]))
+        self.assertEqual(shared.errors(asked, "result"), [])
+        self.assertNotIn("open_pull_request", the_task()["permitted_effects"])
+        self.assertNotIn("open_pull_request", engine.handed(the_task())["properties"]["effects"]["properties"])
+        self.assertIs(engine.held(asked, the_task()), False)
+        self.assertEqual(refused(res=asked), ("item", "effect_not_permitted"))
+        # The same Result where its Task permits the opening is held: so it is the permission that refused it.
+        permits = the_task(permitted_effects=["submit_review", "create_check_run", "open_pull_request"])
+        self.assertIs(engine.held(result(), the_task()), True)
+        self.assertIs(engine.held(asked, permits), True)
+
+    def test_every_effect_a_roles_manifest_permits_is_one_apply_writes_in_its_order(self):  # issue 838
+        # An Effect apply's ORDER does not list is never written and never recorded, so no Role may permit one before
+        # apply's dispatch writes it: the grant for an opening lands with that dispatch or after it, never before.
+        permitted = {kind for path in sorted((ROOT / "roles").glob("*.json"))
+                     for intent in json.loads(path.read_text())["intents"] for kind in intent["permitted_effects"]}
+        self.assertTrue(permitted)
+        self.assertEqual(sorted(permitted - set(apply.ORDER)), [])
 
     def test_a_finding_names_a_place_in_the_change_and_is_adopted_only_from_an_advisory_thread_on_it(self):  # 0145
         # A Finding names a place in the change: a place outside it, or a surface the facts cannot show on this item,
@@ -1250,6 +1275,64 @@ class Push(unittest.TestCase):
         for path in ("docs/sonar-project.properties", "sonar-project.properties.md"):
             self.assertIsNone(apply.push_refusal([path], [None], own_list()), path)
 
+    def test_the_checks_that_hold_a_trust_boundary_are_on_the_repos_own_list(self):  # issues 907 and 1048, decision 0240
+        # The check that holds the workflows, the one that holds whose commits a pull request carries, the one that
+        # holds who reaches a GitHub write, and the one that holds that nothing is fetched and no secret written down: a
+        # Role's push of any of them could blind it to a later change, so each is refused, at its own path alone. So is
+        # each file whose only job is to decide whether one of them runs, what it reads, or its verdict: verify's list
+        # of checks, the walk of the tree, and the required check's verdict (issue 1048). One hop, no further: the other
+        # checks, and the transport the commits' check reads through, stay verify's inputs, pushed and read by every Lens.
+        seven = ("tools/check_workflows", "tools/commits_are_the_maintainers", "tools/check_writes", "tools/check_repo",
+                 "tools/verify", "tools/walk", "tools/needs_passed")
+        # A module Python would import at the name, whatever its suffix: an extension module is found ahead of the
+        # source, so it is the same path (Astra's read). And a package at the name is too, the name itself among it, a
+        # link to a directory: Python imports it in place of the module, and python3 -m runs its __main__ (the Claude
+        # review and the security read of issue 1048's change).
+        suffixes = (".py", ".abi3.so", ".so", ".cpython-312-x86_64-linux-gnu.so", ".pyc")
+        for name in seven + ("tools/__init__",):
+            for path in [name + suffix for suffix in suffixes]:
+                self.assertEqual(apply.push_refusal([path], [None], own_list()), "push_protected", path)
+        # And the compiled modules Python caches beside them, which an unchecked one is loaded in place of the source
+        # (Kimi, Muse and Astra).
+        for path in ("tools/__pycache__", "tools/__pycache__/verify.cpython-312.pyc", "tools/__pycache__/__init__.cpython-39.pyc",
+                     "tools/__pycache__/check_repo.cpython-312.opt-1.pyc"):
+            self.assertEqual(apply.push_refusal([path], [None], own_list()), "push_protected", path)
+        for name in seven:
+            for path in (name, name + "/__init__.py", name + "/__main__.py", name + "/x/y.py"):
+                self.assertEqual(apply.push_refusal([path], [None], own_list()), "push_protected", path)
+        # So is what decides whether verify runs at all: the Makefile, and the GNUmakefile make reads before it, in any
+        # case.
+        for path in ("Makefile", "GNUmakefile", "makefile", "gnumakefile"):
+            self.assertEqual(apply.push_refusal([path], [None], own_list()), "push_protected", path)
+        for path in ("tools/check_authority.py", "tools/check_workflows_x.py", "sub/tools/check_writes.py",
+                     "adapters/github.py", "sub/tools/walk.py", "tools/walker.py", "tools/verify_x/a.py",
+                     "tools/x/verify.py", "Makefile.md", "docs/Makefile", "kernel/__init__.py",
+                     "tools/verify.notes/x.py"):
+            self.assertIsNone(apply.push_refusal([path], [None], own_list()), path)
+        # And no other file under tools/ is protected: the list holds these, the hooks aside, in any case (Astra's read).
+        listed = {entry["path"] for entry in json.loads((ROOT / "config" / "hooks.json").read_text())["protected"]}
+        self.assertEqual({path for path in listed
+                          if path.casefold().startswith("tools/") and not path.casefold().startswith("tools/hooks/")},
+                         {name + ".*" for name in seven} | {name + "/" for name in seven} | {"tools/__init__.*",
+                                                                                              "tools/__pycache__/"})
+        self.assertLessEqual({"Makefile", "GNUmakefile"}, listed)
+        # And what the list refuses, not only how it is spelt: of every file under tools/ in this tree, the hooks aside,
+        # a push is refused for these alone, whatever pattern an entry is written as (Astra's read of issue 1048's change).
+        def held(path):
+            path = path.casefold()
+            folder, _, name = path.rpartition("/")
+            module, dot, _ = name.partition(".")
+            return (dot and folder + "/" + module in seven + ("tools/__init__",)) \
+                or path == "tools/__pycache__" or path.startswith("tools/__pycache__/") \
+                or any(path == name or path.startswith(name + "/") for name in seven)
+        every = sorted(rel for rel in (path.relative_to(ROOT).as_posix() for path in walk.files(ROOT))
+                       if rel.startswith("tools/"))
+        self.assertLessEqual({name + ".py" for name in seven} | {"tools/__init__.py"}, set(every))
+        for path in every:
+            if not path.startswith("tools/hooks/"):
+                self.assertEqual(apply.push_refusal([path], [None], own_list()),
+                                 "push_protected" if held(path) else None, path)
+
 
 def own_list() -> list:
     """What a push may not touch, as this checkout holds it: config/hooks.json read with config/defaults.json's model
@@ -1430,9 +1513,9 @@ class Bundle(unittest.TestCase):
                    "lifecycle/pull_request.json", "config/authority.json", "kernel/gate.py", "kernel/brakes.py",
                    "config/hooks.json", "roles/pr-review.json", "roles/pr-review/prompt.md", "harness/apply.py",
                    "config/rubric-pr-review.json", "config/harness.json", "tools/hooks/protected.py", "guards/patch.py",
-                   "guards/sub/data.json")
+                   "guards/sub/data.json", "Makefile")
         pushed = ("kernel/derive.py", "tests/test_apply.py", "tools/check_context.py", "README.md", ".gitleaks.toml",
-                  "schemas/effect.schema.json", "Makefile", "docs/a.md", "docs/decisions/x.md")
+                  "schemas/effect.schema.json", "docs/Makefile", "docs/a.md", "docs/decisions/x.md")
         for path in refused:
             for data in (a_bundle(changed(path)), a_bundle(moved(path, "docs/moved.md")),
                          a_bundle(moved("docs/moved.md", path)), a_bundle(changed("docs/a.md"), changed(path))):

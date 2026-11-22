@@ -12,7 +12,7 @@ A queued item is read as if it were not, and stays only if that reading is appro
 | Calls only its own functions, listed builtins and methods, and `_decision` | `tests/test_tools.py::test_the_kernel_calls_nothing_it_is_given`, `tests/test_tools.py::test_a_module_is_called_into_only_at_its_functions` |
 | Facts in, Decision out, as plain dictionaries and lists. An argument is never changed | `tests/test_decide.py::test_the_same_inputs_give_the_same_decision` |
 | No text from outside: no function takes a comment body or a title | `examples/invalid/facts.carries-prose.json` |
-| A reason is a code that matches `^[a-z_]+$`, never a sentence | `examples/invalid/decision.sentence-as-reason.json` |
+| A reason is a code, `^[a-z_]+$`, never a sentence, in `terms.REASONS` or, an issue's alone, `ISSUE_REASONS` (record 0248) | `examples/invalid/decision.sentence-as-reason.json`, `tests/test_reasons.py::test_every_decision_and_every_member_keeps_to_its_set` |
 | Fail to a deferral or a Hold. Defaults: `opened_for` unread is no fix (0216); the next rows' | `tests/test_decide.py::test_unreadable_capacity_defers`, `tests/test_decide.py::test_the_authors_fix_is_admitted_only_on_a_pull_request_the_factory_opened` |
 | `acceptance_bounded` absent is not cut: its read short defers all the same (record 1147) | `tests/test_decide.py::test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person` |
 | `timeline_bounded` absent is not cut: its read short defers all the same (record 1149) | `tests/test_decide.py::test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person` |
@@ -33,7 +33,7 @@ and take "not held yet" out of the documents `make verify` names. `python3 -m un
 
 Then, only if your rule needs it:
 
-- A person must act on the new reason: add it to `NEEDS_YOU_REASONS` in `decide.py`. A new brake goes in `brakes.py`, and what gates in `gate.py`.
+- A new reason goes in `REASONS` or `ISSUE_REASONS` in `terms.py`, and in `NEEDS_YOU_REASONS` in `decide.py` if a person must act on it. A new brake goes in `brakes.py`, and what gates in `gate.py`.
 - It reads a new fact: add the field to `schemas/facts.schema.json`, `examples/facts.json`, `facts()` in `tests/support.py` and `sim/world.py`, together; a flag in `complete`, to `terms.py` too.
 - It reads a new limit: add it to `config/defaults.json` and `schemas/config.schema.json`. A staleness limit stays in `lifecycle/`.
 - It makes a new transition between States: declare it in `lifecycle/pull_request.json`, with who makes it. A new reason needs facts in `BASES` in `tests/test_transitions.py`, which asks for them.
