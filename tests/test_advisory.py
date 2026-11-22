@@ -810,8 +810,9 @@ def answered(*findings, text=None, **changes) -> dict:
     """The transport's answer for a response of the Responses API that completed with these findings."""
     text = json.dumps({"schema": "advice-answer/1", "findings": list(findings)}) if text is None else text
     body = {"id": "resp_1", "status": "completed", "model": "astra-model", "usage": {"input_tokens": 1000, "output_tokens": 500},
-            "output": [{"type": "reasoning", "summary": []},
-                       {"type": "message", "content": [{"type": "output_text", "text": text}]}]}
+            "error": None, "incomplete_details": None,
+            "output": [{"type": "reasoning", "summary": []}, {"type": "message", "status": "completed", "role": "assistant",
+                                                             "content": [{"type": "output_text", "text": text}]}]}
     return {"status": 200, "headers": {}, "body": dict(body, **changes)}
 
 
@@ -819,7 +820,7 @@ def chatted(*findings, text=None, ended="stop", **changes) -> dict:
     """The same for a chat completion."""
     text = json.dumps({"schema": "advice-answer/1", "findings": list(findings)}) if text is None else text
     body = {"model": "kimi-model", "usage": {"prompt_tokens": 1000, "completion_tokens": 500},
-            "choices": [{"finish_reason": ended, "message": {"role": "assistant", "content": text}}]}
+            "choices": [{"finish_reason": ended, "message": {"role": "assistant", "content": text, "refusal": None}}]}
     return {"status": 200, "headers": {}, "body": dict(body, **changes)}
 
 
@@ -961,7 +962,8 @@ class Parser(unittest.TestCase):
             (answered(text='{"schema": "advice-answer/1", "findings": [], "verdict": "approve"}'), "unparsed"),
             (answered(text="[" * 100000), "unparsed"), (answered(text=whole[:-1] + ', "findings": []}'), "unparsed"),
             (answered(text=whole.replace('"severity": "major"', '"severity": "major", "severity": "info"')), "unparsed"),
-            (answered(text="\x1e" + whole), "unparsed"),
+            (answered(text="\x1e" + whole), "unparsed"), (answered(text="```json\n" + whole), "unparsed"),
+            ({"status": 400, "headers": {}, "body": {"error": "Bad Request"}}, "transport"),
             (answered(text=whole.replace('"line": 88', '"line": ' + "8" * 64)), "unparsed"),
             (answered(text=json.dumps({"schema": "advice-answer/1", "findings": [{}] * 101})), "unparsed"), (answered(said(), output=[]), "unparsed"), (answered(said(), output=None), "unparsed"),
             (answered(said(), output=[{"type": "message", "content": [{"type": "output_text", "text": whole}] * 2}]), "unparsed"),
@@ -1020,15 +1022,16 @@ class Parser(unittest.TestCase):
                              (None, None, "transport"))
         # An error Azure names is its code in either API, and never another model's fault.
         for error, reason in (("content_filter", "refused"), ("rate_limit_exceeded", "rate_limited")):
-            for failed in (read(answered(said(), error={"code": error})), read(chatted(said(), error={"code": error}), KIMI)):
+            for failed in (read(answered(said(), error={"code": error}, model=None)),
+                           read(chatted(said(), error={"code": error}, model=None), KIMI)):
                 self.assertEqual((failed["status"], failed["reason"]), ("incomplete", reason))
         # No answer in hand: one of the reasons a step has for it, and no other.
         for reason, status in (("budget", "incomplete"), ("too_large", "incomplete"), ("timed_out", "incomplete"),
                                ("rate_limited", "incomplete"), ("no_key", "failed"), ("transport", "failed")):
-            result = advice.unasked(TOLD, reason, 0, 0, SCHEMAS)
+            result = advice.unasked(TOLD, reason, 2, 45.5, SCHEMAS)
             self.assertEqual(jsonschema_lite.validate(result, SCHEMAS["advice"], schemas=SCHEMAS), [])
             self.assertEqual((result["status"], result["reason"], result["findings"], result["usage"]["asks"],
-                              result["usage"]["cost_usd"]), (status, reason, [], 0, None))
+                              result["usage"]["seconds"], result["usage"]["cost_usd"]), (status, reason, [], 2, 45.5, None))
         for reason in (None, "unparsed", "not_the_model", "cut_short", "refused", "completed", "the key is missing"):
             with self.assertRaises(ValueError, msg=reason):
                 advice.unasked(TOLD, reason, 0, 0, SCHEMAS)

@@ -25,7 +25,6 @@ import re
 
 from tools.jsonschema_lite import validate
 
-INCOMPLETE = ("too_large", "cut_short", "rate_limited", "refused", "timed_out", "budget")
 FAILED = ("unparsed", "not_the_model", "no_key", "transport")
 # What the step may say with no answer in hand: nothing was asked, or nothing came back.
 UNASKED = ("too_large", "budget", "no_key", "timed_out", "transport", "rate_limited")
