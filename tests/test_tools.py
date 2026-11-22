@@ -6798,6 +6798,111 @@ class Trials(unittest.TestCase):
         self.assertIn("P-31, the relay's host, on which W-2 rests, belongs to the relay and runs before it is built, in slice 3 (decision 0107). "
                       "The first approval does not need W-2, since a Run's end starts its passes (decision 0043).", section)
 
+    def test_a_trial_may_have_a_page_of_its_own_read_as_its_row_is(self):  # decision 0249
+        # A trial's page, in place of its row in section 6, is read as the row was: a quote of its question holds, the
+        # check finds nothing new, and the table the check prints is the same, byte for byte.
+        design = (ROOT / check_trials.DESIGN).read_text()
+        row = next(line for line in design.split("\n") if line.startswith("| P-41 | "))
+        cells = re.fullmatch(r"\| P-41 \| (%s) \| (%s) \|" % (check_trials.CELL, check_trials.CELL), row)
+        page = "# P-41\n\nBatch: 2\n\n## Question\n\n%s\n\n## Pass\n\n%s\n" % cells.group(1, 2)
+        moved = clone({check_trials.DESIGN: design.replace(row + "\n", "", 1), check_trials.PAGES + "/P-41.md": page})
+        self.assertEqual(check_trials.run(moved), [])
+        self.assertEqual(check_trials.table(moved), check_trials.table(ROOT))
+        self.assertEqual(check_trials.questions(moved)["P-41"], check_trials.questions(ROOT)["P-41"])
+        # A new trial is a page alone: it is one of section 6's, its row is written from it in the order of the
+        # numbers, and it stands in the batch it names.
+        made = clone({check_trials.PAGES + "/P-97.md": "# P-97\n\nBatch: 4\n\n## Question\n\nIs it asked?\n\n## Pass\n\nYes\n"})
+        self.assertIn("P-97", check_trials.section_6(made))
+        self.assertEqual(check_trials.run(made), [])
+        self.assertEqual(check_trials.questions(made)["P-97"], "Is it asked?")
+        lines = check_trials.table(made).split("\n")
+        self.assertEqual(lines[lines.index("| Batch | Trials |") - 2], "| P-97 | Is it asked? | Yes |")
+        self.assertIn("P-97", re.findall(r"P-[0-9]+", next(line for line in lines if line.startswith("| 4 | "))))
+        none = clone({check_trials.PAGES + "/P-97.md": "# P-97\n\nBatch: none\n\n## Question\n\nIs it asked?\n\n## Pass\n\nYes\n"})
+        self.assertIn("P-97", re.findall(r"P-[0-9]+", next(line for line in check_trials.table(none).split("\n")
+                                                           if line.startswith("| none | "))))
+        # A pipe escaped is the cell's own, and kept as written in the row.
+        piped = clone({check_trials.PAGES + "/P-97.md": "# P-97\n\nBatch: 4\n\n## Question\n\nIs A \\| B asked?\n\n## Pass\n\nYes\n"})
+        self.assertIn("| P-97 | Is A \\| B asked? | Yes |", check_trials.table(piped).split("\n"))
+        # Anything else there is refused: a file not named for a trial, or nested, a page headed with another trial, a
+        # batch 6.1 has not, a question run over two lines, text past the pass, and a trial with a page and a row.
+        good = "# P-%s\n\nBatch: 4\n\n## Question\n\nIs it asked?\n\n## Pass\n\nYes\n"
+        files = {"README.md": "# Trials\n", "P-095.md": good % "095", "deep/P-96.md": good % "96",
+                 "P-90.md": good % "91", "P-92.md": (good % "92").replace("Batch: 4", "Batch: 5"),
+                 "P-93.md": (good % "93").replace("Is it asked?", "Is it\nasked?"), "P-94.md": good % "94" + "more\n",
+                 "P-98.md": (good % "98").replace("Is it asked?", "Is it <!-- hidden --> asked?"),
+                 "P-99.md": (good % "99").replace("Is it asked?", "```hidden"), "P-41.md": page,
+                 "P-88.md": (good % "88").replace("Is it asked?", "Is A | B asked?"), "P-87.md": (good % "87").replace("Yes", " "),
+                 "P-85.md": (good % "85").replace("Is it asked?", " "),
+                 "P-86.md\n": good % "86"}
+        planted = clone({check_trials.PAGES + "/" + k: v for k, v in files.items()})
+        (planted / check_trials.PAGES / "P-89.md").symlink_to(planted / check_trials.PAGES / "P-90.md")
+        problems = check_trials.run(planted)
+        for name in ("P-98.md", "P-99.md"):
+            self.assertTrue(caught(problems, "%s/%s: holds a fence or an HTML comment" % (check_trials.PAGES, name)), name)
+        for name in ("README.md", "P-095.md", "deep/P-96.md", "P-89.md", "P-86.md\n"):
+            self.assertTrue(caught(problems, "%s/%s: only a trial's page" % (check_trials.PAGES, name)), name)
+        self.assertTrue(caught(problems, "P-90.md: is headed P-91"), problems)
+        for name in ("P-87.md", "P-85.md"):
+            self.assertTrue(caught(problems, "%s: its question or its pass is blank" % name), name)
+        with self.assertRaises(ValueError):         # the table refuses what the check refuses
+            check_trials.table(planted)
+        for name in ("P-92.md", "P-93.md", "P-94.md", "P-88.md"):
+            self.assertTrue(caught(problems, "%s/%s: is not a trial's page" % (check_trials.PAGES, name)), name)
+        self.assertTrue(caught(problems, "P-41 has a page in %s and a row in section 6" % check_trials.PAGES), problems)
+        # A page's batch is the one 6.1 names it in, while 6.1 does; and a row the table could not write is refused,
+        # since dropping it would leave the table unchanged.
+        other = clone({check_trials.DESIGN: design.replace(row + "\n", "", 1),
+                       check_trials.PAGES + "/P-41.md": page.replace("Batch: 2", "Batch: 4")})
+        self.assertTrue(caught(check_trials.run(other), "P-41's page says Batch: 4, and 6.1 names it in batch 2"))
+        # The table refuses each of these alone, as the check does: a page beside its row, a page 6.1 contradicts.
+        for refused in (clone({check_trials.PAGES + "/P-41.md": page}), other):
+            with self.assertRaises(ValueError):
+                check_trials.table(refused)
+        twice = design.replace("| **4. As they come up** | P-6,", "| **4. As they come up** | P-13, P-6,", 1)
+        self.assertNotEqual(twice, design)
+        self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: twice})), "6.1 names P-13 in more than one batch"))
+        odd = clone({check_trials.DESIGN: design.replace(row, row + " ", 1)})
+        self.assertTrue(caught(check_trials.run(odd), "P-41's row in section 6 is not '| P-41 | question | pass |'"))
+        with self.assertRaises(ValueError):
+            check_trials.table(odd)
+        # A trial after the last row has a page, never a row; and 6.1 is read as it is seen, all four batches of it.
+        late = clone({check_trials.DESIGN: design.replace(row, row + "\n| P-79 | Is it asked? | Yes |", 1)})
+        self.assertTrue(caught(check_trials.run(late), "P-79 has a row in section 6; a trial after P-78 has a page"))
+        hidden = design.replace("\n### 6.1 The order to run them in\n",
+                                "\n### 6.1 The order to run them in\n\n<!--\n| **4. An example** | P-13 | x |\n-->\n", 1)
+        self.assertNotEqual(hidden, design)
+        self.assertEqual(check_trials.table(clone({check_trials.DESIGN: hidden})), check_trials.table(ROOT))
+        unbold = design.replace("| **3. Before the control room** |", "| 3. Before the control room |", 1)
+        self.assertNotEqual(unbold, design)
+        with self.assertRaises(ValueError):
+            check_trials.table(clone({check_trials.DESIGN: unbold}))
+        self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: unbold})), "6.1's four batches cannot all be read"))
+        # A batch whose trials have all moved to pages is still read, its row naming none.
+        section = design[design.index("\n### 6.1 "):]
+        three = next(line for line in section.split("\n") if line.startswith("| **3. "))
+        emptied = design.replace(three, "| **3. Before the control room** | each trial whose page says `Batch: 3` | x |", 1)
+        self.assertNotIn("6.1's four batches", " ".join(check_trials.catalog(clone({check_trials.DESIGN: emptied}))))
+        # An opener left open hides the rest of 6.1, as a renderer reads it.
+        unclosed = design.replace("\nP-31, the relay's host", "\n<!--\n| **4. An example** | P-13 | x |\n\nP-31, the relay's host", 1)
+        self.assertNotEqual(unclosed, design)
+        self.assertEqual(check_trials.table(clone({check_trials.DESIGN: unclosed})), check_trials.table(ROOT))
+
+    def test_the_table_is_printed_from_rows_and_pages_in_the_order_of_their_numbers(self):  # decision 0249
+        # No index is committed: `python3 -m tools.check_trials --table` prints section 6 and the batches of 6.1.
+        lines = check_trials.table(ROOT).split("\n")
+        numbers = [int(line.split(" ")[1][2:]) for line in lines if line.startswith("| P-")]
+        self.assertEqual(numbers, sorted(numbers))
+        self.assertEqual(len(numbers), len(check_trials.section_6(ROOT)))
+        self.assertTrue(next(line for line in lines if line.startswith("| 1 | ")).startswith("| 1 | P-1, P-3, P-7"))
+        self.assertIn("P-31", re.findall(r"P-[0-9]+", next(line for line in lines if line.startswith("| none | "))))
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            self.assertEqual(check_trials.front(["--table"]), 0)
+        self.assertEqual(printed.getvalue(), check_trials.table(ROOT))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(check_trials.front(["--tables"]), 1)
+
     def test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads(self):  # issue 438
         # The check keeps each fixture's finding between runs in one process, by its name, its text, the schema and the
         # Apps' reach; a change to any of them is read afresh, and what a run finds is what a first run would.
