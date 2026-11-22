@@ -23,4 +23,3 @@ correct on the day it is made.
 | The review standard is the rubric, and no page restates it | `tools/check_context.py` |
 | A path or a test named in a document exists | `tools/check_context.py` |
 | A generated table that is stale fails the required check | waiting on `roles/team.md` |
-| The index of records, `docs/records.md`, is made by `tools/records.py` from them alone, and fails the required check when stale | `tools/check_context.py`, `tests/test_tools.py::test_the_records_index_is_made_from_the_records_and_a_stale_one_fails`, mutant: "a stale index of the records passes" |

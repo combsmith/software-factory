@@ -6832,37 +6832,35 @@ class Context(unittest.TestCase):
             self.assertTrue(caught(problems, words), words)
 
 
-    def test_the_records_index_is_made_from_the_records_and_a_stale_one_fails(self):
-        # Decision 0009: docs/records.md is made by tools/records.py from the records alone, and fails the check when stale.
+    def test_the_records_index_is_made_from_the_records_alone(self):
+        # Decision 0009: tools/records.py prints an index of the records, made from them alone and never committed.
         body = "\n\n## Decision\n\nX.\n\n## Why\n\nY.\n\n## Boundaries\n\n| Boundary | Check |\n|---|---|\n| b | %s |\n"
         files = {
             "docs/decisions/0001-a.md": "# 0001. A\n\nStatus: replaced by `docs/decisions/0002-b.md`." + body % "`tools/x.py`",
             "docs/decisions/0002-b.md": "# 0002. B\n\nStatus: replaced by `docs/decisions/0003-c.md`, in force." + body % "`kernel/k.py`",
             "docs/decisions/0003-c.md": "# 0003. C | d\n\nStatus: accepted. Replaces `docs/decisions/0002-b.md`."
                                         + body % "`tests/test_x.py::test_y`, `adapters/a.py`, `make checks`, `tools/x.py`",
-            "docs/decisions/0004-d.md": "# 0004. D\n\nStatus: accepted." + body % "`tools/x.py`"}
-        root = tree(files)
-        made = records.render(root)
+            "docs/decisions/0004-d.md": "# 0004. D\n\nStatus: accepted." + body % "`tools/x.py`, `effect/1`, `kernel`",
+            "docs/decisions/2000-f.md": "# 2000. F\n\nStatus: accepted." + body % "`tools/x.py`",
+            "docs/decisions/10000-e.md": "# Ten thousand\n\nStatus: accepted." + body % "`kernel/k.py`"}
+        dirs = {"tools/x.py": "", "kernel/k.py": "", "adapters/a.py": "", "tests/test_x.py": ""}
+        made = records.render(tree({**files, **dirs}))
+        # A name with no folder, or whose top is no directory here, names no area; a title with no number before it is read whole.
         for row in ("| 0001 | A | replaced by 0002 | tools |\n", "| 0002 | B | replaced by 0003 | kernel |\n",
-                    "| 0003 | C \\| d | live | adapters, tools |\n", "| 0004 | D | live | tools |\n"):
+                    "| 0003 | C \\| d | live | adapters, tools |\n", "| 0004 | D | live | tools |\n",
+                    "| 10000 | Ten thousand | live | kernel |\n"):
             self.assertIn(row, made)
+        # Records stand in the order of their numbers as numbers.
+        self.assertLess(made.index("| 2000 |"), made.index("| 10000 |"))
         # A chain is read from its old end, through each record's "replaced by"; a live record that replaced none has none.
         self.assertTrue(made.endswith("| Live record | Replaced |\n|---|---|\n| 0003 | 0001, 0002 |\n"), made)
         self.assertEqual(check_context._cells("| 0003 | C \\| d | live | adapters, tools |"), ["0003", "C | d", "live", "adapters, tools"])
-        stale = "docs/records.md is not what the records make"
-        self.assertTrue(caught(check_context._index(root), stale))
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(records.main([], root), 0)
-        self.assertEqual(check_context._index(root), [])
-        (root / "docs/decisions/0004-d.md").write_text(files["docs/decisions/0004-d.md"].replace("# 0004. D", "# 0004. E"))
-        self.assertTrue(caught(check_context._index(root), stale))
-        self.assertTrue(caught(check_context.run(root), stale))
         # A backslash in a title is its own, and escapes no pipe after it.
-        slash = tree({"docs/decisions/0001-a.md": "# 0001. A \\| b\\\n\nStatus: accepted." + body % "`tools/x.py`"})
+        slash = tree({"docs/decisions/0001-a.md": "# 0001. A \\| b\\\n\nStatus: accepted." + body % "`tools/x.py`", **dirs})
         self.assertIn("| 0001 | A \\\\\\| b\\\\ | live | tools |\n", records.render(slash))
-        # A link is never followed: a linked record, or a linked folder of them, is not read, and a linked index is
-        # neither written through nor read.
-        linked = tree({"docs/decisions/0004-d.md": files["docs/decisions/0004-d.md"], "elsewhere/0001-a.md": files["docs/decisions/0001-a.md"]})
+        # A link is never followed: a linked record, or a linked folder of them, is not read.
+        linked = tree({"docs/decisions/0004-d.md": files["docs/decisions/0004-d.md"], "elsewhere/0001-a.md": files["docs/decisions/0001-a.md"],
+                       **dirs})
         (linked / "docs/decisions/0001-a.md").symlink_to(linked / "elsewhere/0001-a.md")
         self.assertNotIn("| 0001 |", records.render(linked))
         self.assertIn("| 0004 | D | live | tools |\n", records.render(linked))
@@ -6870,19 +6868,15 @@ class Context(unittest.TestCase):
         (folder / "docs").mkdir()
         (folder / "docs/decisions").symlink_to(folder / "elsewhere")
         self.assertNotIn("| 0004 |", records.render(folder))
-        (linked / "kept.md").write_text(records.render(linked))
-        (linked / "docs/records.md").symlink_to(linked / "kept.md")
-        self.assertTrue(caught(check_context._index(linked), stale))
+        # It is printed, and nothing is written.
         with contextlib.redirect_stdout(io.StringIO()) as said:
-            self.assertEqual(records.main([], linked), 1)
-        self.assertIn("docs/records.md is a link", said.getvalue())
-        self.assertEqual((linked / "kept.md").read_text(), records.render(linked))
-        (linked / "kept.md").write_text("old\n")
-        with contextlib.redirect_stdout(io.StringIO()):
-            records.main([], linked)
-        self.assertEqual((linked / "kept.md").read_text(), "old\n")
-        # This repo's own index is fresh.
-        self.assertEqual(check_context._index(ROOT), [])
+            self.assertEqual(records.main([], linked), 0)
+        self.assertEqual(said.getvalue(), records.render(linked))
+        self.assertFalse((linked / "docs/records.md").exists())
+        # This repo's records all read, the latest among them.
+        latest = max((check_context.RECORD_NUMBER.match(p.name).group(1) for p in (ROOT / "docs/decisions").glob("*.md")), key=int)
+        self.assertIn("\n| %s | " % latest, records.render(ROOT))
+
 
 RECORD = ("# 0001. One thing\n\nStatus: accepted.\n\n## Decision\n\nWe do one thing.\nAnd only that.\n\n"
           "## Why\n\nTwo things split the work.\n\n## Boundaries\n\n| Boundary | Check |\n|---|---|\n"
