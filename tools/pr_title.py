@@ -253,7 +253,8 @@ def main(argv=None) -> int:
             print("usage: python3 -m tools.pr_title --body FILE")
             return 2
         try:
-            found = body_problems(pathlib.Path(args[1]).read_text(encoding="utf-8"))
+            # NOSONAR on the next line: the desk's own command reads the file its user names, as `cat` would.
+            found = body_problems(pathlib.Path(args[1]).read_text(encoding="utf-8"))  # NOSONAR
         except (OSError, ValueError) as err:
             print("body_unreadable: the file cannot be read: %s" % type(err).__name__)
             return 1
