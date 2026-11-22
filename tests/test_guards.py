@@ -1,5 +1,5 @@
 """The guards on a Role's own writes (issue 838). `guards/patch.py`: a Role's patch, read as git writes it and applied
-byte for byte, or not at all."""
+byte for byte, or not at all. `guards/push.py`: what a push is told, and the paths apply is asked about."""
 from __future__ import annotations
 
 import os
@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import unittest
 
-from guards import patch
+from guards import patch, push
 
 FILE = "100644"
 OLD = b"a\nb\nc\nd\ne\nf\ng\nh\n"
@@ -895,6 +895,133 @@ class Patch(unittest.TestCase):
                 data = run(tree, "diff", "--cached", "-U0", first).stdout
                 self.assertTrue(parted(data), data)
                 self.assertEqual(patch.applied(data, {"f": FILE}, {"f": old})[0]["written"], {"f": (FILE, new)})
+
+
+REPO = "combsmith/software-factory"
+BRANCH = "factory-work/issue-838-1"
+PARENT, ROOT_TREE, MADE = "a" * 40, "b" * 40, "d" * 40
+NEW_A = "e" * 40
+WROTE = {"written": {"docs/a.md": (FILE, b"A\n"), "docs/n.md": ("100755", b"x\n")}, "removed": ["tests/t.py"],
+         "read": []}
+BLOBS = {"docs/a.md": "QQo=", "docs/n.md": "eAo="}
+PUSH = {"repo": REPO, "branch": BRANCH, "parent": PARENT, "head": None, "message": "Add the notes (issue 838)",
+        "changes": WROTE, "blobs": BLOBS}
+MOVE = dict(PUSH, head=PARENT)
+READING = dict(PUSH, changes=None, blobs=None)
+
+
+class Push(unittest.TestCase):
+    def test_a_push_is_told_whole_or_begins_nothing(self):
+        for told in (PUSH, MOVE, READING, dict(PUSH, branch="factory-work/issue-1-10")):
+            self.assertEqual(push.began(told)["push"], told)
+        self.assertEqual(push.began(PUSH), {
+            "push": PUSH, "tree": None, "before": None, "branch_read": False, "made": {}, "new": None, "checked": False,
+            "commit": None, "commit_back": False, "moved": False, "landed": False})
+        less = {k: v for k, v in PUSH.items() if k != "message"}
+
+        class Text(str):
+            """Text of another kind, with the right characters: what `+` and `==` on it do is its own to say."""
+        for said, told in (
+                ("no push", None), ("a list", [PUSH]), ("a key more", dict(PUSH, tree=ROOT_TREE)), ("a key fewer", less),
+                ("a repo of one part", dict(PUSH, repo="software-factory")), ("no repo", dict(PUSH, repo=None)),
+                ("a repo of three parts", dict(PUSH, repo=REPO + "/git")), ("no owner", dict(PUSH, repo="/x")),
+                ("no name", dict(PUSH, repo="combsmith/")), ("the directory above", dict(PUSH, repo="combsmith/..")),
+                ("a repo with a query", dict(PUSH, repo=REPO + "?x")), ("an owner that is a dot", dict(PUSH, repo="./x")),
+                ("the default branch", dict(PUSH, branch="main")), ("a tag", dict(PUSH, branch="factory/v0.1.12")),
+                ("a branch that is no text", dict(PUSH, branch=None)),
+                ("a work branch of no issue", dict(PUSH, branch="factory-work/issue--1")),
+                ("a work branch of issue 0", dict(PUSH, branch="factory-work/issue-0-1")),
+                ("a work branch never opened", dict(PUSH, branch="factory-work/issue-838")),
+                ("a work branch opened no times", dict(PUSH, branch="factory-work/issue-838-")),
+                ("a work branch opened 0 times", dict(PUSH, branch="factory-work/issue-838-0")),
+                ("a branch under a work branch", dict(PUSH, branch=BRANCH + "/x")),
+                ("a branch that only ends as one", dict(PUSH, branch="x/" + BRANCH)),
+                ("a work branch of an issue that is no number", dict(PUSH, branch="factory-work/issue-x-1")),
+                ("a branch as long as a work branch's head", dict(PUSH, branch="x" * len("factory-work/issue-") + "838-1")),
+                ("a parent that is a list of characters", dict(PUSH, parent=list(PARENT))),
+                ("a parent of a character more", dict(PUSH, parent=PARENT + "a")),
+                ("a work branch of an issue led by 0", dict(PUSH, branch="factory-work/issue-01-1")),
+                ("a work branch opened 01 times", dict(PUSH, branch="factory-work/issue-1-01")),
+                ("a work branch of a digit git's own are not", dict(PUSH, branch="factory-work/issue-\u0663-1")),
+                ("an owner that is the directory above", dict(PUSH, repo="../x")), ("a name that is a dot", dict(PUSH, repo="x/.")),
+                ("a message in parts", dict(PUSH, message=["Add the notes"])),
+                ("a parent by its short name", dict(PUSH, parent=PARENT[1:])), ("no parent", dict(PUSH, parent=None)),
+                ("a parent in capitals", dict(PUSH, parent=PARENT.upper())),
+                ("a parent that is a ref", dict(PUSH, parent="main")),
+                ("a head that is another commit", dict(PUSH, head=MADE)), ("a head that is no commit", dict(PUSH, head="")),
+                ("a message that is none", dict(PUSH, message=None)), ("an empty message", dict(PUSH, message="")),
+                ("changes with no blobs", dict(PUSH, blobs=None)), ("blobs with no changes", dict(PUSH, changes=None)),
+                ("a written file with no blob", dict(PUSH, blobs={"docs/a.md": "QQo="})),
+                ("a blob of no written file", dict(PUSH, blobs=dict(BLOBS, x="QQo="))),
+                ("a blob that is bytes", dict(PUSH, blobs=dict(BLOBS, **{"docs/a.md": b"QQo="}))),
+                ("blobs that are a list", dict(PUSH, blobs=list(BLOBS))),
+                ("a repo of another kind", dict(PUSH, repo=Text(REPO))), ("a branch of another kind", dict(PUSH, branch=Text(BRANCH))),
+                ("a parent of another kind", dict(PUSH, parent=Text(PARENT))), ("a head of another kind", dict(MOVE, head=Text(PARENT))),
+                ("a message of another kind", dict(PUSH, message=Text(PUSH["message"]))),
+                ("a blob of another kind", dict(PUSH, blobs=dict(BLOBS, **{"docs/a.md": Text("QQo=")})))):
+            self.assertIsNone(push.began(told), said)
+
+    def test_a_pushs_changes_are_what_applied_gives_path_by_path(self):
+        def told(**changed):
+            changes = dict(WROTE, **changed)
+            blobs = {path: "QQo=" for path in changes["written"]} if isinstance(changes.get("written"), dict) else {}
+            return dict(PUSH, changes=changes, blobs=blobs)
+        for good in (told(), told(removed=[]), told(written={}), told(read=["docs/a.md", "docs/z.md"]),
+                     told(written={"a/b": (FILE, b"")}, removed=["a/c", "ab"])):
+            self.assertIsNotNone(push.began(good), good["changes"])
+            self.assertIsNotNone(push.touched(good["changes"]))
+        wrote = WROTE["written"]
+        for said, bad in (
+                ("nothing written and nothing removed", told(written={}, removed=[])),
+                ("a name above the repo", told(written={"../x": (FILE, b"")})),
+                ("git's own directory", told(written={".git/config": (FILE, b"")})),
+                ("an empty part", told(written={"tests//t.py": (FILE, b"")})),
+                ("a directory's name", told(written={"a/": (FILE, b"")})),
+                ("a removed name git does not write", told(removed=["tests/../x"])),
+                ("a read name git does not write", told(read=["docs/a b.md"])),
+                ("a read path that is no text", told(read=[None])),
+                ("a second read name git does not write", told(read=["docs/a.md", "docs/a b.md"])),
+                ("a path that is no text", told(written={("docs/a.md",): (FILE, b"")})),
+                ("a removed path that is no text", told(removed=[["tests/t.py"]])),
+                ("a file written above a file written", told(written={"a": (FILE, b""), "a/b": (FILE, b"")})),
+                ("a file written under a file removed", told(written={"a/b": (FILE, b"")}, removed=["a"])),
+                ("a file removed under a file written", told(written={"a": (FILE, b"")}, removed=["a/b"])),
+                ("a file written and removed", told(removed=["docs/a.md"])),
+                ("a file removed twice", told(removed=["tests/t.py", "tests/t.py"])),
+                ("a file read twice", told(read=["docs/a.md", "docs/a.md"])),
+                ("a link written", told(written={"l": ("120000", b"x")})),
+                ("a submodule written", told(written={"m": ("160000", b"x")})),
+                ("a file of text", told(written={"docs/a.md": (FILE, "A\n")})),
+                ("a file that is a list", told(written={"docs/a.md": [FILE, b"A\n"]})),
+                ("a file with a thing more", told(written={"docs/a.md": (FILE, b"A\n", NEW_A)})),
+                ("a file of bytes alone", told(written={"docs/a.md": (b"A\n",)})),
+                ("removed as a tuple", told(removed=("tests/t.py",))), ("read as a tuple", told(read=())),
+                ("written as a list", told(written=list(wrote))),
+                ("a key more", dict(PUSH, changes=dict(WROTE, kept=[]))),
+                ("no read", dict(PUSH, changes={"written": wrote, "removed": []})),
+                ("no changes at all", dict(PUSH, changes=[], blobs={}))):
+            self.assertIsNone(push.began(bad), said)
+            self.assertIsNone(push.touched(bad["changes"]), said)
+            self.assertIsNone(push.existing(bad["changes"], {}), said)
+
+    def test_the_paths_apply_is_asked_about_are_the_paths_that_land(self):
+        changes = {"written": {"docs/b.md": (FILE, b"x\n"), "docs/a.md": (FILE, b"A\n"), "tests/new.py": (FILE, b"")},
+                   "removed": ["tests/t.py", "config/x.json"], "read": ["tests/t.py", "docs/a.md"]}
+        self.assertEqual(push.touched(changes), (["config/x.json", "docs/a.md", "docs/b.md", "tests/new.py", "tests/t.py"],
+                                                 ["tests/t.py", "docs/a.md"]))
+        tree = {"docs/a.md": FILE, "tests/t.py": FILE, "config/x.json": FILE, "run.sh": "100755"}
+        self.assertEqual(push.existing(changes, tree), ["config/x.json", "docs/a.md", "tests/t.py"])
+        self.assertEqual(push.existing(dict(changes, removed=[]), tree), ["docs/a.md"])
+        self.assertEqual(push.existing(changes, {}), [])
+        self.assertEqual(push.existing(changes, {"tests/t.py": FILE}), ["tests/t.py"])
+        self.assertIsNone(push.existing(changes, list(tree)))
+        self.assertIsNone(push.existing(changes, None))
+        # What `applied` gave is what is asked about, as it gave it.
+        got, reason = patch.applied(CHANGE + NEW + GONE + COPIED, TREE, HELD)
+        self.assertIsNone(reason)
+        self.assertEqual(push.touched(got), (["docs/a.md", "docs/c.md", "docs/n.md", "tests/t.py"], ["docs/a.md"]))
+        self.assertEqual(push.existing(got, TREE), ["docs/a.md", "tests/t.py"])
+        self.assertIsNotNone(push.began(dict(PUSH, changes=got, blobs={path: "" for path in got["written"]})))
 
 
 if __name__ == "__main__":
