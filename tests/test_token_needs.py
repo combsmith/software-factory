@@ -143,6 +143,7 @@ APPROVING = [
     "adapters.effects.approval_of",
     "adapters.effects.approve",
     "adapters.effects.approver_of",
+    "adapters.issues.own",                     # how the issue a Factory pull request was opened for stands (0232)
     "adapters.passes.find",
     "adapters.pause._org_value",
     "adapters.pause._value",
@@ -365,6 +366,11 @@ class TokenNeeds(unittest.TestCase):
                         <= reached("harness.read", "step"))
         self.assertTrue({"adapters.passes.find", "adapters.checks._read", "adapters.pause._value"}
                         <= reached("harness.apply_step", "written"))
+        # The read again reads the issue a Factory pull request was opened for, as the pass joins it (decision 0232,
+        # issue 964): apply's token holds issues: read for it, and the approving act's reads name it.
+        self.assertIn("adapters.issues.own", reached("harness.reread", "issue_stood"))
+        self.assertIn("adapters.issues.own", reached("harness.apply_step", "written"))
+        self.assertIn("adapters.issues.own", reached("harness.approve_step", "written"))
         self.assertTrue({"adapters.queue.pull", "adapters.queue.enqueue"} <= reached("harness.queue_step", "written"))
         self.assertTrue({"adapters.items.open_pull_requests", "adapters.items.open_issues", "adapters.issues.own", "adapters.linked.joined",
                          "adapters.checks._read", "adapters.pause._value",

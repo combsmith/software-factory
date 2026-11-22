@@ -1,0 +1,10 @@
+{
+  "open_pull_request": [
+    {
+      "id": "e1",
+      "title": {
+        "body": "The glossary's first line ends with a full stop"
+      }
+    }
+  ]
+}
