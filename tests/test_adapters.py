@@ -2427,6 +2427,15 @@ class Timeline(unittest.TestCase):
                                                                     "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"})
         got, whole, _ = timeline.reviews(router, p7_pull(), events, self.accounts(router), BASE_HEAD, timeline_whole=False)
         self.assertEqual(([r["state"] for r in got], whole), (["dismissed", "dismissed", "approved"], True))
+        # With one dismissal past the cut and one read, the one read stays, with who dismissed it, and the reviews are
+        # not whole (Carbon).
+        first = [i for i, e in enumerate(events) if e.get("event") == "review_dismissed"][0]
+        router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "d",
+                                                                    "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"})
+        got, whole, cut = timeline.reviews(router, p7_pull(), events[:first] + events[first + 1:], self.accounts(router),
+                                           BASE_HEAD, timeline_whole=False)
+        self.assertEqual(([r["state"] for r in got], whole, cut), (["dismissed", "approved"], False, False))
+        self.assertEqual(got[0]["dismissed_by"]["name"], "combsmith-sf-trial-author[bot]")
 
     def test_a_reviews_commit_too_large_to_diff_or_gone_is_its_own_id(self):
         commit = "f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb"
@@ -4663,6 +4672,7 @@ class Snapshot(unittest.TestCase):
                                 lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
         self.assertIs(got["complete"]["timeline"], False)
         self.assertIs(got["timeline_bounded"], True)
+        self.assertIs(got["complete"]["reviews"], True)       # with no dismissal, the reviews stay whole (Carbon)
         self.assertEqual([asked[1] for asked, _ in replay._left], [eleventh["request"]["call"].split(" ", 1)[1]])
         # A review dismissed past the cut, whose dismissal the timeline read does not hold, leaves the reviews not
         # whole, never the snapshot refused: the cut is still said (Claude, security).
@@ -4691,6 +4701,14 @@ class Snapshot(unittest.TestCase):
             got = snap(seq)
             self.assertIs(got["complete"][part], True, part)
             self.assertIs(got["timeline_bounded"], False, part)
+        # Reviews cut beside a timeline read short within its bound are a cut all the same (Carbon).
+        seq = self.sequence(1)
+        seq[5] = copy.deepcopy(seq[5])
+        seq[5]["response"]["body"] = {"message": "not a list"}
+        paged(seq, 6, "/repos/%s/pulls/26/reviews?per_page=100" % canary())
+        got = snap(seq)
+        self.assertEqual((got["complete"]["timeline"], got["complete"]["reviews"], got["timeline_bounded"]),
+                         (False, False, True))
         # Both cut is a cut (Astra).
         seq = self.sequence(1)
         paged(seq, 6, "/repos/%s/pulls/26/reviews?per_page=100" % canary())
@@ -4704,11 +4722,11 @@ class Snapshot(unittest.TestCase):
         paged(seq, 5, "/repos/%s/issues/26/timeline?per_page=100" % canary())
         seq[6]["response"]["body"] = {"message": "not a list"}
         del seq[7:15]
-        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        router = Router(github.Replay(seq), {"don-petry": "admin"}, {dismissed["commit_id"]: "diff --git a/x b/x\n"})
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                                 lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
-        self.assertEqual((got["complete"]["timeline"], got["complete"]["reviews"], got["timeline_bounded"]),
-                         (False, False, False))
+        self.assertEqual((got["complete"]["timeline"], got["complete"]["reviews"], got["timeline_bounded"], got["reviews"]),
+                         (False, False, False, []))     # its diff readable, it is the dismissal that leaves it out (Carbon)
         # A timeline read short within the bound, a page that is no list, is not cut: it defers as any read short.
         seq = self.sequence(1)
         paged(seq, 5, "/repos/%s/issues/26/timeline?per_page=100" % canary())
@@ -4717,6 +4735,7 @@ class Snapshot(unittest.TestCase):
         got = snap(seq)
         self.assertIs(got["complete"]["timeline"], False)
         self.assertIs(got["timeline_bounded"], False)
+        self.assertIs(got["complete"]["reviews"], True)       # with no dismissal, the reviews stay whole (Carbon)
 
     def test_a_snapshot_reads_the_ask_of_the_openers_pull_request_by_its_branch(self):  # issue 295
         # Told that the App that opens pull requests is this one's author, the snapshot reads its branch, which is no
@@ -7720,7 +7739,7 @@ class Linked(unittest.TestCase):
         self.assertEqual((f["linked"], f["complete"]["linked"]), ([], True))
         self.assertNotEqual(issue.derive(f, [], CONFIG)["reason"], "facts_incomplete")
 
-    def test_a_chain_of_spans_the_records_broke_while_something_names_the_issue_is_said(self):  # decision 0234, (C)
+    def test_a_chain_of_spans_the_records_broke_while_something_names_the_issue_is_said(self):  # decision 0253, (C)
         # The records break the chain while a pull request names the issue: the linked read says so, and the issue's facts
         # carry it, so the Kernel calls a person; with nothing naming the issue, nothing is said.
         from kernel import issue
@@ -7739,6 +7758,10 @@ class Linked(unittest.TestCase):
         router = Router(github.Replay(issue_read(closing=[linked_read((), [crossed("Issue")])])), {"don-petry": "admin"})
         f = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=broke)[0]
         self.assertEqual((f["linked"], f["spans_broken"]), ([], False))
+        # A pull request's cross-reference alone, its keyword gone, names the issue too: the break is said (Carbon).
+        router = Router(github.Replay(issue_read(closing=[linked_read((), [crossed("PullRequest")])])), {"don-petry": "admin"})
+        f = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=broke)[0]
+        self.assertEqual((f["linked"], f["complete"]["linked"], f["spans_broken"]), ([], False, True))
 
     def test_the_linked_pull_requests_read_short_are_not_whole_and_one_not_answered_refuses_the_issue(self):
         def short7(*after, refs=(7, 8), events=()):

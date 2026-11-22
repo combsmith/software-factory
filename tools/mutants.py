@@ -3641,6 +3641,10 @@ MUTANTS = ISSUE + OUTSIDE + [
      '    if facts.get("timeline_bounded", False) is not False and "timeline" not in gaps:\n        gaps = gaps + ["timeline"]\n', '', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
     ('an absent timeline flag is a gap', 'kernel/derive.py',
      'if facts.get("timeline_bounded", False) is not False', 'if facts.get("timeline_bounded") is not False', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+    ("a timeline flag that is no truth value and falsy is read as not cut", 'kernel/derive.py',
+     'if facts.get("timeline_bounded", False) is not False and', 'if facts.get("timeline_bounded", False) and', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+    ("a timeline flag that is no truth value adds the timeline twice", 'kernel/derive.py',
+     'is not False and "timeline" not in gaps:', 'is not False:', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
     ("a cut flag that is no truth value and falsy is read as not cut", 'kernel/derive.py',
      'if facts.get("acceptance_bounded", False) is not False and', 'if facts.get("acceptance_bounded", False) and', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
 ]

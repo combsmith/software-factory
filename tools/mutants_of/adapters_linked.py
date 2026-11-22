@@ -60,6 +60,11 @@ MUTANTS = [
      '    broken = read_whole is None and named\n', '    broken = False\n', F849_SAID),
     ("a broken chain is a break whatever names the issue", 'adapters/linked.py',
      '    broken = read_whole is None and named\n', '    broken = read_whole is None\n', F849_SAID),
+    ("pass records not read are a broken chain", 'adapters/linked.py',
+     '    broken = read_whole is None and named\n', '    broken = not read_whole and named\n',
+     ("tests.test_adapters.Linked.test_a_merge_beside_a_rival_keyword_link_is_read_by_the_spans_the_pass_records_give",)),
+    ("a whole chain is a break while something names the issue", 'adapters/linked.py',
+     '    broken = read_whole is None and named\n', '    broken = bool(named)\n', F849_SAID),
 ] + [(name, 'adapters/linked.py', old, new, tests) for name, old, new, tests in [
     # Decision 0236: a pull request linked by hand now to another base leaves the issue's linked list not whole.
     ("a pull request linked by hand to another base leaves the list whole",

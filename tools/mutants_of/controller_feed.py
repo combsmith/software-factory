@@ -55,6 +55,8 @@ MUTANTS = [
      'return [e for e in before[-1]["issues"] if unread(record, e["decision"]["item"])]',
      'return [e for e in before[-1]["issues"] if {"item": e["decision"]["item"], "code": BUDGET} in (record.get("left_out") or [])]',
      F849_CARRY),
+    ("an issue beside one the budget left out is carried too", 'controller/feed.py',
+     '({"item": item, "code": BUDGET} in left', '(any(e.get("code") == BUDGET for e in left)', F849_CARRY),
     ("a list read short is no want of a read", 'controller/feed.py',
      ' or {"item": None, "code": UNLISTED} in left)', ')', F849_CARRY),
     ("an issue's age stops at a pass that left it unread", 'controller/feed.py',
