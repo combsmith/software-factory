@@ -463,6 +463,16 @@ def _short(name: str, number: int, text: str) -> list:
     return problems
 
 
+def _index(root: pathlib.Path) -> list:
+    """The index of the records is what tools/records.py makes of them, so a record changed without it fails (0009)."""
+    from tools import records   # late: it reads the records with the helpers here
+    path = root / records.INDEX
+    made = records.render(root)
+    if not path.is_file() or path.read_text(encoding="utf-8", errors="replace") != made:
+        return ["%s is not what the records make; run python3 -m tools.records and commit it" % records.INDEX]
+    return []
+
+
 def _lessons(root: pathlib.Path) -> list:
     path = root / "docs" / "lessons.md"
     if not path.exists():
@@ -534,4 +544,4 @@ def run(root: pathlib.Path = ROOT) -> list:
     problems = []
     for path in _markdown(root):
         problems += _references(path, _text(path), root)
-    return problems + _agents_files(root) + _skills(root) + _decisions(root) + _lessons(root) + _standards(root)
+    return problems + _agents_files(root) + _skills(root) + _decisions(root) + _index(root) + _lessons(root) + _standards(root)

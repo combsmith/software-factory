@@ -38,7 +38,7 @@ from sim import world
 from adapters import github
 from tests import support
 from tools import (check_apps, check_authority, commits_are_the_maintainers, pr_title, check_context, check_decisions, check_examples, check_gate_sets, check_lifecycle, context_eval,
-                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, redact_trial,
+                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, records, redact_trial,
                    desk, environments_drift, machine_user_drift, rulesets_drift, verify, walk)
 from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
@@ -6831,6 +6831,34 @@ class Context(unittest.TestCase):
                       "docs/standards/tests.md states no rule", "kernel/AGENTS.md: no table of rules"):
             self.assertTrue(caught(problems, words), words)
 
+
+    def test_the_records_index_is_made_from_the_records_and_a_stale_one_fails(self):
+        # Decision 0009: docs/records.md is made by tools/records.py from the records alone, and fails the check when stale.
+        body = "\n\n## Decision\n\nX.\n\n## Why\n\nY.\n\n## Boundaries\n\n| Boundary | Check |\n|---|---|\n| b | %s |\n"
+        files = {
+            "docs/decisions/0001-a.md": "# 0001. A\n\nStatus: replaced by `docs/decisions/0002-b.md`." + body % "`tools/x.py`",
+            "docs/decisions/0002-b.md": "# 0002. B\n\nStatus: replaced by `docs/decisions/0003-c.md`, in force." + body % "`kernel/k.py`",
+            "docs/decisions/0003-c.md": "# 0003. C | d\n\nStatus: accepted. Replaces `docs/decisions/0002-b.md`."
+                                        + body % "`tests/test_x.py::test_y`, `adapters/a.py`, `make checks`, `tools/x.py`",
+            "docs/decisions/0004-d.md": "# 0004. D\n\nStatus: accepted." + body % "`tools/x.py`"}
+        root = tree(files)
+        made = records.render(root)
+        for row in ("| 0001 | A | replaced by 0002 | tools |\n", "| 0002 | B | replaced by 0003 | kernel |\n",
+                    "| 0003 | C \\| d | live | adapters, tools |\n", "| 0004 | D | live | tools |\n"):
+            self.assertIn(row, made)
+        # A chain is read from its old end, through each record's "replaced by"; a live record that replaced none has none.
+        self.assertTrue(made.endswith("| Live record | Replaced |\n|---|---|\n| 0003 | 0001, 0002 |\n"), made)
+        self.assertEqual(check_context._cells("| 0003 | C \\| d | live | adapters, tools |"), ["0003", "C | d", "live", "adapters, tools"])
+        stale = "docs/records.md is not what the records make"
+        self.assertTrue(caught(check_context._index(root), stale))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(records.main([], root), 0)
+        self.assertEqual(check_context._index(root), [])
+        (root / "docs/decisions/0004-d.md").write_text(files["docs/decisions/0004-d.md"].replace("# 0004. D", "# 0004. E"))
+        self.assertTrue(caught(check_context._index(root), stale))
+        self.assertTrue(caught(check_context.run(root), stale))
+        # This repo's own index is fresh.
+        self.assertEqual(check_context._index(ROOT), [])
 
 RECORD = ("# 0001. One thing\n\nStatus: accepted.\n\n## Decision\n\nWe do one thing.\nAnd only that.\n\n"
           "## Why\n\nTwo things split the work.\n\n## Boundaries\n\n| Boundary | Check |\n|---|---|\n"
