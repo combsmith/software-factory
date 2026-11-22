@@ -2174,7 +2174,7 @@ class Entry(unittest.TestCase):
             def snapshot(transport, repo, number, identities, who, runs_whole, clock, **k):
                 return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
-            def issue(transport, repo, number, accounts, clock, *, identities, earlier):
+            def issue(transport, repo, number, accounts, clock, *, identities, earlier, **_):
                 read.append(number)
                 for at in range(cost):
                     # Every other request is the account reader's permission read, which is counted too (Claude).
