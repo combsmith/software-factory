@@ -15974,6 +15974,12 @@ class Desk(unittest.TestCase):
         with mock.patch.object(verify, "failed", return_value=True), mock.patch.object(desk, "size", return_value="n"), \
                 mock.patch("builtins.print", side_effect=BrokenPipeError), contextlib.redirect_stdout(printed):
             self.assertEqual(verify.main(["--checks"]), 1)      # a stream with no file to point elsewhere
+        for argv, code, said in ((["size"], 0, "the note\n"), ([], 1, "usage: python3 -m tools.desk size\n"),
+                                 (["size", "x"], 1, "usage: python3 -m tools.desk size\n")):
+            printed = io.StringIO()      # the command prints the note, and anything else asked is refused
+            with mock.patch.object(desk, "size", return_value="the note"), contextlib.redirect_stdout(printed):
+                self.assertEqual(desk.main(argv), code, argv)
+            self.assertEqual(printed.getvalue(), said, argv)
         package = sys.modules["tools"]
         del package.desk
         try:

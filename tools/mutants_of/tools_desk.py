@@ -4,6 +4,7 @@ TARGETS = ("tools/desk.py",)
 # Issue 1109: the desk's note on about the size the Factory will count, and the tests that hold it.
 DESK_SIZE = ("tests.test_tools.Desk.test_the_size_is_counted_as_the_factory_counts_it_and_warned_past_its_share",)
 DESK_GIT = ("tests.test_tools.Desk.test_the_desk_runs_git_only_to_read_and_says_when_there_is_no_base",)
+DESK_NOTE = ("tests.test_tools.Desk.test_make_checks_note_fails_nothing",)
 # Issue 1110: the tests of its read of a merge.
 DESK_MERGE = ("tests.test_tools.Desk.test_a_merge_that_keeps_both_sides_passes_and_one_that_drops_either_is_told",)
 DESK_HAND = ("tests.test_tools.Desk.test_a_line_both_sides_changed_and_a_hand_combined_is_listed_to_read",)
@@ -84,6 +85,10 @@ MUTANTS = [
      '    if args[0] not in READS or (args[0]', '    if False or (args[0]', DESK_GIT),
     ('a read may fetch a missing object', 'tools/desk.py',
      'GIT_OPTIONAL_LOCKS="0", GIT_NO_LAZY_FETCH="1", ', 'GIT_OPTIONAL_LOCKS="0", ', DESK_GIT),
+    ('the size command prints no note', 'tools/desk.py',
+     '        print(size(root))\n', '        print("size")\n', DESK_NOTE),
+    ('the size command fails', 'tools/desk.py',
+     '        print(size(root))\n        return 0\n', '        print(size(root))\n        return 1\n', DESK_NOTE),
     # Issue 1110: what a merge of main lost.
     ("a partial clone's merge is read", 'tools/desk.py',
      '    if _partial(root):\n        return ["cannot tell: this is a partial clone', '    if False:\n        return ["cannot tell: this is a partial clone', DESK_SIZE),
