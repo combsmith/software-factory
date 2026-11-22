@@ -1182,7 +1182,7 @@ class Status(unittest.TestCase):
             self.assertEqual(effects.status_output(dict(d, reason=reason), o["record"], feed)["summary"].split("\n")[0],
                              feed["sentences"][reason], reason)
         # A sentence that is not plain when it is written is not shown: the codes alone.
-        for bad in ("Approved by @x.", "See GH-12 first.", "A" + "b" * 100 + ".", "two\nlines.", 7, None):
+        for bad in ("Approved by @x.", "See GH-12 first.", "A" + "z" * 100 + ".", "two\nlines.", 7, None):
             loose = dict(feed, sentences=dict(feed["sentences"], awaiting_checks=bad))
             self.assertEqual(effects.status_output(d, o["record"], loose)["summary"].split("\n")[0],
                              "attention: %s" % d["attention"], bad)
