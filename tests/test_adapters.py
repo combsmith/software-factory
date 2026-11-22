@@ -4885,6 +4885,9 @@ REFUSALS = {
     ("P-2.queue", 20): None, ("P-2.queue", 26): None, ("P-2.queue", 27): None,
     # The tree of a commit the canary does not hold, 422: the head port reads it as no tree, so no head (decision 0142).
     ("P-60.tree", 1): None,
+    # Azure's answers to the advisory reader, a key it does not know, 401, and a burst's 429: no port asks Azure; the
+    # advisory parser reads them (P-76, decision 0224).
+    ("P-76", 0): None, ("P-76", 6): None,
 }
 # Every 404 a trial shows for a thing that does not stand, asked as that answer, never as a refusal: the work branch a
 # push reads before it is made, which the push guard reads as the branch admitted none of (P-71, issue 838).
@@ -6873,6 +6876,42 @@ class Issues(unittest.TestCase):
             moved[-1]["response"]["body"] = dict(moved[-1]["response"]["body"], updated_at=last)
             with self.assertRaises(facts.Moved, msg=last):
                 self.read(moved)
+
+    def test_the_controllers_tracking_issue_is_told_at_its_first_read_by_its_opener_and_its_body(self):  # decision 0233
+        record = {"pass": "p_01JA7Q", "now": "2026-10-11T10:00:00Z", "release": "factory/v0.3.1"}
+        body = effects.rendered(record, ["write_failed"])
+        app, mine = {"login": CONTROLLER_APP[0], "id": CONTROLLER_APP[1], "type": CONTROLLER_APP[2]}, CONTROLLER_APP[1:]
+
+        def read(exchanges, controller=mine):
+            router = Router(github.Replay(exchanges), {"don-petry": "admin", "stranger": "read"})
+            accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]})
+            return issues.read(router, "o/r", 41, accounts, lambda: self.NOW, identities=IDENTITIES, earlier=[], controller=controller)[0]
+        # Opened by the Controller's App with the body its write step writes, whenever that was: it is refused at its
+        # first read, and nothing more is asked, its timeline among them (the replay holds the first read alone).
+        with self.assertRaises(issues.Tracking):
+            read(issue_read(user=app, body=body)[:1])
+        self.assertTrue(effects.causes_of(body) == ["write_failed"] and issues.tracking({"user": app, "body": body}, mine))
+        # So is one whose body lists no cause, as the write step writes one once its causes have cleared (Muse).
+        empty = effects.rendered(record, [])
+        self.assertTrue(effects.causes_of(empty) == [] and issues.tracking({"user": app, "body": empty}, mine))
+        # The App's issue with any other body is a Work item, a follow-on a Role opens among them, and so is one whose
+        # body anyone edited; and that body on a person's issue, another App's, or an account of the App's id that is no
+        # Bot. With no App named, none is the tracking issue. Each is read whole, as any issue is.
+        for change, controller in ((dict(user=app), mine), (dict(user=app, body=body + "More.\n"), mine),
+                                   (dict(body=body), mine),
+                                   (dict(user={"login": "dependabot[bot]", "id": 99, "type": "Bot"}, body=body), mine),
+                                   (dict(user={"login": "stranger", "id": CONTROLLER_APP[1], "type": "User"}, body=body), mine),
+                                   (dict(user=app, body=body), None)):
+            self.assertEqual(read(issue_read(**change), controller)["item"]["number"], 41, change)
+        # An opener that cannot be read refuses the issue at the test itself: it is never served for want of it.
+        for user in (None, {"login": CONTROLLER_APP[0], "id": CONTROLLER_APP[1]}, dict(app, id=str(CONTROLLER_APP[1]))):
+            with self.assertRaises(github.Unanswered, msg=user):
+                issues.tracking({"user": user, "body": body}, mine)
+            with self.assertRaises(github.Unanswered, msg=user):
+                read(issue_read(user=user, body=body)[:1])
+        # So does a body left out of the App's issue: never read as null (Kimi).
+        with self.assertRaises(github.Unanswered):
+            issues.tracking({"user": app}, mine)
 
     def test_the_issues_own_facts_hold_to_the_schema_with_its_linked_pull_requests(self):
         from kernel import issue

@@ -405,20 +405,25 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     if not listed_whole:
         raise Stop("issue_list_unreadable")
     # Each issue's own facts, read and dated as a pull request's are; its title beside them. While the tracking
-    # issue's number is not read, none is: each is left out as unread, so that one is never served as a Work item.
-    issues, tally = [], {}
+    # issue's number is not read, none is: each is left out as unread, so that one is never served as a Work item. One
+    # no record numbers is told at its own read, by its opener and its body, and is no Work item, nor left out: it was
+    # never one, as one the listing left out was not (decision 0233).
+    issues, tally, own_app = [], {}, controller["accounts"]["controller"]
     for number in listed:
         began, through = stages.now(), Dated(transport)
         try:
             if apart is None:
                 raise Unanswered("the tracking issue's number was not read")
             facts, title = issues_.read(through, home, number, who, lambda: utc(clock), identities=identities,
-                                        earlier=before, kernel=config["kernel"])
+                                        earlier=before, kernel=config["kernel"],
+                                        controller=(own_app["id"], own_app["type"]) if own_app else None)
             issues.append({"facts": facts, "title": title})
             facts_reads += dated(through.first)
         except Unanswered as err:
             issues.append({"facts": {"item": {"repo": home, "type": "issue", "number": number}}, "title": None,
                            "unread": reads_.MOVED if isinstance(err, facts_.Moved) else reads_.UNANSWERED})
+        except issues_.Tracking:
+            pass
         stages.add(tally, "issues", began)
     stages.tell(tally)
     # How the issue each pull request the Factory opened stands with: one read of each, open or closed, served or not;
@@ -437,9 +442,9 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     stages.tell(tally)
     pulls = issue_holds.join(pulls, stood, pass_.issue_config(config["kernel"]))
     # The served issues' writes are read beside the pull requests' (issue 837): those of each issue the pass serves,
-    # decided or left out unread, never the tracking issue, which the listing leaves out by its number. While that
-    # number is not read, no issue's writes are: the tracking issue could be among those listed, and the passes'
-    # records read short leave reconciliation short already.
+    # decided or left out unread, never the tracking issue, which the listing leaves out by its number or its own read
+    # tells (decision 0233). While that number is not read, no issue's writes are: the tracking issue could be among
+    # those listed, and the passes' records read short leave reconciliation short already.
     served_issues = [e["facts"]["item"]["number"] for e in issues] if apart is not None else ()
     seen, unread, gone = writes_seen(transport, config, numbers, kept, before, since, clock, owed, stages, served_issues)
     effects = recorded_effects(transport, config, runs, before, since, from_passes, sleep, stages)
