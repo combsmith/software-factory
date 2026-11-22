@@ -1327,7 +1327,7 @@ class Issues(unittest.TestCase):
         unread = {"facts": {"item": {"repo": home, "type": "issue", "number": 10}}, "title": None, "unread": "facts_unanswered"}
         self.assertIn("facts_unreadable", passed(reads(issues=[budget(8), unread]))["alerts"])
         self.assertNotIn("facts_unreadable", passed(reads(issues=[budget(8)]))["alerts"])
-        # That code is the issues' alone: a pull request's entry with it is facts that are not facts.
+        # The issues' codes are theirs alone: a pull request's entry with either is facts that are not facts.
         pull = {"facts": {"item": dict(support.ITEM, number=11)}, "title": None, "unread": "issue_budget"}
         for code in ("issue_budget", "issue_list_unreadable"):
             out = passed(reads(pulls=[dict(pull, unread=code)]))
