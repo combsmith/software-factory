@@ -29,6 +29,7 @@ a run id that cannot be read, or a pass `pass_.py` refuses, writes nothing, so t
 prints one code and exits 1, and nothing it prints is GitHub's text."""
 from __future__ import annotations
 
+import concurrent.futures
 import contextlib
 import datetime
 import json
@@ -55,6 +56,8 @@ RUN_ID = re.compile(r"[1-9][0-9]{0,18}")
 ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 VIEW = ("meta", "items", "health")
 FOLDER = "pass"     # what the workflow's form writes into, for the upload and the effects step
+# The open pull requests' snapshots read at once, each serial inside, the rest of the pass serial (decision 0000).
+POOL = 4
 WINDOW = 24 * 60 * 60   # reconciliation's window, with `not_run_seconds`, so a pass after a gap still covers it (decision 0061)
 
 
@@ -94,7 +97,7 @@ class Stages:
     fails says less, and never fails the pass; with no timer nothing is timed or said. Timing changes no read."""
 
     # What the carry's line counts of it, by these names alone.
-    CARRIED = ("runs", "passes", "keys", "items", "dispatched", "owed", "left")
+    CARRIED = ("runs", "passes", "keys", "items", "dispatched", "owed", "left", "owed_issues", "left_issues", "hands")
     FARTHEST = 1e300      # a reading no clock gives: two inside it differ by a finite number
 
     def __init__(self, timer=None, out=None):
@@ -136,7 +139,10 @@ class Stages:
 
     def add(self, tally: dict, name: str, began) -> None:
         """Adds one read begun at `began` to `tally`'s `name`: its seconds and its count."""
-        seconds = self.since(began)
+        self.count(tally, name, self.since(began))
+
+    def count(self, tally: dict, name: str, seconds) -> None:
+        """Adds one read that took `seconds`, None where they could not be told, to `tally`'s `name`."""
         held = tally.setdefault(name, [0.0, 0])
         held[0] = None if held[0] is None or seconds is None else held[0] + seconds
         held[1] += 1
@@ -171,6 +177,51 @@ class Timed:
                 self.stages.add(self.tally, self.kind(req["path"]), began)
             except Exception:
                 pass
+
+
+def rate_limited(answer) -> bool:
+    """Whether GitHub's answer is a rate limit's: a 429, or a 403 with no request left or a time to wait, as
+    `adapters/pause.py` tells one from a refusal."""
+    headers = answer.get("headers") if isinstance(answer, dict) and isinstance(answer.get("headers"), dict) else {}
+    status = answer.get("status") if isinstance(answer, dict) else None
+    return status == 429 or (status == 403 and (str(headers.get("x-ratelimit-remaining")) == "0" or "retry-after" in headers))
+
+
+class Limited:
+    """The transport of the open pull requests' snapshots: a rate limit's answer is no answer, so the pull request it
+    was read for is left out as GitHub not answering, with no retry; and once one is seen, the snapshots left are read
+    one at a time (decision 0000)."""
+
+    def __init__(self, transport):
+        self.transport, self.hit = transport, False
+
+    def send(self, req):
+        answer = self.transport.send(req)
+        if rate_limited(answer):
+            self.hit = True
+            raise Unanswered("GitHub answered a rate limit")
+        return answer
+
+
+def snapshots(numbers: list, one, pool: int, limited) -> list:
+    """`one(number)` for each of `numbers`, in their order whatever order the reads end in: up to `pool` at once, each
+    in a thread of its own, until `limited.hit`; then the rest one at a time, in this thread (decision 0000)."""
+    out, at = [None] * len(numbers), 0
+    if pool > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=pool) as running:
+            pending = {}
+            while at < len(numbers) or pending:
+                while at < len(numbers) and len(pending) < pool and not limited.hit:
+                    pending[running.submit(one, numbers[at])] = at
+                    at += 1
+                if not pending:
+                    break
+                done, _ = concurrent.futures.wait(pending, return_when=concurrent.futures.FIRST_COMPLETED)
+                for ended in done:
+                    out[pending.pop(ended)] = ended.result()
+    for place in range(at, len(numbers)):
+        out[place] = one(numbers[place])
+    return out
 
 
 def poller_kind(path) -> str:
@@ -331,9 +382,10 @@ def reader(transport, config: dict) -> tuple:
 
 
 def read(transport, config: dict, run_id: str, previous, now: str, clock, started, sleep=time.sleep,
-         stages=QUIET) -> dict:
+         stages=QUIET, pool: int = 1) -> dict:
     """Everything the pass reads after the wait, as `pass_.run` takes it. Each port that waits waits by `sleep`, the
-    entry's (issue 709). `stages` times each stage of it (issue 1025)."""
+    entry's (issue 709). `stages` times each stage of it (issue 1025). `pool` open pull requests are read at once, one
+    to a recorded exchange, whose answers come in order (decision 0000)."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
     with stages.stage("accounts"):
@@ -367,21 +419,29 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
                                  config["authority"])
         # What each opening Run recorded of the pull request it opened, which binds it to its issue (issue 342).
         made = applied.opened(transport, home, runs, facts_.opener_role(config["kernel"]))
-    pulls, kept, facts_reads, tally = [], {}, [], {}
-    for number in numbers:
+    limited = Limited(transport)
+
+    def one(number: int) -> tuple:
+        """`(entry, kept, facts reads, seconds)` of one open pull request's snapshot, read whole in its own thread."""
         began = stages.now()
-        held, through = {}, Dated(transport)
+        held, through = {}, Dated(limited)
         try:
             facts, title, head = facts_.snapshot(through, home, number, identities, who, runs_whole, lambda: utc(clock),
                                                  kept=held, with_head=True, opener=opens, recorded=found[number], opened=made)
-            pulls.append({"facts": facts, "title": title, "head": head})
-            kept[number] = held
-            facts_reads += dated(through.first)
+            return {"facts": facts, "title": title, "head": head}, held, dated(through.first), stages.since(began)
         except Unanswered as err:
             # Its code goes in the record: one that moved while it was read is not one GitHub did not answer (#658).
-            pulls.append({"facts": {"item": {"repo": home, "type": "pull_request", "number": number}}, "title": None,
-                          "unread": reads_.MOVED if isinstance(err, facts_.Moved) else reads_.UNANSWERED})
-        stages.add(tally, "open_pull_requests", began)
+            return ({"facts": {"item": {"repo": home, "type": "pull_request", "number": number}}, "title": None,
+                     "unread": reads_.MOVED if isinstance(err, facts_.Moved) else reads_.UNANSWERED},
+                    None, [], stages.since(began))
+    pulls, kept, facts_reads, tally = [], {}, [], {}
+    # Each thread times its own reads; they are added up here, in the listed order, as the entries are.
+    for number, (pull, held, dates, seconds) in zip(numbers, snapshots(numbers, one, pool, limited)):
+        pulls.append(pull)
+        if held is not None:
+            kept[number] = held
+        facts_reads += dates
+        stages.count(tally, "open_pull_requests", seconds)
     stages.tell(tally)
     before = pass_.earlier(reads_.previous_records(previous), now)
     since = utc(lambda: clock() - WINDOW - controller["not_run_seconds"])
@@ -455,9 +515,9 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
             "facts_reads": facts_reads, "usage": {}, "seen": seen, "unread": unread, "gone": gone, "effects": effects}
 
 
-def one_pass(transport, config: dict, run_id: str, clock=time.time, sleep=time.sleep, stages=QUIET) -> dict:
+def one_pass(transport, config: dict, run_id: str, clock=time.time, sleep=time.sleep, stages=QUIET, pool: int = 1) -> dict:
     """One pass, through `transport`: the records before it, the wait, the reads, and what `pass_.run` returned.
-    `stages` times each, the wait apart from the reads."""
+    `stages` times each, the wait apart from the reads; `pool` open pull requests are read at once."""
     controller = config["controller"]
     with stages.stage("records_before"):
         previous = passes.records(transport, controller["home"]["repo"], controller["home"]["branch"],
@@ -465,7 +525,7 @@ def one_pass(transport, config: dict, run_id: str, clock=time.time, sleep=time.s
         started = passes.started(transport, controller["home"]["repo"], run_id)
     with stages.stage("wait"):
         sleep(pass_.wait_before_reading(previous, utc(clock), config, started))
-    reads = read(transport, config, run_id, previous, utc(clock), clock, started, sleep, stages)
+    reads = read(transport, config, run_id, previous, utc(clock), clock, started, sleep, stages, pool)
     # The pass is pure and times nothing itself: its carry's rebuild and its record's check are timed with it, and the
     # carry's size is said beside them.
     with stages.stage("decide") as counts:
@@ -489,11 +549,11 @@ def write(out: dict, directory: str) -> None:
 
 
 def main(argv=None, environ=None, base=None, clock=time.time, sleep=time.sleep, connect=Live, timer=time.monotonic,
-         err=None) -> int:
+         err=None, pool=POOL) -> int:
     """The step. It writes only into an empty folder inside the directory it runs in, `base`, by default the working
     directory, and names no path, key or token in what it prints. The token is revoked whatever happened, and one GitHub
     did not revoke fails the step, `token_not_revoked`. Each stage's seconds go to `err`, standard error by default,
-    timed by `timer` (issue 1025)."""
+    timed by `timer` (issue 1025). `pool` open pull requests are read at once (decision 0000)."""
     argv = sys.argv[1:] if argv is None else argv
     environ = os.environ if environ is None else environ
     inside = os.path.realpath(str(pathlib.Path.cwd() if base is None else base))
@@ -527,7 +587,7 @@ def main(argv=None, environ=None, base=None, clock=time.time, sleep=time.sleep, 
         transport = connect(token.reveal())
         revoke = lambda: identity.revoke(transport)
         stages = Stages(timer, sys.stderr if err is None else err)
-        decided = one_pass(transport, config, run_id, clock, sleep, stages)
+        decided = one_pass(transport, config, run_id, clock, sleep, stages, pool)
         with stages.stage("write"):
             write(decided, out)
     except Stop as stop:

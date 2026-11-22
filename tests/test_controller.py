@@ -14,6 +14,8 @@ import json
 import os
 import pathlib
 import tempfile
+import threading
+import time
 import unittest
 import unittest.mock
 
@@ -1429,7 +1431,7 @@ class Entry(unittest.TestCase):
             ("DELETE", "/installation/token"): {"status": 204, "headers": {}, "body": None},
         }
 
-    def run_entry(self, hub, timer=None, err=None, quiet=False, **environ):
+    def run_entry(self, hub, timer=None, err=None, quiet=False, pool=1, **environ):
         env = {"RELEASE": "factory/v0.3.1", "GITHUB_RUN_ID": self.RUN, entry.KEY: self.key}
         env.update(environ)
         slept, printed = [], io.StringIO()
@@ -1439,7 +1441,8 @@ class Entry(unittest.TestCase):
             code = entry.main(["out"] if os.makedirs(os.path.join(d, "out")) is None else [], {k: v for k, v in env.items()
                                                                                               if v is not None},
                               base=d, clock=lambda: self.CLOCK, sleep=sleep, connect=hub.connect,
-                              timer=None if quiet else timer if timer is not None else ticking(), err=self.said)
+                              timer=None if quiet else timer if timer is not None else ticking(), err=self.said,
+                              pool=pool)
             named = ["pass.json", "writes.json"] + ["view/%s.json" % v for v in entry.VIEW]
             files = {n: json.loads(pathlib.Path(d, "out", n).read_text()) for n in named
                      if pathlib.Path(d, "out", n).is_file()}
@@ -2513,9 +2516,12 @@ class Entry(unittest.TestCase):
         # The wait is timed as it was, the timer read once at each end of it: a second on.
         self.assertEqual(lines[stages.index("wait")]["seconds"], 1.0)
         # The pass times nothing itself: its carry's rebuild and record's check are in "decide", the carry's size beside.
-        carried = ("runs", "passes", "keys", "items", "dispatched", "owed", "left")
-        decided = lines[stages.index("decide")]
-        self.assertEqual({k: decided[k] for k in carried}, {k: len(files["pass.json"]["reconciled"][k]) for k in carried})
+        carried = ("runs", "passes", "keys", "items", "dispatched", "owed", "left", "owed_issues", "left_issues", "hands")
+        decided, held = lines[stages.index("decide")], files["pass.json"]["reconciled"]
+        self.assertEqual({k: decided[k] for k in carried if k in decided}, {k: len(held[k]) for k in carried if k in held})
+        # Each by its name, those a record holds alone: the issues owed and left, and a hand's threads, among them.
+        full = {k: [{"number": 1}] * (n + 1) for n, k in enumerate(carried)}
+        self.assertEqual(entry.Stages().carried({"reconciled": dict(full, other=[1])}), {k: len(full[k]) for k in carried})
         for line in lines:
             # Its name, its seconds and its counts, each a number this module made: nothing from outside.
             self.assertTrue(set(line) <= {"stage", "seconds", "count"} | set(carried), line)
@@ -2545,6 +2551,59 @@ class Entry(unittest.TestCase):
         self.assertEqual(failing[:4], (code, printed, files, sent))
         self.assertEqual({json.loads(line)["seconds"] for line in failing[4].getvalue().splitlines()}, {None})
         self.assertEqual(entered(err=Closed())[:4], (code, printed, files, sent))
+
+    def test_the_open_pull_requests_are_read_four_at_once_and_kept_in_the_listed_order(self):  # decision 0000
+        # Each snapshot is read whole in a thread of its own, at most four at once, the first listed ending last; the
+        # record is the one a pass reading them one at a time writes. A rate limit's answer is GitHub not answering: that
+        # pull request is left out, read no second time, and the rest are read one at a time, in the pass's own thread.
+        numbers, lock = [3, 5, 7, 9, 11, 13], threading.Lock()
+
+        def entered(pool, limited=()):
+            table = self.table(numbers=numbers)
+            for n in numbers:
+                table[("GET", "/repos/%s/pulls/%d" % (self.HOME, n))] = {"status": 200, "headers": {}, "body": {}} \
+                    if n not in limited else {"status": 403, "headers": {"x-ratelimit-remaining": "0"}, "body": None}
+            hub, live, read = Hub(table), [0, 0], {}
+
+            def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded,
+                         opened):
+                with lock:
+                    live[0] += 1
+                    live[1] = max(live)
+                    read.setdefault(number, []).append(threading.current_thread() is threading.main_thread())
+                try:
+                    time.sleep(0.03 * (len(numbers) - numbers.index(number)) if pool > 1 else 0)
+                    transport.send({"method": "GET", "path": "/repos/%s/pulls/%d" % (repo, number), "accept": "application/json",
+                                    "body": None})
+                    return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
+                finally:
+                    with lock:
+                        live[0] -= 1
+            minted = iter(range(10 ** 6))
+            with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                    unittest.mock.patch.object(entry, "mint_id", lambda prefix: "%s_%020d" % (prefix, next(minted))):
+                code, _, files, _ = self.run_entry(hub, pool=pool)
+            self.assertEqual(code, 0)
+            return files["pass.json"], live[1], read
+        one, most, read = entered(1)
+        self.assertEqual((most, set(read), {n: r for n, r in read.items() if r != [True]}), (1, set(numbers), {}))
+        four, most, read = entered(4)
+        self.assertEqual((four, most), (one, 4))
+        self.assertEqual([e["facts"]["item"]["number"] for e in four["pull_requests"]], numbers)
+        self.assertEqual({n: r for n, r in read.items() if r != [False]}, {})
+        # The fourth listed ends first, on a rate limit: the two not yet asked are read in the pass's own thread.
+        limited, most, read = entered(4, limited=[9])
+        self.assertIn({"item": dict(support.ITEM, number=9), "code": "facts_unanswered"}, limited["left_out"])
+        self.assertEqual(([read[n] for n in (3, 5, 7, 9)], read[11], read[13]), ([[False]] * 4, [True], [True]))
+
+    def test_a_rate_limit_is_a_429_or_a_403_with_no_request_left_or_a_time_to_wait(self):  # decision 0000
+        def answer(status, **headers):
+            return {"status": status, "headers": headers, "body": None}
+        for limited in (answer(429), answer(403, **{"x-ratelimit-remaining": "0"}), answer(403, **{"retry-after": "60"})):
+            self.assertTrue(entry.rate_limited(limited), limited)
+        for other in (answer(403), answer(403, **{"x-ratelimit-remaining": "1"}), answer(200, **{"retry-after": "60"}),
+                      answer(404, **{"x-ratelimit-remaining": "0"}), {"status": 403, "headers": None}, None, "403"):
+            self.assertFalse(entry.rate_limited(other), other)
 
     def test_the_writes_seen_and_the_recorded_effects_are_timed_by_what_they_read(self):  # issue 1025
         # Open, newly left and gone pull requests, each apart; each port's list apart from its artifacts, and each port

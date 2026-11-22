@@ -24,6 +24,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import re
+import threading
 import urllib.parse
 
 from adapters.github import DIFF, Unanswered, raw, request
@@ -82,6 +83,9 @@ class Accounts:
         self.lenses, self.factory, self.answers, self.roles = dict(lenses), set(factory), {}, set(roles)
         self.queue = tuple(queue) if queue is not None else None
         self.apps, self.reserved = dict(apps or {}), set(reserved)
+        # The pass reads pull requests at once, each in a thread, and they share this reader: a login is asked once
+        # whatever thread asks first, and each reads the one answer kept (decision 0000).
+        self.lock = threading.Lock()
 
     def named(self, login: str, ident: int, kind: str) -> str:
         """A Bot's name: the one configured for its id, else the login it shows. A User's login, which holds no bracket,
@@ -108,6 +112,10 @@ class Accounts:
 
     def _permission(self, login: str) -> dict:
         """The repo's permission answer for `login`, read once a login for all the reader serves."""
+        with self.lock:
+            return self._asked(login)
+
+    def _asked(self, login: str) -> dict:
         if login not in self.answers:
             path = "/repos/%s/collaborators/%s/permission" % (self.repo, urllib.parse.quote(login, safe=""))
             # An answer that failed is kept too, one that never came among them, so a login is asked once however

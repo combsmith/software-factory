@@ -15,6 +15,8 @@ import json
 import os
 import pathlib
 import re
+import threading
+import time
 import unittest
 import urllib.parse
 import zipfile
@@ -2604,6 +2606,31 @@ class Timeline(unittest.TestCase):
         who = found["response"]["body"]["user"]
         self.assertEqual(accounts.actor({"login": login, "id": who["id"], "type": who["type"]}),
                          {"kind": "human", "name": login, "can_write": False})
+
+    def test_a_permission_is_asked_once_however_many_threads_ask_it(self):  # decision 0000
+        # The pass reads pull requests at once and they share one reader: a login two threads ask together is asked
+        # once, and both read the one answer kept.
+        found = next(e for e in exchanges("P-27") if "/permission" in e["request"].get("call", ""))
+        login = found["request"]["call"].split("/collaborators/")[1].split("/")[0]
+        sent, ready = [], threading.Barrier(2)
+
+        class Slow:
+            def send(self, req):
+                sent.append(req["path"])
+                time.sleep(0.05)
+                return copy.deepcopy(found["response"])
+        accounts = timeline.Accounts(Slow(), canary(), MACHINE, {})
+        who, got = found["response"]["body"]["user"], []
+
+        def ask():
+            ready.wait()
+            got.append(accounts.actor({"login": login, "id": who["id"], "type": who["type"]}))
+        threads = [threading.Thread(target=ask) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual((len(sent), got), (1, [{"kind": "human", "name": login, "can_write": False}] * 2))
 
     def test_a_timeline_or_a_list_of_reviews_that_is_not_a_list_is_not_whole(self):
         broken = copy.deepcopy(exchanges("P-7")[16])
