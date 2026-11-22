@@ -62,7 +62,7 @@ RAW = {
     "adapters.seen._check_runs": {"pull_requests": R, "checks": R},    # the pull request's head, then its checks
     "adapters.seen._threads": {"pull_requests": R},
     "adapters.seen._state": {"issues": R},                            # an issue that left, by its own read (0235)
-    "adapters.seen.repo_read": {"metadata": R},                       # the repo itself, before a deleted issue ends (0235)
+    "adapters.seen.repo_read": {"metadata": R},                       # the repo itself, before a deleted issue ends (1145)
     "adapters.seen.pushes": {"contents": R},                           # the repo's activity, as P-47 reads a branch's
     "adapters.tags._ours": {"contents": R}, "adapters.tags._page": {"contents": R},
     "adapters.texts.issues": {"issues": R}, "adapters.threads._read": {"pull_requests": R},
