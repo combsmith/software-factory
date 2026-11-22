@@ -363,6 +363,24 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
         if w["kind"] == "approval":
             # Every approval takes its head; the machine user's, unmatched, may be judged a hand approval below.
             approvals.append((w, entry if kind == "approver" else None))
+    # The pass job's token is an identity once its account is set; until then no dispatch is reconciled (ruling 2).
+    token = isinstance(accounts, dict) and isinstance(accounts.get("workflow_token"), dict)
+    if token and readable:
+        # A dispatch whose record cannot be read is unmatched, as any write is (ruling 5).
+        dispatched = (_dispatched(effects) if recorded else set()) \
+            | {e["run"] for e in _last(before)["dispatched"] if e["at"] >= since}
+        for r in runs if isinstance(runs, list) else []:
+            # A dispatch is read by when its run was made, which a re-run keeps; a re-run runs nothing (decision
+            # 0058), and one the pass job's own token made is a write no Effect records (decision 0063).
+            if r.get("dispatched_at", r["started_at"]) >= since and r["run"] not in dispatched:
+                unmatched.append({"by": "workflow_token", "kind": "dispatch", "item": r["item"], "key": r["run"]})
+            if r.get("rerun_by_dispatcher") is True and r["started_at"] >= since:
+                unmatched.append({"by": "workflow_token", "kind": "rerun", "item": r["item"], "key": r["run"]})
+            # A re-run whose re-runner, or a run whose attempt, cannot be read cannot be told from the token's.
+            if "rerun_by_dispatcher" in r and r["rerun_by_dispatcher"] is None and r["started_at"] >= since:
+                short = True
+    if token and not isinstance(runs, list):
+        short = True
     # A carried hand approval stands; any other is judged in the order given, one to a head (decision 0241).
     carried_hand = {e["key"]: e for e in _last(before).get("hand", [])}
     # Each head an approval took, a hand one or any other, by the keys that took it, until its pull request leaves.
@@ -395,24 +413,6 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
             if w["key"] is not None:
                 seconds.append({"item": w["item"], "key": w["key"], "head": w["commit"]})
     unmatched = [u for u in unmatched if not any(u is t for t in taken)]
-    # The pass job's token is an identity once its account is set; until then no dispatch is reconciled (ruling 2).
-    token = isinstance(accounts, dict) and isinstance(accounts.get("workflow_token"), dict)
-    if token and readable:
-        # A dispatch whose record cannot be read is unmatched, as any write is (ruling 5).
-        dispatched = (_dispatched(effects) if recorded else set()) \
-            | {e["run"] for e in _last(before)["dispatched"] if e["at"] >= since}
-        for r in runs if isinstance(runs, list) else []:
-            # A dispatch is read by when its run was made, which a re-run keeps; a re-run runs nothing (decision
-            # 0058), and one the pass job's own token made is a write no Effect records (decision 0063).
-            if r.get("dispatched_at", r["started_at"]) >= since and r["run"] not in dispatched:
-                unmatched.append({"by": "workflow_token", "kind": "dispatch", "item": r["item"], "key": r["run"]})
-            if r.get("rerun_by_dispatcher") is True and r["started_at"] >= since:
-                unmatched.append({"by": "workflow_token", "kind": "rerun", "item": r["item"], "key": r["run"]})
-            # A re-run whose re-runner, or a run whose attempt, cannot be read cannot be told from the token's.
-            if "rerun_by_dispatcher" in r and r["rerun_by_dispatcher"] is None and r["started_at"] >= since:
-                short = True
-    if token and not isinstance(runs, list):
-        short = True
     for m in seen["merged"] if readable else []:
         # What the last pass before the merge read of the item: a pass after it reads it merged.
         state = None
