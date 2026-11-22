@@ -18,15 +18,17 @@ It reads a narrower patch than `harness/bundle.py` does, on purpose, and what it
   changes;
 - a section's extended lines stand in the order git writes them, and a change of mode is a file's between its two
   modes;
+- a section's hunks are as git writes them: in their order and apart, each new side where the hunks before it put
+  it, each changing something, under an index line; and a rename's or a copy's below 100% alike, and none at it;
 - no path is on the new side of two sections: git writes a change of a file's type as a removed file and a new one at
   one path, and that is not read. A path a section renames or removes is named by no later section, on either side,
   and a path a section makes, as a new file or a rename's or a copy's, is no later section's old side; a copy's source
-  alone may be named again, as `git diff -C` writes a copy and then a rename of one file. No file made stands where
-  another needs a directory.
+  alone may be named again, as `git diff -C` writes a copy and then a rename of one file, and a file changed in place
+  is copied after, never renamed. No file made stands where another needs a directory.
 
-An index line's hashes and how alike a rename or a copy says its files are, are read for their form alone, and nothing
-trusts them: what a patch lands is its hunks applied to the bytes it names, and a section whose hashes differ but that
-has no hunk changes no bytes.
+An index line's hashes and how alike a rename or a copy says its files are, are read for their form alone, the second
+for whether it is 100% too, and nothing trusts them: what a patch lands is its hunks applied to the bytes it names,
+and a section whose hashes differ but that has no hunk changes no bytes.
 
 `tree` is every path the admitted commit holds that is not a directory, with its mode as git writes it; `contents` is
 the bytes of each path `sources` names. Both are the port's reads (`adapters/push.py`); this reads nothing itself.
@@ -131,26 +133,28 @@ def _mode(said):
 
 
 def _range(said):
-    """`(start, count)` from one side of a hunk's header, `start` or `start,count`, or None."""
+    """`(start, count)` from one side of a hunk's header, `start` or `start,count`, or None. git leaves a count of one
+    out, and writes every other."""
     start, comma, count = said.partition(b",")
     first = _number(start)
     many = _number(count) if comma else 1
-    if first is None or many is None:
+    if first is None or many is None or (comma and many == 1):
         return None
     return first, many
 
 
 def _hunk(lines: list, i: int):
     """`(hunk, next line)` for the hunk whose header is line `i`, or None. Its lines are as many as its header counts,
-    each a line both sides hold, one the old side holds, or one the new side holds, and one at least is not held by
-    both. git's marker, on a line of its own, says the line before it has no newline at its end: so no later line of
-    the hunk is on that line's side, and the line it marks is not empty, since an empty line that ends in no newline
-    is no line at all. After its header's second `@@` git writes nothing, or a space and the line the hunk stands
-    under, which is not read."""
+    each a line both sides hold, one the old side holds, or one the new side holds; in a run of changed lines git
+    writes the old side's first. git's marker, on a line of its own, says the line before it has no newline at its
+    end: so no later line of the hunk is on that line's side, and the line it marks is not empty, since an empty line
+    that ends in no newline is no line at all. The two sides differ, in a line or in a last line's newline: a hunk
+    that changes nothing git does not write. After its header's second `@@` git writes nothing, or a space and the
+    line the hunk stands under, which is not read but is never empty."""
     old, plus, rest = lines[i][len(HUNK):].partition(b" +")
     new, end, under = rest.partition(b" @@")
     was, now = _range(old), _range(new)
-    if not plus or not end or was is None or now is None or (under and not under.startswith(b" ")):
+    if not plus or not end or was is None or now is None or (under and not under.startswith(b" ")) or under == b" ":
         return None
     old_left, new_left, body = was[1], now[1], []
     old_ended, new_ended = False, False     # a side is ended by git's marker on a line of it
@@ -162,11 +166,13 @@ def _hunk(lines: list, i: int):
         sign = line[:1]
         if line == NO_NEWLINE and body and body[-1]["text"] and not body[-1]["bare"]:
             body[-1] = dict(body[-1], bare=True)
-            old_ended, new_ended = old_ended or body[-1]["sign"] != b"+", new_ended or body[-1]["sign"] != b"-"
+            # The line marked is the last of each side that holds it. A marker on a new line ends the new side, and
+            # then no line follows, an old line coming before the new ones of its run: so it need not keep the old's.
+            old_ended, new_ended = body[-1]["sign"] != b"+", body[-1]["sign"] != b"-"
         elif sign == b" " and old_left and new_left and not old_ended and not new_ended:
             old_left, new_left = old_left - 1, new_left - 1
             body.append({"sign": sign, "text": line[1:], "bare": False})
-        elif sign == b"-" and old_left and not old_ended:
+        elif sign == b"-" and old_left and not old_ended and not (body and body[-1]["sign"] == b"+"):
             old_left -= 1
             body.append({"sign": sign, "text": line[1:], "bare": False})
         elif sign == b"+" and new_left and not new_ended:
@@ -175,12 +181,30 @@ def _hunk(lines: list, i: int):
         else:
             return None
         i += 1
-    if not any(line["sign"] != b" " for line in body):
-        return None
-    if i < len(lines) and lines[i] == NO_NEWLINE and body[-1]["text"]:
+    if i < len(lines) and lines[i] == NO_NEWLINE and body and body[-1]["text"]:
         body[-1] = dict(body[-1], bare=True)
         i += 1
+    if [(said["text"], said["bare"]) for said in body if said["sign"] != b"+"] \
+            == [(said["text"], said["bare"]) for said in body if said["sign"] != b"-"]:
+        return None
     return {"old_start": was[0], "old_count": was[1], "new_start": now[0], "new_count": now[1], "lines": body}, i
+
+
+def _in_order(hunks: list) -> bool:
+    """Whether a section's hunks stand where git writes them, as the patch alone says: each past the one before it,
+    with a line at least between them, since git writes hunks that touch as one; a side's start 0 only where it counts
+    no line; and each new side where the old side and the hunks before it put it. A count of 0 says the hunk stands
+    after the line its start names, so `@@ -0,0 +1 @@` puts a line in at the top and `@@ -2,0 +3 @@` after line 2."""
+    cursor, grown, stood = 0, 0, False
+    for hunk in hunks:
+        taken = hunk["old_count"]
+        at = hunk["old_start"] - 1 if taken else hunk["old_start"]
+        if at < cursor or (stood and at == cursor):
+            return False
+        if hunk["new_start"] != (at + grown + 1 if hunk["new_count"] else at + grown):
+            return False
+        cursor, grown, stood = at + taken, grown + hunk["new_count"] - taken, True
+    return True
 
 
 def _named(said: dict, first: bytes, second: bytes, old: bytes, new: bytes):
@@ -275,13 +299,20 @@ def _section(lines: list, i: int):
             i = read[1]
         if not hunks:
             return None
+    # git writes an index line for every section whose bytes change, so for every one with hunks.
+    if hunks and INDEX not in said:
+        return None
+    if not _in_order(hunks):
+        return None
+    # git writes a rename's or a copy's hunks where its two files differ: below 100% alike, and never at it.
+    whole = said.get(SIMILARITY) == ALL_ALIKE + b"%"
+    if (renamed or copied) and ((whole and hunks) or (not whole and not hunks)):
+        return None
     # A new file has no old line and a removed one no new line, in the one hunk git writes for either: it stands at
-    # the first line of the side that has lines, and at no line of the side that has none.
-    if (made or gone) and len(hunks) > 1:
+    # line 0 of the side that has none, so, held to its place, at line 1 of the other; a second hunk would stand past 0.
+    if made and any(hunk["old_start"] for hunk in hunks):
         return None
-    if made and any((hunk["old_start"], hunk["old_count"], hunk["new_start"]) != (0, 0, 1) for hunk in hunks):
-        return None
-    if gone and any((hunk["new_start"], hunk["new_count"], hunk["old_start"]) != (0, 0, 1) for hunk in hunks):
+    if gone and any(hunk["new_start"] for hunk in hunks):
         return None
     kind = "new" if made else "deleted" if gone else "rename" if renamed else "copy" if copied else "change"
     if kind == "change" and not hunks and not moded:
@@ -311,15 +342,16 @@ def read(patch):
     """The sections of a patch as `git diff` writes it, in its order, or None where it is not one this reads: what is
     not exactly bytes, since a subclass's own methods would be read; bytes that end a line short; a line before its
     first section, or a line no section holds; a path twice, or a file where a directory is, as the module says;
-    no section at all, or a NUL, which makes a change a binary one written as text (decision 0188). Where a hunk
-    stands is not asked in reading: a hunk at line 0 that holds lines, and hunks out of their order, are read; that is
-    a question of the file they are applied to."""
+    no section at all, or a NUL, which makes a change a binary one written as text (decision 0188). A section is read
+    with its hunks: each as its header counts it and in a form git writes (`_hunk`), all where they stand as far as
+    the patch alone says (`_in_order`), under an index line, and a rename's or a copy's there exactly where its files
+    are less than wholly alike. Whether a hunk's lines are the file's is a question of the file it is applied to."""
     if type(patch) is not bytes or NUL in patch:
         return None
     lines = patch.split(b"\n")
     if lines.pop() != b"" or not lines:
         return None
-    sections, written, gone, made, i = [], {}, {}, {}, 0
+    sections, written, gone, made, changed, i = [], {}, {}, {}, {}, 0
     while i < len(lines):
         found = _section(lines, i) if lines[i].startswith(HEADER) else None
         if found is None:
@@ -329,7 +361,12 @@ def read(patch):
         # not read; nor is a path a section renames or removes named after it, nor one it makes read, but a copy's.
         if new in written or old in gone or new in gone or old in made:
             return None
+        # Nor is a path changed in place moved away after: git writes a copy of a file after its change, no rename.
+        if kind == "rename" and old in changed:
+            return None
         written[new] = True
+        if kind == "change":
+            changed[new] = True
         if kind in ("rename", "deleted"):
             gone[old] = True
         if kind in ("new", "rename", "copy"):
@@ -355,12 +392,12 @@ def sources(patch):
 
 def content(old: bytes, hunks: list):
     """The bytes a file holds once `hunks`, a section's as `read` gives them, are applied to `old`, or None where they
-    are not this file's. Each hunk stands where its header says, past the one before it with a line at least between
-    them, as git writes two hunks; each line of its old side is the file's line there, byte for byte; and where the
-    new side begins is where this puts it. git's marker stands on the file's last line exactly where that line has no
-    newline at its end, and on a new line only where nothing follows it: `read` gives a marker in a section's last
-    hunk alone, and here no line of the file follows that hunk's. An `old` that is no bytes is no file's content, an
-    empty one's least of all: None. `hunks` are `read`'s own, and no other shape is asked for."""
+    are not this file's. Each hunk stands where its header says, and each line of its old side is the file's line
+    there, byte for byte; `read` has held the hunks to their order and each new side to where the hunks before it put
+    it. git's marker stands on the file's last line exactly where that line has no newline at its end, and on a new
+    line only where nothing follows it: `read` gives a marker in a section's last hunk alone, and here no line of the
+    file follows that hunk's. An `old` that is no bytes is no file's content, an empty one's least of all: None.
+    `hunks` are `read`'s own, and no other shape is asked for."""
     if not isinstance(old, bytes):
         return None
     held = old.split(b"\n") if old else []
@@ -368,17 +405,15 @@ def content(old: bytes, hunks: list):
     if held and not bare:
         held.pop()
     last = len(held) - 1
-    out, cursor, open_end, stood = [], 0, False, False
+    out, cursor, open_end = [], 0, False
     for hunk in hunks:
         count = hunk["old_count"]
         at = hunk["old_start"] - 1 if count else hunk["old_start"]
-        if at < cursor or (stood and at == cursor) or at + count > len(held):
+        if at + count > len(held):
             return None
         if at > cursor:
             out += held[cursor:at]
             open_end = bare and at > last
-        if hunk["new_start"] != (len(out) + 1 if hunk["new_count"] else len(out)):
-            return None
         for line in hunk["lines"]:
             if line["sign"] != b"+":
                 if held[at] != line["text"] or line["bare"] != (bare and at == last):
@@ -389,7 +424,7 @@ def content(old: bytes, hunks: list):
                     return None
                 out.append(line["text"])
                 open_end = line["bare"]
-        cursor, stood = at, True
+        cursor = at
     if cursor < len(held):
         if open_end:
             return None
@@ -445,9 +480,6 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
     written, removed, taken, copied = {}, [], {}, {}
     for section in sections:
         kind, old, new = section["kind"], section["old"], section["new"]
-        # A file changed and then moved away is written twice; what is named once it is gone `read` does not read.
-        if kind == "rename" and old in written:
-            return None, UNREADABLE
         # A copy writes a file's bytes again: one copy of a file to a patch, so what lands is bounded by what was read.
         if kind == "copy" and old in copied:
             return None, UNREADABLE
