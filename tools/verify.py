@@ -39,8 +39,8 @@ CHECKS = [
     ("decision records", check_decisions.run),
     ("gate sets", check_gate_sets.run),
 ]
-# The test modules `make fast` leaves out. `make verify` runs them all.
-SLOW = ("test_simulator", "test_issue_simulator")
+# The test modules `make fast` leaves out, each of which runs the seeded simulation. `make verify` runs them all.
+SLOW = ("test_simulator", "test_issue_simulator", "test_reasons")
 
 
 def failed(checks: list) -> bool:
