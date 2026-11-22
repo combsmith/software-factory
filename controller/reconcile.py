@@ -190,7 +190,7 @@ def unfit(effects) -> bool:
         or any(not FITS_ITEM.fullmatch(item) for _, item in items)
 
 
-def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(), gone_issues=()) -> dict:
+def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(), gone_issues=(), served_issues=()) -> dict:
     """What this pass's record carries for the next: what was read in the window and the keys it held, those older than the
     window dropped, and the pull requests whose writes it could not read. A key, which one write alone can match, is stamped
     with when it was read, so it outlasts the write it records. A write matched by its item is credit any such write could
@@ -198,7 +198,9 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     than that; so a late first read does not stretch it. So a record holds what the Effects said, not the records
     themselves, and a pass reads only what is new (decision 0112). Each pull request `gone`, first read as left by this
     pass, is stamped with now, and one a record before stamped is kept until the window passes it (issue 787). So are
-    the issues, `unread_issues` and `gone_issues` (issue 916)."""
+    the issues, `unread_issues` and `gone_issues`; but an issue in `served_issues`, served by this pass, keeps no stamp
+    of an earlier leaving, so that it is read as left anew once it leaves again, whatever pass between could not list it
+    (issue 916)."""
     since = seen["since"] if seen is not None and not errors(seen, "seen") else None
     held = {name: [e for e in rows if name in ("owed", "owed_issues") or since is None
                    or _within(e["at"], since, name == "items")]
@@ -213,8 +215,10 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     if (since is None or not seen["whole"]) and "hands" not in _last(before):
         del held["hands"]       # or the next pass judges threads from before the rule it never read
     held["owed_issues"] = sorted(set(unread_issues))
-    held["left_issues"] = [e for e in held.get("left_issues", []) if e["number"] not in set(gone_issues)] + [
-        {"number": n, "at": now} for n in sorted(set(gone_issues))]
+    newly_gone = set(gone_issues)
+    unstamped = newly_gone | set(served_issues)
+    held["left_issues"] = [e for e in held.get("left_issues", []) if e["number"] not in unstamped] + [
+        {"number": n, "at": now} for n in sorted(newly_gone)]
     # A record with no issue to carry carries neither, as one written before them (issue 916).
     for name in ("owed_issues", "left_issues"):
         if not held[name]:
@@ -426,8 +430,10 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
                         state = e["decision"]["state"]
         if state is not None and state not in MERGEABLE:
             override.append({"item": m["item"]})
+    # An issue read whole by its 404 or 410 is named once, as information (decision 0235).
+    gone = [g for g in seen.get("gone", []) if isinstance(g, dict)] if readable else []
     return {"unmatched": unmatched, "override": override, "unjudged": waved, "hand": hand, "taken": seconds,
-            "short": short}
+            "short": short, "gone": gone}
 
 
 def alerts(found: dict) -> list:
@@ -441,8 +447,9 @@ def alerts(found: dict) -> list:
 
 
 def entries(found: dict) -> list:
-    """What the view says of a reconciliation, ids and codes alone: each unmatched write, each Override and each hand
-    approval, once each, since two writes GitHub gives no key for read the same."""
+    """What the view says of a reconciliation, ids and codes alone: each unmatched write, each Override, each hand
+    approval, and each issue read whole by its 404 or 410, its answer as its key (decision 0235), once each, since two
+    writes GitHub gives no key for read the same."""
     out = []
     for e in [{"alert": "hand_unmatched" if u["by"] == HAND else "write_unmatched", "by": u["by"], "write": u["kind"],
                "item": key(u["item"]) if u["item"] is not None else None, "key": u["key"]} for u in found["unmatched"]] \
@@ -451,7 +458,9 @@ def entries(found: dict) -> list:
             + [{"alert": "merged_by_override", "by": None, "write": "merge", "item": key(o["item"]), "key": None}
                for o in found["override"]] \
             + [{"alert": "hand_approval", "by": "approver", "write": "approval", "item": key(h["item"]), "key": h["key"]}
-               for h in found.get("hand", [])]:
+               for h in found.get("hand", [])] \
+            + [{"alert": "issue_gone", "by": None, "write": "other", "item": key(g["item"]), "key": str(g["answer"])}
+               for g in found.get("gone", [])]:
         if e not in out:
             out.append(e)
     return out

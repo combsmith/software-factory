@@ -469,6 +469,22 @@ class Override(unittest.TestCase):
         self.assertEqual(reconcile.entries(check(seen(merged=[merge]), before=[at("verifying")])),
                          [{"alert": "merged_by_override", "by": None, "write": "merge", "item": URL, "key": None}])
 
+    def test_an_issue_read_whole_by_its_end_is_named_once_as_information(self):  # decision 1145
+        issue = dict(ITEM, type="issue", number=41)
+        told = dict(seen(), gone=[{"item": issue, "answer": 404}, {"item": issue, "answer": 404},
+                                  {"item": dict(issue, number=43), "answer": 410}])
+        assert not validate(told, SCHEMAS["seen"], schemas=SCHEMAS)
+        found = check(told)
+        self.assertEqual((reconcile.alerts(found), found["short"]), ([], False))
+        url = "https://github.com/%s/issues/%d"
+        self.assertEqual(reconcile.entries(found), [{"alert": "issue_gone", "by": None, "write": "other", "item": url % (ITEM["repo"], n),
+                                                     "key": code} for n, code in ((41, "404"), (43, "410"))])
+        # Only an issue, and only a 404 or a 410, is one (Astra).
+        for wrong in ({"item": dict(issue, type="pull_request"), "answer": 404}, {"item": issue, "answer": 403}):
+            self.assertTrue(validate(dict(seen(), gone=[wrong]), SCHEMAS["seen"], schemas=SCHEMAS), wrong)
+        # What was seen that cannot be read tells nothing.
+        self.assertEqual(check(dict(told, schema="seen/2"))["gone"], [])
+
 
 HEAD, OTHER_HEAD = "a" * 40, "b" * 40
 GIVEN = "2026-10-11T12:30:00Z"
@@ -937,6 +953,12 @@ class SeenPort(unittest.TestCase):
                              ({"full_name": repo}, False), ({"status": 404, "body": {"full_name": repo, **on}}, False), (None, False)):
             self.assertIs(seen_.repo_read(GitHub({("GET", "/repos/" + repo): answer}), repo), read, answer)
 
+    def test_the_issues_read_whole_by_their_end_are_carried_in_what_was_seen(self):  # decision 1145
+        gone = [{"item": dict(ITEM, type="issue"), "answer": 410}]
+        self.assertEqual(seen_.seen([([], [], True)], SINCE, gone)["gone"], gone)
+        self.assertNotIn("gone", seen_.seen([([], [], True)], SINCE))
+        self.assertNotIn("gone", seen_.seen([([], [], True)], SINCE, []))
+
     def test_an_item_that_left_the_open_list_has_its_timeline_read_here(self):  # issue 329
         # A pull request merged or closed between the passes is no longer open, so no snapshot reads it: its timeline
         # is read here, and with it a close by a Factory identity and a merge for an Override.
@@ -1241,6 +1263,13 @@ class Carried(unittest.TestCase):
         # Another that leaves keeps the first one's stamp beside its own (Astra).
         other = reconcile.carried(before, self.effects(), seen(), self.NEXT, gone_issues=[42])
         self.assertEqual(other["left_issues"], [{"number": 41, "at": self.NOW}, {"number": 42, "at": self.NEXT}])
+        # One served again keeps no stamp of its leaving, and another's stays (Kimi, Astra).
+        served = reconcile.carried([{"now": self.NOW, "pull_requests": [], "reconciled": two}], self.effects(), seen(),
+                                   self.NEXT, served_issues=[41])
+        self.assertEqual(served["left_issues"], [{"number": 42, "at": self.NOW}])
+        # So too in a pass where another leaves (Astra).
+        both = reconcile.carried(before, self.effects(), seen(), self.NEXT, served_issues=[41], gone_issues=[42])
+        self.assertEqual(both["left_issues"], [{"number": 42, "at": self.NEXT}])
         late = reconcile.carried(before, self.effects(), dict(seen(), since="2026-10-11T14:00:00Z"), self.NEXT)
         self.assertNotIn("left_issues", late)
         self.assertEqual(reconcile.left_issues(before, "2026-10-11T14:00:00Z"), [])
