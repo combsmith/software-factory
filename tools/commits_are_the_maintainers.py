@@ -37,7 +37,7 @@ SECONDS = 120       # for each git command
 FORMAT = "%H%x00%an%x00%ae%x00%cn%x00%ce"
 QUEUED = re.compile(r"refs/heads/gh-readonly-queue/([^/]+)/pr-([1-9][0-9]*)-[0-9a-f]{40}")
 RECORDS = "docs/decisions/"
-RECORD = re.compile(r"docs/decisions/(\d{4,})-[^/]*\.md")
+RECORD = re.compile(r"docs/decisions/([0-9]{4,})-[^/]*\.md")
 # The first and the last of the records numbered in order before a record took its pull request's number, both in: a
 # record numbered between them stands too, until each has merged and this is taken off. The Builder may hand out more.
 CHAINED = (235, 250)
@@ -111,26 +111,31 @@ def pull_number(environ) -> int:
     if environ.get("EVENT") == "merge_group":
         return int(QUEUED.fullmatch(payload["merge_group"]["head_ref"]).group(2))
     told = payload["pull_request"]["number"]
-    if type(told) is not int:
-        raise TypeError("the pull request's number is not a number")
+    if type(told) is not int or told < 1:
+        raise TypeError("the pull request's number is not a number above 0")
     return told
 
 
 def record_problems(root: pathlib.Path, environ, run=git) -> list:
     """Why the decision records BASE_SHA..HEAD_SHA adds are not one record at most, numbered by its pull request: nothing
-    where they are (decision 0000)."""
+    where they are (decision 0000). A path is shown quoted, as Python writes it, so a name that holds a new line is
+    printed on one line, and no line of it opening '::' is read by GitHub Actions as a command."""
+    base, head = environ.get("BASE_SHA"), environ.get("HEAD_SHA")
+    if not base or not head:
+        return ["BASE_SHA and HEAD_SHA must be set from the event, so the decision records the pull request adds are read"]
     try:
-        found, own = added(root, environ["BASE_SHA"], environ["HEAD_SHA"], run), pull_number(environ)
+        found, own = added(root, base, head, run), pull_number(environ)
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as err:
         return ["the decision records the pull request adds cannot be read: %r" % err]
     allowed = {"%04d" % own} | {"%04d" % chained for chained in range(CHAINED[0], CHAINED[1] + 1)}
     why = []
     if len(found) > 1:
-        why.append("the pull request adds %d decision records, %s; it adds one at most" % (len(found), ", ".join(found)))
+        why.append("the pull request adds %d decision records, %s; it adds one at most"
+                   % (len(found), ", ".join(map(repr, found))))
     for path in found:
         named = RECORD.fullmatch(path)
         if named is None or named.group(1) not in allowed:
-            why.append("%s is a decision record the pull request adds, and a record is numbered by the pull request that "
+            why.append("%r is a decision record the pull request adds, and a record is numbered by the pull request that "
                        "adds it, %04d" % (path, own))
     return why
 

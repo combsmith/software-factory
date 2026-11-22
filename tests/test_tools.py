@@ -4309,25 +4309,29 @@ class Workflows(unittest.TestCase):
         run(origin.parent, "clone", "-q", str(origin), str(local))
         event = origin.with_name(origin.name + "-event.json")
 
-        def head(added=(), removed=()):
-            run(origin, "checkout", "-q", "--detach", base)
+        def head(added=(), removed=(), moved=(), changed=(), on=None):
+            run(origin, "checkout", "-q", "--detach", on or base)
             for name in added:
                 (origin / name).parent.mkdir(parents=True, exist_ok=True)
                 (origin / name).write_text("# %s\n" % name)
             for name in removed:
                 run(origin, "rm", "-q", name)
+            for old, new in moved:      # as git mv moves it, its text the same, so git would read it as renamed
+                run(origin, "mv", old, new)
+            for name in changed:
+                (origin / name).write_text((origin / name).read_text() + "Status: replaced.\n")
             run(origin, "add", "-A")
             run(origin, "commit", "-q", "--allow-empty", "-m", "change")
             made = run(origin, "rev-parse", "HEAD")
             run(local, "fetch", "-q", "--no-tags", "origin", made)
             return made
 
-        def said(made, number=1130, event_name="pull_request", payload=None):
+        def said(made, number=1130, event_name="pull_request", payload=None, since=None):
             if payload is None:
                 payload = {"pull_request": {"number": number}} if event_name == "pull_request" else {"merge_group": {
                     "head_ref": "refs/heads/gh-readonly-queue/main/pr-%d-%s" % (number, base)}}
             event.write_text(json.dumps(payload))
-            return commits_are_the_maintainers.record_problems(local, {"BASE_SHA": base, "HEAD_SHA": made,
+            return commits_are_the_maintainers.record_problems(local, {"BASE_SHA": since or base, "HEAD_SHA": made,
                                                                       "EVENT": event_name, "GITHUB_EVENT_PATH": str(event)})
 
         def refused(found, words):
@@ -4338,37 +4342,46 @@ class Workflows(unittest.TestCase):
         one = head(["docs/decisions/1130-x.md"])
         self.assertEqual(said(one), [])
         self.assertEqual(said(one, event_name="merge_group"), [])
+        # A merge group is read from the entry before it, which main does not hold yet: its record is not this one's.
+        before = head(["docs/decisions/1129-a.md"])
+        self.assertEqual(said(head(["docs/decisions/1130-b.md"], on=before), event_name="merge_group", since=before), [])
+        # A record a replacement changes is not one it adds.
+        self.assertEqual(said(head(["docs/decisions/1130-x.md"], changed=["docs/decisions/0001-a.md"])), [])
         self.assertEqual(said(head(["docs/decisions/0999-x.md"]), 999), [])
         self.assertEqual(said(head(["docs/decisions/10000-x.md"]), 10000), [])
         # Another number refuses, and names the number it is to have; so does the same number written otherwise.
-        refused(said(one, 1131), "docs/decisions/1130-x.md is a decision record the pull request adds, and a record is "
+        refused(said(one, 1131), "'docs/decisions/1130-x.md' is a decision record the pull request adds, and a record is "
                                  "numbered by the pull request that adds it, 1131")
         refused(said(one, 1131, "merge_group"), "numbered by the pull request that adds it, 1131")
         for name in ("01130-x.md", "1130.md", "1130x.md", "x-1130.md"):
-            refused(said(head(["docs/decisions/" + name])), "docs/decisions/%s is a decision record" % name)
-        refused(said(head(["docs/decisions/0999-x.md"]), 9999), "0999-x.md is a decision record")
+            refused(said(head(["docs/decisions/" + name])), "'docs/decisions/%s' is a decision record" % name)
+        refused(said(head(["docs/decisions/0999-x.md"]), 9999), "0999-x.md' is a decision record")
         # The chain numbered before the rule stands while it drains, both its ends, and not a number past either end.
         first, last = commits_are_the_maintainers.CHAINED
-        self.assertEqual((first, last >= 249), (235, True))
+        self.assertEqual((first, last >= 250), (235, True))
         for chained in ("%04d" % first, "%04d" % last):
             self.assertEqual(said(head(["docs/decisions/%s-x.md" % chained])), [], chained)
         for outside in ("%04d" % (first - 1), "%04d" % (last + 1)):
-            refused(said(head(["docs/decisions/%s-x.md" % outside])), "%s-x.md is a decision record" % outside)
+            refused(said(head(["docs/decisions/%s-x.md" % outside])), "%s-x.md' is a decision record" % outside)
         # One record at most, though each is numbered as it may be.
         two = head(["docs/decisions/1130-x.md", "docs/decisions/0240-y.md"])
-        refused(said(two), "the pull request adds 2 decision records, docs/decisions/0240-y.md, docs/decisions/1130-x.md; "
-                           "it adds one at most")
+        refused(said(two), "the pull request adds 2 decision records, 'docs/decisions/0240-y.md', "
+                           "'docs/decisions/1130-x.md'; it adds one at most")
         self.assertEqual(len(said(two)), 1)
         # A rename adds the record it names: to the pull request's number it stands here, and check_decisions refuses
         # the record gone; to another it refuses.
-        self.assertEqual(said(head(["docs/decisions/1130-a.md"], ["docs/decisions/0001-a.md"])), [])
-        moved = head(["docs/decisions/1131-a.md"], ["docs/decisions/0001-a.md"])
-        refused(said(moved), "1131-a.md is a decision record")
+        self.assertEqual(said(head(moved=[("docs/decisions/0001-a.md", "docs/decisions/1130-a.md")])), [])
+        refused(said(head(moved=[("docs/decisions/0001-a.md", "docs/decisions/1131-a.md")])), "1131-a.md' is a decision record")
+        # A name is shown quoted, so one that holds a new line prints on one line, and no line of it opens '::'.
+        found = said(head(["docs/decisions/0999-a\n::warning::x\n.md"]))
+        self.assertEqual(len(found), 1)
+        self.assertNotIn("\n", found[0])
         # Only a record is read: a file of the folder's that is not one, or below it, is not counted.
         self.assertEqual(said(head(["docs/decisions/9-notes.txt", "docs/decisions/old/0001-x.md", "docs/1131-x.md"])), [])
         # What cannot be read refuses: a head origin does not hold, a payload with no number, or a ref of another shape.
         refused(said("0" * 40), "cannot be read")
         for payload in ({}, {"pull_request": {}}, {"pull_request": {"number": "1130"}}, {"pull_request": {"number": True}},
+                        {"pull_request": {"number": 0}}, {"pull_request": {"number": -1130}},
                         {"merge_group": {"head_ref": "refs/heads/main"}}, {"merge_group": {}}, []):
             with self.subTest(payload=payload):
                 refused(said(one, event_name="merge_group" if "merge_group" in payload else "pull_request",
@@ -4377,6 +4390,10 @@ class Workflows(unittest.TestCase):
         refused(commits_are_the_maintainers.record_problems(local, {"BASE_SHA": base, "HEAD_SHA": one, "EVENT": "pull_request",
                                                                     "GITHUB_EVENT_PATH": str(event)}), "cannot be read")
         refused(commits_are_the_maintainers.record_problems(local, {"BASE_SHA": base, "HEAD_SHA": one}), "cannot be read")
+        # With no base or no head nothing is read: git would read an empty range as the checkout's own head.
+        for shas in ({"BASE_SHA": base}, {"HEAD_SHA": one}, {"BASE_SHA": "", "HEAD_SHA": ""}, {"BASE_SHA": base, "HEAD_SHA": ""}):
+            refused(commits_are_the_maintainers.record_problems(local, dict(shas, EVENT="pull_request", GITHUB_EVENT_PATH=str(event))),
+                    "BASE_SHA and HEAD_SHA must be set")
 
     def test_a_lens_run_by_actions_names_its_workflow_and_no_other_does(self):
         # GitHub Actions reports every job in the repo, so a Lens it runs must name its file; no other App runs one.
@@ -5913,6 +5930,7 @@ class Context(unittest.TestCase):
                                   ("010000-again.md", "# 010000. Again", "shares its number with"),
                                   ("003-short.md", "# 003. Short", "003-short.md: a record's file opens with its number"),
                                   ("notes.md", "# Notes", "notes.md: a record's file opens with its number"),
+                                  ("\uff11\uff11\uff13\uff10-wide.md", "# \uff11\uff11\uff13\uff10. Wide", "-wide.md: a record's file opens with its number"),
                                   ("0004-v.md", "# 0005. V", "0004-v.md: the title must open with its number"),
                                   ("10001-u.md", "# 1000. U", "10001-u.md: the title must open with its number")):
             with self.subTest(name):

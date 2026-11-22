@@ -35,7 +35,7 @@ BASE = "refs/remotes/origin/main"
 NO_GRAFTS = "/dev/null/grafts"      # a path that cannot exist: below a file, not a directory
 SECONDS = 30                        # for each git command
 FOLDER = "docs/decisions"
-PATH = r"`(%s/(\d{4,})-[^`/\s]+\.md)`" % FOLDER
+PATH = r"`(%s/([0-9]{4,})-[^`/\s]+\.md)`" % FOLDER
 # How decision 0012 says it was replaced, from the start of its Status: the path, then a comma, a stop or the end.
 REPLACED = re.compile(r"^Status: replaced by %s(?=[,.]|$)" % PATH)
 # How decision 0015 says what it replaces: one record, or a list of them, straight after its own Status.
@@ -43,7 +43,7 @@ REPLACES = re.compile(r"^Status: accepted\. Replaces (`[^`]+`(?:(?:, and |, | an
 # Words that claim a replacement. Past the one declaration a Status makes, none of them, and no record's path, stands.
 CLAIM = re.compile(r"replace|supersede", re.I)
 # A record's number, at least four digits, compared as a number: one of five digits comes after 9999 (decision 0000).
-NUMBER = re.compile(r"^(\d{4,})-")
+NUMBER = re.compile(r"^([0-9]{4,})-")
 BOUNDARIES = "## Boundaries"
 # A mutant a row names, by its description in tools/mutants.py (issue 590).
 MUTANT = re.compile(r'mutant: "([^"\n]+)"')
