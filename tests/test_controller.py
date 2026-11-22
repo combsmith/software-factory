@@ -14,7 +14,6 @@ import json
 import os
 import pathlib
 import tempfile
-import threading
 import time
 import unittest
 import unittest.mock
@@ -2556,45 +2555,44 @@ class Entry(unittest.TestCase):
         # Each snapshot is read whole in a thread of its own, at most four at once, the first listed ending last; the
         # record is the one a pass reading them one at a time writes. A rate limit's answer is GitHub not answering: that
         # pull request is left out, read no second time, and the rest are read one at a time, in the pass's own thread.
-        numbers, lock = [3, 5, 7, 9, 11, 13], threading.Lock()
+        numbers = [3, 5, 7, 9, 11, 13]
 
         def entered(pool, limited=()):
             table = self.table(numbers=numbers)
             for n in numbers:
                 table[("GET", "/repos/%s/pulls/%d" % (self.HOME, n))] = {"status": 200, "headers": {}, "body": {}} \
                     if n not in limited else {"status": 403, "headers": {"x-ratelimit-remaining": "0"}, "body": None}
-            hub, live, read = Hub(table), [0, 0], {}
+            # How many snapshots are under way, the most at once, and how many each found under way as it began.
+            hub, live, seen, read = Hub(table), [], [0], {}
 
             def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded,
                          opened):
-                with lock:
-                    live[0] += 1
-                    live[1] = max(live)
-                    read.setdefault(number, []).append(threading.current_thread() is threading.main_thread())
+                live.append(number)     # a list's append and remove are each one step under the interpreter's lock
+                at = len(live)
+                seen.append(at)
+                read.setdefault(number, []).append(at)
                 try:
-                    time.sleep(0.03 * (len(numbers) - numbers.index(number)) if pool > 1 else 0)
+                    time.sleep(0.05 * (len(numbers) - numbers.index(number)) if pool > 1 else 0)
                     transport.send({"method": "GET", "path": "/repos/%s/pulls/%d" % (repo, number), "accept": "application/json",
                                     "body": None})
                     return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
                 finally:
-                    with lock:
-                        live[0] -= 1
+                    live.remove(number)
             minted = iter(range(10 ** 6))
             with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
                     unittest.mock.patch.object(entry, "mint_id", lambda prefix: "%s_%020d" % (prefix, next(minted))):
                 code, _, files, _ = self.run_entry(hub, pool=pool)
             self.assertEqual(code, 0)
-            return files["pass.json"], live[1], read
+            return files["pass.json"], max(seen), read
         one, most, read = entered(1)
-        self.assertEqual((most, set(read), {n: r for n, r in read.items() if r != [True]}), (1, set(numbers), {}))
+        self.assertEqual((most, read), (1, {n: [1] for n in numbers}))
         four, most, read = entered(4)
         self.assertEqual((four, most), (one, 4))
         self.assertEqual([e["facts"]["item"]["number"] for e in four["pull_requests"]], numbers)
-        self.assertEqual({n: r for n, r in read.items() if r != [False]}, {})
-        # The fourth listed ends first, on a rate limit: the two not yet asked are read in the pass's own thread.
+        # The fourth listed ends first, on a rate limit: the two not yet begun are read one at a time, once the rest end.
         limited, most, read = entered(4, limited=[9])
         self.assertIn({"item": dict(support.ITEM, number=9), "code": "facts_unanswered"}, limited["left_out"])
-        self.assertEqual(([read[n] for n in (3, 5, 7, 9)], read[11], read[13]), ([[False]] * 4, [True], [True]))
+        self.assertEqual((sorted(read[n][0] for n in (3, 5, 7, 9)), read[11], read[13]), ([1, 2, 3, 4], [1], [1]))
 
     def test_a_rate_limit_is_a_429_or_a_403_with_no_request_left_or_a_time_to_wait(self):  # decision 0000
         def answer(status, **headers):

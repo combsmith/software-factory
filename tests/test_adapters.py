@@ -7,6 +7,7 @@ the network: the live transport is held by what it refuses before it sends anyth
 from __future__ import annotations
 
 import base64
+import concurrent.futures
 import copy
 import email.utils
 import hashlib
@@ -15,7 +16,6 @@ import json
 import os
 import pathlib
 import re
-import threading
 import time
 import unittest
 import urllib.parse
@@ -2612,7 +2612,7 @@ class Timeline(unittest.TestCase):
         # once, and both read the one answer kept.
         found = next(e for e in exchanges("P-27") if "/permission" in e["request"].get("call", ""))
         login = found["request"]["call"].split("/collaborators/")[1].split("/")[0]
-        sent, ready = [], threading.Barrier(2)
+        sent = []
 
         class Slow:
             def send(self, req):
@@ -2620,16 +2620,11 @@ class Timeline(unittest.TestCase):
                 time.sleep(0.05)
                 return copy.deepcopy(found["response"])
         accounts = timeline.Accounts(Slow(), canary(), MACHINE, {})
-        who, got = found["response"]["body"]["user"], []
+        who = found["response"]["body"]["user"]
 
-        def ask():
-            ready.wait()
-            got.append(accounts.actor({"login": login, "id": who["id"], "type": who["type"]}))
-        threads = [threading.Thread(target=ask) for _ in range(2)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            asked = [pool.submit(accounts.actor, {"login": login, "id": who["id"], "type": who["type"]}) for _ in range(2)]
+            got = [a.result() for a in asked]
         self.assertEqual((len(sent), got), (1, [{"kind": "human", "name": login, "can_write": False}] * 2))
 
     def test_a_timeline_or_a_list_of_reviews_that_is_not_a_list_is_not_whole(self):
