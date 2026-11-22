@@ -201,17 +201,14 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     pass, is stamped with now, and one a record before stamped is kept until the window passes it (issue 787). So are
     the issues, `unread_issues` and `gone_issues`; but an issue in `served_issues`, served by this pass, keeps no stamp
     of an earlier leaving, so that it is read as left anew once it leaves again, whatever pass between could not list it
-    (issue 916). So is each hand approval, `hand`, and each head any other approval took, `taken`, while its pull
-    request is open or its leaving is held, dropped by the pass that drops that leaving; one of `open_`, the pages of the
-    pull requests this pass read as open, reopened, keeps its own (decision 0241)."""
+    (issue 916). So are `hand` and `taken` until the pass that drops their leaving; one in `open_`, read open, keeps
+    its own (decision 0241)."""
     since = seen["since"] if seen is not None and not errors(seen, "seen") else None
     held = {name: [e for e in rows if name in ("owed", "owed_issues", "hand", "taken") or since is None
                    or _within(e["at"], since, name == "items")]
             for name, rows in _last(before).items()}
     held["owed"] = sorted(set(unread))
-    # A hand approval's head stays taken while its pull request is open or its leaving is held, not for the window
-    # alone; it is dropped by the pass that drops that leaving, by the same window: one clock (decision 0241). A pull
-    # request read as open again, or leaving again, keeps its own.
+    # One clock: kept until the pass that drops the leaving (decision 0241).
     dropped = {e["number"] for e in _last(before).get("left", [])} - {e["number"] for e in held.get("left", [])} - set(gone)
     opened = set(open_)
 

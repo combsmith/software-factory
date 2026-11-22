@@ -272,10 +272,8 @@ class Record(unittest.TestCase):
         self.assertEqual(decisions({"record": full})[0]["reason"], "concurrency")
         replays(full)
 
-    def test_a_hand_approval_given_and_merged_between_two_passes_is_information_until_the_window_passes_its_leaving(self):
-        # decision 0241: the passes after its merge read its writes until the window passes its leaving, the record
-        # that decided it out of their reach, and read the approval as information all that while; a reopened one
-        # keeps it when the window passes its old leaving.
+    def test_a_hand_approval_merged_between_passes_stays_information(self):
+        # decision 0241: information until the window passes its leaving; a reopened one keeps it.
         from tests import test_decide
         facts = test_decide.changing(changed_paths=["docs/notes.md", "harness/run.py"], **test_decide.DEPENDENCY)
         facts["item"] = dict(support.ITEM, number=42)

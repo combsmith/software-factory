@@ -615,7 +615,7 @@ class HandApproval(unittest.TestCase):
         for changed in (approval(commit=None), approval(commit=OTHER_HEAD), approval(at="2026-10-11T12:31:00Z")):
             self.assertEqual(kinds(check(seen(changed), before=later)), [("approver", "approval")], changed)
 
-    def test_what_was_read_as_hand_or_taken_is_carried_until_the_window_passes_its_leaving(self):
+    def test_hand_and_taken_are_carried_until_the_window_passes_their_leaving(self):
         hand = "model_lens_input_needs_person"
         found = check(seen(approval()), before=[decided_as(hand)])
         held = reconcile.carried([decided_as(hand)], recorded(), seen(), NOW, hand=found["hand"], taken=found["taken"])
@@ -647,7 +647,7 @@ class HandApproval(unittest.TestCase):
         apart = seen(approval(None, at="2026-10-11T12:40:00Z"), approval(None, commit=OTHER_HEAD, at="2026-10-11T12:45:00Z"))
         heads = reconcile.carried(aged, recorded(), seen(), NOW, taken=check(apart, before=aged)["taken"])["taken"]
         self.assertEqual([t["head"] for t in heads], [HEAD, OTHER_HEAD])
-        # A pass whose read is short, of the Effects or of what was seen, drops neither, and carries a head it took new.
+        # A short read drops neither, and carries a head it took new.
         fresh_short = check(seen(approval(None), whole=False), before=[decided_as(hand)])
         self.assertEqual((fresh_short["hand"], fresh_short["short"]), ([], True))
         for name, effects, s in (("effects unread", None, seen()), ("seen unread", recorded(), None),
@@ -656,8 +656,7 @@ class HandApproval(unittest.TestCase):
             self.assertEqual((short["hand"], short["taken"]), (taken["hand"], taken["taken"]), name)
             self.assertEqual(reconcile.carried([decided_as(hand)], effects, s, NOW, taken=fresh_short["taken"])["taken"],
                              [{"key": None, "item": URL, "head": HEAD}], name)
-        # A pull request read as leaving keeps its own, and what is new for it is carried, an approval given and merged
-        # between two passes among them: its writes are read until the window passes its leaving.
+        # One read as leaving keeps its own, and what is new for it is carried.
         other = [{"key": None, "item": URL.replace("/42", "/43"), "head": HEAD}]
         theirs = [dict(taken["hand"][0], key="PRR_8", item=other[0]["item"])]
         both = dict(taken, taken=taken["taken"] + other, hand=taken["hand"] + theirs)
@@ -684,8 +683,7 @@ class HandApproval(unittest.TestCase):
         # A read of what was seen that cannot be read reads no window, and drops nothing.
         unread = reconcile.carried(aged, recorded(), None, NOW)
         self.assertEqual((unread["hand"], unread["taken"]), (leaving["hand"], leaving["taken"]))
-        # A pull request reopened, read as open, keeps its own when the window passes its old leaving, and so does one
-        # read as leaving again, stamped anew; another repository's of the same number is no reopening.
+        # Reopened, or leaving again, it keeps its own; another repository's of that number is no reopening.
         reopened = reconcile.carried(aged, recorded(), seen(), NOW, open_=[URL])
         self.assertEqual((reopened["hand"], reopened["taken"], reopened["left"]), (leaving["hand"], leaving["taken"], []))
         again_ = reconcile.carried(aged, recorded(), seen(), NOW, gone=[42])

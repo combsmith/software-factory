@@ -376,7 +376,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
         + [i["number"] for i in map(reads_.item, also) if i is not None and i["type"] == "issue"]
     found = reconcile_.reconcile(reads.get("seen"), reads.get("effects"), runs if listed and whole else None, before,
                                  rules["accounts"])
-    # The pull requests this pass read as open, decided or left out: one reopened keeps what was carried (decision 0241).
+    # Read open, decided or left out: one reopened keeps what was carried (decision 0241).
     opened = [key(i) for i in [e["facts"]["item"] for e in pulls] + [reads_.item(i) for i in left_out] if i is not None]
     record = {"schema": "pass/1", "pass": pass_id, "release": config["release"], "now": now,
               "started_by": started_by(reads.get("started"), rules["accounts"]), "context": context, "runs": runs,

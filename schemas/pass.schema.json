@@ -402,7 +402,7 @@
           }
         },
         "taken": {
-          "description": "Each head an approval took that was not read as the Maintainer's hand, the machine user's matched or not, a Role's or a keyless one: its review's key, null where none could be read, its pull request and the head, kept while its pull request is open or its leaving is held, so a later approval of that head is a second (decision 0241). Absent where there is none.",
+          "description": "Each head an approval not read as the hand took, any account's: its review's key (null if unread), its pull request and the head, kept while that is open or its leaving is held, so a later approval of the head is a second (decision 0241). Absent if none.",
           "type": "array",
           "items": {
             "type": "object",
@@ -416,7 +416,7 @@
           }
         },
         "hand": {
-          "description": "Each approval by the machine user a pass read as the Maintainer's hand: its review's key, its pull request, the head it approved and when it was given, kept while its pull request is open or its leaving is held, so the passes after read it as one too and a second approval of that head is not (decision 0241). Absent where there is none.",
+          "description": "Each machine user approval read as the Maintainer's hand: its review's key, its pull request, the head and when given, kept while that is open or its leaving is held, so later passes read it as one and a second of that head is not (decision 0241). Absent if none.",
           "type": "array",
           "items": {
             "type": "object",
