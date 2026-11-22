@@ -120,10 +120,12 @@ def _top_names(tree) -> set:
                if isinstance(node, (ast.Import, ast.ImportFrom)) else [])}
 
 
-def _answered(name: str, node, word: str, read: set, bound: dict) -> bool:
+def _answered(name: str, node, word: str, read: set, bound: dict, hidden=lambda parts: False) -> bool:
     """Whether `from <module> import word` in the file `name` is answered by what is read here: `word` is a module of
     the package read, or a name its module's file binds at its top (issue 909). A relative import is read from the
-    file's own folder; one that climbs past the package is another rule's."""
+    file's own folder; one that climbs past the package is another rule's. Neither the module nor `word` may be a
+    folder that is `hidden`, there with its `__init__.py` unread: Python imports that folder before a file of its
+    name, or a name its module binds by importing it."""
     folder = name.split("/")[:-1]
     if node.level:
         if node.level - 1 > len(folder):
@@ -133,6 +135,8 @@ def _answered(name: str, node, word: str, read: set, bound: dict) -> bool:
         parts = node.module.split(".")[1:]
     module = ["/".join(parts + ["__init__.py"]).lstrip("/"), "/".join(parts) + ".py"]
     inner = "/".join(parts + [word])
+    if word != "*" and (hidden(parts) or hidden(parts + [word])):
+        return False
     return (word == "*" or inner + ".py" in read or inner + "/__init__.py" in read
             or any(word in bound.get(m, ()) for m in module))
 
@@ -815,6 +819,12 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
     tops = {name: _names(name, tree, trees) for name, tree in trees.items()}
     problems += _packages(trees, tops)
     bound = {name: _top_names(tree) for name, tree in trees.items()}
+
+    def hidden(parts: list) -> bool:
+        """A folder of the package that is there, its `__init__.py` not read: another working tree, which the walk
+        leaves out, or a folder Python imports as a namespace (issue 909)."""
+        return (root / package).joinpath(*parts).is_dir() and "/".join(parts + ["__init__.py"]) not in read
+
     for name, tree in trees.items():
         problems += _confined(name, tree, owned)
         problems += _calls(name, tree, trees, takers, tops)
@@ -833,14 +843,17 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
                 if mod.split(".")[0] not in ALLOWED_IMPORTS:
                     problems.append("%s:%d imports %s" % (name, line, mod))
                 inner = "/".join(mod.split(".")[1:])
-                if mod.split(".")[0] == "kernel" and inner and inner + ".py" not in read and inner + "/__init__.py" not in read:
+                if mod.split(".")[0] == "kernel" and inner and hidden(inner.split("/")):
+                    problems.append("%s:%d imports %s, a folder here that is not read, which Python imports before a "
+                                    "file of its name" % (name, line, mod))
+                elif mod.split(".")[0] == "kernel" and inner and inner + ".py" not in read and inner + "/__init__.py" not in read:
                     problems.append("%s:%d imports %s, which no file read here is: Python would import what this does "
                                     "not read" % (name, line, mod))
             # The guards refuse every relative import by their own rule, whatever it names.
             if isinstance(node, ast.ImportFrom) and ((node.level and package == "kernel")
                                                      or (not node.level and (node.module or "").split(".")[0] == "kernel")):
                 for alias in node.names:
-                    if not _answered(name, node, alias.name, read, bound):
+                    if not _answered(name, node, alias.name, read, bound, hidden):
                         problems.append("%s:%d imports %s from %s, which no file read here is and its module binds no "
                                         "such name" % (name, line, alias.name, "." * node.level + (node.module or "")))
             if package == "kernel" and isinstance(node, ast.ImportFrom) and node.level > name.count("/") + 1:
