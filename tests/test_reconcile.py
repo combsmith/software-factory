@@ -642,13 +642,14 @@ class HandApproval(unittest.TestCase):
                              [{"key": None, "item": URL, "head": HEAD}], name)
         # A pull request read as leaving keeps its own, and what is new for it is carried, an approval given and merged
         # between two passes among them: its writes are read until the window passes its leaving.
-        other = [{"key": "PRR_7", "item": URL.replace("/42", "/43"), "head": HEAD}]
+        other = [{"key": None, "item": URL.replace("/42", "/43"), "head": HEAD}]
         theirs = [dict(taken["hand"][0], key="PRR_8", item=other[0]["item"])]
         both = dict(taken, taken=taken["taken"] + other, hand=taken["hand"] + theirs)
         new = [{"key": "PRR_6", "item": ITEM, "head": OTHER_HEAD}]
-        leaving = reconcile.carried([dict(decided_as(hand), reconciled=both)], recorded(), seen(), NOW, gone=[42], taken=new)
+        leaving = reconcile.carried([dict(decided_as(hand), reconciled=both)], recorded(), seen(), NOW, gone=[42], taken=new,
+                                   hand=[dict(found["hand"][0], key="PRR_3")])
         self.assertEqual(([e["key"] for e in leaving["hand"]], [e["key"] for e in leaving["taken"]], leaving["left"]),
-                         (["PRR_1", "PRR_8"], ["PRR_2", None, "PRR_7", "PRR_6"], [{"number": 42, "at": NOW}]))
+                         (["PRR_1", "PRR_8", "PRR_3"], ["PRR_2", None, None, "PRR_6"], [{"number": 42, "at": NOW}]))
         stamped = dict(reconcile.EMPTY, left=[{"number": 42, "at": NOW}])
         fresh = reconcile.carried([dict(decided_as(hand), reconciled=stamped)], recorded(), seen(), NOW,
                                   hand=found["hand"], taken=second["taken"])
@@ -660,7 +661,7 @@ class HandApproval(unittest.TestCase):
         aged = [dict(decided_as(hand), reconciled=dict(leaving, left=[{"number": 42, "at": EARLY}]))]
         past = reconcile.carried(aged, recorded(), seen(), NOW, hand=[dict(found["hand"][0], key="PRR_5")], taken=new)
         self.assertEqual(([e["key"] for e in past["hand"]], [e["key"] for e in past["taken"]], past["left"]),
-                         (["PRR_8"], ["PRR_7"], []))
+                         (["PRR_8"], [None], []))
         alone = [dict(decided_as(hand), reconciled=dict(taken, left=[{"number": 42, "at": EARLY}]))]
         for name in ("hand", "taken"):
             self.assertNotIn(name, reconcile.carried(alone, recorded(), seen(), NOW), name)
