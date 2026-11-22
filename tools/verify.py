@@ -120,6 +120,19 @@ def desk_note() -> str:
         return "no note: it raised %s" % type(err).__name__
 
 
+def quiet(stream) -> None:
+    """Points `stream`'s file at the null device once the note failed to write to it, so the flush at exit, which
+    tries again what is still held, finds nothing closed and cannot change make checks' answer (a closed pipe)."""
+    try:
+        null = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(null, stream.fileno())
+        finally:
+            os.close(null)
+    except BaseException:       # NOSONAR: a stream with no file too; the note never decides make checks' answer
+        pass
+
+
 def main(argv: list, environ=None) -> int:
     try:
         share = None if "--checks" in argv or "--fast" in argv else leg(environ or {})
@@ -130,9 +143,9 @@ def main(argv: list, environ=None) -> int:
     if "--checks" in argv:
         answer = 1 if checks_failed else 0      # the checks' answer, told before the note runs
         try:
-            print("%-22s %s" % ("diff size", desk_note()))
+            print("%-22s %s" % ("diff size", desk_note()), flush=True)
         except BaseException:       # NOSONAR: a closed pipe too; the note never decides make checks' answer
-            pass
+            quiet(sys.stdout)
         return answer
     for line in notes():
         print(line)
