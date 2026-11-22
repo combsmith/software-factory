@@ -658,6 +658,8 @@ class SeenPort(unittest.TestCase):
         self.assertIs(left(Pages({path: [old, close, []]}, LEFT_ANSWERS))[2], False)
         # An id that cannot be a key leaves the read short, never refused.
         self.assertIs(left(Pages({path: [new, [dict(close[0], id=[])], close]}, LEFT_ANSWERS))[2], False)
+        # A truth value is no id either, though Python counts it a number (Carbon).
+        self.assertIs(left(Pages({path: [new, [dict(close[0], id=True)], close]}, LEFT_ANSWERS))[2], False)
         # A last page that named a next one when first read is short, though it names none when read again.
         self.assertIs(left(Pages({path: [old] * 27 + [old + new, new, close]}, LEFT_ANSWERS, first_more={30}))[2], False)
         # The bound is ten pages: the first, seven read back, the last again, and the first again where joined. A

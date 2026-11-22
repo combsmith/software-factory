@@ -366,7 +366,7 @@ MUTANTS = [
     ('an unreadable moment says the read reached since', 'adapters/seen.py',
      '        if isinstance(at, str) and AT.fullmatch(at) and at < since:\n', '        if isinstance(at, str) and at < since:\n', ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_is_short_on_what_it_cannot_tell',)),
     ('an id that cannot be a key is kept', 'adapters/seen.py',
-     '            if not all(k is None or isinstance(k, (str, int)) for k in key):\n                return [], False\n', '', ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_is_short_on_what_it_cannot_tell',)),
+     '            if not all(k is None or isinstance(k, (str, int)) and not isinstance(k, bool) for k in key):\n                return [], False\n', '', ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_is_short_on_what_it_cannot_tell',)),
     ("an issue's timeline is read from its start", 'adapters/seen.py',
      '_tail(transport, issue + "/timeline?per_page=%d" % PAGE, since, gone), "reviews": ([], True),', '_pages(transport, issue + "/timeline?per_page=%d" % PAGE), "reviews": ([], True),', ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_is_short_on_what_it_cannot_tell',)),
     ('the pages read back stop one short', 'adapters/seen.py',
@@ -388,4 +388,6 @@ MUTANTS = [
     ("the seen port reads the reviews of an item that left past ten pages", 'adapters/seen.py',
      '"reviews": _pages(transport, "/repos/', '"reviews": timeline._pages(transport, "/repos/',
      ('tests.test_reconcile.SeenPort.test_a_list_is_read_to_ten_pages_and_past_them_what_was_seen_is_short',)),
+    ("a truth value is an id", 'adapters/seen.py',
+     ' and not isinstance(k, bool) for k in key):', ' for k in key):', ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_is_short_on_what_it_cannot_tell',)),
 ]

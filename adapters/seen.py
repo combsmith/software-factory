@@ -158,7 +158,7 @@ def _tail(transport, path: str, since: str, ends=()) -> tuple:
     for item in ([items] if joined else []) + found:
         for one in item:
             key = (_object(one).get("event"), _object(one).get("id"))
-            if not all(k is None or isinstance(k, (str, int)) for k in key):
+            if not all(k is None or isinstance(k, (str, int)) and not isinstance(k, bool) for k in key):
                 return [], False
             if key[1] is None or key not in seen:
                 seen.add(key)
