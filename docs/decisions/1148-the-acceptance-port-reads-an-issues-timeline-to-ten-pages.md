@@ -1,4 +1,4 @@
-# 0000. The acceptance port reads an issue's timeline to ten pages
+# 1148. The acceptance port reads an issue's timeline to ten pages
 
 Status: accepted. Extends decision 0234 with its bound on the acceptance port's read, as "adapters: bound the acceptance port's issue timeline read to ten pages" (issue 986) asks, part 2 of 2, as the Factory Builder ruled on 2026-11-20 (A). It restates the row of decision 1147 that it widens, now that the port says a cut; decisions 0234 and 1147 stand as they are.
 
