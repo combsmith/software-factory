@@ -37,9 +37,11 @@ def asked(d: dict, feed: dict):
 
 def unread(record: dict, item: dict) -> bool:
     """Whether `record`'s pass left the issue `item` unread for want of a read alone: its budget spent, or its issue list
-    read short (decision 0234)."""
+    read short where the pass neither decided the issue nor left it out by name for another reason (decision 1167)."""
     left = record.get("left_out") or []
-    return item["type"] == "issue" and ({"item": item, "code": BUDGET} in left or {"item": None, "code": UNLISTED} in left)
+    named = [entry["code"] for entry in left if entry["item"] == item]
+    decided = any(entry["decision"]["item"] == item for entry in record["issues"])
+    return item["type"] == "issue" and not decided and (BUDGET in named if named else {"item": None, "code": UNLISTED} in left)
 
 
 def carried(record: dict, before: list) -> list:
