@@ -4745,10 +4745,13 @@ class Snapshot(unittest.TestCase):
         paged(seq, 5, "/repos/%s/issues/26/timeline?per_page=100" % canary())
         seq[6]["response"]["body"] = {"message": "not a list"}
         del seq[7:15]
-        got = snap(seq)
+        router, kept = Router(github.Replay(seq), {"don-petry": "admin"}), {}
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW, kept, recorded=NOTHING, opened=NOT_OPENED)
         self.assertIs(got["complete"]["timeline"], False)
         self.assertIs(got["timeline_bounded"], False)
         self.assertIs(got["complete"]["reviews"], True)       # with no dismissal, the reviews stay whole (Carbon)
+        self.assertEqual(kept["cut"], {"events": False, "reviews": False})   # short is not cut, for the seen port (Carbon)
 
     def test_a_snapshot_reads_the_ask_of_the_openers_pull_request_by_its_branch(self):  # issue 295
         # Told that the App that opens pull requests is this one's author, the snapshot reads its branch, which is no
