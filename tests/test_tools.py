@@ -15881,8 +15881,8 @@ class Desk(unittest.TestCase):
         self.assertEqual(self.staged(root, {"f.py": "a\nb\nc\ne\nf\ng\nh\ni\nj\nx1\n", "g.py": "g\n", "h.py": "h\n",
                                             "d/n.py": "n\n", "s.py": None}), [
             "'d/n.py': only main changed it, and the merge does not hold its blob and mode as left",
-            "'f.py': main's line is gone, and the branch did not take it out: m1",
-            "'f.py': a line main took out, or no side wrote, is there: h",
+            "'f.py': main's line is gone, and the branch did not take it out: 'm1'",
+            "'f.py': a line main took out, or no side wrote, is there: 'h'",
             "'g.py': only main changed it, and the merge does not hold its blob and mode as left",
             "'h.py': only the branch changed it, and the merge does not hold its blob and mode as left",
             "'s.py': neither side changed it, and the merge does not hold its blob and mode as left"])
@@ -15894,16 +15894,16 @@ class Desk(unittest.TestCase):
         git(root, "update-index", "--chmod=-x", "g.py")
         # A line both sides hold twice counts twice, and a carriage return is a line's own.
         self.assertEqual(self.staged(root, {"f.py": good.replace("x1\n", "x1\nm1\n")}), [
-            "'f.py': a line main took out, or no side wrote, is there: m1",
-            "'f.py': a line the branch took out, or no side wrote, is there: m1"])
-        self.assertEqual(len(self.staged(root, {"f.py": good.replace("\n", "\r\n")})), 4 * desk.SHOWN)     # each kind, cut
+            "'f.py': a line main took out, or no side wrote, is there: 'm1'",
+            "'f.py': a line the branch took out, or no side wrote, is there: 'm1'"])
+        self.assertEqual(len(self.staged(root, {"f.py": good.replace("\n", "\r\n")})), 4 * (desk.SHOWN + 1))  # cut, counted
         self.assertEqual(self.staged(root, {"f.py": "a\nm1\nb\nc\nd\ne\nf\ng\ni\nj\n"}), [
-            "'f.py': the branch's line is gone, and main did not take it out: x1",
-            "'f.py': a line the branch took out, or no side wrote, is there: d"])
+            "'f.py': the branch's line is gone, and main did not take it out: 'x1'",
+            "'f.py': a line the branch took out, or no side wrote, is there: 'd'"])
         # A conflict's markers are lines no side wrote; what is staged is read, not what the working tree holds.
         self.assertEqual(self.staged(root, {"f.py": good + "<<<<<<< HEAD\n"}), [
-            "'f.py': a line main took out, or no side wrote, is there: <<<<<<< HEAD",
-            "'f.py': a line the branch took out, or no side wrote, is there: <<<<<<< HEAD"])
+            "'f.py': a line main took out, or no side wrote, is there: '<<<<<<< HEAD'",
+            "'f.py': a line the branch took out, or no side wrote, is there: '<<<<<<< HEAD'"])
         self.staged(root, {"f.py": good})
         (root / "g.py").write_text("g\n")
         self.assertEqual(desk.merged(root), [])
@@ -15939,10 +15939,36 @@ class Desk(unittest.TestCase):
         self.assertEqual(desk.merged(root), ["cannot tell: the index holds paths still unmerged; resolve and stage each, "
                                              "then read it again"])
         self.assertEqual(self.staged(root, {"f.py": "a\nlimit = 2  # the most\nz\n"}), [
-            "'f.py': main's line is gone, and the branch did not take it out: limit = 1  # the most",
-            "'f.py': the branch's line is gone, and main did not take it out: limit = 2",
-            "'f.py': a line main took out, or no side wrote, is there: limit = 2  # the most",
-            "'f.py': a line the branch took out, or no side wrote, is there: limit = 2  # the most"])
+            "'f.py': main's line is gone, and the branch did not take it out: 'limit = 1  # the most'",
+            "'f.py': the branch's line is gone, and main did not take it out: 'limit = 2'",
+            "'f.py': a line main took out, or no side wrote, is there: 'limit = 2  # the most'",
+            "'f.py': a line the branch took out, or no side wrote, is there: 'limit = 2  # the most'"])
+
+    def test_a_deletion_a_mode_and_a_line_of_control_characters_are_each_told(self):
+        # A file one side took out and the other changed is told as such, whichever the merge kept; a mode one side
+        # gave a file both changed must be kept; a line is shown escaped, never as what a terminal would act on.
+        root = self.repo({"d.py": "a\nb\n", "m.py": "a\nb\n", "e.py": "a\nb\n"})
+        git(root, "checkout", "-q", "-b", "work")
+        git(root, "rm", "-q", "d.py")
+        (root / "m.py").chmod(0o755)
+        (root / "e.py").write_text("a\nb\nc\n")
+        self.commit(root, "work")
+        git(root, "checkout", "-q", "main")
+        (root / "d.py").write_text("a\nB\n")
+        (root / "m.py").write_text("a\nB\n")
+        (root / "e.py").write_text("\x1b[31mred\na\nb\n")
+        self.commit(root, "main")
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        git(root, "checkout", "-q", "work")
+        self.merge(root, "origin/main", check=False)
+        told = "'d.py': the branch took it out and the other side changed it, and the merge %s: read which was meant"
+        (root / "m.py").chmod(0o644)
+        self.assertEqual(self.staged(root, {"d.py": None, "e.py": "a\nb\nc\n", "m.py": "a\nB\n"}), [
+            told % "took it out",
+            "'e.py': main's line is gone, and the branch did not take it out: '\\x1b[31mred'",
+            "'m.py': the branch changed its mode, and the merge does not hold it"])
+        self.staged(root, {"d.py": "a\nB\n"})
+        self.assertEqual(desk.merged(root)[0], told % "has it")
 
     def test_a_merge_it_cannot_tell_is_refused_and_a_rename_is_named(self):
         root = self.repo({"f.py": "a\nb\nc\nd\ne\nf\ng\n", "k.py": "k\n", "o.py": "o\n"})

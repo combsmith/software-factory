@@ -202,6 +202,7 @@ DESK_NOTE = ("tests.test_tools.Desk.test_make_checks_note_fails_nothing",)
 DESK_MERGE = ("tests.test_tools.Desk.test_a_merge_that_keeps_both_sides_passes_and_one_that_drops_either_is_told",)
 DESK_HAND = ("tests.test_tools.Desk.test_a_line_both_sides_changed_and_a_hand_combined_is_listed_to_read",)
 DESK_REFUSED = ("tests.test_tools.Desk.test_a_merge_it_cannot_tell_is_refused_and_a_rename_is_named",)
+DESK_DELETED = ("tests.test_tools.Desk.test_a_deletion_a_mode_and_a_line_of_control_characters_are_each_told",)
 DECLINE_TESTS = ("tests.test_tools.Mutants.test_on_a_pull_request_the_mutants_decline_and_on_a_merge_group_every_shard_runs",)
 ROUTES_655 = ("tests.test_tools.Writes.test_the_routes_issue_655_names_are_refused",)
 RUN_ALONE = ("tests.test_tools.Mutants.test_a_mutant_a_boundary_names_is_run_against_its_own_tests_alone",)
@@ -7286,6 +7287,16 @@ MUTANTS = ISSUE + [
      '        return 1 if problems else 0\n', '        return 0\n', DESK_MERGE),
     ('a file the merge alone changed is not read', 'tools/desk.py',
      '(mine | main | _changed(root, *made))', '(mine | main)', DESK_MERGE),
+    ('a line is shown as a terminal would act on it', 'tools/desk.py',
+     '"%r: %s: %r" % (rel, said, line.strip()[:WIDTH])', '"%r: %s: %s" % (rel, said, line.strip()[:WIDTH])', DESK_DELETED),
+    ('the lines past those shown are not counted', 'tools/desk.py',
+     '    return told + (["%r: %s: and %d more" % (rel, said, more)] if more else [])\n', '    return told\n', DESK_MERGE),
+    ('a file one side took out and the other changed is read as any', 'tools/desk.py',
+     '        if entries[0] is not None and (entries[1] is None) != (entries[2] is None):\n', '        if False:\n', DESK_DELETED),
+    ('a deletion the merge dropped is told as one it kept', 'tools/desk.py',
+     '"has it" if have else "took it out"', '"took it out"', DESK_DELETED),
+    ("a side's mode on a file both changed is not read", 'tools/desk.py',
+     'and side[0] != entries[0][0] and have[0] != side[0]]', 'and False]', DESK_DELETED),
     ('a merge with paths unmerged is read', 'tools/desk.py',
      '        if _rows(_git(root, "ls-files", "-u", "-z")):\n', '        if False:\n', DESK_HAND),
     ("a merge of another branch is read as main's", 'tools/desk.py',

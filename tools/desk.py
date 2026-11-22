@@ -18,9 +18,10 @@ person to read each. While a merge is in progress (MERGE_HEAD is there) the merg
 unmerged is refused; once committed, it is HEAD, which must have exactly two parents. A merge of more heads, or of two
 sides with more than one merge base, is refused, since it cannot tell. A file one side changed must hold that side's
 blob and mode, and a file neither side changed the base's. In a file both changed, lines are compared as counts, not in
-order, so a line moved is not seen. A rename on either side is named, "renamed: not compared", and not judged. A line it
-lists is not always wrong: where both sides changed one line, the right resolution may be a line neither side wrote,
-combined by hand, and the person reading it says so. It is never wired into anything that blocks.
+order, so a line moved is not seen, nor one of two alike that both sides added. A rename on either side is named,
+"renamed: not compared", and not judged. A line it lists is not always wrong: where both sides changed one line, the
+right resolution may be a line neither side wrote, combined by hand, and the person reading it says so. It is never
+wired into anything that blocks.
 
 Each read is git's own, with no program a repo's configuration names, no fetch and a timeout: `origin/main` is whatever
 this clone last fetched.
@@ -155,7 +156,7 @@ def _entry(root: pathlib.Path, where: str, rel: str):
                  if row.partition("\t")[2] == rel]
         return (heads[0][0], heads[0][1]) if heads else None
     heads = [row.partition("\t")[0].split(" ") for row in _rows(_git(root, "ls-tree", "-z", where, "--", rel))
-             if row.partition("\t")[2] == rel]          # mode, type, id, then a tab and the path
+             if row.partition("\t")[2] == rel and " tree " not in row.partition("\t")[0]]     # mode, type, id; no folder
     return (heads[0][0], heads[0][2]) if heads else None
 
 
@@ -190,7 +191,10 @@ def _less(more: dict, fewer: dict) -> dict:
 
 
 def _told(rel: str, said: str, lines: dict) -> list:
-    return ["%r: %s: %s" % (rel, said, line.strip()[:WIDTH]) for line in sorted(lines)[:SHOWN]]
+    """SHOWN of `lines` at most, each escaped as a path is, and how many more there are."""
+    told = ["%r: %s: %r" % (rel, said, line.strip()[:WIDTH]) for line in sorted(lines)[:SHOWN]]
+    more = sum(lines.values()) - sum(lines[line] for line in sorted(lines)[:SHOWN])
+    return told + (["%r: %s: and %d more" % (rel, said, more)] if more else [])
 
 
 def _sides(root: pathlib.Path):
@@ -247,10 +251,17 @@ def merged(root: pathlib.Path = ROOT) -> list:
                 problems.append("%r: %s changed it, and the merge does not hold its blob and mode as left" % (rel, whose))
             continue
         entries = _entry(root, base, rel), _entry(root, ours, rel), _entry(root, theirs, rel)
+        if entries[0] is not None and (entries[1] is None) != (entries[2] is None):
+            problems.append("%r: %s took it out and the other side changed it, and the merge %s: read which was meant"
+                            % (rel, "the branch" if entries[1] is None else "main", "has it" if have else "took it out"))
+            continue
         if (have is None) != (entries[1] is None and entries[2] is None):
             problems.append("%r: %s" % (rel, "both sides took it out, and the merge has it" if have else
                                         "both sides kept it, and the merge took it out"))
             continue
+        problems += ["%r: %s changed its mode, and the merge does not hold it" % (rel, whose)
+                     for side, whose in ((entries[1], "the branch"), (entries[2], "main"))
+                     if entries[0] and side and have and side[0] != entries[0][0] and have[0] != side[0]]
         was, kept, wanted, held = (_counts(root, entry) for entry in entries + (have,))
         problems += _told(rel, "main's line is gone, and the branch did not take it out",
                           _less(_less(wanted, held), _less(was, kept)))
@@ -270,7 +281,7 @@ def main(argv: list, root: pathlib.Path = ROOT) -> int:
     if argv == ["merged"]:
         try:
             problems = merged(root)
-        except ValueError as err:
+        except (ValueError, OSError) as err:
             problems = ["cannot tell: the merge cannot be read: %s" % err]
         for problem in problems:
             print(problem)
