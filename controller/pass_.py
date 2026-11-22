@@ -373,6 +373,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     # one for a reconciliation that is short (I-33, decision 0061). What it found is in the record before it is checked.
     found = reconcile_.reconcile(reads.get("seen"), reads.get("effects"), runs if listed and whole else None, before,
                                  rules["accounts"])
+    # The pull requests this pass read as open, decided or left out: one reopened keeps what was carried (decision 0241).
+    opened = [key(i) for i in [e["facts"]["item"] for e in pulls] + [reads_.item(i) for i in left_out] if i is not None]
     record = {"schema": "pass/1", "pass": pass_id, "release": config["release"], "now": now,
               "started_by": started_by(reads.get("started"), rules["accounts"]), "context": context, "runs": runs,
               "reads": (copy.deepcopy(records["reads"]) if listed else [])
@@ -382,7 +384,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
               "reconciliation": reconcile_.entries(found),
               "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or (),
                                                reads.get("gone") or (), reads.get("unread_issues") or (),
-                                               reads.get("gone_issues") or (), found["hand"], found["taken"])}
+                                               reads.get("gone_issues") or (), found["hand"], found["taken"],
+                                               opened)}
     checked(record, "pass")
     entries = record["pull_requests"] + record["issues"]
     ids = [record["pass"]] + [e["run"] for e in entries if e["run"] is not None]

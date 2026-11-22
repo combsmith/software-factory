@@ -191,7 +191,7 @@ def unfit(effects) -> bool:
 
 
 def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(), gone_issues=(), hand=(),
-            taken=()) -> dict:
+            taken=(), open_=()) -> dict:
     """What this pass's record carries for the next: what was read in the window and the keys it held, those older than the
     window dropped, and the pull requests whose writes it could not read. A key, which one write alone can match, is stamped
     with when it was read, so it outlasts the write it records. A write matched by its item is credit any such write could
@@ -200,28 +200,33 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     themselves, and a pass reads only what is new (decision 0112). Each pull request `gone`, first read as left by this
     pass, is stamped with now, and one a record before stamped is kept until the window passes it (issue 787). So are
     the issues, `unread_issues` and `gone_issues` (issue 916). So is each hand approval, `hand`, and each head any
-    other approval took, `taken`, until its pull request leaves (decision 0241)."""
+    other approval took, `taken`, while its pull request is open or its leaving is held, dropped by the pass that drops
+    that leaving; one of `open_`, the pages of the pull requests this pass read as open, reopened, keeps its own
+    (decision 0241)."""
     since = seen["since"] if seen is not None and not errors(seen, "seen") else None
     held = {name: [e for e in rows if name in ("owed", "owed_issues", "hand", "taken") or since is None
                    or _within(e["at"], since, name == "items")]
             for name, rows in _last(before).items()}
     held["owed"] = sorted(set(unread))
-    # A hand approval's head stays taken until its pull request leaves, not for the window alone (decision 0241).
-    gone_ = set(gone)
-    # Nothing new is carried for a pull request that left in the window, or this pass: its reviews are read until the
-    # window passes them, and what was dropped when it left is not taken up again.
-    left_ = gone_ | {e["number"] for e in held.get("left", [])}
+    # A hand approval's head stays taken while its pull request is open or its leaving is held, not for the window
+    # alone; it is dropped by the pass that drops that leaving, by the same window: one clock (decision 0241). A pull
+    # request read as open again, or leaving again, keeps its own.
+    dropped = {e["number"] for e in _last(before).get("left", [])} - {e["number"] for e in held.get("left", [])} - set(gone)
+    opened = set(open_)
+
+    def stays(item: str) -> bool:
+        return int(item.rsplit("/", 1)[1]) not in dropped or item in opened
     known_hand = {e["key"] for e in held.get("hand", [])}
-    hands = [e for e in held.pop("hand", []) if int(e["item"].rsplit("/", 1)[1]) not in gone_] + [
+    hands = [e for e in held.pop("hand", []) if stays(e["item"])] + [
         {"key": h["key"], "item": key(h["item"]), "head": h["head"], "at": h["at"]} for h in hand
         if h["key"] not in known_hand and FITS_KEY.fullmatch(h["key"]) and FITS_ITEM.fullmatch(key(h["item"]))
-        and h["item"]["number"] not in left_]
+        and stays(key(h["item"]))]
     if hands:
         held["hand"] = hands
-    heads_ = [e for e in held.pop("taken", []) if int(e["item"].rsplit("/", 1)[1]) not in gone_] + [
+    heads_ = [e for e in held.pop("taken", []) if stays(e["item"])] + [
         {"key": t["key"], "item": key(t["item"]), "head": t["head"]} for t in taken
         if (t["key"] is None or FITS_KEY.fullmatch(t["key"]))
-        and FITS_ITEM.fullmatch(key(t["item"])) and t["item"]["number"] not in left_]
+        and FITS_ITEM.fullmatch(key(t["item"])) and stays(key(t["item"]))]
     # Each once, in order: read again, or keyless twice in a pass.
     heads_ = [dict(zip(("key", "item", "head"), row)) for row in dict.fromkeys((e["key"], e["item"], e["head"]) for e in heads_)]
     if heads_:
@@ -405,7 +410,7 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
         short = True
     # A carried hand approval stands; any other is judged in the order given, one to a head (decision 0241).
     carried_hand = {e["key"]: e for e in _last(before).get("hand", [])}
-    # Each head an approval took, a hand one or any other, by the keys that took it, until its pull request leaves.
+    # Each head an approval took, a hand one or any other, by the keys that took it, until the window passes its leaving.
     heads, seconds = {}, []
     for e in list(carried_hand.values()) + _last(before).get("taken", []):
         heads.setdefault((e["item"], e["head"]), set()).add(e["key"])

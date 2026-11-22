@@ -302,6 +302,42 @@ class Record(unittest.TestCase):
         self.assertNotIn("hand", other["reconciled"])
         self.assertEqual(other["reconciled"]["taken"], [{"key": "PRR_h", "item": url, "head": "b" * 40}])
 
+    def test_a_hand_approval_given_and_merged_between_two_passes_is_information_until_the_window_passes_its_leaving(self):
+        # decision 0241: the passes after its merge read its writes until the window passes its leaving, the record
+        # that decided it out of their reach, and read the approval as information all that while; a reopened one
+        # keeps it when the window passes its old leaving.
+        from tests import test_decide
+        facts = test_decide.changing(changed_paths=["docs/notes.md", "harness/run.py"], **test_decide.DEPENDENCY)
+        facts["item"] = dict(support.ITEM, number=42)
+        head, url = "a" * 40, "https://github.com/%s/pull/42" % REPO
+        pull = {"facts": facts, "title": "t", "head": head}
+        first = passed(reads(pulls=[pull], runs=[run(number=42)]), now="2026-10-11T12:00:00Z")["record"]
+        approval = {"by": "approver", "kind": "approval", "item": dict(support.ITEM, number=42), "key": "PRR_h",
+                    "at": "2026-10-11T12:30:00Z", "commit": head}
+        seen = dict(SEEN, since="2026-10-11T00:00:00Z", writes=[approval])
+        entry = {"alert": "hand_approval", "by": "approver", "write": "approval", "item": url, "key": "PRR_h"}
+        records = [first]
+        for now in ("2026-10-11T13:00:00Z", "2026-10-11T14:00:00Z", "2026-10-12T06:00:00Z"):
+            r = dict(reads(pulls=[], seen=seen), gone=[42] if len(records) == 1 else [])
+            out = passed(r, now=now, previous=records[-2:])["record"]
+            self.assertEqual(shared.errors(out, "pass"), [], now)
+            self.assertIn(entry, out["reconciliation"], now)
+            self.assertNotIn("write_unmatched", out["alerts"], now)
+            self.assertEqual([e["key"] for e in out["reconciled"]["hand"]], ["PRR_h"], now)
+            self.assertEqual(out["reconciled"]["left"], [{"number": 42, "at": "2026-10-11T13:00:00Z"}], now)
+            records.append(out)
+        # The pass whose window passes its leaving drops it; one that reads it open again keeps it.
+        window = dict(SEEN, since="2026-10-11T14:00:00Z")
+        gone = passed(reads(pulls=[], seen=window), now="2026-10-12T20:00:00Z", previous=records[-2:])["record"]
+        self.assertEqual(("hand" in gone["reconciled"], gone["reconciled"]["left"]), (False, []))
+        back = passed(reads(pulls=[pull], seen=window, runs=[run(number=42)]), now="2026-10-12T20:00:00Z",
+                      previous=records[-2:])["record"]
+        self.assertEqual((back["reconciled"]["hand"], back["reconciled"]["left"]), (records[-1]["reconciled"]["hand"], []))
+        # So does one it leaves out, read open though its facts could not be read.
+        moved = {"facts": {"item": dict(support.ITEM, number=42)}, "title": None, "unread": "facts_unanswered"}
+        out = passed(reads(pulls=[moved], seen=window), now="2026-10-12T20:00:00Z", previous=records[-2:])["record"]
+        self.assertEqual(out["reconciled"]["hand"], records[-1]["reconciled"]["hand"])
+
     def test_an_issue_decision_replays_through_the_issues_kernel_configuration(self):  # decisions 0002, 0218
         # Replayed through `pass_.issue_config`, as the pass asked it, the Controller's factory:triage counts.
         from kernel import issue

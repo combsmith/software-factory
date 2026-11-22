@@ -523,7 +523,7 @@ class HandApproval(unittest.TestCase):
 
     def test_an_unmatched_approval_takes_its_head(self):
         # An approval read unmatched, its pass reading no hand wait, still takes its head: one after it is a second,
-        # in the same pass and, carried, in the passes after, until the pull request leaves (decision 0241).
+        # in the same pass and, carried, in the passes after, until the window passes its leaving (decision 0241).
         hand = "model_lens_input_needs_person"
         first, second = approval("PRR_1", at="2026-10-11T11:30:00Z"), approval("PRR_2")
         before = [decided_as("awaiting_review", now="2026-10-11T11:00:00Z"), decided_as(hand)]
@@ -592,7 +592,7 @@ class HandApproval(unittest.TestCase):
         for changed in (approval(commit=None), approval(commit=OTHER_HEAD), approval(at="2026-10-11T12:31:00Z")):
             self.assertEqual(kinds(check(seen(changed), before=later)), [("approver", "approval")], changed)
 
-    def test_what_was_read_as_hand_or_taken_is_carried_until_its_pull_request_leaves(self):
+    def test_what_was_read_as_hand_or_taken_is_carried_until_the_window_passes_its_leaving(self):
         hand = "model_lens_input_needs_person"
         found = check(seen(approval()), before=[decided_as(hand)])
         held = reconcile.carried([decided_as(hand)], recorded(), seen(), NOW, hand=found["hand"], taken=found["taken"])
@@ -633,26 +633,42 @@ class HandApproval(unittest.TestCase):
             self.assertEqual((short["hand"], short["taken"]), (taken["hand"], taken["taken"]), name)
             self.assertEqual(reconcile.carried([decided_as(hand)], effects, s, NOW, taken=fresh_short["taken"])["taken"],
                              [{"key": None, "item": URL, "head": HEAD}], name)
-        # A pull request that leaves drops its own alone: another's are kept, and what is new for it is carried.
+        # A pull request read as leaving keeps its own, and what is new for it is carried, an approval given and merged
+        # between two passes among them: its writes are read until the window passes its leaving.
         other = [{"key": "PRR_7", "item": URL.replace("/42", "/43"), "head": HEAD}]
         theirs = [dict(taken["hand"][0], key="PRR_8", item=other[0]["item"])]
-        both = [dict(decided_as(hand), reconciled=dict(taken, taken=taken["taken"] + other, hand=taken["hand"] + theirs))]
-        new = [{"key": "PRR_6", "item": OTHER, "head": HEAD}]
-        gone = reconcile.carried(both, recorded(), seen(), NOW, gone=[42], taken=new)
-        self.assertEqual(([e["key"] for e in gone["hand"]], [e["key"] for e in gone["taken"]]),
-                         (["PRR_8"], ["PRR_7", "PRR_6"]))
-        # Dropped by the pass that reads the pull request leave, which carries nothing new for it, either kind; and
-        # nothing new is carried while a leaving read of it is in the window, though what came before stays.
+        both = dict(taken, taken=taken["taken"] + other, hand=taken["hand"] + theirs)
+        new = [{"key": "PRR_6", "item": ITEM, "head": OTHER_HEAD}]
+        leaving = reconcile.carried([dict(decided_as(hand), reconciled=both)], recorded(), seen(), NOW, gone=[42], taken=new)
+        self.assertEqual(([e["key"] for e in leaving["hand"]], [e["key"] for e in leaving["taken"]], leaving["left"]),
+                         (["PRR_1", "PRR_8"], ["PRR_2", None, "PRR_7", "PRR_6"], [{"number": 42, "at": NOW}]))
+        stamped = dict(reconcile.EMPTY, left=[{"number": 42, "at": NOW}])
+        fresh = reconcile.carried([dict(decided_as(hand), reconciled=stamped)], recorded(), seen(), NOW,
+                                  hand=found["hand"], taken=second["taken"])
+        self.assertEqual((fresh["hand"], [t["key"] for t in fresh["taken"]]), (held["hand"], ["PRR_2", None]))
+        # Kept so by the passes after, while its leaving is held, by the same window.
+        later = reconcile.carried([dict(decided_as(hand), reconciled=leaving)], recorded(), seen(), "2026-10-11T14:00:00Z")
+        self.assertEqual((later["hand"], later["taken"], later["left"]), (leaving["hand"], leaving["taken"], leaving["left"]))
+        # Dropped by the pass whose window passes its leaving, with what is new for it, another's kept.
+        aged = [dict(decided_as(hand), reconciled=dict(leaving, left=[{"number": 42, "at": EARLY}]))]
+        past = reconcile.carried(aged, recorded(), seen(), NOW, hand=[dict(found["hand"][0], key="PRR_5")], taken=new)
+        self.assertEqual(([e["key"] for e in past["hand"]], [e["key"] for e in past["taken"]], past["left"]),
+                         (["PRR_8"], ["PRR_7"], []))
+        alone = [dict(decided_as(hand), reconciled=dict(taken, left=[{"number": 42, "at": EARLY}]))]
         for name in ("hand", "taken"):
-            self.assertNotIn(name, reconcile.carried(again, recorded(), seen(), NOW, gone=[42]), name)
-            self.assertNotIn(name, reconcile.carried([decided_as(hand)], recorded(), seen(), NOW, gone=[42],
-                                                     hand=found["hand"], taken=second["taken"]), name)
-        left = dict(taken, left=[{"number": 42, "at": NOW}])
-        kept = reconcile.carried([dict(decided_as(hand), reconciled=left)], recorded(), seen(), NOW, hand=found["hand"])
-        self.assertEqual((kept["hand"], kept["taken"]), (old["hand"], taken["taken"]))
-        fresh = reconcile.carried([dict(decided_as(hand), reconciled=dict(reconcile.EMPTY, left=left["left"]))],
-                                  recorded(), seen(), NOW, hand=found["hand"], taken=second["taken"])
-        self.assertEqual(("hand" in fresh, "taken" in fresh), (False, False))
+            self.assertNotIn(name, reconcile.carried(alone, recorded(), seen(), NOW), name)
+        # A read of what was seen that cannot be read reads no window, and drops nothing.
+        unread = reconcile.carried(aged, recorded(), None, NOW)
+        self.assertEqual((unread["hand"], unread["taken"]), (leaving["hand"], leaving["taken"]))
+        # A pull request reopened, read as open, keeps its own when the window passes its old leaving, and so does one
+        # read as leaving again, stamped anew; another repository's of the same number is no reopening.
+        reopened = reconcile.carried(aged, recorded(), seen(), NOW, open_=[URL])
+        self.assertEqual((reopened["hand"], reopened["taken"], reopened["left"]), (leaving["hand"], leaving["taken"], []))
+        again_ = reconcile.carried(aged, recorded(), seen(), NOW, gone=[42])
+        self.assertEqual((again_["hand"], again_["taken"], again_["left"]),
+                         (leaving["hand"], leaving["taken"], [{"number": 42, "at": NOW}]))
+        elsewhere = reconcile.carried(aged, recorded(), seen(), NOW, open_=[URL.replace("software-factory", "elsewhere")])
+        self.assertEqual([e["key"] for e in elsewhere["hand"]], ["PRR_8"])
         self.assertNotIn("hand", reconcile.carried([], recorded(), seen(), NOW))
 
     def test_an_approval_of_a_head_the_pass_did_not_decide_or_whose_commit_cannot_be_read_is_unmatched(self):
