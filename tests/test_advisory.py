@@ -734,8 +734,7 @@ class Schemas(unittest.TestCase):
             self.assertTrue(jsonschema_lite.validate(longer, advised["id"]), longer)
             self.assertTrue(jsonschema_lite.validate(longer, advised["surface"]["properties"]["key"]), longer)
         for name, place in (("sentence-as-reason", "$.reason"), ("a-categorised-finding", "$.findings[0].category"),
-                            ("a-finding-on-a-thread", "$.findings[0].surface.type"),
-                            ("a-finding-of-a-role", "$.findings[0].source.kind"), ("an-id-made-of-text", "$.findings[0].id"),
+                            ("an-id-made-of-text", "$.findings[0].id"),
                             ("a-finding-that-carries-its-text", "$.findings[0]")):
             self.assertEqual(wrong("advice", name), [place], name)
         # The reasons are the design's ten and no other, and a reader's words lie under `body` alone.
@@ -752,6 +751,7 @@ class Schemas(unittest.TestCase):
                             (("findings", 0, "location", "path"), "a\u2066b"), (("findings", 0, "location", "path"), "a\u200bb"),
                             (("findings", 0, "location", "path"), "p" * 1025), (("findings", 0, "content_id"), "sha256:zzzz"),
                             (("usage", "input_tokens"), -1), (("usage", "output_tokens"), -1), (("texts", 0, "body"), "b" * 65536),
+                            (("findings", 0, "surface", "type"), "thread"), (("findings", 0, "source", "kind"), "role"),
                             (("findings", 0, "location", "path"), "a\x9bb"), (("findings", 0, "id"), "astra:" + "5d0c9e1f" * 8),
                             (("findings",), whole["findings"] * 101), (("texts",), whole["texts"] * 101), (("off_change",), 101),
                             (("lens",), "4o"), (("lens",), "astra-2"), (("findings", 0, "source", "lens"), "Astra"),
