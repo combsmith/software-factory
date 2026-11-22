@@ -1,5 +1,6 @@
 """The mutants of `controller/reads.py`: tools/mutants.py runs them."""
 
+F849_ALERTS = ("tests.test_controller.Issues.test_an_issue_left_unread_by_the_budget_raises_its_own_alert_and_no_other",)
 TARGETS = ("controller/reads.py",)
 MUTANTS = [
     # Asked once the issues are listed, as a pass that read their Runs would: `listed` exists only after the records are read.
@@ -55,9 +56,13 @@ MUTANTS = [
     ("an item listed twice is left out by its read's code", 'controller/reads.py',
      '    why = [TWICE if _named(e) is not None and seen.count(_named(e)) > 1', '    why = [TWICE if False', ('tests.test_controller.Record.test_a_pull_request_that_moved_while_read_is_deferred_once_with_no_alert',)),
     ("a read's code of any word is kept", 'controller/reads.py',
-     'else e["unread"] if isinstance(e, dict) and e.get("unread") in UNREAD else NOT_FACTS',
+     'else e["unread"] if isinstance(e, dict) and e.get("unread") in codes else NOT_FACTS',
      'else e.get("unread", NOT_FACTS) if isinstance(e, dict) else NOT_FACTS', ('tests.test_controller.Record.test_a_pull_request_that_moved_while_read_is_deferred_once_with_no_alert',)),
     ("any dict is an item a record keeps", 'controller/reads.py',
      '    return found if (isinstance(found, dict) and set(found) == {"repo", "type", "number"}',
      '    return found if (isinstance(found, dict)', ('tests.test_controller.Record.test_a_pull_request_that_moved_while_read_is_deferred_once_with_no_alert',)),
+    ("an issue left unread by the budget is facts that are not facts", 'controller/reads.py',
+     'codes = UNREAD + (ISSUE_UNREAD if kind == "issue-facts" else ())', 'codes = UNREAD', F849_ALERTS),
+    ("a pull request may be left out by the issues' codes", 'controller/reads.py',
+     '(ISSUE_UNREAD if kind == "issue-facts" else ())', 'ISSUE_UNREAD', F849_ALERTS),
 ]

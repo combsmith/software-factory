@@ -8,6 +8,7 @@ K734_NEWEST = (K734 + "test_the_spans_are_read_from_the_newest_record_that_holds
 K734_UNREAD = (K734 + "test_pass_records_that_could_not_be_read_give_no_time_and_are_not_whole",)
 K734_UNLISTED = (K734 + "test_a_pass_that_read_no_issue_is_passed_over_and_with_none_but_such_passes_the_chain_is_broken",)
 
+F849_SPANS = ("tests.test_adapters.KeywordSpans.test_a_record_that_left_the_issue_out_by_its_budget_is_passed_over_for_it_alone",)
 TARGETS = ("adapters/keyword_spans.py",)
 MUTANTS = [(name, 'adapters/keyword_spans.py', old, new, tests) for name, old, new, tests in [
     ("a keyword a pass record listed opens no span",
@@ -145,4 +146,11 @@ MUTANTS = [(name, 'adapters/keyword_spans.py', old, new, tests) for name, old, n
     ("with every record at hand passed over, the issue is seen first",
      '        if earlier and not kept:\n            return {}, None\n',
      '', K734_UNLISTED),
-]]
+]] + [
+    ("a record that left the issue out by its budget breaks the chain", 'adapters/keyword_spans.py',
+     'if not unlisted(record) and not budgeted(record, item)]', 'if not unlisted(record)]', F849_SPANS),
+    ("any issue's left out by the budget passes its record over", 'adapters/keyword_spans.py',
+     'entry["item"] == item and entry["code"] == BUDGET', 'entry["code"] == BUDGET', F849_SPANS),
+    ("any left out of the issue passes its record over", 'adapters/keyword_spans.py',
+     'entry["item"] == item and entry["code"] == BUDGET', 'entry["item"] == item', F849_SPANS),
+]

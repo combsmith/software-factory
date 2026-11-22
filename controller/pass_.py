@@ -57,6 +57,8 @@ CAPACITY, ENVIRONMENT = health_.CAPACITY, health_.ENVIRONMENT
 NOT_RUN = "not_run"
 NEVER_STARTED = "runs_never_started"
 ISSUE_APPS = "issue_apps_unreadable"
+# The alert each issue left out for want of a read raises, once a pass: the budget spent.
+ISSUE_ALERTS = {reads_.BUDGET: "issue_budget_spent"}
 __all__ = ["Refused", "run", "rebuild", "wait_before_reading", "context_of", "issue_config"]
 
 
@@ -296,6 +298,26 @@ def issue_config(kernel: dict) -> dict:
     return dict(kernel, issues=issues)
 
 
+def issue_order(listed: list, before) -> list:
+    """The order the issues listed are read in: those the last pass record left out as `issue_budget` first, in the
+    order it left them out, then the rest in the listing's order. So the issues go round as a queue: with the list
+    unchanged each is read within as many passes as the budget's fit goes into it, which the listing's order among those
+    left out would not give, since the last of them would be passed over for good. A last record that cannot be read,
+    or holds no `left_out`, gives the listing's order. Derived from the record before alone, which a replay holds
+    (decision 0234)."""
+    last = before[-1] if isinstance(before, list) and before else None
+    held = last.get("left_out") if isinstance(last, dict) else None
+    if not isinstance(held, list):
+        return list(listed)
+    owed = []
+    for e in held:
+        if isinstance(e, dict) and e.get("code") == reads_.BUDGET and isinstance(e.get("item"), dict) \
+                and e["item"].get("type") == "issue":
+            owed.append(e["item"]["number"])
+    # Each listed number is kept as often as listed, so one listed twice is still read twice and left out as such (Kimi).
+    return sorted(listed, key=lambda n: owed.index(n) if n in owed else len(owed))
+
+
 def moved_once(left_out: list, why: list, before) -> set:
     """The pages of the items left out because they moved while read that the last pass record read and did not leave
     out as moved: each is deferred with no alert, once, and a pull request's writes are owed to the next pass (#658).
@@ -326,7 +348,9 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     # the pass its change starts reads it again. Any other left out, or one that moved twice in a row, is the alert
     # (#658, decision 0229).
     graced = moved_once(left_out, why, before)
-    alarmed = [i for i in left_out if reads_.item(i) is None or key(i) not in graced]
+    # An issue the budget left unread is its own alert, and no fact's fault.
+    alarmed = [i for i, code in zip(left_out, why) if code not in reads_.ISSUE_UNREAD
+               and (reads_.item(i) is None or key(i) not in graced)]
     repos = {e["facts"]["item"]["repo"] for e in pulls + issues}
 
     records = reads.get("records")
@@ -426,6 +450,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
                             bool(alarmed), raised, unnamed, reconcile_.alerts(found), due,
                             whole and never_started(runs, now, rules["automatic_pause"]))
     alerts = sorted(alerts + [ISSUE_APPS]) if refused else alerts
+    alerts = sorted(set(alerts) | {ISSUE_ALERTS[code] for code in why if code in ISSUE_ALERTS})
     decided = [e["facts"]["item"] for e in entries]
     titles = {key(e["facts"]["item"]): e.get("title") if isinstance(e.get("title"), str) else ""
               for e in pulls + issues if e["facts"]["item"] in decided}
