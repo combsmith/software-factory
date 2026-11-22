@@ -5815,8 +5815,8 @@ MUTANTS = ISSUE + [
      '               for r in mine if (r.get("began_at") or r["started_at"]) == last)\n', ('tests.test_issue.RunStarts.test_an_issues_decision_is_the_same_whatever_began_at_its_runs_carry',)),
     # Asked once the issues are listed, as a pass that read their Runs would: `listed` exists only after the records are read.
     ("the entry asks the served issues' Runs when they began", 'controller/__main__.py',
-     '        raise Stop("issue_list_unreadable")\n',
-     '        raise Stop("issue_list_unreadable")\n'
+     '    issues = [] if listed_whole else [{"facts": {"item": None}, "title": None, "unread": reads_.UNLISTED}]\n',
+     '    issues = [] if listed_whole else [{"facts": {"item": None}, "title": None, "unread": reads_.UNLISTED}]\n'
      '    records.runs(transport, home, branch, run_files(controller), dispatcher(controller), kept=records.known(earlier), '
      'began=records.begun(earlier), engines=records.engines(earlier), sleep=sleep, '
      'of=[{"repo": home, "type": "issue", "number": number} for number in listed])\n',
@@ -15425,8 +15425,8 @@ MUTANTS = ISSUE + [
     # Issues 963 and 965, the reader audits of #918 and #912: each issue's read dated by its own answer, the issues'
     # configuration left as written and its Apps named plain, and every account held to the names an App's id holds.
     ("each issue's facts read is dated by the first issue's answer", 'controller/__main__.py',
-     '    for number in listed:\n        began, through = stages.now(), Dated(transport)\n',
-     '    through = Dated(transport)\n    for number in listed:\n        began = stages.now()\n', S3_ENTRY),
+     '    for number in pass_.issue_order(listed if listed_whole else [], before):\n        began, through = stages.now(), Dated(counted)\n',
+     '    through = Dated(counted)\n    for number in pass_.issue_order(listed if listed_whole else [], before):\n        began = stages.now()\n', S3_ENTRY),
     ("the issues' Kernel configuration rewrites the caller's", 'controller/pass_.py',
      'issues = copy.deepcopy(kernel.get("issues"))',
      'issues = kernel.get("issues")', S3_REPLAY),
