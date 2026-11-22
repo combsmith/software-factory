@@ -29,4 +29,13 @@ MUTANTS = [
     ("a model named in capitals is refused", 'schemas/advice.schema.json',
      '"answering_model": {\n          "type": [\n            "string",\n            "null"\n          ],\n          "pattern": "^[A-Za-z0-9]',
      '"answering_model": {\n          "type": [\n            "string",\n            "null"\n          ],\n          "pattern": "^[a-z0-9]', ADVICE_RESULT),
+    ("an annotation's key may be any text after its Lens", 'schemas/advice.schema.json',
+     '"key": {\n              "type": "string",\n              "pattern": "^[a-z]{1,31}:[0-9a-f]{32}$"',
+     '"key": {\n              "type": "string",\n              "pattern": "^[a-z]{1,31}:"', ADVICE_RESULT),
+    ("an advisory Finding's path may hold a space", 'schemas/advice.schema.json',
+     '"pattern": "^[^\\\\s\\\\x00', '"pattern": "^[^\\\\x00', ADVICE_RESULT),
+    ("a read's output may count more tokens than a Result holds", 'schemas/advice.schema.json',
+     '"maximum": 1000000000\n        },\n        "cost_usd"', '"maximum": 10000000000\n        },\n        "cost_usd"', ADVICE_RESULT),
+    ("a read may say it took more than a day", 'schemas/advice.schema.json',
+     '"maximum": 86400', '"maximum": 864000', ADVICE_RESULT),
 ]

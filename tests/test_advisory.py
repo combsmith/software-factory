@@ -832,6 +832,8 @@ def read(answer: dict, told: dict = TOLD, asks: int = 1, seconds=12.5) -> dict:
     assert result["status"] == "completed" or not (result["findings"] or result["texts"] or result["off_change"]), result
     assert [f["id"] for f in result["findings"]] == [t["id"] for t in result["texts"]], result
     assert all(f["surface"]["key"] == f["id"] for f in result["findings"]), result
+    assert len({t["id"] for t in result["texts"]}) == len(result["texts"]), result
+    assert all(f["source"]["lens"] == result["lens"] for f in result["findings"]), result
     return result
 
 
@@ -1124,8 +1126,9 @@ class Parser(unittest.TestCase):
                 advice.read(dict(TOLD, **change), answered(said()), 1, 1, SCHEMAS)
             with self.assertRaises(ValueError, msg=change):
                 advice.unasked(dict(TOLD, **change), "budget", 0, 0, SCHEMAS)
-        with self.assertRaises(ValueError):
-            advice.read(TOLD, answered(said()), 3, 1, SCHEMAS)
+        for asks in (0, 3):     # an answer read was asked once or twice
+            with self.assertRaises(ValueError, msg=asks):
+                advice.read(TOLD, answered(said()), asks, 1, SCHEMAS)
 
 
 if __name__ == "__main__":

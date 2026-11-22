@@ -221,6 +221,8 @@ def read(told: dict, answer: dict, asks: int, seconds, schemas: dict) -> dict:
     """The Result of what the transport returned for the last ask. `told` is the step's own: the run, the release, the
     Lens, the content id, the change's paths, the API, the deployment, the pinned model, the effort, the cap on a text
     and the prices."""
+    if asks < 1:
+        raise ValueError("an answer read was asked")
     status, body = answer.get("status"), answer.get("body")
     known = isinstance(body, dict) and status == 200
     # What a response says of its tokens while it is still running, or once it is cancelled, is not what it cost:

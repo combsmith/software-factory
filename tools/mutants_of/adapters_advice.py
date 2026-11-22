@@ -240,4 +240,6 @@ MUTANTS = [
     ("the model that answered is the pinned one's name", ADVICE,
      '"answering_model": model if type(model) is str and MODEL.fullmatch(model) else None',
      '"answering_model": told["model"]', ADVICE_COST),
+    ('an answer never asked for is read', ADVICE,
+     '    if asks < 1:\n        raise ValueError("an answer read was asked")\n', '', ADVICE_COST),
 ]
