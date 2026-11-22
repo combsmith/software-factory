@@ -124,10 +124,10 @@ def quiet(stream) -> None:
     """Points `stream`'s file at the null device once the note failed to write to it, so the flush at exit, which
     tries again what is still held, finds nothing closed and cannot change make checks' answer (a closed pipe)."""
     try:
+        fd = stream.fileno()
         null = os.open(os.devnull, os.O_WRONLY)
-        try:
-            os.dup2(null, stream.fileno())
-        finally:
+        if null != fd:      # the null device took the stream's own number, closed already: it is left as it is
+            os.dup2(null, fd)
             os.close(null)
     except BaseException:       # NOSONAR: a stream with no file too; the note never decides make checks' answer
         pass

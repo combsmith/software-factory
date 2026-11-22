@@ -58,6 +58,14 @@ FORM = ("--no-color", "--no-ext-diff", "--no-textconv", "--no-relative", "--subm
         "-M")
 DIFF = FORM + ("--src-prefix=a/", "--dst-prefix=b/", "-U3", "--inter-hunk-context=0", "--full-index")
 MOST = 10 ** 9          # a limit past this is no limit this note can compare with
+# Each key that makes a clone one whose reads may fetch, and the values that say it does not: a promisor remote that
+# git reads as false. A partial clone's extension names a remote, and a partial clone filter is set only on one.
+PROMISORS = (("extensions.partialclone", ()), (r"^remote\..*\.partialclonefilter$", ()),
+             (r"^remote\..*\.promisor$", ("false",)))
+
+
+class Unset(ValueError):
+    """git config found no such key: its exit of 1, apart from every other failure."""
 
 
 def _git(root: pathlib.Path, *args: str) -> bytes:
@@ -73,6 +81,8 @@ def _git(root: pathlib.Path, *args: str) -> bytes:
                               capture_output=True, timeout=SECONDS, check=False)
     except (OSError, subprocess.TimeoutExpired):
         raise ValueError("git %s did not finish" % args[0]) from None
+    if done.returncode == 1 and args[0] == "config":
+        raise Unset("git config has no %s" % args[-1])
     if done.returncode != 0:
         raise ValueError("git %s failed" % args[0])
     return done.stdout
@@ -107,13 +117,16 @@ def counted(diff: str, shortstat: str) -> tuple:
 
 def _partial(root: pathlib.Path) -> bool:
     """Whether this clone may fetch a missing object as it reads one: a partial clone's reads can, and so can a promisor
-    remote's on a git older than GIT_NO_LAZY_FETCH. Where git says nothing (an exit of 1) it may not."""
-    for key in ("extensions.partialclone", r"^remote\..*\.promisor$"):
+    remote's on a git older than GIT_NO_LAZY_FETCH. Where git says nothing (an exit of 1) it may not; where it cannot
+    say, a timeout or a value no boolean among them, it may."""
+    for key, off in PROMISORS:
         try:
-            said = _text(_git(root, "config", "--get-regexp", key)).splitlines()
-        except ValueError:
+            said = _text(_git(root, "config", "--get-regexp", *(("--type=bool",) if off else ()), key)).splitlines()
+        except Unset:
             continue
-        if any(line.split(" ", 1)[1:] != ["false"] for line in said):
+        except ValueError:
+            return True
+        if any(line.split(" ", 1)[1:] not in [[value] for value in off] for line in said):
             return True
     return False
 

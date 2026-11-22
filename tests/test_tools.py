@@ -15914,6 +15914,16 @@ class Desk(unittest.TestCase):
         self.assertNotEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
         git(root, "config", "remote.other.promisor", "true")     # any of them, not the first alone
         self.assertEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
+        git(root, "config", "--unset", "remote.other.promisor")
+        partial = "no count: this is a partial clone, whose reads may fetch"
+        for key, value, said in (("remote.other.promisor", "no", False), ("remote.other.promisor", "maybe", True),
+                                 ("extensions.partialclone", "false", True),     # a remote's name, never a boolean
+                                 ("remote.origin.partialclonefilter", "blob:none", True)):
+            git(root, "config", key, value)
+            self.assertEqual(desk.size(root) == partial, said, (key, value))
+            git(root, "config", "--unset", key)
+        with mock.patch.object(desk, "SECONDS", 0):      # git that cannot say in time is read as one that may fetch
+            self.assertTrue(desk._partial(root))
 
     def test_the_desk_runs_git_only_to_read_and_says_when_there_is_no_base(self):
         root = self.merging()
@@ -15970,6 +15980,14 @@ class Desk(unittest.TestCase):
                     mock.patch.object(desk, "size", return_value="n"), mock.patch.object(sys, "stdout", stream):
                 self.assertEqual(verify.main(["--checks"]), int(checks_failed))
             stream.close()      # the flush at exit: what the note left held goes nowhere, and raises nothing
+        read, write = os.pipe()
+        try:        # the null device opened as the stream's own number, closed already: that number is left open
+            with mock.patch.object(verify.os, "open", return_value=write):
+                verify.quiet(mock.Mock(fileno=lambda: write))
+            os.fstat(write)
+        finally:
+            os.close(read)
+            os.close(write)
         printed = io.StringIO()
         with mock.patch.object(verify, "failed", return_value=True), mock.patch.object(desk, "size", return_value="n"), \
                 mock.patch("builtins.print", side_effect=BrokenPipeError), contextlib.redirect_stdout(printed):
