@@ -1035,7 +1035,7 @@ class Transitions(unittest.TestCase):
     def test_every_state_and_reason_the_kernel_gives_has_facts(self):
         pairs, alone, problems = kernel_sites()
         self.assertEqual(problems, [], "write each State and reason out, so that this test can read it")
-        decisions = [kernel(pr) for pr in list(BASES.values()) + list(STILL.values())] + issue_still()
+        decisions = [kernel(pr) for pr in list(BASES.values()) + list(STILL.values())]
         self.assertEqual(uncovered(pairs, alone, decisions), [], "add facts to BASES, or STILL, that give each of these")
         self.assertEqual(sorted({s for s, _ in pairs} - set(LIFECYCLE["states"])), [])
 
@@ -1231,14 +1231,6 @@ class Transitions(unittest.TestCase):
 # own, so they are written here apart from the pull request's.
 
 ISSUE_CONFIG = issue_facts.config()
-
-
-def issue_still() -> list:
-    """The Decisions on an issue that give what the brakes write for an issue alone: the implementing rounds' Hold where
-    their limit cannot be read (decision 0242), which no pull request reaches."""
-    cfg = dict(issue_facts.config(), author_role="dev-lead")
-    cfg["limits"] = {k: v for k, v in cfg["limits"].items() if k != "max_implementing_rounds"}
-    return [issue_facts.decide(issue_facts.facts(linked=[issue_facts.agents(draft=True, checks="failing")]), cfg=cfg)]
 
 
 def issue_item(f: dict, runs=()) -> dict:
