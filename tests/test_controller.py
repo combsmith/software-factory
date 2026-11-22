@@ -2484,7 +2484,7 @@ class Entry(unittest.TestCase):
         self.assertEqual((record["reconciled"]["owed_issues"], "reconciliation_unreadable" in record["alerts"]), ([5, 41], True))
         # The repo is read once for the issues that left, before their reads, and handed to each of them, never to an open
         # one's; one not found ends whole where the repo was read, named once as information, the repo read once more
-        # after them; it is owed where the repo was not read, before or after (decision 0235).
+        # after them; it is owed where the repo was not read, before or after (decision 1145).
         gone = lambda n: {"alert": "issue_gone", "by": None, "write": "other", "key": "404",
                           "item": "https://github.com/%s/issues/%d" % (self.HOME, n)}
         record = entry_with(before)
@@ -2498,7 +2498,8 @@ class Entry(unittest.TestCase):
         record = entry_with(two, ended=(9, 41))
         self.assertEqual((record["reconciliation"], len(probes)), ([gone(9), gone(41)], 2))
         for start in (before, kept):
-            for repo in (False, (True, False)):
+            # Not read before the reads, the issue is owed whatever a later read of the repo answers (Carbon).
+            for repo in (False, (True, False), (False, True)):
                 record = entry_with(start, ended=(41,), repo=repo)
                 self.assertEqual((record["reconciled"]["owed_issues"], "reconciliation_unreadable" in record["alerts"],
                                   record["reconciliation"]), ([41], True, []), repo)

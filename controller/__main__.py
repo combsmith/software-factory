@@ -264,7 +264,7 @@ def writes_seen(transport, config: dict, numbers: list, kept: dict, before, sinc
             parts.append(([], [], False))
     # An issue that left and is not found or deleted ends only where the same token read the repo in this pass, read
     # once for them all before their reads, and once more after them where one ended, so that access lost between the
-    # two is short, its issues owed (decision 0235).
+    # two is short, its issues owed (decision 1145).
     told, ended = [], {"repo_read": seen_.repo_read(transport, home)} if newly_issues or gone_issues else {}
     for number, held in ([(n, None) for n in issues] + [(n, seen_.LEFT) for n in newly_issues]
                          + [(n, seen_.GONE) for n in gone_issues]):

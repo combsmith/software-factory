@@ -185,7 +185,7 @@ def _state(transport, issue: str, number: int):
 
 def repo_read(transport, repo: str) -> bool:
     """Whether REST answered the repo `repo` itself, by its full name, with its issues on, through `transport`: with
-    them off, every issue answers 410, and none has ended (decision 0235)."""
+    them off, every issue answers 410, and none has ended (decision 1145)."""
     try:
         answer = transport.send(request("GET", "/repos/%s" % repo))
     except Unanswered:
@@ -412,7 +412,7 @@ def pushes(transport, repo: str, approver: dict, since: str, clock=_utc) -> tupl
 
 def seen(parts: list, since: str, gone=()) -> dict:
     """`seen/1` from each `read`'s and `pushes`'s answer: whole only when every part was. `gone` is each issue that left
-    read as whole by its 404 or 410, with that answer, carried only where there is one (decision 0235)."""
+    read as whole by its 404 or 410, with that answer, carried only where there is one (decision 1145)."""
     writes, merged, whole = [], [], True
     for part in parts:
         writes += part[0]
