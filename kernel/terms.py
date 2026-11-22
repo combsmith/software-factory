@@ -83,8 +83,8 @@ ISSUE_REASONS = frozenset({
     "intent_undeclared", "intents_share_a_role", "intents_share_an_app", "intents_unreadable", "issues_unreadable",
     "judged", "label_not_counted", "left_out", "life_unreadable", "limits_unreadable", "linked_draft", "linked_ready",
     "linked_twice", "linked_unreadable", "merge_closing", "merged_while_declined", "merged_while_hands_off",
-    "merged_while_held", "no_statement", "not_accepted", "opening_run", "ready", "ready_removed",
-    "reopened_by_other", "state_unreadable", "triage", "triage_removed", "triage_stands", "type_unreadable",
+    "merged_while_held", "no_statement", "not_accepted", "opening_run", "ready", "ready_removed", "reopened_by_other",
+    "state_unreadable", "timeline_bounded", "triage", "triage_removed", "triage_stands", "type_unreadable",
     "unmerged_closes", "writer_unreadable",
 })
 
