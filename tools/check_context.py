@@ -62,7 +62,7 @@ CELL_WORDS = 40         # a cell of a Decision table
 DECISION_ROWS = 8       # the rows of the Decision's tables together
 BEHAVIOUR_WORDS = 30    # a Boundary row's first cell
 # The one form tools/check_decisions.py lets a Status replace records in, which gives the larger budget.
-REPLACING = re.compile(r"\AStatus: accepted\. Replaces\b")
+REPLACING = re.compile(r"\AStatus: accepted\. Replaces `")
 ROW_MUTANT = re.compile(r'mutant: "[^"\n]+"')
 WAITING = re.compile(r"waiting on `([^`\n]+)`", re.I)
 MODULE = re.compile(r"python3 -m ([\w.]*\w)")
@@ -407,7 +407,7 @@ def _decisions(root: pathlib.Path) -> list:
 
 def _words(text: str) -> int:
     """The words in `text`: each run between spaces with a letter or a digit in it."""
-    return sum(1 for word in text.split() if re.search(r"[^\W_]", word))
+    return sum(1 for word in text.split() if any(c.isalpha() or c.isdigit() for c in word))
 
 
 def _budget(where: str, text: str, sections: list) -> list:
@@ -418,7 +418,7 @@ def _budget(where: str, text: str, sections: list) -> list:
     parts = {name: "\n\n".join(body for heading, body in sections if heading == name)
              for name in ("Decision", "Why", "Boundaries")}
     problems = []
-    said = _words(TOKEN.sub(" ", status[len("Status:"):] if status.startswith("Status:") else status))
+    said = _words(TOKEN.sub("", status[len("Status:"):] if status.startswith("Status:") else status))
     if said > STATUS_WORDS:
         problems.append("%s: the Status is %d words, and the most is %d, not counting words in backticks"
                         % (where, said, STATUS_WORDS))

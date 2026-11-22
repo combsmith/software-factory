@@ -6674,7 +6674,8 @@ class Context(unittest.TestCase):
         # Decision 1166: from the cutover, a Status is at most 40 words; the label and words in backticks are not counted.
         self.assertEqual((check_context.BUDGET_FROM, check_context.STATUS_WORDS), (1166, 40))
         self.assertEqual(self.budgeted("Status: " + "w " * 40), [])
-        self.assertEqual(self.budgeted("Status: " + "w " * 39 + "`a b c` `d`"), [])
+        self.assertEqual(self.budgeted("Status: " + "w " * 40 + "`a b c` `d`"), [])
+        self.assertEqual(self.budgeted("Status: " + "w " * 39 + "non-`None`-valued"), [])
         self.assertTrue(caught(self.budgeted("Status: " + "w " * 41), "the Status is 41 words"))
         self.assertTrue(caught(self.budgeted("Status: " + "w " * 41 + "\nmore"), "the Status is 42 words"))
         self.assertEqual(self.budgeted("Status: " + "w " * 41, before=1), [])
@@ -6690,6 +6691,11 @@ class Context(unittest.TestCase):
         self.assertTrue(caught(self.budgeted(replacing, decision="w " * 401, why="w " * 50), "are 451 words, and the most is 450"))
         self.assertTrue(caught(self.budgeted("Status: accepted. It Replaces one.", decision="w " * 301), "the most is 300"))
         self.assertTrue(caught(self.budgeted("Status: Replaces `docs/decisions/0001-x.md`.", decision="w " * 301), "the most is 300"))
+        self.assertTrue(caught(self.budgeted("Status: accepted. Replaces? No.", decision="w " * 301), "the most is 300"))
+        # Words in backticks count in the Decision; only the Status leaves them out. Only the Decision and Why count.
+        self.assertTrue(caught(self.budgeted(decision="`%s`" % ("w " * 300).strip()), "are 301 words"))
+        self.assertTrue(caught(self.budgeted(decision="w " * 301, why=""), "are 301 words"))
+        self.assertEqual(self.budgeted(decision="w " * 299, why="Z.", rows=("| %s| `tools/x.py` |" % ("w " * 20),)), [])
         # A Status wrapped onto a second line replaces as well, as tools/check_decisions.py reads it.
         wrapped = "Status: accepted.\nReplaces `docs/decisions/0001-x.md`."
         self.assertEqual(self.budgeted(wrapped, decision="w " * 400, why="w " * 50), [])
@@ -6697,6 +6703,8 @@ class Context(unittest.TestCase):
         twice = self.budgeted(decision="w " * 200 + "\n\n## Decision\n\n" + "w " * 200)
         self.assertTrue(caught(twice, "are 401 words"), twice)
         self.assertTrue(caught(self.budgeted(decision="\u00e9 " * 300), "are 301 words"))
+        self.assertEqual(self.budgeted(decision="w " * 299 + "\u00bd"), [])
+        self.assertTrue(caught(self.budgeted(decision="w " * 299 + "7"), "are 301 words"))
         # A table's pipes and a dash alone are no words: 2 + 8 + 289 and the Why's one make 300.
         self.assertEqual(self.budgeted(decision="| a | b |\n|---|---|\n" + "| w — | w |\n" * 4 + "w " * 289), [])
         self.assertEqual(self.budgeted(decision="w " * 301, before=1), [])
@@ -6716,6 +6724,8 @@ class Context(unittest.TestCase):
         self.assertEqual(self.budgeted(decision="| %s| b |\n|---|---|\n" % ("w " * 40) + "| a | b |\n" * 8), [])
         self.assertTrue(caught(self.budgeted(decision="| b | %s|\n|---|---|\n| a | b |\n" % ("w " * 41)),
                                "a Decision table's header has a cell over 40 words"))
+        second = head + "| a | b |\n\nThen:\n\n| %s| b |\n|---|---|\n| a | b |\n" % ("w " * 41)
+        self.assertTrue(caught(self.budgeted(decision=second), "a Decision table's header has a cell over 40 words"))
 
     def test_a_new_records_boundary_rows_are_short_and_name_one_mutant(self):
         # Decision 1166: a Boundary row's behaviour is at most 30 words, and its Check names one mutant at most.
@@ -6733,13 +6743,13 @@ class Context(unittest.TestCase):
         new, old = "docs/decisions/%04d-x.md" % check_context.BUDGET_FROM, "docs/decisions/%04d-x.md" % (check_context.BUDGET_FROM - 1)
         page, later = "docs/%04d-x.md" % check_context.BUDGET_FROM, "docs/decisions/%04d-y.md" % (check_context.BUDGET_FROM + 1)
         root = tree({new: "", old: "", page: "", later: "", "docs/decisions/sub/%04d-x.md" % check_context.BUDGET_FROM: ""})
-        said = "Asked in issue 12, and built by pull request 13.\n"
-        self.assertEqual(check_context._references(root / new, said, root), [])
-        self.assertEqual(check_context._references(root / later, said, root), [])
+        for said in ("Asked in issue 12.\n", "Built by pull request 13.\n"):
+            self.assertEqual(check_context._references(root / new, said, root), [])
+            self.assertEqual(check_context._references(root / later, said, root), [])
+            for name in (old, page, "docs/decisions/sub/%04d-x.md" % check_context.BUDGET_FROM):
+                with self.subTest(name, said=said):
+                    self.assertTrue(caught(check_context._references(root / name, said, root), "numbered without its title"))
         self.assertTrue(caught(check_context._references(root / new, "Asked in #12.\n", root), "a bare issue"))
-        for name in (old, page, "docs/decisions/sub/%04d-x.md" % check_context.BUDGET_FROM):
-            with self.subTest(name):
-                self.assertTrue(caught(check_context._references(root / name, said, root), "numbered without its title"))
 
     def test_a_lesson_with_no_check_is_caught(self):
         text = ("### L-01 A thing broke\n\n**Failure.** It broke.\n\n**Rule.** Do not.\n\n"
