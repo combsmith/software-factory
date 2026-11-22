@@ -31,6 +31,7 @@ import subprocess
 import sys
 
 from adapters.github import Live, Unanswered, request
+from tools import pr_title
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SECONDS = 120       # for each git command
@@ -211,6 +212,7 @@ def opener_problems(root: pathlib.Path, environ, transport=None) -> list:
 def main(environ=os.environ, root: pathlib.Path = ROOT, transport=None) -> int:
     opened, said = opener(root, environ, transport)
     found = problems(root, environ) + opened + record_problems(root, environ)
+    found += pr_title.check(environ, transport)
     for problem in found:
         print(problem)
     if not found:
