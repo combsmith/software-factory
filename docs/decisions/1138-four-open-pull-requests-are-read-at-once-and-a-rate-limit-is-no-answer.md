@@ -1,6 +1,6 @@
 # 1138. Four open pull requests are read at once, and a rate limit is no answer
 
-Status: accepted. The Solution Architect's ruling of 2026-11-22 on issue 1025's stage timings, as the Factory Builder relayed it.
+Status: accepted. The Solution Architect's ruling of 2026-11-22 on "controller: reconciliation reads grow until a pass runs out of time" (issue 1025).
 
 ## Decision
 
