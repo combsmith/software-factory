@@ -291,6 +291,11 @@ class Record(unittest.TestCase):
         self.assertEqual(record["reconciled"]["hand"], [{"key": "PRR_h", "item": url, "head": head,
                                                          "at": "2026-10-11T12:30:00Z"}])
         self.assertEqual(shared.errors(record, "pass"), [])
+        # The next pass reads the record as written: no record at hand decided the pull request before the approval,
+        # and the carried entry alone still reads it as information, and carries it on.
+        later = passed(reads(pulls=[], seen=seen), now="2026-10-11T14:00:00Z", previous=[record])["record"]
+        self.assertNotIn("write_unmatched", later["alerts"])
+        self.assertEqual(later["reconciled"]["hand"], record["reconciled"]["hand"])
         # On another head it is unmatched, and nothing is carried.
         other = passed(reads(pulls=[], seen=dict(seen, writes=[dict(approval, commit="b" * 40)])), previous=[before])["record"]
         self.assertIn("write_unmatched", other["alerts"])
