@@ -4,8 +4,9 @@
 One GraphQL read gives the references, `closedByPullRequestsReferences(includeClosedPrs: true)` as trial P-67 read them,
 and the issue's closes, links by hand and unlinkings, each naming its pull request as its subject, as trials/P-61.json
 recorded them, which ask no repository. One referenced, linked by hand, or named the closer of a close in the
-present life is listed only while its base is the default branch, as REST names both: another base carries no closing
-reference (trials/P-33.json), and a closer of this life to another base is not whole. A closer is listed whatever its
+present life is listed only while its base is the default branch, as REST names both: a keyword on another base carries
+no closing reference (trials/P-33.json), a closer of this life to another base is not whole, and so is one linked by
+hand now, which keeps its link and its closing reference when its base moves (trials/P-69.json, decision 0236). A closer is listed whatever its
 references now say (trials/P-46.json): a pull request by repository and number, as a merge commit's close (P-33) and the
 queue's squash (P-67) named one, or a commit that is one listed pull request's merge commit; a pull request's first
 close in the present life is its own. Any other commit closer of this life, a closer of another kind, or a pull request
@@ -215,6 +216,12 @@ def entry(transport, read: dict, identities: dict, accounts: timeline.Accounts, 
     return made, whole
 
 
+def linked_now(events: list) -> bool:
+    """Whether a pull request is linked by hand now: its last link or unlinking on the issue's timeline, in the order
+    the timeline gives them, is a link (trials/P-61.json)."""
+    return bool(events) and events[-1]["action"] == "connected"
+
+
 def on_default(read: dict) -> bool:
     """Whether a pull request's base is the default branch, as REST names both; refused where either cannot be read."""
     base = read.get("base") if isinstance(read.get("base"), dict) else {}
@@ -239,8 +246,10 @@ def listing(transport, repo: str, number: int, updated_at: str, began: str, iden
         got = pull.read(transport, repo, candidate)
         if not on_default(got):
             # A closer of this life, or one a pass saw with its keyword, to another base now is no link, and could
-            # have been one: not whole.
-            whole = whole and candidate not in present and candidate not in spans
+            # have been one: not whole. So is one linked by hand now: GitHub keeps its link and its closing reference
+            # when its base moves (trials/P-69.json), and it could have been linked before any pass saw it (decision 0236).
+            whole = whole and candidate not in present and candidate not in spans \
+                and not linked_now(join["links"].get(candidate, []))
             continue
         made, read_whole = entry(transport, got, identities, accounts, join, spans, kernel)
         found.append((made, got.get("merge_commit_sha")))
