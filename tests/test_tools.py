@@ -16576,15 +16576,27 @@ class Desk(unittest.TestCase):
         read, write = os.pipe()
         try:        # the null device opened as the stream's own number, closed already: that number is left open
             with mock.patch.object(verify.os, "open", return_value=write):
-                verify.quiet(mock.Mock(fileno=lambda: write))
+                verify.quiet(mock.Mock(fileno=lambda: write, flush=mock.Mock(side_effect=BrokenPipeError)))
             os.fstat(write)
         finally:
             os.close(read)
             os.close(write)
-        printed = io.StringIO()
+        closed = mock.Mock(flush=mock.Mock(side_effect=OSError(28, "no space left")),     # no closed pipe either
+                           fileno=mock.Mock(side_effect=io.UnsupportedOperation))
         with mock.patch.object(verify, "failed", return_value=True), mock.patch.object(desk, "size", return_value="n"), \
-                mock.patch("builtins.print", side_effect=BrokenPipeError), contextlib.redirect_stdout(printed):
+                mock.patch("builtins.print", side_effect=BrokenPipeError), mock.patch.object(sys, "stdout", closed):
             self.assertEqual(verify.main(["--checks"]), 1)      # a stream with no file to point elsewhere
+        with tempfile.TemporaryDirectory() as folder:       # a note that fails for any other cause, an encoding say,
+            stream = open(os.path.join(folder, "out"), "w", encoding="utf-8")        # leaves the checks' output to go out
+            stream.write("what the checks said\n")
+            with mock.patch.object(verify, "failed", return_value=False), \
+                    mock.patch.object(desk, "size", return_value="n"), mock.patch.object(sys, "stdout", stream), \
+                    mock.patch("builtins.print", side_effect=UnicodeEncodeError("ascii", "\u00e9", 0, 1, "no ascii")):
+                self.assertEqual(verify.main(["--checks"]), 0)
+            stream.write("and what comes after\n")         # the stream is left as it was, not pointed elsewhere
+            stream.close()
+            with open(os.path.join(folder, "out"), encoding="utf-8") as written:
+                self.assertEqual(written.read(), "what the checks said\nand what comes after\n")
         for argv, code, said in ((["size"], 0, "the note\n"), ([], 1, "usage: python3 -m tools.desk size\n"),
                                  (["size", "x"], 1, "usage: python3 -m tools.desk size\n")):
             printed = io.StringIO()      # the command prints the note, and anything else asked is refused
