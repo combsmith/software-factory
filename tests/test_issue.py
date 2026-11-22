@@ -320,7 +320,7 @@ class Unreadable(unittest.TestCase):
         self.assertEqual(derive(facts(timeline_bounded=None, complete={"timeline": True, "linked": False, "runs": True}))["evidence"],
                          ["linked", "timeline"])
 
-    def test_a_chain_of_spans_the_records_broke_defers_on_its_own_code_and_calls_a_person(self):  # issue 849, decision 0234
+    def test_a_chain_of_spans_the_records_broke_defers_on_its_own_code_and_calls_a_person(self):  # issue 849, decision 0253
         # The pass records break the chain of keyword spans while something names the issue: no later pass mends it, so
         # it defers `spans_broken`, a closed one's too, after a cut read and before a list read short, and calls a person.
         for f in (facts(), facts(state="closed"), facts(complete={"timeline": True, "linked": False, "runs": False})):
@@ -366,7 +366,7 @@ class Unreadable(unittest.TestCase):
         self.assertTrue(any(bounded is False and complete["timeline"] is False for bounded, complete in seen))
         self.assertTrue(any(bounded is False and complete["linked"] is False for bounded, complete in seen))
 
-    def test_the_issue_world_meets_a_broken_chain_of_spans_under_faults_and_calls_a_person(self):  # decision 0234
+    def test_the_issue_world_meets_a_broken_chain_of_spans_under_faults_and_calls_a_person(self):  # decision 0253
         # The issue world breaks the chain beside the linked list read short alone, so its fixed seeds meet the deferral,
         # which calls a person each time.
         import unittest.mock
@@ -386,6 +386,9 @@ class Unreadable(unittest.TestCase):
         self.assertTrue(met)
         self.assertTrue(all(line.endswith("-> defer  [needs_you]") for line in met), met[:3])
         self.assertTrue(all(complete["linked"] is False for broken, complete in seen if broken is True))
+        # Every pass says it, true or false, and a linked list read short is met unbroken too (Carbon).
+        self.assertTrue(all(broken in (True, False) for broken, _ in seen))
+        self.assertTrue(any(broken is False and complete["linked"] is False for broken, complete in seen))
 
     def test_an_unreadable_label_event_defers(self):
         bad = [dict(labelled(HOLD), by={"kind": "bot", "name": "x", "can_write": True}),
