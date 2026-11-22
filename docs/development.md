@@ -1,7 +1,7 @@
 # Development practices
 
 How a change to this repo is made, from a branch to a merge. The table lists the practices a check
-holds. The list after it is advice that no check holds. A practice that gains a check moves up into
+holds. The sections after it are advice that no check holds. A practice that gains a check moves up into
 the table in the same pull request as the check.
 
 How code, tests and workflows are written is in `docs/standards/`, and the Kernel's own steps and the
@@ -52,9 +52,10 @@ depends on them.
   itself as it is: why, what changed, what to look at, the record and any protected edit, then the
   checks and reviews folded away. A reviewer then finds each thing in the same place.
 - **Write a new decision record under a placeholder number, and open its pull request as a draft.**
-  Then push one commit that renames the record, its title and each mention of its number to the
-  pull request's number, and mark the pull request ready. A pull request closed and opened again
-  renumbers its record. In the body, say "the record this pull request adds", never a number.
+  The placeholder has four digits that no record holds. Then push one commit that renames the
+  record, its title and each mention of its number to the pull request's number, and mark the pull
+  request ready. If it is closed and a new one opened from the same branch, rename the record again
+  to the new number. In the body, say "the record this pull request adds", never a number.
 - **Measure a diff from the diff GitHub serves for the pull request, not from a local one, and leave
   a margin.** The facts port counts it as a Task carries it, each line numbered and the whole escaped
   as JSON, and the Kernel holds that count to the bound (`adapters/pull.py`,
@@ -71,17 +72,20 @@ depends on them.
 ## Writing a decision record
 
 A record is a short why-log that points to the code. It is not a spec. No check holds this style
-yet, so it is advice. The shape a check does hold, and the rule that a record is never edited, are
-in `docs/AGENTS.md`.
+yet, so it is advice. The shape a check does hold is in `docs/AGENTS.md`: the sections, the number,
+and that a record is never edited, with the form of a Status that replaces one in `tools/check_decisions.py`.
+A title is at most 72 characters and names the file
+(`docs/decisions/0245-a-new-records-title-is-short-and-names-its-file.md`).
 
-- **Title.** The rule as one plain sentence, in at most 72 characters.
+- **Title.** The rule as one plain sentence.
 - **Status.** One line: the date, who ruled, the issue, and the record it replaces or extends.
   Leave out how the ruling reached you.
 - **Decision.** Plain sentences, or at most eight short rows. Name the file that holds the exact
   form, and do not copy it. End with "Limits:" and what the check misses.
 - **Why.** Two to four sentences: the problem, the evidence, and what was rejected.
-- **Boundaries.** One row per behaviour: a short phrase, the test, the file, and one mutant the
-  test kills. One mutant is enough; do not list them all.
+- **Boundaries.** Two columns, Boundary and Check. The Boundary is a short phrase for one
+  behaviour. The Check names the file, the test as `path::name`, and one mutant that test kills,
+  as `mutant: "<its description>"`. One mutant is enough; do not list them all.
 
 Aim for about 300 words above Boundaries, and sentences of about 15 words. The code and its tests
 carry the exact rule. A record that copies them goes stale when they change, and then a reader
