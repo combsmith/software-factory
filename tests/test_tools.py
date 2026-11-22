@@ -16272,7 +16272,7 @@ class Desk(unittest.TestCase):
         finally:
             os.close(read)
             os.close(write)
-        closed = mock.Mock(flush=mock.Mock(side_effect=BrokenPipeError),
+        closed = mock.Mock(flush=mock.Mock(side_effect=OSError(28, "no space left")),     # no closed pipe either
                            fileno=mock.Mock(side_effect=io.UnsupportedOperation))
         with mock.patch.object(verify, "failed", return_value=True), mock.patch.object(desk, "size", return_value="n"), \
                 mock.patch("builtins.print", side_effect=BrokenPipeError), mock.patch.object(sys, "stdout", closed):
@@ -16284,9 +16284,10 @@ class Desk(unittest.TestCase):
                     mock.patch.object(desk, "size", return_value="n"), mock.patch.object(sys, "stdout", stream), \
                     mock.patch("builtins.print", side_effect=UnicodeEncodeError("ascii", "\u00e9", 0, 1, "no ascii")):
                 self.assertEqual(verify.main(["--checks"]), 0)
+            stream.write("and what comes after\n")         # the stream is left as it was, not pointed elsewhere
             stream.close()
             with open(os.path.join(folder, "out"), encoding="utf-8") as written:
-                self.assertEqual(written.read(), "what the checks said\n")
+                self.assertEqual(written.read(), "what the checks said\nand what comes after\n")
         for argv, code, said in ((["size"], 0, "the note\n"), ([], 1, "usage: python3 -m tools.desk size\n"),
                                  (["size", "x"], 1, "usage: python3 -m tools.desk size\n")):
             printed = io.StringIO()      # the command prints the note, and anything else asked is refused
