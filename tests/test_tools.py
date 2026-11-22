@@ -3971,7 +3971,8 @@ class Workflows(unittest.TestCase):
         event = local.parent / "event.json"
         event.write_text(json.dumps({"pull_request": {"number": 7, "user": {"login": "ada", "id": 1},
                                                       "head": {"repo": {"full_name": "o/r"}}, "base": {"repo": {"full_name": "o/r"}}}}))
-        with contextlib.redirect_stdout(io.StringIO()) as printed:
+        # The title is held by tools/pr_title.py, tested on its own (decision 0244).
+        with contextlib.redirect_stdout(io.StringIO()) as printed, mock.patch.object(pr_title, "check", return_value=[]):
             self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": second, "EVENT": "pull_request",
                                                                "GITHUB_EVENT_PATH": str(event)}, local), 0)
             self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": base, "EVENT": "pull_request",
@@ -4245,10 +4246,12 @@ class Workflows(unittest.TestCase):
                                  "base": {"repo": {"full_name": "o/r"}}}}
         environ = {"BASE_SHA": "a" * 40, "HEAD_SHA": "b" * 40, "EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where)}
 
-        def ended(commits, payload, records=()):
+        def ended(commits, payload, title=(), records=()):
+            title = list(title)
             where.write_text(json.dumps(payload))
             records = list(records)
             with mock.patch.object(commits_are_the_maintainers, "problems", return_value=commits), \
+                    mock.patch.object(pr_title, "check", return_value=title), \
                     mock.patch.object(commits_are_the_maintainers, "record_problems", return_value=records), \
                     contextlib.redirect_stdout(io.StringIO()) as printed:
                 return commits_are_the_maintainers.main(environ, root), printed.getvalue()
@@ -4266,9 +4269,13 @@ class Workflows(unittest.TestCase):
         self.assertIn("opened by bob", printed)
         self.assertNotIn("names the Maintainer as", printed)
         # And a decision record numbered otherwise than by the pull request refuses, beside the rest (decision 1121).
-        code, printed = ended([], ours, ["a record is numbered otherwise"])
+        code, printed = ended([], ours, records=["a record is numbered otherwise"])
         self.assertEqual(code, 1)
         self.assertIn("a record is numbered otherwise", printed)
+        # The title is read too, beside both and in place of neither (decision 0244): a title that breaks the rule refuses.
+        code, printed = ended([], ours, ["title_no_area: planted"])
+        self.assertEqual(code, 1)
+        self.assertIn("title_no_area: planted", printed)
         self.assertNotIn("names the Maintainer as", printed)
         # A merge group's opener is read through the transport main is handed, and refuses or says the same.
         queue = {"merge_group": {"head_ref": "refs/heads/gh-readonly-queue/main/pr-44-" + "a" * 40, "base_ref": "refs/heads/main"},
@@ -4280,12 +4287,24 @@ class Workflows(unittest.TestCase):
             def send(self, asked):
                 return {"status": 200, "body": answer}
         with mock.patch.object(commits_are_the_maintainers, "problems", return_value=[]), \
+                mock.patch.object(pr_title, "check", return_value=[]), \
                 mock.patch.object(commits_are_the_maintainers, "record_problems", return_value=[]), \
                 contextlib.redirect_stdout(io.StringIO()) as printed:
             told = dict(environ, EVENT="merge_group", WORKFLOW_TOKEN="t")
             self.assertEqual(commits_are_the_maintainers.main(told, root, Asked()), 0)
             self.assertEqual(commits_are_the_maintainers.main(dict(told, EVENT="pull_request"), root, Asked()), 1)
         self.assertIn("opened from o/r by ada, the Maintainer", printed.getvalue())
+        # On a merge group too the title is read, and a title that breaks the rule is a refusal on its own.
+        # The job hands the check the transport it was handed.
+        asked = Asked()
+        with mock.patch.object(commits_are_the_maintainers, "problems", return_value=[]), \
+                mock.patch.object(commits_are_the_maintainers, "record_problems", return_value=[]), \
+                mock.patch.object(pr_title, "check", side_effect=lambda env, transport=None:
+                                  ["title_no_area: planted"] if env.get("EVENT") == "merge_group" and transport is asked
+                                  else []), \
+                contextlib.redirect_stdout(io.StringIO()) as printed:
+            self.assertEqual(commits_are_the_maintainers.main(told, root, asked), 1)
+        self.assertIn("title_no_area: planted", printed.getvalue())
 
     def test_each_record_a_pull_request_adds_is_numbered_by_it(self):
         # Decision 1121: a decision record takes the number of the pull request that adds it, and a pull request adds
@@ -5474,7 +5493,7 @@ class Workflows(unittest.TestCase):
 
 
 class PullTitle(unittest.TestCase):
-    """A pull request's title is `area: plain verb phrase (#issue)`, held by tools/pr_title.py (issue 1089)."""
+    """A pull request's title is `area: plain verb phrase (#issue)`, held by tools/pr_title.py (decision 0244)."""
 
     GOOD = "review: use full blob id for binary files so diffs stop flapping (#1016)"
 
@@ -5511,11 +5530,15 @@ class PullTitle(unittest.TestCase):
         self.assertFalse(any("99999" in p for p in said))
         self.assertEqual(self.codes("kernel: hold an item... (#1)"), ["title_ends_with_stop"])
         for title in ("kernel: hold an item, (#1)", "kernel: hold an item; (#1)", "kernel: hold an item: (#1)",
-                      "kernel: hold an item  (#1)", "kernel: hold an item\t (#1)"):
+                      "kernel: hold an item  (#1)"):
             self.assertEqual(self.codes(title), ["title_ends_with_stop"], title)
+        # A title is one line of printable characters: a tab, a line end or another control character refuses.
+        self.assertEqual(self.codes("kernel: hold an item\t (#1)"), ["title_control_character", "title_ends_with_stop"])
+        for title in ("kernel: hold\tan item (#1)", "kernel: hold\nan item (#1)", "kernel: hold\x7fan item (#1)"):
+            self.assertEqual(self.codes(title), ["title_control_character"], title)
         # The issue, at the end: a number with no leading zero, and a part K of M with 1 <= K <= M and M >= 2.
         for title in ("kernel: hold an item", "kernel: hold an item (1)", "kernel: hold an item #1",
-                      "kernel: hold an item (#01)", "kernel: hold an item (#1) now",
+                      "kernel: hold an item (#01)", "kernel: hold an item (#0)", "kernel: hold an item (#1) now",
                       "kernel: hold an item (#1, part 1 of 02)", "kernel: hold an item (#1 part 1 of 2)",
                       "kernel: hold an item (#1)\n", "kernel: hold an item(#1)", "kernel: hold an item (#1, part 01 of 2)"):
             self.assertIn("title_no_issue", self.codes(title), title)
@@ -5526,7 +5549,7 @@ class PullTitle(unittest.TestCase):
         # A name from inside the code, each mark on its own, and none in the area.
         for title in ("kernel: hold an item with `x` (#1)", "kernel: hold max_rounds (#1)", "kernel: amend record 0219 (#1)",
                       "kernel: amend decision 0219 (#1)", "kernel: amend Records #0219 (#1)", "trials: record P-73 (#1)",
-                      "kernel: amend decision  0219 (#1)", "kernel: amend record\t0219 (#1)",
+                      "kernel: amend decision  0219 (#1)", "kernel: amend record\u00a00219 (#1)",
                       "trials: record p-73 (#1)",
                       "kernel: bound effect/1 (#1)"):
             self.assertEqual(self.codes(title), ["title_internal_term"], title)
@@ -5665,6 +5688,12 @@ class PullTitle(unittest.TestCase):
         environ = {"BASE_SHA": "a" * 40, "HEAD_SHA": "b" * 40, "EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where),
                    "WORKFLOW_TOKEN": "t"}
         out = "\n".join(pr_title.check(environ, Asked()))
+        # So does the job, which prints what the check said (decision 0244).
+        with mock.patch.object(commits_are_the_maintainers, "problems", return_value=[]), \
+                contextlib.redirect_stdout(io.StringIO()) as printed:
+            self.assertEqual(commits_are_the_maintainers.main(environ, root, Asked()), 1)
+        out += printed.getvalue()
+        self.assertIn("title_no_area", printed.getvalue())
         self.assertIn("title_no_area", out)
         self.assertIn("title_internal_term", out)
         for word in ("::", "Pwned", "add-mask", "%0A", "max_rounds", "effect/1", "P-1"):

@@ -210,7 +210,7 @@ NOT_KILLED_TESTS = ("tests.test_tools.Mutants.test_a_mutant_its_named_tests_miss
 NOTES_TESTS = ("tests.test_release.Notes.test_the_notes_list_each_subject_once_under_its_area_in_the_order_merged",)
 OPENER_TESTS = ("tests.test_tools.Workflows.test_a_pull_request_is_opened_from_this_repo_by_an_account_the_configuration_allows",)
 OPENER_JOB = ("tests.test_tools.Workflows.test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds",)
-# A pull request's title (issue 1089): its rule, its read from GitHub, and that no word of it reaches the job's log.
+# A pull request's title (decision 0244): its rule, its read from GitHub, and that no word of it reaches the job's log.
 TITLE_RULE = ("tests.test_tools.PullTitle.test_a_title_keeps_the_rule_or_says_which_part_it_breaks",)
 TITLE_READ = ("tests.test_tools.PullTitle.test_the_title_is_read_from_github_on_both_events_and_refuses_where_it_cannot_be",)
 TITLE_LOG = ("tests.test_tools.PullTitle.test_no_title_writes_a_command_into_the_jobs_log",)
@@ -9733,6 +9733,8 @@ MUTANTS = ISSUE + OUTSIDE + [
     ('a day that does not exist is read', 'tools/pr_title.py', '    except ValueError:\n        return None, None, "title_unreadable: when pull request %d was opened cannot be read" % number\n', '    except TypeError:\n        return None, None, "title_unreadable: when pull request %d was opened cannot be read" % number\n', TITLE_READ),
     ('a pull request opened before the cutover needs a title', 'tools/pr_title.py', '    if opened < CUTOVER:\n        return []\n    if not isinstance(title, str) or not title:\n', '    if not isinstance(title, str) or not title:\n        return ["title_unreadable: the pull request\'s title cannot be read"]\n    if opened < CUTOVER:\n        return []\n    if False:\n', TITLE_READ),
     ('a title of no text is read', 'tools/pr_title.py', '    if not isinstance(title, str) or not title:\n', '    if not title:\n', TITLE_READ),
+    ('the job does not read the title', 'tools/commits_are_the_maintainers.py', '    found += pr_title.check(environ, transport)\n', '', OPENER_JOB),
+    ('the job reads the title without its transport', 'tools/commits_are_the_maintainers.py', '    found += pr_title.check(environ, transport)\n', '    found += pr_title.check(environ)\n', OPENER_JOB),
     ('a title of any length passes', 'tools/pr_title.py', '    if len(title) > LONGEST:\n', '    if False:\n', TITLE_RULE),
     ('a title one past the most passes', 'tools/pr_title.py', '    if len(title) > LONGEST:\n', '    if len(title) > LONGEST + 1:\n', TITLE_RULE),
     ('a title at the most refuses', 'tools/pr_title.py', '    if len(title) > LONGEST:\n', '    if len(title) >= LONGEST:\n', TITLE_RULE),
@@ -9747,6 +9749,11 @@ MUTANTS = ISSUE + OUTSIDE + [
     ('the last part refuses', 'tools/pr_title.py', '        if part < 1 or part > parts or parts < 2:\n', '        if part < 1 or part >= parts or parts < 2:\n', TITLE_RULE),
     ('a part of one passes', 'tools/pr_title.py', '        if part < 1 or part > parts or parts < 2:\n', '        if part < 1 or part > parts:\n', TITLE_RULE),
     ('a part of two refuses', 'tools/pr_title.py', '        if part < 1 or part > parts or parts < 2:\n', '        if part < 1 or part > parts or parts < 3:\n', TITLE_RULE),
+    ('a title may hold a control character', 'tools/pr_title.py', '    if any(c < " " or c == "\\x7f" for c in title):\n', '    if False:\n', TITLE_RULE),
+    ("a record's number in capitals passes", 'tools/pr_title.py', '#?[0-9]{4}\\b", re.I)', '#?[0-9]{4}\\b")', TITLE_RULE),
+    ('a phrase may end with a semicolon', 'tools/pr_title.py', 'if phrase[-1:] in (".", ",", ";", ":")', 'if phrase[-1:] in (".", ",", ":")', TITLE_RULE),
+    ('a phrase may end with a colon', 'tools/pr_title.py', 'if phrase[-1:] in (".", ",", ";", ":")', 'if phrase[-1:] in (".", ",", ";")', TITLE_RULE),
+    ('an issue may be numbered zero or lead with one', 'tools/pr_title.py', 'TAIL = re.compile(r" \\(#[1-9][0-9]*', 'TAIL = re.compile(r" \\(#[0-9]+', TITLE_RULE),
     ('a phrase may end with a full stop', 'tools/pr_title.py', '    if phrase[-1:] in (".", ",", ";", ":") or phrase != phrase.rstrip():\n', '    if phrase[-1:] in (",", ";", ":") or phrase != phrase.rstrip():\n', TITLE_RULE),
     ('a phrase may end with a comma', 'tools/pr_title.py', '    if phrase[-1:] in (".", ",", ";", ":") or', '    if phrase[-1:] in (".", ";", ":") or', TITLE_RULE),
     ('a phrase may end with a space', 'tools/pr_title.py', ' or phrase != phrase.rstrip():\n', ':\n', TITLE_RULE),

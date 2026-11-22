@@ -30,7 +30,7 @@ Each rule names the check that holds it. A rule no check holds does not belong i
 | Every Kernel rule has a boundary test, and a mutant that the test kills | `tools/mutants.py` |
 | The invariants hold under injected faults, on fixed seeds | `tests/test_simulator.py::test_invariants_hold_under_faults` |
 | Nothing is installed or fetched; no secret is written down; outside `adapters/`, only the callers a check lists reach a GitHub write | `tools/check_repo.py`, `tools/check_writes.py` |
-| A workflow is pinned, least-privileged and holds no logic; every commit a pull request carries names the Maintainer, and a listed account opened it from this repo | `tools/check_workflows.py`, `tools/commits_are_the_maintainers.py` |
+| A workflow is pinned, least-privileged, logic-free; a pull request's commits name the Maintainer, a listed account opened it here, its title is `area: change (#N)` | `tools/check_workflows.py`, `tools/commits_are_the_maintainers.py`, `tools/pr_title.py` |
 | Every rule, lesson and decision names its check; this file stays short | `tools/check_context.py` |
 
 ## Changing the Kernel
