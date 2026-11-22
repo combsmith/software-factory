@@ -15765,9 +15765,16 @@ class Desk(unittest.TestCase):
                                           "size of; take it out")
         (root / "a.py").write_text("a\n")
         self.commit(root, "back")
+        # The limits are main's, as the Factory reads them: not this tree's, nor this branch's.
+        (root / "config" / "defaults.json").write_text('{"limits": {"max_diff_characters": 9, "max_diff_lines": 9}}')
+        self.assertEqual(desk.limits(root), (60000, 4000))
+        self.commit(root, "limits")
+        self.assertEqual(desk.limits(root), (60000, 4000))
         for config in ('{"limits": {}}', "{", '{"limits": {"max_diff_characters": "x", "max_diff_lines": 1}}',
-                       '{"limits": {"max_diff_characters": 1%s, "max_diff_lines": 1}}' % ("0" * 400)):
-            (root / "config" / "defaults.json").write_text(config)
+                       '{"limits": {"max_diff_characters": 1%s, "max_diff_lines": 1}}' % ("0" * 400), "\udcff"):
+            (root / "config" / "defaults.json").write_bytes(config.encode("utf-8", "surrogateescape"))
+            self.commit(root, "config")
+            git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
             self.assertEqual(desk.size(root), "no limit to compare: config/defaults.json's limits cannot be read", config)
         # A partial clone's reads may fetch, so it reads nothing.
         git(root, "config", "extensions.partialclone", "origin")

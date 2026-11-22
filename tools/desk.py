@@ -87,9 +87,10 @@ def _rows(data: bytes) -> list:
 
 
 def limits(root: pathlib.Path) -> tuple:
-    """(the most characters, the most lines) a diff may be counted at, from `config/defaults.json`. Raises ValueError."""
+    """(the most characters, the most lines) a diff may be counted at, from `config/defaults.json` as BASE holds it,
+    which is what the Factory reads, not this tree's or this branch's. Raises ValueError."""
     try:
-        said = json.loads((root / "config" / "defaults.json").read_text(encoding="utf-8"))["limits"]
+        said = json.loads(_git(root, "cat-file", "blob", BASE + ":config/defaults.json").decode("utf-8"))["limits"]
         most = said["max_diff_characters"], said["max_diff_lines"]
     except (OSError, ValueError, KeyError, TypeError):
         raise ValueError("config/defaults.json's limits cannot be read") from None
