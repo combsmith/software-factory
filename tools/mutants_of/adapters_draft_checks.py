@@ -1,0 +1,37 @@
+"""The mutants of `adapters/draft_checks.py`: tools/mutants.py runs them."""
+
+TARGETS = ("adapters/draft_checks.py",)
+MUTANTS = [
+    # Decision 0217's row, issue 878: a linked draft the Factory opened carries its head's required checks.
+    ("a foreign check under a Lens's name is read past", 'adapters/draft_checks.py',
+     '    if derive.foreign_checks(found, kernel):\n        return None\n', '', ("tests.test_adapters.DraftChecks.test_a_drafts_checks_are_read_as_the_pull_requests_kernel_reads_each_required_lens",)),
+    ("a Lens with no verdict is read past", 'adapters/draft_checks.py',
+     '    if any(r not in ("failing", "pending", "concluding", "passing") for r in readings):\n        return None\n', '', ("tests.test_adapters.DraftChecks.test_a_drafts_checks_are_read_as_the_pull_requests_kernel_reads_each_required_lens",)),
+    ("a pending Lens is read before a failing one", 'adapters/draft_checks.py',
+     '    if "failing" in readings:\n        return "failing"\n    if "pending" in readings or "concluding" in readings:\n        return "pending"\n',
+     '    if "pending" in readings or "concluding" in readings:\n        return "pending"\n    if "failing" in readings:\n        return "failing"\n', ("tests.test_adapters.DraftChecks.test_a_drafts_checks_are_read_as_the_pull_requests_kernel_reads_each_required_lens",)),
+    ("only the first Lens's verdict is held readable", 'adapters/draft_checks.py',
+     'if any(r not in ("failing", "pending", "concluding", "passing") for r in readings):',
+     'if readings[0] not in ("failing", "pending", "concluding", "passing"):', ("tests.test_adapters.DraftChecks.test_a_drafts_checks_are_read_as_the_pull_requests_kernel_reads_each_required_lens",)),
+    ("a concluding Lens is failing", 'adapters/draft_checks.py',
+     '    if "failing" in readings:\n', '    if "failing" in readings or "concluding" in readings:\n', ("tests.test_adapters.DraftChecks.test_a_drafts_checks_are_read_as_the_pull_requests_kernel_reads_each_required_lens",)),
+    ("a Lens not yet listed is passing", 'adapters/draft_checks.py',
+     'if "pending" in readings or "concluding" in readings:', 'if "concluding" in readings:', ("tests.test_adapters.DraftChecks.test_a_drafts_checks_are_read_as_the_pull_requests_kernel_reads_each_required_lens",)),
+    ("a rollup read short is read", 'adapters/draft_checks.py',
+     '        if found.get("complete") is not True:\n            return None\n', '', ("tests.test_adapters.DraftChecks.test_a_drafts_checks_are_read_as_the_pull_requests_kernel_reads_each_required_lens",)),
+    ("a failing Lens is read before an unreadable one", 'adapters/draft_checks.py',
+     '    if any(r not in ("failing", "pending", "concluding", "passing") for r in readings):\n',
+     '    if "failing" in readings:\n        return "failing"\n    if any(r not in ("failing", "pending", "concluding", "passing") for r in readings):\n', ("tests.test_adapters.DraftChecks.test_a_drafts_checks_are_read_as_the_pull_requests_kernel_reads_each_required_lens",)),
+    ("a configuration that cannot be read raises out of the port", 'adapters/draft_checks.py',
+     '        return verdict(found["checks"], kernel)\n    except', '    except', ("tests.test_adapters.DraftChecks.test_a_drafts_checks_are_read_as_the_pull_requests_kernel_reads_each_required_lens",)),
+    ("a rollup the checks port refuses raises", 'adapters/draft_checks.py',
+     'except (Unanswered, KeyError, TypeError, AttributeError):', 'except (KeyError, TypeError, AttributeError):', ("tests.test_adapters.DraftChecks.test_a_drafts_checks_are_read_as_the_pull_requests_kernel_reads_each_required_lens",)),
+    ("a draft's checks are read with no author Role named", 'adapters/draft_checks.py',
+     'kernel.get("author_role") is not None and ', '', ("tests.test_adapters.DraftChecks.test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read",)),
+    ("anyone's draft has its checks read", 'adapters/draft_checks.py',
+     'own["class"] == "agent"', 'True', ("tests.test_adapters.DraftChecks.test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read",)),
+    ("a closed draft has its checks read", 'adapters/draft_checks.py',
+     ' and own["state"] == "open"', '', ("tests.test_adapters.DraftChecks.test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read",)),
+    ("a pull request out of draft has its checks read", 'adapters/draft_checks.py',
+     ' and own["is_draft"] is True', '', ("tests.test_adapters.DraftChecks.test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read",)),
+]

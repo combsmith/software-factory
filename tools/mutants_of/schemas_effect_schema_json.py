@@ -1,0 +1,77 @@
+"""The mutants of `schemas/effect.schema.json`: tools/mutants.py runs them."""
+
+TARGETS = ("schemas/effect.schema.json",)
+MUTANTS = [
+    # Issue 139, its push wired (the Factory Builder's rulings of 2026-11-10): a push is held to the base's list of
+    # protected paths and model Lens inputs, read from its own bundle, before anything is minted.
+    ('a Result may push twice', 'schemas/effect.schema.json',
+     'No Role permits it yet.",\n      "type": "array",\n      "maxItems": 1,\n',
+     'No Role permits it yet.",\n      "type": "array",\n', ('tests.test_apply.Job.test_a_push_is_held_before_anything_is_minted_and_its_refusal_recorded',)),
+    # Issue 880: a push holds its patch's text under body, and its bundle stays required.
+    ("a push's patch may name more than its body", 'schemas/effect.schema.json',
+     '          "patch": {\n            "type": "object",\n            "additionalProperties": false,\n',
+     '          "patch": {\n            "type": "object",\n            "additionalProperties": true,\n', ('tests.test_tools.Examples.test_a_pushs_patch_is_text_under_body_and_names_nothing_else',)),
+    ("a push's patch may be of nothing", 'schemas/effect.schema.json',
+     '                "type": "string",\n                "minLength": 1,\n                "maxLength": 200000\n',
+     '                "type": "string",\n                "maxLength": 200000\n', ('tests.test_tools.Examples.test_a_pushs_patch_is_text_under_body_and_names_nothing_else',)),
+    ("a push's patch may have no body", 'schemas/effect.schema.json',
+     '            "required": [\n              "body"\n            ],\n            "properties": {\n              "body": {\n'
+     '                "type": "string",\n                "minLength": 1,\n                "maxLength": 200000\n',
+     '            "properties": {\n              "body": {\n'
+     '                "type": "string",\n                "minLength": 1,\n                "maxLength": 200000\n', ('tests.test_tools.Examples.test_a_pushs_patch_is_text_under_body_and_names_nothing_else',)),
+    ("a push's patch may be a bare string", 'schemas/effect.schema.json',
+     '          "patch": {\n            "type": "object",\n',
+     '          "patch": {\n', ('tests.test_tools.Examples.test_a_pushs_patch_is_text_under_body_and_names_nothing_else',)),
+    ('a push with its patch needs no bundle', 'schemas/effect.schema.json',
+     '        "required": [\n          "id",\n          "bundle"\n        ],\n',
+     '        "required": [\n          "id"\n        ],\n', ('tests.test_tools.Examples.test_a_pushs_patch_is_text_under_body_and_names_nothing_else',)),
+    # Issue 880: a patch's text is bounded in effect/1, the one place its length is stated.
+    ("a push's patch has no bound on its length", 'schemas/effect.schema.json',
+     '                "minLength": 1,\n                "maxLength": 200000\n',
+     '                "minLength": 1\n', ('tests.test_tools.Examples.test_a_pushs_patch_is_text_under_body_and_names_nothing_else',)),
+    ("a push's patch may be one character over its bound", 'schemas/effect.schema.json',
+     '"maxLength": 200000\n',
+     '"maxLength": 200001\n', ('tests.test_tools.Examples.test_a_pushs_patch_is_text_under_body_and_names_nothing_else',)),
+    # Issue 838: the opening Run's draft is the model's title and body alone, each bounded here by GitHub's limits.
+    ('a Result may open two pull requests', 'schemas/effect.schema.json',
+     'until apply has its writer.",\n      "type": "array",\n      "maxItems": 1,\n',
+     'until apply has its writer.",\n      "type": "array",\n', ('tests.test_tools.Examples.test_a_draft_is_the_models_title_and_body_alone_within_githubs_bounds',)),
+    ("a draft may name more than its title and body", 'schemas/effect.schema.json',
+     '        "additionalProperties": false,\n        "required": [\n          "id",\n          "title",\n',
+     '        "additionalProperties": true,\n        "required": [\n          "id",\n          "title",\n', ('tests.test_tools.Examples.test_a_draft_is_the_models_title_and_body_alone_within_githubs_bounds',)),
+    ('a draft needs no title', 'schemas/effect.schema.json',
+     '          "id",\n          "title",\n          "body"\n', '          "id",\n          "body"\n', ('tests.test_tools.Examples.test_a_draft_is_the_models_title_and_body_alone_within_githubs_bounds',)),
+    ('a draft needs no body', 'schemas/effect.schema.json',
+     '          "id",\n          "title",\n          "body"\n', '          "id",\n          "title"\n', ('tests.test_tools.Examples.test_a_draft_is_the_models_title_and_body_alone_within_githubs_bounds',)),
+    ("a draft's title may be a bare string", 'schemas/effect.schema.json',
+     '          "title": {\n            "type": "object",\n', '          "title": {\n', ('tests.test_tools.Examples.test_a_draft_is_the_models_title_and_body_alone_within_githubs_bounds',)),
+    ("a draft's title may name more than its body", 'schemas/effect.schema.json',
+     '          "title": {\n            "type": "object",\n            "additionalProperties": false,\n',
+     '          "title": {\n            "type": "object",\n            "additionalProperties": true,\n', ('tests.test_tools.Examples.test_a_draft_is_the_models_title_and_body_alone_within_githubs_bounds',)),
+    ("a draft's title may have no body", 'schemas/effect.schema.json',
+     '            "required": [\n              "body"\n            ],\n            "properties": {\n              "body": {\n'
+     '                "type": "string",\n                "pattern": "\\\\S",\n                "maxLength": 256\n',
+     '            "properties": {\n              "body": {\n'
+     '                "type": "string",\n                "pattern": "\\\\S",\n                "maxLength": 256\n', ('tests.test_tools.Examples.test_a_draft_is_the_models_title_and_body_alone_within_githubs_bounds',)),
+    ("a draft's title may be of nothing or of white space alone", 'schemas/effect.schema.json',
+     '                "pattern": "\\\\S",\n                "maxLength": 256\n', '                "maxLength": 256\n', ('tests.test_tools.Examples.test_a_draft_is_the_models_title_and_body_alone_within_githubs_bounds',)),
+    ("a draft's title has no bound on its length", 'schemas/effect.schema.json',
+     '                "pattern": "\\\\S",\n                "maxLength": 256\n', '                "pattern": "\\\\S"\n', ('tests.test_tools.Examples.test_a_draft_is_the_models_title_and_body_alone_within_githubs_bounds',)),
+    ("a draft's title may be one character over its bound", 'schemas/effect.schema.json',
+     '"maxLength": 256\n', '"maxLength": 257\n', ('tests.test_tools.Examples.test_a_draft_is_the_models_title_and_body_alone_within_githubs_bounds',)),
+    ("a draft's body may be of nothing", 'schemas/effect.schema.json',
+     '            "minLength": 1,\n            "maxLength": 65000\n', '            "maxLength": 65000\n', ('tests.test_tools.Examples.test_a_draft_is_the_models_title_and_body_alone_within_githubs_bounds',)),
+    ("a draft's body has no bound on its length", 'schemas/effect.schema.json',
+     '            "minLength": 1,\n            "maxLength": 65000\n', '            "minLength": 1\n', ('tests.test_tools.Examples.test_a_draft_is_the_models_title_and_body_alone_within_githubs_bounds',)),
+    ("a draft's body may be one character over its bound", 'schemas/effect.schema.json',
+     '"maxLength": 65000\n', '"maxLength": 65001\n', ('tests.test_tools.Examples.test_a_draft_is_the_models_title_and_body_alone_within_githubs_bounds',)),
+    ('no Result may ask to open a pull request', 'schemas/effect.schema.json',
+     '        "push_commits",\n        "open_pull_request",\n', '        "push_commits",\n',
+     ('tests.test_tools.Examples.test_each_effect_type_is_requested_by_its_own_list',)),
+    ("a draft may be other than an object", 'schemas/effect.schema.json',
+     '      "items": {\n        "type": "object",\n        "additionalProperties": false,\n        "required": [\n          "id",\n          "title",\n',
+     '      "items": {\n        "additionalProperties": false,\n        "required": [\n          "id",\n          "title",\n', ('tests.test_tools.Examples.test_a_draft_is_the_models_title_and_body_alone_within_githubs_bounds',)),
+    ("a draft's id may be any number", 'schemas/effect.schema.json',
+     '            "pattern": "^e[0-9]{1,3}$"\n          },\n          "title": {\n',
+     '            "pattern": "^e[0-9]+$"\n          },\n          "title": {\n', ('tests.test_tools.Examples.test_a_draft_is_the_models_title_and_body_alone_within_githubs_bounds',)),
+]
