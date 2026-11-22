@@ -5671,7 +5671,8 @@ class PullBody(unittest.TestCase):
             self.assertEqual(self.codes(self.body({"Why": empty})), ["body_section_empty"], empty)
         # A list item, inline code alone, or what follows a closed block of any case, is text.
         for text in ("<!-- x --> words", "<DETAILS>x</Details> words", "- a change", "1. a step", "`code`",
-                     "``a ` <!-- b``", "<details>\nAn unmatched `` then </details> then `ok`."):
+                     "``a ` <!-- b``", "<details>\nAn unmatched `` then </details> then `ok`.",
+                     "- a\n  - b\n    ```\n    code\n    ```"):
             self.assertEqual(pr_title.body_problems(self.body({"Why": text})), [], text)
         # Inline code holds no markup: a tag or a comment's opening named in backticks hides nothing.
         self.assertEqual(self.codes(self.body({"Why": "A `<details>` block and a `` <!-- `` stay text."})), [])
