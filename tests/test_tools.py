@@ -703,6 +703,73 @@ class Examples(unittest.TestCase):
         root = clone({"config/feed.json": json.dumps(dict(feed, decision_required=feed["decision_required"][1:]))})
         self.assertTrue(caught(check_examples.run(root), "config/feed.json: feed: the reason"))
 
+    def test_every_reason_a_pull_request_carries_has_one_plain_sentence(self):  # decision 0000
+        feed = json.loads((ROOT / "config" / "feed.json").read_text())
+        decision = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
+        schema = json.loads((ROOT / "schemas" / "feed.schema.json").read_text())
+        self.assertEqual(set(feed["sentences"]), set(terms.REASONS))
+        self.assertEqual(check_examples._table(feed, decision), [])
+        # A reason with no sentence, and a sentence for an issue's reason, which no pull request carries.
+        broken = copy.deepcopy(feed)
+        del broken["sentences"]["approved"]
+        self.assertTrue(caught(check_examples._table(broken, decision), "the reason approved has no sentence"))
+        broken = copy.deepcopy(feed)
+        broken["sentences"]["acceptance_due"] = "Waiting."
+        self.assertTrue(caught(check_examples._table(broken, decision),
+                               "a sentence for acceptance_due, which is no reason a pull request's Decision carries"))
+        # What no sentence holds, whatever the schema lets through: each form alone, in either case.
+        for bad in ("Approved by @x.", "Approved; run `x`.", "Approved.\nNext.", "Approved.\rNext.", "Approved {x}.",
+                    "Approved %s.", "See www.x.", "See WWW.x.", "See a://b.", "See x://y."):
+            broken = copy.deepcopy(feed)
+            broken["sentences"]["approved"] = bad
+            self.assertTrue(caught(check_examples._table(broken, decision), "the sentence for approved holds"), bad)
+        # The schema: a capital first, a full stop only before a space and at the end, and at most 100 characters.
+        sentence = schema["properties"]["sentences"]["additionalProperties"]
+        self.assertEqual(sentence["maxLength"], check_examples.SENTENCE_MOST)
+        for good in ("A" + "a" * 98 + ".", "Approved; it waits. It is (one) item, isn't it: yes - 2."):
+            self.assertEqual(validate(good, sentence), [], good)
+        for bad in ("A" + "a" * 99 + ".", "approved.", "Approved", "Approved.x.", "Approved..", "Approved?", "Approved /x.",
+                    "Approved\u00e9.", ""):
+            self.assertTrue(validate(bad, sentence), bad)
+        # And from the front door, on the live file.
+        root = clone({"config/feed.json": json.dumps(dict(feed, sentences=dict(feed["sentences"], approved="See www. It waits.")))})
+        self.assertTrue(caught(check_examples.run(root), "config/feed.json: feed: the sentence for approved holds"))
+
+    def test_the_feeds_sentences_are_text_only_on_the_feed_and_in_their_shape(self):  # decision 0000
+        schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
+                   for p in (ROOT / "schemas").glob("*.schema.json")}
+        feed = schemas["feed"]
+        self.assertEqual(check_examples._free(feed, schemas, feed, "feed", "$", set()), [])
+        shaped = feed["properties"]["sentences"]
+        self.assertTrue(check_examples._sentence_shaped(shaped))
+        held = {"type": "object", "additionalProperties": False, "properties": {"sentences": shaped}}
+        self.assertEqual(check_examples._free(held, {}, held, "feed", "$", set()), [])
+        # The same property on any other kind, or under any other name on the feed, is text a Run carries.
+        self.assertTrue(caught(check_examples._free(held, {}, held, "task", "$", set()),
+                               "schema task admits text at $.sentences.*"))
+        named = {"type": "object", "additionalProperties": False, "properties": {"phrases": shaped}}
+        self.assertTrue(caught(check_examples._free(named, {}, named, "feed", "$", set()),
+                               "schema feed admits text at $.phrases.*"))
+        # A shape loosened in any one way is no exemption: a later schema edit cannot let text in silently.
+        value = shaped["additionalProperties"]
+        for loose in (dict(shaped, type="array"), dict(shaped, properties={"x": {"type": "string"}}),
+                      dict(shaped, additionalProperties=True), dict(shaped, additionalProperties=dict(value, type=["string", "null"])),
+                      dict(shaped, additionalProperties=dict(value, pattern=value["pattern"][1:])),
+                      dict(shaped, additionalProperties={k: v for k, v in value.items() if k != "pattern"}),
+                      dict(shaped, additionalProperties={k: v for k, v in value.items() if k != "maxLength"}),
+                      dict(shaped, additionalProperties=dict(value, maxLength=check_examples.SENTENCE_MOST + 1)),
+                      dict(shaped, additionalProperties=dict(value, maxLength=0)),
+                      dict(shaped, additionalProperties=dict(value, maxLength=True)),
+                      dict(shaped, additionalProperties=dict(value, minLength=1)), "sentences"):
+            self.assertFalse(check_examples._sentence_shaped(loose), loose)
+        # One loosened is swept as any text is.
+        loose = dict(shaped, additionalProperties={k: v for k, v in value.items() if k != "pattern"})
+        held = {"type": "object", "additionalProperties": False, "properties": {"sentences": loose}}
+        self.assertTrue(caught(check_examples._free(held, {}, held, "feed", "$", set()),
+                               "schema feed admits text at $.sentences.*"))
+        self.assertTrue(check_examples._sentence_shaped(
+            dict(shaped, additionalProperties=dict(value, maxLength=check_examples.SENTENCE_MOST))))
+
     def test_the_example_feed_follows_the_table(self):  # decision 0039
         feed = json.loads((ROOT / "config" / "feed.json").read_text())
 

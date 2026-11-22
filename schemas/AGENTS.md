@@ -17,3 +17,4 @@ One JSON Schema for each message that crosses a boundary, and for each data file
 | A `$ref` stands alone, and one that comes round to itself is refused | `tests/test_tools.py::test_a_reference_with_keywords_beside_it_is_refused`, `tests/test_tools.py::test_a_reference_that_comes_round_to_itself_is_refused` |
 | Each schema is in one class of `ENVELOPE`: a document carries `schema`, its identity and `release`; a record or a data file `schema` alone; a part nothing | `tests/test_tools.py::test_a_schema_without_its_envelope_is_caught` |
 | The feed's one text is the title, under `untrusted`; the facts have no field for one | `tests/test_tools.py::test_text_is_let_through_only_untrusted_or_in_a_body`, `examples/invalid/facts.carries-the-title.json` |
+| `feed/1`'s one text is `sentences`, in its shape alone: strings under an anchored pattern, at most 100 characters | `tests/test_tools.py::test_the_feeds_sentences_are_text_only_on_the_feed_and_in_their_shape` |

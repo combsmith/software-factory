@@ -3,13 +3,12 @@
 The Factory's settings, as data: `defaults.json` for the Kernel's limits and required Lenses (a
 deterministic Lens, `verify`, `secret-scan` or `code-scanning`, names the exact name of the check run
 GitHub reports for it and the id of the one App whose check it is read from; only a dependency update
-may be judged without a model Lens), for the Lens whose check alone reports each kind of acceptance criterion,
-and for the one name of the status on the item,
+may be judged without a model Lens), for the Lens whose check alone reports each kind of acceptance criterion, and for the one name of the status on the item,
 `authority.json` for who owns each category of Finding, `rubric-pr-review.json` for what a review
 must look at, `apps.json` for each GitHub App's permissions and the repos it is installed on, which the
 Maintainer registers each App from, `hooks.json` for the Maintainer, whose name every commit and push here carries, who may open a pull request (read by the commits job),
 and for what the session hooks ask the person about (the protected paths, merging, the repo's settings,
-a session started with no one asked) or list at a stop, `feed.json` for who acts next and what is asked of a person, read from a Decision's codes,
+a session started with no one asked) or list at a stop, `feed.json` for who acts next and what is asked of a person, read from a Decision's codes, and one plain sentence a person reads for each reason,
 `controller.json` for what the Controller's pass is told beside it: the accounts that tell what started a pass, the gaps, the automatic pause and the thresholds,
 `rulesets.json` for the repo's rulesets as GitHub answered the Maintainer's read of them, which `tools/rulesets_drift.sh` compares with the live ones by hand,
 `machine-user.json` for the machine user's role, compared the same way by `tools/machine_user_drift.sh`,
@@ -27,6 +26,7 @@ Its protected paths and each Lens's inputs are also the Kernel's `protected_path
 | Every need in `apps.json` maps to one permission and level, or says what it waits on. An App holds a permission only for a need mapped to it, never for a waiting one; a write need has one App; the reader writes nothing | `tools/check_apps.py` |
 | A value held in two files agrees | `tests/test_tools.py::test_a_value_held_twice_must_agree` |
 | `feed.json` has one row for each reason the Kernel gives `needs_you`, and one rule for each attention class | `tests/test_tools.py::test_every_reason_that_needs_a_person_says_what_is_asked` |
+| `feed.json` has one plain sentence for each reason in `REASONS` (`kernel/terms.py`), with no mention, backtick, line break, placeholder or link | `tests/test_tools.py::test_every_reason_a_pull_request_carries_has_one_plain_sentence` |
 | The rubric is the review standard. Add a criterion there; no document describes the review | `tests/test_tools.py::test_a_second_copy_of_the_review_standard_is_caught` |
 | The protected paths and each Lens's inputs are one list, in `hooks.json`, the Kernel's too, matched as the hooks match | `tests/test_tools.py::test_the_kernels_matcher_and_the_hooks_agree_on_one_corpus` |
 | In `rulesets.json`, CodeQL fails on a security alert of any severity, and a thread left open holds a merge | `examples/invalid/rulesets.a-security-alert-below-high-passes.json`, `examples/invalid/rulesets.a-thread-left-open-merges.json` |

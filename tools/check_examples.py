@@ -6,6 +6,7 @@ import pathlib
 import re
 
 from kernel import decide, derive, issue
+from kernel import terms
 from kernel.coverage import covered
 from tools import walk
 from tools.jsonschema_lite import ANNOTATIONS, FILE, SchemaError, _resolve, validate
@@ -64,6 +65,15 @@ SPACES = ("\t\n\x0b\x0c\r\x1c\x1d\x1e\x1f \x85\xa0\u1680\u2000\u2001\u2002\u2003
 TEXT_FIELD = "body"
 UNTRUSTED_FIELD = "untrusted"
 UNTRUSTED_KIND = "view-item"
+# The feed's one plain sentence for each reason a pull request's Decision carries, shown to a person beside the codes
+# and never read back: the feed's own schema holds each to a capital, plain punctuation and a full stop, with no @,
+# link, backtick, line break or placeholder, and _table holds the map to the Kernel's set exactly.
+SENTENCES_FIELD = "sentences"
+SENTENCES_KIND = "feed"
+SENTENCE_MOST = 100
+# What no sentence holds, whatever its schema says: a mention, a backtick, a line break, a placeholder, or a link,
+# written whole or as a bare address GitHub would make one of.
+UNSHOWN = re.compile(r"[@`\r\n{}%]|www[.]|://", re.I)
 # The reasons the Kernel gives `needs_you` beside its own sets: a Hold deferred under a Pause, or one it cannot read
 # (tests/test_decide.py::test_an_approver_who_is_the_author_or_last_pusher_takes_it_out_of_the_queue,
 # tests/test_issue.py::test_placing_a_hold_is_stopped_only_by_the_pause_and_not_once_the_hold_is_there,
@@ -214,6 +224,18 @@ def _string_only(node) -> bool:
     return "string" in kinds and not (set(kinds) - {"string", "null"})
 
 
+def _sentence_shaped(node) -> bool:
+    """Whether `node` has the shape of the feed's sentences: an object whose every value is a string held by a pattern
+    anchored at both ends and a length of at most SENTENCE_MOST, with nothing beside them that could let text in."""
+    if not (isinstance(node, dict) and node.get("type") == "object"
+            and not set(node) - ANNOTATIONS - {"type", "additionalProperties"}):
+        return False
+    value = node.get("additionalProperties")
+    return isinstance(value, dict) and value.get("type") == "string" \
+        and not set(value) - ANNOTATIONS - {"type", "pattern", "maxLength"} and _anchored(value.get("pattern")) \
+        and type(value.get("maxLength")) is int and 0 < value["maxLength"] <= SENTENCE_MOST
+
+
 def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: tuple = (), owner: str = None) -> list:
     """What is wrong with `schema`, of the kind named, as the schema of what one Run carries: where it admits a string
     that no enum, const or anchored pattern holds, and a reference it makes that cannot be followed, has a keyword
@@ -260,6 +282,8 @@ def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: 
             continue
         if name == UNTRUSTED_FIELD and kind == UNTRUSTED_KIND:
             continue
+        if name == SENTENCES_FIELD and kind == SENTENCES_KIND and _sentence_shaped(prop):
+            continue
         out += _free(prop, schemas, root, kind, "%s.%s" % (path, name), seen, owner=owner)
     if isinstance(schema.get("items"), dict):
         out += _free(schema["items"], schemas, root, kind, path + "[]", seen, owner=owner)
@@ -270,7 +294,8 @@ def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: 
 
 def _table(feed, decision_schema) -> list:
     """What is wrong with the feed's table, valid to its schema: a reason the Kernel gives needs_you with no row, a row
-    for one it never does, a reason with two rows, and an attention class with no rule or with two."""
+    for one it never does, a reason with two rows, a pull request's reason with no sentence or a sentence for none, and
+    an attention class with no rule or with two."""
     needs = set(decide.NEEDS_YOU_REASONS) | set(issue.NEEDS_YOU_REASONS) | ALSO_NEEDS_YOU
     out = []
     reasons = [row["reason"] for row in feed["decision_required"]]
@@ -280,6 +305,15 @@ def _table(feed, decision_schema) -> list:
         out.append("feed: a row for %s, a reason the Kernel never gives needs_you" % reason)
     for reason in sorted({r for r in reasons if reasons.count(r) > 1}):
         out.append("feed: the reason %s has two rows" % reason)
+    said = set(feed["sentences"])
+    for reason in sorted(terms.REASONS - said):
+        out.append("feed: the reason %s has no sentence" % reason)
+    for reason in sorted(said - terms.REASONS):
+        out.append("feed: a sentence for %s, which is no reason a pull request's Decision carries" % reason)
+    for reason, sentence in sorted(feed["sentences"].items()):
+        if UNSHOWN.search(sentence):
+            out.append("feed: the sentence for %s holds a mention, a backtick, a line break, a placeholder or a link"
+                       % reason)
     classes = decision_schema["properties"]["attention"]["enum"]
     ruled = [row["attention"] for row in feed["next_actor"]["by_attention"]]
     for name in classes:
