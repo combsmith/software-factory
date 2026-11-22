@@ -390,4 +390,11 @@ MUTANTS = [
      ('tests.test_reconcile.SeenPort.test_a_list_is_read_to_ten_pages_and_past_them_what_was_seen_is_short',)),
     ("a truth value is an id", 'adapters/seen.py',
      ' and not isinstance(k, bool) for k in key):', ' for k in key):', ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_is_short_on_what_it_cannot_tell',)),
+    ("an item read as gone stops at its close short of since", 'adapters/seen.py',
+     'while not (reached and _ended(found, ends)) and', 'while not (_ended(found, ends) if ends else reached) and', ('tests.test_reconcile.SeenPort.test_an_item_read_as_gone_is_read_back_to_its_close',)),
+    ("items with no id are kept once", 'adapters/seen.py',
+     '            if key[1] is None or key not in seen:\n', '            if key not in seen:\n', ('tests.test_reconcile.SeenPort.test_an_item_read_as_gone_is_read_back_to_its_close',)),
+    ("a last page that names a next one when first read is steady", 'adapters/seen.py',
+     'and not timeline.NEXT.search(again_link) and not timeline.NEXT.search(end_link))', 'and not timeline.NEXT.search(again_link))',
+     ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_is_short_on_what_it_cannot_tell',)),
 ]

@@ -230,4 +230,10 @@ MUTANTS = [
      '    raw["cut"] = {"events": timeline_cut, "reviews": reviews_cut}\n', '', ('tests.test_adapters.Snapshot.test_a_snapshot_keeps_its_reads_for_reconciliation_only_once_it_is_whole',)),
     ("the snapshot says its own timeline was cut", 'adapters/facts.py',
      '"timeline_bounded": timeline_cut or reviews_cut,', '"timeline_bounded": True,', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
+    ("the snapshot keeps a timeline read short as cut", 'adapters/facts.py',
+     'raw["cut"] = {"events": timeline_cut, "reviews": reviews_cut}', 'raw["cut"] = {"events": not timeline_whole, "reviews": reviews_cut}', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
+    ("the snapshot keeps the timeline's cut as none", 'adapters/facts.py',
+     'raw["cut"] = {"events": timeline_cut, "reviews": reviews_cut}', 'raw["cut"] = {"events": False, "reviews": reviews_cut}', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
+    ("the snapshot keeps the reviews' cut as none", 'adapters/facts.py',
+     'raw["cut"] = {"events": timeline_cut, "reviews": reviews_cut}', 'raw["cut"] = {"events": timeline_cut, "reviews": False}', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
 ]
