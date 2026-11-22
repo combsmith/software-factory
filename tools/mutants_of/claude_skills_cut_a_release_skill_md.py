@@ -1,0 +1,53 @@
+"""The mutants of `.claude/skills/cut-a-release/SKILL.md`: tools/mutants.py runs them."""
+
+CANNOT_APPROVE = ("tests.test_release.Skill.test_when_the_factory_cannot_approve_the_skill_leaves_the_approval_to_the_maintainers_hand_and_runs_nothing",)
+
+TARGETS = (".claude/skills/cut-a-release/SKILL.md",)
+MUTANTS = [
+    # Decision 0198: when the Factory cannot or may not approve, the approval is the Maintainer's hand.
+    ('the skill hands over the approval at its second step', '.claude/skills/cut-a-release/SKILL.md',
+     '2. **Roll `next` back.**',
+     '2. **The hand approval.**', CANNOT_APPROVE),
+    ('the skill hands over the approval while a Release can serve', '.claude/skills/cut-a-release/SKILL.md',
+     '3. **The hand approval.** Only when no Release can serve.',
+     '3. **The hand approval.**', CANNOT_APPROVE),
+    ('the skill lets a session approve', '.claude/skills/cut-a-release/SKILL.md',
+     'It approves nothing, signs in to no account, and sets no variable.',
+     'It signs in to no account, and sets no variable.', CANNOT_APPROVE),
+    ('the skill has a session set the Pause', '.claude/skills/cut-a-release/SKILL.md',
+     '1. **Pause.** The Maintainer sets the repo variable',
+     '1. **Pause.** Set the repo variable', CANNOT_APPROVE),
+    ('the skill has the Maintainer approve from any account', '.claude/skills/cut-a-release/SKILL.md',
+     'he approves the head by hand as the machine user',
+     'he approves the head by hand', CANNOT_APPROVE),
+    ('the skill gives the hand approval a stored token', '.claude/skills/cut-a-release/SKILL.md',
+     'It needs no Release, no Run and no stored token;',
+     "It needs the machine user's stored token;", CANNOT_APPROVE),
+    ('the skill needs no Pause for a change the Kernel takes out of the queue, whoever takes it out', '.claude/skills/cut-a-release/SKILL.md',
+     'is null, nothing carries that Decision out and no Pause is needed. Once it names an account,\nthe Maintainer sets the Pause before the enqueue and lifts it after the merge.',
+     'is null or not, no Pause is needed.', CANNOT_APPROVE),
+    ('the skill is silent on the alert a hand approval raises', '.claude/skills/cut-a-release/SKILL.md',
+     'The next pass reports it as the entry `hand_approval`, information that names\nthe review, where the last pass before it read the pull request as waiting for a person at the head he approved, for\nthe first approval of that head alone, by a pass whose reads are whole. Any other approval no Effect records\nraises the alert `write_unmatched` (decisions 0061 and 0241), and its merge',
+     'Its merge', CANNOT_APPROVE),
+    ('the skill prints the approval as a command in backticks', '.claude/skills/cut-a-release/SKILL.md',
+     'and his login enqueues it. It needs',
+     'and his login enqueues it: `gh pr review --approve`. It needs', CANNOT_APPROVE),
+    ('the skill prints the approval as a command in prose', '.claude/skills/cut-a-release/SKILL.md',
+     'and his login enqueues it. It needs',
+     'and his login enqueues it, or a session runs gh pr review --approve. It needs', CANNOT_APPROVE),
+    ("the skill has a matched alert clear the token's rotation", '.claude/skills/cut-a-release/SKILL.md',
+     "The match clears nothing else: the design\nasks for that rotation on any reconciliation alert, his own entry's among them, and the rule stands until he says\notherwise. No session rotates or revokes the token.\n",
+     'The match clears the alert.\n', CANNOT_APPROVE),
+    ('the skill takes the next step before the pass that holds the Pause is read', '.claude/skills/cut-a-release/SKILL.md',
+     ' A job that began before the\n   Pause was set may still land its write, so that pass is read before the next step is taken.',
+     '', CANNOT_APPROVE),
+    ('the skill reads one entry of the alert and no more', '.claude/skills/cut-a-release/SKILL.md',
+     'so every entry is read for as long as it stands',
+     'so one entry is read', CANNOT_APPROVE),
+    ('the skill leaves the queue to itself under a Pause', '.claude/skills/cut-a-release/SKILL.md',
+     ' What else is in the\n   queue is then his to stop: read the queue before the Pause is set, and each pass while it stands.',
+     '', CANNOT_APPROVE),
+    # Issue 463: each factory environment is main alone, read by hand.
+    ('the skill does not run the read', '.claude/skills/cut-a-release/SKILL.md',
+     'Have the Maintainer run `sh tools/environments_drift.sh` at a terminal', 'Have the Maintainer read it at a terminal', ('tests.test_tools.EnvironmentsDrift.test_the_skill_reads_it_before_a_cut_is_dispatched',)),
+]
