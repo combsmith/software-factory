@@ -37,7 +37,7 @@ from kernel.decide import decide
 from sim import world
 from adapters import github
 from tests import support
-from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_gate_sets, check_lifecycle, context_eval,
+from tools import (check_apps, check_authority, commits_are_the_maintainers, pr_title, check_context, check_decisions, check_examples, check_gate_sets, check_lifecycle, context_eval,
                    check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, redact_trial,
                    environments_drift, machine_user_drift, rulesets_drift, verify, walk)
 from tools.hooks import protected
@@ -2161,9 +2161,16 @@ for folder, _, names in os.walk(os.environ["TMPDIR"]):
             self.assertTrue(caught(got, "schemas/facts.schema.json cannot be read"), schema)
 
 
+def planted(files: dict) -> pathlib.Path:
+    """tree(), and an empty `__init__.py` in `kernel/` and each folder of it that `files` gives none: the Kernel is read
+    as the package Python imports (issue 851), and a planted Kernel says one thing wrong, not that too."""
+    folders = {"/".join(name.split("/")[:n]) for name in files if name.startswith("kernel/") for n in range(1, name.count("/") + 1)}
+    return tree(dict({folder + "/__init__.py": "" for folder in folders}, **files))
+
+
 class Purity(unittest.TestCase):
     def test_io_in_the_kernel_is_caught(self):
-        root = tree({"kernel/x.py": "import os\n\ndef f():\n    return open('x')\n"})
+        root = planted({"kernel/x.py": "import os\n\ndef f():\n    return open('x')\n"})
         problems = check_purity.run(root)
         self.assertTrue(caught(problems, "imports os") and caught(problems, "uses open"))
 
@@ -2183,17 +2190,60 @@ class Purity(unittest.TestCase):
             self.assertEqual(read(data), [], data)
 
     def test_io_in_a_package_below_the_kernel_is_caught(self):
-        root = tree({"kernel/a.py": "from kernel.extra import clock\n", "kernel/extra/clock.py": "import time\n"})
+        root = planted({"kernel/a.py": "from kernel.extra import clock\n", "kernel/extra/clock.py": "import time\n"})
         self.assertTrue(caught(check_purity.run(root), "extra/clock.py:1 imports time"))
+
+    def test_the_kernel_is_the_package_python_imports_and_reads_nothing_off_a_value(self):  # issue 851
+        # What the guards are held to (issue 838) is asked of the Kernel by the same lines. With no __init__.py Python
+        # may import a kernel.py at the root in the package's place, which nothing reads.
+        self.assertEqual(check_purity.run(ROOT), [])
+        self.assertTrue(caught(check_purity.run(tree({"kernel/a.py": "", "kernel.py": "import os\n"})), "kernel/ has no __init__.py"))
+        self.assertTrue(caught(check_purity.run(tree({"kernel/__init__.py": "", "kernel/sub/x.py": ""})), "kernel/sub has no __init__.py"))
+        self.assertEqual(check_purity.run(tree({"kernel/__init__.py": "", "kernel/sub/__init__.py": "", "kernel/sub/x.py": "",
+                                                "kernel/AGENTS.md": ""})), [])
+        # Of two files of one name Python imports the compiled before the source, so the Kernel holds source alone.
+        for name in ("kernel/a.cpython-39-darwin.so", "kernel/__init__.pyc", "kernel/data.json", "kernel/README.md"):
+            self.assertTrue(caught(check_purity.run(planted({"kernel/a.py": "", name: ""})),
+                                   name + " is neither Python's source nor an AGENTS.md"), name)
+        # Nor a link, and nor is the package itself one.
+        linked = planted({"kernel/a.py": "", "out/__init__.py": "import os\n"})
+        os.symlink(linked / "out", linked / "kernel" / "sub")
+        self.assertTrue(caught(check_purity.run(linked), "kernel/sub is a link"))
+        whole = tree({"out/__init__.py": ""})
+        os.symlink(whole / "out", whole / "kernel")
+        self.assertTrue(caught(check_purity.run(whole), "kernel is a link"))
+        # A generator's frame is one attribute from any function, and through it every builtin: this would open a file
+        # as `len`. Nothing is read of a value but by a built-in type's method that is called.
+        frame = ("def f(path):\n    g = (0 for _ in ())\n    b = g.gi_frame.f_builtins\n"
+                 "    b.update({'len': b.get('open')})\n    return list(len(path))\n")
+        found = check_purity.run(planted({"kernel/x.py": frame}))
+        self.assertTrue(caught(found, "x.py:3 reads f_builtins off a value") and caught(found, "x.py:3 reads gi_frame off a value"))
+        for text, word in (("def f(xs):\n    return xs.count\n", "count"), ("def f(xs, g):\n    return sorted(xs, key=g.get)\n", "get"),
+                           ("def f(xs):\n    return sorted(xs, key=str.casefold)\n", "casefold")):
+            self.assertTrue(caught(check_purity.run(planted({"kernel/x.py": text})), "x.py:2 reads %s off a value; kernel/" % word), text)
+        # A module's name is bound by its import alone, so that what is read off it is the module's.
+        stolen = {"kernel/terms.py": "HELD = 'h'\n", "kernel/x.py": "from kernel import terms\n\n\ndef f(terms):\n    return terms.gi_frame\n"}
+        self.assertTrue(caught(check_purity.run(planted(stolen)), "x.py:4 binds terms, which names a module of kernel/"))
+        # And so is the name `import kernel.x as name` binds (Carbon's read of #851).
+        aliased = dict(stolen, **{"kernel/x.py": "import kernel.terms as u\n\n\ndef f(u):\n    return u.gi_frame\n"})
+        self.assertTrue(caught(check_purity.run(planted(aliased)), "x.py:4 binds u, which names a module of kernel/"))
+        if sys.version_info >= (3, 10):
+            matched = "def f(g):\n    match g:\n        case object(gi_frame=frame):\n            return frame\n"
+            self.assertTrue(caught(check_purity.run(planted({"kernel/x.py": matched})), "x.py:2 matches a value against patterns"))
+        # What is asked of the guards alone is not asked of the Kernel: it imports itself by its own rules, its modules
+        # bear the names those rules are written for, and it takes `_decision`.
+        own = {"kernel/terms.py": "HELD = 'h'\n", "kernel/brakes.py": "from kernel import terms\nimport kernel.terms as u\n\n\n"
+               "def paused(_decision, facts):\n    return _decision(facts), terms.HELD, u.HELD, facts.get('x')\n"}
+        self.assertEqual(check_purity.run(planted(own)), [])
 
     def test_the_guards_are_held_as_the_kernel_is_and_import_themselves_alone(self):
         # guards/ decides what a Role's push may land (issue 838). It is held as the Kernel is, under its own name, and
         # imports itself alone: the Kernel is not protected whole, so nothing the guards decide may rest on it.
-        held = lambda files: check_purity.guards(tree(dict({"guards/__init__.py": ""}, **files)))
+        held = lambda files: check_purity.guards(planted(dict({"guards/__init__.py": ""}, **files)))
         self.assertEqual(check_purity.guards(ROOT), [])
         self.assertIn(("guards purity", check_purity.guards), verify.CHECKS)
-        self.assertEqual(check_purity.guards(tree({"kernel/x.py": ""})), ["there is no guards/ to check"])
-        self.assertEqual(check_purity.run(tree({"guards/x.py": ""})), ["there is no kernel/ to check"])
+        self.assertEqual(check_purity.guards(planted({"kernel/x.py": ""})), ["there is no guards/ to check"])
+        self.assertEqual(check_purity.run(planted({"guards/x.py": ""})), ["there is no kernel/ to check"])
         io = held({"guards/x.py": "import os\n\ndef f():\n    return open('x')\n"})
         self.assertTrue(caught(io, "imports os") and caught(io, "uses open"))
         self.assertTrue(caught(held({"guards/x.py": "def f(n):\n    return n > 3\n"}), "writes the number"))
@@ -2242,7 +2292,7 @@ class Purity(unittest.TestCase):
                           "`from kernel import x` or `import kernel.x as x`" + note])
         self.assertEqual(held({"guards/kernel.py": "def f(n):\n    return n > 3\n"}),
                          ["kernel.py:2 writes the number 3; a limit is data, read from the configuration" + note])
-        self.assertTrue(caught(check_purity.run(tree({"kernel/x.py": "from guards import patch\n"})), "imports guards"))
+        self.assertTrue(caught(check_purity.run(planted({"kernel/x.py": "from guards import patch\n"})), "imports guards"))
         # A module below a folder of the guards is read as itself, to its last name: a call into it at no function
         # of its own is caught, and one at a function of its own is not.
         deep = {"guards/pkg/__init__.py": "", "guards/pkg/leaf.py": "def g():\n    return 1\n",
@@ -2259,9 +2309,9 @@ class Purity(unittest.TestCase):
         self.assertTrue(caught(held(below), "sub/terms.py:1 writes the number 365; a limit is data, read from the configuration"))
 
     def test_the_guards_are_the_package_python_imports_and_read_nothing_off_a_value(self):
-        held = lambda files: check_purity.guards(tree(dict({"guards/__init__.py": ""}, **files)))
+        held = lambda files: check_purity.guards(planted(dict({"guards/__init__.py": ""}, **files)))
         # With no __init__.py Python may import a guards.py at the root in the package's place, which nothing reads.
-        self.assertTrue(caught(check_purity.guards(tree({"guards/x.py": ""})), "guards/ has no __init__.py"))
+        self.assertTrue(caught(check_purity.guards(planted({"guards/x.py": ""})), "guards/ has no __init__.py"))
         self.assertTrue(caught(held({"guards/sub/x.py": ""}), "guards/sub has no __init__.py"))
         self.assertTrue(caught(held({"guards/sub/AGENTS.md": ""}), "guards/sub has no __init__.py"))
         self.assertEqual(held({"guards/sub/__init__.py": "", "guards/sub/x.py": "", "guards/AGENTS.md": "",
@@ -2272,19 +2322,24 @@ class Purity(unittest.TestCase):
                      "guards/data.json", "guards/README.md", "guards/.py"):
             self.assertTrue(caught(held({name: ""}), name + " is neither Python's source nor an AGENTS.md"), name)
         # Nor a link: Python imports through one to a folder, and what it points at is read by nothing here.
-        linked = tree({"guards/__init__.py": "", "out/__init__.py": "import os\n"})
+        linked = planted({"guards/__init__.py": "", "out/__init__.py": "import os\n"})
         os.symlink(linked / "out", linked / "guards" / "sub")
         os.symlink(linked / "out" / "__init__.py", linked / "guards" / "x.py")
         found = check_purity.guards(linked)
         self.assertTrue(caught(found, "guards/sub is a link") and caught(found, "guards/x.py is a link"), found)
-        deep = tree({"guards/__init__.py": "", "guards/sub/__init__.py": "", "out/__init__.py": "import os\n"})
+        deep = planted({"guards/__init__.py": "", "guards/sub/__init__.py": "", "out/__init__.py": "import os\n"})
         os.symlink(deep / "out" / "__init__.py", deep / "guards" / "sub" / "x.py")
         self.assertTrue(caught(check_purity.guards(deep), "guards/sub/x.py is a link"))
         # Nor is the package itself one: its files would then be kept where nothing protects them.
-        whole = tree({"out/__init__.py": ""})
+        whole = planted({"out/__init__.py": ""})
         os.symlink(whole / "out", whole / "guards")
         self.assertTrue(caught(check_purity.guards(whole), "guards is a link"))
         self.assertFalse(caught(check_purity.guards(ROOT), "is a link"))
+        # A file that declares another encoding than UTF-8 is refused, as the Kernel's is (issue 992): this one is a
+        # docstring to a reader of text, and an import of os to Python.
+        coded = '# -*- coding: utf-7 -*-\n"""A guard. +ACIAIgAi-\nimport os\nX = os.getcwd()\n+ACIAIgAi- end"""\n'
+        self.assertTrue(caught(held({"guards/x.py": coded}), "x.py cannot be read as Python: it declares the encoding utf-7"))
+        self.assertTrue(caught(check_purity.run(planted({"kernel/x.py": coded})), "x.py cannot be read as Python: it declares the encoding utf-7"))
         # Nothing is read of a value but by a built-in type's method that is called. A generator's frame is one
         # attribute from any function, and through it every builtin: this guard would open a file as `len`.
         frame = ("def f(path):\n    g = (0 for _ in ())\n    b = g.gi_frame.f_builtins\n"
@@ -2329,19 +2384,19 @@ class Purity(unittest.TestCase):
             self.assertTrue(caught(held({"guards/x.py": matched}), "x.py:2 matches a value against patterns"))
 
     def test_a_limit_written_into_the_kernel_is_caught(self):
-        root = tree({"kernel/x.py": "def f(runs):\n    return len(runs) >= 3 or runs[0] == 1\n"})
+        root = planted({"kernel/x.py": "def f(runs):\n    return len(runs) >= 3 or runs[0] == 1\n"})
         self.assertEqual(len(check_purity.run(root)), 1)
 
     def test_only_the_calendar_may_write_a_number(self):
         # The calendar is nobody's choice, so it is the one place the Kernel writes a number but 0 and 1: in terms.py,
         # under its own name, with its own value. Any other number is a limit, and a limit is data.
         calendar = "MINUTES_PER_HOUR = 60\nLEAP_YEARS = (4, 100, 400)\nFEBRUARY = 2\n"
-        self.assertEqual(check_purity.run(tree({"kernel/terms.py": calendar})), [])
+        self.assertEqual(check_purity.run(planted({"kernel/terms.py": calendar})), [])
         for rel, text in (("kernel/terms.py", "MINUTES_PER_HOUR = 61\n"), ("kernel/terms.py", "LEAP_YEARS = (4, 100, 401)\n"),
                           ("kernel/terms.py", "MINUTES_PER_HOUR = 60.0\n"), ("kernel/terms.py", "MAX_ATTEMPTS = 3\n"),
                           ("kernel/terms.py", "FEBRUARY = HOURS_PER_DAY = 2\n"), ("kernel/x.py", "MINUTES_PER_HOUR = 60\n"),
                           ("kernel/terms.py", "def f():\n    MINUTES_PER_HOUR = 60\n    return MINUTES_PER_HOUR\n")):
-            self.assertTrue(caught(check_purity.run(tree({rel: text})), "writes the number"), (rel, text))
+            self.assertTrue(caught(check_purity.run(planted({rel: text})), "writes the number"), (rel, text))
         # A unit is assigned once, so no second assignment can change it: not to 0, 1 or True, which are no number
         # the check refuses, and not from outside terms.py. What cannot be read as a value is a problem, not a crash.
         again = "SECONDS_PER_MINUTE = 60\nHOURS_PER_DAY = 24\n"
@@ -2353,20 +2408,22 @@ class Purity(unittest.TestCase):
                           ("kernel/terms.py", "SECONDS_PER_MINUTE, X = 60, 1\n"),
                           ("kernel/x.py", "from kernel import terms as t\n\ndef f():\n    t.SECONDS_PER_MINUTE = 1\n"),
                           ("kernel/x.py", "def f(n):\n    HOURS_PER_DAY = n\n    return HOURS_PER_DAY\n")):
-            self.assertTrue(caught(check_purity.run(tree({"kernel/terms.py": again, rel: text})), "a unit of the calendar"),
+            self.assertTrue(caught(check_purity.run(planted({"kernel/terms.py": again, rel: text})), "a unit of the calendar"),
                             (rel, text))
-        self.assertEqual(check_purity.run(tree({"kernel/terms.py": again, "kernel/x.py": "def f(t):\n"
-                                                "    return t.SECONDS_PER_MINUTE\n"})), [])
+        # Read off a value, it is that, and that alone: not a unit of the calendar written again (Astra's read).
+        read = check_purity.run(planted({"kernel/terms.py": again, "kernel/x.py": "def f(t):\n    return t.SECONDS_PER_MINUTE\n"}))
+        self.assertEqual(len(read), 1, read)
+        self.assertTrue(caught(read, "x.py:2 reads SECONDS_PER_MINUTE off a value"), read)
 
     def test_state_kept_between_calls_is_caught(self):
-        root = tree({"kernel/x.py": "SEEN = {}\nKIND = 'held'\nNAMES = frozenset({'a'})\n"})
+        root = planted({"kernel/x.py": "SEEN = {}\nKIND = 'held'\nNAMES = frozenset({'a'})\n"})
         self.assertEqual(check_purity.run(root), ["x.py:1 holds a value that can change; State is never stored"])
         hidden = {"a default": "def f(key, seen={}):\n    return seen\n",
                   "a class": "class Memo:\n    seen = {}\n",
                   "code at import": "if True:\n    SEEN = {}\n",
                   "a global": "def f():\n    global X\n    X = 1\n"}
         for name, text in hidden.items():
-            self.assertTrue(check_purity.run(tree({"kernel/x.py": text})), name)
+            self.assertTrue(check_purity.run(planted({"kernel/x.py": text})), name)
 
     def test_an_attribute_assigned_is_caught(self):
         # A module that assigns another's names changes what that module decides from outside it: the gate's
@@ -2377,8 +2434,8 @@ class Purity(unittest.TestCase):
                      "from kernel import terms as t\n\n\ndef f():\n    del t.HELD\n",
                      "from kernel import terms as t\n\n\ndef f():\n    t.HELD, x = 'a', 1\n    return x\n",
                      "def f():\n    f.seen = 1\n"):
-            self.assertTrue(caught(check_purity.run(tree({"kernel/x.py": text})), "assigns an attribute"), text)
-        self.assertEqual(check_purity.run(tree({"kernel/x.py": "from kernel import terms as t\n\n\ndef f():\n"
+            self.assertTrue(caught(check_purity.run(planted({"kernel/x.py": text})), "assigns an attribute"), text)
+        self.assertEqual(check_purity.run(planted({"kernel/terms.py": "HELD = 'h'\n", "kernel/x.py": "from kernel import terms as t\n\n\ndef f():\n"
                                                 "    return t.HELD\n"})), [])
 
     def test_the_kernel_calls_nothing_it_is_given(self):
@@ -2470,40 +2527,49 @@ class Purity(unittest.TestCase):
                  "names __e__, a special name"),
                 ("def f(__x__):\n    return 0\n", "names __x__, a special name"),
                 ("def decide(facts, _decision=len):\n    return _decision(facts)\n", "has a default that can change")):
-            self.assertTrue(caught(check_purity.run(tree({"kernel/x.py": text})), words), (text, words))
+            self.assertTrue(caught(check_purity.run(planted({"kernel/x.py": text})), words), (text, words))
         for text in ("def f(_decision, facts):\n    return _decision(facts)\n",
                      "def f(xs):\n    key = lambda r: r['at']\n    return sorted(xs, key=key), key(xs[0])\n",
                      "def f(xs):\n    def g(r):\n        return r\n    return g(xs)\n",
                      "def f(facts):\n    return (facts.get('a', {}).items(), ','.join(facts['b']), dict.fromkeys(facts['c']),\n"
                      "            str(facts['d']).casefold().startswith('x'))\n",
                      "def order(r):\n    return r\n\n\ndef f(xs):\n    return sorted(xs, key=order), max(xs, key=lambda r: r)\n",
-                     "def f(xs):\n    return len(xs), sorted(xs), list(map(lambda x: x, xs)), sorted(xs, key=str.casefold)\n",
-                     "def f(counts, extra):\n    return max(counts, key=counts.get), dict({'a': 1}, **extra)\n",
+                     "def f(xs):\n    return len(xs), sorted(xs), list(map(lambda x: x, xs)), sorted(xs, key=len)\n",
+                     "def f(counts, extra):\n    return max(counts, key=len), dict({'a': 1}, **extra)\n",
                      "def f(g):\n    def h():\n        def g():\n            return 1\n        return g()\n    return h()\n",
                      "def f(x):\n    def g():\n        y = x\n        return y\n    def y():\n        return x\n    return y()\n",
                      "def f(xs):\n    return type(xs) is list, list(map(len, xs)), sorted(xs, key=len)\n",
                      "from __future__ import annotations\n\n\ndef f(x):\n    return '__dict__', x\n"):
-            self.assertEqual(check_purity.run(tree({"kernel/x.py": text})), [], text)
+            self.assertEqual(check_purity.run(planted({"kernel/x.py": text})), [], text)
+        # A built-in type's listed method handed as a key is nothing this rule refuses; that it is read off a value
+        # without being called is another rule's (issue 851), and the one problem.
+        for text in ("def f(xs):\n    return sorted(xs, key=str.casefold)\n", "def f(counts):\n    return max(counts, key=counts.get)\n"):
+            self.assertEqual([p.split(";")[0] for p in check_purity.run(planted({"kernel/x.py": text}))],
+                             ["x.py:2 reads %s off a value" % text.split("key=")[1].split(".")[1].split(")")[0]], text)
         # An import's names are read once, with the import, at its line (issue 600).
-        found = check_purity.run(tree({"kernel/x.py": "from kernel.terms import __dict__ as ns\n"}))
+        found = check_purity.run(planted({"kernel/x.py": "from kernel.terms import __dict__ as ns\n"}))
         self.assertEqual([p.split(" names ")[0] for p in found if "names __dict__" in p], ["x.py:1"])
         # A pattern names an attribute it reads, from Python 3.10 (issue 593).
         if sys.version_info >= (3, 10):
             text = "def f(facts):\n    match facts:\n        case object(__class__=c):\n            return c\n    return 0\n"
-            self.assertTrue(caught(check_purity.run(tree({"kernel/x.py": text})), "names __class__, a special name"))
+            self.assertTrue(caught(check_purity.run(planted({"kernel/x.py": text})), "names __class__, a special name"))
         # A module of the Kernel's may be called into however it is imported, and named only to read a name of it.
         terms = "def code(x):\n    return x\n"
         for text in ("from kernel import terms as t\n\n\ndef f(x):\n    return t.code(x)\n",
-                     "import kernel.terms as t\n\n\ndef f(x):\n    return t.code(x)\n",
-                     "from . import terms\n\n\ndef f(x):\n    return terms.code(x)\n"):
-            self.assertEqual(check_purity.run(tree({"kernel/terms.py": terms, "kernel/x.py": text})), [], text)
+                     "import kernel.terms as t\n\n\ndef f(x):\n    return t.code(x)\n"):
+            self.assertEqual(check_purity.run(planted({"kernel/terms.py": terms, "kernel/x.py": text})), [], text)
+        # One imported relatively is called into as these are, and its name is read off only where it is imported by
+        # the Kernel's name (issue 851): the one problem is that.
+        text = "from . import terms\n\n\ndef f(x):\n    return terms.code(x)\n"
+        found = check_purity.run(planted({"kernel/terms.py": terms, "kernel/x.py": text}))
+        self.assertEqual([p.split(";")[0] for p in found], ["x.py:5 reads code off a value"])
         for text, words in (("import kernel.terms\n\n\ndef f(x):\n    return kernel.terms.code(x)\n", "without naming it"),
                             ("from kernel.terms import *\n\n\ndef f(x):\n    return code(x)\n", "imports * from kernel.terms"),
                             ("from kernel import terms\n\n\ndef f(x):\n    m = terms\n    return m.code(x)\n",
                              "names the module terms"),
                             ("import kernel.other as o\n\n\ndef f(x):\n    m = o.terms\n    return m.code(x)\n",
                              "names the module o.terms")):
-            got = check_purity.run(tree({"kernel/terms.py": terms, "kernel/other.py": "from kernel import terms\n",
+            got = check_purity.run(planted({"kernel/terms.py": terms, "kernel/other.py": "from kernel import terms\n",
                                          "kernel/x.py": text}))
             self.assertTrue(caught(got, words), (text, words, got))
 
@@ -2514,7 +2580,7 @@ class Purity(unittest.TestCase):
         terms = "LIMIT = 'x'\n\n\ndef code(x):\n    return x\n"
         clean = "from kernel import terms\nfrom kernel.terms import code\n\n\n" \
                 "def f(xs):\n    return terms.code(xs), sorted(xs, key=code), sorted(xs, key=terms.code)\n"
-        self.assertEqual(check_purity.run(tree({"kernel/terms.py": terms, "kernel/x.py": clean})), [])
+        self.assertEqual(check_purity.run(planted({"kernel/terms.py": terms, "kernel/x.py": clean})), [])
         head = "from __future__ import annotations\nfrom kernel import terms\nfrom kernel.terms import LIMIT\n\n\n"
         for body, words in (("def f():\n    return terms.LIMIT()\n", "calls terms.LIMIT, which is no function"),
                             ("def f():\n    return terms.NOPE()\n", "calls terms.NOPE, which is no function"),
@@ -2527,7 +2593,7 @@ class Purity(unittest.TestCase):
                              "names __dict__, a special name"),
                             ("from kernel.terms import __dict__ as ns\n\n\ndef f(fetch):\n    return ns.update(code=fetch)\n",
                              "names __dict__, a special name")):
-            got = check_purity.run(tree({"kernel/terms.py": terms + "\n\ndef __getattr__(name):\n    return map\n",
+            got = check_purity.run(planted({"kernel/terms.py": terms + "\n\ndef __getattr__(name):\n    return map\n",
                                          "kernel/x.py": head + body}))
             self.assertTrue(caught(got, words), (body, words, got))
 
@@ -2545,10 +2611,10 @@ class Purity(unittest.TestCase):
                               "__init__.py binds a, which also names the module a.py"),
                              ({"kernel/a/__init__.py": "def b(x):\n    return x\n", "kernel/a/b/__init__.py": module},
                               "a/__init__.py binds b, which also names the module a/b/__init__.py")):
-            got = check_purity.run(tree(files))
+            got = check_purity.run(planted(files))
             self.assertTrue(caught(got, words), (files, words, got))
         # A package's __getattr__ would hand back its value for a module the check reads; it names a special name.
-        got = check_purity.run(tree({"kernel/__init__.py": "def __getattr__(name):\n    return list\n",
+        got = check_purity.run(planted({"kernel/__init__.py": "def __getattr__(name):\n    return list\n",
                                      "kernel/action.py": module, "kernel/use.py": "from kernel import action\n\n\n"
                                      "def f(xs):\n    return action.run(xs)\n"}))
         self.assertTrue(caught(got, "__init__.py:1 names __getattr__, a special name"), got)
@@ -2556,7 +2622,7 @@ class Purity(unittest.TestCase):
                       {"kernel/a/__init__.py": "from kernel.a import invoke\n", "kernel/a/invoke.py": module},
                       {"kernel/a/__init__.py": "import kernel.a.invoke as invoke\n", "kernel/a/invoke.py": module},
                       {"kernel/__init__.py": "", "kernel/a.py": module, "kernel/b/__init__.py": module}):
-            self.assertEqual(check_purity.run(tree(files)), [], files)
+            self.assertEqual(check_purity.run(planted(files)), [], files)
 
     def test_what_fills_a_decision_maker_is_a_kernel_function(self):
         # Issue 588: _decision is the one parameter the Kernel calls, so what fills it is a Kernel function, or the
@@ -2566,7 +2632,7 @@ class Purity(unittest.TestCase):
         head = "from kernel import brakes\nfrom kernel.brakes import paused\n\n\ndef _decision(facts):\n    return facts\n\n\n"
         clean = head + "def decide(facts):\n    return brakes.paused(_decision, facts), paused(_decision, facts)\n\n\n" \
                        "def again(_decision, facts):\n    return brakes.paused(_decision=_decision, facts=facts)\n"
-        self.assertEqual(check_purity.run(tree({"kernel/brakes.py": brakes, "kernel/decide.py": clean})), [])
+        self.assertEqual(check_purity.run(planted({"kernel/brakes.py": brakes, "kernel/decide.py": clean})), [])
         for body, words in (
                 ("def f(fetch, facts):\n    return brakes.paused(fetch, facts)\n", "gives fetch as _decision"),
                 ("def f(_decision, fetch, facts):\n    return paused(fetch, facts)\n", "gives fetch as _decision"),
@@ -2589,7 +2655,7 @@ class Purity(unittest.TestCase):
                  "takes _decision in a function inside another or a lambda"),
                 ("def f(fs):\n    return list(map(paused, fs, fs))\n", "names paused without calling it"),
                 ("def f(fs):\n    return sorted(fs, key=brakes.paused)\n", "names paused without calling it")):
-            got = check_purity.run(tree({"kernel/brakes.py": brakes, "kernel/decide.py": head + body}))
+            got = check_purity.run(planted({"kernel/brakes.py": brakes, "kernel/decide.py": head + body}))
             self.assertTrue(caught(got, words), (body, words, got))
         # However the function that takes it is imported, and wherever its place, what fills _decision is read.
         apply = "def apply(facts, _decision):\n    return _decision(facts)\n"
@@ -2623,31 +2689,35 @@ class Purity(unittest.TestCase):
                        "kernel/decide.py": "from kernel.pkg import a\n\n\ndef f(fetch, facts):\n    return a.update(facts, fetch)\n"},
                       {"kernel/a.py": update, "kernel/o1.py": "from kernel import a\n", "kernel/o2.py": "from kernel.o1 import a\n",
                        "kernel/decide.py": "import kernel.o2 as o\n\n\ndef f(fetch, facts):\n    return o.a.update(facts, fetch)\n"}):
-            got = check_purity.run(tree(files))
+            got = check_purity.run(planted(files))
             self.assertTrue(caught(got, "gives fetch as _decision"), (files, got))
         # A value, or a name no module defines, reached through a Kernel module is no Kernel function; and _decision
         # is never taken as a spread of arguments.
         terms = "LIMIT = 'x'\n"
         for body, words in (("def f(facts):\n    return brakes.paused(terms.LIMIT, facts)\n", "gives terms.LIMIT as _decision"),
                             ("def f(facts):\n    return brakes.paused(terms.NOPE, facts)\n", "gives terms.NOPE as _decision")):
-            got = check_purity.run(tree({"kernel/brakes.py": brakes, "kernel/terms.py": terms,
+            got = check_purity.run(planted({"kernel/brakes.py": brakes, "kernel/terms.py": terms,
                                          "kernel/decide.py": "from kernel import terms\n" + head + body}))
             self.assertTrue(caught(got, words), (body, got))
         for taker in ("def paused(*_decision):\n    return _decision\n", "def paused(**_decision):\n    return _decision\n"):
-            self.assertTrue(caught(check_purity.run(tree({"kernel/brakes.py": taker})), "takes _decision as a spread"), taker)
+            self.assertTrue(caught(check_purity.run(planted({"kernel/brakes.py": taker})), "takes _decision as a spread"), taker)
         # A positional-only _decision is filled by its place alone: a keyword of its name fills another parameter.
         only = "def paused(_decision, /, **facts):\n    return _decision(facts)\n"
-        got = check_purity.run(tree({"kernel/brakes.py": only, "kernel/decide.py": head +
+        got = check_purity.run(planted({"kernel/brakes.py": only, "kernel/decide.py": head +
                                      "def f(fetch):\n    return paused(fetch, _decision=_decision)\n"}))
         self.assertTrue(caught(got, "gives fetch as _decision"), got)
         # A module re-exported by another is a module however it is reached, and is never kept as a value.
         files = {"kernel/a.py": update, "kernel/other.py": "from kernel import a\n",
                  "kernel/decide.py": "from kernel.other import a\n\n\ndef f(fetch, facts):\n    m = a\n    return m.update(facts, fetch)\n"}
-        self.assertTrue(caught(check_purity.run(tree(files)), "names the module a"))
+        self.assertTrue(caught(check_purity.run(planted(files)), "names the module a"))
         files = {"kernel/rules.py": brakes, "kernel/other.py": "from kernel import rules\n",
                  "kernel/decide.py": "from kernel.other import rules\n\n\ndef _decision(facts):\n    return facts\n\n\n"
                  "def decide(facts):\n    return rules.paused(_decision, facts)\n"}
-        self.assertEqual(check_purity.run(tree(files)), [])
+        # What fills it is read there too; the name itself is read off only where its own module's import binds it, so
+        # paused read off the re-export is a read off a value, and that alone is said (Astra's read of #851).
+        got = check_purity.run(planted(files))
+        self.assertTrue(caught(got, "decide.py:9 reads paused off a value"), got)
+        self.assertEqual([p for p in got if "reads paused off a value" not in p], [], got)
 
     def test_a_chain_of_modules_is_read_once_a_level(self):
         # A module re-exported as its own attribute, read down a long chain, is resolved once a level, so the reads
@@ -2687,7 +2757,7 @@ class Purity(unittest.TestCase):
         derive = "from kernel import brakes, gate\nfrom kernel.gate import gates\nimport kernel.gate as gate\n\n\n" \
                  "def derive(facts):\n    pause = brakes.paused(derive, facts)\n    return pause or gates(facts, {})\n"
         clean = {"kernel/gate.py": gate, "kernel/brakes.py": brakes, "kernel/derive.py": derive}
-        self.assertEqual(check_purity.run(tree(clean)), [])
+        self.assertEqual(check_purity.run(planted(clean)), [])
         # Any binding of a name either owns stands in for theirs, at any depth and in any form, and so does a binding
         # of either module's own name to anything but that module. Each also binds no name of the other's.
         d, g, b = "kernel/derive.py", "kernel/gate.py", "kernel/brakes.py"
@@ -2717,7 +2787,7 @@ class Purity(unittest.TestCase):
                 (b, "from kernel.terms import HELD as paused\n" + brakes, "paused", "brakes.py"),
                 (g, gate + "\n\ndef paused(x):\n    return x\n", "paused", "brakes.py"),
                 (g, gate + "\n\ndef f(brakes):\n    return brakes\n", "brakes", "brakes.py")):
-            said = check_purity.run(tree(dict(clean, **{rel: text})))
+            said = check_purity.run(planted(dict(clean, **{rel: text})))
             self.assertTrue(caught(said, "binds %s, which %s owns" % (word, owner)), (rel, text, said))
         for rel, text, words in (("kernel/gate.py", "from kernel import terms as t\n" + gate, "imports kernel.terms"),
                                  ("kernel/gate.py", "import kernel.derive\n" + gate, "imports kernel.derive"),
@@ -2726,18 +2796,18 @@ class Purity(unittest.TestCase):
                                   "imports kernel.derive"),
                                  ("kernel/brakes.py", "from kernel import terms, decide\n" + brakes,
                                   "imports kernel.decide")):
-            said = check_purity.run(tree(dict(clean, **{rel: text})))
+            said = check_purity.run(planted(dict(clean, **{rel: text})))
             self.assertTrue(caught(said, words), (rel, text, said))
 
     def test_a_way_round_the_names_is_caught(self):
-        root = tree({"kernel/x.py": "def f():\n    return __builtins__['open'], getattr(f, 'x')\n"})
+        root = planted({"kernel/x.py": "def f():\n    return __builtins__['open'], getattr(f, 'x')\n"})
         problems = check_purity.run(root)
         self.assertTrue(caught(problems, "uses __builtins__") and caught(problems, "uses getattr"))
 
     def test_no_kernel_and_a_kernel_that_cannot_be_read_are_problems_not_crashes(self):
-        self.assertEqual(check_purity.run(tree({"x": ""})), ["there is no kernel/ to check"])
-        self.assertTrue(caught(check_purity.run(tree({"kernel/x.py": "def f(:\n"})), "cannot be read as Python"))
-        self.assertTrue(caught(check_purity.run(tree({"kernel/x.py": "async def f():\n    return 1\n"})), "async function"))
+        self.assertEqual(check_purity.run(planted({"x": ""})), ["there is no kernel/ to check"])
+        self.assertTrue(caught(check_purity.run(planted({"kernel/x.py": "def f(:\n"})), "cannot be read as Python"))
+        self.assertTrue(caught(check_purity.run(planted({"kernel/x.py": "async def f():\n    return 1\n"})), "async function"))
 
 
 class Repo(unittest.TestCase):
@@ -3272,8 +3342,8 @@ class Workflows(unittest.TestCase):
                      steps.replace("  pull_request:\n", "  pull_request:\n  schedule:\n    - cron: '0 3 * * *'\n") + base,
                      # No secret, or one a whole-line comment names; and no pull request's run.
                      top + "    steps:\n" + head, top + "    # secrets.SONAR_TOKEN\n    steps:\n" + head,
-                     steps.replace("  pull_request:\n  merge_group:\n", "  push:\n") + head,
-                     steps.replace("on:\n  pull_request:\n  merge_group:\n", "on: push\n") + head):
+                     steps.replace("  pull_request:\n  merge_group:\n", "  push:\n    branches:\n      - main\n") + head,
+                     steps.replace("on:\n  pull_request:\n  merge_group:\n", "on: schedule\n") + head):
             self.assertEqual(problems(held)[1], [], held)
         for why, wrong in {
                 "the head, by no ref": steps + head,
@@ -3308,6 +3378,42 @@ class Workflows(unittest.TestCase):
                 "a push beside, by the base's ref": steps.replace("  pull_request:\n", "  push:\n  pull_request:\n") + base,
                 "a dispatch beside, by the base's ref": steps.replace("  pull_request:\n", "  workflow_dispatch:\n  pull_request:\n") + base}.items():
             self.assertTrue(caught(problems(wrong)[1], not_base), why)
+        # Issue 907: a workflow on push beside a secret runs on a push to main alone; any other push, by a value, by no
+        # filter, by another branch or a pattern, beside tags or paths, would run a Role's commit beside the secret.
+        pushed = "other.yml runs on a push beside a secret, and is not read as filtered to main alone"
+        main = "name: w\non:\n  push:\n    branches:\n      - main  # the default branch\npermissions: {}\njobs:\n  one:\n    runs-on: ubuntu-24.04\n"
+        for held in (main + named + "    steps:\n" + head, main + "    steps:\n" + head,
+                     # YAML's compact list, a comment and a blank line between, and two spaces after the dash.
+                     main.replace("      - main  # the default branch\n", "    - main\n") + named + "    steps:\n" + head,
+                     main.replace("      - main  # the default branch\n", "      # the default branch\n\n      -  main\n")
+                     + named + "    steps:\n" + head,
+                     main.replace("  push:\n    branches:\n      - main  # the default branch\n", "  schedule:\n    - cron: '0 3 * * *'\n")
+                     + named + "    steps:\n" + head):
+            self.assertEqual([p for p in problems(held)[1] if pushed in p], [], held)
+        for why, wrong in {"no filter": main.replace("    branches:\n      - main  # the default branch\n", ""),
+                           "a value": main.replace("on:\n  push:\n    branches:\n      - main  # the default branch\n", "on: push\n"),
+                           "another branch": main.replace("- main", "- dev"),
+                           "two branches": main.replace("      - main  # the default branch\n", "      - main\n      - dev\n"),
+                           "a pattern": main.replace("- main", "- m*"),
+                           "tags beside": main.replace("  # the default branch\n", "\n    tags:\n      - v1\n"),
+                           "branches as a flow list": main.replace("    branches:\n      - main  # the default branch\n", "    branches: [main]\n"),
+                           "a branch that is no list item": main.replace("- main  # the default branch", "main"),
+                           "branches-ignore": main.replace("    branches:\n", "    branches-ignore:\n"),
+                           "a name a space trims to main": main.replace("- main  # the default branch", "- main\u00a0")}.items():
+            self.assertTrue(caught(problems(wrong + named + "    steps:\n" + head)[1], pushed), why)
+            # With no secret it passes; but a line the check cannot read, a flow list among them, may hide one.
+            unread = why in ("branches as a flow list", "a branch that is no list item", "a name a space trims to main")
+            self.assertEqual(bool([p for p in problems(wrong + "    steps:\n" + head)[1] if pushed in p]), unread, why)
+        # Beside another event, by a workflow called alone, and by events written as a list, which cannot be read, the
+        # push is held too, with no checkout for another rule to catch (Astra's read).
+        bare = "      - run: make checks\n"
+        for why, wrong in {"beside a schedule": main.replace("    branches:\n      - main  # the default branch\n",
+                                                             "  schedule:\n    - cron: '0 3 * * *'\n") + named + "    steps:\n" + bare,
+                           "a workflow called alone": main.replace("    branches:\n      - main  # the default branch\n", "")
+                           .replace("    runs-on: ubuntu-24.04\n", "    uses: ./.github/workflows/called.yml\n"),
+                           "events as a list": main.replace("  push:\n    branches:\n      - main  # the default branch\n", "  - push\n")
+                           + named + "    steps:\n" + bare}.items():
+            self.assertTrue(caught(problems(wrong)[1], pushed), why)
         # The listed workflow checks out the head, so nothing of it is run beside the secret: no command, and no
         # workflow called, whose steps are not read here.
         runs = "sonarcloud.yml runs on a pull request or a merge group beside a secret and the head it checks out, and is not read as"
@@ -5236,6 +5342,215 @@ class Workflows(unittest.TestCase):
                 found = ROOT.joinpath(*parts).with_suffix(".py").is_file() or (ROOT.joinpath(*parts) / "__main__.py").is_file()
                 self.assertTrue(found, "%s runs %s" % (path.name, module))
 
+
+
+class PullTitle(unittest.TestCase):
+    """A pull request's title is `area: plain verb phrase (#issue)`, held by tools/pr_title.py (issue 1089)."""
+
+    GOOD = "review: use full blob id for binary files so diffs stop flapping (#1016)"
+
+    def codes(self, title):
+        return sorted({problem.split(":", 1)[0] for problem in pr_title.problems(title)})
+
+    def test_a_title_keeps_the_rule_or_says_which_part_it_breaks(self):
+        # The Maintainer's own examples keep it, and so do an area with a dot or a slash, and a part of a count.
+        for title in (self.GOOD, "config: cap implementing rounds at 3 (#1038, part 1 of 4)",
+                      ".github: add a pull request template (#1072)", "adapters/github: retry a read once (#9)",
+                      "kernel: hold an item (#1, part 2 of 2)", "kernel: hold an item (#1, part 1 of 2)",
+                      "pr-review2: hold an item (#1)", "check_x.y: hold an item (#1, part 9999 of 9999)"):
+            self.assertEqual(pr_title.problems(title), [], title)
+        # The length: at most 72 characters, GitHub's " (#N)" on the squash not counted, since the title holds none.
+        self.assertEqual(pr_title.LONGEST, 72)
+        at_most = "kernel: " + "a" * (72 - len("kernel:  (#1)")) + " (#1)"
+        self.assertEqual((len(at_most), self.codes(at_most)), (72, []))
+        self.assertEqual(self.codes(at_most.replace("kernel", "kernels")), ["title_too_long"])
+        # The area: a lowercase word of letters, digits, dots, slashes, dashes or underscores, a colon and a space.
+        for title in ("Kernel: hold an item (#1)", "kernel:hold an item (#1)", "kernel : hold an item (#1)",
+                      "hold an item (#1)", ": hold an item (#1)", "-kernel: hold an item (#1)", "ker nel: hold an item (#1)",
+                      "kerNel: hold an item (#1)", "kernel$: hold an item (#1)"):
+            self.assertIn("title_no_area", self.codes(title), title)
+        # The phrase starts with a lowercase letter and ends with no full stop.
+        for title in ("kernel: Hold an item (#1)", "kernel: 3 items are held (#1)", "kernel: (#1)", "kernel:  hold (#1)",
+                      "kernel: \u2173 items are held (#1)", "kernel: \u00e9tend an item (#1)"):
+            self.assertIn("title_phrase_not_lowercase" if title != "kernel:  hold (#1)" else "title_no_area",
+                          self.codes(title), title)
+        self.assertEqual(self.codes("kernel: hold an item. (#1)"), ["title_ends_with_stop"])
+        self.assertEqual(self.codes("kernel: hold an item.  (#1)"), ["title_ends_with_stop"])
+        # A part's numbers too long to convert are out of range, said with no number of the title's.
+        said = pr_title.problems("kernel: hold (#1, part 1 of " + "9" * 5000 + ")")
+        self.assertIn("title_part_out_of_range: a part's numbers are longer than 4 digits", said)
+        self.assertFalse(any("99999" in p for p in said))
+        self.assertEqual(self.codes("kernel: hold an item... (#1)"), ["title_ends_with_stop"])
+        for title in ("kernel: hold an item, (#1)", "kernel: hold an item; (#1)", "kernel: hold an item: (#1)",
+                      "kernel: hold an item  (#1)", "kernel: hold an item\t (#1)"):
+            self.assertEqual(self.codes(title), ["title_ends_with_stop"], title)
+        # The issue, at the end: a number with no leading zero, and a part K of M with 1 <= K <= M and M >= 2.
+        for title in ("kernel: hold an item", "kernel: hold an item (1)", "kernel: hold an item #1",
+                      "kernel: hold an item (#01)", "kernel: hold an item (#1) now",
+                      "kernel: hold an item (#1, part 1 of 02)", "kernel: hold an item (#1 part 1 of 2)",
+                      "kernel: hold an item (#1)\n", "kernel: hold an item(#1)", "kernel: hold an item (#1, part 01 of 2)"):
+            self.assertIn("title_no_issue", self.codes(title), title)
+        for title in ("kernel: hold an item (#1, part 3 of 2)", "kernel: hold an item (#1, part 1 of 1)",
+                      "kernel: hold an item (#1, part 2 of 1)", "kernel: hold an item (#1, part 0 of 2)",
+                      "kernel: hold an item (#1, part 0 of 0)", "kernel: hold an item (#1, part 1 of 10000)"):
+            self.assertEqual(self.codes(title), ["title_part_out_of_range"], title)
+        # A name from inside the code, each mark on its own, and none in the area.
+        for title in ("kernel: hold an item with `x` (#1)", "kernel: hold max_rounds (#1)", "kernel: amend record 0219 (#1)",
+                      "kernel: amend decision 0219 (#1)", "kernel: amend Records #0219 (#1)", "trials: record P-73 (#1)",
+                      "kernel: amend decision  0219 (#1)", "kernel: amend record\t0219 (#1)",
+                      "trials: record p-73 (#1)",
+                      "kernel: bound effect/1 (#1)"):
+            self.assertEqual(self.codes(title), ["title_internal_term"], title)
+        for title in ("check_x: hold an item (#1)", "kernel: hold a record of 219 items (#1)", "kernel: hold P-x (#1)",
+                      "kernel: read and/or write (#1)", "kernel: hold 1/2 of it (#1)", "kernel: hold an item_ (#1)",
+                      "kernel: speak HTTP/2 (#1)"):
+            self.assertEqual(self.codes(title), [], title)
+        # Each problem says where, and holds no word of the title.
+        said = pr_title.problems("kernel: hold max_rounds (#1)")
+        self.assertEqual(said, ["title_internal_term: characters 16 to 18 hold a name joined by an underscore, a name from "
+                                "inside the code; say it in plain words"])
+        # Every problem at once, never the first alone.
+        self.assertEqual(self.codes("Hold `max_rounds` in record 0219 for effect/1 at P-2 now, and for a long while yet."),
+                         ["title_ends_with_stop", "title_internal_term", "title_no_area", "title_no_issue", "title_too_long"])
+
+    def test_the_title_is_read_from_github_on_both_events_and_refuses_where_it_cannot_be(self):
+        root = tree({})
+        where = root / "event.json"
+        sha = "a" * 40
+        ref = "refs/heads/gh-readonly-queue/main/pr-44-" + sha
+        opened = pr_title.CUTOVER
+        good = {"number": 44, "title": self.GOOD, "created_at": opened, "base": {"repo": {"full_name": "o/r"}}}
+
+        class Asked:
+            def __init__(self, status=200, body=None, fails=False):
+                self.status, self.body, self.fails, self.asked = status, good if body is None else body, fails, []
+
+            def send(self, asked):
+                self.asked.append(asked)
+                if self.fails:
+                    raise github.Unanswered("no answer")
+                return {"status": self.status, "body": self.body}
+
+        def checked(transport=None, event="pull_request", payload=None, token="t"):
+            told = ({"pull_request": {"number": 44}, "repository": {"full_name": "o/r"}} if event == "pull_request" else
+                    {"merge_group": {"head_ref": ref, "base_ref": "refs/heads/main"}, "repository": {"full_name": "o/r"}})
+            where.write_text(json.dumps(told if payload is None else payload))
+            environ = {"EVENT": event, "GITHUB_EVENT_PATH": str(where)}
+            if token is not None:
+                environ["WORKFLOW_TOKEN"] = token
+            return pr_title.check(environ, Asked() if transport is None else transport)
+
+        def refused(found, code):
+            self.assertTrue(found and all(p.startswith(code) for p in found), found)
+
+        # On both events the pull request is read from GitHub, once, by its number, never from the payload's title: so a
+        # title edited before review is read again when the failed job is re-run.
+        for event in ("pull_request", "merge_group"):
+            read = Asked()
+            self.assertEqual(checked(read, event), [], event)
+            self.assertEqual([(a["method"], a["path"]) for a in read.asked], [("GET", "/repos/o/r/pulls/44")])
+            # A title that breaks the rule refuses on each, the merge group's among them, which is what main's log takes.
+            refused(checked(Asked(body=dict(good, title="Holds an item")), event), "title_")
+            self.assertIn("title_no_area", checked(Asked(body=dict(good, title="Holds an item (#1)")), event)[0])
+        self.assertEqual(checked(payload={"pull_request": {"number": 44, "title": "Holds an item"},
+                                          "repository": {"full_name": "o/r"}}), [])
+        # The cutover: a pull request opened one second before it is not read; one opened at it is.
+        bad = dict(good, title="Holds an item")
+        self.assertEqual(checked(Asked(body=dict(bad, created_at="2026-11-21T23:59:59Z"))), [])
+        refused(checked(Asked(body=dict(bad, created_at="2026-11-22T00:00:00Z"))), "title_")
+        refused(checked(Asked(body=dict(bad, created_at="2026-11-22T00:00:01Z"))), "title_")
+        self.assertEqual(pr_title.CUTOVER, "2026-11-22T00:00:00Z")
+        # What cannot be read refuses, with its own code, and never passes: no answer, another status or shape, another
+        # pull request, a title or a time that cannot be read, no token, no event, and a payload or a ref of no form.
+        refused(checked(Asked(fails=True)), "title_unreadable")
+        for transport in (Asked(status=404), Asked(status=500), Asked(body=[]), Asked(body="x"), Asked(body=dict(good, number=45)),
+                          Asked(body=dict(good, number=True)), Asked(body=dict(good, title=None)), Asked(body=dict(good, title="")),
+                          Asked(body=dict(good, title=["x"])), Asked(body={"number": 44, "title": self.GOOD}),
+                          Asked(body=dict(good, created_at="2026-11-22")), Asked(body=dict(good, created_at=None)),
+                          Asked(body=dict(good, created_at="2026-11-22T00:00:00+00:00")),
+                          Asked(body=dict(good, base={"repo": {"full_name": "o/other"}})), Asked(body=dict(good, base=None)),
+                          Asked(body=dict(good, base={"repo": None})), Asked(body={k: v for k, v in good.items() if k != "base"}),
+                          Asked(body=dict(good, base="o/r")), Asked(body=dict(good, base={"repo": "o/r"})),
+                          Asked(body=dict(good, base={"repo": ["o/r"]})),
+                          Asked(body=dict(good, created_at="2026-02-30T00:00:00Z")),
+                          Asked(body=dict(good, created_at="2026-13-01T00:00:00Z")),
+                          Asked(body=dict(good, created_at="2026-11-22T24:00:00Z")),
+                          Asked(body=dict(good, created_at="2026-1-2T0:0:0Z"))):
+            for event in ("pull_request", "merge_group"):
+                refused(checked(transport, event), "title_unreadable")
+        # The answer's number is held to an integer as the event's is: true is no pull request 1.
+        where.write_text(json.dumps({"pull_request": {"number": 1}, "repository": {"full_name": "o/r"}}))
+        refused(pr_title.check({"EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"},
+                               Asked(body=dict(good, number=True))), "title_unreadable")
+        self.assertEqual(pr_title.check({"EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"},
+                                        Asked(body=dict(good, number=1))), [])
+        # A pull request opened before the cutover needs no title at all; one opened at it does.
+        for title in (None, "", ["x"]):
+            self.assertEqual(checked(Asked(body=dict(good, title=title, created_at="2026-11-21T23:59:59Z"))), [])
+            refused(checked(Asked(body=dict(good, title=title))), "title_unreadable")
+        self.assertEqual(checked(Asked(body={k: v for k, v in dict(good, created_at="2026-01-01T00:00:00Z").items()
+                                             if k != "title"})), [])
+        for token in (None, ""):
+            refused(checked(token=token), "title_unreadable")
+            refused(checked(token=token, event="merge_group"), "title_unreadable")
+        for event in (None, "push", "pull_request_target"):
+            refused(checked(event=event, payload={"pull_request": {"number": 44}, "repository": {"full_name": "o/r"}}),
+                    "title_unreadable")
+        for payload in ([], {}, {"pull_request": {"number": 44}}, {"pull_request": None, "repository": {"full_name": "o/r"}},
+                        {"pull_request": {"number": "44"}, "repository": {"full_name": "o/r"}},
+                        {"pull_request": {"number": True}, "repository": {"full_name": "o/r"}},
+                        {"pull_request": {"number": 0}, "repository": {"full_name": "o/r"}},
+                        {"pull_request": {"number": 44}, "repository": {"full_name": None}}):
+            read = Asked()
+            refused(checked(read, payload=payload), "title_unreadable")
+            self.assertEqual(read.asked, [], payload)
+        for head_ref in ("refs/heads/gh-readonly-queue/main/pr-44", "refs/heads/main", ref + "x", None,
+                         "refs/heads/gh-readonly-queue/main/pr-0-" + sha):
+            refused(checked(event="merge_group", payload={"merge_group": {"head_ref": head_ref},
+                                                          "repository": {"full_name": "o/r"}}), "title_unreadable")
+        where.write_text("not json")
+        refused(pr_title.check({"EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"}, Asked()),
+                "title_unreadable")
+        refused(pr_title.check({"EVENT": "pull_request", "WORKFLOW_TOKEN": "t"}, Asked()), "title_unreadable")
+        # With no transport handed, the job's own Live is built from its token.
+        with mock.patch.object(pr_title, "Live") as live:
+            live.return_value.send.return_value = {"status": 200, "body": good}
+            where.write_text(json.dumps({"pull_request": {"number": 44}, "repository": {"full_name": "o/r"}}))
+            self.assertEqual(pr_title.check({"EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"}), [])
+            live.assert_called_once_with("t")
+
+    def test_no_title_writes_a_command_into_the_jobs_log(self):
+        # The title is text from outside, and the job's log reads a line that starts with `::` as a command. What the
+        # job prints names a rule's code and a position, never a word of the title.
+        planted = "Pwned ::error::x\n::add-mask::y %0A::stop-commands::z max_rounds `w` record 0001 P-1 effect/1."
+        root = tree({"config/hooks.json": json.dumps({"openers": [{"login": "ada", "id": 1, "is": "the Maintainer"}]})})
+        where = root / "event.json"
+        where.write_text(json.dumps({"pull_request": {"number": 44, "user": {"login": "ada", "id": 1},
+                                                      "head": {"repo": {"full_name": "o/r"}}, "base": {"repo": {"full_name": "o/r"}}},
+                                     "repository": {"full_name": "o/r"}}))
+
+        class Asked:
+            def send(self, asked):
+                return {"status": 200, "body": {"number": 44, "title": planted, "created_at": pr_title.CUTOVER,
+                                                "base": {"repo": {"full_name": "o/r"}}}}
+        environ = {"BASE_SHA": "a" * 40, "HEAD_SHA": "b" * 40, "EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where),
+                   "WORKFLOW_TOKEN": "t"}
+        out = "\n".join(pr_title.check(environ, Asked()))
+        self.assertIn("title_no_area", out)
+        self.assertIn("title_internal_term", out)
+        for word in ("::", "Pwned", "add-mask", "%0A", "max_rounds", "effect/1", "P-1"):
+            self.assertNotIn(word, out)
+        # The desk's command prints the same, and says so where a title keeps the rule.
+        for title, code in ((planted, 1), (self.GOOD, 0)):
+            with contextlib.redirect_stdout(io.StringIO()) as printed:
+                self.assertEqual(pr_title.main([title]), code)
+            self.assertNotIn("::", printed.getvalue())
+            if code:
+                self.assertEqual(printed.getvalue().splitlines(), pr_title.problems(title))
+        self.assertIn("keeps the rule", printed.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            self.assertEqual(pr_title.main([]), 2)
+            self.assertEqual(pr_title.main(["a", "b"]), 2)
 
 
 class TheList(unittest.TestCase):
@@ -7199,8 +7514,10 @@ class Trials(unittest.TestCase):
         by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
         for code in ("a_closing_reference_is_read_from_any_pull_request", "who_changed_the_draft_flag_is_read"):
             self.assertEqual(by_code[code], ("trials/P-33.json", "trials/P-33.port.json"), code)
-        self.assertEqual(by_code["an_issues_content_time_is_read_apart"], ("trials/P-34.json", "trials/P-34.rest.json"))
-        self.assertEqual(by_code["a_reopening_names_its_actor"], "trials/P-34.rest.json")
+        # The issues port's own reads, trials/P-72.json, ground the rules P-34.rest did: read() reads them (issue 831).
+        self.assertEqual(by_code["an_issues_content_time_is_read_apart"], ("trials/P-34.json", "trials/P-72.json"))
+        self.assertEqual(by_code["a_reopening_names_its_actor"], "trials/P-72.json")
+        self.assertEqual(by_code["an_issues_close_and_reopening_say_when"], ("trials/P-34.rest.json", "trials/P-72.json"))
         p33 = json.loads((ROOT / "trials" / "P-33.json").read_text())
         self.assertEqual(p33["verdict"], "pass")
         prs = p33["exchanges"][0]["response"]["body"]["data"]["repository"]
@@ -11847,6 +12164,72 @@ class Writes(unittest.TestCase):
         # Nor can what an import of all of such a package binds (issue 640).
         self.assertTrue(caught(problems, "harness/nsstar.py:2 imports * from adapters"), problems)
 
+    def test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one(self):
+        # Issue 1101: the mutants of a file outside kernel/ live in tools/mutants_of/, and a mutant of a script or a
+        # hook names gh or git as the text it finds. Such a file imports no module, and names only from another file
+        # there that imports none either, read through in turn, so nothing it reaches runs a command. One that imports
+        # anything else, anywhere in it, is read as any other file: a module (pathlib hands on os), a name from a file
+        # that imported a module and hands it on, from one that does so a step further off, from a ring of imports,
+        # the package itself, a relative import, or a file beside the folder whose name starts as its does. Only its
+        # top-level assignments may name one, never a def: a def handed a runner would run what it names. Nor a lambda,
+        # whatever its parameters are called, and none of the calls it may make bound to another value, by a
+        # comprehension, an assignment, a walrus or an import, or set as an attribute, which would make any call one;
+        # nor an item set, which would change another file's list.
+        # A module named from a package is read as any file named from, and a ring of them through it is no data; a
+        # module below a package there is named from by none, since Python runs that package first.
+        entry = "MUTANTS = [\n    ('a push is not read', 'tools/hooks/identity.py', \"subprocess.run(['git', 'push'])\", '', ()),\n]\n"
+        files = {"tools/mutants_of/common.py": "\"\"\"Shared.\"\"\"\n\nX = ('t',)\nY = X + ('u',)\n",
+                 "tools/mutants_of/data.py": "\"\"\"Data.\"\"\"\n\nfrom tools.mutants_of.common import X, Y\n\nZ = tuple('ab'.replace('a', 'c'))\n" + entry,
+                 "tools/mutants_of/launder.py": "import subprocess\n\nrun = subprocess.run\n",
+                 "tools/mutants_of/runs.py": "import subprocess\n\n" + entry,
+                 "tools/mutants_of/path.py": "import pathlib\n\n" + entry,
+                 "tools/mutants_of/handed.py": "from tools.mutants_of.launder import run\n\n" + entry,
+                 "tools/mutants_of/further.py": "from tools.mutants_of.handed import run\n\n" + entry,
+                 "tools/mutants_of/ring.py": "from tools.mutants_of.round import X\n\n" + entry,
+                 "tools/mutants_of/round.py": "from tools.mutants_of.ring import MUTANTS\n\nX = 1\n",
+                 "tools/mutants_of/package.py": "from tools.mutants_of import common\n\n" + entry,
+                 "tools/mutants_of/later.py": entry + "\n\ndef go():\n    import os\n",
+                 "tools/mutants_of/runner.py": "def version(run):\n    return run(['git', 'push'])\n",
+                 "tools/mutants_of/lambda.py": "version = lambda run: run(['git', 'push'])\n",
+                 "tools/mutants_of/named.py": "RUN = lambda tuple: tuple(['git', 'push'])\n",
+                 "tools/mutants_of/bare.py": "RUN = lambda: X\n" + entry,
+                 "tools/mutants_of/exited.py": "E = exit\n",
+                 "tools/mutants_of/rebound.py": "X = [tuple() for tuple in (exit,)]\n" + entry,
+                 "tools/mutants_of/renamed.py": "tuple = exit\nX = tuple()\n" + entry,
+                 "tools/mutants_of/imported.py": "from tools.mutants_of.exited import E as tuple\n\nX = tuple()\n" + entry,
+                 "tools/mutants_of/attribute_set.py": "exit.replace = print\nX = exit.replace('x')\n" + entry,
+                 "tools/mutants_of/walrus.py": "X = (tuple := exit)\nY = tuple()\n" + entry,
+                 "tools/mutants_of/item_set.py": "from tools.mutants_of.common import Y\n\nY[0] = 1\n" + entry,
+                 "tools/mutants_of/deep/__init__.py": "",
+                 "tools/mutants_of/deep/helper.py": "import subprocess\n\nX = 1\n",
+                 "tools/mutants_of/fromdeep.py": "from tools.mutants_of.deep import helper\n\n" + entry,
+                 "tools/mutants_of/deep/a.py": "from tools.mutants_of.deep import b\n\n" + entry,
+                 "tools/mutants_of/deep/b.py": "from tools.mutants_of.deep import a\n\nX = 1\n",
+                 "tools/mutants_of/deep/values.py": "X = 1\n",
+                 "tools/mutants_of/dotted.py": "from tools.mutants_of.deep.values import X\n\n" + entry,
+                 "tools/mutants_of/dunder.py": "RUN = ().__class__\n" + entry,
+                 "tools/mutants_of/builtin.py": "RUN = __import__\n" + entry,
+                 "tools/mutants_of/reaches.py": "RUN = getattr\n" + entry,
+                 "tools/mutants_of/alias.py": "from tools.mutants_of.common import X as __builtins__\n" + entry,
+                 "tools/mutants_of/attribute.py": "RUN = X.open\n" + entry,
+                 "tools/mutants_of/wrapper.py": "def bind(argv):\n    return argv\n\n\n" + entry,
+                 "tools/mutants_of/beside.py": "TARGETS = ('x.py',); print('git push')\n" + entry,
+                 "tools/mutants_of/raises.py": entry + "raise SystemExit(0)\n",
+                 "tools/mutants_of/exits.py": "RUN = exit()\n" + entry,
+                 "tools/mutants_of/calls.py": "RUN = 'x'.upper()\n" + entry,
+                 "tools/mutants_of/near.py": "from tools.mutants_ofx import X\n\n" + entry,
+                 "tools/mutants_of/relative.py": "from .tools.mutants_of.common import X\n\n" + entry,
+                 "tools/mutants_ofx.py": "X = 1\n" + entry}
+        problems = check_writes.run(clone(files))
+        self.assertFalse(caught(problems, "tools/mutants_of/data.py"), problems)
+        for name in ("runs", "path", "handed", "further", "ring", "package", "later", "runner", "lambda", "named", "bare",
+                     "rebound", "renamed", "imported", "attribute_set", "walrus", "item_set", "fromdeep", "deep/a", "dotted",
+                     "dunder",
+                     "builtin", "reaches", "alias", "attribute", "wrapper", "beside", "raises", "exits", "calls", "near", "relative",
+                     "../mutants_ofx"):
+            rel = os.path.normpath("tools/mutants_of/%s.py" % name)
+            self.assertTrue(any(p.startswith(rel + ":") and "names gh or git as a command" in p for p in problems), rel)
+
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
         queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
             "    return effects.role_write(transport, item, 'review', req, 'me')\n"
@@ -12531,6 +12914,68 @@ class Mutants(unittest.TestCase):
         with self.assertRaises(ValueError) as raised:
             mutants.selected({}, mutants=[("m", "k.py", "rule\n", "x\n")])
         self.assertIn("1 mutant(s) name no test", str(raised.exception))
+
+    def test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone(self):
+        # Issue 1101: a mutant of a file outside kernel/ lives in tools/mutants_of/, one file to a target, so that two
+        # changes adding mutants of different files never meet in one. The runner finds each file there by the walk, in
+        # the order of the names, so that no list names one; each holds the mutants of the paths its TARGETS name and
+        # no other; and no path is two files' targets, the Kernel's, or a target of a mutant tools/mutants.py holds.
+        from tools import mutants_of
+        names = mutants.area_names(ROOT)
+        self.assertEqual(names, sorted(names))
+        self.assertEqual([name for name in names if not mutants.AREA_NAME.fullmatch(name)], [])
+        self.assertEqual([area.__name__ for area in mutants.AREAS], ["tools.mutants_of." + name for name in names])
+        self.assertEqual(mutants.area_names(tree({"tools/mutants_of/%s" % rel: "" for rel in (
+            "a.py", "b.py", "deep/c.py", "common.py", "__init__.py", "AGENTS.md", "d.txt")})), ["a", "b"])
+        # Each is loaded, in that order, and a name that is no module name is never handed to the import.
+        loaded = mutants.areas(tree({"tools/mutants_of/%s" % rel: "" for rel in ("a.py", "b.py", "x.y.py", "C.py")}),
+                               load=lambda name: name)
+        self.assertEqual(loaded, ("tools.mutants_of.a", "tools.mutants_of.b"))
+        held = {}
+        for area in mutants.AREAS:
+            self.assertTrue(area.TARGETS and isinstance(area.TARGETS, tuple), area.__name__)
+            self.assertIn(area.__name__.rpartition(".")[2], [mutants_of.named(t) for t in area.TARGETS])
+            for target in area.TARGETS:
+                self.assertFalse(target.startswith("kernel/"), (area.__name__, target))
+                self.assertNotIn(target, held, area.__name__)
+                held[target] = area.__name__
+            self.assertEqual([m[0] for m in area.MUTANTS if m[1] not in area.TARGETS], [], area.__name__)
+        self.assertEqual(mutants.OUTSIDE, [mutant for area in mutants.AREAS for mutant in area.MUTANTS])
+        self.assertTrue(mutants.OUTSIDE)
+        start, end = len(mutants.ISSUE), len(mutants.ISSUE) + len(mutants.OUTSIDE)
+        self.assertEqual(mutants.MUTANTS[start:end], mutants.OUTSIDE)
+        own = mutants.MUTANTS[:start] + mutants.MUTANTS[end:]
+        self.assertEqual([m[0] for m in own if m[1] in held], [])
+        # The runner's list is the one assignment that reads them, right after ISSUE.
+        made = [n.value for n in ast.parse((ROOT / "tools" / "mutants.py").read_text(encoding="utf-8")).body
+                if isinstance(n, ast.Assign) and [getattr(t, "id", None) for t in n.targets] == ["MUTANTS"]]
+        self.assertEqual(len(made), 1)
+        self.assertTrue(ast.unparse(made[0]).startswith("ISSUE + OUTSIDE + "))
+        # A file is named for one of its targets, so that a mutant's file is found from its target alone.
+        for target, name in (("adapters/pull.py", "adapters_pull"), (".github/workflows/verify.yml", "github_workflows_verify_yml"),
+                             ("controller/__main__.py", "controller_main"), ("Makefile", "makefile"), ("3d/x.py", "_3d_x")):
+            self.assertEqual(mutants_of.named(target), name)
+
+    def test_every_mutant_finds_its_text_once_in_its_target(self):
+        # Issue 1101: a mutant whose text is not in its target exactly once is STALE, which only a run of the mutants
+        # told, and they decline on a pull request, so code moved by a change merged first was found in the merge
+        # group (#1037). Read here, as the run reads it, a stale mutant fails the pull request's own tests.
+        if os.environ.get("MUTATING"):
+            self.skipTest("a copy broken on purpose no longer holds the text it was broken from")
+        texts, stale = {}, []
+        for mutant in mutants.MUTANTS:
+            name, rel, old = mutant[:3]
+            if rel not in texts:
+                # A target is a plain path in the tree, as git names it, so that none is read outside it.
+                path = ROOT / rel
+                plain = rel == os.path.normpath(rel) and not rel.startswith(("/", "../")) and rel != ".."
+                try:
+                    texts[rel] = path.read_bytes().decode() if plain and path.is_file() else None
+                except (OSError, UnicodeDecodeError):
+                    texts[rel] = None
+            if texts[rel] is None or texts[rel].count(old) != 1:
+                stale.append("%s: %s" % (rel, name))
+        self.assertEqual(stale, [], "update each stale mutant to the code as it now reads")
 
     def test_a_test_module_is_read_in_a_process_of_its_own(self):  # issue 511
         # The runner learns whether a named test exists in another process, so a test module whose import patches the
