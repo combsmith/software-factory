@@ -5627,16 +5627,18 @@ class PullBody(unittest.TestCase):
         self.assertEqual(self.codes(self.body({"Why": "```\n## What changed\n```"})), [])
         # A fence closes at most three columns further in than it opened, so a list item's closes at its own indent;
         # an empty one is no text. A fence and a comment hide each other's marks, and a fence's words open no comment.
-        self.assertEqual(self.codes("```\n    ```\n" + self.body() + "```\n"), ["body_heading_missing"])
+        for code in ("```\n    ```\n", "```\n\t```\n", " ```\n    ```\n"):
+            self.assertEqual(self.codes(code + self.body() + "```\n"), ["body_heading_missing"], code)
         for hides in ("- ```\n  ## Why\n  ```\n", "```\n<!--\n```\n", "<!--\n```\n-->\n", "``` <!--\nx\n```\n"):
             self.assertEqual(self.codes(hides + self.body()), [], hides)
         self.assertEqual(self.codes(self.body({"Why": "```\n```"})), ["body_section_empty"])
+        self.assertEqual(self.codes(self.body({"Why": "```\n-\n```"})), [])
         # A heading is "## " and its words, up to three spaces in, closing hashes and spaces dropped; nothing else is.
         self.assertEqual(self.codes(self.body().replace("## Why", "   ## Why ##")), [])
         # It is read on a line that starts outside the scaffolding, as written, and a comment after its words is none.
         self.assertEqual(self.codes(self.body().replace("## Why\n", "## Why <!-- a note -->\n")), [])
         for odd in ("# Why", "### Why", "##Why", "    ## Why", "## why", "## Why?", "<!-- x --> ## Why",
-                    "<!--\n## x --> ## Why"):
+                    "<!--\n## x --> ## Why", "## Why ## <!-- x -->"):
             self.assertEqual(self.codes(self.body().replace("## Why\n", odd + "\n")), ["body_heading_missing"], odd)
         # A section ends at any second-level heading, its own or not, and a bare "##" is one.
         self.assertEqual(self.codes(self.body({"Why": "## Notes\nText for notes."})), ["body_section_empty"])
@@ -5669,7 +5671,7 @@ class PullBody(unittest.TestCase):
             self.assertEqual(self.codes(self.body({"Why": empty})), ["body_section_empty"], empty)
         # A list item, inline code alone, or what follows a closed block of any case, is text.
         for text in ("<!-- x --> words", "<DETAILS>x</Details> words", "- a change", "1. a step", "`code`",
-                     "``a ` <!-- b``"):
+                     "``a ` <!-- b``", "<details>\nAn unmatched `` then </details> then `ok`."):
             self.assertEqual(pr_title.body_problems(self.body({"Why": text})), [], text)
         # Inline code holds no markup: a tag or a comment's opening named in backticks hides nothing.
         self.assertEqual(self.codes(self.body({"Why": "A `<details>` block and a `` <!-- `` stay text."})), [])
@@ -5689,7 +5691,7 @@ class PullBody(unittest.TestCase):
         started = time.monotonic()
         for long in ("## " + "#" * 65000 + "a", "## a" + " #" * 32000, "<!--" * 16000, "<details " * 7000,
                      "<details>" * 7000, ("```\n" * 16000), "- " * 32000 + "```",
-                     "<details>" + "<!---->" * 9000, "`<!--` " * 9300):
+                     "<details>" + "<!---->" * 9000, "`<!--` " * 9300, "<!---->" * 4000 + "<details " * 4000):
             pr_title.body_problems(long)
         self.assertLess(time.monotonic() - started, 5.0)
         # Every problem at once, never the first alone, and none holds a word of the body.

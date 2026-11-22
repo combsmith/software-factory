@@ -37,7 +37,7 @@ BODY_CUTOVER = "2026-11-23T00:00:00Z"   # nor, for its body, one opened before t
 HEADINGS = ("Why", "What changed", "What to look at", "Record and protected edits")
 # A code fence: three or more backticks or tildes, after any indent or list marker, so that a fence in a list item hides
 # what it holds too (reading an indented fence as one only hides more); it closes on its own kind, at least as long,
-# at most three columns further in than it opened, with nothing but spaces or tabs after it. A backtick fence's words
+# at most three columns further in than its list item, with nothing but spaces or tabs after it. A backtick fence's words
 # hold no backtick, or it is inline code. It opens only on a line that starts outside the scaffolding, read as written.
 FENCE_OPEN = re.compile(r"[ \t]*(?:(?:[-*+]|[0-9]{1,9}[.)])[ \t]+)*(`{3,}|~{3,})([^\n]*)")
 FENCE_CLOSE = re.compile(r"[ \t]*(`{3,}|~{3,})[ \t]*")
@@ -47,7 +47,7 @@ DETAILS_OPEN = re.compile(r"<details(?:[ \t][^>\n]{0,200})?>", re.I)
 DETAILS_CLOSE = re.compile(r"</details[ \t]*>", re.I)
 COMMENT = re.compile(r"<!--")
 # Inline code, in which GitHub reads no markup: a run of up to eight backticks, then what it holds, then the same run.
-CODE_SPAN = re.compile(r"(`{1,8})(?!`)[^\n]{0,4000}?(?<!`)\1(?!`)")
+CODE_SPAN = re.compile(r"(?<!`)(`{1,8})(?!`)[^\n]{0,4000}?(?<!`)\1(?!`)")
 EMPTY_ITEM = re.compile(r"[ \t]*(?:[-*+]|[0-9]{1,9}[.)])?[ \t]*")
 AREA = re.compile(r"[a-z0-9.][a-z0-9._/-]*: (?=\S)")
 TAIL = re.compile(r" \(#[1-9][0-9]*(?:, part (0|[1-9][0-9]*) of (0|[1-9][0-9]*))?\)\Z")
@@ -121,8 +121,9 @@ def _tag(line: str, at: int, spans: list, pattern):
 
 def _visible(line: str, hidden: list) -> str:
     """What of `line` a reader sees outside the scaffolding, `hidden` being [in a comment, details blocks open], which
-    it carries from line to line. Outside a comment, a tag or a comment's opening in inline code is none."""
-    spans, seen, at = [0] * (len(line) + 1), [], 0
+    it carries from line to line. Outside a comment, a tag or a comment's opening in inline code is none. A tag is
+    searched for again only once the reading has passed the one found, so a line is read in about one pass."""
+    spans, seen, at, found = [0] * (len(line) + 1), [], 0, {}
     for span in CODE_SPAN.finditer(line):
         spans[span.start():span.end()] = [span.end()] * (span.end() - span.start())
     while at < len(line):
@@ -130,8 +131,10 @@ def _visible(line: str, hidden: list) -> str:
             end = line.find("-->", at)
             hidden[0], at = (False, end + 3) if end >= 0 else (True, len(line))
             continue
-        tags = (_tag(line, at, spans, COMMENT), _tag(line, at, spans, DETAILS_OPEN),
-                _tag(line, at, spans, DETAILS_CLOSE) if hidden[1] else None)
+        for pattern in (COMMENT, DETAILS_OPEN, DETAILS_CLOSE):
+            if pattern not in found or found[pattern] and found[pattern].start() < at:
+                found[pattern] = _tag(line, at, spans, pattern)
+        tags = (found[COMMENT], found[DETAILS_OPEN], found[DETAILS_CLOSE] if hidden[1] else None)
         first = min((tag for tag in tags if tag), key=lambda tag: tag.start(), default=None)
         if not hidden[1]:
             seen.append(line[at:first.start() if first else len(line)])
@@ -155,17 +158,18 @@ def body_problems(body: str) -> list:
             if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence) and indent <= column + 3:
                 fence = None
             elif section is not None:
-                section[1].append(line)
+                section[1].append("code" if line.strip() else "")    # a fenced line is text, whatever it holds
             continue
         whole = not hidden[0] and not hidden[1]
         opening = FENCE_OPEN.fullmatch(line) if whole else None
         if opening and not (opening.group(1)[0] == "`" and "`" in opening.group(2)):
             fence, column = opening.group(1), len(line[:opening.start(1)].expandtabs(4))
+            column = column if column > 3 or line.lstrip(" \t")[0] not in "`~" else 0
             continue
         visible = _visible(line, hidden)
-        words = _heading(visible) if whole and _heading(line) is not None else None
+        words = _heading(line) if whole else None
         if words is not None:
-            section = [words, []]
+            section = [_visible(words, [False, 0]).strip(" \t"), []]
             seen.append(section)
         elif section is not None:
             section[1].append(visible)
