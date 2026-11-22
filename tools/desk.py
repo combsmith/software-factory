@@ -179,9 +179,13 @@ def _renamed(root: pathlib.Path, base: str, side: str) -> set:
 
 
 def _counts(root: pathlib.Path, entry) -> dict:
-    """Each line of an entry's blob, split at a newline alone so a carriage return is the line's own, and how often."""
+    """Each line of an entry's blob, split at a newline alone so a carriage return is the line's own, and how often;
+    a blob that holds a NUL byte, binary, is counted as {None: 1}."""
+    blob = _git(root, "cat-file", "blob", entry[1]) if entry else b""
+    if b"\0" in blob:
+        return {None: 1}
     counts = {}
-    for line in _text(_git(root, "cat-file", "blob", entry[1])).split("\n") if entry else ():
+    for line in _text(blob).split("\n") if entry else ():
         counts[line] = counts.get(line, 0) + 1
     return counts
 
@@ -193,7 +197,7 @@ def _less(more: dict, fewer: dict) -> dict:
 
 def _told(rel: str, said: str, lines: dict) -> list:
     """SHOWN of `lines` at most, each escaped as a path is, and how many more there are."""
-    told = ["%r: %s: %r" % (rel, said, line.strip()[:WIDTH]) for line in sorted(lines)[:SHOWN]]
+    told = ["%r: %s: %r" % (rel, said, line[:WIDTH]) for line in sorted(lines)[:SHOWN]]
     more = sum(lines.values()) - sum(lines[line] for line in sorted(lines)[:SHOWN])
     return told + (["%r: %s: and %d more" % (rel, said, more)] if more else [])
 
@@ -262,8 +266,11 @@ def merged(root: pathlib.Path = ROOT) -> list:
             continue
         problems += ["%r: %s changed its mode, and the merge does not hold it" % (rel, whose)
                      for side, whose in ((entries[1], "the branch"), (entries[2], "main"))
-                     if entries[0] and side and have and side[0] != entries[0][0] and have[0] != side[0]]
+                     if side and have and side[0] != (entries[0] or ("",))[0] and have[0] != side[0]]
         was, kept, wanted, held = (_counts(root, entry) for entry in entries + (have,))
+        if any(None in counts for counts in (was, kept, wanted, held)):
+            problems.append("%r: binary: lines not compared" % rel)
+            continue
         problems += _told(rel, "main's line is gone, and the branch did not take it out",
                           _less(_less(wanted, held), _less(was, kept)))
         problems += _told(rel, "the branch's line is gone, and main did not take it out",
