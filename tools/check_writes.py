@@ -42,7 +42,8 @@ CALLERS = {
 TRANSPORT = {(GITHUB, "Live.send"), (GITHUB, "Replay.send")}
 # Python outside adapters/ that may hold a write verb as a string: each reads a command to classify it, and sends none.
 VERB_HOLDERS = ("tools/hooks/identity.py", "tools/hooks/protected.py")
-# Python that loads a module by a name it is given: tools/mutants.py loads a test under tests/, and checks it is one.
+# Python that loads a module by a name it is given: tools/mutants.py loads a test under tests/, and checks it is one,
+# and each file of MUTANT_DATA by its name, as `areas` finds them.
 NAME_LOADERS = ("tools/mutants.py",)
 # Python outside tests/ that imports a test: tools/make_corpus.py records the Kernel's decisions from tests/test_decide.py.
 TEST_IMPORTERS = ("tools/make_corpus.py",)
@@ -63,6 +64,9 @@ RUNNERS = ("harness/steps.py", "tools/check_decisions.py", "tools/check_trials.p
 # REACHERS, nor a name of two underscores. Only its assignments may name one; any other file there is read as any other.
 # Only another such file, or one RUNNERS names, may import from one that names a command so; tools/mutants.py loads each
 # by its name, the one way past, held by NAME_LOADERS, and reads the text as a patch to make, never a command to run.
+# Its limit: text taken through tools.mutants's names (MUTANTS, OUTSIDE, AREAS) is not followed. Each file that imports
+# tools.mutants is a runner, and reads those names as attributes, which no model of imported names could follow
+# (the Solution Architect, 2026-11-21).
 # It is read in good faith, as the rest of this check is: every other rule here still reads it.
 MUTANT_DATA = "tools/mutants_of/"
 # A command's name as a string, in any case, by a path or not, `.exe` or not: gh or git alone or opening a command line;
