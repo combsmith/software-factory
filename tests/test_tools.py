@@ -5840,10 +5840,11 @@ class Context(unittest.TestCase):
         with mock.patch.object(check_context, "FIRST_SHORT", 2):
             self.assertTrue(caught(check_context._decisions(tree(later)), "0003-z.md: from record 0002 on the file is named"))
         self.assertEqual(check_context._slug("A b \u2014"), "a-b")
+        self.assertEqual(check_context._slug("\u2014 A b"), "a-b")
         self.assertEqual(check_context._slug("Caf\u00e9 au lait"), "caf-au-lait")
         # A title of 72 characters with spaces or a carriage return after it is still 72; a title that names nothing refuses.
         self.assertEqual(found("0002-" + check_context._slug(at_most) + ".md", at_most + "  \r"), [])
-        for empty in ("", "\u2014", " - "[1:2] * 0 + "??"):
+        for empty in ("", "\u2014", "??", "-", "- --"):
             self.assertTrue(caught(found("0002-.md", empty), "the title names nothing"), empty)
         # The file's own number decides, so a record past a gap is still held to it.
         files = {"docs/decisions/0001-x.md": "# 0001. X" + body, "docs/decisions/0003-y.md": "# 0003. " + over + body,

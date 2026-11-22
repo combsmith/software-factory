@@ -43,8 +43,8 @@ SUFFIXES = (".py", ".json", ".md", ".yml", ".yaml")
 EXTENSION = re.compile(r"\.[a-z0-9]{1,5}$")
 PENDING = "not held yet"
 # From this record on, a record's title after "# NNNN. " is at most RECORD_TITLE characters, and its file is named by it:
-# the title lowercased, every character but an ASCII letter, a digit, a space or a dash dropped, then each run of
-# spaces turned to one dash (decision 0245).
+# the title lowercased, every character but an ASCII letter, a digit, a space or a dash dropped, the spaces at either
+# end left out, then each run of spaces turned to one dash (decision 0245). A title with no letter or digit names nothing.
 # The records before keep their names, since a record is never edited.
 FIRST_SHORT = 245
 RECORD_TITLE = 72
@@ -387,7 +387,7 @@ def _slug(title: str) -> str:
 def _short(name: str, number: int, text: str) -> list:
     """Why a record from FIRST_SHORT on has a long title, or a file not named by its title: nothing where it has neither."""
     title = text.split("\n", 1)[0][len("# %04d. " % number):].rstrip()
-    problems = [] if _slug(title) else ["docs/decisions/%s: the title names nothing" % name]
+    problems = [] if re.search(r"[a-z0-9]", _slug(title)) else ["docs/decisions/%s: the title names nothing" % name]
     if len(title) > RECORD_TITLE:
         problems.append("docs/decisions/%s: the title is %d characters, and from record %04d on the most is %d"
                         % (name, len(title), FIRST_SHORT, RECORD_TITLE))
