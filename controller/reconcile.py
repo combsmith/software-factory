@@ -84,7 +84,8 @@ def _identities(accounts) -> tuple:
     return found, known
 
 
-EMPTY = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": [], "left": []}
+EMPTY = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": [], "left": [], "owed_issues": [],
+         "left_issues": []}
 # What a carried value may be, as `pass/1` holds it: a record's own schema may be wider, and one that does not fit is not
 # carried and leaves reconciliation short, so that one record never refuses a pass.
 FITS_KEY = re.compile(r"[A-Za-z0-9_=:-]{1,100}")
@@ -166,6 +167,18 @@ def _hands(seen: dict, before) -> tuple:
     return matched, unjudged
 
 
+def owed_issues(before) -> list:
+    """The issues a record before this pass could not read the writes on, or carried unread for want of a listing: read
+    until they have been (issue 916)."""
+    return list(_last(before).get("owed_issues", []))
+
+
+def left_issues(before, since=None) -> list:
+    """The issues a record before this pass read as left, closed since it served them, inside the window from `since`,
+    or all it holds with no `since`: read as a pull request that left is (issue 916)."""
+    return [e["number"] for e in _last(before).get("left_issues", []) if since is None or _within(e["at"], since)]
+
+
 def _one(doc: dict, kind: str) -> dict:
     return {"applied": [doc], "written": []} if kind == APPLIED else {"applied": [], "written": [doc]}
 
@@ -177,16 +190,18 @@ def unfit(effects) -> bool:
         or any(not FITS_ITEM.fullmatch(item) for _, item in items)
 
 
-def carried(before, effects, seen, now: str, unread=(), gone=()) -> dict:
+def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(), gone_issues=()) -> dict:
     """What this pass's record carries for the next: what was read in the window and the keys it held, those older than the
     window dropped, and the pull requests whose writes it could not read. A key, which one write alone can match, is stamped
     with when it was read, so it outlasts the write it records. A write matched by its item is credit any such write could
     spend, so it is stamped with when its record was made, and kept for `LATE` after, as the writes it records are later
     than that; so a late first read does not stretch it. So a record holds what the Effects said, not the records
     themselves, and a pass reads only what is new (decision 0112). Each pull request `gone`, first read as left by this
-    pass, is stamped with now, and one a record before stamped is kept until the window passes it (issue 787)."""
+    pass, is stamped with now, and one a record before stamped is kept until the window passes it (issue 787). So are
+    the issues, `unread_issues` and `gone_issues` (issue 916)."""
     since = seen["since"] if seen is not None and not errors(seen, "seen") else None
-    held = {name: [e for e in rows if name == "owed" or since is None or _within(e["at"], since, name == "items")]
+    held = {name: [e for e in rows if name in ("owed", "owed_issues") or since is None
+                   or _within(e["at"], since, name == "items")]
             for name, rows in _last(before).items()}
     held["owed"] = sorted(set(unread))
     held["left"] = [e for e in held.get("left", []) if e["number"] not in set(gone)] + [
@@ -197,6 +212,13 @@ def carried(before, effects, seen, now: str, unread=(), gone=()) -> dict:
         {"key": thread, "at": now} for thread in sorted(matched)]
     if (since is None or not seen["whole"]) and "hands" not in _last(before):
         del held["hands"]       # or the next pass judges threads from before the rule it never read
+    held["owed_issues"] = sorted(set(unread_issues))
+    held["left_issues"] = [e for e in held.get("left_issues", []) if e["number"] not in set(gone_issues)] + [
+        {"number": n, "at": now} for n in sorted(set(gone_issues))]
+    # A record with no issue to carry carries neither, as one written before them (issue 916).
+    for name in ("owed_issues", "left_issues"):
+        if not held[name]:
+            del held[name]
     if not _readable(effects):
         return held
     read = effects.get("read") if isinstance(effects.get("read"), dict) else {}

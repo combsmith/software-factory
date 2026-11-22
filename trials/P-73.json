@@ -1,0 +1,723 @@
+{
+  "schema": "trial/1",
+  "trial": "P-73",
+  "question": "What does the Checks API take of one neutral check run's annotations: how many in one request, how many in all over updates, the longest message kept whole, and does it keep an annotation on a path outside the pull request's diff, or one with no line?",
+  "pass": "Written before the run, in issue 1030 at 2026-11-20T18:18Z, nothing having run (trial TA4 of decision 0224's plan): in the canary, on a pull request of the trial's own that changes p73/a.py (canary pull request 132, branch trial/p-73, head 410baec), a workflow with its own GITHUB_TOKEN, granted checks write, makes completed neutral check runs: 1, 50 and 51 annotations; three updates of 50 more to the run of 50, then its annotations listed; a message of 65,536 and of 65,535 ASCII characters, each read back; an annotation on README.md, which the change does not touch; one with no start_line or end_line. The writer is GitHub Actions' App, not the Factory's: the annotation limits are the Checks API's, the same for every App, and this session may not mint the Factory App's token. Each answer was written to a file in the job and redacted there by software-factory's tools.redact_trial at d53baceb before it was uploaded. Pass: each is answered by what GitHub returned and recorded; it fails only if an answer cannot be read. Result, of what this file's own exchanges hold: one request takes 1 annotation, 201; one of 51 is refused, 422, 'No more than 50 items are allowed; 51 were supplied.', giving no run; the third page of the run of 50's annotations holds none; one with no start_line and end_line is refused, 422, '\"end_line\", \"start_line\" weren't supplied.'; read again by the Maintainer under a minute after the run, the run of 50 holds 150, so a run holds at least 150 and no limit was met, and the annotation on README.md, which the change does not touch, is listed. The Factory's own limits (adapters/advice.py: 50 in one request, a message of at most 8,000 characters) sit within each; a Finding with no line cannot be an annotation. Passed. What this file keeps (2026-11-21, to fit the review's size bound): exchanges 0, 2, 8, 15, 16 and 17 of the trial's 18, in the order they happened. Owed in P-73.messages.json: the message of 65,536 ASCII characters taken, 201, and kept cut to 65,535 with no word of it, the one of 65,535 kept whole, the annotation off the diff created, and its list asked about two seconds after its create answering 404. Owed in P-73.fifty.json: the create of the run of 50 and its first update, which took it to 100. Owed in P-73.updates.json: the second update, sent in the same second as the first's 200, answering 404 and not asked again, so its 50 are not among those listed, and the third, which took the run to 150. The first two pages of the run's annotations, of 100 and 50, are not kept: their counts and sha256 are in the call of the last read after the run, exchange 5 here.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-11-20T18:19:23Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "workflow",
+          "name": "p73-annotations, run 44791666775, with its own GITHUB_TOKEN and permissions checks: write, contents: read"
+        },
+        "via": "workflow",
+        "call": "POST /repos/combsmith/software-factory-canary/check-runs",
+        "headers": {},
+        "body": {
+          "name": "p73-one",
+          "head_sha": "410baecdbf481e396ca025d4de595f9976160383",
+          "status": "completed",
+          "conclusion": "neutral",
+          "output": {
+            "title": "p73-one",
+            "summary": "Platform trial P-73.",
+            "annotations": [
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 1",
+                "title": "p73 1"
+              }
+            ]
+          }
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 18:19:35 GMT"
+        },
+        "body": {
+          "id": 136480710236,
+          "name": "p73-one",
+          "node_id": "CR_kwDOVFD6788AAAAfxuJeXA",
+          "head_sha": "410baecdbf481e396ca025d4de595f9976160383",
+          "external_id": "",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/136480710236",
+          "html_url": "https://github.com/combsmith/software-factory-canary/runs/136480710236",
+          "details_url": "https://github.com/combsmith/software-factory-canary/runs/136480710236",
+          "status": "completed",
+          "conclusion": "neutral",
+          "started_at": "2026-11-20T18:19:34Z",
+          "completed_at": "2026-11-20T18:19:34Z",
+          "output": {
+            "title": "p73-one",
+            "summary": "Platform trial P-73.",
+            "text": null,
+            "annotations_count": 1,
+            "annotations_url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/136480710236/annotations"
+          },
+          "check_suite": {
+            "id": 121238760714
+          },
+          "app": {
+            "id": 15368,
+            "client_id": "Iv1.05c79e9ad1f6bdfa",
+            "slug": "github-actions",
+            "node_id": "MDM6QXBwMTUzNjg=",
+            "owner": {
+              "login": "github",
+              "id": 9919,
+              "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+              "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/github",
+              "html_url": "https://github.com/github",
+              "followers_url": "https://api.github.com/users/github/followers",
+              "following_url": "https://api.github.com/users/github/following{/other_user}",
+              "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+              "organizations_url": "https://api.github.com/users/github/orgs",
+              "repos_url": "https://api.github.com/users/github/repos",
+              "events_url": "https://api.github.com/users/github/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/github/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "name": "GitHub Actions",
+            "description": "Automate your workflow from idea to production",
+            "external_url": "https://help.github.com/en/actions",
+            "html_url": "https://github.com/apps/github-actions",
+            "created_at": "2018-07-30T09:30:17Z",
+            "updated_at": "2026-06-18T16:17:48Z",
+            "permissions": {
+              "actions": "write",
+              "administration": "read",
+              "artifact_metadata": "write",
+              "attestations": "write",
+              "checks": "write",
+              "code_quality": "write",
+              "contents": "write",
+              "copilot_requests": "write",
+              "deployments": "write",
+              "discussions": "write",
+              "drives": "write",
+              "issues": "write",
+              "merge_queues": "write",
+              "metadata": "read",
+              "models": "read",
+              "packages": "write",
+              "pages": "write",
+              "pull_requests": "write",
+              "repository_hooks": "write",
+              "repository_projects": "write",
+              "security_events": "write",
+              "statuses": "write",
+              "vulnerability_alerts": "read"
+            },
+            "events": [
+              "branch_protection_rule",
+              "check_run",
+              "check_suite",
+              "create",
+              "delete",
+              "deployment",
+              "deployment_status",
+              "discussion",
+              "discussion_comment",
+              "fork",
+              "gollum",
+              "issues",
+              "issue_comment",
+              "label",
+              "merge_group",
+              "milestone",
+              "page_build",
+              "public",
+              "pull_request",
+              "pull_request_review",
+              "pull_request_review_comment",
+              "push",
+              "registry_package",
+              "release",
+              "repository",
+              "repository_dispatch",
+              "status",
+              "watch",
+              "workflow_dispatch",
+              "workflow_run"
+            ]
+          },
+          "pull_requests": []
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "workflow",
+          "name": "p73-annotations, run 44791666775, with its own GITHUB_TOKEN and permissions checks: write, contents: read"
+        },
+        "via": "workflow",
+        "call": "POST /repos/combsmith/software-factory-canary/check-runs",
+        "headers": {},
+        "body": {
+          "name": "p73-fifty-one",
+          "head_sha": "410baecdbf481e396ca025d4de595f9976160383",
+          "status": "completed",
+          "conclusion": "neutral",
+          "output": {
+            "title": "p73-fifty-one",
+            "summary": "Platform trial P-73.",
+            "annotations": [
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 1",
+                "title": "p73 1"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 2",
+                "title": "p73 2"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 3",
+                "title": "p73 3"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 4",
+                "title": "p73 4"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 5",
+                "title": "p73 5"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 6",
+                "title": "p73 6"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 7",
+                "title": "p73 7"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 8",
+                "title": "p73 8"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 9",
+                "title": "p73 9"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 10",
+                "title": "p73 10"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 11",
+                "title": "p73 11"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 12",
+                "title": "p73 12"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 13",
+                "title": "p73 13"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 14",
+                "title": "p73 14"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 15",
+                "title": "p73 15"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 16",
+                "title": "p73 16"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 17",
+                "title": "p73 17"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 18",
+                "title": "p73 18"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 19",
+                "title": "p73 19"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 20",
+                "title": "p73 20"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 21",
+                "title": "p73 21"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 22",
+                "title": "p73 22"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 23",
+                "title": "p73 23"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 24",
+                "title": "p73 24"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 25",
+                "title": "p73 25"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 26",
+                "title": "p73 26"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 27",
+                "title": "p73 27"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 28",
+                "title": "p73 28"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 29",
+                "title": "p73 29"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 30",
+                "title": "p73 30"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 31",
+                "title": "p73 31"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 32",
+                "title": "p73 32"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 33",
+                "title": "p73 33"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 34",
+                "title": "p73 34"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 35",
+                "title": "p73 35"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 36",
+                "title": "p73 36"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 37",
+                "title": "p73 37"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 38",
+                "title": "p73 38"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 39",
+                "title": "p73 39"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 40",
+                "title": "p73 40"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 41",
+                "title": "p73 41"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 42",
+                "title": "p73 42"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 43",
+                "title": "p73 43"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 44",
+                "title": "p73 44"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 45",
+                "title": "p73 45"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 46",
+                "title": "p73 46"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 47",
+                "title": "p73 47"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 48",
+                "title": "p73 48"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 49",
+                "title": "p73 49"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 50",
+                "title": "p73 50"
+              },
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 51",
+                "title": "p73 51"
+              }
+            ]
+          }
+        }
+      },
+      "response": {
+        "status": 422,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 18:19:36 GMT"
+        },
+        "body": {
+          "message": "Invalid request.\n\nNo more than 50 items are allowed; 51 were supplied.",
+          "documentation_url": "https://docs.github.com/rest/checks/runs#create-a-check-run",
+          "status": "422"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "workflow",
+          "name": "p73-annotations, run 44791666775, with its own GITHUB_TOKEN and permissions checks: write, contents: read"
+        },
+        "via": "workflow",
+        "call": "GET /repos/combsmith/software-factory-canary/check-runs/136480715085/annotations?per_page=100&page=3",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 18:19:40 GMT"
+        },
+        "body": []
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "workflow",
+          "name": "p73-annotations, run 44791666775, with its own GITHUB_TOKEN and permissions checks: write, contents: read"
+        },
+        "via": "workflow",
+        "call": "POST /repos/combsmith/software-factory-canary/check-runs",
+        "headers": {},
+        "body": {
+          "name": "p73-no-line",
+          "head_sha": "410baecdbf481e396ca025d4de595f9976160383",
+          "status": "completed",
+          "conclusion": "neutral",
+          "output": {
+            "title": "p73-no-line",
+            "summary": "Platform trial P-73.",
+            "annotations": [
+              {
+                "path": "p73/a.py",
+                "annotation_level": "notice",
+                "message": "P-73 annotation 1",
+                "title": "p73 1"
+              }
+            ]
+          }
+        }
+      },
+      "response": {
+        "status": 422,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 18:19:44 GMT"
+        },
+        "body": {
+          "message": "Invalid request.\n\n\"end_line\", \"start_line\" weren't supplied.",
+          "documentation_url": "https://docs.github.com/rest/checks/runs#create-a-check-run",
+          "status": "422"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/check-runs/136480778285/annotations (gh api --include, from the Maintainer's terminal), the annotation off the diff read again after the run; client time 2026-11-20T18:20:26Z",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 18:20:26 GMT"
+        },
+        "body": [
+          {
+            "path": "README.md",
+            "blob_href": "https://github.com/combsmith/software-factory-canary/blob/410baecdbf481e396ca025d4de595f9976160383/README.md",
+            "start_line": 1,
+            "start_column": null,
+            "end_line": 1,
+            "end_column": null,
+            "annotation_level": "notice",
+            "title": "p73 1",
+            "message": "P-73 annotation 1",
+            "raw_details": null
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/check-runs/136480715085 (gh api --include, from the Maintainer's terminal), the run of 50 and its updates read again after the run; of the answer, its id, name, status and output's annotations_count are kept; client time 2026-11-20T18:20:26Z; the first two pages of the run's annotations, of 100 and 50 annotations, are not kept, to fit the review's size bound: their exchanges as recorded whole had sha256 7e17bde95da0af7cf0cf718bfedeb5f0569e4f67972cec77791f3822bf2fbdea and 5641618ab961abf6bbad9802e3d12a9e0ef8bf799bf829f3f86ec564d9c8d220, and each update's answer states the run's annotations_count",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 18:20:27 GMT"
+        },
+        "body": {
+          "id": 136480715085,
+          "name": "p73-fifty",
+          "status": "completed",
+          "output": {
+            "annotations_count": 150
+          }
+        }
+      }
+    }
+  ],
+  "removed": [],
+  "verdict": "pass"
+}
