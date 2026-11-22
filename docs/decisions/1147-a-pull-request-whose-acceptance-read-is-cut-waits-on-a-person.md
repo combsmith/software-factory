@@ -1,4 +1,4 @@
-# 0000. A pull request whose acceptance read is cut waits on a person
+# 1147. A pull request whose acceptance read is cut waits on a person
 
 Status: accepted. Extends decision 0234 with its rule for a pull request's acceptance read, as "adapters: bound the acceptance port's issue timeline read to ten pages" (issue 986) asks, part 1 of 2: the Kernel's rule and the fact it reads, as the Factory Builder ruled on 2026-11-20 (A, the fact optional, absent read as not cut). The port bounds the read in part 2. Decision 0234 stands as it is.
 
