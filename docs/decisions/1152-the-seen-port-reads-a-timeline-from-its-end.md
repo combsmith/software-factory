@@ -1,4 +1,4 @@
-# 0000. The seen port reads a timeline from its end
+# 1152. The seen port reads a timeline from its end
 
 Status: accepted. Extends decision 0234 with the seen port's read of a timeline from its end, as "adapters: bound a pull request's timeline and seen-issue reads by pages" (issue 1009) asks, part 4 of 4, as the Factory Builder ruled on 2026-11-20 (A, with its guard). It restates the rows of decision 1150 that it widens, now that a cut timeline's writes are read from its end; decisions 0234 and 1150 stand as they are.
 
