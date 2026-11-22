@@ -5320,6 +5320,18 @@ class Workflows(unittest.TestCase):
 
         def runs_the_items_code(text):
             entries, bad = check_workflows.read(text)
+            lines = text.splitlines()
+
+            def needs(job):
+                # A job's `needs`, inline or as a list on the lines after it.
+                said = [e for e in entries if e["key"] == "needs" and e["path"] == ["jobs", job]]
+                if not said or said[0]["value"]:
+                    return {n.strip() for n in (said[0]["value"] if said else "").strip("[]").split(",") if n.strip()}
+                listed, i = set(), said[0]["line"]
+                while i < len(lines) and lines[i].strip().startswith("- "):
+                    listed.add(lines[i].strip()[2:].strip())
+                    i += 1
+                return listed
 
             def of_step(key):
                 return {(e["path"][1], e["step"]): e["value"] for e in entries
@@ -5328,7 +5340,8 @@ class Workflows(unittest.TestCase):
             refs = {(e["path"][1], e["step"]) for e in entries if e["key"] == "ref" and e["path"][2:] == ["steps", "with"]}
             paths_of = {(e["path"][1], e["step"]) for e in entries if e["key"] == "path" and e["path"][2:] == ["steps", "with"]}
             found = [step for step, action in actions.items() if action == "actions/checkout" and step not in refs
-                     or action in ("actions/upload-artifact", "actions/download-artifact") and step not in paths_of]
+                     or action in ("actions/upload-artifact", "actions/download-artifact") and step not in paths_of
+                     or step[0] == "wake"]
             if any(e["value"] == "${{ needs.run.outputs.commit }}" for e in entries) and not (
                     [e["value"] for e in entries if e["path"] == ["jobs", "run", "outputs"] and e["key"] == "commit"]
                     == [fixed["commit"]] and of_step("id").get(("run", 2)) == "commit"
@@ -5348,7 +5361,8 @@ class Workflows(unittest.TestCase):
                     found.append(e["value"])
                 elif where == ("env",) and e["key"] in shapes and not re.fullmatch(shapes[e["key"]], e["value"]):
                     found.append(e["value"])
-                elif e["key"] == "ref" and e["value"] not in release or e["key"] == "uses" and not re.fullmatch(
+                elif e["key"] == "ref" and (e["value"] not in release or e["value"] == "${{ needs.run.outputs.commit }}" and (
+                        job == "run" or "run" not in needs(job))) or e["key"] == "uses" and not re.fullmatch(
                         r"actions/(checkout|upload-artifact|download-artifact)@[0-9a-f]{40}", e["value"]):
                     found.append(e["value"])
                 elif e["key"] == "run" and e["body"]:
@@ -5397,7 +5411,13 @@ class Workflows(unittest.TestCase):
                     "          artifact-ids: ${{ needs.run.outputs.artifact }}\n          path: result\n      - name: Verify the Result\n",
                     "          artifact-ids: ${{ needs.run.outputs.artifact }}\n      - name: Verify the Result\n")),
                 ("the Result downloaded into the harness", good.replace("          path: result\n", "          path: harness\n", 1)),
-                ("the wake runs more", good.replace('-f ref=main || echo', '-f ref=main; make || echo'))):
+                ("the wake runs more", good.replace('-f ref=main || echo', '-f ref=main; make || echo')),
+                ("the wake checks out", good.replace("    steps:\n      - name: Wake the next pass",
+                                                     "    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+                                                     "\n        with:\n          ref: ${{ job.workflow_sha }}\n      - name: Wake the next pass")),
+                ("the run job checks out what it hands on", good.replace(
+                    "          ref: ${{ job.workflow_sha }}\n", "          ref: ${{ needs.run.outputs.commit }}\n", 1)),
+                ("a job that needs no run checks out what the run handed on", good.replace("    needs: run\n", "", 1))):
             self.assertNotEqual(text, good, why)
             self.assertNotEqual(runs_the_items_code(text), [], why)
 

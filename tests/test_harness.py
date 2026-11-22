@@ -924,6 +924,9 @@ class Engine(unittest.TestCase):
                 allowed = [(a.split("=", 1)[1], i) if "=" in a else (args[i + 1], i + 1) for i, a in enumerate(args)
                            if a.split("=", 1)[0] in ("--allowedTools", "--allowed-tools")]
                 self.assertEqual([{t for t in a.split(",") if t} for a, _ in allowed], [want] if want else [], args)
+                # Nor is a tool brought in another way: no server, plugin, agent, settings or folder is loaded.
+                loaders = {"--mcp-config", "--plugin-dir", "--plugin-url", "--agents", "--agent", "--settings", "--add-dir"}
+                self.assertEqual([a for a in args if a.split("=", 1)[0] in loaders], [], args)
                 # Both flags take any number of values: what follows each one's value is an option, or nothing.
                 for i in [tools[0] + ("=" not in args[tools[0]])] + [i for _, i in allowed]:
                     self.assertTrue(i + 1 == len(args) or args[i + 1].startswith("-"), args)
