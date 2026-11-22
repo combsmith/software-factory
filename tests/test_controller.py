@@ -1333,7 +1333,7 @@ class Issues(unittest.TestCase):
         pull = {"facts": {"item": dict(support.ITEM, number=11)}, "title": None, "unread": "issue_budget"}
         self.assertEqual(passed(reads(pulls=[pull]))["record"]["left_out"], [{"item": dict(support.ITEM, number=11), "code": "not_facts"}])
 
-    def test_an_issue_left_unread_by_the_budget_or_the_list_is_shown_as_the_pass_before_decided_it(self):  # 0234, B3
+    def test_an_issue_left_unread_by_the_budget_or_the_list_is_shown_as_the_pass_before_decided_it(self):  # decision 1167
         # Issue 7 decided, then left out by the budget, then by a list read short, then read again. The view shows it as
         # the record before decided it, one pass deep, and its time in its State passes over the passes that left it
         # unread; a rebuild from the records shows the same.

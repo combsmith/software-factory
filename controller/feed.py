@@ -44,7 +44,7 @@ def unread(record: dict, item: dict) -> bool:
 
 def carried(record: dict, before: list) -> list:
     """The issues `record`'s pass left unread for want of a read alone, each as the record before it decided it, where
-    it did: so the view keeps showing them, one pass deep (decision 0234, ruling B3)."""
+    it did: so the view keeps showing them, one pass deep (decision 1167)."""
     if not before:
         return []
     return [e for e in before[-1]["issues"] if unread(record, e["decision"]["item"])]
