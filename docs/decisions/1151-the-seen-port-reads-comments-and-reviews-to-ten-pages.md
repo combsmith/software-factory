@@ -1,4 +1,4 @@
-# 0000. The seen port reads comments and reviews to ten pages
+# 1151. The seen port reads comments and reviews to ten pages
 
 Status: accepted. Extends decision 0234 with its bound on the seen port's lists of comments and reviews, as "adapters: bound a pull request's timeline and seen-issue reads by pages" (issue 1009) asks, part 3 of 4, as the Factory Builder ruled on 2026-11-20. Decision 0234 stands as it is.
 
