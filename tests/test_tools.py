@@ -5530,7 +5530,7 @@ class PullTitle(unittest.TestCase):
             self.assertEqual(self.codes(title), ["title_ends_with_stop"], title)
         # The issue, at the end: a number with no leading zero, and a part K of M with 1 <= K <= M and M >= 2.
         for title in ("kernel: hold an item", "kernel: hold an item (1)", "kernel: hold an item #1",
-                      "kernel: hold an item (#01)", "kernel: hold an item (#1) now",
+                      "kernel: hold an item (#01)", "kernel: hold an item (#0)", "kernel: hold an item (#1) now",
                       "kernel: hold an item (#1, part 1 of 02)", "kernel: hold an item (#1 part 1 of 2)",
                       "kernel: hold an item (#1)\n", "kernel: hold an item(#1)", "kernel: hold an item (#1, part 01 of 2)"):
             self.assertIn("title_no_issue", self.codes(title), title)
