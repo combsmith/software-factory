@@ -15953,9 +15953,18 @@ class Desk(unittest.TestCase):
                                (KeyboardInterrupt, "KeyboardInterrupt")):
                 self.assertEqual(ran(["--checks"], checks_failed, note),
                                  (int(checks_failed), "%-22s no note: it raised %s\n" % ("diff size", name)))
+        for checks_failed in (False, True):
+            read, write = os.pipe()
+            os.close(read)      # a reader that closed before the note
+            stream = open(write, "w", encoding="utf-8")
+            with mock.patch.object(verify, "failed", return_value=checks_failed), \
+                    mock.patch.object(desk, "size", return_value="n"), mock.patch.object(sys, "stdout", stream):
+                self.assertEqual(verify.main(["--checks"]), int(checks_failed))
+            stream.close()      # the flush at exit: what the note left held goes nowhere, and raises nothing
+        printed = io.StringIO()
         with mock.patch.object(verify, "failed", return_value=True), mock.patch.object(desk, "size", return_value="n"), \
-                mock.patch("builtins.print", side_effect=BrokenPipeError):     # a pipe closed before the note
-            self.assertEqual(verify.main(["--checks"]), 1)
+                mock.patch("builtins.print", side_effect=BrokenPipeError), contextlib.redirect_stdout(printed):
+            self.assertEqual(verify.main(["--checks"]), 1)      # a stream with no file to point elsewhere
         package = sys.modules["tools"]
         del package.desk
         try:
