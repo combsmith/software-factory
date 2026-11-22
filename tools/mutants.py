@@ -106,6 +106,11 @@ WIRE_RUNNING = ("tests.test_adapters.EffectsRecorded.test_a_pass_still_running_i
 WIRE_UNMATCHED = ("tests.test_adapters.EffectsRecorded.test_a_write_by_a_pass_that_failed_and_recorded_nothing_is_unmatched_not_short",)
 WIRE_CARRY = ("tests.test_reconcile.Carried",)
 WIRE_ENTRY = ("tests.test_controller.Entry.test_the_entry_gathers_what_reconciliation_reads",)
+# The open pull requests read at once (decision 1138).
+AT_ONCE = ("tests.test_controller.Entry.test_the_open_pull_requests_are_read_four_at_once_and_kept_in_the_listed_order",)
+ASKED_ONCE = ("tests.test_adapters.Timeline.test_a_permission_is_asked_once_however_many_threads_ask_it",)
+RATE = ("tests.test_controller.Entry.test_a_rate_limit_is_a_429_or_a_403_with_no_request_left_or_a_time_to_wait",)
+STAGED = ("tests.test_controller.Entry.test_each_stage_of_a_pass_is_timed_in_the_log_alone_and_times_no_read_differently",)
 # The push port's tests (issue 838).
 PUSH_BUILT = ('tests.test_adapters.Push.test_a_push_is_built_for_its_repos_git_data_alone_and_a_part_told_wrongly_builds_nothing',)
 PUSH_ANSWERED = ('tests.test_adapters.Push.test_each_request_of_a_push_is_answered_as_github_recorded_it_with_its_status_as_text',)
@@ -2440,8 +2445,8 @@ MUTANTS = ISSUE + OUTSIDE + [
      '        return ({\n            "schema": "facts/1"', ("tests.test_simulator.Simulation.test_every_actors_write_access_is_read_from_the_permission",)),
     # Issue 331: a thread's resolver typed by its account, never by resolvedBy's type (P-49, P-53).
     ('a permission read that never answered is asked again', 'adapters/timeline.py',
-     '            except Unanswered:\n                answer = {"status": "no answer", "body": None}\n',
-     '            except Unanswered:\n                del self.asked[login]\n                raise\n', ("tests.test_adapters",)),
+     '        except Unanswered:\n            answer = {"status": "no answer", "body": None}\n',
+     '        except Unanswered:\n            del self.asked[login]\n            raise\n', ("tests.test_adapters",)),
     ('a resolver in what was seen is told as a User', 'adapters/seen.py',
      'next(\n            (code for (told, _), code in identities.items() if told == ident and _positive(ident)), None)',
      '_who({"id": ident, "type": "User"}, identities)', ("tests.test_reconcile",)),
@@ -2480,22 +2485,30 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("a stream that fails fails the pass", "controller/__main__.py",
      "            print(json.dumps(line, sort_keys=True), file=self.out, flush=True)\n        except Exception:\n",
      "            print(json.dumps(line, sort_keys=True), file=self.out, flush=True)\n        except ZeroDivisionError:\n", ('tests.test_controller.Entry.test_each_stage_of_a_pass_is_timed_in_the_log_alone_and_times_no_read_differently',)),
-    ("the open pull requests are read one at a time", "controller/__main__.py", '    if pool > 1:\n', '    if False:\n', ('tests.test_controller.Entry.test_the_open_pull_requests_are_read_four_at_once_and_kept_in_the_listed_order',)),
-    ("more open pull requests than the pool are read at once", "controller/__main__.py", 'len(pending) < pool and not limited.hit', 'len(pending) <= pool and not limited.hit', ('tests.test_controller.Entry.test_the_open_pull_requests_are_read_four_at_once_and_kept_in_the_listed_order',)),
-    ("a snapshot is kept in the order its read ends", "controller/__main__.py", 'out[pending.pop(ended)] = ended.result()', 'out[out.index(None)] = (pending.pop(ended), ended.result())[1]', ('tests.test_controller.Entry.test_the_open_pull_requests_are_read_four_at_once_and_kept_in_the_listed_order',)),
-    ("a rate limit leaves the snapshots left read at once", "controller/__main__.py", ' and len(pending) < pool and not limited.hit:', ' and len(pending) < pool:', ('tests.test_controller.Entry.test_the_open_pull_requests_are_read_four_at_once_and_kept_in_the_listed_order',)),
-    ("a rate limit's answer is an answer", "controller/__main__.py", '        if rate_limited(answer):\n            self.hit = True\n', '        if False:\n            self.hit = True\n', ('tests.test_controller.Entry.test_the_open_pull_requests_are_read_four_at_once_and_kept_in_the_listed_order',)),
-    ("a 429 is no rate limit", "controller/__main__.py", 'return status == 429 or (', 'return (', ('tests.test_controller.Entry.test_a_rate_limit_is_a_429_or_a_403_with_no_request_left_or_a_time_to_wait',)),
-    ("a 403 with no request left is no rate limit", "controller/__main__.py", '(str(headers.get("x-ratelimit-remaining")) == "0" or "retry-after" in headers)', '("retry-after" in headers)', ('tests.test_controller.Entry.test_a_rate_limit_is_a_429_or_a_403_with_no_request_left_or_a_time_to_wait',)),
-    ("a 403 with a time to wait is no rate limit", "controller/__main__.py", ' == "0" or "retry-after" in headers))', ' == "0"))', ('tests.test_controller.Entry.test_a_rate_limit_is_a_429_or_a_403_with_no_request_left_or_a_time_to_wait',)),
-    ("another refusal with no request left is a rate limit", "controller/__main__.py", '(status == 403 and (', '(status in (403, 404) and (', ('tests.test_controller.Entry.test_a_rate_limit_is_a_429_or_a_403_with_no_request_left_or_a_time_to_wait',)),
-    ("any 403 is a rate limit", "controller/__main__.py", '(status == 403 and (str(', '(status == 403 or (str(', ('tests.test_controller.Entry.test_a_rate_limit_is_a_429_or_a_403_with_no_request_left_or_a_time_to_wait',)),
-    ("a thread that finds a login asked asks it again", "adapters/timeline.py", '        if held is mine:\n', '        if True:\n', ('tests.test_adapters.Timeline.test_a_permission_is_asked_once_however_many_threads_ask_it',)),
-    ("a thread reads a login's permission before the first ask ends", "adapters/timeline.py", '        held.result()\n', '', ('tests.test_adapters.Timeline.test_a_permission_is_asked_once_however_many_threads_ask_it',)),
-    ("the carry's line counts no issue owed", "controller/__main__.py", '"left", "owed_issues", "left_issues", "hands")', '"left", "left_issues", "hands")', ('tests.test_controller.Entry.test_each_stage_of_a_pass_is_timed_in_the_log_alone_and_times_no_read_differently',)),
-    ("the carry's line counts no issue left", "controller/__main__.py", '"owed_issues", "left_issues", "hands")', '"owed_issues", "hands")', ('tests.test_controller.Entry.test_each_stage_of_a_pass_is_timed_in_the_log_alone_and_times_no_read_differently',)),
-    ("the carry's line counts no hand's thread", "controller/__main__.py", '"owed_issues", "left_issues", "hands")', '"owed_issues", "left_issues")', ('tests.test_controller.Entry.test_each_stage_of_a_pass_is_timed_in_the_log_alone_and_times_no_read_differently',)),
-    ("the open pull requests' reads are not timed", "controller/__main__.py", '        stages.count(tally, "open_pull_requests", seconds)\n', '', ('tests.test_controller.Entry.test_each_stage_of_a_pass_is_timed_in_the_log_alone_and_times_no_read_differently',)),
+    ("the open pull requests are read one at a time", "controller/__main__.py", '    if pool > 1:\n', '    if False:\n', AT_ONCE),
+    ("a fifth thread reads a snapshot at once", "controller/__main__.py", 'ThreadPoolExecutor(max_workers=pool)', 'ThreadPoolExecutor(max_workers=pool + 1)', AT_ONCE),
+    ("a snapshot is kept in the order its read ends", "controller/__main__.py", 'out = list(running.map(begun, numbers))', 'out = [f.result() for f in concurrent.futures.as_completed([running.submit(begun, n) for n in numbers])]', AT_ONCE),
+    ("a snapshot begins in a thread of its own after a rate limit is seen", "controller/__main__.py", 'return NOT_BEGUN if seen else one(number)', 'return one(number)', AT_ONCE),
+    ("a rate limit's answer is an answer", "controller/__main__.py", '        if rate_limited(answer):\n            self.hit = True\n', '        if False:\n            self.hit = True\n', AT_ONCE),
+    ("a rate limit is told to no other snapshot", "controller/__main__.py", '            self.seen.append(True)\n', '', AT_ONCE),
+    ("a part that read on past a rate limit keeps its pull request", "controller/__main__.py", '            if own.hit:\n                # A part', '            if False:\n                # A part', AT_ONCE),
+    ("a snapshot's account reader asks past the rate limit", "controller/__main__.py", 'who.through(own), runs_whole', 'who, runs_whole', AT_ONCE),
+    ("the entry reads one snapshot at a time by default", "controller/__main__.py", 'err=None, pool=POOL) -> int:', 'err=None, pool=1) -> int:', AT_ONCE),
+    ("the pool is one", "controller/__main__.py", 'POOL = 4\n', 'POOL = 1\n', AT_ONCE),
+    ("the pool is five", "controller/__main__.py", 'POOL = 4\n', 'POOL = 5\n', AT_ONCE),
+    ("a 429 is no rate limit", "controller/__main__.py", 'return status == 429 or (', 'return (', RATE),
+    ("a 403 with no request left is no rate limit", "controller/__main__.py", '(str(headers.get("x-ratelimit-remaining")) == "0" or "retry-after" in headers)', '("retry-after" in headers)', RATE),
+    ("a 403 with a time to wait is no rate limit", "controller/__main__.py", ' == "0" or "retry-after" in headers))', ' == "0"))', RATE),
+    ("another refusal with no request left is a rate limit", "controller/__main__.py", '(status == 403 and (', '(status in (403, 404) and (', RATE),
+    ("any 403 is a rate limit", "controller/__main__.py", '(status == 403 and (str(', '(status == 403 or (str(', RATE),
+    ("a thread that finds a login asked asks it again", "adapters/timeline.py", '        if held is mine:\n', '        if True:\n', ASKED_ONCE),
+    ("a thread reads a login's permission before the first ask ends", "adapters/timeline.py", '        held.result()\n', '', ASKED_ONCE),
+    ("a reader asking by another transport asks by the first", "adapters/timeline.py", '        view.transport = transport\n', '', ASKED_ONCE),
+    ("a reader asking by another transport keeps answers of its own", "adapters/timeline.py", 'view = copy.copy(self)', 'view = copy.deepcopy(self)', ASKED_ONCE),
+    ("the carry's line counts no issue owed", "controller/__main__.py", '"left", "owed_issues", "left_issues", "hands")', '"left", "left_issues", "hands")', STAGED),
+    ("the carry's line counts no issue left", "controller/__main__.py", '"owed_issues", "left_issues", "hands")', '"owed_issues", "hands")', STAGED),
+    ("the carry's line counts no hand's thread", "controller/__main__.py", '"owed_issues", "left_issues", "hands")', '"owed_issues", "left_issues")', STAGED),
+    ("the open pull requests' reads are not timed", "controller/__main__.py", '        stages.count(tally, "open_pull_requests", seconds)\n', '', STAGED),
     ("the carry's size is not said beside the pass", "controller/__main__.py", "        counts.update(stages.carried(out.get(\"record\")))\n", "", ('tests.test_controller.Entry.test_each_stage_of_a_pass_is_timed_in_the_log_alone_and_times_no_read_differently',)),
     ("the write is timed with the pass", "controller/__main__.py", '        with stages.stage("write"):\n', '        with stages.stage("decide"):\n', ('tests.test_controller.Entry.test_each_stage_of_a_pass_is_timed_in_the_log_alone_and_times_no_read_differently',)),
     ("the poller's list is timed with its artifacts", "controller/__main__.py",
@@ -9896,7 +9909,7 @@ MUTANTS = ISSUE + OUTSIDE + [
     ('the pass record carries nothing', 'controller/pass_.py', '              "reconciliation": reconcile_.entries(found),\n              "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or (),\n                                               reads.get("gone") or (), reads.get("unread_issues") or (),\n                                               reads.get("gone_issues") or ())}\n', '              "reconciliation": reconcile_.entries(found)}\n', WIRE_ENTRY),
     ('the pass record owes nothing', 'controller/pass_.py', ', now, reads.get("unread") or (),', ', now, (),', WIRE_ENTRY),
     ('the entry hands the seen port no read', 'controller/__main__.py', 'kept[number] = held\n', 'pass\n', WIRE_ENTRY),
-    ('what a failed snapshot kept is handed on', 'controller/__main__.py', '            facts, title, head = facts_.snapshot(through, home, number, identities, who, runs_whole, lambda: utc(clock),\n                                                 kept=held, with_head=True, opener=opens, recorded=found[number], opened=made)\n', '            kept[number] = held\n            facts, title, head = facts_.snapshot(through, home, number, identities, who, runs_whole, lambda: utc(clock),\n                                                 kept=held, with_head=True, opener=opens, recorded=found[number], opened=made)\n', WIRE_ENTRY),
+    ('what a failed snapshot kept is handed on', 'controller/__main__.py', '            facts, title, head = facts_.snapshot(through, home, number, identities, who.through(own), runs_whole,\n', '            kept[number] = held\n            facts, title, head = facts_.snapshot(through, home, number, identities, who.through(own), runs_whole,\n', WIRE_ENTRY),
     ('an item that has left is not read', 'controller/__main__.py', '[(n, seen_.LEFT) for n in sorted(newly)]', '[]', WIRE_ENTRY),
     ('every item the last record held has left', 'controller/__main__.py', '({e["facts"]["item"]["number"] for e in last} - set(numbers))', '({e["facts"]["item"]["number"] for e in last})', WIRE_ENTRY),
     ('the older record says what has left', 'controller/__main__.py', 'last = before[-1]["pull_requests"] if before else []', 'last = before[0]["pull_requests"] if before else []', WIRE_ENTRY),

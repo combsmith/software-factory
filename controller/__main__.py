@@ -188,40 +188,34 @@ def rate_limited(answer) -> bool:
 
 
 class Limited:
-    """The transport of the open pull requests' snapshots: a rate limit's answer is no answer, so the pull request it
-    was read for is left out as GitHub not answering, with no retry; and once one is seen, the snapshots left are read
-    one at a time (decision 1138)."""
+    """One snapshot's transport, its account reader's too: a rate limit is no answer, never retried, `hit` and told
+    to the pass's `seen` (decision 1138)."""
 
-    def __init__(self, transport):
-        self.transport, self.hit = transport, False
+    def __init__(self, transport, seen: list):
+        self.transport, self.seen, self.hit = transport, seen, False
 
     def send(self, req):
         answer = self.transport.send(req)
         if rate_limited(answer):
             self.hit = True
+            self.seen.append(True)
             raise Unanswered("GitHub answered a rate limit")
         return answer
 
 
-def snapshots(numbers: list, one, pool: int, limited) -> list:
-    """`one(number)` for each of `numbers`, in their order whatever order the reads end in: up to `pool` at once, each
-    in a thread of its own, until `limited.hit`; then the rest one at a time, in this thread (decision 1138)."""
-    out, at = [None] * len(numbers), 0
+NOT_BEGUN = object()
+
+
+def snapshots(numbers: list, one, pool: int, seen: list) -> list:
+    """`one(number)` for each of `numbers`, in their order: up to `pool` at once, each in a thread, begun only while no
+    rate limit is `seen`; the rest after, one at a time, in this thread (decision 1138)."""
+    def begun(number):
+        return NOT_BEGUN if seen else one(number)
+    out = [NOT_BEGUN] * len(numbers)
     if pool > 1:
         with concurrent.futures.ThreadPoolExecutor(max_workers=pool) as running:
-            pending = {}
-            while at < len(numbers) or pending:
-                while at < len(numbers) and len(pending) < pool and not limited.hit:
-                    pending[running.submit(one, numbers[at])] = at
-                    at += 1
-                if not pending:
-                    break
-                done, _ = concurrent.futures.wait(pending, return_when=concurrent.futures.FIRST_COMPLETED)
-                for ended in done:
-                    out[pending.pop(ended)] = ended.result()
-    for place in range(at, len(numbers)):
-        out[place] = one(numbers[place])
-    return out
+            out = list(running.map(begun, numbers))
+    return [one(number) if got is NOT_BEGUN else got for number, got in zip(numbers, out)]
 
 
 def poller_kind(path) -> str:
@@ -419,15 +413,20 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
                                  config["authority"])
         # What each opening Run recorded of the pull request it opened, which binds it to its issue (issue 342).
         made = applied.opened(transport, home, runs, facts_.opener_role(config["kernel"]))
-    limited = Limited(transport)
+    seen = []
 
     def one(number: int) -> tuple:
         """`(entry, kept, facts reads, seconds)` of one open pull request's snapshot, read whole in its own thread."""
         began = stages.now()
-        held, through = {}, Dated(limited)
+        held, own = {}, Limited(transport, seen)
+        through = Dated(own)
         try:
-            facts, title, head = facts_.snapshot(through, home, number, identities, who, runs_whole, lambda: utc(clock),
-                                                 kept=held, with_head=True, opener=opens, recorded=found[number], opened=made)
+            facts, title, head = facts_.snapshot(through, home, number, identities, who.through(own), runs_whole,
+                                                 lambda: utc(clock), kept=held, with_head=True,
+                                                 opener=opens, recorded=found[number], opened=made)
+            if own.hit:
+                # A part that read on past a rate limit leaves it out too.
+                raise Unanswered("GitHub answered a rate limit")
             return {"facts": facts, "title": title, "head": head}, held, dated(through.first), stages.since(began)
         except Unanswered as err:
             # Its code goes in the record: one that moved while it was read is not one GitHub did not answer (#658).
@@ -436,7 +435,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
                     None, [], stages.since(began))
     pulls, kept, facts_reads, tally = [], {}, [], {}
     # Each thread times its own reads; they are added up here, in the listed order, as the entries are.
-    for number, (pull, held, dates, seconds) in zip(numbers, snapshots(numbers, one, pool, limited)):
+    for number, (pull, held, dates, seconds) in zip(numbers, snapshots(numbers, one, pool, seen)):
         pulls.append(pull)
         if held is not None:
             kept[number] = held

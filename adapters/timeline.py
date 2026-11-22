@@ -22,6 +22,7 @@ never skipped. No text of GitHub's reaches a part: a review's body, a dismissal'
 from __future__ import annotations
 
 import concurrent.futures
+import copy
 import datetime
 import hashlib
 import re
@@ -83,8 +84,7 @@ class Accounts:
         self.lenses, self.factory, self.answers, self.roles = dict(lenses), set(factory), {}, set(roles)
         self.queue = tuple(queue) if queue is not None else None
         self.apps, self.reserved = dict(apps or {}), set(reserved)
-        # The pass reads pull requests at once, each in a thread, and they share this reader: a login is asked by the
-        # first thread to ask it, and every thread waits on and reads the one answer kept (decision 1138).
+        # The first thread to ask a login asks it; the rest wait on and read its answer (decision 1138).
         self.asked = {}
 
     def named(self, login: str, ident: int, kind: str) -> str:
@@ -126,16 +126,21 @@ class Accounts:
         return found
 
     def _ask(self, login: str) -> None:
-        if login not in self.answers:
-            path = "/repos/%s/collaborators/%s/permission" % (self.repo, urllib.parse.quote(login, safe=""))
-            # An answer that failed is kept too, one that never came among them, so a login is asked once however
-            # often it appears.
-            try:
-                answer = self.transport.send(request("GET", path))
-            except Unanswered:
-                answer = {"status": "no answer", "body": None}
-            ok = answer["status"] == 200 and isinstance(answer["body"], dict)
-            self.answers[login] = answer["body"] if ok else answer["status"]
+        path = "/repos/%s/collaborators/%s/permission" % (self.repo, urllib.parse.quote(login, safe=""))
+        # An answer that failed is kept too, one that never came among them, so a login is asked once however often it
+        # appears.
+        try:
+            answer = self.transport.send(request("GET", path))
+        except Unanswered:
+            answer = {"status": "no answer", "body": None}
+        ok = answer["status"] == 200 and isinstance(answer["body"], dict)
+        self.answers[login] = answer["body"] if ok else answer["status"]
+
+    def through(self, transport) -> "Accounts":
+        """This reader asking by `transport`, sharing its answers and asks under way (decision 1138)."""
+        view = copy.copy(self)
+        view.transport = transport
+        return view
 
     def _can_write(self, login: str) -> bool:
         level = self._permission(login).get("permission")

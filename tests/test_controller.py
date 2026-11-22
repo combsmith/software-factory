@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import concurrent.futures
 import copy
 import io
 import json
 import os
 import pathlib
+import sys
 import tempfile
-import time
 import unittest
 import unittest.mock
 
@@ -1431,6 +1432,7 @@ class Entry(unittest.TestCase):
         }
 
     def run_entry(self, hub, timer=None, err=None, quiet=False, pool=1, **environ):
+        # One snapshot at a time unless told: a recorded exchange answers in order. None runs the entry's own pool.
         env = {"RELEASE": "factory/v0.3.1", "GITHUB_RUN_ID": self.RUN, entry.KEY: self.key}
         env.update(environ)
         slept, printed = [], io.StringIO()
@@ -1441,7 +1443,7 @@ class Entry(unittest.TestCase):
                                                                                               if v is not None},
                               base=d, clock=lambda: self.CLOCK, sleep=sleep, connect=hub.connect,
                               timer=None if quiet else timer if timer is not None else ticking(), err=self.said,
-                              pool=pool)
+                              **({} if pool is None else {"pool": pool}))
             named = ["pass.json", "writes.json"] + ["view/%s.json" % v for v in entry.VIEW]
             files = {n: json.loads(pathlib.Path(d, "out", n).read_text()) for n in named
                      if pathlib.Path(d, "out", n).is_file()}
@@ -2059,7 +2061,8 @@ class Entry(unittest.TestCase):
         # The listing is handed the number the passes recorded their tracking issue under, to leave it out (issue 901).
         self.assertEqual(spied["listed"], [(self.HOME, since, [8])])
         self.assertEqual([n for _, n, _ in spied["read"]], [5, 6, 9])
-        self.assertTrue(all(who is spied["who"][0] for _, _, who in spied["read"]))
+        # Each by the reader the pull requests were read with: a snapshot's copy of it keeps its answers (decision 1138).
+        self.assertTrue(all(who.answers is spied["who"][0].answers for _, _, who in spied["read"]))
         # Each is read with the pull requests' class accounts, and the pass records before this pass, here none.
         self.assertEqual(spied["identities"], [(entry.facts_.accounts_of(CONTROLLER)[0], [])] * 3)
         # And the Kernel's configuration, which says whether a draft's checks are read (decision 0217, issue 878).
@@ -2552,47 +2555,81 @@ class Entry(unittest.TestCase):
         self.assertEqual(entered(err=Closed())[:4], (code, printed, files, sent))
 
     def test_the_open_pull_requests_are_read_four_at_once_and_kept_in_the_listed_order(self):  # decision 1138
-        # Each snapshot is read whole in a thread of its own, at most four at once, the first listed ending last; the
-        # record is the one a pass reading them one at a time writes. A rate limit's answer is GitHub not answering: that
-        # pull request is left out, read no second time, and the rest are read one at a time, in the pass's own thread.
-        numbers = [3, 5, 7, 9, 11, 13]
+        # By default four snapshots at once and no more, the record the one read one at a time writes, in the listed
+        # order though the first listed ends last; one login asked once. Threads wait on each other, not on a clock.
+        numbers, login, rate = [3, 5, 7, 9, 11, 13], "alice", {"status": 403, "headers": {"x-ratelimit-remaining": "0"}}
+        pulls = {n: "/repos/%s/pulls/%d" % (self.HOME, n) for n in numbers}
+        permission = "/repos/%s/collaborators/%s/permission" % (self.HOME, login)
 
-        def entered(pool, limited=()):
+        def in_pass():
+            frame = sys._getframe()     # the pass's thread alone has run_entry on its stack
+            while frame is not None and frame.f_code.co_name != "run_entry":
+                frame = frame.f_back
+            return frame is not None
+
+        def once(future):
+            with contextlib.suppress(concurrent.futures.InvalidStateError):
+                future.set_result(None)
+
+        def entered(pool, limited=None):
             table = self.table(numbers=numbers)
             for n in numbers:
-                table[("GET", "/repos/%s/pulls/%d" % (self.HOME, n))] = {"status": 200, "headers": {}, "body": {}} \
-                    if n not in limited else {"status": 403, "headers": {"x-ratelimit-remaining": "0"}, "body": None}
-            # How many snapshots are under way, the most at once, and how many each found under way as it began.
-            hub, live, seen, read = Hub(table), [], [0], {}
+                table[("GET", pulls[n])] = dict(rate, body=None) if limited == pulls[n] else {"status": 200, "headers": {},
+                                                                                             "body": {}}
+            table[("GET", permission)] = dict(rate, body=None) if limited == permission else {
+                "status": 200, "headers": {}, "body": {"permission": "read", "user": {"login": login, "id": 1001,
+                                                                                    "type": "User"}}}
+            hub, live, ended, read = Hub(table), [], [], {}
+            four, five, nine, rest = (concurrent.futures.Future() for _ in range(4))
 
             def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded,
                          opened):
-                live.append(number)     # a list's append and remove are each one step under the interpreter's lock
-                at = len(live)
-                seen.append(at)
-                read.setdefault(number, []).append(at)
+                live.append(number)
+                at, worker = len(live), not in_pass()
+                read.setdefault(number, []).append((at, not worker))
                 try:
-                    time.sleep(0.05 * (len(numbers) - numbers.index(number)) if pool > 1 else 0)
-                    transport.send({"method": "GET", "path": "/repos/%s/pulls/%d" % (repo, number), "accept": "application/json",
-                                    "body": None})
+                    if worker and not four.done():
+                        once(four) if at >= 4 else None
+                        once(five) if at >= 5 else None
+                        four.result(timeout=10)
+                        with contextlib.suppress(concurrent.futures.TimeoutError):
+                            five.result(timeout=0.3)    # a fifth thread, were there one, begins
+                    if worker and number != 9:
+                        nine.result(timeout=10)         # the fourth listed reads first
+                    if worker and number == 3 and limited is None:
+                        rest.result(timeout=10)         # the first listed ends last
+                    transport.send({"method": "GET", "path": pulls[number], "accept": "application/json", "body": None})
+                    who.typed(login, 1001)              # reads on past a failed ask
                     return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
                 finally:
                     live.remove(number)
+                    ended.append(number)
+                    once(nine) if number == 9 else None
+                    once(rest) if len(ended) == 5 else None
             minted = iter(range(10 ** 6))
             with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
                     unittest.mock.patch.object(entry, "mint_id", lambda prefix: "%s_%020d" % (prefix, next(minted))):
                 code, _, files, _ = self.run_entry(hub, pool=pool)
             self.assertEqual(code, 0)
-            return files["pass.json"], max(seen), read
-        one, most, read = entered(1)
-        self.assertEqual((most, read), (1, {n: [1] for n in numbers}))
-        four, most, read = entered(4)
-        self.assertEqual((four, most), (one, 4))
+            asked = {path: [r["path"] for _, r in hub.sent].count(path) for path in (permission, pulls[9])}
+            return files["pass.json"], read, asked
+        one, read, asked = entered(1)
+        self.assertEqual((read, asked[permission]), ({n: [(1, True)] for n in numbers}, 1))
+        four, read, asked = entered(None)
+        self.assertEqual((four, asked[permission]), (one, 1))
         self.assertEqual([e["facts"]["item"]["number"] for e in four["pull_requests"]], numbers)
-        # The fourth listed ends first, on a rate limit: the two not yet begun are read one at a time, once the rest end.
-        limited, most, read = entered(4, limited=[9])
-        self.assertIn({"item": dict(support.ITEM, number=9), "code": "facts_unanswered"}, limited["left_out"])
-        self.assertEqual((sorted(read[n][0] for n in (3, 5, 7, 9)), read[11], read[13]), ([1, 2, 3, 4], [1], [1]))
+        self.assertEqual((max(at for n in numbers for at, _ in read[n]), {here for n in numbers for _, here in read[n]}),
+                         (4, {False}))
+        # A rate limit to a snapshot's read or its account reader's, even read on, leaves that one alone out, sent once;
+        # the two not begun then are read after, one at a time, in the pass's own thread.
+        for limited in (pulls[9], permission):
+            out, read, asked = entered(None, limited)
+            self.assertEqual([e for e in out["left_out"] if e.get("code") == "facts_unanswered"],
+                             [{"item": dict(support.ITEM, number=9), "code": "facts_unanswered"}], limited)
+            self.assertEqual([e["facts"]["item"]["number"] for e in out["pull_requests"]], [3, 5, 7, 11, 13], limited)
+            self.assertEqual(asked[limited], 1, limited)
+            self.assertEqual(sorted(read[n][0][0] for n in (3, 5, 7, 9)), [1, 2, 3, 4], limited)
+            self.assertEqual({n: read[n] for n in (11, 13)}, {11: [(1, True)], 13: [(1, True)]}, limited)
 
     def test_a_rate_limit_is_a_429_or_a_403_with_no_request_left_or_a_time_to_wait(self):  # decision 1138
         def answer(status, **headers):

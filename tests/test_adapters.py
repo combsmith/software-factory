@@ -16,7 +16,6 @@ import json
 import os
 import pathlib
 import re
-import time
 import unittest
 import urllib.parse
 import zipfile
@@ -2608,24 +2607,42 @@ class Timeline(unittest.TestCase):
                          {"kind": "human", "name": login, "can_write": False})
 
     def test_a_permission_is_asked_once_however_many_threads_ask_it(self):  # decision 1138
-        # The pass reads pull requests at once and they share one reader: a login two threads ask together is asked
-        # once, and both read the one answer kept.
+        # A login two threads ask together is asked once and both read the one answer: the first ask is held until the
+        # second has found it under way.
         found = next(e for e in exchanges("P-27") if "/permission" in e["request"].get("call", ""))
         login = found["request"]["call"].split("/collaborators/")[1].split("/")[0]
-        sent = []
-
-        class Slow:
-            def send(self, req):
-                sent.append(req["path"])
-                time.sleep(0.05)
-                return copy.deepcopy(found["response"])
-        accounts = timeline.Accounts(Slow(), canary(), MACHINE, {})
         who = found["response"]["body"]["user"]
+        raw = {"login": login, "id": who["id"], "type": who["type"]}
+        human = {"kind": "human", "name": login, "can_write": False}
+        sent, both = [], concurrent.futures.Future()
 
+        class Watched(dict):
+            def setdefault(self, key, value):
+                held = super().setdefault(key, value)
+                if held is not value and not both.done():
+                    both.set_result(None)
+                return held
+
+        class Held:
+            def __init__(self, name):
+                self.name = name
+
+            def send(self, req):
+                sent.append((self.name, req["path"]))
+                both.result(timeout=10)
+                return copy.deepcopy(found["response"])
+        accounts = timeline.Accounts(Held("first"), canary(), MACHINE, {})
+        accounts.asked = Watched()
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            asked = [pool.submit(accounts.actor, {"login": login, "id": who["id"], "type": who["type"]}) for _ in range(2)]
+            asked = [pool.submit(accounts.actor, raw) for _ in range(2)]
             got = [a.result() for a in asked]
-        self.assertEqual((len(sent), got), (1, [{"kind": "human", "name": login, "can_write": False}] * 2))
+        self.assertEqual((len(sent), got), (1, [human] * 2))
+        # A copy asking by another transport shares the answers, and asks by its own.
+        accounts = timeline.Accounts(Held("first"), canary(), MACHINE, {})
+        view, sent[:] = accounts.through(Held("second")), []
+        self.assertEqual((view.actor(raw), accounts.actor(raw), view.actor(raw)), (human,) * 3)
+        self.assertEqual([name for name, _ in sent], ["second"])
+        self.assertIs(view.answers, accounts.answers)
 
     def test_a_timeline_or_a_list_of_reviews_that_is_not_a_list_is_not_whole(self):
         broken = copy.deepcopy(exchanges("P-7")[16])
