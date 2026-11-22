@@ -7,6 +7,7 @@ AT_ONCE = ("tests.test_controller.Entry.test_the_open_pull_requests_are_read_fou
 RATE = ("tests.test_controller.Entry.test_a_rate_limit_is_a_429_or_a_403_with_no_request_left_or_a_time_to_wait",)
 STAGED = ("tests.test_controller.Entry.test_each_stage_of_a_pass_is_timed_in_the_log_alone_and_times_no_read_differently",)
 
+F849_BUDGET = ("tests.test_controller.Entry.test_the_issue_reads_stop_at_the_passs_budget_and_those_left_out_by_it_are_read_first_by_the_next",)
 TARGETS = ("controller/__main__.py",)
 MUTANTS = [
     # Issue 342: a pull request the Factory opens is bound to its issue by the Run that opened it, as well as its branch.
@@ -182,7 +183,7 @@ MUTANTS = [
      '            facts_reads += dated(through.first)\n        except Unanswered as err:\n            issues.append',
      '            facts_reads += dated(through.first)\n        except ZeroDivisionError as err:\n            issues.append', S3_ENTRY),
     ('an issue is read with an account reader of its own', 'controller/__main__.py',
-     'issues_.read(through, home, number, who,',
+     'issues_.read(through, home, number, asking,',
      'issues_.read(through, home, number, timeline.Accounts(transport, home, who.approver, who.lenses),', S3_ENTRY),
     ('the account reader names no App by its id', 'controller/__main__.py',
      'factory, queue,\n                                         names, reserved',
@@ -193,8 +194,8 @@ MUTANTS = [
     # Issues 963 and 965, the reader audits of #918 and #912: each issue's read dated by its own answer, the issues'
     # configuration left as written and its Apps named plain, and every account held to the names an App's id holds.
     ("each issue's facts read is dated by the first issue's answer", 'controller/__main__.py',
-     '    for number in listed:\n        began, through = stages.now(), Dated(transport)\n',
-     '    through = Dated(transport)\n    for number in listed:\n        began = stages.now()\n', S3_ENTRY),
+     '    for number in pass_.issue_order(listed, before):\n        began, through = stages.now(), Dated(counted)\n',
+     '    through = Dated(counted)\n    for number in pass_.issue_order(listed, before):\n        began = stages.now()\n', S3_ENTRY),
     # Issue 901: a Role's App held under `roles` alone comments as that Role and makes no counted act; the queue's or
     # a Lens's name declared an issue's App refuses the issues alone; the tracking issue is no Work item.
     ("the account reader is told no Role's account", 'controller/__main__.py',
@@ -493,4 +494,17 @@ MUTANTS = [
     ('the pass holds the join to no authority table', 'controller/__main__.py',
      '                             config["authority"])',
      '                             {})', ('tests.test_controller.Entry.test_each_snapshot_is_read_with_the_configured_accounts_and_kept',)),
+    ("the issues' budget is never spent", 'controller/__main__.py',
+     '            if counted.sent >= controller["max_issue_requests"]:\n', '            if False:\n', F849_BUDGET),
+    ("the issues' budget is spent a request late", 'controller/__main__.py',
+     'counted.sent >= controller["max_issue_requests"]', 'counted.sent > controller["max_issue_requests"]', F849_BUDGET),
+    ("the issues are read in the listing's order", 'controller/__main__.py',
+     'pass_.issue_order(listed, before)', 'list(listed)', F849_BUDGET),
+    ("the issues' permission reads are not counted", 'controller/__main__.py',
+     '    asking = who.through(counted)\n', '    asking = who\n', F849_BUDGET),
+    ("the issue reads are not counted", 'controller/__main__.py',
+     'stages.now(), Dated(counted)\n', 'stages.now(), Dated(transport)\n', F849_BUDGET),
+    ("an issue request that fails is not counted", 'controller/__main__.py',
+     '        self.sent += 1\n        return self.transport.send(req)\n',
+     '        answer = self.transport.send(req)\n        self.sent += 1\n        return answer\n', F849_BUDGET),
 ]

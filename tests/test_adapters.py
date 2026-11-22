@@ -7737,6 +7737,18 @@ class KeywordSpans(unittest.TestCase):
         self.assertEqual(self.spans(seen_by(6, issues=[])), ({}, True))
         self.assertEqual(keyword_spans.UNLISTED, "issue_list_unreadable")
 
+    def test_a_record_that_left_the_issue_out_by_its_budget_is_passed_over_for_it_alone(self):  # decision 0234, (B)
+        # The pass did not read the issue, so it saw nothing of it: the base before it stands. With every record at hand
+        # so, the chain is broken. Another issue's skip passes nothing over, and a left out for any other code breaks it.
+        older, budget = seen_by(3, [(7, True, [])]), {"item": self.ITEM, "code": "issue_budget"}
+        self.assertEqual(self.spans(older, seen_by(6, issues=[], left_out=[budget])), ({7: [span(3)]}, True))
+        self.assertEqual(self.spans(seen_by(3, issues=[], left_out=[budget]), seen_by(6, issues=[], left_out=[budget])),
+                         ({}, None))
+        other = dict(budget, item=dict(self.ITEM, number=42))
+        self.assertEqual(self.spans(seen_by(3, [(7, True, [])], left_out=[other])), ({7: [span(3)]}, True))
+        self.assertEqual(self.spans(older, seen_by(6, issues=[], left_out=[dict(budget, code="facts_unanswered")])),
+                         ({7: [span(3)]}, None))
+
     def test_pass_records_that_could_not_be_read_give_no_time_and_are_not_whole(self):
         self.assertEqual(keyword_spans.read(None, self.ITEM), ({}, False))
         # The newest at hand, where it is no pass record, gives no time either, whatever the one before it holds.

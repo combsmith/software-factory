@@ -261,7 +261,7 @@ MUTANTS = [
     ("an issue served again keeps its stamp where another leaves", 'controller/reconcile.py',
      'unstamped = newly_gone | set(served_issues)', 'unstamped = newly_gone or set(served_issues)', ("tests.test_reconcile.Carried.test_the_issues_owed_and_left_are_carried_as_the_pull_requests_are",)),
     ("an issue that leaves again keeps its first stamp too", 'controller/reconcile.py',
-     '[e for e in held.get("left_issues", []) if e["number"] not in unstamped] + [', 'held.get("left_issues", []) + [', ("tests.test_reconcile.Carried.test_the_issues_owed_and_left_are_carried_as_the_pull_requests_are",)),
+     '    unstamped = newly_gone | set(served_issues)\n', '    unstamped = set(served_issues)\n', ("tests.test_reconcile.Carried.test_the_issues_owed_and_left_are_carried_as_the_pull_requests_are",)),
     ("the issues read as left are not stamped", 'controller/reconcile.py',
      '{"number": n, "at": now} for n in sorted(newly_gone)]', '{"number": n, "at": now} for n in []]', ("tests.test_reconcile.Carried.test_the_issues_owed_and_left_are_carried_as_the_pull_requests_are",)),
     ("an issue kept as left is never dropped by the window", 'controller/reconcile.py',
@@ -306,4 +306,6 @@ MUTANTS = [
     ("a queue act's dispatch is matched to nothing", 'controller/reconcile.py',
      'DISPATCHES = ("dispatch_run", "dispatch_approval", "dispatch_queue")',
      'DISPATCHES = ("dispatch_run", "dispatch_approval")', ('tests.test_reconcile.Matching.test_a_dispatch_is_matched_by_its_run_to_the_pass_that_sent_it',)),
+    ("an issue that leaves again keeps its stamp where another is served", 'controller/reconcile.py',
+     'unstamped = newly_gone | set(served_issues)', 'unstamped = set(served_issues) or newly_gone', ("tests.test_reconcile.Carried.test_the_issues_owed_and_left_are_carried_as_the_pull_requests_are",)),
 ]

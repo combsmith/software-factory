@@ -24,8 +24,9 @@ and written to the folder `OUT` for the pass job's next steps (#193's ruling 10 
 The Release is the one tag `factory/vX.Y.Z` on the commit the pass checked out (`harness/steps.release`), read before any key. A snapshot that cannot be read leaves its pull
 request out of the pass, by its item and the code of why, as one alert; one that moved while it was read, and had not in
 the last pass, is deferred with no alert and its writes are owed to the next pass (#658). An issue that cannot be read
-is left out so too, and one that moved is graced as a pull request is, with nothing owed for it (decision 0229). A list of open pull requests or of
-issues not read whole, a Release, a key or
+is left out so too, and one that moved is graced as a pull request is, with nothing owed for it (decision 0229). So is
+each issue the pass's budget of issue requests left unread, by its item (decision 0234). A list of open pull requests or
+of issues not read whole, a Release, a key or
 a run id that cannot be read, or a pass `pass_.py` refuses, writes nothing, so that nothing is dispatched; the step
 prints one code and exits 1, and nothing it prints is GitHub's text."""
 from __future__ import annotations
@@ -234,6 +235,18 @@ class Dated:
         answer = self.transport.send(req)
         self.first = answer if self.first is None else self.first
         return answer
+
+
+class Counted:
+    """The transport, counting each request sent through it, whatever it answered or if it failed: the issue reads'
+    budget is spent as they are sent (decision 0234)."""
+
+    def __init__(self, transport):
+        self.transport, self.sent = transport, 0
+
+    def send(self, req):
+        self.sent += 1
+        return self.transport.send(req)
 
 
 def dated(answer) -> list:
@@ -498,17 +511,27 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
         counts["count"] = len(listed)
     if not listed_whole:
         raise Stop("issue_list_unreadable")
+    issues = []
     # Each issue's own facts, read and dated as a pull request's are; its title beside them. While the tracking
     # issue's number is not read, none is: each is left out as unread, so that one is never served as a Work item. One
     # no record numbers is told at its own read, by its opener and its body, and is no Work item, nor left out: it was
-    # never one, as one the listing left out was not (decision 0233).
-    issues, tally, own_app = [], {}, controller["accounts"]["controller"]
-    for number in listed:
-        began, through = stages.now(), Dated(transport)
+    # never one, as one the listing left out was not (decision 0233). Once the pass's budget of issue requests is spent
+    # no further read starts, and each issue not read is left out by it; those the last record left out so are read
+    # first (decision 0234).
+    tally, own_app = {}, controller["accounts"]["controller"]
+    counted = Counted(transport)
+    # The account reader's permission reads for the issues are counted too, its answers shared with the pull requests'.
+    asking = who.through(counted)
+    for number in pass_.issue_order(listed, before):
+        began, through = stages.now(), Dated(counted)
         try:
             if apart is None:
                 raise Unanswered("the tracking issue's number was not read")
-            facts, title = issues_.read(through, home, number, who, lambda: utc(clock), identities=identities,
+            if counted.sent >= controller["max_issue_requests"]:
+                issues.append({"facts": {"item": {"repo": home, "type": "issue", "number": number}}, "title": None,
+                               "unread": reads_.BUDGET})
+                continue
+            facts, title = issues_.read(through, home, number, asking, lambda: utc(clock), identities=identities,
                                         earlier=before, kernel=config["kernel"],
                                         controller=(own_app["id"], own_app["type"]) if own_app else None)
             issues.append({"facts": facts, "title": title})
