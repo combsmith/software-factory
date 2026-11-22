@@ -209,7 +209,7 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
     issue = own(transport, repo, number)
     if tracking(issue, controller):
         raise Tracking("issue %d of %s is the Controller's tracking issue" % (number, repo))
-    events, whole = timeline.events(transport, {"number": number, "base": {"repo": {"full_name": repo}}})
+    events, whole, cut = timeline.bounded(transport, {"number": number, "base": {"repo": {"full_name": repo}}})
     edited = edits(transport, repo, number)
     if edited["updated_at"] != _field(issue, "updated_at"):
         raise facts.Moved("the issue changed while it was read; it is read again at the next pass")
@@ -224,8 +224,9 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
     author, labels = accounts.acted(opened), timeline.label_events(events, accounts)
     writer = timeline.since_writer(events, accounts)
     apps, said = comments(events, accounts)
-    closing, closing_whole = linked.read(transport, repo, number, edited["updated_at"], lived["life_started_at"],
-                                         identities, accounts, earlier, kernel)
+    # Read whatever the timeline's bound did: a record not whole still opens a span for each keyword it read (0186).
+    closing, closing_whole, linked_cut = linked.read(transport, repo, number, edited["updated_at"],
+                                                     lived["life_started_at"], identities, accounts, earlier, kernel)
     # A merge may have closed it since: read once more, as `adapters/pull.unchanged` does.
     if _field(own(transport, repo, number), "updated_at") != _field(issue, "updated_at"):
         raise facts.Moved("the issue changed while its pull requests were read; it is read again at the next pass")
@@ -249,8 +250,7 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
         "acts_since_writer": writer["acts_since_writer"],
         "branch_head": None,
         "complete": {"timeline": whole and edited["whole"], "linked": closing_whole, "runs": True},
-        # The port reads no timeline to a bound yet, so it cuts none (decision 0234; its bound is the next part's).
-        "timeline_bounded": False,
+        "timeline_bounded": cut or linked_cut,
         "read_at": now,
     })
     problems = validate(found, SCHEMA)
