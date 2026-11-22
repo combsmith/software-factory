@@ -18,4 +18,5 @@ Build from the sections the design's own section 1.2 calls rules, and never from
 
 A decision record states what is decided now, not how it was reached. Adding a boundary row when a
 check for it is written changes nothing decided. `glossary.md` gives each term one meaning;
-`context-engineering.md` says why these files are shaped as they are, with sources.
+`context-engineering.md` says why these files are shaped as they are, with sources; `development.md`
+says how a change is made here, from a branch to a merge.

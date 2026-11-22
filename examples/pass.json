@@ -211,6 +211,7 @@
         "acts_since_writer": 2,
         "acceptance": null,
         "opened_for": 36,
+        "issue_stands": "open",
         "complete": {
           "acceptance": true,
           "reviews": true,
@@ -373,6 +374,7 @@
           "linked": true,
           "runs": true
         },
+        "timeline_bounded": false,
         "read_at": "2026-10-11T12:00:00Z"
       },
       "decision": {
