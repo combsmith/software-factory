@@ -31,7 +31,7 @@ import zlib
 from unittest import mock
 
 from controller import pass_
-from harness import engine, shared
+from harness import engine, shared, task
 from kernel import decide as decide_module, derive, issue, terms
 from kernel.decide import decide
 from sim import world
@@ -39,7 +39,7 @@ from adapters import github
 from tests import support
 from tools import (check_apps, check_authority, commits_are_the_maintainers, pr_title, check_context, check_decisions, check_examples, check_gate_sets, check_lifecycle, context_eval,
                    check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, redact_trial,
-                   environments_drift, machine_user_drift, rulesets_drift, verify, walk)
+                   desk, environments_drift, machine_user_drift, rulesets_drift, verify, walk)
 from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
 
@@ -6044,6 +6044,64 @@ class Context(unittest.TestCase):
         self.assertTrue(caught(problems, "a section 'Not yet held'"))
         self.assertTrue(caught(problems, "0003-y.md: the title must open with its number"))
 
+    def test_a_new_records_title_is_short_and_names_its_file(self):
+        # Decision 0245: from FIRST_SHORT on, a record's title is at most 72 characters and its file is named by it.
+        self.assertEqual((check_context.FIRST_SHORT, check_context.RECORD_TITLE), (245, 72))
+        body = "\n\n## Decision\n\nY.\n\n## Why\n\nZ.\n\n## Boundaries\n\n| B | Check |\n|---|---|\n| b | `tools/x.py` |\n"
+
+        def found(name, title, first=2):
+            files = {"docs/decisions/0001-a-long-title.md": "# 0001. " + "A long title " * 10 + body, "tools/x.py": ""}
+            files["docs/decisions/" + name] = "# 0002. %s" % title + body
+            with mock.patch.object(check_context, "FIRST_SHORT", first):
+                return check_context._decisions(tree(files))
+
+        at_most = "A" + " b" * 35 + "c"
+        self.assertEqual(len(at_most), 72)
+        self.assertEqual(found("0002-" + check_context._slug(at_most) + ".md", at_most), [])
+        over = at_most + "d"
+        self.assertTrue(caught(found("0002-" + check_context._slug(over) + ".md", over), "the title is 73 characters"))
+        # The file is the title lowercased, spaces to dashes, other punctuation dropped; any other name refuses.
+        title = "A pull request's title — names its area, and (#1) its issue"
+        self.assertEqual(check_context._slug(title), "a-pull-requests-title-names-its-area-and-1-its-issue")
+        self.assertEqual(found("0002-a-pull-requests-title-names-its-area-and-1-its-issue.md", title), [])
+        for name in ("0002-a-pull-requests-title.md", "0002-A-pull-requests-title-names-its-area-and-1-its-issue.md",
+                     "0002-a-pull-request-s-title-names-its-area-and-1-its-issue.md",
+                     "0002-a-pull-requests-title-names-its-area-and-1-its-issue-.md"):
+            self.assertTrue(caught(found(name, title), "the file is named by its title"), name)
+        self.assertEqual(check_context._slug("Self-held  x-y"), "self-held-x-y")
+        self.assertEqual(check_context._slug("X--Y and Queue / merge"), "x--y-and-queue-merge")
+        # The boundary, with its file named independently of the function under test, and counted in characters.
+        self.assertEqual(found("0002-" + "a" * 72 + ".md", "A" * 72), [])
+        self.assertTrue(caught(found("0002-" + "a" * 73 + ".md", "A" * 73), "the title is 73 characters"))
+        self.assertEqual(found("0002-" + "a" * 71 + ".md", "A" * 71 + "\u2014"), [])
+        # A space after the number's own one is counted.
+        self.assertTrue(caught(found("0002-" + "a" * 72 + ".md", " " + "A" * 72), "the title is 73 characters"))
+        # A record after the first short one is held too.
+        later = {"docs/decisions/0001-x.md": "# 0001. X" + body, "docs/decisions/0002-y.md": "# 0002. Y" + body,
+                 "docs/decisions/0003-z.md": "# 0003. Wrong name" + body, "tools/x.py": ""}
+        with mock.patch.object(check_context, "FIRST_SHORT", 2):
+            self.assertTrue(caught(check_context._decisions(tree(later)), "0003-z.md: from record 0002 on the file is named"))
+        self.assertEqual(check_context._slug("A b \u2014"), "a-b")
+        self.assertEqual(check_context._slug("\u2014 A b"), "a-b")
+        self.assertEqual(check_context._slug("Caf\u00e9 au lait"), "caf-au-lait")
+        # A title of 72 characters with spaces or a carriage return after it is still 72; a title that names nothing refuses.
+        self.assertEqual(found("0002-" + check_context._slug(at_most) + ".md", at_most + "  \r"), [])
+        for empty in ("", "\u2014", "??", "-", "- --"):
+            self.assertTrue(caught(found("0002-.md", empty), "the title names nothing"), empty)
+        # The file's own number decides, past a gap too.
+        files = {"docs/decisions/0001-x.md": "# 0001. X" + body, "docs/decisions/0003-y.md": "# 0003. " + over + body,
+                 "tools/x.py": ""}
+        with mock.patch.object(check_context, "FIRST_SHORT", 3):
+            problems = check_context._decisions(tree(files))
+        self.assertTrue(caught(problems, "0003-y.md: the title is 73 characters"))
+        # A number padded with zeros is held as written.
+        files["docs/decisions/00004-z.md"] = "# 00004. " + over + body
+        with mock.patch.object(check_context, "FIRST_SHORT", 3):
+            self.assertTrue(caught(check_context._decisions(tree(files)), "00004-z.md: the title is 73 characters"))
+        # A record below FIRST_SHORT keeps its long title and its name, and so does every record before it.
+        self.assertEqual(found("0002-x.md", over, first=3), [])
+        self.assertTrue(caught(found("0002-x.md", over, first=2), "the title is 73 characters"))
+
     def test_no_two_records_share_a_number(self):
         # Decision 1121: a record takes the number of the pull request that adds it, so numbers leave gaps. The number
         # is the file's, four digits or more, its title opens with it, and no two records share one, however written.
@@ -6911,6 +6969,111 @@ class Trials(unittest.TestCase):
         self.assertFalse([line for line in batches if "P-31" in line])
         self.assertIn("P-31, the relay's host, on which W-2 rests, belongs to the relay and runs before it is built, in slice 3 (decision 0107). "
                       "The first approval does not need W-2, since a Run's end starts its passes (decision 0043).", section)
+
+    def test_a_trial_may_have_a_page_of_its_own_read_as_its_row_is(self):  # decision 0249
+        # A trial's page, in place of its row in section 6, is read as the row was: a quote of its question holds, the
+        # check finds nothing new, and the table the check prints is the same, byte for byte.
+        design = (ROOT / check_trials.DESIGN).read_text()
+        row = next(line for line in design.split("\n") if line.startswith("| P-41 | "))
+        cells = re.fullmatch(r"\| P-41 \| (%s) \| (%s) \|" % (check_trials.CELL, check_trials.CELL), row)
+        page = "# P-41\n\nBatch: 2\n\n## Question\n\n%s\n\n## Pass\n\n%s\n" % cells.group(1, 2)
+        moved = clone({check_trials.DESIGN: design.replace(row + "\n", "", 1), check_trials.PAGES + "/P-41.md": page})
+        self.assertEqual(check_trials.run(moved), [])
+        self.assertEqual(check_trials.table(moved), check_trials.table(ROOT))
+        self.assertEqual(check_trials.questions(moved)["P-41"], check_trials.questions(ROOT)["P-41"])
+        # A new trial is a page alone: it is one of section 6's, its row is written from it in the order of the
+        # numbers, and it stands in the batch it names.
+        made = clone({check_trials.PAGES + "/P-97.md": "# P-97\n\nBatch: 4\n\n## Question\n\nIs it asked?\n\n## Pass\n\nYes\n"})
+        self.assertIn("P-97", check_trials.section_6(made))
+        self.assertEqual(check_trials.run(made), [])
+        self.assertEqual(check_trials.questions(made)["P-97"], "Is it asked?")
+        lines = check_trials.table(made).split("\n")
+        self.assertEqual(lines[lines.index("| Batch | Trials |") - 2], "| P-97 | Is it asked? | Yes |")
+        self.assertIn("P-97", re.findall(r"P-[0-9]+", next(line for line in lines if line.startswith("| 4 | "))))
+        none = clone({check_trials.PAGES + "/P-97.md": "# P-97\n\nBatch: none\n\n## Question\n\nIs it asked?\n\n## Pass\n\nYes\n"})
+        self.assertIn("P-97", re.findall(r"P-[0-9]+", next(line for line in check_trials.table(none).split("\n")
+                                                           if line.startswith("| none | "))))
+        # A pipe escaped is the cell's own, and kept as written in the row.
+        piped = clone({check_trials.PAGES + "/P-97.md": "# P-97\n\nBatch: 4\n\n## Question\n\nIs A \\| B asked?\n\n## Pass\n\nYes\n"})
+        self.assertIn("| P-97 | Is A \\| B asked? | Yes |", check_trials.table(piped).split("\n"))
+        # Anything else there is refused: a file not named for a trial, or nested, a page headed with another trial, a
+        # batch 6.1 has not, a question run over two lines, text past the pass, and a trial with a page and a row.
+        good = "# P-%s\n\nBatch: 4\n\n## Question\n\nIs it asked?\n\n## Pass\n\nYes\n"
+        files = {"README.md": "# Trials\n", "P-095.md": good % "095", "deep/P-96.md": good % "96",
+                 "P-90.md": good % "91", "P-92.md": (good % "92").replace("Batch: 4", "Batch: 5"),
+                 "P-93.md": (good % "93").replace("Is it asked?", "Is it\nasked?"), "P-94.md": good % "94" + "more\n",
+                 "P-98.md": (good % "98").replace("Is it asked?", "Is it <!-- hidden --> asked?"),
+                 "P-99.md": (good % "99").replace("Is it asked?", "```hidden"), "P-41.md": page,
+                 "P-88.md": (good % "88").replace("Is it asked?", "Is A | B asked?"), "P-87.md": (good % "87").replace("Yes", " "),
+                 "P-85.md": (good % "85").replace("Is it asked?", " "),
+                 "P-86.md\n": good % "86"}
+        planted = clone({check_trials.PAGES + "/" + k: v for k, v in files.items()})
+        (planted / check_trials.PAGES / "P-89.md").symlink_to(planted / check_trials.PAGES / "P-90.md")
+        problems = check_trials.run(planted)
+        for name in ("P-98.md", "P-99.md"):
+            self.assertTrue(caught(problems, "%s/%s: holds a fence or an HTML comment" % (check_trials.PAGES, name)), name)
+        for name in ("README.md", "P-095.md", "deep/P-96.md", "P-89.md", "P-86.md\n"):
+            self.assertTrue(caught(problems, "%s/%s: only a trial's page" % (check_trials.PAGES, name)), name)
+        self.assertTrue(caught(problems, "P-90.md: is headed P-91"), problems)
+        for name in ("P-87.md", "P-85.md"):
+            self.assertTrue(caught(problems, "%s: its question or its pass is blank" % name), name)
+        with self.assertRaises(ValueError):         # the table refuses what the check refuses
+            check_trials.table(planted)
+        for name in ("P-92.md", "P-93.md", "P-94.md", "P-88.md"):
+            self.assertTrue(caught(problems, "%s/%s: is not a trial's page" % (check_trials.PAGES, name)), name)
+        self.assertTrue(caught(problems, "P-41 has a page in %s and a row in section 6" % check_trials.PAGES), problems)
+        # A page's batch is the one 6.1 names it in, while 6.1 does; and a row the table could not write is refused,
+        # since dropping it would leave the table unchanged.
+        other = clone({check_trials.DESIGN: design.replace(row + "\n", "", 1),
+                       check_trials.PAGES + "/P-41.md": page.replace("Batch: 2", "Batch: 4")})
+        self.assertTrue(caught(check_trials.run(other), "P-41's page says Batch: 4, and 6.1 names it in batch 2"))
+        # The table refuses each of these alone, as the check does: a page beside its row, a page 6.1 contradicts.
+        for refused in (clone({check_trials.PAGES + "/P-41.md": page}), other):
+            with self.assertRaises(ValueError):
+                check_trials.table(refused)
+        twice = design.replace("| **4. As they come up** | P-6,", "| **4. As they come up** | P-13, P-6,", 1)
+        self.assertNotEqual(twice, design)
+        self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: twice})), "6.1 names P-13 in more than one batch"))
+        odd = clone({check_trials.DESIGN: design.replace(row, row + " ", 1)})
+        self.assertTrue(caught(check_trials.run(odd), "P-41's row in section 6 is not '| P-41 | question | pass |'"))
+        with self.assertRaises(ValueError):
+            check_trials.table(odd)
+        # A trial after the last row has a page, never a row; and 6.1 is read as it is seen, all four batches of it.
+        late = clone({check_trials.DESIGN: design.replace(row, row + "\n| P-79 | Is it asked? | Yes |", 1)})
+        self.assertTrue(caught(check_trials.run(late), "P-79 has a row in section 6; a trial after P-78 has a page"))
+        hidden = design.replace("\n### 6.1 The order to run them in\n",
+                                "\n### 6.1 The order to run them in\n\n<!--\n| **4. An example** | P-13 | x |\n-->\n", 1)
+        self.assertNotEqual(hidden, design)
+        self.assertEqual(check_trials.table(clone({check_trials.DESIGN: hidden})), check_trials.table(ROOT))
+        unbold = design.replace("| **3. Before the control room** |", "| 3. Before the control room |", 1)
+        self.assertNotEqual(unbold, design)
+        with self.assertRaises(ValueError):
+            check_trials.table(clone({check_trials.DESIGN: unbold}))
+        self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: unbold})), "6.1's four batches cannot all be read"))
+        # A batch whose trials have all moved to pages is still read, its row naming none.
+        section = design[design.index("\n### 6.1 "):]
+        three = next(line for line in section.split("\n") if line.startswith("| **3. "))
+        emptied = design.replace(three, "| **3. Before the control room** | each trial whose page says `Batch: 3` | x |", 1)
+        self.assertNotIn("6.1's four batches", " ".join(check_trials.catalog(clone({check_trials.DESIGN: emptied}))))
+        # An opener left open hides the rest of 6.1, as a renderer reads it.
+        unclosed = design.replace("\nP-31, the relay's host", "\n<!--\n| **4. An example** | P-13 | x |\n\nP-31, the relay's host", 1)
+        self.assertNotEqual(unclosed, design)
+        self.assertEqual(check_trials.table(clone({check_trials.DESIGN: unclosed})), check_trials.table(ROOT))
+
+    def test_the_table_is_printed_from_rows_and_pages_in_the_order_of_their_numbers(self):  # decision 0249
+        # No index is committed: `python3 -m tools.check_trials --table` prints section 6 and the batches of 6.1.
+        lines = check_trials.table(ROOT).split("\n")
+        numbers = [int(line.split(" ")[1][2:]) for line in lines if line.startswith("| P-")]
+        self.assertEqual(numbers, sorted(numbers))
+        self.assertEqual(len(numbers), len(check_trials.section_6(ROOT)))
+        self.assertTrue(next(line for line in lines if line.startswith("| 1 | ")).startswith("| 1 | P-1, P-3, P-7"))
+        self.assertIn("P-31", re.findall(r"P-[0-9]+", next(line for line in lines if line.startswith("| none | "))))
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            self.assertEqual(check_trials.front(["--table"]), 0)
+        self.assertEqual(printed.getvalue(), check_trials.table(ROOT))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(check_trials.front(["--tables"]), 1)
 
     def test_what_a_fixture_was_found_to_hold_is_kept_only_for_all_that_finding_reads(self):  # issue 438
         # The check keeps each fixture's finding between runs in one process, by its name, its text, the schema and the
@@ -12846,7 +13009,8 @@ class Verify(unittest.TestCase):
         real = (verify.failed, verify.unittest.TextTestRunner)
         verify.failed, verify.unittest.TextTestRunner = (lambda checks: False), Runner
         try:
-            with contextlib.redirect_stdout(io.StringIO()):     # main prints the unverified rules
+            # main prints the unverified rules, and on --checks the desk's note, here none
+            with contextlib.redirect_stdout(io.StringIO()), mock.patch.object(verify, "desk_note", return_value=""):
                 # `make checks` is the checks alone, whether they pass or not: it runs no test (issue 438).
                 self.assertEqual((verify.main(["--checks"]), ran), (0, {}))
                 verify.failed = lambda checks: True
@@ -12862,6 +13026,28 @@ class Verify(unittest.TestCase):
         self.assertIn("\nverify:\n\t$(PY) -m tools.verify\n", makefile)
         self.assertIn("\nfast:\n\t$(PY) -m tools.verify --fast\n", makefile)
         self.assertIn("\nchecks:\n\t$(PY) -m tools.verify --checks\n", makefile)
+
+    def test_make_reads_the_makefile_as_committed_and_remakes_it_from_nothing(self):  # issue 1048, decision 0240
+        # make tries to remake the makefile it read before it looks up a target, by an implicit rule from a file beside
+        # it: a newer Makefile.sh is copied over the Makefile, and its verify runs in place of the committed one (Astra's
+        # read). The Makefile's explicit rule with an empty recipe stops that.
+        with tempfile.TemporaryDirectory() as where:
+            where = pathlib.Path(where)
+            shutil.copy(ROOT / "Makefile", where / "Makefile")
+            os.utime(where / "Makefile", (1, 1))
+            (where / "Makefile.sh").write_text("verify:\n\t@echo not the committed verify\n")
+            # make's built-in rules on, whatever flags the run was given (Astra's read), and verify the goal of a bare
+            # make too.
+            env = {k: v for k, v in os.environ.items() if k not in ("MAKEFLAGS", "MFLAGS", "MAKEFILES", "GNUMAKEFLAGS")}
+            for goal in (["verify"], []):
+                ran = subprocess.run(["make", "-s"] + goal + ["PY=echo"], cwd=where, capture_output=True, text=True,
+                                     timeout=60, env=env)
+                self.assertEqual((ran.returncode, ran.stdout), (0, "-m tools.verify\n"), (goal, ran.stderr))
+                self.assertEqual((where / "Makefile").read_text(), (ROOT / "Makefile").read_text())
+                # And verify's failure is make's (Astra's read).
+                failed = subprocess.run(["make", "-s"] + goal + ["PY=false"], cwd=where, capture_output=True, text=True,
+                                        timeout=60, env=env)
+                self.assertNotEqual(failed.returncode, 0, goal)
 
     def test_every_test_file_is_discovered(self):
         found = set()
@@ -16079,3 +16265,206 @@ if mode == "cut":
         self.assertEqual(done.returncode, 2, done.stderr)
         self.assertIn("is inside the repo", done.stderr)
         self.assertFalse(out.exists())
+
+
+class Desk(unittest.TestCase):
+    """What the desk runs beside the checks, for a person, and no check: about the size the Factory will count a branch
+    at (issue 1109)."""
+
+    def repo(self, files: dict) -> pathlib.Path:
+        limits = {"limits": {"max_diff_characters": 60000, "max_diff_lines": 4000}}
+        root = tree(dict({"config/defaults.json": json.dumps(limits)}, **files))
+        git(root, "init", "-q", "-b", "main")
+        self.commit(root, "base")
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        return root
+
+    def commit(self, root: pathlib.Path, message: str) -> None:
+        git(root, "add", "-A")
+        git(root, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", message)
+
+    def test_the_size_is_counted_as_the_factory_counts_it_and_warned_past_its_share(self):
+        root = self.repo({"a.py": "a\nb\nc\n", "m.py": "".join("line %d\n" % n for n in range(40)),
+                          "\u00e9.py": "".join("line %d\n\n" % n for n in range(20))})
+        git(root, "checkout", "-q", "-b", "work")
+        (root / "a.py").write_text("a\nB\nc\nd\n")
+        (root / "\u00e9.py").write_text("".join("line %d\n\n" % n if n not in (2, 8) else "new\n\n" for n in range(20)))
+        git(root, "mv", "m.py", "moved.py")
+        self.commit(root, "work")
+        # Main moving on past the branch's base counts nothing of main's: the base is where the branch left it.
+        git(root, "checkout", "-q", "main")
+        (root / "big.py").write_text("x = 1\n" * 5000)
+        self.commit(root, "main")
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        git(root, "checkout", "-q", "work")
+        base = git(root, "merge-base", "HEAD", "origin/main").strip()
+
+        def factory(*args: str) -> int:     # as adapters/pull.py counts it: index lines cut, numbered, escaped
+            plain = git(root, "-c", "core.quotePath=true", "-c", "diff.suppressBlankEmpty=false", "diff", "--no-color",
+                        "--full-index", "-M", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/",
+                        "--inter-hunk-context=0", *args, "--")
+            return task.carried(task.numbered(desk.pull.canonical(plain)))
+
+        # However this clone's configuration would write a diff, it is counted as GitHub writes one.
+        (root / ".git" / "info" / "attributes").write_text("*.py diff=upper\n")
+        for key, value in (("diff.upper.textconv", "sed -e s/a/AAA/g"), ("color.ui", "always"), ("diff.noprefix", "true"),
+                           ("diff.renames", "false"), ("core.abbrev", "4"), ("diff.interHunkContext", "20"),
+                           ("diff.suppressBlankEmpty", "true"), ("core.quotePath", "false"), ("diff.algorithm", "histogram")):
+            git(root, "config", key, value)
+
+        said = "about %d of 60000 characters and %d of 4000 lines committed against origin/main as last fetched"
+        self.assertEqual(desk.size(root), said % (factory(base), 7))
+        # Past 95% of either limit it warns, and under it does not: the Factory's count is a little apart from this.
+        warned = "; split it before it opens, or the Factory holds it as too_large"
+        for most, warns in (((int(factory(base) / 0.96), 4000), True), ((60000, 7), True), ((60000, 8), False)):
+            with mock.patch.object(desk, "limits", return_value=most):
+                self.assertEqual(desk.size(root).endswith(warned), warns, most)
+        for most, warns in (((60000, 21), True), ((60000, 22), False)):       # 20 lines: past 95% of 21, not of 22
+            with mock.patch.object(desk, "limits", return_value=most), mock.patch.object(desk, "counted", return_value=(9, 20)):
+                self.assertEqual(desk.size(root).endswith(warned), warns, most)
+        for count in ((95, 1), (1, 19)):        # at 95% of either, and not past it, it does not warn
+            with mock.patch.object(desk, "limits", return_value=(100, 20)), mock.patch.object(desk, "counted", return_value=count):
+                self.assertFalse(desk.size(root).endswith(warned), count)
+        self.assertEqual(desk.limits(root), (60000, 4000))
+        # What is committed counts, a line taken out as one; a working tree's edits are not read, staged ones and
+        # untracked files are named; each index line is cut as the Factory cuts it, however git abbreviates.
+        (root / "a.py").write_text("a\nc\n" + "y" * 300 + "\n")
+        self.commit(root, "more")
+        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6))
+        self.assertNotEqual(factory(base, "HEAD"), task.carried(task.numbered(git(root, "diff", "--no-color", "--full-index",
+                                                                                  "-M", "--no-textconv", base, "HEAD", "--"))))
+        (root / "a.py").write_text("z\n" * 9000)
+        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6))
+        (root / "HEAD").write_text("n\n")      # a file of that name is no revision to the reads
+        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6) + ", 1 untracked file not counted")
+        (root / "other.py").write_text("o\n")
+        git(root, "add", "a.py")
+        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6) +
+                         ", staged edits and 2 untracked files not counted")
+        git(root, "reset", "-q")
+        (root / "HEAD").unlink()
+        (root / "other.py").unlink()
+        git(root, "checkout", "-q", "--", "a.py")
+        # Text that is no UTF-8 the Factory holds; limits it cannot read, it says so.
+        (root / "a.py").write_bytes(b"a\n\xff\n")
+        self.commit(root, "bytes")
+        self.assertEqual(desk.size(root), "the diff holds text that is no UTF-8, which the Factory holds and counts no "
+                                          "size of; take it out")
+        (root / "a.py").write_text("a\n")
+        self.commit(root, "back")
+        # The limits are main's, as the Factory reads them: not this tree's, nor this branch's.
+        (root / "config" / "defaults.json").write_text('{"limits": {"max_diff_characters": 9, "max_diff_lines": 9}}')
+        self.assertEqual(desk.limits(root), (60000, 4000))
+        self.commit(root, "limits")
+        self.assertEqual(desk.limits(root), (60000, 4000))
+        for config in ('{"limits": {}}', "{", '{"limits": {"max_diff_characters": "x", "max_diff_lines": 1}}',
+                       '{"limits": {"max_diff_characters": 1%s, "max_diff_lines": 1}}' % ("0" * 400), "\udcff"):
+            (root / "config" / "defaults.json").write_bytes(config.encode("utf-8", "surrogateescape"))
+            self.commit(root, "config")
+            git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+            self.assertEqual(desk.size(root), "no limit to compare: config/defaults.json's limits cannot be read", config)
+        # A partial clone's reads may fetch, so it reads nothing.
+        git(root, "config", "extensions.partialclone", "origin")
+        self.assertEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
+        git(root, "config", "--unset", "extensions.partialclone")
+        git(root, "config", "remote.origin.promisor", "false")
+        self.assertNotEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
+        git(root, "config", "remote.other.promisor", "true")     # any of them, not the first alone
+        self.assertEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
+        git(root, "config", "--unset", "remote.other.promisor")
+        partial = "no count: this is a partial clone, whose reads may fetch"
+        for key, value, said in (("remote.other.promisor", "no", False), ("remote.other.promisor", "maybe", True),
+                                 ("extensions.partialclone", "false", True),     # a remote's name, never a boolean
+                                 ("remote.origin.partialclonefilter", "blob:none", True)):
+            git(root, "config", key, value)
+            self.assertEqual(desk.size(root) == partial, said, (key, value))
+            git(root, "config", "--unset", key)
+        with mock.patch.object(desk, "SECONDS", 0):      # git that cannot say in time is read as one that may fetch
+            self.assertTrue(desk._partial(root))
+
+    def test_the_desk_runs_git_only_to_read_and_says_when_there_is_no_base(self):
+        root = self.repo({"a.py": "a\n"})
+        (root / "a.py").write_text("b\n")
+        self.commit(root, "work")
+        ran, real = [], subprocess.run
+
+        def run(argv, **kwargs):
+            ran.append((argv, kwargs["env"]))
+            self.assertEqual(kwargs["timeout"], desk.SECONDS)
+            return real(argv, **kwargs)
+
+        with mock.patch.object(desk, "subprocess", mock.NonCallableMock(
+                run=run, DEVNULL=subprocess.DEVNULL, TimeoutExpired=subprocess.TimeoutExpired)):
+            desk.size(root)
+            for refused in (("fetch", "origin"), ("config", "user.name", "x"), ("config", "--unset", "x.y"), ("config",),
+                            ("diff", "--output=f")):
+                with self.assertRaises(ValueError):
+                    desk._git(root, *refused)
+        verbs = {argv[len(desk.SAFE) + 1] for argv, _ in ran}
+        self.assertTrue(verbs and verbs <= set(desk.READS), verbs)
+        self.assertFalse({"fetch", "pull", "push", "clone", "ls-remote", "remote", "submodule", "fetch-pack",
+                          "send-pack", "archive", "bundle", "maintenance", "gc"} & set(desk.READS))
+        self.assertTrue(all(argv[0] == "git" and argv[1:len(desk.SAFE) + 1] == list(desk.SAFE) for argv, _ in ran))
+        self.assertTrue(all(env["GIT_NO_LAZY_FETCH"] == "1" and env["GIT_TERMINAL_PROMPT"] == "0" and env["LC_ALL"] == "C"
+                            for _, env in ran))
+        # With no clone, or no main to compare with, there is no base, and it says so.
+        self.assertEqual(desk.size(tree({"a.py": "a\n"})), "no base to compare: this tree is no clone")
+        git(root, "update-ref", "-d", "refs/remotes/origin/main")
+        self.assertEqual(desk.size(root), "no base to compare: origin/main cannot be read here")
+
+    def test_make_checks_note_fails_nothing(self):
+        # The note is printed after the checks have answered, and nothing it does, an error or an exit, changes the
+        # answer. CI's legs never run it.
+        def ran(argv: list, checks_failed: bool, note) -> tuple:
+            printed = io.StringIO()
+            with mock.patch.object(verify, "failed", return_value=checks_failed), \
+                    mock.patch.object(desk, "size", side_effect=note), contextlib.redirect_stdout(printed):
+                return verify.main(argv), printed.getvalue()
+
+        for checks_failed in (False, True):
+            self.assertEqual(ran(["--checks"], checks_failed, lambda: "the note"),
+                             (int(checks_failed), "%-22s the note\n" % "diff size"))
+            for note, name in ((RuntimeError, "RuntimeError"), (lambda: sys.exit(int(not checks_failed)), "SystemExit"),
+                               (KeyboardInterrupt, "KeyboardInterrupt")):
+                self.assertEqual(ran(["--checks"], checks_failed, note),
+                                 (int(checks_failed), "%-22s no note: it raised %s\n" % ("diff size", name)))
+        for checks_failed in (False, True):
+            read, write = os.pipe()
+            os.close(read)      # a reader that closed before the note
+            stream = open(write, "w", encoding="utf-8")
+            with mock.patch.object(verify, "failed", return_value=checks_failed), \
+                    mock.patch.object(desk, "size", return_value="n"), mock.patch.object(sys, "stdout", stream):
+                self.assertEqual(verify.main(["--checks"]), int(checks_failed))
+            stream.close()      # the flush at exit: what the note left held goes nowhere, and raises nothing
+        read, write = os.pipe()
+        try:        # the null device opened as the stream's own number, closed already: that number is left open
+            with mock.patch.object(verify.os, "open", return_value=write):
+                verify.quiet(mock.Mock(fileno=lambda: write))
+            os.fstat(write)
+        finally:
+            os.close(read)
+            os.close(write)
+        printed = io.StringIO()
+        with mock.patch.object(verify, "failed", return_value=True), mock.patch.object(desk, "size", return_value="n"), \
+                mock.patch("builtins.print", side_effect=BrokenPipeError), contextlib.redirect_stdout(printed):
+            self.assertEqual(verify.main(["--checks"]), 1)      # a stream with no file to point elsewhere
+        for argv, code, said in ((["size"], 0, "the note\n"), ([], 1, "usage: python3 -m tools.desk size\n"),
+                                 (["size", "x"], 1, "usage: python3 -m tools.desk size\n")):
+            printed = io.StringIO()      # the command prints the note, and anything else asked is refused
+            with mock.patch.object(desk, "size", return_value="the note"), contextlib.redirect_stdout(printed):
+                self.assertEqual(desk.main(argv), code, argv)
+            self.assertEqual(printed.getvalue(), said, argv)
+        package = sys.modules["tools"]
+        del package.desk
+        try:
+            with mock.patch.dict(sys.modules, {"tools.desk": None}):       # one that cannot be imported
+                self.assertEqual(verify.desk_note(), "no note: it raised ModuleNotFoundError")
+        finally:
+            package.desk = desk
+        note = mock.Mock(return_value="the note")
+        with mock.patch.object(verify, "failed", return_value=False), mock.patch.object(desk, "size", note), \
+                mock.patch.object(verify, "suite", return_value=unittest.TestSuite()), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(verify.main([], {}), 0)
+            self.assertEqual(verify.main([], {"CHECKS_SHARD": "0", "CHECKS_SHARDS": "2"}), 0)
+        note.assert_not_called()
