@@ -1,4 +1,4 @@
-# 0000. The facts port reads a pull request's timeline to ten pages
+# 1150. The facts port reads a pull request's timeline to ten pages
 
 Status: accepted. Extends decision 0234 with its bound on the facts port's reads of a pull request's own timeline and reviews, as "adapters: bound a pull request's timeline and seen-issue reads by pages" (issue 1009) asks, part 2 of 4, as the Factory Builder ruled on 2026-11-20. It restates the row of decision 1149 that it widens, now that the port says a cut; decisions 0234 and 1149 stand as they are.
 
