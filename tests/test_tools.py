@@ -4295,11 +4295,15 @@ class Workflows(unittest.TestCase):
             self.assertEqual(commits_are_the_maintainers.main(dict(told, EVENT="pull_request"), root, Asked()), 1)
         self.assertIn("opened from o/r by ada, the Maintainer", printed.getvalue())
         # On a merge group too the title is read, and a title that breaks the rule is a refusal on its own.
+        # The job hands the check the transport it was handed.
+        asked = Asked()
         with mock.patch.object(commits_are_the_maintainers, "problems", return_value=[]), \
+                mock.patch.object(commits_are_the_maintainers, "record_problems", return_value=[]), \
                 mock.patch.object(pr_title, "check", side_effect=lambda env, transport=None:
-                                  ["title_no_area: planted"] if env.get("EVENT") == "merge_group" else []), \
+                                  ["title_no_area: planted"] if env.get("EVENT") == "merge_group" and transport is asked
+                                  else []), \
                 contextlib.redirect_stdout(io.StringIO()) as printed:
-            self.assertEqual(commits_are_the_maintainers.main(told, root, Asked()), 1)
+            self.assertEqual(commits_are_the_maintainers.main(told, root, asked), 1)
         self.assertIn("title_no_area: planted", printed.getvalue())
 
     def test_each_record_a_pull_request_adds_is_numbered_by_it(self):
@@ -5526,8 +5530,12 @@ class PullTitle(unittest.TestCase):
         self.assertFalse(any("99999" in p for p in said))
         self.assertEqual(self.codes("kernel: hold an item... (#1)"), ["title_ends_with_stop"])
         for title in ("kernel: hold an item, (#1)", "kernel: hold an item; (#1)", "kernel: hold an item: (#1)",
-                      "kernel: hold an item  (#1)", "kernel: hold an item\t (#1)"):
+                      "kernel: hold an item  (#1)"):
             self.assertEqual(self.codes(title), ["title_ends_with_stop"], title)
+        # A title is one line of printable characters: a tab, a line end or another control character refuses.
+        self.assertEqual(self.codes("kernel: hold an item\t (#1)"), ["title_control_character", "title_ends_with_stop"])
+        for title in ("kernel: hold\tan item (#1)", "kernel: hold\nan item (#1)", "kernel: hold\x7fan item (#1)"):
+            self.assertEqual(self.codes(title), ["title_control_character"], title)
         # The issue, at the end: a number with no leading zero, and a part K of M with 1 <= K <= M and M >= 2.
         for title in ("kernel: hold an item", "kernel: hold an item (1)", "kernel: hold an item #1",
                       "kernel: hold an item (#01)", "kernel: hold an item (#0)", "kernel: hold an item (#1) now",
@@ -5541,7 +5549,7 @@ class PullTitle(unittest.TestCase):
         # A name from inside the code, each mark on its own, and none in the area.
         for title in ("kernel: hold an item with `x` (#1)", "kernel: hold max_rounds (#1)", "kernel: amend record 0219 (#1)",
                       "kernel: amend decision 0219 (#1)", "kernel: amend Records #0219 (#1)", "trials: record P-73 (#1)",
-                      "kernel: amend decision  0219 (#1)", "kernel: amend record\t0219 (#1)",
+                      "kernel: amend decision  0219 (#1)", "kernel: amend record\u00a00219 (#1)",
                       "trials: record p-73 (#1)",
                       "kernel: bound effect/1 (#1)"):
             self.assertEqual(self.codes(title), ["title_internal_term"], title)
