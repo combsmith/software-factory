@@ -43,7 +43,7 @@ SUFFIXES = (".py", ".json", ".md", ".yml", ".yaml")
 EXTENSION = re.compile(r"\.[a-z0-9]{1,5}$")
 PENDING = "not held yet"
 # A record is numbered by the pull request that adds it, which tools/commits_are_the_maintainers.py holds, so numbers
-# leave gaps; the number is the file's, at least four digits, and no two records share one (decision 0000).
+# leave gaps; the number is the file's, at least four digits, and no two records share one (decision 1121).
 RECORD_NUMBER = re.compile(r"^([0-9]{4,})-")
 WAITING = re.compile(r"waiting on `([^`\n]+)`", re.I)
 MODULE = re.compile(r"python3 -m ([\w.]*\w)")

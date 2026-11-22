@@ -9869,7 +9869,7 @@ MUTANTS = ISSUE + [
     ("a committer is read by name alone", "tools/commits_are_the_maintainers.py",
      "        if (committer_name, committer_email) != who and not made_by_github:\n",
      "        if committer_name != who[0] and not made_by_github:\n", COMMITS_TESTS),
-    # Decision 0000: a decision record takes the number of the pull request that adds it, one at most; no two share one.
+    # Decision 1121: a decision record takes the number of the pull request that adds it, one at most; no two share one.
     ("two records may share a number", "tools/check_context.py", "        elif number in seen:\n", "        elif False:\n", ("tests.test_tools.Context.test_no_two_records_share_a_number",)),
     ("a record's number is read as written, not as a number", "tools/check_context.py",
      "        number = int(named.group(1)) if named else None\n", "        number = named.group(1) if named else None\n", ("tests.test_tools.Context.test_no_two_records_share_a_number",)),

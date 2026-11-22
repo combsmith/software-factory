@@ -1,4 +1,4 @@
-# 0000. A decision record takes the number of the pull request that adds it
+# 1121. A decision record takes the number of the pull request that adds it
 
 Status: accepted. The Maintainer's decision of 2026-11-21, on the Solution Architect's design of the same day, relayed by the Factory Builder.
 

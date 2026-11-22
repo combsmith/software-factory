@@ -19,7 +19,7 @@ retargeted to main is caught there.
 And it reads the decision records the pull request adds, between BASE_SHA and HEAD_SHA in the head's own tree: at most
 one, numbered by the pull request itself, its number from the payload or, on a merge group, from the queue's ref, whose
 base is the entry before it. A rename adds a record too. Until the chain numbered before this rule has merged, a record
-numbered in that range stands as well (decision 0000). Run with `python3 -m tools.commits_are_the_maintainers`.
+numbered in that range stands as well (decision 1121). Run with `python3 -m tools.commits_are_the_maintainers`.
 """
 from __future__ import annotations
 
@@ -118,7 +118,7 @@ def pull_number(environ) -> int:
 
 def record_problems(root: pathlib.Path, environ, run=git) -> list:
     """Why the decision records BASE_SHA..HEAD_SHA adds are not one record at most, numbered by its pull request: nothing
-    where they are (decision 0000). A path is shown quoted, as Python writes it, so a name that holds a new line is
+    where they are (decision 1121). A path is shown quoted, as Python writes it, so a name that holds a new line is
     printed on one line, and no line of it opening '::' is read by GitHub Actions as a command."""
     base, head = environ.get("BASE_SHA"), environ.get("HEAD_SHA")
     if not base or not head:

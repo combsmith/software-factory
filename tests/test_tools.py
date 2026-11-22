@@ -4265,7 +4265,7 @@ class Workflows(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("opened by bob", printed)
         self.assertNotIn("names the Maintainer as", printed)
-        # And a decision record numbered otherwise than by the pull request refuses, beside the rest (decision 0000).
+        # And a decision record numbered otherwise than by the pull request refuses, beside the rest (decision 1121).
         code, printed = ended([], ours, ["a record is numbered otherwise"])
         self.assertEqual(code, 1)
         self.assertIn("a record is numbered otherwise", printed)
@@ -4288,7 +4288,7 @@ class Workflows(unittest.TestCase):
         self.assertIn("opened from o/r by ada, the Maintainer", printed.getvalue())
 
     def test_each_record_a_pull_request_adds_is_numbered_by_it(self):
-        # Decision 0000: a decision record takes the number of the pull request that adds it, and a pull request adds
+        # Decision 1121: a decision record takes the number of the pull request that adds it, and a pull request adds
         # one at most. The commits' job reads the records the head adds in git, the head fetched, and the number from
         # the event's payload, or on a merge group from the queue's ref; until it drains, the chain numbered before
         # this rule, from 0235, stands as well.
@@ -5921,7 +5921,7 @@ class Context(unittest.TestCase):
         self.assertTrue(caught(problems, "0003-y.md: the title must open with its number"))
 
     def test_no_two_records_share_a_number(self):
-        # Decision 0000: a record takes the number of the pull request that adds it, so numbers leave gaps. The number
+        # Decision 1121: a record takes the number of the pull request that adds it, so numbers leave gaps. The number
         # is the file's, four digits or more, its title opens with it, and no two records share one, however written.
         body = "\n\n## Decision\n\nY.\n\n## Why\n\nZ.\n\n## Boundaries\n\n| B | Check |\n|---|---|\n| b | `tools/x.py` |\n"
         files = {"docs/decisions/0001-x.md": "# 0001. X" + body, "docs/decisions/0003-y.md": "# 0003. Y" + body,
@@ -6205,7 +6205,7 @@ class Decisions(unittest.TestCase):
                 self.assertTrue(refused(files, words, base=base), name)
 
     def test_a_record_of_five_digits_comes_after_one_of_four(self):
-        # Decision 0000: a record is numbered by its pull request, so its number is read as a number, at four digits or
+        # Decision 1121: a record is numbered by its pull request, so its number is read as a number, at four digits or
         # more: one of five digits is later than 9999, though its digits sort first.
         nine, ten = "docs/decisions/9999-nine.md", "docs/decisions/10000-ten.md"
         old = RECORD.replace("# 0001. One thing", "# 9999. Nine")

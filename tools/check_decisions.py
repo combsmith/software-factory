@@ -42,7 +42,7 @@ REPLACED = re.compile(r"^Status: replaced by %s(?=[,.]|$)" % PATH)
 REPLACES = re.compile(r"^Status: accepted\. Replaces (`[^`]+`(?:(?:, and |, | and )`[^`]+`)*)(?=[,.]|$)")
 # Words that claim a replacement. Past the one declaration a Status makes, none of them, and no record's path, stands.
 CLAIM = re.compile(r"replace|supersede", re.I)
-# A record's number, at least four digits, compared as a number: one of five digits comes after 9999 (decision 0000).
+# A record's number, at least four digits, compared as a number: one of five digits comes after 9999 (decision 1121).
 NUMBER = re.compile(r"^([0-9]{4,})-")
 BOUNDARIES = "## Boundaries"
 # A mutant a row names, by its description in tools/mutants.py (issue 590).
