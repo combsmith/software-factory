@@ -1325,7 +1325,7 @@ class Issues(unittest.TestCase):
         self.assertEqual([d["item"]["type"] for d in decisions(out)], ["pull_request", "issue"])
         # Beside a fault of the facts, that alert is raised too, by the fault alone.
         unread = {"facts": {"item": {"repo": home, "type": "issue", "number": 10}}, "title": None, "unread": "facts_unanswered"}
-        self.assertIn("facts_unreadable", passed(reads(issues=[budget(8), unread]))["alerts"])
+        self.assertLessEqual({"facts_unreadable", "issue_budget_spent"}, set(passed(reads(issues=[budget(8), unread]))["alerts"]))
         self.assertNotIn("facts_unreadable", passed(reads(issues=[budget(8)]))["alerts"])
         # That code is the issues' alone: a pull request's entry with it is facts that are not facts.
         pull = {"facts": {"item": dict(support.ITEM, number=11)}, "title": None, "unread": "issue_budget"}

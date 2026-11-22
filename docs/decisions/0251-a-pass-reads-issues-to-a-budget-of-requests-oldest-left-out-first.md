@@ -6,7 +6,7 @@ Status: accepted. Extends decision 0234 with its part 3 for "Once issues are ser
 
 | What | Decided | Because |
 |---|---|---|
-| What the budget counts | Every issue request a pass sends, answered or not, and the account reader's permission reads for the issues among them | A permission read is a request that a login acting on an issue makes the pass send (decision 0250) |
+| What the budget counts | Every request the issue reads send, answered or not, the listing apart, and the account reader's permission reads for the issues among them | A permission read is a request that a login acting on an issue makes the pass send (decision 0250) |
 | Which first | Those the last record left out by the budget, in the order it left them out, once each and only while listed; then the rest in the listing's order | Derived from the record before alone, which a replay holds |
 | The spans past the budget | A pass record that left the issue out as `issue_budget` is passed over by the keyword spans' reader for that issue alone, as decision 0186 passes over a pass that read no issue: the base before it stands. With every record at hand passed over, the chain is broken (the Factory Builder's ruling (B)) | The pass did not read the issue, so it saw nothing of it; counted as a break, every issue the budget skipped once would find its chain broken at every later read, and one a pull request names would never be decided |
 
