@@ -2315,10 +2315,13 @@ class Entry(unittest.TestCase):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
         failing = []
+        told = []
 
         def issue_read(transport, repo, number, accounts, clock, *, identities, **_):
             if number in failing:
                 raise github.Unanswered("no")
+            if number in told:
+                raise entry.issues_.Tracking("told at its own read")
             return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "An issue"
         example = json.loads((ROOT / "examples" / "pass.json").read_text())
         example["pull_requests"] = [dict(example["pull_requests"][0], facts=dict(example["pull_requests"][0]["facts"],
@@ -2422,6 +2425,12 @@ class Entry(unittest.TestCase):
                             tracked=(9,), listing=(5, 9))
         self.assertEqual([s for s in spied if s[1] == 9], [])
         self.assertNotIn("owed_issues", record["reconciled"])
+        # Nor where no record numbers it and its own read tells it, listed again (codex).
+        told.append(9)
+        record = entry_with(dict(before, left_out=[{"item": issue(9)["facts"]["item"], "code": "facts_unanswered"}]),
+                            listing=(5, 9))
+        del told[:]
+        self.assertEqual(([s for s in spied if s[1] == 9], "owed_issues" in record["reconciled"]), ([], False))
         # Owed, or kept as left, by a pass that could not tell it, it is never read as left either (Muse).
         for held_ in (dict(held, owed_issues=[9]), dict(held, left_issues=[{"number": 9, "at": "2026-10-12T10:00:00Z"}])):
             record = entry_with(dict(before, reconciled=held_), tracked=(9,), listing=(5, 9))

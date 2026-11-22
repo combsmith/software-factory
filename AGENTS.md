@@ -1,10 +1,9 @@
 # software-factory
 
 The decision core of the Factory: a set of agent Roles that turn an issue into a reviewed, merged change, and a Kernel that decides what each Role may do next.
-So far this repo holds the Kernel, its schemas, its checks, a simulator, the Lifecycle, the Controller, the Harness, the evals, the workflows, the Release's rules, the Role `pr-review` and the ports built so far. Only `adapters/github.py` talks to GitHub.
+It holds the Kernel, its schemas and checks, a simulator, the Lifecycle, the Controller, the Harness, the guards, the evals, the workflows, the Release's rules, the Role `pr-review` and the ports built so far. Only `adapters/github.py` talks to GitHub.
 
-It follows the org's standards, [combsmith/.github/AGENTS.md](https://github.com/combsmith/.github/blob/main/AGENTS.md),
-except where `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standards.md` says why not.
+It follows the org's standards, [combsmith/.github/AGENTS.md](https://github.com/combsmith/.github/blob/main/AGENTS.md), except where `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standards.md` says why not.
 
 ## Verify
 
@@ -31,7 +30,7 @@ Each rule names the check that holds it. A rule no check holds does not belong i
 | Every Kernel rule has a boundary test, and a mutant that the test kills | `tools/mutants.py` |
 | The invariants hold under injected faults, on fixed seeds | `tests/test_simulator.py::test_invariants_hold_under_faults` |
 | Nothing is installed or fetched; no secret is written down; outside `adapters/`, only the callers a check lists reach a GitHub write | `tools/check_repo.py`, `tools/check_writes.py` |
-| A workflow is pinned, least-privileged and holds no logic; every commit a pull request carries names the Maintainer, and a listed account opened it from this repo | `tools/check_workflows.py`, `tools/commits_are_the_maintainers.py` |
+| A workflow is pinned, least-privileged, logic-free; a pull request's commits name the Maintainer, a listed account opened it here, its title is `area: change (#N)` | `tools/check_workflows.py`, `tools/commits_are_the_maintainers.py`, `tools/pr_title.py` |
 | Every rule, lesson and decision names its check; this file stays short | `tools/check_context.py` |
 
 ## Changing the Kernel
@@ -54,7 +53,8 @@ Before editing in a directory, read its `AGENTS.md`: it carries the rules of tha
 | About to repeat a mistake | `docs/lessons.md`: each failure, its rule and its check |
 | Unsure what a capitalised word means | `docs/glossary.md`. One term, one meaning |
 | Needing the design itself | `docs/architecture/software-factory-design.md`: section 0 is one page, and 1.2 says which sections are rules |
+| Making a change: its branch, pull request, size and record, and the practices no check holds | `docs/development.md` |
 | Running a platform trial, or adding its fixture to `trials/` | The skill `.claude/skills/run-a-platform-trial/SKILL.md` |
 | Cutting a Release, moving `next` or rolling it back, or merging what the Factory cannot or may not approve | The skill `.claude/skills/cut-a-release/SKILL.md` |
 
-Not built yet, under names that are reserved: every Role but `pr-review`, and every guard; `adapters/AGENTS.md`, `controller/AGENTS.md`, `harness/AGENTS.md` and `release/AGENTS.md` name their parts still to come. A rule that is waiting on one of them says so.
+Not built yet, under names that are reserved: every Role but `pr-review`; `adapters/AGENTS.md`, `controller/AGENTS.md`, `guards/AGENTS.md`, `harness/AGENTS.md` and `release/AGENTS.md` name their parts still to come. A rule waiting on one says so.
