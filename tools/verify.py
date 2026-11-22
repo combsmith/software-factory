@@ -129,7 +129,10 @@ def main(argv: list, environ=None) -> int:
     checks_failed = failed(CHECKS)
     if "--checks" in argv:
         answer = 1 if checks_failed else 0      # the checks' answer, told before the note runs
-        print("%-22s %s" % ("diff size", desk_note()))
+        try:
+            print("%-22s %s" % ("diff size", desk_note()))
+        except BaseException:       # NOSONAR: a closed pipe too; the note never decides make checks' answer
+            pass
         return answer
     for line in notes():
         print(line)

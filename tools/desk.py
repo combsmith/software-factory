@@ -6,11 +6,12 @@ acts on.
 branch has committed against `origin/main` at, each against its limit in `config/defaults.json`, with a warning past
 SHARE of either. It counts as `adapters/pull.py` counts a pull request's diff: each index line cut as `canonical` cuts
 it, then numbered and escaped as JSON. GitHub heads its hunks a little differently, so the count is near the Factory's,
-not equal to it. A stale local `origin/main` errs high: the base is older than main's, and what main merged since counts
-as the branch's. Edits not committed are not counted; it says so of staged ones, and how many untracked files there are,
-and says so of text that is no UTF-8, which the Factory holds. `make checks` prints the note after the checks, on the
+not equal to it; a binary file's index line counts some 33 characters high, and a file this clone's own attributes
+mark as binary counts as one. A stale local `origin/main` errs high: the base is older than main's, and what main
+merged since counts as the branch's. Edits not committed are not counted; it says so of staged ones, and how many
+untracked files there are, and says so of text that is no UTF-8, which the Factory holds. `make checks` prints the note after the checks, on the
 desk's run alone (`tools/verify.py --checks`): CI's legs never run it, and nothing it does changes what make checks
-answers. The hooks never show it: they show make checks only when a check fails.
+answers. The hooks show make checks only when a check fails, so they show the note only beside a failure.
 
 `python3 -m tools.desk merged` lists lines a merge of `origin/main` may have lost of either side, or made up, for a
 person to read each. While a merge is in progress (MERGE_HEAD is there) the merge is the index, and a path in it still
@@ -29,6 +30,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -41,21 +43,26 @@ SHARE = 0.95            # of a limit, past which `size` warns: the Factory's cou
 SHOWN = 5               # the lines told of each file, at most, each cut to WIDTH
 WIDTH = 60
 SECONDS = 10
-# The only verbs this runs: each reads this clone, and none fetches, pushes or reaches a remote.
+# The only verbs this runs: each reads this clone, and none fetches, pushes or reaches a remote; config only to get.
 READS = ("cat-file", "config", "diff", "diff-index", "ls-files", "ls-tree", "merge-base", "rev-list", "rev-parse")
-# Each read is git's own: no program a repo's configuration names runs, no object is fetched, no lock is taken.
+GETS = ("--get", "--get-regexp")
+# Each read is git's own: no program a repo's configuration names runs, no object is fetched, no lock is taken; an
+# external diff is set to none, so a diff that would run one fails rather than runs it.
 SAFE = ("--no-replace-objects", "--literal-pathspecs", "-c", "core.commitGraph=false", "-c", "core.fsmonitor=false",
-        "-c", "diff.external=", "-c", "diff.ignoreSubmodules=none")
+        "-c", "diff.external=", "-c", "diff.ignoreSubmodules=none", "-c", "core.quotePath=true",
+        "-c", "diff.suppressBlankEmpty=false", "-c", "diff.submodule=short")
 # A diff as GitHub writes one: no colour, no external diff, no textconv, the whole tree, renames found, a/ and b/; its
 # index lines whole, for `canonical` to cut as the Factory's are cut, however long this clone abbreviates an id.
-FORM = ("--no-color", "--no-ext-diff", "--no-textconv", "--no-relative", "-M")
-DIFF = FORM + ("--src-prefix=a/", "--dst-prefix=b/", "-U3", "--full-index")
+FORM = ("--no-color", "--no-ext-diff", "--no-textconv", "--no-relative", "--submodule=short", "-M")
+DIFF = FORM + ("--src-prefix=a/", "--dst-prefix=b/", "-U3", "--inter-hunk-context=0", "--diff-algorithm=myers",
+               "--full-index")
 MOST = 10 ** 9          # a limit past this is no limit this note can compare with
 
 
 def _git(root: pathlib.Path, *args: str) -> bytes:
     """What git prints for `args` in `root` alone, no GIT_ variable of whatever runs this read. Raises ValueError."""
-    if args[0] not in READS:
+    if args[0] not in READS or (args[0] == "config" and args[1] not in GETS) or any(
+            arg.startswith("--output") for arg in args):
         raise ValueError("git %s is no read" % args[0])
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env.update(GIT_CONFIG_NOSYSTEM="1", GIT_OPTIONAL_LOCKS="0", GIT_NO_LAZY_FETCH="1", GIT_TERMINAL_PROMPT="0")
@@ -89,18 +96,23 @@ def limits(root: pathlib.Path) -> tuple:
     return most
 
 
-def counted(diff: str, numstat: str) -> tuple:
-    """(about the characters the Factory counts `diff` at, the lines it adds and removes, from `numstat`)."""
-    lines = sum(int(n) for row in numstat.splitlines() for n in row.split("\t")[:2] if n.isdigit())
+def counted(diff: str, shortstat: str) -> tuple:
+    """(about the characters the Factory counts `diff` at, the lines it adds and removes, from git's `shortstat`)."""
+    lines = sum(int(n) for n in re.findall(r"(\d+) (?:insertion|deletion)", shortstat))
     return task.carried(task.numbered(pull.canonical(diff))), lines
 
 
 def _partial(root: pathlib.Path) -> bool:
-    """Whether this clone may fetch a missing object as it reads one: a partial clone's reads can."""
-    try:
-        return bool(_text(_git(root, "config", "--get", "extensions.partialclone")).strip())
-    except ValueError:
-        return False
+    """Whether this clone may fetch a missing object as it reads one: a partial clone's reads can, and so can a promisor
+    remote's on a git older than GIT_NO_LAZY_FETCH. Where git says nothing (an exit of 1) it may not."""
+    for key in ("extensions.partialclone", r"^remote\..*\.promisor$"):
+        try:
+            said = _text(_git(root, "config", "--get-regexp", key)).split()
+        except ValueError:
+            continue
+        if said[1:2] != ["false"]:
+            return True
+    return False
 
 
 def size(root: pathlib.Path = ROOT) -> str:
@@ -112,9 +124,9 @@ def size(root: pathlib.Path = ROOT) -> str:
         return "no count: this is a partial clone, whose reads may fetch"
     try:
         base = _text(_git(root, "merge-base", "HEAD", BASE)).strip()
-        raw = _git(root, "diff", *DIFF, base, "HEAD")
-        numstat = _text(_git(root, "diff", "--numstat", *FORM, base, "HEAD"))
-        staged = bool(_rows(_git(root, "diff-index", "--cached", "--name-only", "-z", "HEAD")))
+        raw = _git(root, "diff", *DIFF, base, "HEAD", "--")
+        shortstat = _text(_git(root, "diff", "--shortstat", *FORM, base, "HEAD", "--"))
+        staged = bool(_rows(_git(root, "diff-index", "--cached", "--name-only", "-z", "HEAD", "--")))
         untracked = len(_rows(_git(root, "ls-files", "--others", "--exclude-standard", "-z")))
     except ValueError:
         return "no base to compare: origin/main cannot be read here"
@@ -126,7 +138,7 @@ def size(root: pathlib.Path = ROOT) -> str:
         diff = raw.decode("utf-8")
     except UnicodeDecodeError:
         return "the diff holds text that is no UTF-8, which the Factory holds and counts no size of; take it out"
-    characters, lines = counted(diff, numstat)
+    characters, lines = counted(diff, shortstat)
     over = characters > SHARE * most_characters or lines > SHARE * most_lines
     left = (["staged edits"] if staged else []) + (
         ["%d untracked file%s" % (untracked, "" if untracked == 1 else "s")] if untracked else [])
