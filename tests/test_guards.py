@@ -1,11 +1,12 @@
-"""The guards on a Role's own writes (issue 838). `guards/patch.py`: a Role's patch, read as git writes it, or
-not at all."""
+"""The guards on a Role's own writes (issue 838). `guards/patch.py`: a Role's patch, read as git writes it, and a
+file's hunks applied to its bytes."""
 from __future__ import annotations
 
 import unittest
 
 from guards import patch
 
+OLD = b"a\nb\nc\nd\ne\nf\ng\nh\n"
 CHANGE = (b"diff --git a/docs/a.md b/docs/a.md\nindex 1111111..2222222 100644\n--- a/docs/a.md\n+++ b/docs/a.md\n"
           b"@@ -2,3 +2,3 @@\n b\n-c\n+C\n d\n")
 NEW = (b"diff --git a/docs/n.md b/docs/n.md\nnew file mode 100644\nindex 0000000..2222222\n--- /dev/null\n"
@@ -39,6 +40,11 @@ def new_file(hunks: bytes) -> bytes:
 
 def gone_file(hunks: bytes) -> bytes:
     return b"diff --git a/f b/f\ndeleted file mode 100644\nindex 1111111..0000000\n--- a/f\n+++ /dev/null\n" + hunks
+
+
+def after(old: bytes, hunks: bytes):
+    """What a file of `old` holds once `hunks`, as a patch writes them, are applied; None where they are not its."""
+    return patch.content(old, readable(section("docs/a.md", hunks))[0]["hunks"])
 
 
 class Patch(unittest.TestCase):
@@ -224,6 +230,7 @@ class Patch(unittest.TestCase):
         for data in cases:
             with self.subTest(data=data):
                 self.assertIsNone(patch.read(data))
+                self.assertIsNone(patch.sources(data))
         # A file removed and a directory made in its place, as git writes it, is read.
         gone = EMPTY.replace(b"new", b"deleted").replace(b"0000000..e69de29", b"e69de29..0000000")
         self.assertEqual(len(readable(gone % ((b"e",) * 2) + EMPTY % ((b"e/x",) * 2))), 2)
@@ -383,6 +390,100 @@ class Patch(unittest.TestCase):
         for data in cases:
             with self.subTest(data=data):
                 self.assertIsNone(patch.read(data))
+                self.assertIsNone(patch.sources(data))
+
+    def test_sources_names_each_file_a_patch_reads_once_and_no_new_file(self):
+        self.assertEqual(patch.sources(CHANGE), ["docs/a.md"])
+        self.assertEqual(patch.sources(NEW), [])
+        self.assertEqual(patch.sources(RENAMED), ["docs/a.md"])
+        # A file read with no hunk is read all the same: a copy, a rename and a change of mode, each alone.
+        whole = b"diff --git a/run.sh b/bin/run.sh\nsimilarity index 100%\nrename from run.sh\nrename to bin/run.sh\n"
+        self.assertEqual([patch.sources(data) for data in (COPIED, whole, MODE)], [["docs/a.md"], ["run.sh"], ["docs/a.md"]])
+        self.assertEqual(patch.sources(CHANGE + COPIED + GONE), ["docs/a.md", "tests/t.py"])
+        self.assertEqual(patch.sources(COPIED + CHANGE), ["docs/a.md"])      # by the name it reads, not the one it writes
+        # A new file reads none, and the files after it are named all the same.
+        self.assertEqual(patch.sources(NEW + CHANGE + NEW.replace(b"n.md", b"m.md") + GONE), ["docs/a.md", "tests/t.py"])
+
+    def test_a_hunk_stands_where_its_header_says_and_nowhere_else(self):
+        # Two hunks of one file, each where its header says; a line added at the top, one taken from the end. Where
+        # hunks stand to each other and where each new side begins `read` holds, from the patch alone.
+        self.assertEqual(after(OLD, b"@@ -1,2 +1,3 @@\n+z\n a\n b\n@@ -7,2 +8 @@\n g\n-h\n"), b"z\na\nb\nc\nd\ne\nf\ng\n")
+        # A hunk of no context: lines put in after line 3, and lines taken out with nothing put back.
+        self.assertEqual(after(OLD, b"@@ -3,0 +4,2 @@\n+x\n+y\n"), b"a\nb\nc\nx\ny\nd\ne\nf\ng\nh\n")
+        self.assertEqual(after(OLD, b"@@ -2,2 +1,0 @@\n-b\n-c\n"), b"a\nd\ne\nf\ng\nh\n")
+        # A carriage return is a byte of its line, and stays one: at a line's end, or in the middle of it.
+        self.assertEqual(after(b"a\r\nb\r\n", b"@@ -1,2 +1,2 @@\n-a\r\n+A\r\n b\r\n"), b"A\r\nb\r\n")
+        self.assertEqual(after(b"a\rb\nc\x0cd\n", b"@@ -1 +1 @@\n-a\rb\n+A\rb\n"), b"A\rb\nc\x0cd\n")
+        self.assertIsNone(after(b"a\r\nb\r\n", b"@@ -1,2 +1,2 @@\n a\n-b\r\n+B\r\n"))      # and a line without it is another line
+        # No hunk at all leaves the bytes as they were, whatever their last line ends in.
+        self.assertEqual([patch.content(old, []) for old in (b"keep\n", b"keep", b"", b"\n", b"a\n\n")],
+                         [b"keep\n", b"keep", b"", b"\n", b"a\n\n"])
+        # Nothing is searched for: lines that are the file's two lines further down are not this hunk's.
+        twice = b"a\nb\nc\nd\nb\nc\nd\n"
+        self.assertEqual(after(twice, b"@@ -5,2 +5,2 @@\n b\n-c\n+C\n"), b"a\nb\nc\nd\nb\nC\nd\n")
+        # Lines taken from further down with nothing put back; a line put in after the file's last.
+        self.assertEqual(after(twice, b"@@ -5,2 +4,0 @@\n-b\n-c\n"), b"a\nb\nc\nd\nd\n")
+        self.assertEqual(after(twice, b"@@ -7,0 +8 @@\n+x\n"), twice + b"x\n")
+        self.assertEqual(after(twice, b"@@ -0,0 +1 @@\n+x\n"), b"x\n" + twice)      # and one before its first
+        for wrong in (b"@@ -3,2 +3,2 @@\n b\n-c\n+C\n",          # the lines of line 2, said to stand at line 3
+                      b"@@ -5,2 +5,2 @@\n b\n-x\n+C\n",          # a line the file does not hold there
+                      b"@@ -5,2 +5,2 @@\n b \n-c\n+C\n",         # a line with a space more
+                      b"@@ -7,2 +7,2 @@\n d\n-e\n+E\n",          # a hunk past the file's end
+                      b"@@ -8,0 +9 @@\n+x\n",                   # a line put in a line past the file's end
+                      b"@@ -1 +1 @@\n-a\n+A\n@@ -7,2 +7,2 @@\n d\n-e\n+E\n"):     # a second hunk past it
+            with self.subTest(wrong=wrong):
+                self.assertIsNone(after(twice, wrong))
+
+        # Two hunks with a line between them each stand; the first hunk may stand at the file's first line.
+        apart = b"@@ -1 +1 @@\n-a\n+A\n@@ -3 +3 @@\n-c\n+C\n@@ -5 +5 @@\n-b\n+B\n"
+        self.assertEqual(after(twice, apart), b"A\nb\nC\nd\nB\nc\nd\n")
+
+    def test_the_newline_at_a_files_end_is_as_the_patch_says(self):
+        marker = b"\\ No newline at end of file\n"
+        bare = b"a\nb"
+        cases = (
+            # the last line gains its newline; loses it; is changed and keeps none; a line is added after a bare one
+            (bare, b"@@ -1,2 +1,2 @@\n a\n-b\n" + marker + b"+b\n", b"a\nb\n"),
+            (b"a\nb\n", b"@@ -1,2 +1,2 @@\n a\n-b\n+b\n" + marker, b"a\nb"),
+            (bare, b"@@ -1,2 +1,2 @@\n a\n-b\n" + marker + b"+B\n" + marker, b"a\nB"),
+            (bare, b"@@ -1,2 +1,3 @@\n a\n-b\n" + marker + b"+b\n+c\n", b"a\nb\nc\n"),
+            # a bare last line left as context; a bare last line removed, so the line before it ends the file
+            (bare, b"@@ -1,2 +1,2 @@\n-a\n+A\n b\n" + marker, b"A\nb"),
+            (bare, b"@@ -1,2 +1 @@\n a\n-b\n" + marker, b"a\n"),
+            # a hunk that begins at a bare last line: the line before it keeps its newline
+            (bare, b"@@ -2 +1,0 @@\n-b\n" + marker, b"a\n"), (bare, b"@@ -2 +2 @@\n-b\n" + marker + b"+B\n", b"a\nB\n"),
+            # a hunk that stops short of a bare last line leaves it bare
+            (b"a\nb\nc", b"@@ -1 +1 @@\n-a\n+A\n", b"A\nb\nc"),
+            # an empty file gains lines; a file loses every line and stays
+            (b"", b"@@ -0,0 +1,2 @@\n+a\n+b\n", b"a\nb\n"),
+            (b"a\n", b"@@ -1 +0,0 @@\n-a\n", b""),
+        )
+        for old, hunks, new in cases:
+            with self.subTest(hunks=hunks):
+                self.assertEqual(after(old, hunks), new)
+        wrong = (
+            (bare, b"@@ -1,2 +1,2 @@\n a\n-b\n+B\n"),                               # the bare line read as whole
+            (b"a\nb\n", b"@@ -1,2 +1,2 @@\n a\n-b\n" + marker + b"+B\n"),             # a whole line read as bare
+            (b"a\nb\n", b"@@ -1 +1 @@\n-a\n" + marker + b"+A\n"),                    # a line not the last read bare
+            (bare, b"@@ -1 +1 @@\n-a\n" + marker + b"+A\n"),                         # the same, where the last line is bare
+            (bare, b"@@ -2,0 +3 @@\n+c\n"),                                          # a line added after a bare one
+            # A last line both sides hold says of its newline what the file does, as a line the old side holds must.
+            (bare, b"@@ -1,2 +1,2 @@\n-a\n+A\n b\n"),
+            (b"a\nb\n", b"@@ -1,2 +1,2 @@\n-a\n+A\n b\n" + marker),
+            # A new line with no newline at its end is the file's last: no line of the file follows its hunk, where
+            # git would join the two lines into one. (A marker in a hunk that is not the last is no patch at all.)
+            (b"a\nb\n", b"@@ -1 +1 @@\n-a\n+A\n" + marker),
+            (b"a\nb\nc\n", b"@@ -1,2 +1,2 @@\n-a\n+A\n b\n" + marker),
+        )
+        for old, hunks in wrong:
+            with self.subTest(hunks=hunks):
+                self.assertIsNone(after(old, hunks))
+        # What is no bytes is no file's content, an empty file's least of all.
+        gains = readable(section("docs/a.md", b"@@ -0,0 +1 @@\n+x\n"))[0]["hunks"]
+        self.assertEqual(patch.content(b"", gains), b"x\n")
+        for old in (None, "", 0, [], {}, "a\n", [b"a"]):
+            self.assertIsNone(patch.content(old, gains), old)
+            self.assertIsNone(patch.content(old, []), old)      # with no hunk to apply, all the same
 
 
 if __name__ == "__main__":
