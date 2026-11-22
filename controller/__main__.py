@@ -262,17 +262,25 @@ def writes_seen(transport, config: dict, numbers: list, kept: dict, before, sinc
         unread_issues, gone_issues = sorted(was_served | owing | kept_left), []
         if unread_issues:
             parts.append(([], [], False))
+    # An issue that left and is not found or deleted ends only where the same token read the repo in this pass, read
+    # once for them all before their reads, and once more after them where one ended, so that access lost between the
+    # two is short, its issues owed (decision 1145).
+    told, ended = [], {"repo_read": seen_.repo_read(transport, home)} if newly_issues or gone_issues else {}
     for number, held in ([(n, None) for n in issues] + [(n, seen_.LEFT) for n in newly_issues]
                          + [(n, seen_.GONE) for n in gone_issues]):
         began = stages.now()
         try:
             parts.append(seen_.read(transport, {"repo": home, "type": "issue", "number": number}, held, identities, apps,
-                                    since))
+                                    since, **(dict(ended, told=told) if held is not None else {})))
         except Unanswered:
             parts.append(([], [], False))
         if parts[-1][-1] is not True and held is not None:
             unread_issues.append(number)
         stages.add(tally, "seen_issues", began)
+    if told and not seen_.repo_read(transport, home):
+        unread_issues += [g["item"]["number"] for g in told]
+        parts.append(([], [], False))
+        told = []
     stages.tell(tally)
     with stages.stage("seen_pushes"):
         try:
@@ -281,7 +289,7 @@ def writes_seen(transport, config: dict, numbers: list, kept: dict, before, sinc
             parts.append(([], False))
     if before is None:
         parts.append(([], False))
-    return seen_.seen(parts, since), unread, sorted(newly), sorted(set(unread_issues)), newly_issues
+    return seen_.seen(parts, since, told), unread, sorted(newly), sorted(set(unread_issues)), newly_issues
 
 
 def recorded_passes(transport, config: dict, own: int, before, since: str, sleep=time.sleep, stages=QUIET) -> dict:
