@@ -1375,6 +1375,8 @@ class Issues(unittest.TestCase):
         self.assertEqual(out["record"]["left_out"], [{"item": None, "code": "issue_list_unreadable"}])
         self.assertEqual(set(out["alerts"]) ^ set(plain["alerts"]), {"issue_list_unreadable"})
         self.assertEqual([d["item"]["type"] for d in decisions(out)], ["pull_request", "issue"])
+        pulls = lambda passed_: [d for d in decisions(passed_) if d["item"]["type"] == "pull_request"]
+        self.assertEqual(pulls(out), pulls(plain))      # the pull request is decided as with the list whole (Carbon)
         budget = {"facts": {"item": {"repo": home, "type": "issue", "number": 8}}, "title": None, "unread": "issue_budget"}
         both = passed(reads(issues=[an_issue(7), budget, unlisted]))
         self.assertEqual(set(both["alerts"]) ^ set(plain["alerts"]), {"issue_budget_spent", "issue_list_unreadable"})
@@ -2159,7 +2161,7 @@ class Entry(unittest.TestCase):
                          (0, [{"read": "facts", "date": "2026-10-12T11:59:30Z", "age": 2},
                               {"read": "facts", "date": "2026-10-12T11:59:00Z", "age": 0}]))
         # A list read short, or not answered, reads no issue; the pull requests are decided as ever, and the pass leaves
-        # out one entry naming no item, by the list's code, with its alert and no other for it (decision 0234).
+        # out one entry naming no item, by the list's code, with its alert and no other for it (decision 0252).
         for whole in (False, None):
             code, printed, files = entry_with([5], whole)
             record = files["pass.json"]
@@ -2338,7 +2340,7 @@ class Entry(unittest.TestCase):
                     record.get("left_out"), asked[-1])
         ready = lambda name: {"label_apps": {"factory:triage": "combsmith-sf-controller", "factory:ready": name}}
         # The issues are listed as with no date, so none is; pull request 7 is decided, and nothing is written for an issue.
-        # The listing is asked with no date (decision 0234: a list read short no longer stops the pass to show it).
+        # The listing is asked with no date (decision 0252: a list read short no longer stops the pass to show it).
         refused = (0, "passed\n", True, [7], [], [], None)
         # The pull requests' reader does not reserve the name that collides, whichever App's it is and wherever it is
         # declared, so no snapshot is refused for it; a name that does not collide stays reserved.
@@ -2360,7 +2362,7 @@ class Entry(unittest.TestCase):
         self.assertEqual(unreserved(ready("combsmith-sf-pr-review"), lenses=[dict(renamed, id=5000010)]), refused)
         # The queue's name with no queue App held, and any other App's, are no queue's and no Lens's: the issues are
         # listed from their date, here by a listing that is whole only with no date, so no issue is read and the pull
-        # requests are decided, with one entry naming no item (decision 0234).
+        # requests are decided, with one entry naming no item (decision 0252).
         for issues, accounts in ((ready("combsmith-sf-queue"), {}), (ready("combsmith-sf-readiness"), {"queue": queue}),
                                  (intent("combsmith-sf-business-analyst"), {})):
             self.assertEqual(entry_with(issues, **accounts),
