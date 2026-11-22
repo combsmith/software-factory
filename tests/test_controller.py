@@ -1361,6 +1361,8 @@ class Issues(unittest.TestCase):
         short = pass_.run(reads(issues=[unlisted]), cfg, "2026-10-11T14:05:00Z", [first], mint)
         self.assertEqual([(i["item"]["number"], i["age_hours"]) for i in short["view"]["items"]["items"]
                           if i["item"]["type"] == "issue"], [(7, 0.08)])
+        self.assertEqual(bare(w["items"] for w in pass_.rebuild([first, short["record"]], {}, cfg))[-1],
+                         bare([short["view"]["items"]])[0])        # a rebuild carries it the same (Carbon)
         # A pull request left out is never carried, nor is an issue left out for any other reason.
         moved = {"facts": {"item": {"repo": home, "type": "issue", "number": 7}}, "title": None, "unread": "facts_unanswered"}
         out = pass_.run(reads(issues=[moved]), cfg, "2026-10-11T13:20:00Z", list(kept), mint)
