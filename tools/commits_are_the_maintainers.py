@@ -40,7 +40,7 @@ RECORDS = "docs/decisions/"
 RECORD = re.compile(r"docs/decisions/([0-9]{4,})-[^/]*\.md")
 # The first and the last of the records numbered in order before a record took its pull request's number, both in: a
 # record numbered between them stands too, until each has merged and this is taken off. The Builder may hand out more.
-CHAINED = (235, 250)
+CHAINED = (235, 253)
 
 
 def git(root: pathlib.Path, *args: str) -> str:
@@ -121,8 +121,9 @@ def record_problems(root: pathlib.Path, environ, run=git) -> list:
     where they are (decision 1121). A path is shown quoted, as Python writes it, so a name that holds a new line is
     printed on one line, and no line of it opening '::' is read by GitHub Actions as a command."""
     base, head = environ.get("BASE_SHA"), environ.get("HEAD_SHA")
-    if not base or not head:
-        return ["BASE_SHA and HEAD_SHA must be set from the event, so the decision records the pull request adds are read"]
+    if not base or not head or environ.get("EVENT") not in ("pull_request", "merge_group"):
+        return ["BASE_SHA, HEAD_SHA and EVENT (pull_request or merge_group) must be set from the event, so the decision "
+                "records the pull request adds are read"]
     try:
         found, own = added(root, base, head, run), pull_number(environ)
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as err:

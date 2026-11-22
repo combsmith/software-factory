@@ -4358,7 +4358,7 @@ class Workflows(unittest.TestCase):
         refused(said(head(["docs/decisions/0999-x.md"]), 9999), "0999-x.md' is a decision record")
         # The chain numbered before the rule stands while it drains, both its ends, and not a number past either end.
         first, last = commits_are_the_maintainers.CHAINED
-        self.assertEqual((first, last >= 250), (235, True))
+        self.assertEqual((first, last >= 253), (235, True))
         for chained in ("%04d" % first, "%04d" % last):
             self.assertEqual(said(head(["docs/decisions/%s-x.md" % chained])), [], chained)
         for outside in ("%04d" % (first - 1), "%04d" % (last + 1)):
@@ -4368,6 +4368,10 @@ class Workflows(unittest.TestCase):
         refused(said(two), "the pull request adds 2 decision records, 'docs/decisions/0240-y.md', "
                            "'docs/decisions/1130-x.md'; it adds one at most")
         self.assertEqual(len(said(two)), 1)
+        three = head(["docs/decisions/1130-x.md", "docs/decisions/0235-y.md", "docs/decisions/0236-z.md"])
+        refused(said(three), "the pull request adds 3 decision records")
+        # Every commit since the base is read, not the last alone.
+        refused(said(head(["kernel/y.py"], on=head(["docs/decisions/1131-x.md"]))), "1131-x.md' is a decision record")
         # A rename adds the record it names: to the pull request's number it stands here, and check_decisions refuses
         # the record gone; to another it refuses.
         self.assertEqual(said(head(moved=[("docs/decisions/0001-a.md", "docs/decisions/1130-a.md")])), [])
@@ -4392,11 +4396,17 @@ class Workflows(unittest.TestCase):
         event.unlink()
         refused(commits_are_the_maintainers.record_problems(local, {"BASE_SHA": base, "HEAD_SHA": one, "EVENT": "pull_request",
                                                                     "GITHUB_EVENT_PATH": str(event)}), "cannot be read")
-        refused(commits_are_the_maintainers.record_problems(local, {"BASE_SHA": base, "HEAD_SHA": one}), "cannot be read")
+        refused(commits_are_the_maintainers.record_problems(local, {"BASE_SHA": base, "HEAD_SHA": one, "EVENT": "pull_request"}),
+                "cannot be read")
         # With no base or no head nothing is read: git would read an empty range as the checkout's own head.
         for shas in ({"BASE_SHA": base}, {"HEAD_SHA": one}, {"BASE_SHA": "", "HEAD_SHA": ""}, {"BASE_SHA": base, "HEAD_SHA": ""}):
             refused(commits_are_the_maintainers.record_problems(local, dict(shas, EVENT="pull_request", GITHUB_EVENT_PATH=str(event))),
-                    "BASE_SHA and HEAD_SHA must be set")
+                    "BASE_SHA, HEAD_SHA and EVENT")
+        # Nor with an event it does not know, though the payload is a pull request's.
+        event.write_text(json.dumps({"pull_request": {"number": 1130}}))
+        for told in ({}, {"EVENT": "push"}):
+            refused(commits_are_the_maintainers.record_problems(local, dict(told, BASE_SHA=base, HEAD_SHA=one,
+                                                                            GITHUB_EVENT_PATH=str(event))), "BASE_SHA, HEAD_SHA and EVENT")
 
     def test_a_lens_run_by_actions_names_its_workflow_and_no_other_does(self):
         # GitHub Actions reports every job in the repo, so a Lens it runs must name its file; no other App runs one.
