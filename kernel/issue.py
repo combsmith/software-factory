@@ -1062,7 +1062,6 @@ def _implementing(facts, state, reason, evidence, mine, config):
         return _decision(facts, state, "draft_checks_unreadable", evidence, t.DEFER)
     if draft["checks"] != "failing":
         return _decision(facts, state, reason, evidence, t.NOTHING)
-    # The Hold where the rounds' own limit cannot be read, which the brakes alone read: its reason is an issue's.
     unreadable = _decision(facts, t.HELD, "limits_unreadable", [], t.HOLD)
     held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"], unreadable)
     if held:

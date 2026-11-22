@@ -955,7 +955,6 @@ ISSUE = [
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
     ("the implementing rounds are spent whatever the draft's checks", ISSUE_PY,
      '    if draft["checks"] != "failing":\n        return _decision(facts, state, reason, evidence, t.NOTHING)\n'
-     '    # The Hold where the rounds\' own limit cannot be read, which the brakes alone read: its reason is an issue\'s.\n'
      '    unreadable = _decision(facts, t.HELD, "limits_unreadable", [], t.HOLD)\n'
      '    held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"], unreadable)\n'
      '    if held:\n        return held\n',

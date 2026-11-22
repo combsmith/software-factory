@@ -1867,9 +1867,8 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(what(decide(failing, spent, cfg=named))[:2], ("hold", "run_ceiling"))
 
     def test_the_implementing_rounds_have_a_limit_of_their_own_read_from_no_other_key(self):  # issue 1038, decision 0242
-        # The rounds are held at max_implementing_rounds, which the brakes' implementing_rounds alone reads: max_attempts,
-        # one number for every Intent's attempts, moves neither way with it. One short admits; at the bound the issue is
-        # held, attempts_exhausted, its rounds as evidence, as decision 0217 has it.
+        # Held at max_implementing_rounds whatever max_attempts is: one short admits; at the bound, attempts_exhausted,
+        # the rounds as evidence (decision 0217).
         failing = facts(linked=[agents(draft=True, checks="failing")])
 
         def rounds(n: int) -> list:
@@ -1903,9 +1902,8 @@ class Outcomes(unittest.TestCase):
         both = [rounds(1)[0], dict(rounds(2)[1], conclusion="failure", outcome="item")]
         d = decide(failing, both, cfg=named(max_implementing_rounds=2, max_attempts=1))
         self.assertEqual((what(d)[:2], d["evidence"]), (("hold", "attempts_exhausted"), ["m0", "m1"]))
-        # A key missing, null, or no whole number of at least one, holds the issue for a person, limits_unreadable,
-        # naming no Run though rounds were spent, and with a Run in flight too: never a round admitted by another key's
-        # number, nor a deferral.
+        # A key missing, null or no whole number of at least one holds the issue, limits_unreadable, naming no Run, with
+        # a Run in flight too: never another key's number, nor a deferral.
         missing = object()
         for bad in (missing, None, 0, -1, True, 3.0, "3", [3]):
             cfg = named()
@@ -1923,9 +1921,8 @@ class Outcomes(unittest.TestCase):
                              ("held", ("hold", "limits_unreadable", None), "needs_you", []), bad)
             # Another Intent's loop never reads the rounds' key, readable or not.
             self.assertEqual(what(decide(TRIAGED, cfg=cfg)), ("admit", "triage", INVESTIGATE), bad)
-        # The implementing Run's attempts, Runs that failed by a fault of the item, are still held at max_attempts by the
-        # brakes, as every Intent's are, whatever the rounds' key says; and so is another Intent's loop, held at
-        # max_attempts and not at the lower of the two keys.
+        # Runs that failed by the item are held at max_attempts, the implementing Run's as every Intent's, never at the
+        # lower of the two keys.
         cfg = named(max_implementing_rounds=3, max_attempts=1)
         broke = dict(rounds(1)[0], conclusion="failure", outcome="item")
         self.assertEqual(what(decide(failing, [broke], cfg=cfg))[:2], ("hold", "attempts_exhausted"))
