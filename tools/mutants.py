@@ -166,6 +166,7 @@ F849_LINKED = ("tests.test_adapters.Linked.test_a_linked_pull_requests_own_facts
 F849_WORLD = ("tests.test_issue.Unreadable.test_the_issue_world_meets_a_timeline_past_the_bound_under_faults_and_calls_a_person",)
 F931_PORT = ("tests.test_adapters.Issues.test_the_controllers_tracking_issue_is_told_at_its_first_read_by_its_opener_and_its_body",)
 F849_BUDGET = ("tests.test_controller.Entry.test_the_issue_reads_stop_at_the_passs_budget_and_those_left_out_by_it_are_read_first_by_the_next",)
+F849_SPANS = ("tests.test_adapters.KeywordSpans.test_a_record_that_left_the_issue_out_by_its_budget_is_passed_over_for_it_alone",)
 F849_ALERTS = ("tests.test_controller.Issues.test_an_issue_left_unread_by_the_budget_raises_its_own_alert_and_no_other",)
 S3_ROW10 = ("tests.test_controller.Issues.test_with_no_app_declared_for_factory_triage_an_accepted_served_issue_gets_no_acceptance_act",)
 COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers",)
@@ -15957,6 +15958,12 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("an issue request that fails is not counted", 'controller/__main__.py',
      '        self.sent += 1\n        return self.transport.send(req)\n',
      '        answer = self.transport.send(req)\n        self.sent += 1\n        return answer\n', F849_BUDGET),
+    ("a record that left the issue out by its budget breaks the chain", 'adapters/keyword_spans.py',
+     'if not unlisted(record) and not budgeted(record, item)]', 'if not unlisted(record)]', F849_SPANS),
+    ("any issue's left out by the budget passes its record over", 'adapters/keyword_spans.py',
+     'entry["item"] == item and entry["code"] == BUDGET', 'entry["code"] == BUDGET', F849_SPANS),
+    ("any left out of the issue passes its record over", 'adapters/keyword_spans.py',
+     'entry["item"] == item and entry["code"] == BUDGET', 'entry["item"] == item', F849_SPANS),
     ("a linked pull request's timeline is read past the bound", 'adapters/linked.py',
      'events, whole, cut = timeline.bounded(transport, read)', 'events, whole = timeline.events(transport, read)\n    cut = False', F849_LINKED),
     ("a linked pull request's timeline cut at its bound is not said to be", 'adapters/linked.py',

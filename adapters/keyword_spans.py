@@ -14,10 +14,12 @@ short may have missed a keyword.
 The chain is broken, and the spans are not the whole history, where a record newer than the base, or any where there is
 none, leaves the issue out (its `left_out` names the item, or an item it cannot name) or served no issue because their
 Apps could not be told (its alert `issue_apps_unreadable`); or where records hold the issue but none of them whole. A
-pass that read no issue at all, its list of issues unread or its budget spent, writes no record, or one whose `left_out`
+pass that read no issue at all, its list of issues unread, writes no record, or one whose `left_out`
 holds that one entry alone, with no item and the code `issue_list_unreadable` (issue 849), holds no issue and raised
 no `issue_apps_unreadable`: that record is passed over, as if not at hand, so one such pass costs a pass's window, and
-with every record at hand passed over the chain is broken. Any other is read as any record is.
+with every record at hand passed over the chain is broken. A record whose `left_out` names the issue with
+the code `issue_budget`, its pass's budget spent before the issue was read, is passed over so for that
+issue alone. Any other is read as any record is.
 No record at hand that holds or leaves out the issue, and none that raised that alert, is first sight: no pass saw a
 keyword, and the first that sees one opens its span. So a record that holds no issue and leaves none out, with no
 `served_from` or none open, is first sight too; and `served_from` set back to null and on again later loses the history
@@ -33,6 +35,7 @@ from __future__ import annotations
 from controller.pass_ import ISSUE_APPS
 
 UNLISTED = "issue_list_unreadable"   # an entry of `left_out` with no item: the pass read no issue at all (issue 849)
+BUDGET = "issue_budget"     # an entry of `left_out` naming an issue the pass's budget left unread (issue 849)
 
 
 def after(pull: dict, at: str, whole: bool) -> list:
@@ -59,6 +62,12 @@ def unlisted(record: dict) -> bool:
             and left[0]["item"] is None and left[0]["code"] == UNLISTED)
 
 
+def budgeted(record: dict, item: dict) -> bool:
+    """Whether `record`'s pass left the issue `item` unread for want of its budget, so that it is passed over for that
+    issue alone, as a pass that read no issue is for every one (issue 849, the Factory Builder's ruling (B))."""
+    return any(entry["item"] == item and entry["code"] == BUDGET for entry in record["left_out"])
+
+
 def held(record: dict, item: dict):
     """The issue's facts in `record`, or None where it holds none."""
     for entry in record["issues"]:
@@ -74,7 +83,7 @@ def read(earlier, item: dict) -> tuple:
     if not isinstance(earlier, list):
         return {}, False
     try:
-        kept = [record for record in earlier if not unlisted(record)]
+        kept = [record for record in earlier if not unlisted(record) and not budgeted(record, item)]
         if earlier and not kept:
             return {}, None
         earlier = kept
