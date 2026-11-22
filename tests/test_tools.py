@@ -4002,8 +4002,8 @@ class Workflows(unittest.TestCase):
         (local / "config" / "hooks.json").write_text(json.dumps({"maintainer": {"name": ada[0], "email": ada[1]},
                                                                  "openers": [{"login": "ada", "id": 1, "is": "the Maintainer"}]}))
         event = local.parent / "event.json"
-        event.write_text(json.dumps({"pull_request": {"user": {"login": "ada", "id": 1}, "head": {"repo": {"full_name": "o/r"}},
-                                                      "base": {"repo": {"full_name": "o/r"}}}}))
+        event.write_text(json.dumps({"pull_request": {"number": 7, "user": {"login": "ada", "id": 1},
+                                                      "head": {"repo": {"full_name": "o/r"}}, "base": {"repo": {"full_name": "o/r"}}}}))
         with contextlib.redirect_stdout(io.StringIO()) as printed:
             self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": second, "EVENT": "pull_request",
                                                                "GITHUB_EVENT_PATH": str(event)}, local), 0)
@@ -4278,9 +4278,11 @@ class Workflows(unittest.TestCase):
                                  "base": {"repo": {"full_name": "o/r"}}}}
         environ = {"BASE_SHA": "a" * 40, "HEAD_SHA": "b" * 40, "EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where)}
 
-        def ended(commits, payload):
+        def ended(commits, payload, records=()):
             where.write_text(json.dumps(payload))
+            records = list(records)
             with mock.patch.object(commits_are_the_maintainers, "problems", return_value=commits), \
+                    mock.patch.object(commits_are_the_maintainers, "record_problems", return_value=records), \
                     contextlib.redirect_stdout(io.StringIO()) as printed:
                 return commits_are_the_maintainers.main(environ, root), printed.getvalue()
 
@@ -4296,6 +4298,11 @@ class Workflows(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("opened by bob", printed)
         self.assertNotIn("names the Maintainer as", printed)
+        # And a decision record numbered otherwise than by the pull request refuses, beside the rest (decision 1121).
+        code, printed = ended([], ours, ["a record is numbered otherwise"])
+        self.assertEqual(code, 1)
+        self.assertIn("a record is numbered otherwise", printed)
+        self.assertNotIn("names the Maintainer as", printed)
         # A merge group's opener is read through the transport main is handed, and refuses or says the same.
         queue = {"merge_group": {"head_ref": "refs/heads/gh-readonly-queue/main/pr-44-" + "a" * 40, "base_ref": "refs/heads/main"},
                  "repository": {"full_name": "o/r"}}
@@ -4306,11 +4313,133 @@ class Workflows(unittest.TestCase):
             def send(self, asked):
                 return {"status": 200, "body": answer}
         with mock.patch.object(commits_are_the_maintainers, "problems", return_value=[]), \
+                mock.patch.object(commits_are_the_maintainers, "record_problems", return_value=[]), \
                 contextlib.redirect_stdout(io.StringIO()) as printed:
             told = dict(environ, EVENT="merge_group", WORKFLOW_TOKEN="t")
             self.assertEqual(commits_are_the_maintainers.main(told, root, Asked()), 0)
             self.assertEqual(commits_are_the_maintainers.main(dict(told, EVENT="pull_request"), root, Asked()), 1)
         self.assertIn("opened from o/r by ada, the Maintainer", printed.getvalue())
+
+    def test_each_record_a_pull_request_adds_is_numbered_by_it(self):
+        # Decision 1121: a decision record takes the number of the pull request that adds it, and a pull request adds
+        # one at most. The commits' job reads the records the head adds in git, the head fetched, and the number from
+        # the event's payload, or on a merge group from the queue's ref; until it drains, the chain numbered before
+        # this rule, from 0235, stands as well.
+        origin = tree({"docs/decisions/0001-a.md": "# 0001. A\n", "docs/decisions/0002-b.md": "# 0002. B\n"})
+        env = dict(os.environ, GIT_AUTHOR_NAME="A", GIT_AUTHOR_EMAIL="a@example.com", GIT_COMMITTER_NAME="A",
+                   GIT_COMMITTER_EMAIL="a@example.com", GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1")
+
+        def run(where, *args):
+            return subprocess.run(["git", *args], cwd=str(where), env=env, capture_output=True, text=True, timeout=60,
+                                  check=True).stdout.strip()
+
+        run(origin, "init", "-q", "-b", "main")
+        run(origin, "config", "uploadpack.allowReachableSHA1InWant", "true")
+        run(origin, "add", "-A")
+        run(origin, "commit", "-q", "-m", "base")
+        base = run(origin, "rev-parse", "HEAD")
+        local = origin.with_name(origin.name + "-local")     # beside origin: the scratch folder is shared by every test
+        run(origin.parent, "clone", "-q", str(origin), str(local))
+        event = origin.with_name(origin.name + "-event.json")
+
+        def head(added=(), removed=(), moved=(), changed=(), on=None):
+            run(origin, "checkout", "-q", "--detach", on or base)
+            for name in added:
+                (origin / name).parent.mkdir(parents=True, exist_ok=True)
+                (origin / name).write_text("# %s\n" % name)
+            for name in removed:
+                run(origin, "rm", "-q", name)
+            for old, new in moved:      # as git mv moves it, its text the same, so git would read it as renamed
+                run(origin, "mv", old, new)
+            for name in changed:
+                (origin / name).write_text((origin / name).read_text() + "Status: replaced.\n")
+            run(origin, "add", "-A")
+            run(origin, "commit", "-q", "--allow-empty", "-m", "change")
+            made = run(origin, "rev-parse", "HEAD")
+            run(local, "fetch", "-q", "--no-tags", "origin", made)
+            return made
+
+        def said(made, number=1130, event_name="pull_request", payload=None, since=None):
+            if payload is None:
+                payload = {"pull_request": {"number": number}} if event_name == "pull_request" else {"merge_group": {
+                    "head_ref": "refs/heads/gh-readonly-queue/main/pr-%d-%s" % (number, base)}}
+            event.write_text(json.dumps(payload))
+            return commits_are_the_maintainers.record_problems(local, {"BASE_SHA": since or base, "HEAD_SHA": made,
+                                                                      "EVENT": event_name, "GITHUB_EVENT_PATH": str(event)})
+
+        def refused(found, words):
+            self.assertTrue(caught(found, words), found)
+
+        # No record, or one numbered by its pull request, at four digits or more, stands; on a merge group too.
+        self.assertEqual(said(head(["kernel/x.py"])), [])
+        one = head(["docs/decisions/1130-x.md"])
+        self.assertEqual(said(one), [])
+        self.assertEqual(said(one, event_name="merge_group"), [])
+        # A merge group is read from the entry before it, which main does not hold yet: its record is not this one's.
+        before = head(["docs/decisions/1129-a.md"])
+        self.assertEqual(said(head(["docs/decisions/1130-b.md"], on=before), event_name="merge_group", since=before), [])
+        # A record a replacement changes is not one it adds.
+        self.assertEqual(said(head(["docs/decisions/1130-x.md"], changed=["docs/decisions/0001-a.md"])), [])
+        self.assertEqual(said(head(["docs/decisions/0999-x.md"]), 999), [])
+        self.assertEqual(said(head(["docs/decisions/10000-x.md"]), 10000), [])
+        # Another number refuses, and names the number it is to have; so does the same number written otherwise.
+        refused(said(one, 1131), "'docs/decisions/1130-x.md' is a decision record the pull request adds, and a record is "
+                                 "numbered by the pull request that adds it, 1131")
+        refused(said(one, 1131, "merge_group"), "numbered by the pull request that adds it, 1131")
+        for name in ("01130-x.md", "1130.md", "1130x.md", "x-1130.md"):
+            refused(said(head(["docs/decisions/" + name])), "'docs/decisions/%s' is a decision record" % name)
+        refused(said(head(["docs/decisions/0999-x.md"]), 9999), "0999-x.md' is a decision record")
+        # The chain numbered before the rule stands while it drains, both its ends, and not a number past either end.
+        first, last = commits_are_the_maintainers.CHAINED
+        self.assertEqual((first, last >= 253), (235, True))
+        for chained in ("%04d" % first, "%04d" % last):
+            self.assertEqual(said(head(["docs/decisions/%s-x.md" % chained])), [], chained)
+        for outside in ("%04d" % (first - 1), "%04d" % (last + 1)):
+            refused(said(head(["docs/decisions/%s-x.md" % outside])), "%s-x.md' is a decision record" % outside)
+        # One record at most, though each is numbered as it may be.
+        two = head(["docs/decisions/1130-x.md", "docs/decisions/0240-y.md"])
+        refused(said(two), "the pull request adds 2 decision records, 'docs/decisions/0240-y.md', "
+                           "'docs/decisions/1130-x.md'; it adds one at most")
+        self.assertEqual(len(said(two)), 1)
+        three = head(["docs/decisions/1130-x.md", "docs/decisions/0235-y.md", "docs/decisions/0236-z.md"])
+        refused(said(three), "the pull request adds 3 decision records")
+        # Every commit since the base is read, not the last alone.
+        refused(said(head(["kernel/y.py"], on=head(["docs/decisions/1131-x.md"]))), "1131-x.md' is a decision record")
+        # A rename adds the record it names: to the pull request's number it stands here, and check_decisions refuses
+        # the record gone; to another it refuses.
+        self.assertEqual(said(head(moved=[("docs/decisions/0001-a.md", "docs/decisions/1130-a.md")])), [])
+        refused(said(head(moved=[("docs/decisions/0001-a.md", "docs/decisions/1131-a.md")])), "1131-a.md' is a decision record")
+        # A name is shown quoted, so one that holds a new line prints on one line, and no line of it opens '::'.
+        found = said(head(["docs/decisions/0999-a\n::warning::x\n.md"]))
+        self.assertEqual(len(found), 1)
+        self.assertNotIn("\n", found[0])
+        # Only a record is read: a file of the folder's that is not one, or below it, is not counted.
+        self.assertEqual(said(head(["docs/decisions/9-notes.txt", "docs/decisions/old/0001-x.md", "docs/1131-x.md"])), [])
+        # What cannot be read refuses: a head origin does not hold, a payload with no number, or a ref of another shape.
+        refused(said("0" * 40), "cannot be read")
+        for payload in ({}, {"pull_request": {}}, {"pull_request": {"number": "1130"}}, {"pull_request": {"number": True}},
+                        {"pull_request": {"number": 0}}, {"pull_request": {"number": -1130}},
+                        {"merge_group": {"head_ref": "refs/heads/main"}}, {"merge_group": {}}, []):
+            with self.subTest(payload=payload):
+                refused(said(one, event_name="merge_group" if "merge_group" in payload else "pull_request",
+                             payload=payload), "the decision records the pull request adds cannot be read")
+        event.write_text("{")
+        refused(commits_are_the_maintainers.record_problems(local, {"BASE_SHA": base, "HEAD_SHA": one, "EVENT": "pull_request",
+                                                                    "GITHUB_EVENT_PATH": str(event)}), "cannot be read")
+        event.unlink()
+        refused(commits_are_the_maintainers.record_problems(local, {"BASE_SHA": base, "HEAD_SHA": one, "EVENT": "pull_request",
+                                                                    "GITHUB_EVENT_PATH": str(event)}), "cannot be read")
+        refused(commits_are_the_maintainers.record_problems(local, {"BASE_SHA": base, "HEAD_SHA": one, "EVENT": "pull_request"}),
+                "cannot be read")
+        # With no base or no head nothing is read: git would read an empty range as the checkout's own head.
+        for shas in ({"BASE_SHA": base}, {"HEAD_SHA": one}, {"BASE_SHA": "", "HEAD_SHA": ""}, {"BASE_SHA": base, "HEAD_SHA": ""}):
+            refused(commits_are_the_maintainers.record_problems(local, dict(shas, EVENT="pull_request", GITHUB_EVENT_PATH=str(event))),
+                    "BASE_SHA, HEAD_SHA and EVENT")
+        # Nor with an event it does not know, though the payload is a pull request's.
+        event.write_text(json.dumps({"pull_request": {"number": 1130}}))
+        for told in ({}, {"EVENT": "push"}):
+            refused(commits_are_the_maintainers.record_problems(local, dict(told, BASE_SHA=base, HEAD_SHA=one,
+                                                                            GITHUB_EVENT_PATH=str(event))), "BASE_SHA, HEAD_SHA and EVENT")
 
     def test_a_lens_run_by_actions_names_its_workflow_and_no_other_does(self):
         # GitHub Actions reports every job in the repo, so a Lens it runs must name its file; no other App runs one.
@@ -5832,8 +5961,28 @@ class Context(unittest.TestCase):
         root = tree({"docs/decisions/0001-x.md": extra, "docs/decisions/0003-y.md": extra, "tools/x.py": ""})
         problems = check_context._decisions(root)
         self.assertTrue(caught(problems, "a section 'Not yet held'"))
-        self.assertTrue(caught(problems, "0003-y.md: records are numbered from 0001 with no gap"))
         self.assertTrue(caught(problems, "0003-y.md: the title must open with its number"))
+
+    def test_no_two_records_share_a_number(self):
+        # Decision 1121: a record takes the number of the pull request that adds it, so numbers leave gaps. The number
+        # is the file's, four digits or more, its title opens with it, and no two records share one, however written.
+        body = "\n\n## Decision\n\nY.\n\n## Why\n\nZ.\n\n## Boundaries\n\n| B | Check |\n|---|---|\n| b | `tools/x.py` |\n"
+        files = {"docs/decisions/0001-x.md": "# 0001. X" + body, "docs/decisions/0003-y.md": "# 0003. Y" + body,
+                 "docs/decisions/1130-z.md": "# 1130. Z" + body, "docs/decisions/10000-w.md": "# 10000. W" + body,
+                 "tools/x.py": ""}
+        self.assertEqual(check_context._decisions(tree(files)), [])
+        for name, title, said in (("0003-again.md", "# 0003. Again", "0003-y.md: shares its number with 0003-again.md"),
+                                  ("00003-again.md", "# 00003. Again", "0003-y.md: shares its number with 00003-again.md"),
+                                  ("010000-again.md", "# 010000. Again", "shares its number with"),
+                                  ("003-short.md", "# 003. Short", "003-short.md: a record's file opens with its number"),
+                                  ("notes.md", "# Notes", "notes.md: a record's file opens with its number"),
+                                  ("\uff11\uff11\uff13\uff10-wide.md", "# \uff11\uff11\uff13\uff10. Wide", "-wide.md: a record's file opens with its number"),
+                                  ("0004-v.md", "# 0005. V", "0004-v.md: the title must open with its number"),
+                                  ("10001-u.md", "# 1000. U", "10001-u.md: the title must open with its number")):
+            with self.subTest(name):
+                problems = check_context._decisions(tree(dict(files, **{"docs/decisions/" + name: title + body})))
+                self.assertTrue(caught(problems, said), problems)
+                self.assertEqual(len(problems), 1 if "shares" in said or "title" in said else 2, problems)
 
     def test_a_lesson_with_no_check_is_caught(self):
         text = ("### L-01 A thing broke\n\n**Failure.** It broke.\n\n**Rule.** Do not.\n\n"
@@ -6097,6 +6246,23 @@ class Decisions(unittest.TestCase):
         for name, (files, base, words) in cases.items():
             with self.subTest(name):
                 self.assertTrue(refused(files, words, base=base), name)
+
+    def test_a_record_of_five_digits_comes_after_one_of_four(self):
+        # Decision 1121: a record is numbered by its pull request, so its number is read as a number, at four digits or
+        # more: one of five digits is later than 9999, though its digits sort first.
+        nine, ten = "docs/decisions/9999-nine.md", "docs/decisions/10000-ten.md"
+        old = RECORD.replace("# 0001. One thing", "# 9999. Nine")
+        new = RECORD.replace("# 0001. One thing", "# 10000. Ten").replace(
+            "Status: accepted.", "Status: accepted. Replaces `%s`." % nine)
+        self.assertEqual(check_decisions.run(edited(history({nine: old}), {
+            nine: old.replace("Status: accepted.", "Status: replaced by `%s`." % ten), ten: new})), [])
+        # And one of four digits does not replace one of five.
+        old, new = old.replace("# 9999. Nine", "# 10000. Ten"), new.replace("# 10000. Ten", "# 9999. Nine")
+        self.assertTrue(refused({ten: old.replace("Status: accepted.", "Status: replaced by `%s`." % nine),
+                                 nine: new.replace(nine, ten)}, "10000-ten.md, which is not an earlier record", base={ten: old}))
+        self.assertTrue(refused({ten: old.replace("Status: accepted.", "Status: replaced by `%s`." % nine),
+                                 nine: new.replace(nine, ten)}, "10000-ten.md: it names %s, which is not a later record" % nine,
+                                base={ten: old}))
 
     def test_a_boundary_row_added_is_allowed(self):
         added = RECORD + '| Another thing | `tools/check_x.py`, `tests/test_x.py::test_z`, mutant: "another thing is undone" |\n'
