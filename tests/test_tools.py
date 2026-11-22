@@ -2250,20 +2250,21 @@ class Purity(unittest.TestCase):
         # 2. A builtin site adds, each of which reads a file, asks the help system or ends the process, as a value.
         for word in ("license", "copyright", "credits", "help", "exit", "quit"):
             self.assertTrue(caught(run({"kernel/x.py": "def f():\n    return str(%s)\n" % word}), "x.py:2 uses %s" % word), word)
-        # 3. A folder that holds a .git is skipped by the walk, and an import no file read answers to is refused.
-        hidden = planted({"kernel/x.py": "from kernel.sub import now\n"})
-        (hidden / "kernel" / "sub").mkdir()
-        (hidden / "kernel" / "sub" / ".git").write_text("gitdir: elsewhere\n")
-        (hidden / "kernel" / "sub" / "__init__.py").write_text("import os\n\ndef now():\n    return os.times()\n")
-        found = check_purity.run(hidden)
-        self.assertTrue(caught(found, "kernel/sub/.git holds a .git") and caught(found, "x.py:1 imports kernel.sub, which no file read"))
-        # At any depth, in any case, and a link that points nowhere too.
-        deeper = planted({"kernel/x.py": ""})
-        (deeper / "kernel" / "a" / "b").mkdir(parents=True)
-        (deeper / "kernel" / "a" / "b" / ".GIT").mkdir()
-        os.symlink(deeper / "nowhere", deeper / "kernel" / "a" / ".git")
-        found = check_purity.run(deeper)
-        self.assertTrue(caught(found, "kernel/a/b/.GIT holds a .git") and caught(found, "kernel/a/.git holds a .git"), found)
+        # 3. A folder that holds a .git is another working tree, which the walk leaves out, and so does this check; but
+        # each way the Kernel could import from it is refused, as an import no file read here answers to.
+        for line, words in (("from kernel.sub import now\n", "x.py:1 imports kernel.sub, which no file read"),
+                            ("import kernel.sub.y as y\n", "x.py:1 imports kernel.sub.y, which no file read"),
+                            ("from kernel import sub\n", "x.py:1 imports sub from kernel, which no file read"),
+                            ("from .sub import now\n", "x.py:1 imports now from .sub, which no file read"),
+                            ("from . import sub\n", "x.py:1 imports sub from ., which no file read")):
+            hidden = planted({"kernel/x.py": line})
+            (hidden / "kernel" / "sub").mkdir()
+            (hidden / "kernel" / "sub" / ".git").write_text("gitdir: elsewhere\n")
+            (hidden / "kernel" / "sub" / "__init__.py").write_text("import os\n\ndef now():\n    return os.times()\n")
+            (hidden / "kernel" / "sub" / "y.py").write_text("import os\n")
+            found = check_purity.run(hidden)
+            self.assertTrue(caught(found, words), (line, found))
+            self.assertFalse(caught(found, "sub/__init__.py") or caught(found, "sub/y.py"), (line, found))
         for line in ("import kernel.gone as g\n", "from kernel.gone import x\n", "from kernel.terms.deeper import x\n"):
             self.assertTrue(caught(run({"kernel/terms.py": "", "kernel/x.py": line}), "which no file read here is"), line)
         self.assertEqual(run({"kernel/terms.py": "A = 'a'\n", "kernel/sub/y.py": "B = 'b'\n", "kernel/x.py":

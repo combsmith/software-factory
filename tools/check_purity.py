@@ -12,7 +12,6 @@ import another module than the one it reads, it refuses that (issue 593).
 from __future__ import annotations
 
 import ast
-import os
 import pathlib
 import re
 
@@ -719,17 +718,14 @@ def _alone(root: pathlib.Path, read: set, trees: dict, package: str) -> list:
     - A limit: a module's name is resolved file-wide, not by scope, so a name a guard imports in one function and reads
       in another, where Python reads it as a builtin, passes. No builtin's plain attribute reaches a frame, globals or
       builtins, for the Kernel and the guards alike.
+    - A limit: a folder that holds a `.git` is another working tree, left out as tools/walk.py leaves it out. What the
+      package imports of it is refused, as every import no file read here answers to is (issue 909); what only code
+      outside the package imports of it is not this check's. Git commits no `.git`, so only a desk's tree can hold one.
     """
     problems, guest = [], package != "kernel"
     if (root / package).is_symlink():
         problems.append("%s is a link; what Python imports as %s is then kept somewhere else, which nothing protects"
                         % (package, package))
-    # Every entry named .git in any case, a link that points nowhere among them, as the walk's own lexists sees it.
-    gits = [os.path.join(folder, entry) for folder, folders, files in os.walk(root / package)
-            for entry in folders + files if entry.lower() == ".git"]
-    for git in sorted(gits):
-        problems.append("%s holds a .git, and the walk skips its folder whole, so Python could import what is not read "
-                        "here" % pathlib.Path(git).relative_to(root).as_posix())
     held = [path.relative_to(root / package).as_posix() for path in walk.files(root, package)]
     for name in held:
         if name not in read and name.split("/")[-1] != "AGENTS.md":
