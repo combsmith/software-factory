@@ -621,10 +621,14 @@ class HandApproval(unittest.TestCase):
         hand = "model_lens_input_needs_person"
         held = dict(reconcile.EMPTY, hand=[{"key": "PRR_1", "item": URL, "head": HEAD, "at": GIVEN}])
         # Two passes on, no record at hand decided the item, and the carried entry still reads it as one; a second
-        # approval of that head does not stand, and one of another pull request's head is judged on its own.
+        # approval of that head does not stand.
         later = [decided_as("awaiting_review", now="2026-10-11T13:30:00Z", item=OTHER, reconciled=held)]
         again = check(seen(approval(), approval("PRR_2", at="2026-10-11T13:40:00Z")), before=later)
         self.assertEqual(([h["key"] for h in again["hand"]], [u["key"] for u in again["unmatched"]]), (["PRR_1"], ["PRR_2"]))
+        # An approval of another pull request at the same commit is judged on its own, by the pass that read that one.
+        own = [decided_as(hand, now="2026-10-11T13:30:00Z", item=OTHER, reconciled=held)]
+        mixed = check(seen(approval(), approval("PRR_3", item=OTHER, at="2026-10-11T13:45:00Z")), before=own)
+        self.assertEqual([(h["item"]["number"], h["key"]) for h in mixed["hand"]], [(42, "PRR_1"), (43, "PRR_3")])
         # A head a carried entry took is taken, though the pass that read the item is still at hand.
         both = [dict(decided_as(hand), reconciled=held)]
         self.assertEqual(kinds(check(seen(approval("PRR_2", at="2026-10-11T12:40:00Z")), before=both)),
