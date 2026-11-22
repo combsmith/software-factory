@@ -5824,18 +5824,21 @@ class PullBody(unittest.TestCase):
         self.assertEqual(pr_title.body_problems(self.body({"Why": "- "}) + "## Why\nwords\n"),
                          ["body_heading_twice: the body has the heading '## Why' 2 times",
                           "body_section_empty: the section '## Why' holds nothing but the template's own"])
-        # Read in time whatever its size: GitHub keeps a body to 65,536 characters.
+        # Every problem at once, never the first alone, and none holds a word of the body.
+        planted = "::error::x\n## Why\n::add-mask::y\n## Why\n"
+        said = pr_title.body_problems(planted)
+        self.assertEqual(self.codes(planted), ["body_heading_missing", "body_heading_twice", "body_section_empty"])
+        self.assertFalse(any("::" in p or "add-mask" in p for p in said))
+
+    @support.wall_clock
+    def test_a_body_of_the_largest_size_is_read_in_time(self):
+        # Whatever its shape: GitHub keeps a body to 65,536 characters.
         started = time.monotonic()
         for long in ("## " + "#" * 65000 + "a", "## a" + " #" * 32000, "<!--" * 16000, "<details " * 7000,
                      "<details>" * 7000, ("```\n" * 16000), "- " * 32000 + "```",
                      "<details>" + "<!---->" * 9000, "`<!--` " * 9300, "## Why\n" + " " * 65000 + "x", "<!---->" * 4000 + "<details " * 4000):
             pr_title.body_problems(long)
         self.assertLess(time.monotonic() - started, 5.0)
-        # Every problem at once, never the first alone, and none holds a word of the body.
-        planted = "::error::x\n## Why\n::add-mask::y\n## Why\n"
-        said = pr_title.body_problems(planted)
-        self.assertEqual(self.codes(planted), ["body_heading_missing", "body_heading_twice", "body_section_empty"])
-        self.assertFalse(any("::" in p or "add-mask" in p for p in said))
 
     def test_the_body_is_read_on_both_events_from_its_cutover(self):
         root = tree({})
