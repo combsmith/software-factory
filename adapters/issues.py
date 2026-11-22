@@ -249,6 +249,8 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
         "acts_since_writer": writer["acts_since_writer"],
         "branch_head": None,
         "complete": {"timeline": whole and edited["whole"], "linked": closing_whole, "runs": True},
+        # The port reads no timeline to a bound yet, so it cuts none (decision 0234; its bound is the next part's).
+        "timeline_bounded": False,
         "read_at": now,
     })
     problems = validate(found, SCHEMA)
