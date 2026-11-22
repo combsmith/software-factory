@@ -31,7 +31,7 @@ import zlib
 from unittest import mock
 
 from controller import pass_
-from harness import engine, shared
+from harness import engine, shared, task
 from kernel import decide as decide_module, derive, issue, terms
 from kernel.decide import decide
 from sim import world
@@ -39,7 +39,7 @@ from adapters import github
 from tests import support
 from tools import (check_apps, check_authority, commits_are_the_maintainers, pr_title, check_context, check_decisions, check_examples, check_gate_sets, check_lifecycle, context_eval,
                    check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, redact_trial,
-                   environments_drift, machine_user_drift, rulesets_drift, verify, walk)
+                   desk, environments_drift, machine_user_drift, rulesets_drift, verify, walk)
 from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
 
@@ -12732,7 +12732,8 @@ class Verify(unittest.TestCase):
         real = (verify.failed, verify.unittest.TextTestRunner)
         verify.failed, verify.unittest.TextTestRunner = (lambda checks: False), Runner
         try:
-            with contextlib.redirect_stdout(io.StringIO()):     # main prints the unverified rules
+            # main prints the unverified rules, and on --checks the desk's note, here none
+            with contextlib.redirect_stdout(io.StringIO()), mock.patch.object(verify, "desk_note", return_value=""):
                 # `make checks` is the checks alone, whether they pass or not: it runs no test (issue 438).
                 self.assertEqual((verify.main(["--checks"]), ran), (0, {}))
                 verify.failed = lambda checks: True
@@ -15987,3 +15988,206 @@ if mode == "cut":
         self.assertEqual(done.returncode, 2, done.stderr)
         self.assertIn("is inside the repo", done.stderr)
         self.assertFalse(out.exists())
+
+
+class Desk(unittest.TestCase):
+    """What the desk runs beside the checks, for a person, and no check: about the size the Factory will count a branch
+    at (issue 1109)."""
+
+    def repo(self, files: dict) -> pathlib.Path:
+        limits = {"limits": {"max_diff_characters": 60000, "max_diff_lines": 4000}}
+        root = tree(dict({"config/defaults.json": json.dumps(limits)}, **files))
+        git(root, "init", "-q", "-b", "main")
+        self.commit(root, "base")
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        return root
+
+    def commit(self, root: pathlib.Path, message: str) -> None:
+        git(root, "add", "-A")
+        git(root, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", message)
+
+    def test_the_size_is_counted_as_the_factory_counts_it_and_warned_past_its_share(self):
+        root = self.repo({"a.py": "a\nb\nc\n", "m.py": "".join("line %d\n" % n for n in range(40)),
+                          "\u00e9.py": "".join("line %d\n\n" % n for n in range(20))})
+        git(root, "checkout", "-q", "-b", "work")
+        (root / "a.py").write_text("a\nB\nc\nd\n")
+        (root / "\u00e9.py").write_text("".join("line %d\n\n" % n if n not in (2, 8) else "new\n\n" for n in range(20)))
+        git(root, "mv", "m.py", "moved.py")
+        self.commit(root, "work")
+        # Main moving on past the branch's base counts nothing of main's: the base is where the branch left it.
+        git(root, "checkout", "-q", "main")
+        (root / "big.py").write_text("x = 1\n" * 5000)
+        self.commit(root, "main")
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        git(root, "checkout", "-q", "work")
+        base = git(root, "merge-base", "HEAD", "origin/main").strip()
+
+        def factory(*args: str) -> int:     # as adapters/pull.py counts it: index lines cut, numbered, escaped
+            plain = git(root, "-c", "core.quotePath=true", "-c", "diff.suppressBlankEmpty=false", "diff", "--no-color",
+                        "--full-index", "-M", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/",
+                        "--inter-hunk-context=0", *args, "--")
+            return task.carried(task.numbered(desk.pull.canonical(plain)))
+
+        # However this clone's configuration would write a diff, it is counted as GitHub writes one.
+        (root / ".git" / "info" / "attributes").write_text("*.py diff=upper\n")
+        for key, value in (("diff.upper.textconv", "sed -e s/a/AAA/g"), ("color.ui", "always"), ("diff.noprefix", "true"),
+                           ("diff.renames", "false"), ("core.abbrev", "4"), ("diff.interHunkContext", "20"),
+                           ("diff.suppressBlankEmpty", "true"), ("core.quotePath", "false"), ("diff.algorithm", "histogram")):
+            git(root, "config", key, value)
+
+        said = "about %d of 60000 characters and %d of 4000 lines committed against origin/main as last fetched"
+        self.assertEqual(desk.size(root), said % (factory(base), 7))
+        # Past 95% of either limit it warns, and under it does not: the Factory's count is a little apart from this.
+        warned = "; split it before it opens, or the Factory holds it as too_large"
+        for most, warns in (((int(factory(base) / 0.96), 4000), True), ((60000, 7), True), ((60000, 8), False)):
+            with mock.patch.object(desk, "limits", return_value=most):
+                self.assertEqual(desk.size(root).endswith(warned), warns, most)
+        for most, warns in (((60000, 21), True), ((60000, 22), False)):       # 20 lines: past 95% of 21, not of 22
+            with mock.patch.object(desk, "limits", return_value=most), mock.patch.object(desk, "counted", return_value=(9, 20)):
+                self.assertEqual(desk.size(root).endswith(warned), warns, most)
+        for count in ((95, 1), (1, 19)):        # at 95% of either, and not past it, it does not warn
+            with mock.patch.object(desk, "limits", return_value=(100, 20)), mock.patch.object(desk, "counted", return_value=count):
+                self.assertFalse(desk.size(root).endswith(warned), count)
+        self.assertEqual(desk.limits(root), (60000, 4000))
+        # What is committed counts, a line taken out as one; a working tree's edits are not read, staged ones and
+        # untracked files are named; each index line is cut as the Factory cuts it, however git abbreviates.
+        (root / "a.py").write_text("a\nc\n" + "y" * 300 + "\n")
+        self.commit(root, "more")
+        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6))
+        self.assertNotEqual(factory(base, "HEAD"), task.carried(task.numbered(git(root, "diff", "--no-color", "--full-index",
+                                                                                  "-M", "--no-textconv", base, "HEAD", "--"))))
+        (root / "a.py").write_text("z\n" * 9000)
+        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6))
+        (root / "HEAD").write_text("n\n")      # a file of that name is no revision to the reads
+        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6) + ", 1 untracked file not counted")
+        (root / "other.py").write_text("o\n")
+        git(root, "add", "a.py")
+        self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6) +
+                         ", staged edits and 2 untracked files not counted")
+        git(root, "reset", "-q")
+        (root / "HEAD").unlink()
+        (root / "other.py").unlink()
+        git(root, "checkout", "-q", "--", "a.py")
+        # Text that is no UTF-8 the Factory holds; limits it cannot read, it says so.
+        (root / "a.py").write_bytes(b"a\n\xff\n")
+        self.commit(root, "bytes")
+        self.assertEqual(desk.size(root), "the diff holds text that is no UTF-8, which the Factory holds and counts no "
+                                          "size of; take it out")
+        (root / "a.py").write_text("a\n")
+        self.commit(root, "back")
+        # The limits are main's, as the Factory reads them: not this tree's, nor this branch's.
+        (root / "config" / "defaults.json").write_text('{"limits": {"max_diff_characters": 9, "max_diff_lines": 9}}')
+        self.assertEqual(desk.limits(root), (60000, 4000))
+        self.commit(root, "limits")
+        self.assertEqual(desk.limits(root), (60000, 4000))
+        for config in ('{"limits": {}}', "{", '{"limits": {"max_diff_characters": "x", "max_diff_lines": 1}}',
+                       '{"limits": {"max_diff_characters": 1%s, "max_diff_lines": 1}}' % ("0" * 400), "\udcff"):
+            (root / "config" / "defaults.json").write_bytes(config.encode("utf-8", "surrogateescape"))
+            self.commit(root, "config")
+            git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+            self.assertEqual(desk.size(root), "no limit to compare: config/defaults.json's limits cannot be read", config)
+        # A partial clone's reads may fetch, so it reads nothing.
+        git(root, "config", "extensions.partialclone", "origin")
+        self.assertEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
+        git(root, "config", "--unset", "extensions.partialclone")
+        git(root, "config", "remote.origin.promisor", "false")
+        self.assertNotEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
+        git(root, "config", "remote.other.promisor", "true")     # any of them, not the first alone
+        self.assertEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
+        git(root, "config", "--unset", "remote.other.promisor")
+        partial = "no count: this is a partial clone, whose reads may fetch"
+        for key, value, said in (("remote.other.promisor", "no", False), ("remote.other.promisor", "maybe", True),
+                                 ("extensions.partialclone", "false", True),     # a remote's name, never a boolean
+                                 ("remote.origin.partialclonefilter", "blob:none", True)):
+            git(root, "config", key, value)
+            self.assertEqual(desk.size(root) == partial, said, (key, value))
+            git(root, "config", "--unset", key)
+        with mock.patch.object(desk, "SECONDS", 0):      # git that cannot say in time is read as one that may fetch
+            self.assertTrue(desk._partial(root))
+
+    def test_the_desk_runs_git_only_to_read_and_says_when_there_is_no_base(self):
+        root = self.repo({"a.py": "a\n"})
+        (root / "a.py").write_text("b\n")
+        self.commit(root, "work")
+        ran, real = [], subprocess.run
+
+        def run(argv, **kwargs):
+            ran.append((argv, kwargs["env"]))
+            self.assertEqual(kwargs["timeout"], desk.SECONDS)
+            return real(argv, **kwargs)
+
+        with mock.patch.object(desk, "subprocess", mock.NonCallableMock(
+                run=run, DEVNULL=subprocess.DEVNULL, TimeoutExpired=subprocess.TimeoutExpired)):
+            desk.size(root)
+            for refused in (("fetch", "origin"), ("config", "user.name", "x"), ("config", "--unset", "x.y"), ("config",),
+                            ("diff", "--output=f")):
+                with self.assertRaises(ValueError):
+                    desk._git(root, *refused)
+        verbs = {argv[len(desk.SAFE) + 1] for argv, _ in ran}
+        self.assertTrue(verbs and verbs <= set(desk.READS), verbs)
+        self.assertFalse({"fetch", "pull", "push", "clone", "ls-remote", "remote", "submodule", "fetch-pack",
+                          "send-pack", "archive", "bundle", "maintenance", "gc"} & set(desk.READS))
+        self.assertTrue(all(argv[0] == "git" and argv[1:len(desk.SAFE) + 1] == list(desk.SAFE) for argv, _ in ran))
+        self.assertTrue(all(env["GIT_NO_LAZY_FETCH"] == "1" and env["GIT_TERMINAL_PROMPT"] == "0" and env["LC_ALL"] == "C"
+                            for _, env in ran))
+        # With no clone, or no main to compare with, there is no base, and it says so.
+        self.assertEqual(desk.size(tree({"a.py": "a\n"})), "no base to compare: this tree is no clone")
+        git(root, "update-ref", "-d", "refs/remotes/origin/main")
+        self.assertEqual(desk.size(root), "no base to compare: origin/main cannot be read here")
+
+    def test_make_checks_note_fails_nothing(self):
+        # The note is printed after the checks have answered, and nothing it does, an error or an exit, changes the
+        # answer. CI's legs never run it.
+        def ran(argv: list, checks_failed: bool, note) -> tuple:
+            printed = io.StringIO()
+            with mock.patch.object(verify, "failed", return_value=checks_failed), \
+                    mock.patch.object(desk, "size", side_effect=note), contextlib.redirect_stdout(printed):
+                return verify.main(argv), printed.getvalue()
+
+        for checks_failed in (False, True):
+            self.assertEqual(ran(["--checks"], checks_failed, lambda: "the note"),
+                             (int(checks_failed), "%-22s the note\n" % "diff size"))
+            for note, name in ((RuntimeError, "RuntimeError"), (lambda: sys.exit(int(not checks_failed)), "SystemExit"),
+                               (KeyboardInterrupt, "KeyboardInterrupt")):
+                self.assertEqual(ran(["--checks"], checks_failed, note),
+                                 (int(checks_failed), "%-22s no note: it raised %s\n" % ("diff size", name)))
+        for checks_failed in (False, True):
+            read, write = os.pipe()
+            os.close(read)      # a reader that closed before the note
+            stream = open(write, "w", encoding="utf-8")
+            with mock.patch.object(verify, "failed", return_value=checks_failed), \
+                    mock.patch.object(desk, "size", return_value="n"), mock.patch.object(sys, "stdout", stream):
+                self.assertEqual(verify.main(["--checks"]), int(checks_failed))
+            stream.close()      # the flush at exit: what the note left held goes nowhere, and raises nothing
+        read, write = os.pipe()
+        try:        # the null device opened as the stream's own number, closed already: that number is left open
+            with mock.patch.object(verify.os, "open", return_value=write):
+                verify.quiet(mock.Mock(fileno=lambda: write))
+            os.fstat(write)
+        finally:
+            os.close(read)
+            os.close(write)
+        printed = io.StringIO()
+        with mock.patch.object(verify, "failed", return_value=True), mock.patch.object(desk, "size", return_value="n"), \
+                mock.patch("builtins.print", side_effect=BrokenPipeError), contextlib.redirect_stdout(printed):
+            self.assertEqual(verify.main(["--checks"]), 1)      # a stream with no file to point elsewhere
+        for argv, code, said in ((["size"], 0, "the note\n"), ([], 1, "usage: python3 -m tools.desk size\n"),
+                                 (["size", "x"], 1, "usage: python3 -m tools.desk size\n")):
+            printed = io.StringIO()      # the command prints the note, and anything else asked is refused
+            with mock.patch.object(desk, "size", return_value="the note"), contextlib.redirect_stdout(printed):
+                self.assertEqual(desk.main(argv), code, argv)
+            self.assertEqual(printed.getvalue(), said, argv)
+        package = sys.modules["tools"]
+        del package.desk
+        try:
+            with mock.patch.dict(sys.modules, {"tools.desk": None}):       # one that cannot be imported
+                self.assertEqual(verify.desk_note(), "no note: it raised ModuleNotFoundError")
+        finally:
+            package.desk = desk
+        note = mock.Mock(return_value="the note")
+        with mock.patch.object(verify, "failed", return_value=False), mock.patch.object(desk, "size", note), \
+                mock.patch.object(verify, "suite", return_value=unittest.TestSuite()), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(verify.main([], {}), 0)
+            self.assertEqual(verify.main([], {"CHECKS_SHARD": "0", "CHECKS_SHARDS": "2"}), 0)
+        note.assert_not_called()

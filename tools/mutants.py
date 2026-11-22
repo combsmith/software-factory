@@ -197,6 +197,8 @@ PERSON_READ = ("tests.test_hooks.RulesChanged.test_a_path_only_a_person_decides_
 BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_of_tests",)
 NAMED_MUTANTS = ("tests.test_tools.Decisions.test_a_new_or_changed_row_names_the_mutant_its_test_kills",)
 MAIN_ROWS = ("tests.test_tools.Decisions.test_a_row_main_holds_names_no_mutant_until_its_check_changes",)
+# Issue 1109: the test of the size note make checks prints.
+DESK_NOTE = ("tests.test_tools.Desk.test_make_checks_note_fails_nothing",)
 # Issue 1101: the tests that hold the files of tools/mutants_of/.
 WRITES_DATA = ("tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one",)
 LOADER = ("tests.test_tools.Mutants.test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone",)
@@ -7201,6 +7203,23 @@ MUTANTS = ISSUE + OUTSIDE + [
      'sum(1 for c in rows if not MUTANT.search(c))', 'sum(1 for c in rows if MUTANT.search(c))', MAIN_ROWS),
     ('verify counts a waiting row', 'tools/check_decisions.py',
      ' if not _exempt(cell, root)]\n    return "%d of %d', ']\n    return "%d of %d', MAIN_ROWS),
+    # Issue 1109: make checks prints the desk's size note, and nothing the note does fails it.
+    ('a closed pipe ends make checks', 'tools/verify.py',
+     '        try:\n            print("%-22s %s" % ("diff size", desk_note()), flush=True)\n        except BaseException:       # NOSONAR: a closed pipe too; the note never decides make checks\' answer\n            quiet(sys.stdout)\n', '        print("%-22s %s" % ("diff size", desk_note()), flush=True)\n', DESK_NOTE),
+    ('a closed pipe ends make checks at exit', 'tools/verify.py',
+     '            os.dup2(null, fd)\n', '            pass\n', DESK_NOTE),
+    ('the note is held for the flush at exit', 'tools/verify.py',
+     'desk_note()), flush=True)', 'desk_note()))', DESK_NOTE),
+    ("the stream's own number is closed", 'tools/verify.py',
+     '        if null != fd:', '        if True:', DESK_NOTE),
+    ('a stream with no file ends make checks', 'tools/verify.py',
+     '    except BaseException:       # NOSONAR: a stream with no file too', '    except AttributeError:       # NOSONAR: a stream with no file too', DESK_NOTE),
+    ('a note that exits ends make checks', 'tools/verify.py',
+     '    except BaseException as err:', '    except Exception as err:', DESK_NOTE),
+    ('make checks says nothing of the size', 'tools/verify.py',
+     '        try:\n            print("%-22s %s" % ("diff size", desk_note()), flush=True)\n        except BaseException:       # NOSONAR: a closed pipe too; the note never decides make checks\' answer\n            quiet(sys.stdout)\n', '', DESK_NOTE),
+    ("CI's legs run the note", 'tools/verify.py',
+     '"%-22s %s" % ("boundary mutants", check_decisions.unnamed())]', '"%-22s %s" % ("boundary mutants", check_decisions.unnamed()), desk_note()]', DESK_NOTE),
     ('verify says nothing of the mutants', 'tools/verify.py',
      ',\n            "%-22s %s" % ("boundary mutants", check_decisions.unnamed())]\n', ']\n', MAIN_ROWS),
     ("a mutant its named tests miss runs the whole suite", 'tools/mutants.py',
@@ -21983,7 +22002,7 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("make checks runs the tests", "tools/verify.py",
      '    if "--checks" in argv:\n', '    if False:\n', ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
     ("make checks passes whatever the checks found", "tools/verify.py",
-     '        return 1 if checks_failed else 0\n    for line', '        return 0\n    for line', ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
+     '        answer = 1 if checks_failed else 0 ', '        answer = 0 ', DESK_NOTE),
     ("with no make the checks' own command is not named", "tools/hooks/make.py",
      '"" if target == "verify" else " --" + target', '""', ('tests.test_hooks.AfterEdit.test_with_no_make_the_agent_is_told_the_checks_did_not_run',)),
     # The stop-hook review, 2026-11-05: each hook runs the main checkout's copy, and checks are not run twice at one state.
