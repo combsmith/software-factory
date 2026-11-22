@@ -499,7 +499,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     from_passes = recorded_passes(transport, config, int(run_id), before, since, sleep, stages)
     # The open issues the Kernel could serve, none while `issues.served_from` is null, without the tracking issue, by
     # the number the passes recorded. A list read short is never the whole: no issue is read, and one entry naming no
-    # item says so, which the keyword spans' chain passes over; the pull requests are decided as ever (decision 0234).
+    # item says so, which the keyword spans' chain passes over; the pull requests are decided as ever (decision 0252).
     # Issues whose Apps cannot be told are not listed, as with no date: none is read or decided, and the pass says so.
     apart = reconcile.tracking(from_passes, before)
     served = None if refused else config["kernel"]["issues"]["served_from"]
@@ -560,7 +560,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     # decided or left out unread, never the tracking issue, which the listing leaves out by its number or its own read
     # tells (decision 0233). While that number is not read, no issue's writes are: the tracking issue could be among
     # those listed, and the passes' records read short leave reconciliation short already.
-    # A list read short serves none: its one entry names no item, and no issue that left can be told (decision 0234).
+    # A list read short serves none: its one entry names no item, and no issue that left can be told (decision 0252).
     served_issues = [e["facts"]["item"]["number"] for e in issues if e["facts"]["item"] is not None] \
         if apart is not None else ()
     # One listed that is neither served nor left out was told as the tracking issue at its own read: it never left (codex).
