@@ -19,6 +19,7 @@ desk's commands are in `AGENTS.md`. This page does not repeat them.
 | A session asks the person before it edits a protected path, one under `protected` in `config/hooks.json`. In bypass mode the hook tells the session instead and asks nothing (`docs/decisions/0019-under-bypass-permissions-the-protected-hook-tells-and-asks-nothing.md`). The hook guards against mistakes; the required check, the approving review and the rulesets are the boundary | `tests/test_hooks.py::test_from_the_front_door_an_edit_to_a_protected_path_asks_and_a_clean_one_is_silent`, `tests/test_hooks.py::test_under_bypass_permissions_the_hook_tells_the_session_and_asks_nothing` |
 | A decision record takes the number of the pull request that adds it, and a pull request adds one at most. The commits job, `tools/commits_are_the_maintainers.py`, holds this; `tools/check_context.py` refuses two records of one number. Numbers leave gaps (`docs/decisions/1121-a-decision-record-takes-the-number-of-the-pull-request-that-adds-it.md`) | `tests/test_tools.py::test_each_record_a_pull_request_adds_is_numbered_by_it`, `tests/test_tools.py::test_no_two_records_share_a_number` |
 | A decision record and a lesson take the shape `docs/AGENTS.md` gives them | `tests/test_tools.py::test_a_decision_with_no_boundary_is_caught`, `tests/test_tools.py::test_a_lesson_with_no_check_is_caught` |
+| From record 1166 on, a record keeps to a budget: a Status of 40 words, a Decision and Why of 300 (450 to replace), Decision tables of 8 rows and 40 words to a cell, and a Boundary of 30 words naming one mutant (`docs/decisions/1166-a-new-record-is-a-short-why-log-held-to-a-word-budget.md`) | `tests/test_tools.py::test_a_new_records_status_is_held_to_its_words`, `tests/test_tools.py::test_a_new_records_decision_and_why_are_held_to_their_words`, `tests/test_tools.py::test_a_new_records_decision_table_is_short`, `tests/test_tools.py::test_a_new_records_boundary_rows_are_short_and_name_one_mutant` |
 | A trial's fixture is named for its trial, validates and holds no credential. Each other rule in `trials/AGENTS.md` names its own test there, and the skill `.claude/skills/run-a-platform-trial/SKILL.md` says how a trial is run | `tests/test_tools.py::test_a_fixture_that_is_misnamed_or_invalid_is_caught`, `tests/test_tools.py::test_a_credential_in_a_fixture_is_caught` |
 | A pull request whose body was edited after its first approval since a person looked is held until a person approves | `tests/test_decide.py::test_a_description_edited_after_the_approval_holds_until_a_person_approves` |
 
@@ -71,8 +72,9 @@ depends on them.
 
 ## Writing a decision record
 
-A record is a short why-log that points to the code. It is not a spec. No check holds this style
-yet, so it is advice. The shape a check does hold is in `docs/AGENTS.md`: the sections, the number,
+A record is a short why-log that points to the code. It is not a spec. From record 1166 on, its
+word budget is held by a check, in the table above; the rest of this section is advice. The shape a
+check holds is in `docs/AGENTS.md`: the sections, the number,
 and that a record is never edited, with the form of a Status that replaces one in `tools/check_decisions.py`.
 A title is at most 72 characters and names the file
 (`docs/decisions/0245-a-new-records-title-is-short-and-names-its-file.md`).
@@ -87,6 +89,6 @@ A title is at most 72 characters and names the file
   behaviour. The Check names the file, the test as `path::name`, and one mutant that test kills,
   as `mutant: "<its description>"`. One mutant is enough; do not list them all.
 
-Aim for about 300 words above Boundaries, and sentences of about 15 words. The code and its tests
+Aim for sentences of about 15 words, well inside the budget. The code and its tests
 carry the exact rule. A record that copies them goes stale when they change, and then a reader
 cannot tell which one is right.
