@@ -1,0 +1,44 @@
+"""The mutants of `adapters/rules.py`: tools/mutants.py runs them."""
+
+TARGETS = ("adapters/rules.py",)
+MUTANTS = [
+    # Issue 139, its push wired (the Factory Builder's rulings of 2026-11-10): a push is held to the base's list of
+    # protected paths and model Lens inputs, read from its own bundle, before anything is minted.
+    ("a deterministic Lens's input is refused at a push", 'adapters/rules.py',
+     '    return protected.push_of(held, models), None\n',
+     '    return protected.protected_of(held), None\n', ('tests.test_adapters.Rules.test_the_list_is_the_bases_every_protected_path_and_model_lens_input_once',)),
+    ("the base's model Lenses are not read", 'adapters/rules.py',
+     '        models = json.loads(said)["required_lenses"]["model"] if said is not None else None\n',
+     '        models = ["pr-review"]\n', ('tests.test_adapters.Rules.test_the_list_is_the_bases_every_protected_path_and_model_lens_input_once',)),
+    ('a commit that names no model Lens is read', 'adapters/rules.py',
+     '    if not isinstance(models, list) or not models or not all(',
+     '    if not isinstance(models, list) or not all(', ('tests.test_adapters.Rules.test_a_commit_that_names_no_model_lens_is_unreadable',)),
+    # Issue 139: a Role's push that touches the base's list is refused; the list is read at the base commit.
+    ("GitHub's wrapped base64 is refused", 'adapters/rules.py',
+     'base64.b64decode(content.replace("\\n", ""), validate=True)', 'base64.b64decode(content, validate=True)', ('tests.test_adapters.Rules.test_the_list_is_the_bases_every_protected_path_and_model_lens_input_once',)),
+    ("a file of another path is the list", 'adapters/rules.py',
+     ' or body.get("path") != path or ', ' or ', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
+    ("a file of another size is the list", 'adapters/rules.py',
+     '    return text if len(data) == size else None\n', '    return text\n', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
+    ("an unanswered read is let through", 'adapters/rules.py',
+     '    except Unanswered:\n        return None\n', '    except ZeroDivisionError:\n        return None\n', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
+    ("a commit that is no sha is asked", 'adapters/rules.py',
+     '            or not isinstance(sha, str) or not SHA.fullmatch(sha):\n', ':\n', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
+    ("a repo that climbs is asked", 'adapters/rules.py',
+     " or repo.split(\"/\")[1] in (\".\", \"..\") \\\n", ' \\\n', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
+    ("a directory's answer is the list", 'adapters/rules.py',
+     'body.get("type") != "file" or ', '', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
+    ('a file not in base64 is the list', 'adapters/rules.py',
+     '            or body.get("encoding") != "base64" or ', '            or ', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
+    ("an answer that is no object is read", 'adapters/rules.py',
+     ' or not isinstance(body, dict):\n        return None\n', ':\n        return None\n', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
+    ("the working tree's list is read for the base's", 'adapters/rules.py',
+     '        held = protected.parse(text) if text is not None else None\n', '        held = protected.load()\n', ('tests.test_adapters.Rules.test_the_list_is_the_bases_every_protected_path_and_model_lens_input_once',)),
+    # Argon's reads of #348, #355 and #379, owed while it had no quota (no record; Boundaries rows on 0070, 0075, 0080).
+    ("a base list answered with no 200 is read", 'adapters/rules.py',
+     'if answer["status"] != 200 or not isinstance(body, dict):', 'if not isinstance(body, dict):', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
+    ("a base list's size that is no integer is read", 'adapters/rules.py',
+     ' or type(size) is not int \\\n', ' \\\n', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
+    ("a repo named . is asked", 'adapters/rules.py',
+     'repo.split("/")[1] in (".", "..")', 'repo.split("/")[1] == ".."', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
+]
