@@ -9683,7 +9683,7 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("a block's open tag is of one case", 'tools/pr_title.py', '{0,200})?>", re.I)', '{0,200})?>")', BODY_RULE),
     ("a block's close tag is of one case", 'tools/pr_title.py', 'DETAILS_CLOSE = re.compile(r"</details[ \\t]*>", re.I)', 'DETAILS_CLOSE = re.compile(r"</details[ \\t]*>")', BODY_RULE),
     ("a block's open tag takes no attribute", 'tools/pr_title.py', 'r"<details(?:[ \\t][^>\\n]{0,200})?>"', 'r"<details>"', BODY_RULE),
-    ('an empty list item is text', 'tools/pr_title.py', 'EMPTY_ITEM = re.compile(r"[ \\t]*(?:[-*+]|[0-9]{1,9}[.)])?[ \\t]*")', 'EMPTY_ITEM = re.compile(r"[ \\t]*")', BODY_RULE),
+    ('an empty list item is text', 'tools/pr_title.py', 'EMPTY_ITEM = re.compile(r"(?:[-*+]|[0-9]{1,9}[.)])?")', 'EMPTY_ITEM = re.compile(r"")', BODY_RULE),
     ('a lone carriage return is no line end', 'tools/pr_title.py', '.replace("\\r", "\\n").split("\\n")', '.split("\\n")', BODY_RULE),
     ('a heading of another level counts', 'tools/pr_title.py', ' or line[indent + 2:indent + 3] not in ("", " ", "\\t"):', ':', BODY_RULE),
     ('a heading four spaces in counts', 'tools/pr_title.py', '    if indent > 3 or not', '    if not', BODY_RULE),

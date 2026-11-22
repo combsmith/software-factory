@@ -48,7 +48,7 @@ DETAILS_CLOSE = re.compile(r"</details[ \t]*>", re.I)
 COMMENT = re.compile(r"<!--")
 # Inline code, in which GitHub reads no markup: a run of up to eight backticks, then what it holds, then the same run.
 CODE_SPAN = re.compile(r"(?<!`)(`{1,8})(?!`)[^\n]{0,4000}?(?<!`)\1(?!`)")
-EMPTY_ITEM = re.compile(r"[ \t]*(?:[-*+]|[0-9]{1,9}[.)])?[ \t]*")
+EMPTY_ITEM = re.compile(r"(?:[-*+]|[0-9]{1,9}[.)])?")   # read on the line stripped of spaces and tabs
 AREA = re.compile(r"[a-z0-9.][a-z0-9._/-]*: (?=\S)")
 TAIL = re.compile(r" \(#[1-9][0-9]*(?:, part (0|[1-9][0-9]*) of (0|[1-9][0-9]*))?\)\Z")
 # The marks of a name from inside the code, which a newcomer cannot read.
@@ -184,7 +184,7 @@ def body_problems(body: str) -> list:
         if len(held) > 1:
             found.append("body_heading_twice: the body has the heading '## %s' %d times" % (name, len(held)))
         places.append(held[0])
-        if any(not any(text.strip() and not EMPTY_ITEM.fullmatch(text) for text in seen[i][1]) for i in held):
+        if any(not any(text.strip() and not EMPTY_ITEM.fullmatch(text.strip(" \t")) for text in seen[i][1]) for i in held):
             found.append("body_section_empty: the section '## %s' holds nothing but the template's own" % name)
     if places != sorted(places):
         found.append("body_heading_out_of_order: the headings are not in the template's order: %s"

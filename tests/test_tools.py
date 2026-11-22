@@ -5765,7 +5765,7 @@ class PullBody(unittest.TestCase):
         # an empty one is no text. A fence and a comment hide each other's marks, and a fence's words open no comment.
         for code in ("```\n    ```\n", "```\n\t```\n", " ```\n    ```\n"):
             self.assertEqual(self.codes(code + self.body() + "```\n"), ["body_heading_missing"], code)
-        for hides in ("- ```\n  ## Why\n  ```\n", "```\n   ```\n", "```\n<!--\n```\n", "<!--\n```\n-->\n", "``` <!--\nx\n```\n"):
+        for hides in ("- ```\n  ## Why\n  ```\n", "```\n   ```\n", "1. ```\n   ## Why\n      ```\n", "~~old~~\n", "```\n<!--\n```\n", "<!--\n```\n-->\n", "``` <!--\nx\n```\n"):
             self.assertEqual(self.codes(hides + self.body()), [], hides)
         self.assertEqual(self.codes(self.body({"Why": "```\n```"})), ["body_section_empty"])
         self.assertEqual(self.codes(self.body({"Why": "```\n-\n```"})), [])
@@ -5828,7 +5828,7 @@ class PullBody(unittest.TestCase):
         started = time.monotonic()
         for long in ("## " + "#" * 65000 + "a", "## a" + " #" * 32000, "<!--" * 16000, "<details " * 7000,
                      "<details>" * 7000, ("```\n" * 16000), "- " * 32000 + "```",
-                     "<details>" + "<!---->" * 9000, "`<!--` " * 9300, "<!---->" * 4000 + "<details " * 4000):
+                     "<details>" + "<!---->" * 9000, "`<!--` " * 9300, "## Why\n" + " " * 65000 + "x", "<!---->" * 4000 + "<details " * 4000):
             pr_title.body_problems(long)
         self.assertLess(time.monotonic() - started, 5.0)
         # Every problem at once, never the first alone, and none holds a word of the body.
@@ -5884,6 +5884,7 @@ class PullBody(unittest.TestCase):
         # The cutover: a pull request opened one second before it is not read for its body; one opened at it is; the
         # title is held from its own cutover, before it.
         self.assertEqual(checked(dict(good, body=None, created_at="2026-11-22T23:59:59Z")), [])
+        self.assertEqual(len(checked(dict(good, body=None, created_at="2026-11-23T00:00:01Z"))), 1)
         self.assertEqual(checked(dict(good, body=None, title="Bad", created_at="2026-11-22T23:59:59Z"))[0][:13],
                          "title_no_area")
         self.assertEqual(len(checked(dict(good, body=None, title="Bad"))), 3)
