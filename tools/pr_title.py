@@ -82,6 +82,8 @@ def problems(title: str) -> list:
         if part < 1 or part > parts or parts < 2:
             found.append("title_part_out_of_range: part %d of %d: a part is at least 1 and at most the count, and the "
                          "count is at least 2" % (part, parts))
+    if any(c < " " or c == "\x7f" for c in title):
+        found.append("title_control_character: the title holds a tab, a line end or another control character")
     start = area.end() if area else 0
     end = tail.start() if tail else len(title)
     phrase = title[start:end] if end >= start else ""
