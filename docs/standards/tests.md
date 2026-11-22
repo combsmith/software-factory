@@ -21,7 +21,8 @@ exactly once in the file, or the mutant is reported `STALE`, and a test fails on
 `python3 -m tools.mutants` applies each in a copy of the repo and runs the tests: a mutant that
 survives is a rule nothing tests. A mutant of a file under `kernel/` goes in `tools/mutants.py`.
 Any other goes in the file of `tools/mutants_of/` named for its target, whose `TARGETS` lists the
-path: `tools/mutants_of/AGENTS.md` says how.
+path: `tools/mutants_of/AGENTS.md` says how. Until the move of the mutants into that folder, a target whose mutants are still
+in `tools/mutants.py` takes new ones there.
 A comment such as `# I-24` names an invariant of the design; the test's name is its sentence.
 
 Org standard: the org's AGENTS.md, "Test-Driven Development (TDD)". Stricter here: a mutant for each rule. unittest, where the org asks for pytest, is a departure: `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standards.md`.

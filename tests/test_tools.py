@@ -12230,6 +12230,46 @@ class Writes(unittest.TestCase):
             rel = os.path.normpath("tools/mutants_of/%s.py" % name)
             self.assertTrue(any(p.startswith(rel + ":") and "names gh or git as a command" in p for p in problems), rel)
 
+    def test_a_command_a_file_of_mutants_names_as_text_is_taken_only_by_another_or_a_runner(self):
+        # Issue 1101 (Astra, and a Claude read): a command a file of mutants names as text is exempt only while no
+        # code runs it, so a file that runs code takes it from there, or from a file there that names from one, only
+        # where RUNNERS names that file: by any import, plain, of the module, of a name, or relative, and from a file
+        # of the folder that is no data either. A file that names no command is imported freely, and a runner may
+        # import any, though it hands what it took on to no other file. A module is a package's by its file's name, and
+        # an import of a module runs each package above it.
+        untested = (ROOT / "tools" / "untested.py").read_text() + "\nfrom tools.mutants_of.argv import VERSION\n"
+        files = {"tools/mutants_of/argv.py": "VERSION = ('git', '--version')\n",
+                 "tools/mutants_of/relay.py": "from tools.mutants_of.argv import VERSION\n",
+                 "tools/mutants_of/launders.py": "import subprocess\n\nfrom tools.mutants_of.argv import VERSION\n",
+                 "tools/mutants_of/after.py": "import os\n\nfrom tools.mutants_of.launders import VERSION\n",
+                 "tools/consumer.py": "import subprocess\nfrom tools.mutants_of.argv import VERSION\nsubprocess.run(VERSION)\n",
+                 "tools/relayed.py": "import subprocess\nfrom tools.mutants_of.relay import VERSION\n",
+                 "tools/whole.py": "from tools.mutants_of import argv\n",
+                 "tools/plainimport.py": "import tools.mutants_of.argv\n",
+                 "tools/relative.py": "from .mutants_of.argv import VERSION\n",
+                 "tools/shared.py": "from tools.mutants_of.common import X\n",
+                 "tools/via_runner.py": "from tools.untested import VERSION\n",
+                 "tools/not__init__.py": "from .mutants_of.argv import VERSION\n",
+                 "tools/mutants_of/pkg/__init__.py": "VERSION = ('git', '--version')\n",
+                 "tools/mutants_of/pkg/values.py": "X = 1\n",
+                 "tools/parent.py": "import tools.mutants_of.pkg.values\n",
+                 "tools/mutants_of/chain_z.py": "VERSION = ('git', '--version')\n",
+                 "tools/mutants_of/chain_b.py": "from tools.mutants_of.chain_z import VERSION\n",
+                 "tools/mutants_of/chain_a.py": "from tools.mutants_of.chain_b import VERSION\n",
+                 "tools/chained.py": "from tools.mutants_of.chain_a import VERSION\n",
+                 "tools/mutants_of/common.py": "X = ('t',)\n",
+                 "tools/untested.py": untested}
+        problems = check_writes.run(clone(files))
+        taken = "imports from a file of the mutants' data that names a command as text"
+        for rel, line in (("tools/consumer.py", 2), ("tools/relayed.py", 2), ("tools/whole.py", 1),
+                          ("tools/plainimport.py", 1), ("tools/relative.py", 1), ("tools/mutants_of/launders.py", 3),
+                          ("tools/via_runner.py", 1), ("tools/not__init__.py", 1), ("tools/parent.py", 1),
+                          ("tools/chained.py", 1)):
+            self.assertTrue(caught(problems, "%s:%d %s" % (rel, line, taken)), (rel, problems))
+        for rel in ("tools/mutants_of/argv.py", "tools/mutants_of/relay.py", "tools/mutants_of/after.py",
+                    "tools/shared.py", "tools/untested.py"):
+            self.assertFalse(caught(problems, rel + ":"), (rel, problems))
+
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
         queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
             "    return effects.role_write(transport, item, 'review', req, 'me')\n"
