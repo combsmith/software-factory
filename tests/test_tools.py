@@ -15955,7 +15955,10 @@ class Desk(unittest.TestCase):
     def test_a_deletion_a_mode_and_a_line_of_control_characters_are_each_told(self):
         # A file one side took out and the other changed is told as such, whichever the merge kept; a mode one side
         # gave a file both changed must be kept; a line is shown escaped, never as what a terminal would act on.
-        root = self.repo({"d.py": "a\nb\n", "m.py": "a\nb\n", "e.py": "a\nb\n", "b.bin": "a\nb\n"})
+        root = self.repo({"d.py": "a\nb\n", "m.py": "a\nb\n", "e.py": "a\nb\n", "b.bin": "a\nb\n", "x.py": "a\nb\nc\n"})
+        (root / "x.py").chmod(0o755)
+        self.commit(root, "an executable")
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
         git(root, "checkout", "-q", "-b", "work")
         git(root, "rm", "-q", "d.py")
         (root / "m.py").chmod(0o755)
@@ -15963,6 +15966,7 @@ class Desk(unittest.TestCase):
         (root / "n.py").chmod(0o755)
         (root / "b.bin").write_bytes(b"\0a\nb\n")
         (root / "e.py").write_text("a\nb\nc\n")
+        (root / "x.py").write_text("A\nb\nc\n")
         self.commit(root, "work")
         git(root, "checkout", "-q", "main")
         (root / "d.py").write_text("a\nB\n")
@@ -15970,6 +15974,7 @@ class Desk(unittest.TestCase):
         (root / "e.py").write_text("\x1b[31mred\n  pad\na\nb\n")
         (root / "n.py").write_text("x\n")
         (root / "b.bin").write_bytes(b"\0a\nB\n")
+        (root / "x.py").write_text("a\nb\nC\n")
         self.commit(root, "main")
         git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
         git(root, "checkout", "-q", "work")
@@ -15977,14 +15982,16 @@ class Desk(unittest.TestCase):
         told = "'d.py': the branch took it out and the other side changed it, and the merge %s: read which was meant"
         (root / "m.py").chmod(0o644)
         (root / "n.py").chmod(0o644)
+        (root / "x.py").chmod(0o644)
         self.assertEqual(self.staged(root, {"d.py": None, "e.py": "a\nb\nc\n", "m.py": "a\nB\n", "n.py": "x\n",
-                                            "b.bin": "a\n"}), [
+                                            "b.bin": "a\n", "x.py": "A\nb\nC\n"}), [
             "'b.bin': binary: lines not compared",
             told % "took it out",
             "'e.py': main's line is gone, and the branch did not take it out: '\\x1b[31mred'",
             "'e.py': main's line is gone, and the branch did not take it out: '  pad'",
             "'m.py': the branch changed its mode, and the merge does not hold it",
-            "'n.py': the branch changed its mode, and the merge does not hold it"])
+            "'n.py': the branch changed its mode, and the merge does not hold it",
+            "'x.py': both sides left its mode as it was, and the merge does not hold it"])
         self.staged(root, {"d.py": "a\nB\n"})
         self.assertEqual(desk.merged(root)[1], told % "has it")
 

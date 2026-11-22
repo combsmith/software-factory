@@ -7307,6 +7307,8 @@ MUTANTS = ISSUE + [
      '"%r: %s: %r" % (rel, said, line[:WIDTH])', '"%r: %s: %r" % (rel, said, line.strip()[:WIDTH])', DESK_DELETED),
     ("a mode on a file both sides added is not read", 'tools/desk.py',
      'side[0] != (entries[0] or ("",))[0]', 'entries[0] and side[0] != entries[0][0]', DESK_DELETED),
+    ('a mode both sides kept is not read', 'tools/desk.py',
+     '        if entries[1] and entries[2] and have and entries[1][0] == entries[2][0] != have[0]:\n', '        if False:\n', DESK_DELETED),
     ('a binary file is read as lines', 'tools/desk.py',
      '    if b"\\0" in blob:\n        return {None: 1}\n', '', DESK_DELETED),
     ('a merge with paths unmerged is read', 'tools/desk.py',

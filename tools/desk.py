@@ -268,6 +268,8 @@ def merged(root: pathlib.Path = ROOT) -> list:
         problems += ["%r: %s changed its mode, and the merge does not hold it" % (rel, whose)
                      for side, whose in ((entries[1], "the branch"), (entries[2], "main"))
                      if side and have and side[0] != (entries[0] or ("",))[0] and have[0] != side[0]]
+        if entries[1] and entries[2] and have and entries[1][0] == entries[2][0] != have[0]:
+            problems.append("%r: both sides left its mode as it was, and the merge does not hold it" % rel)
         was, kept, wanted, held = (_counts(root, entry) for entry in entries + (have,))
         if any(None in counts for counts in (was, kept, wanted, held)):
             problems.append("%r: binary: lines not compared" % rel)
