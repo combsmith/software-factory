@@ -166,8 +166,8 @@ F849_LINKED = ("tests.test_adapters.Linked.test_a_linked_pull_requests_own_facts
 F849_WORLD = ("tests.test_issue.Unreadable.test_the_issue_world_meets_a_timeline_past_the_bound_under_faults_and_calls_a_person",)
 F931_PORT = ("tests.test_adapters.Issues.test_the_controllers_tracking_issue_is_told_at_its_first_read_by_its_opener_and_its_body",)
 F849_BUDGET = ("tests.test_controller.Entry.test_the_issue_reads_stop_at_the_passs_budget_and_those_left_out_by_it_are_read_first_by_the_next",)
-F849_SPANS = ("tests.test_adapters.KeywordSpans.test_a_record_that_left_the_issue_out_by_its_budget_is_passed_over_for_it_alone",
-              "tests.test_adapters.Linked.test_a_chain_of_spans_the_records_broke_while_something_names_the_issue_is_said")
+F849_SPANS = ("tests.test_adapters.KeywordSpans.test_a_record_that_left_the_issue_out_by_its_budget_is_passed_over_for_it_alone",)
+F849_SAID = F849_SPANS + ("tests.test_adapters.Linked.test_a_chain_of_spans_the_records_broke_while_something_names_the_issue_is_said",)
 F849_BROKEN = ("tests.test_issue.Unreadable.test_a_chain_of_spans_the_records_broke_defers_on_its_own_code_and_calls_a_person",)
 F849_CARRY = ("tests.test_controller.Issues.test_an_issue_left_unread_by_the_budget_or_the_list_is_shown_as_the_pass_before_decided_it",)
 F849_BROKEN_WORLD = ("tests.test_issue.Unreadable.test_the_issue_world_meets_a_broken_chain_of_spans_under_faults_and_calls_a_person",)
@@ -15965,19 +15965,19 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("any left out of the issue passes its record over", 'adapters/keyword_spans.py',
      'entry["item"] == item and entry["code"] == BUDGET', 'entry["item"] == item', F849_SPANS),
     ("a broken chain names no break", 'adapters/linked.py',
-     '    broken = read_whole is None and named\n', '    broken = False\n', F849_SPANS),
+     '    broken = read_whole is None and named\n', '    broken = False\n', F849_SAID),
     ("a broken chain is a break whatever names the issue", 'adapters/linked.py',
-     '    broken = read_whole is None and named\n', '    broken = read_whole is None\n', F849_SPANS),
+     '    broken = read_whole is None and named\n', '    broken = read_whole is None\n', F849_SAID),
     ("the issues port carries no break", 'adapters/issues.py',
-     '"spans_broken": broken,', '"spans_broken": False,', F849_SPANS),
+     '"spans_broken": broken,', '"spans_broken": False,', F849_SAID),
     ("a broken chain defers as any short list", 'kernel/issue.py',
-     '    if facts.get("spans_broken") is True:\n        return out(None, "spans_broken", ["linked"])\n', '', F849_BROKEN + F849_SPANS),
+     '    if facts.get("spans_broken") is True:\n        return out(None, "spans_broken", ["linked"])\n', '', F849_BROKEN + F849_SAID),
     ("a break defers only beside a linked list read short", 'kernel/issue.py',
      'if facts.get("spans_broken") is True:', 'if facts.get("spans_broken") is True and facts["complete"]["linked"] is False:', F849_BROKEN),
     ("a break flag of any truth is a break", 'kernel/issue.py',
      'if facts.get("spans_broken") is True:', 'if facts.get("spans_broken"):', F849_BROKEN),
     ("a broken chain calls no one", 'kernel/issue.py',
-     '    "timeline_bounded",\n    "spans_broken",\n', '    "timeline_bounded",\n', F849_BROKEN + F849_SPANS),
+     '    "timeline_bounded",\n    "spans_broken",\n', '    "timeline_bounded",\n', F849_BROKEN + F849_SAID),
     ("a broken chain is read before a cut read", 'kernel/issue.py',
      '    if bounded is True:\n        return out(None, "timeline_bounded", ["timeline"])\n', '    if bounded is True and facts.get("spans_broken") is not True:\n        return out(None, "timeline_bounded", ["timeline"])\n', F849_BROKEN),
     ("the issue world never breaks a chain of spans", 'sim/issues.py',
