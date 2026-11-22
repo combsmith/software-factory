@@ -37,7 +37,7 @@ from kernel.decide import decide
 from sim import world
 from adapters import github
 from tests import support
-from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_gate_sets, check_lifecycle, context_eval,
+from tools import (check_apps, check_authority, commits_are_the_maintainers, pr_title, check_context, check_decisions, check_examples, check_gate_sets, check_lifecycle, context_eval,
                    check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, redact_trial,
                    environments_drift, machine_user_drift, rulesets_drift, verify, walk)
 from tools.hooks import protected
@@ -5447,6 +5447,215 @@ class Workflows(unittest.TestCase):
                 found = ROOT.joinpath(*parts).with_suffix(".py").is_file() or (ROOT.joinpath(*parts) / "__main__.py").is_file()
                 self.assertTrue(found, "%s runs %s" % (path.name, module))
 
+
+
+class PullTitle(unittest.TestCase):
+    """A pull request's title is `area: plain verb phrase (#issue)`, held by tools/pr_title.py (issue 1089)."""
+
+    GOOD = "review: use full blob id for binary files so diffs stop flapping (#1016)"
+
+    def codes(self, title):
+        return sorted({problem.split(":", 1)[0] for problem in pr_title.problems(title)})
+
+    def test_a_title_keeps_the_rule_or_says_which_part_it_breaks(self):
+        # The Maintainer's own examples keep it, and so do an area with a dot or a slash, and a part of a count.
+        for title in (self.GOOD, "config: cap implementing rounds at 3 (#1038, part 1 of 4)",
+                      ".github: add a pull request template (#1072)", "adapters/github: retry a read once (#9)",
+                      "kernel: hold an item (#1, part 2 of 2)", "kernel: hold an item (#1, part 1 of 2)",
+                      "pr-review2: hold an item (#1)", "check_x.y: hold an item (#1, part 9999 of 9999)"):
+            self.assertEqual(pr_title.problems(title), [], title)
+        # The length: at most 72 characters, GitHub's " (#N)" on the squash not counted, since the title holds none.
+        self.assertEqual(pr_title.LONGEST, 72)
+        at_most = "kernel: " + "a" * (72 - len("kernel:  (#1)")) + " (#1)"
+        self.assertEqual((len(at_most), self.codes(at_most)), (72, []))
+        self.assertEqual(self.codes(at_most.replace("kernel", "kernels")), ["title_too_long"])
+        # The area: a lowercase word of letters, digits, dots, slashes, dashes or underscores, a colon and a space.
+        for title in ("Kernel: hold an item (#1)", "kernel:hold an item (#1)", "kernel : hold an item (#1)",
+                      "hold an item (#1)", ": hold an item (#1)", "-kernel: hold an item (#1)", "ker nel: hold an item (#1)",
+                      "kerNel: hold an item (#1)", "kernel$: hold an item (#1)"):
+            self.assertIn("title_no_area", self.codes(title), title)
+        # The phrase starts with a lowercase letter and ends with no full stop.
+        for title in ("kernel: Hold an item (#1)", "kernel: 3 items are held (#1)", "kernel: (#1)", "kernel:  hold (#1)",
+                      "kernel: \u2173 items are held (#1)", "kernel: \u00e9tend an item (#1)"):
+            self.assertIn("title_phrase_not_lowercase" if title != "kernel:  hold (#1)" else "title_no_area",
+                          self.codes(title), title)
+        self.assertEqual(self.codes("kernel: hold an item. (#1)"), ["title_ends_with_stop"])
+        self.assertEqual(self.codes("kernel: hold an item.  (#1)"), ["title_ends_with_stop"])
+        # A part's numbers too long to convert are out of range, said with no number of the title's.
+        said = pr_title.problems("kernel: hold (#1, part 1 of " + "9" * 5000 + ")")
+        self.assertIn("title_part_out_of_range: a part's numbers are longer than 4 digits", said)
+        self.assertFalse(any("99999" in p for p in said))
+        self.assertEqual(self.codes("kernel: hold an item... (#1)"), ["title_ends_with_stop"])
+        for title in ("kernel: hold an item, (#1)", "kernel: hold an item; (#1)", "kernel: hold an item: (#1)",
+                      "kernel: hold an item  (#1)", "kernel: hold an item\t (#1)"):
+            self.assertEqual(self.codes(title), ["title_ends_with_stop"], title)
+        # The issue, at the end: a number with no leading zero, and a part K of M with 1 <= K <= M and M >= 2.
+        for title in ("kernel: hold an item", "kernel: hold an item (1)", "kernel: hold an item #1",
+                      "kernel: hold an item (#01)", "kernel: hold an item (#1) now",
+                      "kernel: hold an item (#1, part 1 of 02)", "kernel: hold an item (#1 part 1 of 2)",
+                      "kernel: hold an item (#1)\n", "kernel: hold an item(#1)", "kernel: hold an item (#1, part 01 of 2)"):
+            self.assertIn("title_no_issue", self.codes(title), title)
+        for title in ("kernel: hold an item (#1, part 3 of 2)", "kernel: hold an item (#1, part 1 of 1)",
+                      "kernel: hold an item (#1, part 2 of 1)", "kernel: hold an item (#1, part 0 of 2)",
+                      "kernel: hold an item (#1, part 0 of 0)", "kernel: hold an item (#1, part 1 of 10000)"):
+            self.assertEqual(self.codes(title), ["title_part_out_of_range"], title)
+        # A name from inside the code, each mark on its own, and none in the area.
+        for title in ("kernel: hold an item with `x` (#1)", "kernel: hold max_rounds (#1)", "kernel: amend record 0219 (#1)",
+                      "kernel: amend decision 0219 (#1)", "kernel: amend Records #0219 (#1)", "trials: record P-73 (#1)",
+                      "kernel: amend decision  0219 (#1)", "kernel: amend record\t0219 (#1)",
+                      "trials: record p-73 (#1)",
+                      "kernel: bound effect/1 (#1)"):
+            self.assertEqual(self.codes(title), ["title_internal_term"], title)
+        for title in ("check_x: hold an item (#1)", "kernel: hold a record of 219 items (#1)", "kernel: hold P-x (#1)",
+                      "kernel: read and/or write (#1)", "kernel: hold 1/2 of it (#1)", "kernel: hold an item_ (#1)",
+                      "kernel: speak HTTP/2 (#1)"):
+            self.assertEqual(self.codes(title), [], title)
+        # Each problem says where, and holds no word of the title.
+        said = pr_title.problems("kernel: hold max_rounds (#1)")
+        self.assertEqual(said, ["title_internal_term: characters 16 to 18 hold a name joined by an underscore, a name from "
+                                "inside the code; say it in plain words"])
+        # Every problem at once, never the first alone.
+        self.assertEqual(self.codes("Hold `max_rounds` in record 0219 for effect/1 at P-2 now, and for a long while yet."),
+                         ["title_ends_with_stop", "title_internal_term", "title_no_area", "title_no_issue", "title_too_long"])
+
+    def test_the_title_is_read_from_github_on_both_events_and_refuses_where_it_cannot_be(self):
+        root = tree({})
+        where = root / "event.json"
+        sha = "a" * 40
+        ref = "refs/heads/gh-readonly-queue/main/pr-44-" + sha
+        opened = pr_title.CUTOVER
+        good = {"number": 44, "title": self.GOOD, "created_at": opened, "base": {"repo": {"full_name": "o/r"}}}
+
+        class Asked:
+            def __init__(self, status=200, body=None, fails=False):
+                self.status, self.body, self.fails, self.asked = status, good if body is None else body, fails, []
+
+            def send(self, asked):
+                self.asked.append(asked)
+                if self.fails:
+                    raise github.Unanswered("no answer")
+                return {"status": self.status, "body": self.body}
+
+        def checked(transport=None, event="pull_request", payload=None, token="t"):
+            told = ({"pull_request": {"number": 44}, "repository": {"full_name": "o/r"}} if event == "pull_request" else
+                    {"merge_group": {"head_ref": ref, "base_ref": "refs/heads/main"}, "repository": {"full_name": "o/r"}})
+            where.write_text(json.dumps(told if payload is None else payload))
+            environ = {"EVENT": event, "GITHUB_EVENT_PATH": str(where)}
+            if token is not None:
+                environ["WORKFLOW_TOKEN"] = token
+            return pr_title.check(environ, Asked() if transport is None else transport)
+
+        def refused(found, code):
+            self.assertTrue(found and all(p.startswith(code) for p in found), found)
+
+        # On both events the pull request is read from GitHub, once, by its number, never from the payload's title: so a
+        # title edited before review is read again when the failed job is re-run.
+        for event in ("pull_request", "merge_group"):
+            read = Asked()
+            self.assertEqual(checked(read, event), [], event)
+            self.assertEqual([(a["method"], a["path"]) for a in read.asked], [("GET", "/repos/o/r/pulls/44")])
+            # A title that breaks the rule refuses on each, the merge group's among them, which is what main's log takes.
+            refused(checked(Asked(body=dict(good, title="Holds an item")), event), "title_")
+            self.assertIn("title_no_area", checked(Asked(body=dict(good, title="Holds an item (#1)")), event)[0])
+        self.assertEqual(checked(payload={"pull_request": {"number": 44, "title": "Holds an item"},
+                                          "repository": {"full_name": "o/r"}}), [])
+        # The cutover: a pull request opened one second before it is not read; one opened at it is.
+        bad = dict(good, title="Holds an item")
+        self.assertEqual(checked(Asked(body=dict(bad, created_at="2026-11-21T23:59:59Z"))), [])
+        refused(checked(Asked(body=dict(bad, created_at="2026-11-22T00:00:00Z"))), "title_")
+        refused(checked(Asked(body=dict(bad, created_at="2026-11-22T00:00:01Z"))), "title_")
+        self.assertEqual(pr_title.CUTOVER, "2026-11-22T00:00:00Z")
+        # What cannot be read refuses, with its own code, and never passes: no answer, another status or shape, another
+        # pull request, a title or a time that cannot be read, no token, no event, and a payload or a ref of no form.
+        refused(checked(Asked(fails=True)), "title_unreadable")
+        for transport in (Asked(status=404), Asked(status=500), Asked(body=[]), Asked(body="x"), Asked(body=dict(good, number=45)),
+                          Asked(body=dict(good, number=True)), Asked(body=dict(good, title=None)), Asked(body=dict(good, title="")),
+                          Asked(body=dict(good, title=["x"])), Asked(body={"number": 44, "title": self.GOOD}),
+                          Asked(body=dict(good, created_at="2026-11-22")), Asked(body=dict(good, created_at=None)),
+                          Asked(body=dict(good, created_at="2026-11-22T00:00:00+00:00")),
+                          Asked(body=dict(good, base={"repo": {"full_name": "o/other"}})), Asked(body=dict(good, base=None)),
+                          Asked(body=dict(good, base={"repo": None})), Asked(body={k: v for k, v in good.items() if k != "base"}),
+                          Asked(body=dict(good, base="o/r")), Asked(body=dict(good, base={"repo": "o/r"})),
+                          Asked(body=dict(good, base={"repo": ["o/r"]})),
+                          Asked(body=dict(good, created_at="2026-02-30T00:00:00Z")),
+                          Asked(body=dict(good, created_at="2026-13-01T00:00:00Z")),
+                          Asked(body=dict(good, created_at="2026-11-22T24:00:00Z")),
+                          Asked(body=dict(good, created_at="2026-1-2T0:0:0Z"))):
+            for event in ("pull_request", "merge_group"):
+                refused(checked(transport, event), "title_unreadable")
+        # The answer's number is held to an integer as the event's is: true is no pull request 1.
+        where.write_text(json.dumps({"pull_request": {"number": 1}, "repository": {"full_name": "o/r"}}))
+        refused(pr_title.check({"EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"},
+                               Asked(body=dict(good, number=True))), "title_unreadable")
+        self.assertEqual(pr_title.check({"EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"},
+                                        Asked(body=dict(good, number=1))), [])
+        # A pull request opened before the cutover needs no title at all; one opened at it does.
+        for title in (None, "", ["x"]):
+            self.assertEqual(checked(Asked(body=dict(good, title=title, created_at="2026-11-21T23:59:59Z"))), [])
+            refused(checked(Asked(body=dict(good, title=title))), "title_unreadable")
+        self.assertEqual(checked(Asked(body={k: v for k, v in dict(good, created_at="2026-01-01T00:00:00Z").items()
+                                             if k != "title"})), [])
+        for token in (None, ""):
+            refused(checked(token=token), "title_unreadable")
+            refused(checked(token=token, event="merge_group"), "title_unreadable")
+        for event in (None, "push", "pull_request_target"):
+            refused(checked(event=event, payload={"pull_request": {"number": 44}, "repository": {"full_name": "o/r"}}),
+                    "title_unreadable")
+        for payload in ([], {}, {"pull_request": {"number": 44}}, {"pull_request": None, "repository": {"full_name": "o/r"}},
+                        {"pull_request": {"number": "44"}, "repository": {"full_name": "o/r"}},
+                        {"pull_request": {"number": True}, "repository": {"full_name": "o/r"}},
+                        {"pull_request": {"number": 0}, "repository": {"full_name": "o/r"}},
+                        {"pull_request": {"number": 44}, "repository": {"full_name": None}}):
+            read = Asked()
+            refused(checked(read, payload=payload), "title_unreadable")
+            self.assertEqual(read.asked, [], payload)
+        for head_ref in ("refs/heads/gh-readonly-queue/main/pr-44", "refs/heads/main", ref + "x", None,
+                         "refs/heads/gh-readonly-queue/main/pr-0-" + sha):
+            refused(checked(event="merge_group", payload={"merge_group": {"head_ref": head_ref},
+                                                          "repository": {"full_name": "o/r"}}), "title_unreadable")
+        where.write_text("not json")
+        refused(pr_title.check({"EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"}, Asked()),
+                "title_unreadable")
+        refused(pr_title.check({"EVENT": "pull_request", "WORKFLOW_TOKEN": "t"}, Asked()), "title_unreadable")
+        # With no transport handed, the job's own Live is built from its token.
+        with mock.patch.object(pr_title, "Live") as live:
+            live.return_value.send.return_value = {"status": 200, "body": good}
+            where.write_text(json.dumps({"pull_request": {"number": 44}, "repository": {"full_name": "o/r"}}))
+            self.assertEqual(pr_title.check({"EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"}), [])
+            live.assert_called_once_with("t")
+
+    def test_no_title_writes_a_command_into_the_jobs_log(self):
+        # The title is text from outside, and the job's log reads a line that starts with `::` as a command. What the
+        # job prints names a rule's code and a position, never a word of the title.
+        planted = "Pwned ::error::x\n::add-mask::y %0A::stop-commands::z max_rounds `w` record 0001 P-1 effect/1."
+        root = tree({"config/hooks.json": json.dumps({"openers": [{"login": "ada", "id": 1, "is": "the Maintainer"}]})})
+        where = root / "event.json"
+        where.write_text(json.dumps({"pull_request": {"number": 44, "user": {"login": "ada", "id": 1},
+                                                      "head": {"repo": {"full_name": "o/r"}}, "base": {"repo": {"full_name": "o/r"}}},
+                                     "repository": {"full_name": "o/r"}}))
+
+        class Asked:
+            def send(self, asked):
+                return {"status": 200, "body": {"number": 44, "title": planted, "created_at": pr_title.CUTOVER,
+                                                "base": {"repo": {"full_name": "o/r"}}}}
+        environ = {"BASE_SHA": "a" * 40, "HEAD_SHA": "b" * 40, "EVENT": "pull_request", "GITHUB_EVENT_PATH": str(where),
+                   "WORKFLOW_TOKEN": "t"}
+        out = "\n".join(pr_title.check(environ, Asked()))
+        self.assertIn("title_no_area", out)
+        self.assertIn("title_internal_term", out)
+        for word in ("::", "Pwned", "add-mask", "%0A", "max_rounds", "effect/1", "P-1"):
+            self.assertNotIn(word, out)
+        # The desk's command prints the same, and says so where a title keeps the rule.
+        for title, code in ((planted, 1), (self.GOOD, 0)):
+            with contextlib.redirect_stdout(io.StringIO()) as printed:
+                self.assertEqual(pr_title.main([title]), code)
+            self.assertNotIn("::", printed.getvalue())
+            if code:
+                self.assertEqual(printed.getvalue().splitlines(), pr_title.problems(title))
+        self.assertIn("keeps the rule", printed.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            self.assertEqual(pr_title.main([]), 2)
+            self.assertEqual(pr_title.main(["a", "b"]), 2)
 
 
 class TheList(unittest.TestCase):
@@ -12060,6 +12269,72 @@ class Writes(unittest.TestCase):
         # Nor can what an import of all of such a package binds (issue 640).
         self.assertTrue(caught(problems, "harness/nsstar.py:2 imports * from adapters"), problems)
 
+    def test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one(self):
+        # Issue 1101: the mutants of a file outside kernel/ live in tools/mutants_of/, and a mutant of a script or a
+        # hook names gh or git as the text it finds. Such a file imports no module, and names only from another file
+        # there that imports none either, read through in turn, so nothing it reaches runs a command. One that imports
+        # anything else, anywhere in it, is read as any other file: a module (pathlib hands on os), a name from a file
+        # that imported a module and hands it on, from one that does so a step further off, from a ring of imports,
+        # the package itself, a relative import, or a file beside the folder whose name starts as its does. Only its
+        # top-level assignments may name one, never a def: a def handed a runner would run what it names. Nor a lambda,
+        # whatever its parameters are called, and none of the calls it may make bound to another value, by a
+        # comprehension, an assignment, a walrus or an import, or set as an attribute, which would make any call one;
+        # nor an item set, which would change another file's list.
+        # A module named from a package is read as any file named from, and a ring of them through it is no data; a
+        # module below a package there is named from by none, since Python runs that package first.
+        entry = "MUTANTS = [\n    ('a push is not read', 'tools/hooks/identity.py', \"subprocess.run(['git', 'push'])\", '', ()),\n]\n"
+        files = {"tools/mutants_of/common.py": "\"\"\"Shared.\"\"\"\n\nX = ('t',)\nY = X + ('u',)\n",
+                 "tools/mutants_of/data.py": "\"\"\"Data.\"\"\"\n\nfrom tools.mutants_of.common import X, Y\n\nZ = tuple('ab'.replace('a', 'c'))\n" + entry,
+                 "tools/mutants_of/launder.py": "import subprocess\n\nrun = subprocess.run\n",
+                 "tools/mutants_of/runs.py": "import subprocess\n\n" + entry,
+                 "tools/mutants_of/path.py": "import pathlib\n\n" + entry,
+                 "tools/mutants_of/handed.py": "from tools.mutants_of.launder import run\n\n" + entry,
+                 "tools/mutants_of/further.py": "from tools.mutants_of.handed import run\n\n" + entry,
+                 "tools/mutants_of/ring.py": "from tools.mutants_of.round import X\n\n" + entry,
+                 "tools/mutants_of/round.py": "from tools.mutants_of.ring import MUTANTS\n\nX = 1\n",
+                 "tools/mutants_of/package.py": "from tools.mutants_of import common\n\n" + entry,
+                 "tools/mutants_of/later.py": entry + "\n\ndef go():\n    import os\n",
+                 "tools/mutants_of/runner.py": "def version(run):\n    return run(['git', 'push'])\n",
+                 "tools/mutants_of/lambda.py": "version = lambda run: run(['git', 'push'])\n",
+                 "tools/mutants_of/named.py": "RUN = lambda tuple: tuple(['git', 'push'])\n",
+                 "tools/mutants_of/bare.py": "RUN = lambda: X\n" + entry,
+                 "tools/mutants_of/exited.py": "E = exit\n",
+                 "tools/mutants_of/rebound.py": "X = [tuple() for tuple in (exit,)]\n" + entry,
+                 "tools/mutants_of/renamed.py": "tuple = exit\nX = tuple()\n" + entry,
+                 "tools/mutants_of/imported.py": "from tools.mutants_of.exited import E as tuple\n\nX = tuple()\n" + entry,
+                 "tools/mutants_of/attribute_set.py": "exit.replace = print\nX = exit.replace('x')\n" + entry,
+                 "tools/mutants_of/walrus.py": "X = (tuple := exit)\nY = tuple()\n" + entry,
+                 "tools/mutants_of/item_set.py": "from tools.mutants_of.common import Y\n\nY[0] = 1\n" + entry,
+                 "tools/mutants_of/deep/__init__.py": "",
+                 "tools/mutants_of/deep/helper.py": "import subprocess\n\nX = 1\n",
+                 "tools/mutants_of/fromdeep.py": "from tools.mutants_of.deep import helper\n\n" + entry,
+                 "tools/mutants_of/deep/a.py": "from tools.mutants_of.deep import b\n\n" + entry,
+                 "tools/mutants_of/deep/b.py": "from tools.mutants_of.deep import a\n\nX = 1\n",
+                 "tools/mutants_of/deep/values.py": "X = 1\n",
+                 "tools/mutants_of/dotted.py": "from tools.mutants_of.deep.values import X\n\n" + entry,
+                 "tools/mutants_of/dunder.py": "RUN = ().__class__\n" + entry,
+                 "tools/mutants_of/builtin.py": "RUN = __import__\n" + entry,
+                 "tools/mutants_of/reaches.py": "RUN = getattr\n" + entry,
+                 "tools/mutants_of/alias.py": "from tools.mutants_of.common import X as __builtins__\n" + entry,
+                 "tools/mutants_of/attribute.py": "RUN = X.open\n" + entry,
+                 "tools/mutants_of/wrapper.py": "def bind(argv):\n    return argv\n\n\n" + entry,
+                 "tools/mutants_of/beside.py": "TARGETS = ('x.py',); print('git push')\n" + entry,
+                 "tools/mutants_of/raises.py": entry + "raise SystemExit(0)\n",
+                 "tools/mutants_of/exits.py": "RUN = exit()\n" + entry,
+                 "tools/mutants_of/calls.py": "RUN = 'x'.upper()\n" + entry,
+                 "tools/mutants_of/near.py": "from tools.mutants_ofx import X\n\n" + entry,
+                 "tools/mutants_of/relative.py": "from .tools.mutants_of.common import X\n\n" + entry,
+                 "tools/mutants_ofx.py": "X = 1\n" + entry}
+        problems = check_writes.run(clone(files))
+        self.assertFalse(caught(problems, "tools/mutants_of/data.py"), problems)
+        for name in ("runs", "path", "handed", "further", "ring", "package", "later", "runner", "lambda", "named", "bare",
+                     "rebound", "renamed", "imported", "attribute_set", "walrus", "item_set", "fromdeep", "deep/a", "dotted",
+                     "dunder",
+                     "builtin", "reaches", "alias", "attribute", "wrapper", "beside", "raises", "exits", "calls", "near", "relative",
+                     "../mutants_ofx"):
+            rel = os.path.normpath("tools/mutants_of/%s.py" % name)
+            self.assertTrue(any(p.startswith(rel + ":") and "names gh or git as a command" in p for p in problems), rel)
+
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
         queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
             "    return effects.role_write(transport, item, 'review', req, 'me')\n"
@@ -12722,6 +12997,68 @@ class Mutants(unittest.TestCase):
         with self.assertRaises(ValueError) as raised:
             mutants.selected({}, mutants=[("m", "k.py", "rule\n", "x\n")])
         self.assertIn("1 mutant(s) name no test", str(raised.exception))
+
+    def test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone(self):
+        # Issue 1101: a mutant of a file outside kernel/ lives in tools/mutants_of/, one file to a target, so that two
+        # changes adding mutants of different files never meet in one. The runner finds each file there by the walk, in
+        # the order of the names, so that no list names one; each holds the mutants of the paths its TARGETS name and
+        # no other; and no path is two files' targets, the Kernel's, or a target of a mutant tools/mutants.py holds.
+        from tools import mutants_of
+        names = mutants.area_names(ROOT)
+        self.assertEqual(names, sorted(names))
+        self.assertEqual([name for name in names if not mutants.AREA_NAME.fullmatch(name)], [])
+        self.assertEqual([area.__name__ for area in mutants.AREAS], ["tools.mutants_of." + name for name in names])
+        self.assertEqual(mutants.area_names(tree({"tools/mutants_of/%s" % rel: "" for rel in (
+            "a.py", "b.py", "deep/c.py", "common.py", "__init__.py", "AGENTS.md", "d.txt")})), ["a", "b"])
+        # Each is loaded, in that order, and a name that is no module name is never handed to the import.
+        loaded = mutants.areas(tree({"tools/mutants_of/%s" % rel: "" for rel in ("a.py", "b.py", "x.y.py", "C.py")}),
+                               load=lambda name: name)
+        self.assertEqual(loaded, ("tools.mutants_of.a", "tools.mutants_of.b"))
+        held = {}
+        for area in mutants.AREAS:
+            self.assertTrue(area.TARGETS and isinstance(area.TARGETS, tuple), area.__name__)
+            self.assertIn(area.__name__.rpartition(".")[2], [mutants_of.named(t) for t in area.TARGETS])
+            for target in area.TARGETS:
+                self.assertFalse(target.startswith("kernel/"), (area.__name__, target))
+                self.assertNotIn(target, held, area.__name__)
+                held[target] = area.__name__
+            self.assertEqual([m[0] for m in area.MUTANTS if m[1] not in area.TARGETS], [], area.__name__)
+        self.assertEqual(mutants.OUTSIDE, [mutant for area in mutants.AREAS for mutant in area.MUTANTS])
+        self.assertTrue(mutants.OUTSIDE)
+        start, end = len(mutants.ISSUE), len(mutants.ISSUE) + len(mutants.OUTSIDE)
+        self.assertEqual(mutants.MUTANTS[start:end], mutants.OUTSIDE)
+        own = mutants.MUTANTS[:start] + mutants.MUTANTS[end:]
+        self.assertEqual([m[0] for m in own if m[1] in held], [])
+        # The runner's list is the one assignment that reads them, right after ISSUE.
+        made = [n.value for n in ast.parse((ROOT / "tools" / "mutants.py").read_text(encoding="utf-8")).body
+                if isinstance(n, ast.Assign) and [getattr(t, "id", None) for t in n.targets] == ["MUTANTS"]]
+        self.assertEqual(len(made), 1)
+        self.assertTrue(ast.unparse(made[0]).startswith("ISSUE + OUTSIDE + "))
+        # A file is named for one of its targets, so that a mutant's file is found from its target alone.
+        for target, name in (("adapters/pull.py", "adapters_pull"), (".github/workflows/verify.yml", "github_workflows_verify_yml"),
+                             ("controller/__main__.py", "controller_main"), ("Makefile", "makefile"), ("3d/x.py", "_3d_x")):
+            self.assertEqual(mutants_of.named(target), name)
+
+    def test_every_mutant_finds_its_text_once_in_its_target(self):
+        # Issue 1101: a mutant whose text is not in its target exactly once is STALE, which only a run of the mutants
+        # told, and they decline on a pull request, so code moved by a change merged first was found in the merge
+        # group (#1037). Read here, as the run reads it, a stale mutant fails the pull request's own tests.
+        if os.environ.get("MUTATING"):
+            self.skipTest("a copy broken on purpose no longer holds the text it was broken from")
+        texts, stale = {}, []
+        for mutant in mutants.MUTANTS:
+            name, rel, old = mutant[:3]
+            if rel not in texts:
+                # A target is a plain path in the tree, as git names it, so that none is read outside it.
+                path = ROOT / rel
+                plain = rel == os.path.normpath(rel) and not rel.startswith(("/", "../")) and rel != ".."
+                try:
+                    texts[rel] = path.read_bytes().decode() if plain and path.is_file() else None
+                except (OSError, UnicodeDecodeError):
+                    texts[rel] = None
+            if texts[rel] is None or texts[rel].count(old) != 1:
+                stale.append("%s: %s" % (rel, name))
+        self.assertEqual(stale, [], "update each stale mutant to the code as it now reads")
 
     def test_a_test_module_is_read_in_a_process_of_its_own(self):  # issue 511
         # The runner learns whether a named test exists in another process, so a test module whose import patches the
