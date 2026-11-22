@@ -6873,6 +6873,17 @@ class Context(unittest.TestCase):
             self.assertEqual(records.main([], linked), 0)
         self.assertEqual(said.getvalue(), records.render(linked))
         self.assertFalse((linked / "docs/records.md").exists())
+        # A path is read in either column of a row, and only as a path to a real folder here, linked to none.
+        odd = tree({"docs/decisions/0001-a.md": "# 0001. A\n\nStatus: accepted.\n\n## Decision\n\nX.\n\n## Why\n\nY.\n\n"
+                    "## Boundaries\n\n| Boundary | Check |\n|---|---|\n| b in `kernel/k.py` | `/etc/x`, `../x/y`, `./z/q`, `lent/x.py` |\n",
+                    "elsewhere/x.py": "", **dirs})
+        (odd / "lent").symlink_to(odd / "elsewhere")
+        self.assertIn("| 0001 | A | live | kernel |\n", records.render(odd))
+        # A record replaced by one that is not there heads its chain; a loop of records is followed once round.
+        loop = {"docs/decisions/0001-a.md": "# 0001. A\n\nStatus: replaced by `docs/decisions/0002-b.md`." + body % "`tools/x.py`",
+                "docs/decisions/0002-b.md": "# 0002. B\n\nStatus: replaced by `docs/decisions/0001-a.md`." + body % "`tools/x.py`",
+                "docs/decisions/0003-c.md": "# 0003. C\n\nStatus: replaced by `docs/decisions/0009-gone.md`." + body % "`tools/x.py`"}
+        self.assertTrue(records.render(tree({**loop, **dirs})).endswith("| 0001 | 0002 |\n| 0002 | 0001 |\n| 0009 | 0003 |\n"))
         # This repo's records all read, the latest among them.
         latest = max((check_context.RECORD_NUMBER.match(p.name).group(1) for p in (ROOT / "docs/decisions").glob("*.md")), key=int)
         self.assertIn("\n| %s | " % latest, records.render(ROOT))

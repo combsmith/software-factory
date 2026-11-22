@@ -2,7 +2,7 @@
 
 `python3 -m tools.records` prints it. A row gives a record's number and its title as written; whether it is live or
 which record replaced it, from its Status as `tools/check_decisions.py` reads one; and its area, the top directories of
-this repo that the paths its Boundaries name are in, but `tests/`, where nearly every check is. Under Chains, each live
+this repo that the paths in its Boundaries rows are in, both columns, but `tests/`, where nearly every check is. Under Chains, each live
 record that replaced others names every record it replaced, through the records those replaced in turn. It is printed
 on demand rather than kept as a page, since a kept page would need every pull request that adds a record to rewrite it.
 """
@@ -19,7 +19,7 @@ SKIPPED = {"tests"}
 HEAD = """# Decision records
 
 Printed by `python3 -m tools.records` from the records in `docs/decisions/` alone.
-A record is live until a later one replaces it. Its area is the top directories its Boundaries name, but `tests/`.
+A record is live until a later one replaces it. Its area is the top folders of the paths its Boundaries rows name, but `tests/`.
 
 | Record | Title | Status | Area |
 |---|---|---|---|
@@ -51,11 +51,12 @@ def _read(path: pathlib.Path, root: pathlib.Path) -> tuple:
     status = said[0] if isinstance(said, tuple) else ""
     replaced = check_decisions.REPLACED.match(status)
     tops = set()
-    for _, check in check_decisions.boundaries(text):
-        for token in check_context.TOKEN.findall(check):
+    for cells, check in check_decisions.boundaries(text):
+        for token in check_context.TOKEN.findall(" ".join(cells + (check,))):
             name = token.split("::")[0]
             top = name.split("/")[0]
-            if "/" in name and (root / top).is_dir() and not (root / top).is_symlink():
+            if "/" in name and check_context.PATHLIKE.match(name) and top not in (".", "..") \
+                    and (root / top).is_dir() and not (root / top).is_symlink():
                 tops.add(top)
     return title.strip(), replaced.group(1) if replaced else "", sorted(tops - SKIPPED)
 
