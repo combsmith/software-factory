@@ -15,9 +15,13 @@ import random
 from controller import configuration
 from kernel import terms as t
 from kernel.decide import decide, stuck_runs
+from kernel.gate import closed
 from tools import check_lifecycle
 from tools.hooks import protected
 from tools.jsonschema_lite import validate
+
+# The categories whose thread a later review may drop, as the Kernel reads them: each it knows but security's (0212).
+DROPPABLE = tuple(c for c in t.CATEGORIES if c != "security")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # The Kernel is given the defaults, the Lifecycle whose staleness limits it reads, and the protected paths and Lenses'
@@ -63,6 +67,10 @@ ISSUE = 7     # the issue the Factory opened an agent's pull request for; the Ma
 # What a fix answers in addressing (kernel/decide.py). On a pull request the Factory did not open, the author Role
 # pushes nothing to a branch that is not the Factory's: its author, a person, mends it, or it waits (decision 0216).
 MENDS = ("check_failed", "findings_open", "human_finding", "conflict", "acceptance_failed")
+# How many times a person mends what waits for its author once the faults stop, in the check that drives such a world
+# on (issue 861): each time a push as a writer and the Lens's threads resolved by that person's hand, and then the
+# contract approved again at the mended head by its person.
+MEND_BOUND = 3
 MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
 # The reviewer's App holds pull_requests: write, and GitHub cannot grant it less.
 REVIEWER_APP = {"kind": "lens", "name": "pr-review", "can_write": True}
@@ -224,6 +232,7 @@ class World:
         self.opened_for = ISSUE if self.cls == "agent" else None
         self.asked = False         # the Maintainer's request for changes stands, as the world keeps it
         self.unheld = []           # breaches of invariants the Kernel does not hold yet (NOT_YET_HELD)
+        self.mended_at, self.mends = None, 0   # when a person last mended it, and how many times (issue 861)
         self.labels = set()        # the labels on the pull request, as GitHub shows them
         self.events = []           # the timeline's labeled and unlabeled events
         # What binds, in the world's own words: a Hold stands until a person removes it, whoever placed it or took the
@@ -429,6 +438,8 @@ class World:
             # GitHub: a_contract_approval_stays_on_its_commit
             "acceptance": self.acceptance(),
             "opened_for": self.opened_for,
+            # No person holds or closes an issue here; tests/test_transitions.py explores both (decision 0232).
+            "issue_stands": "open" if self.opened_for is not None else None,
             "complete": {"acceptance": True, "reviews": True, "threads": True, "checks": True, "diff": True,
                          "changed_paths": True, "runs": True, "timeline": True},
             "read_at": self.now(),
@@ -605,14 +616,14 @@ class World:
         self.trace.append("%s %s" % (self.now(), what))
 
     def dropped_since_the_push(self, th: dict) -> bool:
-        """Whether a Lens's thread is one its later review dropped, as the world says it (decision 0212): marked dropped,
-        not ruled rejected, not a security Finding's, opened before the last push, with a review by its Lens that
-        succeeded on this content and began after that push."""
-        return th.get("dropped") is True and th["ruling"] != "rejected" and th["category"] != "security" \
-            and th["opened_at"] < self.last_push and any(
+        """Whether a Lens's thread is one its later review dropped, as the Kernel reads it (decision 0212): a Lens's,
+        marked dropped, of a category the Kernel knows that is not security, not ruled rejected, opened before the last
+        push, with a review by its Lens that succeeded on this content and began after that push."""
+        return th.get("dropped") is True and th["opened_by"]["kind"] == "lens" and th["ruling"] != "rejected" \
+            and th["category"] in DROPPABLE and th["opened_at"] < self.last_push and any(
                 r["role"] == th["opened_by"]["name"] and r["intent"] == "review-change" and r["status"] == "completed"
                 and r["conclusion"] == "success" and r["content_id"] == self.cid() and r["started_at"] > self.last_push
-                for r in self.runs)
+                and r["item"] == ITEM for r in self.runs)
 
     def waits_for_its_author(self, decision: dict) -> bool:
         """Whether the item rests on its author: a pull request the Factory did not open, in addressing for what a fix
@@ -964,7 +975,7 @@ class World:
             # GitHub: an_app_resolves_any_thread
             for th in self.threads:
                 if th["id"] in d["evidence"]:
-                    self.check(th["opened_by"]["kind"] == "lens" and not th["resolved"]
+                    self.check(th["opened_by"]["kind"] == "lens" and not th["resolved"] and th["category"] != "security"
                                and (th["ruling"] == "accepted" or self.dropped_since_the_push(th)),
                                "the queue App resolves a thread no Lens accepted or dropped")
                     th.update(resolved=True, resolved_by=dict(QUEUE_APP))
@@ -1070,11 +1081,14 @@ class World:
             done = [r for r in self.runs if r["intent"] == "review-change" and r["conclusion"] == "success"
                     and r["content_id"] == run["content_id"]]
             # Unless the head was pushed past every such review while a thread of the Lens still stands that asks for it:
-            # not one the Kernel is to resolve, accepted or dropped since the push (decision 0212, issue 855).
+            # not one the Kernel is to resolve, accepted or dropped since the push (decision 0212, issue 855). One the
+            # queue App resolved on a drop stands again once a push leaves no review after it, as kernel/gate.py reads it.
             pushed_past = all(r["started_at"] <= self.last_push for r in done) and any(
-                th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"] and not th["resolved"]
+                th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"]
+                and (not th["resolved"] or (th["resolved_by"] == QUEUE_APP and th["ruling"] != "accepted"))
                 and (th["severity"] in ("blocking", "major") or th["category"] == "security")
-                and th["ruling"] != "accepted" and not self.dropped_since_the_push(th) for th in self.threads)
+                and (th["ruling"] != "accepted" or th["category"] == "security") and not self.dropped_since_the_push(th)
+                for th in self.threads)
             self.check(not done or pushed_past, "I-11 a second review of unchanged content")
 
     def finish_run(self):
@@ -1117,9 +1131,14 @@ class World:
         run["conclusion"] = "success"
         if run["intent"] == "review-change":
             # The port says a Lens's thread dropped where this later review of its Lens, which succeeded on the current
-            # content, records nothing on its Finding (decision 0212): now and then, of a thread opened before it began.
+            # content, records nothing on its Finding (decision 0212): now and then, of an open thread opened before it
+            # began. A resolved one is in the read too, and nothing records it, so the port says it of each, as the
+            # Lenses' records port does: a push cleared the word, and a thread the queue App resolved on it stays closed.
             for th in self.threads:
-                if th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"] and not th["resolved"] \
+                if th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"] and th["resolved"] \
+                        and th["opened_at"] < run["started_at"]:
+                    th["dropped"] = True
+                elif th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] == run["role"] and not th["resolved"] \
                         and not th.get("dropped") and run["content_id"] == self.cid() \
                         and th["opened_at"] < run["started_at"] and self.keeps.random() < 0.5:
                     th["dropped"] = True
@@ -1723,7 +1742,7 @@ class World:
         self.check(len(uncovered) <= CONFIG["limits"]["max_attempts"],
                    "I-8 a review that leaves a criterion uncovered is admitted past its attempts")
 
-    def settle(self, steps: int = 400):
+    def settle(self, steps: int = 400, mend: bool = False):
         """Stop the faults and the people, and let the Factory finish."""
         self.faults = self.people = False
         # The Maintainer acts after the last step: a request and an approval in the same second leave the request
@@ -1784,4 +1803,58 @@ class World:
             self.caused("human")
             for _ in range(steps):
                 self.step()
-        return decide(self.facts(), self.records(), self.context(), CONFIG, self.now())
+        last = decide(self.facts(), self.records(), self.context(), CONFIG, self.now())
+        # Where the check asks it, a person mends what waits for its author, while it waits, up to MEND_BOUND times: a
+        # person's act, never the author Role's, and outside the bounded tests, whose worlds no person moves (issue 861).
+        for _ in range(MEND_BOUND if mend else 0):
+            if not self.waits_for_its_author(last):
+                break
+            self.mend()
+            for _ in range(steps):
+                self.step()
+            # The mend is a push, so the person who approves the contract approves it again at the head, as after each
+            # fix push above: or the world would end held on the mend's own push, whatever the mend was for.
+            for _ in range(5):
+                if not self.awaits_a_person():
+                    break
+                self.minute += 1
+                self.confirm()
+                self.caused("human")
+                for _ in range(steps):
+                    self.step()
+            last = decide(self.facts(), self.records(), self.context(), CONFIG, self.now())
+        return last
+
+    def mend(self):
+        """A person with write access mends the pull request: a push for what failed, as a writer, and the Lens's threads
+        answered and resolved by that person's hand, which the gate takes as closed (kernel/gate.py): each the gate does
+        not take as closed, whoever resolved it, and one the queue App resolved on no accepted ruling, since its
+        resolution of a thread a review dropped closes it only on the content that review read (decision 0212), and the
+        mend's push replaced it."""
+        self.mended_at, self.mends = self.now(), self.mends + 1
+        self.note("a person mends it")
+        self.push(MAINTAINER["name"], writer=True)
+        self.caused("human")
+        mine = [th for th in self.threads if th["opened_by"]["kind"] == "lens"
+                and (not closed(th) or th["resolved_by"]["kind"] == "queue" and th["ruling"] != "accepted")]
+        for th in mine:
+            th.update(resolved=True, resolved_by=dict(MAINTAINER))
+        if mine:
+            self.caused("human")
+
+    def waits_on_what_came_after_the_mend(self, decision: dict) -> bool:
+        """Whether an item that waits for its author waits only on what failed after the last mend: a check that concluded
+        failing since, or a Lens's thread opened since. Anything older, or of the mend's own minute, is what the mend was for,
+        and so is any other reason to wait."""
+        if self.mended_at is None or not self.waits_for_its_author(decision):
+            return False
+        # A wait that names nothing is excused by nothing.
+        if not decision["evidence"]:
+            return False
+        if decision["reason"] == "check_failed":
+            return all(self.completed.get(name) is not None and self.completed[name] > self.mended_at
+                       for name in decision["evidence"])
+        if decision["reason"] == "findings_open":
+            opened = {th["id"]: th["opened_at"] for th in self.threads}
+            return all(opened.get(tid) is not None and opened[tid] > self.mended_at for tid in decision["evidence"])
+        return False
