@@ -641,6 +641,17 @@ class SeenPort(unittest.TestCase):
         github = Pages({path: [old] * 3 + [closed] + [old] * 10}, LEFT_ANSWERS)
         self.assertIs(seen_.read(github, ITEM, seen_.GONE, IDENTITIES, APPS, SINCE)[2], False)
         self.assertLessEqual(len([p for _, p in github.asked if "/timeline" in p]), 10)
+        # Its close found on the last page, the read still goes back to `since`: what was written before the close in
+        # the window is read too, and the read is whole (Carbon).
+        new = [{"event": "commented", "actor": PERSON, "created_at": AT}]
+        late = [{"event": "closed", "actor": CONTROLLER, "created_at": "2026-10-11T13:00:00Z", "id": 9}]
+        github = Pages({path: [old, new, late]}, LEFT_ANSWERS)
+        self.assertIs(seen_.read(github, ITEM, seen_.GONE, IDENTITIES, APPS, SINCE)[2], True)
+        self.assertIn(path + "&page=2", [p for _, p in github.asked])
+        # Items GitHub gives no id, as commits, are kept each, never told apart as one (Carbon).
+        commits = [{"event": "committed", "sha": "1" * 40}, {"event": "committed", "sha": "2" * 40}]
+        kept, whole = seen_._tail(Pages({path: [old, old, commits + new]}), path, SINCE)
+        self.assertEqual(([k.get("sha") for k in kept if k.get("event") == "committed"], whole), (["1" * 40, "2" * 40], True))
 
     def test_a_read_from_the_end_is_short_on_what_it_cannot_tell(self):  # issue 1009, the readers of a1b28476
         new = [{"event": "commented", "actor": PERSON, "created_at": AT}]
