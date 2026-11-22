@@ -6857,6 +6857,30 @@ class Context(unittest.TestCase):
         (root / "docs/decisions/0004-d.md").write_text(files["docs/decisions/0004-d.md"].replace("# 0004. D", "# 0004. E"))
         self.assertTrue(caught(check_context._index(root), stale))
         self.assertTrue(caught(check_context.run(root), stale))
+        # A backslash in a title is its own, and escapes no pipe after it.
+        slash = tree({"docs/decisions/0001-a.md": "# 0001. A \\| b\\\n\nStatus: accepted." + body % "`tools/x.py`"})
+        self.assertIn("| 0001 | A \\\\\\| b\\\\ | live | tools |\n", records.render(slash))
+        # A link is never followed: a linked record, or a linked folder of them, is not read, and a linked index is
+        # neither written through nor read.
+        linked = tree({"docs/decisions/0004-d.md": files["docs/decisions/0004-d.md"], "elsewhere/0001-a.md": files["docs/decisions/0001-a.md"]})
+        (linked / "docs/decisions/0001-a.md").symlink_to(linked / "elsewhere/0001-a.md")
+        self.assertNotIn("| 0001 |", records.render(linked))
+        self.assertIn("| 0004 | D | live | tools |\n", records.render(linked))
+        folder = tree({"elsewhere/0004-d.md": files["docs/decisions/0004-d.md"]})
+        (folder / "docs").mkdir()
+        (folder / "docs/decisions").symlink_to(folder / "elsewhere")
+        self.assertNotIn("| 0004 |", records.render(folder))
+        (linked / "kept.md").write_text(records.render(linked))
+        (linked / "docs/records.md").symlink_to(linked / "kept.md")
+        self.assertTrue(caught(check_context._index(linked), stale))
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            self.assertEqual(records.main([], linked), 1)
+        self.assertIn("docs/records.md is a link", said.getvalue())
+        self.assertEqual((linked / "kept.md").read_text(), records.render(linked))
+        (linked / "kept.md").write_text("old\n")
+        with contextlib.redirect_stdout(io.StringIO()):
+            records.main([], linked)
+        self.assertEqual((linked / "kept.md").read_text(), "old\n")
         # This repo's own index is fresh.
         self.assertEqual(check_context._index(ROOT), [])
 

@@ -61,11 +61,15 @@ def _number(rel: str) -> str:
 
 def render(root: pathlib.Path = ROOT) -> str:
     """The index the records under `root` make."""
-    records = {"%s/%s" % (FOLDER, p.name): _read(p) for p in sorted((root / FOLDER).glob("*.md"))}
+    # A link is never followed, as tools/check_decisions.py follows none: a record is a file, or it is not read.
+    folder = root / FOLDER
+    found = sorted(folder.glob("*.md")) if folder.is_dir() and not folder.is_symlink() else []
+    records = {"%s/%s" % (FOLDER, p.name): _read(p) for p in found if p.is_file() and not p.is_symlink()}
     rows, heads = [], {}
     for rel, (title, replaced, area) in records.items():
         status = "replaced by " + _number(replaced) if replaced else "live"
-        rows.append("| %s | %s | %s | %s |\n" % (_number(rel), title.replace("|", "\\|"), status, ", ".join(area)))
+        cell = title.replace("\\", "\\\\").replace("|", "\\|")
+        rows.append("| %s | %s | %s | %s |\n" % (_number(rel), cell, status, ", ".join(area)))
         # A replaced record's Status names only the record that replaced it, so a chain is read from the old end.
         head, seen = rel, {rel}
         while head in records and records[head][1] and records[head][1] not in seen:
@@ -79,6 +83,9 @@ def render(root: pathlib.Path = ROOT) -> str:
 
 
 def main(argv: list = None, root: pathlib.Path = ROOT) -> int:
+    if (root / INDEX).is_symlink():
+        print("%s is a link; it is written only as a file of its own" % INDEX)
+        return 1
     (root / INDEX).write_text(render(root), encoding="utf-8")
     print("wrote %s from %d records" % (INDEX, len(list((root / FOLDER).glob("*.md")))))
     return 0

@@ -468,7 +468,7 @@ def _index(root: pathlib.Path) -> list:
     from tools import records   # late: it reads the records with the helpers here
     path = root / records.INDEX
     made = records.render(root)
-    if not path.is_file() or path.read_text(encoding="utf-8", errors="replace") != made:
+    if path.is_symlink() or not path.is_file() or path.read_text(encoding="utf-8", errors="replace") != made:
         return ["%s is not what the records make; run python3 -m tools.records and commit it" % records.INDEX]
     return []
 

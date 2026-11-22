@@ -8,8 +8,10 @@ TARGETS = ("tools/check_context.py",)
 MUTANTS = [
     # Decision 0009: the index of the records is made from them, and a stale one fails.
     ("a stale index of the records passes", 'tools/check_context.py',
-     '    if not path.is_file() or path.read_text(encoding="utf-8", errors="replace") != made:\n',
-     '    if not path.is_file():\n', ("tests.test_tools.Context.test_the_records_index_is_made_from_the_records_and_a_stale_one_fails",)),
+     '    if path.is_symlink() or not path.is_file() or path.read_text(encoding="utf-8", errors="replace") != made:\n',
+     '    if path.is_symlink() or not path.is_file():\n', ("tests.test_tools.Context.test_the_records_index_is_made_from_the_records_and_a_stale_one_fails",)),
+    ("a linked index of the records is read through", 'tools/check_context.py',
+     '    if path.is_symlink() or not path.is_file() or path.read_text(', '    if not path.is_file() or path.read_text(', ("tests.test_tools.Context.test_the_records_index_is_made_from_the_records_and_a_stale_one_fails",)),
     ("the index of the records is never read", 'tools/check_context.py',
      '_decisions(root) + _index(root) + _lessons(root)', '_decisions(root) + _lessons(root)', ("tests.test_tools.Context.test_the_records_index_is_made_from_the_records_and_a_stale_one_fails",)),
     # Issue 146: the install is held whole, its version and checksum to their shapes, and every checkout to CHECKOUT.
