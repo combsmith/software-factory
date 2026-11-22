@@ -1,4 +1,4 @@
-# 0000. A pass reads the repo before and after the issues that left
+# 1145. A pass reads the repo before and after the issues that left
 
 Status: accepted. Extends decision 0235 with its part 3 for "A Factory write on an issue that closes before the next pass is never reconciled: issues that left are read" (issue 916), the pass's read of the repo for the issues that left, as the Solution Architect ruled on 2026-11-21 (option A, read fail-closed) and the Factory Builder narrowed it the same day. The rows below restate 0235's where this part widens them; decision 0235 stands as it is.
 
