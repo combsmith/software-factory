@@ -17,12 +17,13 @@ answers. The hooks show make checks only when a check fails, so they show the no
 person to read each. While a merge is in progress (MERGE_HEAD is there) the merge is the index, and a path in it still
 unmerged is refused; once committed, it is HEAD, which must have exactly two parents. A merge of more heads, or of two
 sides with more than one merge base, or in a shallow clone, which may hide a base, is refused, since it cannot tell. A
-file one side changed, or both alike, must hold that blob and mode, and a file neither side changed the base's. In a
-file both changed otherwise, lines are compared as counts, not in order, so a line moved is not seen, nor one of two
-alike that both sides added or took out, nor a final newline. A rename on either side is named, "renamed: not
-compared", and not judged, and so is a submodule both changed. A line it lists is not always wrong: where both sides
-changed one line, the right resolution may be a line neither side wrote, combined by hand, and the person reading it
-says so. It is never wired into anything that blocks.
+file one side changed, or both alike, must hold that blob and mode, and a file neither side changed the base's; a blob
+both left alike, whatever its mode, must be held. In a file both changed otherwise, lines are compared as counts, not in
+order, so a line moved is not seen, nor one of two alike that both sides added or took out, nor a final newline. A
+rename on either side is named, "renamed: not compared", and not judged, and so is a submodule on a side or in the merge
+of a file both changed. A line it lists is not always wrong: where both sides changed one line, the right resolution may
+be a line neither side wrote, combined by hand, and the person reading it says so. It is never wired into anything that
+blocks.
 
 Each read is git's own, with no program a repo's configuration names, no fetch and a timeout: `origin/main` is whatever
 this clone last fetched.
@@ -177,7 +178,7 @@ def _entry(root: pathlib.Path, where: str, rel: str):
 
 
 def _changed(root: pathlib.Path, *between: str) -> set:
-    return set(_rows(_git(root, "diff", "--name-only", "--no-renames", "-z", *between)))
+    return set(_rows(_git(root, "diff", "--name-only", "--no-renames", "--ignore-submodules=none", "-z", *between)))
 
 
 def _renamed(root: pathlib.Path, base: str, side: str) -> set:
@@ -287,13 +288,17 @@ def merged(root: pathlib.Path = ROOT) -> list:
                 problems.append("%r: both sides left it alike, and the merge does not hold that blob and mode" % rel)
             continue
         if any(entry and entry[0] == "160000" for entry in entries + (have,)):
-            problems.append("%r: a submodule both sides changed: not compared" % rel)
+            problems.append("%r: a submodule, on a side or in the merge: not compared" % rel)
             continue
         problems += ["%r: %s changed its mode, and the merge does not hold it" % (rel, whose)
                      for side, whose in ((entries[1], "the branch"), (entries[2], "main"))
                      if side and have and side[0] != (entries[0] or ("",))[0] and have[0] != side[0]]
         if all(entries) and have and entries[0][0] == entries[1][0] == entries[2][0] != have[0]:
             problems.append("%r: both sides left its mode as it was, and the merge does not hold it" % rel)
+        if entries[1][1] == entries[2][1]:
+            if have[1] != entries[1][1]:
+                problems.append("%r: both sides left its blob alike, and the merge does not hold it" % rel)
+            continue
         was, kept, wanted, held = (_counts(root, entry) for entry in entries + (have,))
         if any(None in counts for counts in (was, kept, wanted, held)):
             problems.append("%r: binary: lines not compared" % rel)

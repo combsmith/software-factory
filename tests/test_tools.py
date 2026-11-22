@@ -15907,8 +15907,9 @@ class Desk(unittest.TestCase):
         # A partial clone's reads may fetch, so it reads nothing.
         git(root, "config", "extensions.partialclone", "origin")
         self.assertEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
-        self.assertEqual(desk.merged(root), ["cannot tell: this is a partial clone, whose reads may fetch; read the "
-                                             "merge by hand"])
+        with mock.patch.object(desk, "_sides", side_effect=AssertionError):     # refused before the merge is read
+            self.assertEqual(desk.merged(root), ["cannot tell: this is a partial clone, whose reads may fetch; read "
+                                                 "the merge by hand"])
         git(root, "config", "--unset", "extensions.partialclone")
         git(root, "config", "remote.origin.promisor", "false")
         self.assertNotEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
@@ -16186,15 +16187,16 @@ class Desk(unittest.TestCase):
         self.merge(root, "x")
         self.assertEqual(desk.merged(root), ["cannot tell: the two sides have 2 merge bases, not one"])
 
-    def sides(self, base: dict, work: dict, main: dict, modes=()) -> pathlib.Path:
-        """A base, a branch and a main, each side's files written over the base's (None takes one out) and each path in
-        `modes` made executable on both sides, merged with nothing committed, whatever conflicts."""
+    def sides(self, base: dict, work: dict, main: dict, modes=(), own=()) -> pathlib.Path:
+        """A base, a branch and a main, each side's files written over the base's (None takes one out), each path in
+        `modes` made executable on both sides and in `own` on the branch alone, merged with nothing committed, whatever
+        conflicts."""
         root = self.repo(base)
         for branch, files in (("work", work), ("main", main)):
             git(root, "checkout", "-q", "-b" if branch == "work" else "-B", branch, "refs/remotes/origin/main")
             for rel, text in files.items():
                 (root / rel).unlink() if text is None else (root / rel).write_text(text)
-            for rel in modes:
+            for rel in modes + (own if branch == "work" else ()):
                 (root / rel).chmod(0o755)
             self.commit(root, branch)
         git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
@@ -16252,7 +16254,8 @@ class Desk(unittest.TestCase):
         self.assertEqual(desk.merged(root), ["'f.py': renamed: not compared", "'r.py': renamed: not compared"])
 
     def test_a_submodule_both_sides_changed_is_named_and_the_other_files_still_read(self):
-        root = self.repo({"a.py": "a\nb\n"})
+        root = self.repo({"a.py": "a\nb\n", ".gitmodules": '[submodule "vendor"]\n\tpath = vendor\n\turl = ./v\n'})
+        git(root, "config", "submodule.vendor.ignore", "all")       # a clone's own ignoring hides no change from it
         ids = [git(root, "rev-parse", "HEAD").strip()]
         commit = ("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m")
         git(root, "update-index", "--add", "--cacheinfo", "160000,%s,vendor" % ids[0])
@@ -16276,4 +16279,24 @@ class Desk(unittest.TestCase):
         self.assertEqual(desk.merged(root), [
             "'a.py': main's line is gone, and the branch did not take it out: 'B'",
             "'a.py': a line main took out, or no side wrote, is there: 'b'",
-            "'vendor': a submodule both sides changed: not compared"])
+            "'vendor': a submodule, on a side or in the merge: not compared"])
+
+    def test_a_blob_both_left_alike_main_s_deletion_and_a_path_like_a_pattern_are_told_and_each_is_printed(self):
+        # Both sides wrote n.py alike and only the branch made it executable: its blob is held whatever its mode. A
+        # path is read as itself, never as a pattern; main's deletion is told as the branch's is; the lines past
+        # those shown are counted as often as each is gone; and the command prints every finding.
+        root = self.sides({"n.py": "start()\n", ":[a].py": "base\n", "a.py": "a\n", "d.py": "a\n", "t.py": "a\n"},
+                          {"n.py": "start()\nnotify()\n", "d.py": "b\n", "t.py": "a\nw\n"},
+                          {"n.py": "start()\nnotify()\n", ":[a].py": "main\n", "d.py": None,
+                           "t.py": "a\n1\n2\n3\n4\n5\nz\nz\nz\n"}, own=("n.py",))
+        problems = self.staged(root, {"n.py": "start()\nnotify()\nnotify()\n", ":[a].py": "base\n", "d.py": "b\n",
+                                      "t.py": "a\nw\n"})
+        lost = "'t.py': main's line is gone, and the branch did not take it out: "
+        self.assertEqual(problems, [
+            "':[a].py': only main changed it, and the merge does not hold its blob and mode as left",
+            "'d.py': main took it out and the other side changed it, and the merge has it: read which was meant",
+            "'n.py': both sides left its blob alike, and the merge does not hold it"]
+            + [lost + repr(line) for line in "12345"] + [lost + "and 3 more"])
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            self.assertEqual(desk.main(["merged"], root), 1)
+        self.assertEqual(said.getvalue().splitlines()[:-1], problems)

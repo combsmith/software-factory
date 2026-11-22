@@ -14,6 +14,8 @@ DESK_ALIKE = ("tests.test_tools.Desk.test_a_file_both_sides_left_alike_is_held_w
 DESK_READS = ("tests.test_tools.Desk."
               "test_a_committed_merge_a_rename_by_main_a_file_both_took_out_and_a_shallow_clone_are_each_read",)
 DESK_SUBMODULE = ("tests.test_tools.Desk.test_a_submodule_both_sides_changed_is_named_and_the_other_files_still_read",)
+DESK_PRINTED = ("tests.test_tools.Desk."
+                "test_a_blob_both_left_alike_main_s_deletion_and_a_path_like_a_pattern_are_told_and_each_is_printed",)
 MUTANTS = [
     ('the size warns only at its limit', 'tools/desk.py',
      'SHARE = 0.95 ', 'SHARE = 1.0 ', DESK_SIZE),
@@ -193,4 +195,20 @@ MUTANTS = [
     ('a submodule is read as a blob', 'tools/desk.py',
      '        if any(entry and entry[0] == "160000" for entry in entries + (have,)):\n', '        if False:\n',
      DESK_SUBMODULE),
+    # Issue 1110, the readers' round on 43cdb65c.
+    ('a path is read as a pattern', 'tools/desk.py',
+     'SAFE = ("--no-replace-objects", "--literal-pathspecs", ', 'SAFE = ("--no-replace-objects", ', DESK_PRINTED),
+    ("a clone's ignoring of a submodule hides its change", 'tools/desk.py',
+     '"--no-renames", "--ignore-submodules=none", "-z"', '"--no-renames", "-z"', DESK_SUBMODULE),
+    ('a blob both left alike is read by its lines', 'tools/desk.py',
+     '        if entries[1][1] == entries[2][1]:\n', '        if False:\n', DESK_PRINTED),
+    ('a blob both left alike passes whatever the merge holds', 'tools/desk.py',
+     '            if have[1] != entries[1][1]:\n', '            if False:\n', DESK_PRINTED),
+    ("main's deletion is told as the branch's", 'tools/desk.py',
+     '"the branch" if entries[1] is None else "main"', '"the branch"', DESK_PRINTED),
+    ('the lines past those shown are counted once each', 'tools/desk.py',
+     'more = sum(lines.values()) - sum(lines[line] for line in sorted(lines)[:SHOWN])', 'more = max(0, len(lines) - SHOWN)',
+     DESK_PRINTED),
+    ('only the first finding is printed', 'tools/desk.py',
+     '        for problem in problems:\n', '        for problem in problems[:1]:\n', DESK_PRINTED),
 ]
