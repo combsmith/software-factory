@@ -5997,6 +5997,206 @@ class PullTitle(unittest.TestCase):
             self.assertEqual(pr_title.main(["a", "b"]), 2)
 
 
+class PullBody(unittest.TestCase):
+    """A pull request's body keeps the template's shape, held by tools/pr_title.py (decision 0246)."""
+
+    HEADS = ("Why", "What changed", "What to look at", "Record and protected edits")
+
+    def body(self, sections=None, order=None):
+        sections = dict({name: "Words about %s." % name for name in self.HEADS}, **(sections or {}))
+        return "\n\n".join("## %s\n%s" % (name, sections[name]) for name in (order or self.HEADS)) + "\n"
+
+    def codes(self, body):
+        return sorted({p.split(":", 1)[0] for p in pr_title.body_problems(body)})
+
+    def test_a_body_keeps_the_templates_shape_or_says_which_part_it_breaks(self):
+        self.assertEqual(pr_title.HEADINGS, self.HEADS)
+        template = (ROOT / ".github" / "pull_request_template.md").read_text()
+        self.assertEqual([line[3:] for line in template.splitlines() if line.startswith("## ")], list(self.HEADS))
+        self.assertEqual(pr_title.body_problems(self.body()), [])
+        # "None." is text, and so is anything but whitespace and the template's own scaffolding; the details block, an
+        # extra section and a level-three heading are allowed.
+        self.assertEqual(pr_title.body_problems(self.body({"Record and protected edits": "None."})), [])
+        self.assertEqual(pr_title.body_problems(self.body({"Record and protected edits": "None.\n\n<details>x</details>"})
+                                                + "## Notes\nmore\n### Sub\nx\n"), [])
+        self.assertEqual(pr_title.body_problems("Lead text.\n" + self.body().replace("\n", "\r\n")), [])
+        # The untouched template keeps no section.
+        self.assertEqual([p.split(": ", 1)[1] for p in pr_title.body_problems(template)],
+                         ["the section '## %s' holds nothing but the template's own" % name for name in self.HEADS])
+        for name in self.HEADS:
+            # Each heading missing, held twice, or over nothing but scaffolding, refuses with its own code.
+            missing = "\n".join(line for line in self.body().splitlines() if line != "## " + name)
+            self.assertIn("body_heading_missing: the body has no heading '## %s'" % name, pr_title.body_problems(missing))
+            self.assertEqual(self.codes(self.body() + "## %s\nagain\n" % name), ["body_heading_twice"], name)
+            for empty in ("", "   \n\t", "<!-- write here -->", "- \n- \n1.", "<details>tallies</details>",
+                          "<!-- a\nb -->\n- <!-- c -->"):
+                self.assertEqual(self.codes(self.body({name: empty})), ["body_section_empty"], (name, empty))
+        # Out of order: any two swapped.
+        for i in range(3):
+            order = list(self.HEADS)
+            order[i], order[i + 1] = order[i + 1], order[i]
+            self.assertEqual(self.codes(self.body(order=order)), ["body_heading_out_of_order"], order)
+        # A heading inside a code fence is no heading, and one outside it is: all four fenced, with none outside, refuses.
+        fenced = "```\n" + self.body() + "```\n"
+        self.assertEqual(self.codes(fenced), ["body_heading_missing"])
+        self.assertEqual(len(pr_title.body_problems(fenced)), 4)
+        self.assertEqual(self.codes("~~~~\n" + self.body() + "~~~\nstill fenced\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes(self.body() + "```md\n## Why\n```\n"), [])
+        self.assertEqual(self.codes("```\n```js\n" + self.body() + "```\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes("```\n``` not a close\n" + self.body() + "```\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes("~~~~\n~~~\n" + self.body() + "~~~~\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes("```\n~~~\n" + self.body() + "```\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes(self.body({"Why": "```\n## What changed\n```"})), [])
+        # A fence closes at most three columns further in than it opened, so a list item's closes at its own indent;
+        # an empty one is no text. A fence and a comment hide each other's marks, and a fence's words open no comment.
+        for code in ("```\n    ```\n", "```\n\t```\n", " ```\n    ```\n"):
+            self.assertEqual(self.codes(code + self.body() + "```\n"), ["body_heading_missing"], code)
+        for hides in ("- ```\n  ## Why\n  ```\n", "```\n   ```\n", "1. ```\n   ## Why\n      ```\n", "~~old~~\n", "```\n<!--\n```\n", "<!--\n```\n-->\n", "``` <!--\nx\n```\n"):
+            self.assertEqual(self.codes(hides + self.body()), [], hides)
+        self.assertEqual(self.codes(self.body({"Why": "```\n```"})), ["body_section_empty"])
+        self.assertEqual(self.codes(self.body({"Why": "```\n-\n```"})), [])
+        # A heading is "## " and its words, up to three spaces in, closing hashes and spaces dropped; nothing else is.
+        self.assertEqual(self.codes(self.body().replace("## Why", "   ## Why ##")), [])
+        # It is read on a line that starts outside the scaffolding, as written, and a comment after its words is none.
+        self.assertEqual(self.codes(self.body().replace("## Why\n", "## Why <!-- a note -->\n")), [])
+        for odd in ("# Why", "### Why", "##Why", "    ## Why", "## why", "## Why?", "<!-- x --> ## Why",
+                    "<!--\n## x --> ## Why", "## Why ## <!-- x -->"):
+            self.assertEqual(self.codes(self.body().replace("## Why\n", odd + "\n")), ["body_heading_missing"], odd)
+        # A section ends at any second-level heading, its own or not, and a bare "##" is one.
+        self.assertEqual(self.codes(self.body({"Why": "## Notes\nText for notes."})), ["body_section_empty"])
+        self.assertEqual(self.codes(self.body({"Why": "##\nText under an empty heading."})), ["body_section_empty"])
+        self.assertEqual(self.codes(self.body({"Why": "## ###\nText under a heading of closing hashes."})),
+                         ["body_section_empty"])
+        # A fence closes on a longer one of its kind; a backtick fence's words hold no backtick, so that is inline code;
+        # and only spaces or tabs may follow a closing fence.
+        self.assertEqual(self.codes(self.body({"Why": "~~~\nsample\n~~~~"})), [])
+        self.assertEqual(self.codes("```example```\n" + self.body()), [])
+        self.assertEqual(self.codes("```\n```\u00a0\n" + self.body() + "```\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes("```\n```\t \n" + self.body()), [])
+        # A fence in a list item hides what it holds.
+        listed = "- ```\n" + "".join("  ## %s\n  x\n" % name for name in self.HEADS) + "  ```\n"
+        self.assertEqual(len(pr_title.body_problems(listed)), 4)
+        # A heading's words are its own: a hash run is closing only after a space or a tab; a tab may follow "##" but
+        # not lead it.
+        self.assertEqual(self.codes(self.body().replace("## Why\n", "## Why#\n")), ["body_heading_missing"])
+        self.assertEqual(self.codes(self.body().replace("## Why\n", "##\tWhy\t#\n")), [])
+        self.assertEqual(self.codes(self.body().replace("## Why\n", "\t## Why\n")), ["body_heading_missing"])
+        # A heading inside a comment or a details block is hidden, as GitHub hides it: whole, nested, of any case, with
+        # attributes, or left open to the end.
+        for wrap in ("<!--\n%s-->\n", "<details>\n%s</details>\n", "<DETAILS open>\n%s</Details>\n",
+                     "<details><details>x</details>\n%s</details>\n", "<!-- left open\n%s",
+                     "<details>\n`</details>`\n%s</details>\n", "<details>\n<!-- </details> -->\n%s</details>\n"):
+            self.assertEqual(len(pr_title.body_problems(wrap % self.body())), 4, wrap)
+        self.assertEqual(self.codes(self.body({"Why": "<!-- an edit dropped its close"})),
+                         ["body_heading_missing", "body_section_empty"])
+        for empty in ("<details open>checks</details>", "<details><details>a</details></details>", "<!-- x --> - "):
+            self.assertEqual(self.codes(self.body({"Why": empty})), ["body_section_empty"], empty)
+        # A list item, inline code alone, or what follows a closed block of any case, is text.
+        for text in ("<!-- x --> words", "<DETAILS>x</Details> words", "- a change", "1. a step", "`code`",
+                     "``a ` <!-- b``", "<details>\nAn unmatched `` then </details> then `ok`.",
+                     "- a\n  - b\n    ```\n    code\n    ```"):
+            self.assertEqual(pr_title.body_problems(self.body({"Why": text})), [], text)
+        # Inline code holds no markup: a tag or a comment's opening named in backticks hides nothing.
+        self.assertEqual(self.codes(self.body({"Why": "A `<details>` block and a `` <!-- `` stay text."})), [])
+        self.assertEqual(self.codes(self.body({"Why": "`<details>` then <details>hidden</details>"})), [])
+        self.assertEqual(self.codes(self.body({"Why": "<details>a `x` b"})), ["body_heading_missing", "body_section_empty"])
+        # Line ends of any kind are line ends, as the web editor's CRLF and the desk's LF are one body.
+        self.assertEqual([p.split(": ", 1)[1] for p in pr_title.body_problems(template.replace("\n", "\r\n"))],
+                         ["the section '## %s' holds nothing but the template's own" % name for name in self.HEADS])
+        self.assertEqual(self.codes(self.body().replace("\n", "\r")), [])
+        # A heading held twice is still read for its order and for whether each of its sections says something.
+        twice = self.body(order=["What changed", "Why", "What to look at", "Record and protected edits"]) + "## Why\n- \n"
+        self.assertEqual(self.codes(twice), ["body_heading_out_of_order", "body_heading_twice", "body_section_empty"])
+        self.assertEqual(pr_title.body_problems(self.body({"Why": "- "}) + "## Why\nwords\n"),
+                         ["body_heading_twice: the body has the heading '## Why' 2 times",
+                          "body_section_empty: the section '## Why' holds nothing but the template's own"])
+        # Every problem at once, never the first alone, and none holds a word of the body.
+        planted = "::error::x\n## Why\n::add-mask::y\n## Why\n"
+        said = pr_title.body_problems(planted)
+        self.assertEqual(self.codes(planted), ["body_heading_missing", "body_heading_twice", "body_section_empty"])
+        self.assertFalse(any("::" in p or "add-mask" in p for p in said))
+
+    @support.wall_clock
+    def test_a_body_of_the_largest_size_is_read_in_time(self):
+        # Whatever its shape: GitHub keeps a body to 65,536 characters.
+        started = time.monotonic()
+        for long in ("## " + "#" * 65000 + "a", "## a" + " #" * 32000, "<!--" * 16000, "<details " * 7000,
+                     "<details>" * 7000, ("```\n" * 16000), "- " * 32000 + "```",
+                     "<details>" + "<!---->" * 9000, "`<!--` " * 9300, "## Why\n" + " " * 65000 + "x", "<!---->" * 4000 + "<details " * 4000):
+            pr_title.body_problems(long)
+        self.assertLess(time.monotonic() - started, 5.0)
+
+    def test_the_body_is_read_on_both_events_from_its_cutover(self):
+        root = tree({})
+        where = root / "event.json"
+        ref = "refs/heads/gh-readonly-queue/main/pr-44-" + "a" * 40
+        good = {"number": 44, "title": PullTitle.GOOD, "body": self.body(), "created_at": pr_title.BODY_CUTOVER,
+                "base": {"repo": {"full_name": "o/r"}}}
+
+        class Asked:
+            def __init__(self, body):
+                self.body, self.asked = body, []
+
+            def send(self, asked):
+                self.asked.append(asked["path"])
+                return {"status": 200, "body": self.body}
+
+        asked = []
+
+        def checked(answer, event="pull_request", stale=None):
+            told = ({"pull_request": {"number": 44}, "repository": {"full_name": "o/r"}} if event == "pull_request" else
+                    {"merge_group": {"head_ref": ref}, "repository": {"full_name": "o/r"}})
+            if stale is not None and event == "pull_request":
+                told["pull_request"]["body"] = stale
+            where.write_text(json.dumps(told))
+            transport = Asked(answer)
+            said = pr_title.check({"EVENT": event, "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"}, transport)
+            asked.append(transport.asked)
+            return said
+
+        self.assertEqual(pr_title.BODY_CUTOVER, "2026-11-23T00:00:00Z")
+        for event in ("pull_request", "merge_group"):
+            self.assertEqual(checked(good, event), [], event)
+            # A body out of shape refuses on each event, the merge group's among them, which main's log takes.
+            self.assertIn("body_heading_missing", checked(dict(good, body="Just words."), event)[0])
+            # The body is the one read's, once, never the event's, and nothing of it reaches what the job prints.
+            said = checked(dict(good, body="Just words.\nprivate-draft-marker ::error::x"), event, stale=self.body())
+            self.assertEqual(len(said), 4)
+            self.assertFalse(any("private-draft-marker" in p or "::" in p for p in said))
+            self.assertEqual(asked[-1], ["/repos/o/r/pulls/44"])
+            # A null body, or one of no text type, cannot be read, and refuses.
+            for body in (None, 3, ["## Why"]):
+                self.assertEqual(checked(dict(good, body=body), event),
+                                 ["body_unreadable: the pull request's body cannot be read"])
+            self.assertEqual(checked({k: v for k, v in good.items() if k != "body"}, event),
+                             ["body_unreadable: the pull request's body cannot be read"])
+        # The cutover: a pull request opened one second before it is not read for its body; one opened at it is; the
+        # title is held from its own cutover, before it.
+        self.assertEqual(checked(dict(good, body=None, created_at="2026-11-22T23:59:59Z")), [])
+        self.assertEqual(len(checked(dict(good, body=None, created_at="2026-11-23T00:00:01Z"))), 1)
+        self.assertEqual(checked(dict(good, body=None, title="Bad", created_at="2026-11-22T23:59:59Z"))[0][:13],
+                         "title_no_area")
+        self.assertEqual(len(checked(dict(good, body=None, title="Bad"))), 3)
+        # Title and body are both said, each in full.
+        both = checked(dict(good, title="Bad", body="## Why\nx\n"))
+        self.assertTrue(any(p.startswith("title_no_area") for p in both) and any(p.startswith("body_heading_missing")
+                                                                                 for p in both))
+
+    def test_the_desk_checks_a_bodys_file(self):
+        root = tree({"good.md": self.body(), "bad.md": "::error::x\n"})
+        (root / "latin.md").write_bytes(b"## Why\n\xe9\n")
+        for name, code, said in (("good.md", 0, "keeps the template's shape"), ("bad.md", 1, "body_heading_missing"),
+                                 ("missing.md", 1, "body_unreadable"), ("latin.md", 1, "body_unreadable")):
+            with contextlib.redirect_stdout(io.StringIO()) as printed:
+                self.assertEqual(pr_title.main(["--body", str(root / name)]), code)
+            self.assertIn(said, printed.getvalue())
+            self.assertNotIn("::", printed.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(pr_title.main(["--body"]), 2)
+            self.assertEqual(pr_title.main(["--body", "a", "b"]), 2)
+            self.assertEqual(pr_title.main(["--title", "x"]), 2)
+
+
 class TheList(unittest.TestCase):
     """The protected paths and every Lens's input: one list, in config/hooks.json, that the session hooks read and the
     Kernel is given as `protected_paths` (decision 0020)."""
