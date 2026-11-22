@@ -612,11 +612,27 @@ class HandApproval(unittest.TestCase):
         own = check(seen(approval("PRR_4"), role), recorded([applied(("approve", "PRR_4", "applied"))]), before=[decided_as(hand)])
         self.assertEqual(sorted(t["key"] for t in reconcile.carried([decided_as(hand)], recorded(), seen(), NOW,
                                                                     taken=own["taken"])["taken"]), ["PRR_4", "PRR_9"])
-        # A pass whose read is short, of the Effects or of what was seen, drops neither.
+        # Two keyless approvals of two heads are two.
+        apart = seen(approval(None, at="2026-10-11T12:40:00Z"), approval(None, commit=OTHER_HEAD, at="2026-10-11T12:45:00Z"))
+        heads = reconcile.carried(aged, recorded(), seen(), NOW, taken=check(apart, before=aged)["taken"])["taken"]
+        self.assertEqual([t["head"] for t in heads], [HEAD, OTHER_HEAD])
+        # A pass whose read is short, of the Effects or of what was seen, drops neither, and carries a head it took new.
+        fresh_short = check(seen(approval(None), whole=False), before=[decided_as(hand)])
+        self.assertEqual((fresh_short["hand"], fresh_short["short"]), ([], True))
         for name, effects, s in (("effects unread", None, seen()), ("seen unread", recorded(), None),
                                  ("seen short", recorded(), seen(whole=False))):
             short = reconcile.carried(again, effects, s, "2026-10-13T12:00:00Z")
             self.assertEqual((short["hand"], short["taken"]), (taken["hand"], taken["taken"]), name)
+            self.assertEqual(reconcile.carried([decided_as(hand)], effects, s, NOW, taken=fresh_short["taken"])["taken"],
+                             [{"key": None, "item": URL, "head": HEAD}], name)
+        # A pull request that leaves drops its own alone: another's are kept, and what is new for it is carried.
+        other = [{"key": "PRR_7", "item": URL.replace("/42", "/43"), "head": HEAD}]
+        theirs = [dict(taken["hand"][0], key="PRR_8", item=other[0]["item"])]
+        both = [dict(decided_as(hand), reconciled=dict(taken, taken=taken["taken"] + other, hand=taken["hand"] + theirs))]
+        new = [{"key": "PRR_6", "item": OTHER, "head": HEAD}]
+        gone = reconcile.carried(both, recorded(), seen(), NOW, gone=[42], taken=new)
+        self.assertEqual(([e["key"] for e in gone["hand"]], [e["key"] for e in gone["taken"]]),
+                         (["PRR_8"], ["PRR_7", "PRR_6"]))
         # Dropped by the pass that reads the pull request leave, which carries nothing new for it, either kind; and
         # nothing new is carried while a leaving read of it is in the window, though what came before stays.
         for name in ("hand", "taken"):
