@@ -185,7 +185,7 @@ def unfit(effects) -> bool:
         or any(not FITS_ITEM.fullmatch(item) for _, item in items)
 
 
-def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(), gone_issues=()) -> dict:
+def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(), gone_issues=(), served_issues=()) -> dict:
     """What this pass's record carries for the next: what was read in the window and the keys it held, those older than the
     window dropped, and the pull requests whose writes it could not read. A key, which one write alone can match, is stamped
     with when it was read, so it outlasts the write it records. A write matched by its item is credit any such write could
@@ -193,7 +193,9 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     than that; so a late first read does not stretch it. So a record holds what the Effects said, not the records
     themselves, and a pass reads only what is new (decision 0112). Each pull request `gone`, first read as left by this
     pass, is stamped with now, and one a record before stamped is kept until the window passes it (issue 787). So are
-    the issues, `unread_issues` and `gone_issues` (issue 916)."""
+    the issues, `unread_issues` and `gone_issues`; but an issue in `served_issues`, served by this pass, keeps no stamp
+    of an earlier leaving, so that it is read as left anew once it leaves again, whatever pass between could not list it
+    (issue 916)."""
     since = seen["since"] if seen is not None and not errors(seen, "seen") else None
     held = {name: [e for e in rows if name in ("owed", "owed_issues") or since is None
                    or _within(e["at"], since, name == "items")]
@@ -209,7 +211,7 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
         del held["hands"]       # or the next pass judges threads from before the rule it never read
     held["owed_issues"] = sorted(set(unread_issues))
     newly_gone = set(gone_issues)
-    held["left_issues"] = [e for e in held.get("left_issues", []) if e["number"] not in newly_gone] + [
+    held["left_issues"] = [e for e in held.get("left_issues", []) if e["number"] not in newly_gone | set(served_issues)] + [
         {"number": n, "at": now} for n in sorted(newly_gone)]
     # A record with no issue to carry carries neither, as one written before them (issue 916).
     for name in ("owed_issues", "left_issues"):

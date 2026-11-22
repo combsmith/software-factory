@@ -2447,8 +2447,15 @@ class Entry(unittest.TestCase):
         record = entry_with(reopened)
         self.assertEqual([s for s in spied if s[1] == 41], [("issue", 41, entry.seen_.LEFT)])
         self.assertEqual(record["reconciled"]["left_issues"], [{"number": 41, "at": record["now"]}])
-        entry_with(reopened, listing=(5, 41))
+        served_again = entry_with(reopened, listing=(5, 41))
         self.assertEqual([s for s in spied if s[1] == 41], [("issue", 41, None)])
+        # Served again, it keeps no stamp, so a pass between that cannot list the issues owes it, and the next reads it as
+        # left with its new close, stamped anew (Kimi, Astra).
+        self.assertNotIn("left_issues", served_again["reconciled"])
+        unlisted = entry_with(dict(served_again, now="2026-10-12T11:00:00Z"), serving=None)
+        record = entry_with(dict(unlisted, now="2026-10-12T11:00:00Z"))
+        self.assertEqual([s for s in spied if s[1] == 41], [("issue", 41, entry.seen_.LEFT)])
+        self.assertEqual(record["reconciled"]["left_issues"], [{"number": 41, "at": record["now"]}])
         # Not listed, a stamp past the window is owed no more (Claude).
         record = entry_with(dict(before, issues=[], reconciled=dict(held, left_issues=[{"number": 41, "at": "2026-10-01T10:00:00Z"}])),
                             serving=None)
