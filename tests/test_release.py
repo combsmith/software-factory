@@ -1059,7 +1059,7 @@ class Fixture(unittest.TestCase):
                          (defaults["status_on_item"], apps["controller"]["name"], "neutral", event["head"]))
         # Word for word what the effects port writes for the last step's Decision under this pass and Release, who
         # acts next among it, as `config/feed.json` gives it. That Release's feed gave no sentences (decision 1123).
-        feed = dict(json.loads((ROOT / "config" / "feed.json").read_text()), sentences={})
+        feed = {k: v for k, v in json.loads((ROOT / "config" / "feed.json").read_text()).items() if k != "sentences"}
         self.assertEqual(shown["output"], effects.status_output(dict(steps[-1], evidence=[]),
                                                                 {"pass": steps[-1]["pass"], "release": event["release"]}, feed))
 

@@ -976,7 +976,7 @@ class Status(unittest.TestCase):
 
     def took(self, status: int, run: dict):
         """GitHub's answer to a write, with `run` holding the output the write sent, as P-12 read every one back."""
-        return lambda req: {"status": status, "headers": {}, "body": dict(run, output=dict(req["body"]["output"]))}
+        return lambda req: {"status": status, "headers": {}, "body": dict(run, output=dict(run.get("output") or {}, **req["body"]["output"]))}
 
     def listing(self, *runs, total=None):
         return {"status": 200, "headers": {}, "body": {"total_count": len(runs) if total is None else total, "check_runs": list(runs)}}
@@ -1057,6 +1057,12 @@ class Status(unittest.TestCase):
                        lambda o: {"summary": o["summary"]}, lambda o: None, lambda o: "x"):
             got, _ = self.write(o, self.listing(), bad(output))
             self.assertEqual(got, ("failed", None, "not_read_back", True), output(dict(title="t", summary="s\nx")))
+        # An edit that holds the sentence and the title, but not a code line below them, is not read back either.
+        old = self.run_on(external_id="d" + "a" * 32)
+        stale = lambda req: {"status": 200, "headers": {}, "body": dict(old, external_id=want, output=dict(
+            req["body"]["output"], summary=req["body"]["output"]["summary"].replace("action: ", "action: x", 1)))}
+        got, sent = self.write(o, self.listing(old), stale)
+        self.assertEqual((got, sent[1]["method"]), (("failed", None, "not_read_back", True), "PATCH"))
         # An edit that answers of another run.
         old = self.run_on(external_id="d" + "a" * 32)
         got, _ = self.write(o, self.listing(old), self.took(200, dict(old, id=old["id"] + 1, external_id=want)))
@@ -1171,6 +1177,10 @@ class Status(unittest.TestCase):
         self.assertEqual(lines[2:], effects.status_output(d, o["record"], dict(feed, sentences={}))["summary"].split("\n"))
         self.assertEqual(lines[1:3], ["", "attention: %s" % d["attention"]])
         self.assertEqual(output["title"], "verifying: awaiting_checks")
+        # Each reason its own sentence.
+        for reason in ("empty_diff", "approved", "merged"):
+            self.assertEqual(effects.status_output(dict(d, reason=reason), o["record"], feed)["summary"].split("\n")[0],
+                             feed["sentences"][reason], reason)
         # A sentence that is not plain when it is written is not shown: the codes alone.
         for bad in ("Approved by @x.", "See GH-12 first.", "A" + "b" * 100 + ".", "two\nlines.", 7, None):
             loose = dict(feed, sentences=dict(feed["sentences"], awaiting_checks=bad))
@@ -1197,11 +1207,11 @@ class Status(unittest.TestCase):
         self.assertEqual(effects.status_id(d), want)
 
     def test_the_sentence_is_read_for_the_status_alone(self):  # decision 1123
-        # Not the view, a Task, the Harness or the Kernel: only the status's writer reads a sentence, and the checks that
-        # hold the feed.
-        readers = sorted(path.relative_to(ROOT).as_posix() for top in ("adapters", "controller", "harness", "kernel", "sim", "release", "roles", "guards")
-                         if (ROOT / top).is_dir() for path in walk.files(ROOT, top)
-                         if path.suffix == ".py" and "sentences" in path.read_text(encoding="utf-8"))
+        # Not the view, a Task, the Harness or the Kernel: no module outside the tests and the checks but the status's
+        # writer reads a sentence.
+        readers = sorted(path.relative_to(ROOT).as_posix() for path in walk.files(ROOT)
+                         if path.suffix == ".py" and path.relative_to(ROOT).parts[0] not in ("tests", "tools")
+                         and "sentences" in path.read_text(encoding="utf-8"))
         self.assertEqual(readers, ["adapters/effects.py"])
 
     def test_no_status_is_written_on_an_item_left_alone(self):
