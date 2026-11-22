@@ -724,6 +724,7 @@ class Examples(unittest.TestCase):
             broken["sentences"]["approved"] = bad
             self.assertTrue(caught(check_examples._table(broken, decision), "the sentence for approved holds"), bad)
         # The schema: a capital first, a full stop only before a space and at the end, and at most 100 characters.
+        self.assertTrue(validate({k: v for k, v in feed.items() if k != "sentences"}, schema))
         sentence = schema["properties"]["sentences"]["additionalProperties"]
         self.assertEqual(sentence["maxLength"], check_examples.SENTENCE_MOST)
         for good in ("A" + "a" * 98 + ".", "Approved; it waits. It is (one) item, isn't it: yes - 2."):
