@@ -15709,7 +15709,7 @@ class Desk(unittest.TestCase):
         def factory(*args: str) -> int:     # as adapters/pull.py counts it: index lines cut, numbered, escaped
             plain = git(root, "-c", "core.quotePath=true", "-c", "diff.suppressBlankEmpty=false", "diff", "--no-color",
                         "--full-index", "-M", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/",
-                        "--inter-hunk-context=0", *args)
+                        "--inter-hunk-context=0", *args, "--")
             return task.carried(task.numbered(desk.pull.canonical(plain)))
 
         # However this clone's configuration would write a diff, it is counted as GitHub writes one.
@@ -15729,6 +15729,9 @@ class Desk(unittest.TestCase):
         for most, warns in (((60000, 21), True), ((60000, 22), False)):       # 20 lines: past 95% of 21, not of 22
             with mock.patch.object(desk, "limits", return_value=most), mock.patch.object(desk, "counted", return_value=(9, 20)):
                 self.assertEqual(desk.size(root).endswith(warned), warns, most)
+        for count in ((95, 1), (1, 19)):        # at 95% of either, and not past it, it does not warn
+            with mock.patch.object(desk, "limits", return_value=(100, 20)), mock.patch.object(desk, "counted", return_value=count):
+                self.assertFalse(desk.size(root).endswith(warned), count)
         self.assertEqual(desk.limits(root), (60000, 4000))
         # What is committed counts, a line taken out as one; a working tree's edits are not read, staged ones and
         # untracked files are named; each index line is cut as the Factory cuts it, however git abbreviates.
@@ -15736,17 +15739,17 @@ class Desk(unittest.TestCase):
         self.commit(root, "more")
         self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6))
         self.assertNotEqual(factory(base, "HEAD"), task.carried(task.numbered(git(root, "diff", "--no-color", "--full-index",
-                                                                                  "-M", "--no-textconv", base, "HEAD"))))
+                                                                                  "-M", "--no-textconv", base, "HEAD", "--"))))
         (root / "a.py").write_text("z\n" * 9000)
         self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6))
-        (root / "new.py").write_text("n\n")
+        (root / "HEAD").write_text("n\n")      # a file of that name is no revision to the reads
         self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6) + ", 1 untracked file not counted")
         (root / "other.py").write_text("o\n")
         git(root, "add", "a.py")
         self.assertEqual(desk.size(root), said % (factory(base, "HEAD"), 6) +
                          ", staged edits and 2 untracked files not counted")
         git(root, "reset", "-q")
-        (root / "new.py").unlink()
+        (root / "HEAD").unlink()
         (root / "other.py").unlink()
         git(root, "checkout", "-q", "--", "a.py")
         # Text that is no UTF-8 the Factory holds; limits it cannot read, it says so.
@@ -15763,6 +15766,11 @@ class Desk(unittest.TestCase):
         # A partial clone's reads may fetch, so it reads nothing.
         git(root, "config", "extensions.partialclone", "origin")
         self.assertEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
+        git(root, "config", "--unset", "extensions.partialclone")
+        git(root, "config", "remote.origin.promisor", "false")
+        self.assertNotEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
+        git(root, "config", "remote.origin.promisor", "true")
+        self.assertEqual(desk.size(root), "no count: this is a partial clone, whose reads may fetch")
 
     def test_the_desk_runs_git_only_to_read_and_says_when_there_is_no_base(self):
         root = self.repo({"a.py": "a\n"})
@@ -15772,13 +15780,16 @@ class Desk(unittest.TestCase):
 
         def run(argv, **kwargs):
             ran.append((argv, kwargs["env"]))
+            self.assertEqual(kwargs["timeout"], desk.SECONDS)
             return real(argv, **kwargs)
 
         with mock.patch.object(desk, "subprocess", mock.NonCallableMock(
                 run=run, DEVNULL=subprocess.DEVNULL, TimeoutExpired=subprocess.TimeoutExpired)):
             desk.size(root)
-            with self.assertRaises(ValueError):
-                desk._git(root, "fetch", "origin")
+            for refused in (("fetch", "origin"), ("config", "user.name", "x"), ("config", "--unset", "x.y"),
+                            ("diff", "--output=f")):
+                with self.assertRaises(ValueError):
+                    desk._git(root, *refused)
         verbs = {argv[len(desk.SAFE) + 1] for argv, _ in ran}
         self.assertTrue(verbs and verbs <= set(desk.READS), verbs)
         self.assertFalse({"fetch", "pull", "push", "clone", "ls-remote", "remote", "submodule", "fetch-pack",
@@ -15806,6 +15817,9 @@ class Desk(unittest.TestCase):
                                (KeyboardInterrupt, "KeyboardInterrupt")):
                 self.assertEqual(ran(["--checks"], checks_failed, note),
                                  (int(checks_failed), "%-22s no note: it raised %s\n" % ("diff size", name)))
+        with mock.patch.object(verify, "failed", return_value=True), mock.patch.object(desk, "size", return_value="n"), \
+                mock.patch("builtins.print", side_effect=BrokenPipeError):     # a pipe closed before the note
+            self.assertEqual(verify.main(["--checks"]), 1)
         package = sys.modules["tools"]
         del package.desk
         try:
