@@ -61,9 +61,11 @@ RAW = {
     "adapters.rules._file_at": {"contents": R},                        # a file at the base: what a push may not touch
     "adapters.seen._check_runs": {"pull_requests": R, "checks": R},    # the pull request's head, then its checks
     "adapters.seen._threads": {"pull_requests": R},
+    "adapters.seen._state": {"issues": R},                            # an issue that left, by its own read (0235)
     "adapters.seen.pushes": {"contents": R},                           # the repo's activity, as P-47 reads a branch's
     "adapters.tags._ours": {"contents": R}, "adapters.tags._page": {"contents": R},
     "adapters.texts.issues": {"issues": R}, "adapters.threads._read": {"pull_requests": R},
+    "adapters.texts.findings": {"pull_requests": R},                   # a review thread and its first comment (issue 856)
     "adapters.timeline.Accounts": {"metadata": R},                     # a login's permission on the repo
     "adapters.timeline._content": {"contents": R},                     # a commit's content, compared with its base
     "adapters.timeline._pages": {"issues": R, "pull_requests": R},     # the timeline, and the reviews
@@ -115,10 +117,12 @@ SITES = {
     "adapters.records._list": 1,
     "adapters.rules._file_at": 1,
     "adapters.seen._check_runs": 2,
+    "adapters.seen._state": 1,
     "adapters.seen._threads": 1,
     "adapters.seen.pushes": 1,
     "adapters.tags._ours": 1,
     "adapters.tags._page": 1,
+    "adapters.texts.findings": 1,
     "adapters.texts.issues": 1,
     "adapters.threads._read": 1,
     "adapters.timeline.Accounts": 1,
