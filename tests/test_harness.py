@@ -898,12 +898,15 @@ class Engine(unittest.TestCase):
             if isinstance(value, dict):
                 return [w for k, v in value.items() for w in [k] + strings(v)]
             return [w for v in value for w in strings(v)] if isinstance(value, list) else [value]
-        for path, schema in [(ROOT / "config" / "harness.json", "harness")] + [
-                (p, "role") for p in walk.files(ROOT, "roles") if p.parent == ROOT / "roles" and p.suffix == ".json"]:
+        manifests = [p for p in walk.files(ROOT, "roles") if p.parent == ROOT / "roles" and p.suffix == ".json"]
+        self.assertIn(ROOT / "roles" / "pr-review.json", manifests)
+        named = {"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch", "Task", "Agent"}
+        for path, schema in [(ROOT / "config" / "harness.json", "harness")] + [(p, "role") for p in manifests]:
             held = json.loads(path.read_text())
             self.assertEqual(validate(held, shared.SCHEMAS[schema], schemas=shared.SCHEMAS), [], path)
             words = [w for w in strings(held) if isinstance(w, str)]
-            self.assertEqual([w for w in words if re.search("tool|argv|args", w, re.I) or w.startswith("-")], [], path)
+            self.assertEqual([w for w in words if re.search("tool|argv|args", w, re.I) or w.startswith("-")
+                              or w in named], [], path)
         reads = {"Read", "Grep", "Glob"}
         settings = dict(run.configuration(), release=writing()["release"])
         with tempfile.TemporaryDirectory() as d:
@@ -918,8 +921,12 @@ class Engine(unittest.TestCase):
                 self.assertEqual(len(tools), 1, args)
                 given = args[tools[0]].split("=", 1)[1] if "=" in args[tools[0]] else args[tools[0] + 1]
                 self.assertEqual({t for t in given.split(",") if t}, want, args)
-                allowed = [args[i + 1] for i, a in enumerate(args) if a in ("--allowedTools", "--allowed-tools")]
-                self.assertEqual([{t for t in a.split(",") if t} for a in allowed], [want] if want else [], args)
+                allowed = [(a.split("=", 1)[1], i) if "=" in a else (args[i + 1], i + 1) for i, a in enumerate(args)
+                           if a.split("=", 1)[0] in ("--allowedTools", "--allowed-tools")]
+                self.assertEqual([{t for t in a.split(",") if t} for a, _ in allowed], [want] if want else [], args)
+                # Both flags take any number of values: what follows each one's value is an option, or nothing.
+                for i in [tools[0] + ("=" not in args[tools[0]])] + [i for _, i in allowed]:
+                    self.assertTrue(i + 1 == len(args) or args[i + 1].startswith("-"), args)
 
     def test_a_writing_run_with_no_commit_is_never_asked(self):  # issue 880
         # As a review with no head: the Factory's fault, read before the CLI starts, and no model call spent.
