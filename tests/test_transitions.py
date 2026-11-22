@@ -90,7 +90,7 @@ def base(runs=(), **over) -> dict:
     """A pull request as the Kernel reads it: its facts, its Runs, and the minute of its last change. Each is one the
     Factory opened, for issue 7, as each of the simulator's is: the author Role mends no other (decision 0216), and
     what an item that waits for its author may do is issue 824's to explore."""
-    return {"facts": facts(**dict({"opened_for": 7}, **over)), "runs": [copy.deepcopy(r) for r in runs],
+    return {"facts": facts(**dict({"opened_for": 7, "issue_stands": "open"}, **over)), "runs": [copy.deepcopy(r) for r in runs],
             "minute": FIRST_MOVE}
 
 
@@ -159,6 +159,10 @@ BASES = {
     "approval_lost": base([reviewed()], queue=True, acts_since_writer=2),
     "gate_open": base([reviewed()], reviews=APPROVED, queue=True, acts_since_writer=2, threads=[PERSONS_THREAD]),
     "human_hold": base([reviewed()], label_events=[labelled(t.LABEL_HOLD)]),
+    # Its issue held or closed holds it, and takes a queued one out (decision 0232).
+    "issue_stopped, its issue held": base([reviewed()], issue_stands="held"),
+    "issue_stopped, its issue closed": base([reviewed()], issue_stands="closed"),
+    "issue_stopped, queued": base([reviewed()], reviews=APPROVED, queue=True, acts_since_writer=2, issue_stands="held"),
     "human_hold, from hands-off an App placed": base([reviewed()], label_events=[labelled(t.LABEL_HANDS_OFF,
                                                                                          AUTHOR_APP)]),
     "hands_off": base([reviewed()], label_events=[labelled(t.LABEL_HANDS_OFF)]),
@@ -297,6 +301,8 @@ STILL = {
         {"run": str(7 + i), "created_at": "2026-10-01T00:00:00Z", "status": "completed"}
         for i in range(CONFIG["limits"]["max_unnamed_runs"] + 1)]}),
     "last_pusher_unreadable": base([reviewed()], last_pusher=None),
+    # How its issue stands was not read (decision 0232).
+    "issue_stands_unreadable": base([reviewed()], issue_stands=None),
     # A count the facts schema refuses, which the Kernel still reads as unreadable.
     "acts_unreadable": base([reviewed()], acts_since_writer=None),
     # A result on this content for a criterion the contract does not name: no State, so nothing to explore from.
@@ -702,6 +708,10 @@ MOVES = [
     Move("a person marks it ready", "human", a_persons(set_fact(is_draft=False))),
     Move("a person adds a Hold", "human", lambda pr: label(pr, t.LABEL_HOLD, MAINTAINER)),
     Move("a person removes a Hold", "human", lambda pr: label(pr, t.LABEL_HOLD, MAINTAINER, "unlabeled")),
+    # A person holds, closes or lets go its issue (decision 0232).
+    Move("a person holds its issue", "human", set_fact(issue_stands="held")),
+    Move("a person closes its issue", "human", set_fact(issue_stands="closed")),
+    Move("a person lets its issue go on", "human", set_fact(issue_stands="open")),
     Move("a person adds hands-off", "human", lambda pr: label(pr, t.LABEL_HANDS_OFF, MAINTAINER)),
     Move("a person removes hands-off", "human", lambda pr: label(pr, t.LABEL_HANDS_OFF, MAINTAINER, "unlabeled")),
     Move("a person admits it", "human", lambda pr: label(pr, t.LABEL_ADMIT, MAINTAINER)),
@@ -974,6 +984,7 @@ def explored():
 HOLD_BOUNDS = {"run_ceiling": "max_runs_per_item", "environment_ceiling": "max_environment_runs_per_item",
                "attempts_exhausted": "max_attempts", "max_rounds": "max_rounds",
                "act_ceiling": "max_acts_per_item", "human_hold": check_lifecycle.PERSON,
+               "issue_stopped": check_lifecycle.PERSON,
                "hands_off": check_lifecycle.PERSON, "approver_is_author_or_last_pusher": "max_runs_per_item",
                "contract_not_approved": check_lifecycle.PERSON, "contract_changed": check_lifecycle.PERSON,
                "description_edited_after_approval": check_lifecycle.PERSON}
