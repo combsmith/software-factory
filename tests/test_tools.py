@@ -5980,6 +5980,10 @@ class Context(unittest.TestCase):
         with mock.patch.object(check_context, "FIRST_SHORT", 3):
             problems = check_context._decisions(tree(files))
         self.assertTrue(caught(problems, "0003-y.md: the title is 73 characters"))
+        # A number padded with zeros is held as written.
+        files["docs/decisions/00004-z.md"] = "# 00004. " + over + body
+        with mock.patch.object(check_context, "FIRST_SHORT", 3):
+            self.assertTrue(caught(check_context._decisions(tree(files)), "00004-z.md: the title is 73 characters"))
         # A record below FIRST_SHORT keeps its long title and its name, and so does every record before it.
         self.assertEqual(found("0002-x.md", over, first=3), [])
         self.assertTrue(caught(found("0002-x.md", over, first=2), "the title is 73 characters"))

@@ -371,7 +371,7 @@ def _decisions(root: pathlib.Path) -> list:
         seen.setdefault(number, path.name)
         if named is None or not text.startswith("# %s. " % named.group(1)):
             problems.append("docs/decisions/%s: the title must open with its number" % path.name)
-        if named and number >= FIRST_SHORT and text.startswith("# %04d. " % number):
+        if named and number >= FIRST_SHORT and text.startswith("# %s. " % named.group(1)):
             problems += _short(path.name, number, text)
         parts = dict(_sections(text, "## "))
         for need in ("Decision", "Why", "Boundaries"):
@@ -394,15 +394,17 @@ def _slug(title: str) -> str:
 
 
 def _short(name: str, number: int, text: str) -> list:
-    """Why a record from FIRST_SHORT on has a long title, or a file not named by its title: nothing where it has neither."""
-    title = text.split("\n", 1)[0][len("# %04d. " % number):].rstrip()
+    """Why a record from FIRST_SHORT on has a long title, or a file not named by its title: nothing where it has neither.
+    Its digits are its file's, as written, so a number padded with zeros is held too."""
+    digits = name.split("-", 1)[0]
+    title = text.split("\n", 1)[0][len("# %s. " % digits):].rstrip()
     problems = [] if re.search(r"[a-z0-9]", _slug(title)) else ["docs/decisions/%s: the title names nothing" % name]
     if len(title) > RECORD_TITLE:
         problems.append("docs/decisions/%s: the title is %d characters, and from record %04d on the most is %d"
                         % (name, len(title), FIRST_SHORT, RECORD_TITLE))
-    if name != "%04d-%s.md" % (number, _slug(title)):
-        problems.append("docs/decisions/%s: from record %04d on the file is named by its title, %04d-%s.md"
-                        % (name, FIRST_SHORT, number, _slug(title)))
+    if name != "%s-%s.md" % (digits, _slug(title)):
+        problems.append("docs/decisions/%s: from record %04d on the file is named by its title, %s-%s.md"
+                        % (name, FIRST_SHORT, digits, _slug(title)))
     return problems
 
 
