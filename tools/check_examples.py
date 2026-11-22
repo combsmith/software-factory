@@ -71,12 +71,12 @@ UNTRUSTED_KIND = "view-item"
 SENTENCES_FIELD = "sentences"
 SENTENCES_KIND = "feed"
 SENTENCE_MOST = 100
-# A plain sentence, the one pattern its schema may give it: a capital, then letters, digits, spaces and plain marks, a
-# full stop only before a space and at the end. No @, backtick, line break, placeholder, slash or Markdown mark.
-SENTENCE_PATTERN = "^[A-Z](?:[A-Za-z0-9 ,;:'()-]|[.](?= ))*[.]$"
-# What GitHub would still make of a plain sentence: a bare address as a link, a code between colons as an emoji, and
-# letters, a dash and digits as a reference.
-AUTOLINKED = re.compile(r"(?i:www[.])|:[a-z0-9+-]+:|\b[A-Z]+-[0-9]+\b")
+# One plain sentence, the one pattern its schema may give it: a capital, then letters, digits, spaces and plain marks,
+# and one full stop, at the end. No @, backtick, line break, placeholder, slash or Markdown mark.
+SENTENCE_PATTERN = "^[A-Z][A-Za-z0-9 ,;:'()-]*[.]$"
+# What GitHub would still make of a plain sentence: a code between colons an emoji, letters, a dash and digits a
+# reference, and a word of seven or more hex digits a commit.
+AUTOLINKED = re.compile(r":[a-z0-9+-]+:|\b[A-Z]+-[0-9]+\b|\b[0-9a-f]{7,40}\b")
 # The reasons the Kernel gives `needs_you` beside its own sets: a Hold deferred under a Pause, or one it cannot read
 # (tests/test_decide.py::test_an_approver_who_is_the_author_or_last_pusher_takes_it_out_of_the_queue,
 # tests/test_issue.py::test_placing_a_hold_is_stopped_only_by_the_pause_and_not_once_the_hold_is_there,
@@ -285,8 +285,9 @@ def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: 
             continue
         if name == UNTRUSTED_FIELD and kind == UNTRUSTED_KIND:
             continue
-        # The feed's own sentences alone: never the feed's schema reached by a reference from another kind.
-        if name == SENTENCES_FIELD and kind == SENTENCES_KIND and owner == SENTENCES_KIND and _sentence_shaped(prop):
+        # The feed's own sentences alone, at its top: never deeper, nor the feed's schema reached from another kind.
+        if name == SENTENCES_FIELD and kind == SENTENCES_KIND and owner == SENTENCES_KIND and path == "$" \
+                and _sentence_shaped(prop):
             continue
         out += _free(prop, schemas, root, kind, "%s.%s" % (path, name), seen, owner=owner)
     if isinstance(schema.get("items"), dict):

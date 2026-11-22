@@ -720,32 +720,33 @@ class Examples(unittest.TestCase):
         # A sentence is held to the plain pattern here, whatever the schema lets through: no mention, backtick, line break,
         # placeholder, slash, Markdown mark or other letter, and no more than 100 characters.
         for bad in ("Approved by @x.", "Approved; run `x`.", "Approved.\nNext.", "Approved.\rNext.", "Approved {x}.",
-                    "Approved %s.", "See a://b.", "See [x](y).", "Approved **now**.", "See www.x.", "approved.",
-                    "Approved\u00e9.", "A" + "a" * 99 + ".", "Approved"):
+                    "Approved %s.", "See a://b.", "See [x](y).", "Approved **now**.", "See www.x.", "See www. It waits.",
+                    "Approved. It waits.", "Approved.\u2028Next.", "approved.", "Approved\u00e9.", "A" + "a" * 99 + ".", "Approved"):
             broken = copy.deepcopy(feed)
             broken["sentences"]["approved"] = bad
             self.assertTrue(caught(check_examples._table(broken, decision), "the sentence for approved is not a plain"), bad)
         broken["sentences"]["approved"] = "A" + "a" * 98 + "."
         self.assertEqual(check_examples._table(broken, decision), [])
         # Nor what GitHub would make a link, an emoji or a reference of, though it is plain.
-        for bad in ("See www. It waits.", "See WWW. It waits.", "Approved :x: now.", "Approved :ok-1: now.", "See GH-12 first.",
-                    "See ABC-3."):
+        for bad in ("Approved :x: now.", "Approved :ok-1: now.", "See GH-12 first.", "See ABC-3.", "See deadbee first.",
+                    "See d1b3c40af52eaa67910b3e8cccbe89afd1f9688a."):
             broken["sentences"]["approved"] = bad
             self.assertTrue(caught(check_examples._table(broken, decision), "would be shown as a link, an emoji or a"), bad)
-        for good in ("Approved: it waits.", "Approved: x (y): z.", "A run-1 waits.", "It waits at noon - then: 2."):
+        for good in ("Approved: it waits.", "Approved: x (y): z.", "A run-1 waits.", "It waits at noon - then: 2.",
+                     "It is a decade old.", "See 123456 runs."):
             broken["sentences"]["approved"] = good
             self.assertEqual(check_examples._table(broken, decision), [], good)
         # The schema: a capital first, a full stop only before a space and at the end, and at most 100 characters.
         self.assertTrue(validate({k: v for k, v in feed.items() if k != "sentences"}, schema))
         sentence = schema["properties"]["sentences"]["additionalProperties"]
         self.assertEqual((sentence["maxLength"], sentence["pattern"]), (check_examples.SENTENCE_MOST, check_examples.SENTENCE_PATTERN))
-        for good in ("A" + "a" * 98 + ".", "Approved; it waits. It is (one) item, isn't it: yes - 2."):
+        for good in ("A" + "a" * 98 + ".", "Approved; it waits: it is (one) item, isn't it - yes, 2."):
             self.assertEqual(validate(good, sentence), [], good)
-        for bad in ("A" + "a" * 99 + ".", "approved.", "Approved", "Approved.x.", "Approved..", "Approved?", "Approved /x.",
+        for bad in ("A" + "a" * 99 + ".", "approved.", "Approved", "Approved.x.", "Approved..", "Approved. Next.", "Approved?", "Approved /x.",
                     "Approved\u00e9.", ""):
             self.assertTrue(validate(bad, sentence), bad)
         # And from the front door, on the live file.
-        root = clone({"config/feed.json": json.dumps(dict(feed, sentences=dict(feed["sentences"], approved="See www. It waits.")))})
+        root = clone({"config/feed.json": json.dumps(dict(feed, sentences=dict(feed["sentences"], approved="See GH-12 first.")))})
         self.assertTrue(caught(check_examples.run(root), "config/feed.json: feed: the sentence for approved would be shown"))
 
     def test_the_feeds_sentences_are_text_only_on_the_feed_and_in_their_shape(self):  # decision 0000
@@ -764,6 +765,11 @@ class Examples(unittest.TestCase):
         refers = {"type": "object", "additionalProperties": False, "properties": {"context": {"$ref": "feed.schema.json"}}}
         self.assertTrue(caught(check_examples._free(refers, schemas, refers, "task", "$", set()),
                                "admits text at $.context.sentences.*"))
+        # Nor a property of that name deeper in the feed: the sentences sit at its top alone.
+        deeper = copy.deepcopy(feed)
+        deeper["properties"]["next_actor"]["properties"]["sentences"] = shaped
+        self.assertTrue(caught(check_examples._free(deeper, schemas, deeper, "feed", "$", set()),
+                               "schema feed admits text at $.next_actor.sentences.*"))
         named = {"type": "object", "additionalProperties": False, "properties": {"phrases": shaped}}
         self.assertTrue(caught(check_examples._free(named, {}, named, "feed", "$", set()),
                                "schema feed admits text at $.phrases.*"))
