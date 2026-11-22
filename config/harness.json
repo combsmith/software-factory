@@ -46,7 +46,7 @@
       "share": 900,
       "usd_per_million": {
         "input": 10,
-        "output": 50
+        "output": 40
       }
     },
     "kimi": {
@@ -63,10 +63,10 @@
       "seconds": 900,
       "share": 540,
       "usd_per_million": {
-        "input": 3,
-        "output": 15
+        "input": 2.3,
+        "output": 11.5
       }
     }
   },
-  "advisory_worst_case_usd": 8.23
+  "advisory_worst_case_usd": 6.92
 }
