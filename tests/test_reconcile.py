@@ -551,6 +551,13 @@ class HandApproval(unittest.TestCase):
         # Two approvals of a head in the same second are both unmatched: neither can be told first.
         tie = check(seen(approval("PRR_z"), approval("PRR_a")), before=[decided_as(hand)])
         self.assertEqual((tie["hand"], sorted(u["key"] for u in tie["unmatched"])), ([], ["PRR_a", "PRR_z"]))
+        # Nor can they where one's time cannot be read, matched or not; a tie is of one pull request's head alone.
+        unordered = check(seen(approval("PRR_1", at="2026-10-11T12:20:00Z"), approval("PRR_2", at="2026-11-31T12:00:00Z")),
+                          recorded([applied(("approve", "PRR_2", "applied"))]), before=[decided_as(hand)])
+        self.assertEqual((unordered["hand"], kinds(unordered)), ([], [("approver", "approval")]))
+        both = dict(decided_as(hand), pull_requests=decided_as(hand)["pull_requests"] + decided_as(hand, item=OTHER)["pull_requests"])
+        apart = check(seen(approval("PRR_a"), approval("PRR_b", item=OTHER)), before=[both])
+        self.assertEqual(([h["key"] for h in apart["hand"]], apart["unmatched"]), (["PRR_a", "PRR_b"], []))
         # A read that is short, of what was seen or of what was recorded, makes no hand approval.
         for name, s_, e in (("seen short", seen(approval(), whole=False), recorded()),
                             ("recorded short", seen(approval()), recorded(whole=False)),
