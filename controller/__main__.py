@@ -24,9 +24,9 @@ and written to the folder `OUT` for the pass job's next steps (#193's ruling 10 
 The Release is the one tag `factory/vX.Y.Z` on the commit the pass checked out (`harness/steps.release`), read before any key. A snapshot that cannot be read leaves its pull
 request out of the pass, by its item and the code of why, as one alert; one that moved while it was read, and had not in
 the last pass, is deferred with no alert and its writes are owed to the next pass (#658). An issue that cannot be read
-is left out so too, and one that moved is graced as a pull request is, with nothing owed for it (decision 0229). So is
-each issue the pass's budget of issue requests left unread, by its item (decision 0234). A list of open pull requests or
-of issues not read whole, a Release, a key or
+is left out so too, and one that moved is graced as a pull request is, with nothing owed for it (decision 0229). A list of issues not read whole
+reads no issue, and the pass says so, naming no item; so does each issue the pass's budget of issue requests left unread,
+by its item (decision 0234). A list of open pull requests not read whole, a Release, a key or
 a run id that cannot be read, or a pass `pass_.py` refuses, writes nothing, so that nothing is dispatched; the step
 prints one code and exits 1, and nothing it prints is GitHub's text."""
 from __future__ import annotations
@@ -498,8 +498,8 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     owed = {e["facts"]["item"]["number"] for e in left if page(e["facts"]["item"]) in graced}
     from_passes = recorded_passes(transport, config, int(run_id), before, since, sleep, stages)
     # The open issues the Kernel could serve, none while `issues.served_from` is null, without the tracking issue, by
-    # the number the passes recorded. A list read short is never the whole, and stops the pass as the pull requests'
-    # does: an issue it left out would read as gone from the view.
+    # the number the passes recorded. A list read short is never the whole: no issue is read, and one entry naming no
+    # item says so, which the keyword spans' chain passes over; the pull requests are decided as ever (decision 0252).
     # Issues whose Apps cannot be told are not listed, as with no date: none is read or decided, and the pass says so.
     apart = reconcile.tracking(from_passes, before)
     served = None if refused else config["kernel"]["issues"]["served_from"]
@@ -509,9 +509,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
         except Unanswered:
             listed, listed_whole = [], False
         counts["count"] = len(listed)
-    if not listed_whole:
-        raise Stop("issue_list_unreadable")
-    issues = []
+    issues = [] if listed_whole else [{"facts": {"item": None}, "title": None, "unread": reads_.UNLISTED}]
     # Each issue's own facts, read and dated as a pull request's are; its title beside them. While the tracking
     # issue's number is not read, none is: each is left out as unread, so that one is never served as a Work item. One
     # no record numbers is told at its own read, by its opener and its body, and is no Work item, nor left out: it was
@@ -522,7 +520,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     counted = Counted(transport)
     # The account reader's permission reads for the issues are counted too, its answers shared with the pull requests'.
     asking = who.through(counted)
-    for number in pass_.issue_order(listed, before):
+    for number in pass_.issue_order(listed if listed_whole else [], before):
         began, through = stages.now(), Dated(counted)
         try:
             if apart is None:
@@ -562,12 +560,14 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     # decided or left out unread, never the tracking issue, which the listing leaves out by its number or its own read
     # tells (decision 0233). While that number is not read, no issue's writes are: the tracking issue could be among
     # those listed, and the passes' records read short leave reconciliation short already.
-    served_issues = [e["facts"]["item"]["number"] for e in issues] if apart is not None else ()
+    # A list read short serves none: its one entry names no item, and no issue that left can be told (decision 0252).
+    served_issues = [e["facts"]["item"]["number"] for e in issues if e["facts"]["item"] is not None] \
+        if apart is not None else ()
     # One listed that is neither served nor left out was told as the tracking issue at its own read: it never left (codex).
-    told = set(listed) - set(served_issues) if apart is not None else set()
+    told = set(listed) - set(served_issues) if apart is not None and listed_whole else set()
     seen, unread, gone, unread_issues, gone_issues = writes_seen(
         transport, config, numbers, kept, before, since, clock, owed, stages, served_issues,
-        listed=apart is not None and served is not None, tracking=set(apart or ()) | told)
+        listed=apart is not None and served is not None and listed_whole, tracking=set(apart or ()) | told)
     effects = recorded_effects(transport, config, runs, before, since, from_passes, sleep, stages)
     with stages.stage("pause"):
         pause = pause_.read(transport, home.split("/")[0], [home])

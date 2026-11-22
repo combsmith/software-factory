@@ -8,6 +8,7 @@ S3_ROW10 = ("tests.test_controller.Issues.test_with_no_app_declared_for_factory_
 
 F849_ALERTS = ("tests.test_controller.Issues.test_an_issue_left_unread_by_the_budget_raises_its_own_alert_and_no_other",)
 F849_BUDGET = ("tests.test_controller.Entry.test_the_issue_reads_stop_at_the_passs_budget_and_those_left_out_by_it_are_read_first_by_the_next",)
+F849_UNLISTED = ("tests.test_controller.Issues.test_an_issue_list_read_short_raises_its_own_alert_and_no_other",)
 TARGETS = ("controller/pass_.py",)
 MUTANTS = [
     # Issue 306: every write a Factory identity made matched to a recorded Effect (I-33, decision 0061).
@@ -346,4 +347,6 @@ MUTANTS = [
     ("a number listed twice and owed is read once", 'controller/pass_.py',
      '    return sorted(listed, key=lambda n: owed.index(n) if n in owed else len(owed))\n',
      '    return owed + [n for n in listed if n not in owed]\n', F849_BUDGET),
+    ("the issue list read short raises the budget's alert", 'controller/pass_.py',
+     'reads_.UNLISTED: "issue_list_unreadable"}', 'reads_.UNLISTED: "issue_budget_spent"}', F849_UNLISTED),
 ]
