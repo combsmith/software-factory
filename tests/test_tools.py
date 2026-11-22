@@ -5930,6 +5930,64 @@ class Context(unittest.TestCase):
         self.assertTrue(caught(problems, "a section 'Not yet held'"))
         self.assertTrue(caught(problems, "0003-y.md: the title must open with its number"))
 
+    def test_a_new_records_title_is_short_and_names_its_file(self):
+        # Decision 0245: from FIRST_SHORT on, a record's title is at most 72 characters and its file is named by it.
+        self.assertEqual((check_context.FIRST_SHORT, check_context.RECORD_TITLE), (245, 72))
+        body = "\n\n## Decision\n\nY.\n\n## Why\n\nZ.\n\n## Boundaries\n\n| B | Check |\n|---|---|\n| b | `tools/x.py` |\n"
+
+        def found(name, title, first=2):
+            files = {"docs/decisions/0001-a-long-title.md": "# 0001. " + "A long title " * 10 + body, "tools/x.py": ""}
+            files["docs/decisions/" + name] = "# 0002. %s" % title + body
+            with mock.patch.object(check_context, "FIRST_SHORT", first):
+                return check_context._decisions(tree(files))
+
+        at_most = "A" + " b" * 35 + "c"
+        self.assertEqual(len(at_most), 72)
+        self.assertEqual(found("0002-" + check_context._slug(at_most) + ".md", at_most), [])
+        over = at_most + "d"
+        self.assertTrue(caught(found("0002-" + check_context._slug(over) + ".md", over), "the title is 73 characters"))
+        # The file is the title lowercased, spaces to dashes, other punctuation dropped; any other name refuses.
+        title = "A pull request's title — names its area, and (#1) its issue"
+        self.assertEqual(check_context._slug(title), "a-pull-requests-title-names-its-area-and-1-its-issue")
+        self.assertEqual(found("0002-a-pull-requests-title-names-its-area-and-1-its-issue.md", title), [])
+        for name in ("0002-a-pull-requests-title.md", "0002-A-pull-requests-title-names-its-area-and-1-its-issue.md",
+                     "0002-a-pull-request-s-title-names-its-area-and-1-its-issue.md",
+                     "0002-a-pull-requests-title-names-its-area-and-1-its-issue-.md"):
+            self.assertTrue(caught(found(name, title), "the file is named by its title"), name)
+        self.assertEqual(check_context._slug("Self-held  x-y"), "self-held-x-y")
+        self.assertEqual(check_context._slug("X--Y and Queue / merge"), "x--y-and-queue-merge")
+        # The boundary, with its file named independently of the function under test, and counted in characters.
+        self.assertEqual(found("0002-" + "a" * 72 + ".md", "A" * 72), [])
+        self.assertTrue(caught(found("0002-" + "a" * 73 + ".md", "A" * 73), "the title is 73 characters"))
+        self.assertEqual(found("0002-" + "a" * 71 + ".md", "A" * 71 + "\u2014"), [])
+        # A space after the number's own one is counted.
+        self.assertTrue(caught(found("0002-" + "a" * 72 + ".md", " " + "A" * 72), "the title is 73 characters"))
+        # A record after the first short one is held too.
+        later = {"docs/decisions/0001-x.md": "# 0001. X" + body, "docs/decisions/0002-y.md": "# 0002. Y" + body,
+                 "docs/decisions/0003-z.md": "# 0003. Wrong name" + body, "tools/x.py": ""}
+        with mock.patch.object(check_context, "FIRST_SHORT", 2):
+            self.assertTrue(caught(check_context._decisions(tree(later)), "0003-z.md: from record 0002 on the file is named"))
+        self.assertEqual(check_context._slug("A b \u2014"), "a-b")
+        self.assertEqual(check_context._slug("\u2014 A b"), "a-b")
+        self.assertEqual(check_context._slug("Caf\u00e9 au lait"), "caf-au-lait")
+        # A title of 72 characters with spaces or a carriage return after it is still 72; a title that names nothing refuses.
+        self.assertEqual(found("0002-" + check_context._slug(at_most) + ".md", at_most + "  \r"), [])
+        for empty in ("", "\u2014", "??", "-", "- --"):
+            self.assertTrue(caught(found("0002-.md", empty), "the title names nothing"), empty)
+        # The file's own number decides, past a gap too.
+        files = {"docs/decisions/0001-x.md": "# 0001. X" + body, "docs/decisions/0003-y.md": "# 0003. " + over + body,
+                 "tools/x.py": ""}
+        with mock.patch.object(check_context, "FIRST_SHORT", 3):
+            problems = check_context._decisions(tree(files))
+        self.assertTrue(caught(problems, "0003-y.md: the title is 73 characters"))
+        # A number padded with zeros is held as written.
+        files["docs/decisions/00004-z.md"] = "# 00004. " + over + body
+        with mock.patch.object(check_context, "FIRST_SHORT", 3):
+            self.assertTrue(caught(check_context._decisions(tree(files)), "00004-z.md: the title is 73 characters"))
+        # A record below FIRST_SHORT keeps its long title and its name, and so does every record before it.
+        self.assertEqual(found("0002-x.md", over, first=3), [])
+        self.assertTrue(caught(found("0002-x.md", over, first=2), "the title is 73 characters"))
+
     def test_no_two_records_share_a_number(self):
         # Decision 1121: a record takes the number of the pull request that adds it, so numbers leave gaps. The number
         # is the file's, four digits or more, its title opens with it, and no two records share one, however written.
