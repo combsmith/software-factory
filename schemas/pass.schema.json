@@ -216,7 +216,7 @@
       }
     },
     "reconciliation": {
-      "description": "What reconciliation found, as the view says it, each once: each write a Factory identity made that no Effect recorded, and each merge read as an Override, ids and codes alone (decision 0061). Absent in a record written before reconciliation",
+      "description": "What reconciliation found, as the view says it, each once: each write a Factory identity made that no Effect recorded, each resolution by a hand unmatched or unjudged (decision 0223), each merge read as an Override, and each issue that left read whole by its 404 or 410 (decision 1145), ids and codes alone (decision 0061). Absent in a record written before reconciliation",
       "type": "array",
       "uniqueItems": true,
       "items": {
