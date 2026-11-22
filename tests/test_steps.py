@@ -1124,6 +1124,64 @@ class ControllerKey(unittest.TestCase):
 
 
 class Reread(unittest.TestCase):
+    def test_a_factory_pull_request_is_told_how_its_issue_stands_at_the_act(self):  # decision 0232, issue 964
+        # The read again joins the issue a pull request the Factory opened was opened for, as the pass does: its state
+        # and own label events by the issues port, through the read's own transport, told by the account reader the
+        # pull request is read with, and `issue_stands` filled by the Kernel's `stands`. So an approval the pass issued
+        # with the issue open is still wanted at the act; one whose issue a person held or closed since, or that cannot
+        # be read or moved while read, is not.
+        from controller import configuration
+        from kernel.decide import still_wanted
+        from tests import test_decide as td
+        config = configuration.load(ROOT, RELEASE, "pr-review")
+        ours = support.facts(**dict(td.AGENT, opened_for=41))
+        del ours["issue_stands"]         # the facts port gives no word of how an issue stands (decision 0232)
+        person = {"kind": "human", "name": "don-petry", "can_write": True}
+        hold = {"label": "factory:hold", "action": "labeled", "by": person, "at": "2026-10-11T12:00:00Z"}
+        open_ = {"state": "open", "label_events": [], "complete": {"timeline": True}}
+        held = dict(open_, label_events=[hold])
+        closed = {"state": "closed", "label_events": [], "complete": {"timeline": False}}
+        asked, readers = [], []
+        transport = object()
+
+        def again(stood, facts=ours):
+            def snapshot(transport, repo, number, identities, who, *a, **k):
+                readers.append(who)
+                return copy.deepcopy(facts), "t", HEAD
+
+            def read(through, repo, number, accounts):
+                asked.append((through is transport, repo, number, accounts is readers[-1]))
+                if isinstance(stood, Exception):
+                    raise stood
+                return copy.deepcopy(stood)
+            with unittest.mock.patch.object(reread.records, "runs", lambda *a, **k: copy.deepcopy(tc.listed([]))), \
+                    unittest.mock.patch.object(reread.facts_, "snapshot", snapshot), \
+                    unittest.mock.patch.object(reread.pause_, "read", lambda *a: {"org": None, "repos": {HOME: None}}), \
+                    unittest.mock.patch.object(reread.issues_, "stood", read):
+                return reread.item(transport, config, 42, support.NOW, lambda: support.NOW)[0]
+        decided = td.go(dict(ours, issue_stands="open"), td.REVIEWED)
+        self.assertEqual((decided["outcome"], decided["action"]), ("act", "issue_approval"))
+        got = again(open_)
+        self.assertEqual((got["issue_stands"], asked), ("open", [(True, HOME, 41, True)]))
+        self.assertTrue(still_wanted(decided, td.go(got, td.REVIEWED)))
+        # A person's Hold on the issue, or its close, stops the act; so does an issue GitHub did not answer for, or one
+        # that moved while it was read, each null.
+        for stood, stands, reason in ((held, "held", "issue_stopped"), (closed, "closed", "issue_stopped"),
+                                      (github.Unanswered("no"), None, "issue_stands_unreadable"),
+                                      (reread.facts_.Moved("moved"), None, "issue_stands_unreadable")):
+            got = again(stood)
+            self.assertEqual(got["issue_stands"], stands, stood)
+            self.assertEqual(td.go(got, td.REVIEWED)["reason"], reason, stood)
+            self.assertFalse(still_wanted(decided, td.go(got, td.REVIEWED)), stood)
+        # A fault of the issue read's own code is told its stage and raised, as every read's is (decision 0187).
+        with self.assertRaises(TypeError) as raised:
+            again(TypeError("an answer no adapter expected"))
+        self.assertEqual(getattr(raised.exception, "stage", None), "issue_stood")
+        # A pull request opened for no issue asks nothing, and its facts are as the snapshot gave them.
+        del asked[:]
+        plain = support.facts()
+        self.assertEqual((again(held, plain), asked), (plain, []))
+
     def test_a_runs_records_read_keeps_the_outcomes_its_pass_read(self):
         # A Run reads the run list again, in `read` and in `apply`, and an outcome its pass record already read is kept,
         # not downloaded again: an outcome is written once, by its attempt's last step. A Run that failed after the

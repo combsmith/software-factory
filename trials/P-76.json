@@ -1,0 +1,564 @@
+{
+  "schema": "trial/1",
+  "trial": "P-76",
+  "question": "What does the desk's Azure resource answer to a key it does not know, a burst of requests that meets its rate limit, a prompt its content filter refuses, and a background response cancelled 30 s in and read again, and what does adapters/advice.py make of each?",
+  "pass": "Written before the run, in issue 1042 at 2026-11-20T19:17Z, nothing having run (trial TA2 of decision 0224's plan). The requests left the desk, the Mac mini's network and the desk Python's LibreSSL, not a GitHub runner, with the desk resource's own key read in-process from the desk keychain and never printed, logged or written, and for the first a made-up key of a key's form (the Builder's ruling (a)). The code is the build's own: adapters/azure.Live, harness.advise.one and asked, adapters/advice.read, the reader astra (gpt-6.2-astra). Pass: 401 or 403 for the bad key, read as no_key; a 429 whose retry-after is whole seconds, read as rate_limited; the filter's refusal recorded in its shape and read as refused; the cancelled response read again as cancelled, and the parser's reading recorded; what the day's usage shows of the cancelled one owed from the desk's read of the resource's cost; Azure's retention of a stored background response written down with its source. Result: the bad key was answered 401, error code '401', 'Access denied due to invalid subscription key or wrong API endpoint...', and advice.read gave failed, no_key. The burst of 150 tiny requests from 30 threads met the limit at about its 135th: four 429s among 145 200s and one not answered; the first 429 carried retry-after '1', whole seconds, and an error of type too_many_requests, code rate_limit_exceeded, 'Your requests to gpt-6.2-astra for gpt-6.2-astra in northcentralus have exceeded request rate limit.'; advice.read gave incomplete, rate_limited, and harness.advise.waited reads it as a 1 s wait. The filtered prompt, asked in the background, was not refused with a 400: the create was answered 200 queued, and the read incomplete, incomplete_details.reason content_filter, at 0 tokens in and out; advice.read gave incomplete, refused. The long read, cancelled 30 s after its create, answered the cancel 200 with status cancelled, and the read again 200 cancelled, its usage 0 tokens in and out; advice.read gave failed, transport, cost null, as the parser prices only an ended read. Whether Azure billed anything for it is owed, and the day's usage alone cannot say, since the burst's 145 answers came from the same deployment a second after: it needs a figure that names the request, or it stays open. Retention, from Azure's documents (learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/responses): 'By default, response data is retained for 30 days. Delete a stored response by ID.' and 'Background mode requires store=true. Stateless requests are not supported.'; the data-privacy page says stored data 'Can be deleted by the customer at any time' and keeps abuse monitoring's human-review store in the resource's geography, with no period named. So a stored background response, its prompt and answer and the diff among them, is kept 30 days unless the step deletes it by its id after reading it, which it does not yet; deleting it says nothing of abuse monitoring's human-review store, for which no period is named. Passed, but for the cancelled read's billing, owed.",
+  "repo": null,
+  "ran_at": "2026-11-20T19:18:20Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the same resource, asked with a made-up key of a key's form, not a key of any resource"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/responses (act create), the bad key's read (harness.advise.one, astra); client time 2026-11-20T19:18:20Z, answered in 0.2 s; advice.read gave failed, no_key; texts written as length and sha256",
+        "headers": {},
+        "body": {
+          "model": "gpt-6.2-astra",
+          "input": "<33 bytes of text, sha256 ea265fac3657560a84f51320d31aeedd179f9d310ed4dc1b253fab94a646ac02>",
+          "reasoning": {
+            "effort": "xhigh"
+          },
+          "background": true,
+          "store": true
+        }
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "error": {
+            "code": "401",
+            "message": "Access denied due to invalid subscription key or wrong API endpoint. Make sure to provide a valid key for an active subscription and use a correct regional API endpoint for your resource."
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain as the desk readers read it; the requests left the Mac mini's network, through the desk Python's LibreSSL, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/responses (act create), a background read whose prompt is the sentence P-74 found refused alone; client time 2026-11-20T19:18:20Z, answered in 3.5 s; advice.read gave, of the whole read at its end, incomplete, refused; texts written as length and sha256",
+        "headers": {},
+        "body": {
+          "model": "gpt-6.2-astra",
+          "input": "<60 bytes of text, sha256 ec0e65bd71f6b67edbef77c1074f18f8ba6b8ba01688e63e0f7954adc8a27793>",
+          "reasoning": {
+            "effort": "xhigh"
+          },
+          "background": true,
+          "store": true
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_056ec56828314443006b009cfc96308195ba0c27046117d67b",
+          "object": "response",
+          "created_at": 1795202300,
+          "status": "queued",
+          "access_programs": null,
+          "background": true,
+          "completed_at": null,
+          "content_filters": null,
+          "error": null,
+          "frequency_penalty": 0.0,
+          "incomplete_details": null,
+          "input_transformations": [],
+          "instructions": null,
+          "max_tool_calls": null,
+          "model": "gpt-6.2-astra",
+          "moderation": null,
+          "output": [],
+          "parallel_tool_calls": true,
+          "presence_penalty": 0.0,
+          "previous_response_id": null,
+          "prompt_cache_key": null,
+          "prompt_cache_retention": "24h",
+          "reasoning": {
+            "context": "all_turns",
+            "effort": "xhigh",
+            "mode": "standard",
+            "summary": null
+          },
+          "safety_identifier": null,
+          "service_tier": "auto",
+          "store": true,
+          "temperature": 1.0,
+          "text": {
+            "format": {
+              "type": "text"
+            },
+            "verbosity": "medium"
+          },
+          "tool_choice": "auto",
+          "tool_usage": {
+            "image_gen": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "output_tokens_details": {},
+              "total_tokens": 0
+            },
+            "web_search": {
+              "num_requests": 0
+            }
+          },
+          "tools": [],
+          "top_logprobs": 0,
+          "top_p": 0.98,
+          "truncation": "disabled",
+          "usage": null,
+          "user": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain as the desk readers read it; the requests left the Mac mini's network, through the desk Python's LibreSSL, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "GET /openai/v1/responses/resp_056ec56828314443006b009cfc96308195ba0c27046117d67b (act read), a background read whose prompt is the sentence P-74 found refused alone; client time 2026-11-20T19:18:34Z, answered in 0.7 s; advice.read gave incomplete, refused; texts written as length and sha256",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_056ec56828314443006b009cfc96308195ba0c27046117d67b",
+          "object": "response",
+          "created_at": 1795202300,
+          "status": "incomplete",
+          "access_programs": null,
+          "background": true,
+          "completed_at": null,
+          "content_filters": [
+            {
+              "blocked": true,
+              "source_type": "prompt",
+              "content_filter_raw": [],
+              "content_filter_results": {
+                "hate": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "sexual": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "violence": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "self_harm": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "jailbreak": {
+                  "detected": true,
+                  "filtered": true
+                }
+              },
+              "content_filter_offsets": {
+                "start_offset": 0,
+                "end_offset": 2019,
+                "check_offset": 0
+              }
+            }
+          ],
+          "error": null,
+          "frequency_penalty": 0.0,
+          "incomplete_details": {
+            "reason": "content_filter"
+          },
+          "input_transformations": [],
+          "instructions": null,
+          "max_tool_calls": null,
+          "model": "gpt-6.2-astra",
+          "moderation": null,
+          "output": [
+            {
+              "id": "msg_056ec56828314443006b009d0271e081959d6800246d0f06b3",
+              "type": "message",
+              "status": "incomplete",
+              "content": [
+                {
+                  "type": "output_text",
+                  "annotations": [],
+                  "logprobs": [],
+                  "text": "<49 bytes of text, sha256 dd4d79786716bf2be3bbe7f9920b3465f3a48eafb65da55acad6b6270bc90657>"
+                }
+              ],
+              "phase": "final_answer",
+              "role": "assistant"
+            }
+          ],
+          "parallel_tool_calls": true,
+          "presence_penalty": 0.0,
+          "previous_response_id": null,
+          "prompt_cache_key": null,
+          "prompt_cache_retention": "24h",
+          "reasoning": {
+            "context": "all_turns",
+            "effort": "xhigh",
+            "mode": "standard",
+            "summary": null
+          },
+          "safety_identifier": null,
+          "service_tier": "auto",
+          "store": true,
+          "temperature": 1.0,
+          "text": {
+            "format": {
+              "type": "text"
+            },
+            "verbosity": "medium"
+          },
+          "tool_choice": "auto",
+          "tool_usage": {
+            "image_gen": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "output_tokens_details": {},
+              "total_tokens": 0
+            },
+            "web_search": {
+              "num_requests": 0
+            }
+          },
+          "tools": [],
+          "top_logprobs": 0,
+          "top_p": 0.98,
+          "truncation": "disabled",
+          "usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "output_tokens_details": {},
+            "total_tokens": 0
+          },
+          "user": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain as the desk readers read it; the requests left the Mac mini's network, through the desk Python's LibreSSL, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/responses (act create), a long background read at xhigh, cancelled 30 s after its create by harness.advise's own cancel, then read again; client time 2026-11-20T19:18:34Z, answered in 1.5 s; advice.read gave, of the whole read at its end, failed, transport; texts written as length and sha256",
+        "headers": {},
+        "body": {
+          "model": "gpt-6.2-astra",
+          "input": "<107 bytes of text, sha256 f5f498273d6d5e8c267d2ec0f6ecde611f3e52cd6bfcd1b91acf7244ff783e94>",
+          "reasoning": {
+            "effort": "xhigh"
+          },
+          "background": true,
+          "store": true
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_0b076274bd111b3a006b009d0ae72c8194a614f6668ea331e0",
+          "object": "response",
+          "created_at": 1795202314,
+          "status": "queued",
+          "access_programs": null,
+          "background": true,
+          "completed_at": null,
+          "content_filters": null,
+          "error": null,
+          "frequency_penalty": 0.0,
+          "incomplete_details": null,
+          "input_transformations": [],
+          "instructions": null,
+          "max_tool_calls": null,
+          "model": "gpt-6.2-astra",
+          "moderation": null,
+          "output": [],
+          "parallel_tool_calls": true,
+          "presence_penalty": 0.0,
+          "previous_response_id": null,
+          "prompt_cache_key": null,
+          "prompt_cache_retention": "24h",
+          "reasoning": {
+            "context": "all_turns",
+            "effort": "xhigh",
+            "mode": "standard",
+            "summary": null
+          },
+          "safety_identifier": null,
+          "service_tier": "auto",
+          "store": true,
+          "temperature": 1.0,
+          "text": {
+            "format": {
+              "type": "text"
+            },
+            "verbosity": "medium"
+          },
+          "tool_choice": "auto",
+          "tool_usage": {
+            "image_gen": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "output_tokens_details": {},
+              "total_tokens": 0
+            },
+            "web_search": {
+              "num_requests": 0
+            }
+          },
+          "tools": [],
+          "top_logprobs": 0,
+          "top_p": 0.98,
+          "truncation": "disabled",
+          "usage": null,
+          "user": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain as the desk readers read it; the requests left the Mac mini's network, through the desk Python's LibreSSL, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/responses/resp_0b076274bd111b3a006b009d0ae72c8194a614f6668ea331e0/cancel (act cancel), a long background read at xhigh, cancelled 30 s after its create by harness.advise's own cancel, then read again; client time 2026-11-20T19:19:06Z, answered in 0.4 s; advice.read gave, of the whole read at its end, failed, transport; texts written as length and sha256",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_0b076274bd111b3a006b009d0ae72c8194a614f6668ea331e0",
+          "object": "response",
+          "created_at": 1795202314,
+          "status": "cancelled",
+          "access_programs": null,
+          "background": true,
+          "completed_at": null,
+          "content_filters": null,
+          "error": null,
+          "frequency_penalty": 0.0,
+          "incomplete_details": null,
+          "instructions": null,
+          "max_tool_calls": null,
+          "model": "gpt-6.2-astra",
+          "moderation": null,
+          "output": [],
+          "parallel_tool_calls": true,
+          "presence_penalty": 0.0,
+          "previous_response_id": null,
+          "prompt_cache_key": null,
+          "prompt_cache_retention": "24h",
+          "reasoning": {
+            "context": "all_turns",
+            "effort": "xhigh",
+            "mode": "standard",
+            "summary": null
+          },
+          "safety_identifier": null,
+          "service_tier": "auto",
+          "store": true,
+          "temperature": 1.0,
+          "text": {
+            "format": {
+              "type": "text"
+            },
+            "verbosity": "medium"
+          },
+          "tool_choice": "auto",
+          "tool_usage": {
+            "image_gen": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "output_tokens_details": {},
+              "total_tokens": 0
+            },
+            "web_search": {
+              "num_requests": 0
+            }
+          },
+          "tools": [],
+          "top_logprobs": 0,
+          "top_p": 0.98,
+          "truncation": "disabled",
+          "usage": null,
+          "user": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain as the desk readers read it; the requests left the Mac mini's network, through the desk Python's LibreSSL, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "GET /openai/v1/responses/resp_0b076274bd111b3a006b009d0ae72c8194a614f6668ea331e0 (act read), a long background read at xhigh, cancelled 30 s after its create by harness.advise's own cancel, then read again; client time 2026-11-20T19:19:11Z, answered in 0.2 s; advice.read gave failed, transport; texts written as length and sha256",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_0b076274bd111b3a006b009d0ae72c8194a614f6668ea331e0",
+          "object": "response",
+          "created_at": 1795202314,
+          "status": "cancelled",
+          "access_programs": null,
+          "background": true,
+          "completed_at": null,
+          "content_filters": null,
+          "error": null,
+          "frequency_penalty": 0.0,
+          "incomplete_details": null,
+          "input_transformations": [],
+          "instructions": null,
+          "max_tool_calls": null,
+          "model": "gpt-6.2-astra",
+          "moderation": null,
+          "output": [],
+          "parallel_tool_calls": true,
+          "presence_penalty": 0.0,
+          "previous_response_id": null,
+          "prompt_cache_key": null,
+          "prompt_cache_retention": "24h",
+          "reasoning": {
+            "context": "all_turns",
+            "effort": "xhigh",
+            "mode": "standard",
+            "summary": null
+          },
+          "safety_identifier": null,
+          "service_tier": "auto",
+          "store": true,
+          "temperature": 1.0,
+          "text": {
+            "format": {
+              "type": "text"
+            },
+            "verbosity": "medium"
+          },
+          "tool_choice": "auto",
+          "tool_usage": {
+            "image_gen": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "output_tokens_details": {},
+              "total_tokens": 0
+            },
+            "web_search": {
+              "num_requests": 0
+            }
+          },
+          "tools": [],
+          "top_logprobs": 0,
+          "top_p": 0.98,
+          "truncation": "disabled",
+          "usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "output_tokens_details": {},
+            "total_tokens": 0
+          },
+          "user": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain as the desk readers read it; the requests left the Mac mini's network, through the desk Python's LibreSSL, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/responses (act create), the burst: 150 tiny requests ('Say ok.', max_output_tokens 16, not background) from 30 threads at once from 2026-11-20T19:19:12Z; the answers were 200 145, 429 4, Unanswered 1; this is the first 429, request 135 of the burst, at 2026-11-20T19:19:19Z; advice.read gave incomplete, rate_limited and harness.advise.waited read its retry-after as 1 s",
+        "headers": {},
+        "body": {
+          "model": "gpt-6.2-astra",
+          "input": "Say ok."
+        }
+      },
+      "response": {
+        "status": 429,
+        "headers": {
+          "content-type": "application/json",
+          "retry-after": "1"
+        },
+        "body": {
+          "error": {
+            "message": "Your requests to gpt-6.2-astra for gpt-6.2-astra in northcentralus have exceeded request rate limit.",
+            "type": "too_many_requests",
+            "param": null,
+            "code": "rate_limit_exceeded"
+          }
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.body.max_output_tokens",
+    "exchanges[1].request.body.max_output_tokens",
+    "exchanges[1].response.body.max_output_tokens",
+    "exchanges[1].response.body.tool_usage.image_gen.input_tokens_details",
+    "exchanges[1].response.body.tool_usage.image_gen.output_tokens_details.image_tokens",
+    "exchanges[1].response.body.tool_usage.image_gen.output_tokens_details.text_tokens",
+    "exchanges[2].response.body.max_output_tokens",
+    "exchanges[2].response.body.tool_usage.image_gen.input_tokens_details",
+    "exchanges[2].response.body.tool_usage.image_gen.output_tokens_details.image_tokens",
+    "exchanges[2].response.body.tool_usage.image_gen.output_tokens_details.text_tokens",
+    "exchanges[2].response.body.usage.input_tokens_details",
+    "exchanges[2].response.body.usage.output_tokens_details.reasoning_tokens",
+    "exchanges[3].request.body.max_output_tokens",
+    "exchanges[3].response.body.max_output_tokens",
+    "exchanges[3].response.body.tool_usage.image_gen.input_tokens_details",
+    "exchanges[3].response.body.tool_usage.image_gen.output_tokens_details.image_tokens",
+    "exchanges[3].response.body.tool_usage.image_gen.output_tokens_details.text_tokens",
+    "exchanges[4].response.body.max_output_tokens",
+    "exchanges[4].response.body.tool_usage.image_gen.input_tokens_details",
+    "exchanges[4].response.body.tool_usage.image_gen.output_tokens_details.image_tokens",
+    "exchanges[4].response.body.tool_usage.image_gen.output_tokens_details.text_tokens",
+    "exchanges[5].response.body.max_output_tokens",
+    "exchanges[5].response.body.tool_usage.image_gen.input_tokens_details",
+    "exchanges[5].response.body.tool_usage.image_gen.output_tokens_details.image_tokens",
+    "exchanges[5].response.body.tool_usage.image_gen.output_tokens_details.text_tokens",
+    "exchanges[5].response.body.usage.input_tokens_details",
+    "exchanges[5].response.body.usage.output_tokens_details.reasoning_tokens",
+    "exchanges[6].request.body.max_output_tokens"
+  ],
+  "verdict": "pass"
+}

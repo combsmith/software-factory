@@ -1,13 +1,13 @@
 # controller/
 
-The Controller. `pass_.py` is one pass as a function of what it read, the configuration, `now`, the pass records before it and a mint for ids: it builds the context, asks the Kernel about every item through `kernel.decide` and `kernel.issue.decide`, and
-returns the pass record, the Runs to dispatch by their run-names, the acts, the view's three files, the alerts and whether a successor starts. It reads no clock, writes nothing and decides nothing itself. `reads.py` holds what it reads to the schemas,
-`feed.py` and `health.py` write the view, `writes.py` plans the writes, `configuration.py` reads what a pass is told, `shared.py` the schemas. `__main__.py` is the entry the pass job runs (decision 0060). `reconcile.py` matches writes to Effects.
-Not built yet, by the stories that hold their rules: relay.py, backpressure.py, notify.py, brakes.py, issue_holds.py, issues_left.py.
+The Controller. `pass_.py` is one pass as a function of what it read, the configuration, `now`, the pass records before it and a mint for ids: it builds the context, asks `kernel.decide` and `kernel.issue.decide` about every item, and returns the pass record,
+the Runs to dispatch by run-name, the acts, the view's three files, the alerts and whether a successor starts. It reads no clock, writes nothing and decides nothing itself. `reads.py` holds what it reads to the schemas, `feed.py` and `health.py` write the
+view, `writes.py` plans writes, `configuration.py` what a pass is told, `shared.py` the schemas, `credentials.py` the credential alert. `__main__.py` is the pass job's entry (decision 0060). `reconcile.py` matches writes to Effects.
+Not built yet, by the stories that hold their rules: relay.py, backpressure.py, notify.py, brakes.py, advisory.py. Built for decision 0232: `issue_holds.py`, which tells a pull request how its issue stands.
 
 | Rule | Held by |
 |---|---|
-| The pass asks the Kernel through its entry points alone, each Lifecycle's `decide` and `unnamed_scope`, and imports no clock and nothing that reaches out | `tests/test_controller.py::test_the_pass_asks_the_kernel_through_its_entry_points_alone` |
+| The pass asks the Kernel only through each Lifecycle's `decide`, `unnamed_scope` and the issues' `stands`, and imports no clock and nothing that reaches out | `tests/test_controller.py::test_the_pass_asks_the_kernel_through_its_entry_points_alone` |
 | The pass record holds what the Kernel was given, and replays every Decision | `tests/test_controller.py::test_the_pass_record_holds_what_the_kernel_was_given_and_replays_it` |
 | A Run id is minted for an admission, an approval, or a queue act once its workflow is named | `tests/test_controller.py::test_a_queue_act_gets_a_run_id_and_a_dispatch_once_its_workflow_is_named` |
 | A Run is dispatched by its run-name; a capacity fault defers model Runs for its window | `tests/test_controller.py::test_the_runs_to_dispatch_are_named_by_their_run_names`, `tests/test_controller.py::test_a_capacity_fault_defers_model_runs_for_its_window` |

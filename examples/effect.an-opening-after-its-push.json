@@ -1,0 +1,11 @@
+{
+  "open_pull_request": [
+    {
+      "id": "e1",
+      "title": {
+        "body": "The glossary's first line ends with a full stop"
+      },
+      "body": "The glossary's first line is a sentence, and now ends as one. Nothing else in the file changes."
+    }
+  ]
+}

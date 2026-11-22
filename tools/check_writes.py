@@ -42,7 +42,8 @@ CALLERS = {
 TRANSPORT = {(GITHUB, "Live.send"), (GITHUB, "Replay.send")}
 # Python outside adapters/ that may hold a write verb as a string: each reads a command to classify it, and sends none.
 VERB_HOLDERS = ("tools/hooks/identity.py", "tools/hooks/protected.py")
-# Python that loads a module by a name it is given: tools/mutants.py loads a test under tests/, and checks it is one.
+# Python that loads a module by a name it is given: tools/mutants.py loads a test under tests/, and checks it is one,
+# and each file of MUTANT_DATA by its name, as `areas` finds them.
 NAME_LOADERS = ("tools/mutants.py",)
 # Python outside tests/ that imports a test: tools/make_corpus.py records the Kernel's decisions from tests/test_decide.py.
 TEST_IMPORTERS = ("tools/make_corpus.py",)
@@ -53,9 +54,21 @@ PATCHERS = {"tools/make_corpus.py": {"sim.world.decide"}}
 # workflow's text it checks, and none runs gh or git to write to GitHub, which is an adapter's (issue 596). A new one is
 # the Maintainer's to allow.
 RUNNERS = ("harness/steps.py", "tools/check_decisions.py", "tools/check_trials.py", "tools/check_workflows.py",
-           "tools/commits_are_the_maintainers.py",
+           "tools/commits_are_the_maintainers.py", "tools/desk.py",
            "tools/hooks/before_stop.py", "tools/hooks/identity.py", "tools/hooks/make.py", "tools/hooks/protected.py",
-           "tools/hooks/rules_changed.py", "tools/hooks/shell.py", "tools/mutants.py", "tools/untested.py")
+           "tools/hooks/rules_changed.py", "tools/hooks/shell.py", "tools/untested.py")
+# The mutants of the files outside kernel/, as data: each names a command as the text a mutant finds in its target, and
+# runs none, since it imports no module, and names from no file but another there that imports none either (issue 1101;
+# allowed by the Maintainer, 2026-11-21). Its top level is a docstring, imports and assignments, with no def or class
+# or lambda anywhere; it calls nothing but DATA_CALLS, binds none of them, sets no attribute or item, reads none of
+# REACHERS, nor a name of two underscores. Only its assignments may name one; any other file there is read as any other.
+# Only another such file, or one RUNNERS names, may import from one that names a command so; tools/mutants.py loads each
+# by its name, the one way past, held by NAME_LOADERS, and reads the text as a patch to make, never a command to run.
+# Its limit: text taken through tools.mutants's names (MUTANTS, OUTSIDE, AREAS) is not followed. Each file that imports
+# tools.mutants is a runner, and reads those names as attributes, which no model of imported names could follow
+# (the Solution Architect, 2026-11-21).
+# It is read in good faith, as the rest of this check is: every other rule here still reads it.
+MUTANT_DATA = "tools/mutants_of/"
 # A command's name as a string, in any case, by a path or not, `.exe` or not: gh or git alone or opening a command line;
 # a shell's command after a new line, its `;`, `&`, `|`, `(`, `{` or `!`, or a `case` pattern's `)` after `in`, `;;`,
 # `;&` or `;;&`,
@@ -941,6 +954,100 @@ def _adapter(mod: Module) -> bool:
     return mod.name == "adapters" or mod.name.startswith("adapters.")
 
 
+# Names and attributes a file of the mutants' data never reads: each reaches code by a name it is given, or a builtin
+# that could, so a file that reads one is no data however it imports.
+REACHERS = {"eval", "exec", "compile", "open", "getattr", "setattr", "delattr", "globals", "locals", "vars", "breakpoint",
+            "input", "memoryview", "help"}
+# The calls a file of the mutants' data may make, named: a text's replace and tuple; any other call is code.
+DATA_CALLS = {"replace", "tuple"}
+
+
+def _inert(mod, mods: dict, seen: frozenset = frozenset(), known: dict = None) -> bool:
+    """Whether `mod` is under MUTANT_DATA, holds at its top level nothing but a docstring, imports and assignments, and
+    anywhere in it no def or class; imports no module, and names from none but another file there that is inert
+    as well, read through each in turn; and reads, imports or binds none of REACHERS and no name or attribute of two
+    underscores; and calls nothing but DATA_CALLS, binds none of them to another value, and sets or deletes no
+    attribute or item. It holds no lambda, which is code that a file it hands one to could call. It names from a file
+    directly in MUTANT_DATA alone, whose package is the one above them all; a module it names from a package must be
+    inert as well, and an import that comes back round is not. Each file is read once in a run
+    (`known`)."""
+    known = {} if known is None else known
+    if mod.name in known:
+        return known[mod.name]
+    if not mod.rel.startswith(MUTANT_DATA) or mod.name in seen:
+        return False
+    inert = all(isinstance(node, (ast.ImportFrom, ast.Assign)) or (isinstance(node, ast.Expr) and isinstance(
+        node.value, ast.Constant) and isinstance(node.value.value, str)) for node in mod.tree.body)
+    for node in mod.nodes if inert else ():
+        said = [node.id] if isinstance(node, ast.Name) else [node.attr] if isinstance(node, ast.Attribute) else \
+            [n for alias in node.names for n in (alias.name, alias.asname) if n] if isinstance(node, ast.ImportFrom) else []
+        bound = [node.id] if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) else \
+            [alias.asname or alias.name for alias in node.names] if isinstance(node, ast.ImportFrom) else []
+        called = node.func if isinstance(node, ast.Call) else None
+        if isinstance(node, ast.Lambda) or DATA_CALLS.intersection(bound):    # code another file calls; any call
+            inert = False
+        elif isinstance(node, (ast.Attribute, ast.Subscript)) and not isinstance(node.ctx, ast.Load):  # sets another's
+            inert = False
+        elif called is not None and getattr(called, "attr", getattr(called, "id", None)) not in DATA_CALLS:
+            inert = False
+        elif any(n in REACHERS or n.startswith("__") for n in said):     # a def, class or import: refused above
+            inert = False
+        elif isinstance(node, ast.ImportFrom):
+            source = None if node.level or node.module.count(".") != MUTANT_DATA.count("/") else mods.get(node.module)
+            inert = source is not None and _inert(source, mods, seen | {mod.name}, known) and all(
+                _inert(mods[whole], mods, seen | {mod.name}, known) for whole in (
+                    "%s.%s" % (node.module, alias.name) for alias in node.names) if whole in mods)
+        if not inert:
+            break
+    known[mod.name] = inert
+    return inert
+
+
+def _mutant_data(mod, mods: dict, known: dict = None) -> set:
+    """The lines of `mod` that are the mutants' data: each line of an assignment at its top level, none in a def or a
+    class, where `mod` is inert; else none. So a command such a line names is text, and nothing the file can reach can
+    run one."""
+    if not _inert(mod, mods, known=known):
+        return set()
+    return {line for node in mod.tree.body if isinstance(node, ast.Assign)
+            for line in range(node.lineno, node.end_lineno + 1)}
+
+
+def _imported(mod) -> list:
+    """(the line, each module an import there may load) for each import in `mod`: each package above the module it
+    names, which Python runs first, and a name from a module, which may be one."""
+    package = mod.name if mod.rel.rpartition("/")[2] == "__init__.py" else mod.name.rpartition(".")[0]
+    out = []
+    for node in mod.nodes:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            if isinstance(node, ast.Import):
+                named = [alias.name for alias in node.names]
+            else:
+                base = package.split(".")[:len(package.split(".")) - node.level + 1] if node.level else []
+                source = ".".join(base + ([node.module] if node.module else [])) if node.level else node.module
+                named = [source] + ["%s.%s" % (source, alias.name) for alias in node.names]
+            out.append((node.lineno, sorted({".".join(name.split(".")[:n]) for name in named
+                                             for n in range(1, name.count(".") + 2)})))
+    return out
+
+
+def _texting(mods: dict, known: dict) -> set:
+    """The names of the modules a file that runs code imports from only where RUNNERS names it: each file of the
+    mutants' data that names a command as text by that rule, then each such file or runner that imports from one,
+    which hands it on, to a fixed point."""
+    found = {name for name, mod in mods.items()
+             if mod.rel.startswith(MUTANT_DATA) and set(_commands(mod)) & _mutant_data(mod, mods, known)}
+    carriers = [mod for mod in mods.values() if mod.rel in RUNNERS or _inert(mod, mods, known=known)]
+    grown = True
+    while grown:
+        grown = False
+        for mod in carriers:
+            if mod.name not in found and any(n in found for _, names in _imported(mod) for n in names):
+                found.add(mod.name)
+                grown = True
+    return found
+
+
 def run(root: pathlib.Path = ROOT) -> list:
     _READ.clear()
     problems, mods = [], {}
@@ -960,6 +1067,8 @@ def run(root: pathlib.Path = ROOT) -> list:
         mods[_name(rel)] = Module(rel, tree, known)
     reading = Reading(mods)
     problems += reading.problems
+    inert = {}      # each file of the mutants read once in a run, whichever file names from it
+    texting = _texting(mods, inert)
     writers, commanding, patching = set(), set(), set()
     for mod in mods.values():
         if mod.name != GITHUB:
@@ -977,10 +1086,15 @@ def run(root: pathlib.Path = ROOT) -> list:
         patching |= {(mod.rel, what) for what, _ in patched}
         if _commands(mod):
             commanding.add(mod.rel)
+        if mod.rel not in RUNNERS and not _inert(mod, mods, known=inert):
+            problems += ["%s:%d imports from a file of the mutants' data that names a command as text, which only "
+                         "another such file, or one tools/check_writes.py's RUNNERS names, may do" % (mod.rel, line)
+                         for line, names in _imported(mod) if texting.intersection(names)]
         if mod.rel not in RUNNERS:
+            data = _mutant_data(mod, mods, inert)
             problems += ["%s:%d names gh or git as a command, which may write to GitHub past adapters/; a write is an "
                          "adapter's, and Python that runs either to read is named in tools/check_writes.py's RUNNERS"
-                         % (mod.rel, line) for line in _commands(mod)]
+                         % (mod.rel, line) for line in _commands(mod) if line not in data]
         for qual, nodes in mod.units.items():
             for call, which in ([] if (mod.name, qual) in TRANSPORT else reading.sends(mod, nodes)):
                 if which is None:

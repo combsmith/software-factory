@@ -3,6 +3,7 @@
 `make fast` runs the same checks and every test but the seeded simulation. `make checks` runs the checks alone, half a
 minute, and is what a session's hooks run after an edit and before a stop (`tools/hooks/after_edit.py`,
 `tools/hooks/before_stop.py`), and what the desk owes with the mutants of the files a change touches; the tests are CI's.
+After the checks it prints one note that fails nothing, `tools/desk.py`'s size (`desk_note`), which CI's legs never run.
 
 CI runs `make verify` in legs, each told CHECKS_SHARD and CHECKS_SHARDS by its matrix: each leg runs every check and its
 share of the tests, so that across the legs every test runs once and no leg nears the step's limit. Neither set: every
@@ -38,8 +39,8 @@ CHECKS = [
     ("decision records", check_decisions.run),
     ("gate sets", check_gate_sets.run),
 ]
-# The test modules `make fast` leaves out. `make verify` runs them all.
-SLOW = ("test_simulator", "test_issue_simulator")
+# The test modules `make fast` leaves out, each of which runs the seeded simulation. `make verify` runs them all.
+SLOW = ("test_simulator", "test_issue_simulator", "test_reasons")
 
 
 def failed(checks: list) -> bool:
@@ -108,6 +109,36 @@ def notes() -> list:
             "%-22s %s" % ("boundary mutants", check_decisions.unnamed())]
 
 
+def desk_note() -> str:
+    """`tools/desk.py`'s note on about the size the Factory will count the branch at, which `make checks` prints after
+    the checks have answered (issue 1109). It is imported here alone, late, and whatever it raises, an exit among
+    them, is the note's: it never changes what make checks answers. Each git it runs has a timeout."""
+    try:
+        from tools import desk      # late: a fault in it is the note's, never the checks'
+        return desk.size()
+    except BaseException as err:    # NOSONAR: an exit too; the note never decides make checks' answer
+        return "no note: it raised %s" % type(err).__name__
+
+
+def quiet(stream) -> None:
+    """Once the note failed to write to `stream`, writes out what the checks left held in it; only where that fails too
+    (a closed pipe) points the stream's file at the null device, so the flush at exit, which tries again what is still
+    held, finds nothing closed and cannot change make checks' answer."""
+    try:
+        stream.flush()      # a failure that is no closed pipe, an encoding say, leaves the checks' output to go out
+        return
+    except BaseException:       # NOSONAR: a closed pipe; the note never decides make checks' answer
+        pass
+    try:
+        fd = stream.fileno()
+        null = os.open(os.devnull, os.O_WRONLY)
+        if null != fd:      # the null device took the stream's own number, closed already: it is left as it is
+            os.dup2(null, fd)
+            os.close(null)
+    except BaseException:       # NOSONAR: a stream with no file too; the note never decides make checks' answer
+        pass
+
+
 def main(argv: list, environ=None) -> int:
     try:
         share = None if "--checks" in argv or "--fast" in argv else leg(environ or {})
@@ -116,7 +147,12 @@ def main(argv: list, environ=None) -> int:
         return 1
     checks_failed = failed(CHECKS)
     if "--checks" in argv:
-        return 1 if checks_failed else 0
+        answer = 1 if checks_failed else 0      # the checks' answer, told before the note runs
+        try:
+            print("%-22s %s" % ("diff size", desk_note()), flush=True)
+        except BaseException:       # NOSONAR: a closed pipe too; the note never decides make checks' answer
+            quiet(sys.stdout)
+        return answer
     for line in notes():
         print(line)
     unverified(check_trials.unverified())

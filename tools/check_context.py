@@ -42,6 +42,15 @@ PATHLIKE = re.compile(r"^[\w.-]+(/[\w.-]+)*/?$")
 SUFFIXES = (".py", ".json", ".md", ".yml", ".yaml")
 EXTENSION = re.compile(r"\.[a-z0-9]{1,5}$")
 PENDING = "not held yet"
+# From this record on, a record's title after "# NNNN. " is at most RECORD_TITLE characters, and its file is named by it:
+# the title lowercased, every character but an ASCII letter, a digit, a space or a dash dropped, the spaces at either
+# end left out, then each run of spaces turned to one dash (decision 0245). A title with no letter or digit names nothing.
+# The records before keep their names, since a record is never edited.
+FIRST_SHORT = 245
+RECORD_TITLE = 72
+# A record is numbered by the pull request that adds it, which tools/commits_are_the_maintainers.py holds, so numbers
+# leave gaps; the number is the file's, at least four digits, and no two records share one (decision 1121).
+RECORD_NUMBER = re.compile(r"^([0-9]{4,})-")
 WAITING = re.compile(r"waiting on `([^`\n]+)`", re.I)
 MODULE = re.compile(r"python3 -m ([\w.]*\w)")
 BARE_NUMBER = re.compile(r"(?<![&`])(?<!\]\()#\d+\b")
@@ -349,12 +358,21 @@ def _decisions(root: pathlib.Path) -> list:
     records = sorted((root / "docs" / "decisions").glob("*.md"))
     if not records:
         return ["docs/decisions/ holds no record"]
-    for want, path in enumerate(records, 1):
+    seen = {}
+    for path in records:
         text = _text(path)
-        if not path.name.startswith("%04d-" % want):
-            problems.append("docs/decisions/%s: records are numbered from 0001 with no gap" % path.name)
-        if not text.startswith("# %04d. " % want):
+        named = RECORD_NUMBER.match(path.name)
+        number = int(named.group(1)) if named else None
+        if named is None:
+            problems.append("docs/decisions/%s: a record's file opens with its number, four digits or more, and a dash"
+                            % path.name)
+        elif number in seen:
+            problems.append("docs/decisions/%s: shares its number with %s; no two records do" % (path.name, seen[number]))
+        seen.setdefault(number, path.name)
+        if named is None or not text.startswith("# %s. " % named.group(1)):
             problems.append("docs/decisions/%s: the title must open with its number" % path.name)
+        if named and number >= FIRST_SHORT and text.startswith("# %s. " % named.group(1)):
+            problems += _short(path.name, number, text)
         parts = dict(_sections(text, "## "))
         for need in ("Decision", "Why", "Boundaries"):
             if not parts.get(need, "").strip():
@@ -367,6 +385,26 @@ def _decisions(root: pathlib.Path) -> list:
             problems.append("docs/decisions/%s: names no boundary a check can assert" % path.name)
         for i, cells in enumerate(rows, 1):
             problems += _held(cells[-1], "docs/decisions/%s, boundary %d" % (path.name, i), root, path.parent)
+    return problems
+
+
+def _slug(title: str) -> str:
+    """A record's file name for `title`: lowercased, spaces to dashes, all but an ASCII letter, a digit or a dash dropped."""
+    return re.sub(r" +", "-", re.sub(r"[^a-z0-9 -]", "", title.lower()).strip())
+
+
+def _short(name: str, number: int, text: str) -> list:
+    """Why a record from FIRST_SHORT on has a long title, or a file not named by its title: nothing where it has neither.
+    Its digits are its file's, as written, so a number padded with zeros is held too."""
+    digits = name.split("-", 1)[0]
+    title = text.split("\n", 1)[0][len("# %s. " % digits):].rstrip()
+    problems = [] if re.search(r"[a-z0-9]", _slug(title)) else ["docs/decisions/%s: the title names nothing" % name]
+    if len(title) > RECORD_TITLE:
+        problems.append("docs/decisions/%s: the title is %d characters, and from record %04d on the most is %d"
+                        % (name, len(title), FIRST_SHORT, RECORD_TITLE))
+    if name != "%s-%s.md" % (digits, _slug(title)):
+        problems.append("docs/decisions/%s: from record %04d on the file is named by its title, %s-%s.md"
+                        % (name, FIRST_SHORT, digits, _slug(title)))
     return problems
 
 

@@ -1,0 +1,32 @@
+name: Issue
+description: A problem or an ask for the Factory, in plain words.
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Title it "area: the problem in plain words", in at most about 72 characters, one problem per issue: for example
+        "kernel: hold an item while its issue is held". The area is the part it touches, such as kernel, adapters,
+        harness, release, docs or github. No backticks, no names with underscores, no record or trial numbers. Gloss or
+        link a term from the [glossary](https://github.com/combsmith/software-factory/blob/main/docs/glossary.md) on
+        first use.
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What is wrong or missing, and what a user of the Factory would notice.
+    validations:
+      required: true
+  - type: textarea
+    id: asked
+    attributes:
+      label: What is asked
+      description: The change wanted, or the question to answer. Say what it does not cover.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: How anyone can tell the issue is done.
+    validations:
+      required: true

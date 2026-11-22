@@ -227,6 +227,7 @@
     ]
   },
   "opened_for": null,
+  "issue_stands": null,
   "complete": {
     "acceptance": true,
     "reviews": true,

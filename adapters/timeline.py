@@ -21,6 +21,8 @@ never skipped. No text of GitHub's reaches a part: a review's body, a dismissal'
 """
 from __future__ import annotations
 
+import concurrent.futures
+import copy
 import datetime
 import hashlib
 import re
@@ -31,6 +33,9 @@ from adapters.pull import blobs, canonical
 from kernel.terms import BOT_SUFFIX
 
 PAGE = 100
+# The pages of an issue's timeline, or of a pull request it lists as linked, read at most: a thousand events. Anyone can
+# comment, so the read is bounded; past the bound it is not whole, and an issue's own is said to be bounded (decision 0234).
+BOUND = 10
 WRITE = {"admin", "maintain", "write"}
 PERMISSIONS = WRITE | {"triage", "read", "none"}
 STATES = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes_requested", "COMMENTED": "commented",
@@ -82,6 +87,8 @@ class Accounts:
         self.lenses, self.factory, self.answers, self.roles = dict(lenses), set(factory), {}, set(roles)
         self.queue = tuple(queue) if queue is not None else None
         self.apps, self.reserved = dict(apps or {}), set(reserved)
+        # The first thread to ask a login asks it; the rest wait on and read its answer (decision 1138).
+        self.asked = {}
 
     def named(self, login: str, ident: int, kind: str) -> str:
         """A Bot's name: the one configured for its id, else the login it shows. A User's login, which holds no bracket,
@@ -108,19 +115,35 @@ class Accounts:
 
     def _permission(self, login: str) -> dict:
         """The repo's permission answer for `login`, read once a login for all the reader serves."""
-        if login not in self.answers:
-            path = "/repos/%s/collaborators/%s/permission" % (self.repo, urllib.parse.quote(login, safe=""))
-            # An answer that failed is kept too, one that never came among them, so a login is asked once however
-            # often it appears.
+        mine = concurrent.futures.Future()
+        held = self.asked.setdefault(login, mine)       # one step, so one thread alone finds its own
+        if held is mine:
             try:
-                answer = self.transport.send(request("GET", path))
-            except Unanswered:
-                answer = {"status": "no answer", "body": None}
-            ok = answer["status"] == 200 and isinstance(answer["body"], dict)
-            self.answers[login] = answer["body"] if ok else answer["status"]
-        if not isinstance(self.answers[login], dict):
-            raise Unanswered("the permission of %s answered %s" % (login, self.answers[login]))
-        return self.answers[login]
+                self._ask(login)
+            finally:
+                mine.set_result(None)
+        held.result()
+        found = self.answers.get(login, "no answer")      # none where the first ask failed but for want of an answer
+        if not isinstance(found, dict):
+            raise Unanswered("the permission of %s answered %s" % (login, found))
+        return found
+
+    def _ask(self, login: str) -> None:
+        path = "/repos/%s/collaborators/%s/permission" % (self.repo, urllib.parse.quote(login, safe=""))
+        # An answer that failed is kept too, one that never came among them, so a login is asked once however often it
+        # appears.
+        try:
+            answer = self.transport.send(request("GET", path))
+        except Unanswered:
+            answer = {"status": "no answer", "body": None}
+        ok = answer["status"] == 200 and isinstance(answer["body"], dict)
+        self.answers[login] = answer["body"] if ok else answer["status"]
+
+    def through(self, transport) -> "Accounts":
+        """This reader asking by `transport`, sharing its answers and asks under way (decision 1138)."""
+        view = copy.copy(self)
+        view.transport = transport
+        return view
 
     def _can_write(self, login: str) -> bool:
         level = self._permission(login).get("permission")
@@ -218,16 +241,25 @@ def via_app(event: dict) -> bool:
 def _pages(transport, path: str) -> tuple:
     """Every item of a list, page by page, each page the one the last named as next; whole only when the last page
     names no next one."""
+    items, whole, _ = _paged(transport, path, None)
+    return items, whole
+
+
+def _paged(transport, path: str, most) -> tuple:
+    """`(items, whole, bounded)`: `_pages`, but with `most` no page past that many is asked, and a last page read that
+    still names a next one leaves the list not whole and `bounded`."""
     items, page = [], 1
     while True:
         answer = transport.send(request("GET", path if page == 1 else "%s&page=%d" % (path, page)))
         if answer["status"] != 200:
             raise Unanswered("%s answered %d" % (path.split("?")[0], answer["status"]))
         if not isinstance(answer["body"], list):
-            return items, False
+            return items, False, False
         items += answer["body"]
         if not NEXT.search(str((answer.get("headers") or {}).get("link", ""))):
-            return items, True
+            return items, True, False
+        if most is not None and page >= most:
+            return items, False, True
         page += 1
 
 
@@ -235,6 +267,13 @@ def events(transport, pull: dict) -> tuple:
     """The pull request's timeline, as GitHub lists it, oldest first, and whether it was read whole."""
     repo = pull["base"]["repo"]["full_name"]
     return _pages(transport, "/repos/%s/issues/%d/timeline?per_page=%d" % (repo, pull["number"], PAGE))
+
+
+def bounded(transport, pull: dict) -> tuple:
+    """`(events, whole, bounded)`: the timeline as `events` reads it, but no more than `BOUND` pages of it; one that
+    names a page past them is not whole, and bounded (decision 0234)."""
+    repo = pull["base"]["repo"]["full_name"]
+    return _paged(transport, "/repos/%s/issues/%d/timeline?per_page=%d" % (repo, pull["number"], PAGE), BOUND)
 
 
 def reopened_at(timeline: list):

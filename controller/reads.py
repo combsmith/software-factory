@@ -53,6 +53,8 @@ def items(entries, kind: str) -> tuple:
         # from it would look healthy. It is refused, and the not-run alert reports it.
         raise Refused("the list of %s could not be read" % ("pull requests" if kind == "facts" else "issues"))
     readable = [e for e in entries if isinstance(e, dict) and not errors(e.get("facts"), kind)]
+    # An issue the budget left unread is the issues' alone (decision 0234).
+    codes = UNREAD + (ISSUE_UNREAD if kind == "issue-facts" else ())
     # An item listed twice is counted wherever it can be named, readable or not, so a bad copy leaves the good one out.
     seen = [_named(e) for e in entries]
     kept = [e for e in readable if seen.count(key(e["facts"]["item"])) == 1]
@@ -60,7 +62,7 @@ def items(entries, kind: str) -> tuple:
     left_out = [e.get("facts", {}).get("item") if isinstance(e, dict) and isinstance(e.get("facts"), dict) else None
                 for e in out]
     why = [TWICE if _named(e) is not None and seen.count(_named(e)) > 1
-           else e["unread"] if isinstance(e, dict) and e.get("unread") in UNREAD else NOT_FACTS for e in out]
+           else e["unread"] if isinstance(e, dict) and e.get("unread") in codes else NOT_FACTS for e in out]
     return kept, [i if isinstance(i, dict) else None for i in left_out], why
 
 
@@ -68,6 +70,10 @@ def items(entries, kind: str) -> tuple:
 # did not answer; facts that are not facts; an item listed twice.
 MOVED, UNANSWERED, NOT_FACTS, TWICE = "pull_moved", "facts_unanswered", "not_facts", "listed_twice"
 UNREAD = (MOVED, UNANSWERED)
+# An issue the pass's budget of issue requests left unread (decision 0234). It is no fault of the facts: it has its own
+# alert.
+BUDGET = "issue_budget"
+ISSUE_UNREAD = (BUDGET,)
 
 
 # A repo's name as a pass record keeps one, which admits no space (issue 913).

@@ -26,6 +26,7 @@
     "acts_since_writer",
     "branch_head",
     "complete",
+    "timeline_bounded",
     "read_at"
   ],
   "properties": {
@@ -443,6 +444,10 @@
           "type": "boolean"
         }
       }
+    },
+    "timeline_bounded": {
+      "description": "Whether the port cut a read the facts depend on at its bound: the issue's own timeline at its pages, beside `complete.timeline` false, or a linked pull request's timeline, or the linked pull requests past their count, beside `complete.linked` false. Either stays so however long the issue waits: the Kernel defers it on its own code and calls a person (decision 0234)",
+      "type": "boolean"
     },
     "read_at": {
       "$ref": "#/$defs/time"

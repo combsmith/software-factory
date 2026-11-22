@@ -14,7 +14,12 @@ So it reads too what GitHub wrote and the committer did not: the event's payload
 leaves it. A pull request's opener must be an account `config/hooks.json` lists, by its login and its id, and its head
 must be this repo, never a fork (decision 0102). A merge group's payload names no opener, so this reads the pull request
 its ref names, with the job's read-only token; a merge group always runs main's tool and main's list, so a pull request
-retargeted to main is caught there. Run with `python3 -m tools.commits_are_the_maintainers`.
+retargeted to main is caught there.
+
+And it reads the decision records the pull request adds, between BASE_SHA and HEAD_SHA in the head's own tree: at most
+one, numbered by the pull request itself, its number from the payload or, on a merge group, from the queue's ref, whose
+base is the entry before it. A rename adds a record too. Until the chain numbered before this rule has merged, a record
+numbered in that range stands as well (decision 1121). Run with `python3 -m tools.commits_are_the_maintainers`.
 """
 from __future__ import annotations
 
@@ -26,11 +31,17 @@ import subprocess
 import sys
 
 from adapters.github import Live, Unanswered, request
+from tools import pr_title
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SECONDS = 120       # for each git command
 FORMAT = "%H%x00%an%x00%ae%x00%cn%x00%ce"
 QUEUED = re.compile(r"refs/heads/gh-readonly-queue/([^/]+)/pr-([1-9][0-9]*)-[0-9a-f]{40}")
+RECORDS = "docs/decisions/"
+RECORD = re.compile(r"docs/decisions/([0-9]{4,})-[^/]*\.md")
+# The first and the last of the records numbered in order before a record took its pull request's number, both in: a
+# record numbered between them stands too, until each has merged and this is taken off. The Builder may hand out more.
+CHAINED = (235, 253)
 
 
 def git(root: pathlib.Path, *args: str) -> str:
@@ -84,6 +95,51 @@ def problems(root: pathlib.Path, environ, run=git) -> list:
             found.append("%s is committed by %s <%s>, and every commit here names the Maintainer, %s <%s>"
                          % (sha[:7], committer_name, committer_email, *who))
     return found
+
+
+def added(root: pathlib.Path, base: str, head: str, run=git) -> list:
+    """The decision records the head adds since its merge base with `base`, a rename among them, as each file's path.
+    The head must have been fetched (commits). Raises ValueError where git cannot give them."""
+    listed = run(root, "diff", "--no-renames", "--diff-filter=A", "--name-only", "-z", "%s...%s" % (base, head), "--",
+                 RECORDS)
+    return [path for path in listed.split("\0") if path.endswith(".md") and "/" not in path[len(RECORDS):]]
+
+
+def pull_number(environ) -> int:
+    """The number of the event's pull request: the payload's own, or on a merge group the one its ref names. Raises
+    ValueError, KeyError, TypeError or OSError where it cannot be read."""
+    payload = json.loads(pathlib.Path(environ["GITHUB_EVENT_PATH"]).read_text())
+    if environ.get("EVENT") == "merge_group":
+        return int(QUEUED.fullmatch(payload["merge_group"]["head_ref"]).group(2))
+    told = payload["pull_request"]["number"]
+    if type(told) is not int or told < 1:
+        raise TypeError("the pull request's number is not a number above 0")
+    return told
+
+
+def record_problems(root: pathlib.Path, environ, run=git) -> list:
+    """Why the decision records BASE_SHA..HEAD_SHA adds are not one record at most, numbered by its pull request: nothing
+    where they are (decision 1121). A path is shown quoted, as Python writes it, so a name that holds a new line is
+    printed on one line, and no line of it opening '::' is read by GitHub Actions as a command."""
+    base, head = environ.get("BASE_SHA"), environ.get("HEAD_SHA")
+    if not base or not head or environ.get("EVENT") not in ("pull_request", "merge_group"):
+        return ["BASE_SHA, HEAD_SHA and EVENT (pull_request or merge_group) must be set from the event, so the decision "
+                "records the pull request adds are read"]
+    try:
+        found, own = added(root, base, head, run), pull_number(environ)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as err:
+        return ["the decision records the pull request adds cannot be read: %r" % err]
+    allowed = {"%04d" % own} | {"%04d" % chained for chained in range(CHAINED[0], CHAINED[1] + 1)}
+    why = []
+    if len(found) > 1:
+        why.append("the pull request adds %d decision records, %s; it adds one at most"
+                   % (len(found), ", ".join(map(repr, found))))
+    for path in found:
+        named = RECORD.fullmatch(path)
+        if named is None or named.group(1) not in allowed:
+            why.append("%r is a decision record the pull request adds, and a record is numbered by the pull request that "
+                       "adds it, %04d" % (path, own))
+    return why
 
 
 def openers(root: pathlib.Path) -> dict:
@@ -155,7 +211,8 @@ def opener_problems(root: pathlib.Path, environ, transport=None) -> list:
 
 def main(environ=os.environ, root: pathlib.Path = ROOT, transport=None) -> int:
     opened, said = opener(root, environ, transport)
-    found = problems(root, environ) + opened
+    found = problems(root, environ) + opened + record_problems(root, environ)
+    found += pr_title.check(environ, transport)
     for problem in found:
         print(problem)
     if not found:

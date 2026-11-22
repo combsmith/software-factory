@@ -20,7 +20,7 @@ against one held-out case, where the case is, and is no check; `context_eval.sh`
 | An index the walk cannot read is a problem, and skips nothing | `tests/test_tools.py::test_an_index_that_cannot_be_read_is_a_problem_and_skips_nothing` |
 | A check fails closed: what it does not understand is a problem, and it allows what is named instead of refusing what is known | `tests/test_tools.py::test_a_rule_is_not_dodged_by_writing_the_workflow_another_way` |
 | A workflow rule has a counter-example that breaks it and nothing else | `tests/test_tools.py::test_a_rule_with_no_counter_example_is_caught` |
-| `make fast` is `make verify` without the test modules in `SLOW`; `make checks` is the checks alone, what the hooks run | `tests/test_tools.py::test_make_fast_is_verify_without_the_seeded_simulation` |
+| `make fast` is `make verify` without the tests in `SLOW`; `make checks` is the checks plus a note that fails nothing | `tests/test_tools.py::test_make_fast_is_verify_without_the_seeded_simulation`, `tests/test_tools.py::test_make_checks_note_fails_nothing` |
 | A session hook is a module in `hooks/` with a `main()`, wired to its event in `.claude/settings.json` and run as `python3 -I`, so no file where it runs can shadow the standard library | `tests/test_hooks.py::test_every_hook_is_wired_to_its_event` |
 | A hook runs make only in the project, or in a worktree the project holds | `tests/test_hooks.py::test_an_edit_outside_the_project_runs_nothing` |
 | A hook never hands its own git an option taken from the command, and shows no credential | `tests/test_hooks.py::test_a_push_names_no_option_to_the_hooks_own_git`, `tests/test_hooks.py::test_a_credential_is_never_shown` |
@@ -34,7 +34,7 @@ against one held-out case, where the case is, and is no check; `context_eval.sh`
 | A mutant runs the tests it names alone; one they miss is an ERROR, `named_test_does_not_kill` | `tests/test_tools.py::test_a_mutant_its_named_tests_miss_is_an_error_and_never_runs_the_whole_suite` |
 | After an `untested.py` edit's tests, all of `tests/` runs in dealt parts; `mutants PATH...` breaks 40, 2 at once | `tests/test_tools.py::test_the_whole_suite_runs_in_dealt_parts_each_held_to_the_limit`, `tests/test_tools.py::test_a_filtered_run_is_capped` |
 
-A check collects every problem and does not stop at the first. Its message says what is wrong and what to do, in one sentence, because an author will read it with nothing else to go on.
+A check collects every problem and does not stop at the first. Its message says what is wrong and what to do, in one sentence, because an author will read it with nothing else to go on. `desk.py` is no check: it notes things for a person to read.
 
 What the hooks decide without reading is `docs/decisions/0017-the-session-hooks-read-every-commit-a-push-sends.md`, and what
 the identity hook reads of git's configuration is `docs/decisions/0024-the-identity-hook-reads-where-a-push-goes-from-gits-configuration-and-refuses-a-git-the-command-may-redefine.md`.

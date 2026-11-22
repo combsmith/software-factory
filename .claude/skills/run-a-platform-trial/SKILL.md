@@ -12,12 +12,10 @@ everything a trial leaves in it: its runs, logs and artifacts.
 
 ## Before anything runs
 
-- **Order.** Section 6.1 runs the trials in batches. Batch 1, before any code: P-13; P-1, P-7,
-  P-24; P-17, P-22; P-3; P-28, P-29; P-8; P-39. Batch 2, before the first approval: P-9, P-20; P-5,
-  P-23, P-25; P-2; P-30; P-27, P-14, P-4; P-26. Batch 3, before the control room: P-11, P-19,
-  P-21; P-16, P-18. Batch 4, as they come up: P-6, P-10, P-12, P-15. P-32, P-33 and P-34 run before
-  the Factory's author is built. List `trials/` and check that every trial of an earlier batch has
-  a fixture; if one has none, stop and ask the Maintainer.
+- **Order.** Section 6.1 runs the trials in batches. `python3 -m tools.check_trials --table` prints
+  each batch's trials, from section 6's rows and each trial's page in docs/architecture/trials.
+  P-32, P-33 and P-34 run before the Factory's author is built. List `trials/` and check that
+  every trial of an earlier batch has a fixture; if one has none, stop and ask the Maintainer.
 - **Only the canary.** A trial runs in combsmith/software-factory-canary. Set
   `GH_REPO=combsmith/software-factory-canary` for every command of the trial, and name no other
   repo. P-8 needs twelve repos, P-11 the control room and the hub, P-19 a separate public repo,
@@ -70,7 +68,9 @@ artifact. No `set -x`, and no verbose curl.
 ## Steps
 
 1. **Write the pass condition first.** Copy the question and the pass condition from the trial's
-   row in section 6. Where section 6 gives no threshold, the story states one: copy that. Draft
+   page in docs/architecture/trials, or its row in section 6. A new trial gets a page, never a
+   row: `# P-N`, `Batch:`, `## Question` and `## Pass`, each text on one line (decision 0249).
+   Where neither gives a threshold, the story states one: copy that. Draft
    the fixture with `trial`, `question` and `pass` before anything runs. A condition written after
    the answer is not a pass condition.
 2. **Capture outside the repo.** Make a scratch directory with `mktemp -d` and write every capture

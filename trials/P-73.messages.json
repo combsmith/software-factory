@@ -1,0 +1,627 @@
+{
+  "schema": "trial/1",
+  "trial": "P-73",
+  "question": "What does the Checks API take of one neutral check run's annotations: how many in one request, how many in all over updates, the longest message kept whole, and does it keep an annotation on a path outside the pull request's diff, or one with no line?",
+  "pass": "Written before the run, in issue 1030 at 2026-11-20T18:18Z, nothing having run (trial TA4 of decision 0224's plan): in the canary, on a pull request of the trial's own that changes p73/a.py (canary pull request 132, branch trial/p-73, head 410baec), a workflow with its own GITHUB_TOKEN, granted checks write, makes completed neutral check runs: 1, 50 and 51 annotations; three updates of 50 more to the run of 50, then its annotations listed; a message of 65,536 and of 65,535 ASCII characters, each read back; an annotation on README.md, which the change does not touch; one with no start_line or end_line. The writer is GitHub Actions' App, not the Factory's: the annotation limits are the Checks API's, the same for every App, and this session may not mint the Factory App's token. Each answer was written to a file in the job and redacted there by software-factory's tools.redact_trial at d53baceb before it was uploaded. Pass: each is answered by what GitHub returned and recorded; it fails only if an answer cannot be read. Result, of what this file's own exchanges hold: a message of 65,536 ASCII characters is taken, 201, and read back cut to 65,535, with no word of it; one of 65,535 is taken and read back whole; each such message is written here as '<N times the letter m>', N as counted on the redacted answer, to keep the fixture small, and a limit on a message of characters of more than one byte was not asked. An annotation on README.md, which the change does not touch, is taken, 201, with its blob_href at the head; the list of that run's annotations, asked about two seconds after its create, answered 404 Not Found, and P-73.json holds the Maintainer's read a minute later that lists it. Why that list answered 404 GitHub does not say: a read made just after a write may miss the run it names. The Factory's own cap on a message, 8,000 characters (adapters/advice.py), sits within the 65,535 kept whole. Passed. What this file keeps (2026-11-21, to fit the review's size bound): exchanges 9 to 14 of the trial's 18, in the order they happened. P-73.json holds the rest but those owed in P-73.fifty.json (the create of the run of 50 and its first update) and P-73.updates.json (the second and third updates).",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-11-20T18:19:23Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "workflow",
+          "name": "p73-annotations, run 44791666775, with its own GITHUB_TOKEN and permissions checks: write, contents: read"
+        },
+        "via": "workflow",
+        "call": "POST /repos/combsmith/software-factory-canary/check-runs",
+        "headers": {},
+        "body": {
+          "name": "p73-message-65536",
+          "head_sha": "410baecdbf481e396ca025d4de595f9976160383",
+          "status": "completed",
+          "conclusion": "neutral",
+          "output": {
+            "title": "p73-message-65536",
+            "summary": "Platform trial P-73.",
+            "annotations": [
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "<65536 times the letter m>",
+                "title": "p73 1"
+              }
+            ]
+          }
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 18:19:40 GMT"
+        },
+        "body": {
+          "id": 136480758914,
+          "name": "p73-message-65536",
+          "node_id": "CR_kwDOVFD6788AAAAfxuMcgg",
+          "head_sha": "410baecdbf481e396ca025d4de595f9976160383",
+          "external_id": "",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/136480758914",
+          "html_url": "https://github.com/combsmith/software-factory-canary/runs/136480758914",
+          "details_url": "https://github.com/combsmith/software-factory-canary/runs/136480758914",
+          "status": "completed",
+          "conclusion": "neutral",
+          "started_at": "2026-11-20T18:19:40Z",
+          "completed_at": "2026-11-20T18:19:40Z",
+          "output": {
+            "title": "p73-message-65536",
+            "summary": "Platform trial P-73.",
+            "text": null,
+            "annotations_count": 1,
+            "annotations_url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/136480758914/annotations"
+          },
+          "check_suite": {
+            "id": 121238760714
+          },
+          "app": {
+            "id": 15368,
+            "client_id": "Iv1.05c79e9ad1f6bdfa",
+            "slug": "github-actions",
+            "node_id": "MDM6QXBwMTUzNjg=",
+            "owner": {
+              "login": "github",
+              "id": 9919,
+              "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+              "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/github",
+              "html_url": "https://github.com/github",
+              "followers_url": "https://api.github.com/users/github/followers",
+              "following_url": "https://api.github.com/users/github/following{/other_user}",
+              "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+              "organizations_url": "https://api.github.com/users/github/orgs",
+              "repos_url": "https://api.github.com/users/github/repos",
+              "events_url": "https://api.github.com/users/github/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/github/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "name": "GitHub Actions",
+            "description": "Automate your workflow from idea to production",
+            "external_url": "https://help.github.com/en/actions",
+            "html_url": "https://github.com/apps/github-actions",
+            "created_at": "2018-07-30T09:30:17Z",
+            "updated_at": "2026-06-18T16:17:48Z",
+            "permissions": {
+              "actions": "write",
+              "administration": "read",
+              "artifact_metadata": "write",
+              "attestations": "write",
+              "checks": "write",
+              "code_quality": "write",
+              "contents": "write",
+              "copilot_requests": "write",
+              "deployments": "write",
+              "discussions": "write",
+              "drives": "write",
+              "issues": "write",
+              "merge_queues": "write",
+              "metadata": "read",
+              "models": "read",
+              "packages": "write",
+              "pages": "write",
+              "pull_requests": "write",
+              "repository_hooks": "write",
+              "repository_projects": "write",
+              "security_events": "write",
+              "statuses": "write",
+              "vulnerability_alerts": "read"
+            },
+            "events": [
+              "branch_protection_rule",
+              "check_run",
+              "check_suite",
+              "create",
+              "delete",
+              "deployment",
+              "deployment_status",
+              "discussion",
+              "discussion_comment",
+              "fork",
+              "gollum",
+              "issues",
+              "issue_comment",
+              "label",
+              "merge_group",
+              "milestone",
+              "page_build",
+              "public",
+              "pull_request",
+              "pull_request_review",
+              "pull_request_review_comment",
+              "push",
+              "registry_package",
+              "release",
+              "repository",
+              "repository_dispatch",
+              "status",
+              "watch",
+              "workflow_dispatch",
+              "workflow_run"
+            ]
+          },
+          "pull_requests": [
+            {
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/132",
+              "id": 5418224467,
+              "number": 132,
+              "head": {
+                "ref": "trial/p-73",
+                "sha": "410baecdbf481e396ca025d4de595f9976160383",
+                "repo": {
+                  "id": 1414593263,
+                  "url": "https://api.github.com/repos/combsmith/software-factory-canary",
+                  "name": "software-factory-canary"
+                }
+              },
+              "base": {
+                "ref": "main",
+                "sha": "e9a2da218c5e15d5f19107c72f03e2ed87e48c60",
+                "repo": {
+                  "id": 1414593263,
+                  "url": "https://api.github.com/repos/combsmith/software-factory-canary",
+                  "name": "software-factory-canary"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "workflow",
+          "name": "p73-annotations, run 44791666775, with its own GITHUB_TOKEN and permissions checks: write, contents: read"
+        },
+        "via": "workflow",
+        "call": "GET /repos/combsmith/software-factory-canary/check-runs/136480758914/annotations",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 18:19:41 GMT"
+        },
+        "body": [
+          {
+            "path": "p73/a.py",
+            "blob_href": "https://github.com/combsmith/software-factory-canary/blob/410baecdbf481e396ca025d4de595f9976160383/p73/a.py",
+            "start_line": 1,
+            "start_column": null,
+            "end_line": 1,
+            "end_column": null,
+            "annotation_level": "notice",
+            "title": "p73 1",
+            "message": "<65535 times the letter m>",
+            "raw_details": null
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "workflow",
+          "name": "p73-annotations, run 44791666775, with its own GITHUB_TOKEN and permissions checks: write, contents: read"
+        },
+        "via": "workflow",
+        "call": "POST /repos/combsmith/software-factory-canary/check-runs",
+        "headers": {},
+        "body": {
+          "name": "p73-message-65535",
+          "head_sha": "410baecdbf481e396ca025d4de595f9976160383",
+          "status": "completed",
+          "conclusion": "neutral",
+          "output": {
+            "title": "p73-message-65535",
+            "summary": "Platform trial P-73.",
+            "annotations": [
+              {
+                "path": "p73/a.py",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "<65535 times the letter m>",
+                "title": "p73 1"
+              }
+            ]
+          }
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 18:19:41 GMT"
+        },
+        "body": {
+          "id": 136480769076,
+          "name": "p73-message-65535",
+          "node_id": "CR_kwDOVFD6788AAAAfxuNENA",
+          "head_sha": "410baecdbf481e396ca025d4de595f9976160383",
+          "external_id": "",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/136480769076",
+          "html_url": "https://github.com/combsmith/software-factory-canary/runs/136480769076",
+          "details_url": "https://github.com/combsmith/software-factory-canary/runs/136480769076",
+          "status": "completed",
+          "conclusion": "neutral",
+          "started_at": "2026-11-20T18:19:41Z",
+          "completed_at": "2026-11-20T18:19:41Z",
+          "output": {
+            "title": "p73-message-65535",
+            "summary": "Platform trial P-73.",
+            "text": null,
+            "annotations_count": 1,
+            "annotations_url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/136480769076/annotations"
+          },
+          "check_suite": {
+            "id": 121238760714
+          },
+          "app": {
+            "id": 15368,
+            "client_id": "Iv1.05c79e9ad1f6bdfa",
+            "slug": "github-actions",
+            "node_id": "MDM6QXBwMTUzNjg=",
+            "owner": {
+              "login": "github",
+              "id": 9919,
+              "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+              "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/github",
+              "html_url": "https://github.com/github",
+              "followers_url": "https://api.github.com/users/github/followers",
+              "following_url": "https://api.github.com/users/github/following{/other_user}",
+              "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+              "organizations_url": "https://api.github.com/users/github/orgs",
+              "repos_url": "https://api.github.com/users/github/repos",
+              "events_url": "https://api.github.com/users/github/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/github/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "name": "GitHub Actions",
+            "description": "Automate your workflow from idea to production",
+            "external_url": "https://help.github.com/en/actions",
+            "html_url": "https://github.com/apps/github-actions",
+            "created_at": "2018-07-30T09:30:17Z",
+            "updated_at": "2026-06-18T16:17:48Z",
+            "permissions": {
+              "actions": "write",
+              "administration": "read",
+              "artifact_metadata": "write",
+              "attestations": "write",
+              "checks": "write",
+              "code_quality": "write",
+              "contents": "write",
+              "copilot_requests": "write",
+              "deployments": "write",
+              "discussions": "write",
+              "drives": "write",
+              "issues": "write",
+              "merge_queues": "write",
+              "metadata": "read",
+              "models": "read",
+              "packages": "write",
+              "pages": "write",
+              "pull_requests": "write",
+              "repository_hooks": "write",
+              "repository_projects": "write",
+              "security_events": "write",
+              "statuses": "write",
+              "vulnerability_alerts": "read"
+            },
+            "events": [
+              "branch_protection_rule",
+              "check_run",
+              "check_suite",
+              "create",
+              "delete",
+              "deployment",
+              "deployment_status",
+              "discussion",
+              "discussion_comment",
+              "fork",
+              "gollum",
+              "issues",
+              "issue_comment",
+              "label",
+              "merge_group",
+              "milestone",
+              "page_build",
+              "public",
+              "pull_request",
+              "pull_request_review",
+              "pull_request_review_comment",
+              "push",
+              "registry_package",
+              "release",
+              "repository",
+              "repository_dispatch",
+              "status",
+              "watch",
+              "workflow_dispatch",
+              "workflow_run"
+            ]
+          },
+          "pull_requests": [
+            {
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/132",
+              "id": 5418224467,
+              "number": 132,
+              "head": {
+                "ref": "trial/p-73",
+                "sha": "410baecdbf481e396ca025d4de595f9976160383",
+                "repo": {
+                  "id": 1414593263,
+                  "url": "https://api.github.com/repos/combsmith/software-factory-canary",
+                  "name": "software-factory-canary"
+                }
+              },
+              "base": {
+                "ref": "main",
+                "sha": "e9a2da218c5e15d5f19107c72f03e2ed87e48c60",
+                "repo": {
+                  "id": 1414593263,
+                  "url": "https://api.github.com/repos/combsmith/software-factory-canary",
+                  "name": "software-factory-canary"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "workflow",
+          "name": "p73-annotations, run 44791666775, with its own GITHUB_TOKEN and permissions checks: write, contents: read"
+        },
+        "via": "workflow",
+        "call": "GET /repos/combsmith/software-factory-canary/check-runs/136480769076/annotations",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 18:19:42 GMT"
+        },
+        "body": [
+          {
+            "path": "p73/a.py",
+            "blob_href": "https://github.com/combsmith/software-factory-canary/blob/410baecdbf481e396ca025d4de595f9976160383/p73/a.py",
+            "start_line": 1,
+            "start_column": null,
+            "end_line": 1,
+            "end_column": null,
+            "annotation_level": "notice",
+            "title": "p73 1",
+            "message": "<65535 times the letter m>",
+            "raw_details": null
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "workflow",
+          "name": "p73-annotations, run 44791666775, with its own GITHUB_TOKEN and permissions checks: write, contents: read"
+        },
+        "via": "workflow",
+        "call": "POST /repos/combsmith/software-factory-canary/check-runs",
+        "headers": {},
+        "body": {
+          "name": "p73-off-diff",
+          "head_sha": "410baecdbf481e396ca025d4de595f9976160383",
+          "status": "completed",
+          "conclusion": "neutral",
+          "output": {
+            "title": "p73-off-diff",
+            "summary": "Platform trial P-73.",
+            "annotations": [
+              {
+                "path": "README.md",
+                "start_line": 1,
+                "end_line": 1,
+                "annotation_level": "notice",
+                "message": "P-73 annotation 1",
+                "title": "p73 1"
+              }
+            ]
+          }
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 18:19:42 GMT"
+        },
+        "body": {
+          "id": 136480778285,
+          "name": "p73-off-diff",
+          "node_id": "CR_kwDOVFD6788AAAAfxuNoLQ",
+          "head_sha": "410baecdbf481e396ca025d4de595f9976160383",
+          "external_id": "",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/136480778285",
+          "html_url": "https://github.com/combsmith/software-factory-canary/runs/136480778285",
+          "details_url": "https://github.com/combsmith/software-factory-canary/runs/136480778285",
+          "status": "completed",
+          "conclusion": "neutral",
+          "started_at": "2026-11-20T18:19:42Z",
+          "completed_at": "2026-11-20T18:19:42Z",
+          "output": {
+            "title": "p73-off-diff",
+            "summary": "Platform trial P-73.",
+            "text": null,
+            "annotations_count": 1,
+            "annotations_url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/136480778285/annotations"
+          },
+          "check_suite": {
+            "id": 121238760714
+          },
+          "app": {
+            "id": 15368,
+            "client_id": "Iv1.05c79e9ad1f6bdfa",
+            "slug": "github-actions",
+            "node_id": "MDM6QXBwMTUzNjg=",
+            "owner": {
+              "login": "github",
+              "id": 9919,
+              "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+              "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/github",
+              "html_url": "https://github.com/github",
+              "followers_url": "https://api.github.com/users/github/followers",
+              "following_url": "https://api.github.com/users/github/following{/other_user}",
+              "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+              "organizations_url": "https://api.github.com/users/github/orgs",
+              "repos_url": "https://api.github.com/users/github/repos",
+              "events_url": "https://api.github.com/users/github/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/github/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "name": "GitHub Actions",
+            "description": "Automate your workflow from idea to production",
+            "external_url": "https://help.github.com/en/actions",
+            "html_url": "https://github.com/apps/github-actions",
+            "created_at": "2018-07-30T09:30:17Z",
+            "updated_at": "2026-06-18T16:17:48Z",
+            "permissions": {
+              "actions": "write",
+              "administration": "read",
+              "artifact_metadata": "write",
+              "attestations": "write",
+              "checks": "write",
+              "code_quality": "write",
+              "contents": "write",
+              "copilot_requests": "write",
+              "deployments": "write",
+              "discussions": "write",
+              "drives": "write",
+              "issues": "write",
+              "merge_queues": "write",
+              "metadata": "read",
+              "models": "read",
+              "packages": "write",
+              "pages": "write",
+              "pull_requests": "write",
+              "repository_hooks": "write",
+              "repository_projects": "write",
+              "security_events": "write",
+              "statuses": "write",
+              "vulnerability_alerts": "read"
+            },
+            "events": [
+              "branch_protection_rule",
+              "check_run",
+              "check_suite",
+              "create",
+              "delete",
+              "deployment",
+              "deployment_status",
+              "discussion",
+              "discussion_comment",
+              "fork",
+              "gollum",
+              "issues",
+              "issue_comment",
+              "label",
+              "merge_group",
+              "milestone",
+              "page_build",
+              "public",
+              "pull_request",
+              "pull_request_review",
+              "pull_request_review_comment",
+              "push",
+              "registry_package",
+              "release",
+              "repository",
+              "repository_dispatch",
+              "status",
+              "watch",
+              "workflow_dispatch",
+              "workflow_run"
+            ]
+          },
+          "pull_requests": [
+            {
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/132",
+              "id": 5418224467,
+              "number": 132,
+              "head": {
+                "ref": "trial/p-73",
+                "sha": "410baecdbf481e396ca025d4de595f9976160383",
+                "repo": {
+                  "id": 1414593263,
+                  "url": "https://api.github.com/repos/combsmith/software-factory-canary",
+                  "name": "software-factory-canary"
+                }
+              },
+              "base": {
+                "ref": "main",
+                "sha": "e9a2da218c5e15d5f19107c72f03e2ed87e48c60",
+                "repo": {
+                  "id": 1414593263,
+                  "url": "https://api.github.com/repos/combsmith/software-factory-canary",
+                  "name": "software-factory-canary"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "workflow",
+          "name": "p73-annotations, run 44791666775, with its own GITHUB_TOKEN and permissions checks: write, contents: read"
+        },
+        "via": "workflow",
+        "call": "GET /repos/combsmith/software-factory-canary/check-runs/136480778285/annotations",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "date": "Fri, 20 Nov 2026 18:19:44 GMT"
+        },
+        "body": {
+          "message": "Not Found",
+          "documentation_url": "https://docs.github.com/rest/checks/runs#list-check-run-annotations",
+          "status": "404"
+        }
+      }
+    }
+  ],
+  "removed": [],
+  "verdict": "pass"
+}

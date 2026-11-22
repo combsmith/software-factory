@@ -295,6 +295,20 @@ class Reverts(unittest.TestCase):
         self.assertEqual(untested.data_lines("MUTANTS = [m for m in (1, 2) if True]\n"), set())
         self.assertEqual(untested.data_lines("MUTANTS = [\n    (1, 2),\n    (3, 4)] + [\n    (5, 6)]\n"), {2})
         self.assertTrue(untested.is_data({"new": 9, "new_n": 2, "old": 9, "old_n": 1}, data, data))
+        # The lists of a file of tools/mutants_of/ are data as tools/mutants.py's are, and no other file's (issue 1101).
+        # Of a file there, MUTANTS alone: an ISSUE there is a table some code may read, and is read as code.
+        for rel, names in (("tools/mutants.py", ("ISSUE", "MUTANTS")), ("tools/mutants_of/adapters_pull.py", ("MUTANTS",)),
+                           ("tools/mutants_of/common.py", ()), ("tools/mutants_of/__init__.py", ()), ("tools/mutants_of.py", ()),
+                           ("tools/untested.py", ()), ("pkg/tools/mutants_of/x.py", ()), ("tools/mutants_of/deep/x.py", ()),
+                           ("tools/mutants_of/deep/common.py", ()), ("tools/mutants_of/C.py", ()), ("tools/mutants_of/x.y.py", ()),
+                           ("tools/mutants_of/2x.py", ()), ("tools/mutants_of/x2.py", ("MUTANTS",)), ("tools/mutants_of/_2x.py", ("MUTANTS",))):
+            self.assertEqual(untested.holds_data(rel), names, rel)
+        self.assertEqual(untested.data_lines("ISSUE = [\n    1,\n]\nMUTANTS = [\n    2,\n]\n", ("MUTANTS",)), {5})
+        listed = "ISSUE = [\n    ('q', True),\n]\nMUTANTS = [\n    ('a', 'b'),\n]\n"
+        found = checked({"tools/__init__.py": "", "tools/mutants_of/__init__.py": "", "tools/mutants_of/x.py": listed},
+                        {"tools/mutants_of/x.py": listed.replace("]\n", "    ('c', 'd'),\n]\n")})
+        self.assertEqual((len(found["hunks"]), found["skipped"]["data"]), (1, 1))
+        self.assertEqual(found["hunks"][0]["new"], 3)
         self.assertTrue(untested.is_data({"new": 12, "new_n": 0, "old": 13, "old_n": 1}, data, data))
         for hunk in ({"new": 11, "new_n": 1, "old": 11, "old_n": 1}, {"new": 12, "new_n": 1, "old": 12, "old_n": 1},
                      {"new": 14, "new_n": 1, "old": 14, "old_n": 1}, {"new": 18, "new_n": 1, "old": 18, "old_n": 1},

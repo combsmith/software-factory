@@ -4,8 +4,9 @@
 One GraphQL read gives the references, `closedByPullRequestsReferences(includeClosedPrs: true)` as trial P-67 read them,
 and the issue's closes, links by hand and unlinkings, each naming its pull request as its subject, as trials/P-61.json
 recorded them, which ask no repository. One referenced, linked by hand, or named the closer of a close in the
-present life is listed only while its base is the default branch, as REST names both: another base carries no closing
-reference (trials/P-33.json), and a closer of this life to another base is not whole. A closer is listed whatever its
+present life is listed only while its base is the default branch, as REST names both: a keyword on another base carries
+no closing reference (trials/P-33.json), a closer of this life to another base is not whole, and so is one linked by
+hand now, which keeps its link and its closing reference when its base moves (trials/P-69.json, decision 0236). A closer is listed whatever its
 references now say (trials/P-46.json): a pull request by repository and number, as a merge commit's close (P-33) and the
 queue's squash (P-67) named one, or a commit that is one listed pull request's merge commit; a pull request's first
 close in the present life is its own. Any other commit closer of this life, a closer of another kind, or a pull request
@@ -38,6 +39,9 @@ EVENTS = 100         # events read at most; more is not the whole timeline
 DRAFTS = {"convert_to_draft": "converted_to_draft", "ready_for_review": "ready_for_review"}
 CLOSES = ("closed", "reopened")
 LINKS = {"ConnectedEvent": "connected", "DisconnectedEvent": "disconnected"}
+# The pull requests an issue's linked read reads at most: past them the list is not whole and none is read, so that no
+# pull request author can make one issue's read cost without bound (decision 0234).
+CANDIDATES = 25
 QUERY = """query IssueLinked($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     nameWithOwner
@@ -76,8 +80,8 @@ def joined(transport, repo: str, number: int, updated_at: str, began: str) -> di
     `closers`, when each pull request closed the issue, its first close in the life begun at `began` or else its first;
     `commits`, when each commit did in that life; `closed`, whether a close of any life names a closer `closers` cannot
     hold, a commit, a pull request of another repo or a closer of another kind; `crossed`, whether anything but an issue
-    cross-references it, or a commit references it, as a commit's closing keyword does; and `whole`. The read must name
-    the issue's `updated_at`."""
+    cross-references it, or a commit references it, as a commit's closing keyword does; `whole`; and `cut`, whether the
+    references or the timeline ran past the read's one page. The read must name the issue's `updated_at`."""
     field, (owner, name) = issues._field, repo.split("/")
     answer = transport.send(request("POST", "/graphql", body={
         "query": QUERY, "variables": {"owner": owner, "name": name, "number": number}}))
@@ -97,7 +101,10 @@ def joined(transport, repo: str, number: int, updated_at: str, began: str) -> di
         raise Unanswered("the references cannot be read")
     refs = [_number(node, repo) for node in nodes]
     out, closes = {"refs": set(refs), "links": {}, "commits": {}, "crossed": False, "closed": False,
-           "whole": total == len(nodes) and not more and None not in refs and len(set(refs)) == len(refs)}, {}
+           "whole": total == len(nodes) and not more and None not in refs and len(set(refs)) == len(refs),
+           # More references, or more of the timeline, than the read's one full page holds: cut at its bound (decision
+           # 0234). A page that is not full and says there is more is a read short, not a bound.
+           "cut": total > len(nodes) >= PAGE or more and len(events) >= EVENTS}, {}
     for node in events:
         kind = field(node, "__typename")
         if kind == "CrossReferencedEvent":
@@ -193,13 +200,15 @@ def _when(value):
 
 def entry(transport, read: dict, identities: dict, accounts: timeline.Accounts, join: dict, spans: dict,
           kernel=None) -> tuple:
-    """`(the pull request as issue-facts/1 lists it, whether its timeline was whole)`, from `read`, `join` and `spans`,
-    each pull request's keyword spans as the pass records give them. Where the issue rule would act on it, with the
-    Kernel's configuration `kernel` naming an author Role, the Factory's open draft carries its head's `checks` too
-    (`adapters/draft_checks.py`, decision 0217)."""
+    """`(the pull request as issue-facts/1 lists it, whether its timeline was whole, whether it was cut at its bound)`,
+    from `read`, `join` and `spans`, each pull request's keyword spans as the pass records give them. Where the issue
+    rule would act on it, with the Kernel's configuration `kernel` naming an author Role, the Factory's open draft
+    carries its head's `checks` too (`adapters/draft_checks.py`, decision 0217)."""
     number = read["number"]
     own, _ = pull.own(read, identities)
-    events, whole = timeline.events(transport, read)
+    # Bounded as the issue's own is: past the bound not whole, and the issue's facts say a timeline was cut, so it
+    # defers on its own code and calls a person (decision 0234).
+    events, whole, cut = timeline.bounded(transport, read)
     files = read.get("changed_files")
     if type(files) is not int or files < 0:
         raise Unanswered("a count of files that cannot be read")
@@ -212,7 +221,13 @@ def entry(transport, read: dict, identities: dict, accounts: timeline.Accounts, 
             "keyword": number in join["refs"], "keyword_spans": spans.get(number, []), "close_events": closes(events, accounts)}
     if draft_checks.asked(kernel, own):
         made["checks"] = draft_checks.read(transport, read, kernel)
-    return made, whole
+    return made, whole, cut
+
+
+def linked_now(events: list) -> bool:
+    """Whether a pull request is linked by hand now: its last link or unlinking on the issue's timeline, in the order
+    the timeline gives them, is a link (trials/P-61.json)."""
+    return bool(events) and events[-1]["action"] == "connected"
 
 
 def on_default(read: dict) -> bool:
@@ -227,24 +242,32 @@ def on_default(read: dict) -> bool:
 
 def listing(transport, repo: str, number: int, updated_at: str, began: str, identities: dict,
             accounts: timeline.Accounts, spans: dict, kernel=None) -> tuple:
-    """`(linked, whole, named)` for issue `number`: each pull request listed, by number; whether every part was read
-    whole; and whether a pull request names the issue, before any is left out, or anything but an issue cross-references it
-    or a commit references it.
+    """`(linked, whole, named, cut)` for issue `number`: each pull request listed, by number; whether every part was
+    read whole; whether a pull request names the issue, before any is left out, or anything but an issue
+    cross-references it or a commit references it; and whether the read was cut at a bound: more than `CANDIDATES` to
+    read, none of which is then read, or a listed pull request's timeline cut at its own (decision 0234).
     `began` is when its present life began, `identities` the class's accounts, `accounts` who acted, and `spans` each
     pull request a pass saw with its keyword, with its spans: one of those is listed whatever the references now say."""
     join = joined(transport, repo, number, updated_at, began)
     present = {n for n, at in join["closers"].items() if at >= began}
-    found, whole = [], join["whole"]
-    for candidate in sorted(join["refs"] | set(join["links"]) | present | set(spans)):
+    candidates = sorted(join["refs"] | set(join["links"]) | present | set(spans))
+    # Past the bound none is read: not whole, and cut, so the issue calls a person (decision 0234). Within it every one
+    # is read, whole or not, so a record not whole still opens a span for each keyword it read (decision 0186).
+    past = len(candidates) > CANDIDATES
+    cut = past or join["cut"]
+    found, whole = [], join["whole"] and not past
+    for candidate in [] if past else candidates:
         got = pull.read(transport, repo, candidate)
         if not on_default(got):
             # A closer of this life, or one a pass saw with its keyword, to another base now is no link, and could
-            # have been one: not whole.
-            whole = whole and candidate not in present and candidate not in spans
+            # have been one: not whole. So is one linked by hand now: GitHub keeps its link and its closing reference
+            # when its base moves (trials/P-69.json), and it could have been linked before any pass saw it (decision 0236).
+            whole = whole and candidate not in present and candidate not in spans \
+                and not linked_now(join["links"].get(candidate, []))
             continue
-        made, read_whole = entry(transport, got, identities, accounts, join, spans, kernel)
+        made, read_whole, bounded = entry(transport, got, identities, accounts, join, spans, kernel)
         found.append((made, got.get("merge_commit_sha")))
-        whole = whole and read_whole
+        whole, cut = whole and read_whole, cut or bounded
     # A commit closer of the present life is a listed pull request's merge: its close, unless one of this life is earlier.
     for oid, at in join["commits"].items():
         merged = [made for made, sha in found if sha == oid and made["merged_at"] is not None]
@@ -253,15 +276,17 @@ def listing(transport, repo: str, number: int, updated_at: str, began: str, iden
             merged[0]["closed_issue_at"] = at
         whole = whole and len(merged) == 1
     linked = [made for made, _ in found]
-    return linked, whole, bool(join["refs"] or join["links"] or join["closers"] or join["crossed"] or join["closed"])
+    named = bool(join["refs"] or join["links"] or join["closers"] or join["crossed"] or join["closed"])
+    return linked, whole, named, cut
 
 
 def read(transport, repo: str, number: int, updated_at: str, began: str, identities: dict,
          accounts: timeline.Accounts, earlier, kernel=None) -> tuple:
-    """`(linked, whole)`, as `listing` reads them with the spans the pass records `earlier` give: whole where the list
-    was read whole and the spans were too, or, where the records break the chain of spans, where they give no span and
-    nothing names the issue.
+    """`(linked, whole, cut)`, as `listing` reads them with the spans the pass records `earlier` give: whole where the
+    list was read whole and the spans were too, or, where the records break the chain of spans, where they give no span
+    and nothing names the issue; and whether a listed pull request's timeline was cut at its bound.
     `earlier` is the pass records before this pass, oldest first, or None."""
     spans, read_whole = keyword_spans.read(earlier, {"repo": repo, "type": "issue", "number": number})
-    linked, whole, named = listing(transport, repo, number, updated_at, began, identities, accounts, spans, kernel)
-    return linked, whole and (read_whole is True or read_whole is None and not named and not spans)
+    linked, whole, named, cut = listing(transport, repo, number, updated_at, began,
+                                        identities, accounts, spans, kernel)
+    return linked, whole and (read_whole is True or read_whole is None and not named and not spans), cut

@@ -1,0 +1,827 @@
+{
+  "schema": "trial/1",
+  "trial": "P-74",
+  "question": "What does the desk's Astra deployment answer to one background read, through the Responses API, of a diff with three planted defects: which states does the response pass through, what does its final body hold, does adapters/advice.py build a completed Result from it unchanged, and which model does the answer name?",
+  "pass": "Written before the run, in issue 1032 at 2026-11-20T18:27Z, nothing having run (trial TA1 of decision 0224's plan). The request left the desk, the Mac mini's network and the desk Python's LibreSSL, not a GitHub runner, with the desk resource's own key read in-process from the desk keychain and never printed, logged or written (the Builder's ruling (a)); key2 stays in factory-run alone. The code is the build's own, from harness/advise-asks-the-readers-390 (unmerged): harness.advise.one, adapters/azure.Live, adapters/advice.read, the reader config/harness.json's astra (gpt-6.2-astra, output cap 96,000) at xhigh, background and store true; the prompt harness.advise.prompt_of over an empty rules folder and the diff of canary branch trial/p-74 (p74/ledger.py: a loop that skips the last entry, a mean of an empty list, an SQL query built from its input). Pass: every state seen is among queued, in_progress and completed; the final body has status, model, usage.input_tokens, usage.output_tokens and one output_text; adapters/advice.read builds a completed Result from the kept answer with no change to the parser; the model named is recorded. Result: the read the plan names was answered queued, then incomplete, incomplete_details.reason content_filter, usage 0 tokens in and 0 out, model gpt-6.2-astra, its last read at 18:28:44Z; the parser gave incomplete, refused, cost null. So the plan's read fails: incomplete is not among the states it names, and no answer was read. Diagnosed at once, each a read of its own, refused reads costing nothing: the same prompt with a benign diff, the instruction alone, its heading and first paragraph alone, and at last the one sentence 'You have no tool: everything you may read is in this prompt.' alone are each refused, content_filter, at no tokens; 'Answer with the single word pong.', the instruction from its third paragraph on, the first paragraph's first sentence, and the heading with its second sentence each complete. With that one sentence written 'Everything there is to read is below.', the plan's read completes: queued, in_progress, completed; model gpt-6.2-astra; input_tokens 1334, output_tokens 1032; the final body's output is two reasoning items and one message whose content is one output_text (no output_text field at the top of the body); adapters/advice.read builds a completed Result unchanged, cost $0.06494 at the configured 10/50, in 22.7 s, with three findings, one for each planted defect (the query built from its input, the loop that skips the last entry, the mean of an empty list). That Result was built from the answer as it came: the fixture writes its text as its length and sha256, as it writes every prompt and text, so it shows the states, the body's fields and the model named, and does not replay the three findings. Nor does it keep the output cap sent, which tools.redact_trial takes out as max_output_tokens: the 96,000 is the configuration's. Failed as written: the build's instruction is refused by Azure's content filter on this deployment. The sentence is reworded on harness/advise-asks-each-reader-390 (acc7faf8), a hand part, and record 0224's row says so. Spent on the trial, every read: about $0.10. What is kept (2026-11-21, to fit the review's size bound): the read the plan names (its create and its last read), the one sentence refused alone, and the reworded read whole, seven exchanges; each diagnosis step between them is one line here, what was sent, what its last read answered, and the sha256 of its exchanges as they were recorded whole: with the build's own prompt and a benign diff, p74/greet.py, which is no canary branch: a diagnosis: 200 incomplete, content_filter (exchanges 2+3 as recorded, sha256 c9ae53b6462fd8d149d17a37e9b50cc1acccf9866e4122c2bf23b85b51413bd6); with the build's prompt less the instruction's paragraph on the two parts and their markers, the benign diff: a diagnosis: 200 incomplete, content_filter (exchanges 4+5 as recorded, sha256 7b898b9ba31ae1b9a8fbc73c0c7c6887726e1849eb20099e5ebfeb7db3cac3fc); with the instruction whole and the benign diff after it with no marker: a diagnosis: 200 incomplete, content_filter (exchanges 6+7 as recorded, sha256 1b2ea7d8ffccc062e334d9e737ffdd407a8dc4f74e40f088a23c607fcd513113); with \"Answer with the single word pong.\": a diagnosis: 200 completed (exchanges 8+9 as recorded, sha256 08d6bd955125a633f39d4dfdeda08678660116fe78a6a1fa683c97877a624e54); with the instruction alone: a diagnosis: 200 incomplete, content_filter (exchanges 10+11 as recorded, sha256 732c90e6464f7a40c82c433bcbb2ca98a20fdfd21774de2e813e14acd8096af5); with \"Review this change and list its defects as JSON.\" and the benign diff: a diagnosis: 200 completed (exchanges 12+13 as recorded, sha256 0775eb36e09537d2bc23b4edfc82cf215df1354d03d2cbb3a9262caa45b91038); with the instruction's heading and first paragraph alone: a diagnosis: 200 incomplete, content_filter (exchanges 14+15 as recorded, sha256 f178a35210ba7ed9ebb0da386439fa6af61ef05646c5bcf7e5b89de4792c7c93); with the instruction from its third paragraph on: a diagnosis: 200 completed (exchanges 16+17+18 as recorded, sha256 758777f69eafc3f44afcf808df50ca21c8431ce983585773d7553e687e798c34); with \"You are a code reviewer from a different model family than the author of the change below.\" alone: a diagnosis: 200 completed (exchanges 19+20 as recorded, sha256 bfeb74e213121248485e02a3c9b6f52431000442cdb187fad913c2b8a851fc08); with the heading and the first paragraph's last two sentences: a diagnosis: 200 incomplete, content_filter (exchanges 21+22 as recorded, sha256 7d08c5abac74e458d92932d02d5e55a012490a49cc59c5d8f0ff59af1474be88); with the heading and \"You read one change to a repository and report the defects you find in it.\": a diagnosis: 200 completed (exchanges 23+24 as recorded, sha256 c6d50b10f2fe1167e2987b4e3af2b674532ab1f11de80b5d0f3c7d9693678021). Every prompt and every text of an answer is written as its length in bytes and sha256.",
+  "repo": null,
+  "ran_at": "2026-11-20T18:28:33Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/responses (act create), with the build's own prompt (harness.advise.prompt_of over an empty rules folder) and the diff of canary branch trial/p-74, p74/ledger.py with three planted defects: the read the plan names; client time 2026-11-20T18:28:33Z, answered in 1.5 s",
+        "headers": {},
+        "body": {
+          "model": "gpt-6.2-astra",
+          "input": "<4903 bytes of text, sha256 2c5d0863ee9c1db2b59a7c0c4da493d7766a86814be5381b62d2fecdf9806081>",
+          "reasoning": {
+            "effort": "xhigh"
+          },
+          "background": true,
+          "store": true
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_0e87200db036c5c8006b0091515b448197adf7e340dd1a9614",
+          "object": "response",
+          "created_at": 1795199313,
+          "status": "queued",
+          "access_programs": null,
+          "background": true,
+          "completed_at": null,
+          "content_filters": null,
+          "error": null,
+          "frequency_penalty": 0.0,
+          "incomplete_details": null,
+          "input_transformations": [],
+          "instructions": null,
+          "max_tool_calls": null,
+          "model": "gpt-6.2-astra",
+          "moderation": null,
+          "output": [],
+          "parallel_tool_calls": true,
+          "presence_penalty": 0.0,
+          "previous_response_id": null,
+          "prompt_cache_key": null,
+          "prompt_cache_retention": "24h",
+          "reasoning": {
+            "context": "all_turns",
+            "effort": "xhigh",
+            "mode": "standard",
+            "summary": null
+          },
+          "safety_identifier": null,
+          "service_tier": "auto",
+          "store": true,
+          "temperature": 1.0,
+          "text": {
+            "format": {
+              "type": "text"
+            },
+            "verbosity": "medium"
+          },
+          "tool_choice": "auto",
+          "tool_usage": {
+            "image_gen": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "output_tokens_details": {},
+              "total_tokens": 0
+            },
+            "web_search": {
+              "num_requests": 0
+            }
+          },
+          "tools": [],
+          "top_logprobs": 0,
+          "top_p": 0.98,
+          "truncation": "disabled",
+          "usage": null,
+          "user": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "GET /openai/v1/responses/resp_0e87200db036c5c8006b0091515b448197adf7e340dd1a9614 (act read), with the build's own prompt (harness.advise.prompt_of over an empty rules folder) and the diff of canary branch trial/p-74, p74/ledger.py with three planted defects: the read the plan names; client time 2026-11-20T18:28:44Z, answered in 0.3 s",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_0e87200db036c5c8006b0091515b448197adf7e340dd1a9614",
+          "object": "response",
+          "created_at": 1795199313,
+          "status": "incomplete",
+          "access_programs": null,
+          "background": true,
+          "completed_at": null,
+          "content_filters": [
+            {
+              "blocked": true,
+              "source_type": "prompt",
+              "content_filter_raw": [],
+              "content_filter_results": {
+                "hate": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "sexual": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "violence": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "self_harm": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "jailbreak": {
+                  "detected": true,
+                  "filtered": true
+                }
+              },
+              "content_filter_offsets": {
+                "start_offset": 0,
+                "end_offset": 6987,
+                "check_offset": 0
+              }
+            }
+          ],
+          "error": null,
+          "frequency_penalty": 0.0,
+          "incomplete_details": {
+            "reason": "content_filter"
+          },
+          "input_transformations": [],
+          "instructions": null,
+          "max_tool_calls": null,
+          "model": "gpt-6.2-astra",
+          "moderation": null,
+          "output": [
+            {
+              "id": "msg_0e87200db036c5c8006b009155549c8197abe4c6ccae3ef04b",
+              "type": "message",
+              "status": "incomplete",
+              "content": [
+                {
+                  "type": "output_text",
+                  "annotations": [],
+                  "logprobs": [],
+                  "text": "<49 bytes of text, sha256 dd4d79786716bf2be3bbe7f9920b3465f3a48eafb65da55acad6b6270bc90657>"
+                }
+              ],
+              "phase": "final_answer",
+              "role": "assistant"
+            }
+          ],
+          "parallel_tool_calls": true,
+          "presence_penalty": 0.0,
+          "previous_response_id": null,
+          "prompt_cache_key": null,
+          "prompt_cache_retention": "24h",
+          "reasoning": {
+            "context": "all_turns",
+            "effort": "xhigh",
+            "mode": "standard",
+            "summary": null
+          },
+          "safety_identifier": null,
+          "service_tier": "auto",
+          "store": true,
+          "temperature": 1.0,
+          "text": {
+            "format": {
+              "type": "text"
+            },
+            "verbosity": "medium"
+          },
+          "tool_choice": "auto",
+          "tool_usage": {
+            "image_gen": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "output_tokens_details": {},
+              "total_tokens": 0
+            },
+            "web_search": {
+              "num_requests": 0
+            }
+          },
+          "tools": [],
+          "top_logprobs": 0,
+          "top_p": 0.98,
+          "truncation": "disabled",
+          "usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "output_tokens_details": {},
+            "total_tokens": 0
+          },
+          "user": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/responses (act create), with \"You have no tool: everything you may read is in this prompt.\" alone: a diagnosis; client time 2026-11-20T18:33:49Z, answered in 2.3 s",
+        "headers": {},
+        "body": {
+          "model": "gpt-6.2-astra",
+          "input": "<60 bytes of text, sha256 ec0e65bd71f6b67edbef77c1074f18f8ba6b8ba01688e63e0f7954adc8a27793>",
+          "reasoning": {
+            "effort": "xhigh"
+          },
+          "background": true,
+          "store": true
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_0d9ba2f512243c31006b00928e16608193a09acd5ecfb35e02",
+          "object": "response",
+          "created_at": 1795199630,
+          "status": "queued",
+          "access_programs": null,
+          "background": true,
+          "completed_at": null,
+          "content_filters": null,
+          "error": null,
+          "frequency_penalty": 0.0,
+          "incomplete_details": null,
+          "input_transformations": [],
+          "instructions": null,
+          "max_tool_calls": null,
+          "model": "gpt-6.2-astra",
+          "moderation": null,
+          "output": [],
+          "parallel_tool_calls": true,
+          "presence_penalty": 0.0,
+          "previous_response_id": null,
+          "prompt_cache_key": null,
+          "prompt_cache_retention": "24h",
+          "reasoning": {
+            "context": "all_turns",
+            "effort": "xhigh",
+            "mode": "standard",
+            "summary": null
+          },
+          "safety_identifier": null,
+          "service_tier": "auto",
+          "store": true,
+          "temperature": 1.0,
+          "text": {
+            "format": {
+              "type": "text"
+            },
+            "verbosity": "medium"
+          },
+          "tool_choice": "auto",
+          "tool_usage": {
+            "image_gen": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "output_tokens_details": {},
+              "total_tokens": 0
+            },
+            "web_search": {
+              "num_requests": 0
+            }
+          },
+          "tools": [],
+          "top_logprobs": 0,
+          "top_p": 0.98,
+          "truncation": "disabled",
+          "usage": null,
+          "user": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "GET /openai/v1/responses/resp_0d9ba2f512243c31006b00928e16608193a09acd5ecfb35e02 (act read), with \"You have no tool: everything you may read is in this prompt.\" alone: a diagnosis; client time 2026-11-20T18:34:02Z, answered in 0.2 s",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_0d9ba2f512243c31006b00928e16608193a09acd5ecfb35e02",
+          "object": "response",
+          "created_at": 1795199630,
+          "status": "incomplete",
+          "access_programs": null,
+          "background": true,
+          "completed_at": null,
+          "content_filters": [
+            {
+              "blocked": true,
+              "source_type": "prompt",
+              "content_filter_raw": [],
+              "content_filter_results": {
+                "hate": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "sexual": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "violence": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "self_harm": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "jailbreak": {
+                  "detected": true,
+                  "filtered": true
+                }
+              },
+              "content_filter_offsets": {
+                "start_offset": 0,
+                "end_offset": 2019,
+                "check_offset": 0
+              }
+            }
+          ],
+          "error": null,
+          "frequency_penalty": 0.0,
+          "incomplete_details": {
+            "reason": "content_filter"
+          },
+          "input_transformations": [],
+          "instructions": null,
+          "max_tool_calls": null,
+          "model": "gpt-6.2-astra",
+          "moderation": null,
+          "output": [
+            {
+              "id": "msg_0d9ba2f512243c31006b009292a19c819381d07bca42f84d50",
+              "type": "message",
+              "status": "incomplete",
+              "content": [
+                {
+                  "type": "output_text",
+                  "annotations": [],
+                  "logprobs": [],
+                  "text": "<49 bytes of text, sha256 dd4d79786716bf2be3bbe7f9920b3465f3a48eafb65da55acad6b6270bc90657>"
+                }
+              ],
+              "phase": "final_answer",
+              "role": "assistant"
+            }
+          ],
+          "parallel_tool_calls": true,
+          "presence_penalty": 0.0,
+          "previous_response_id": null,
+          "prompt_cache_key": null,
+          "prompt_cache_retention": "24h",
+          "reasoning": {
+            "context": "all_turns",
+            "effort": "xhigh",
+            "mode": "standard",
+            "summary": null
+          },
+          "safety_identifier": null,
+          "service_tier": "auto",
+          "store": true,
+          "temperature": 1.0,
+          "text": {
+            "format": {
+              "type": "text"
+            },
+            "verbosity": "medium"
+          },
+          "tool_choice": "auto",
+          "tool_usage": {
+            "image_gen": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "output_tokens_details": {},
+              "total_tokens": 0
+            },
+            "web_search": {
+              "num_requests": 0
+            }
+          },
+          "tools": [],
+          "top_logprobs": 0,
+          "top_p": 0.98,
+          "truncation": "disabled",
+          "usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "output_tokens_details": {},
+            "total_tokens": 0
+          },
+          "user": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "POST /openai/v1/responses (act create), with the build's prompt for the canary diff with that one sentence written \"Everything there is to read is below.\": the read the plan names, again; client time 2026-11-20T18:34:18Z, answered in 1.5 s",
+        "headers": {},
+        "body": {
+          "model": "gpt-6.2-astra",
+          "input": "<4880 bytes of text, sha256 bee400375a362769ccd80cccad36294bd87e00fbece3147fa0965aa6028dd66d>",
+          "reasoning": {
+            "effort": "xhigh"
+          },
+          "background": true,
+          "store": true
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_0884206c83dae88d006b0092aaa6e48190a9caff32fab231ff",
+          "object": "response",
+          "created_at": 1795199658,
+          "status": "queued",
+          "access_programs": null,
+          "background": true,
+          "completed_at": null,
+          "content_filters": null,
+          "error": null,
+          "frequency_penalty": 0.0,
+          "incomplete_details": null,
+          "input_transformations": [],
+          "instructions": null,
+          "max_tool_calls": null,
+          "model": "gpt-6.2-astra",
+          "moderation": null,
+          "output": [],
+          "parallel_tool_calls": true,
+          "presence_penalty": 0.0,
+          "previous_response_id": null,
+          "prompt_cache_key": null,
+          "prompt_cache_retention": "24h",
+          "reasoning": {
+            "context": "all_turns",
+            "effort": "xhigh",
+            "mode": "standard",
+            "summary": null
+          },
+          "safety_identifier": null,
+          "service_tier": "auto",
+          "store": true,
+          "temperature": 1.0,
+          "text": {
+            "format": {
+              "type": "text"
+            },
+            "verbosity": "medium"
+          },
+          "tool_choice": "auto",
+          "tool_usage": {
+            "image_gen": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "output_tokens_details": {},
+              "total_tokens": 0
+            },
+            "web_search": {
+              "num_requests": 0
+            }
+          },
+          "tools": [],
+          "top_logprobs": 0,
+          "top_p": 0.98,
+          "truncation": "disabled",
+          "usage": null,
+          "user": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "GET /openai/v1/responses/resp_0884206c83dae88d006b0092aaa6e48190a9caff32fab231ff (act read), with the build's prompt for the canary diff with that one sentence written \"Everything there is to read is below.\": the read the plan names, again; client time 2026-11-20T18:34:30Z, answered in 0.2 s",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_0884206c83dae88d006b0092aaa6e48190a9caff32fab231ff",
+          "object": "response",
+          "created_at": 1795199658,
+          "status": "in_progress",
+          "access_programs": null,
+          "background": true,
+          "completed_at": null,
+          "content_filters": null,
+          "error": null,
+          "frequency_penalty": 0.0,
+          "incomplete_details": null,
+          "input_transformations": [],
+          "instructions": null,
+          "max_tool_calls": null,
+          "model": "gpt-6.2-astra",
+          "moderation": null,
+          "output": [],
+          "parallel_tool_calls": true,
+          "presence_penalty": 0.0,
+          "previous_response_id": null,
+          "prompt_cache_key": null,
+          "prompt_cache_retention": "24h",
+          "reasoning": {
+            "context": "all_turns",
+            "effort": "xhigh",
+            "mode": "standard",
+            "summary": null
+          },
+          "safety_identifier": null,
+          "service_tier": "auto",
+          "store": true,
+          "temperature": 1.0,
+          "text": {
+            "format": {
+              "type": "text"
+            },
+            "verbosity": "medium"
+          },
+          "tool_choice": "auto",
+          "tool_usage": {
+            "image_gen": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "output_tokens_details": {},
+              "total_tokens": 0
+            },
+            "web_search": {
+              "num_requests": 0
+            }
+          },
+          "tools": [],
+          "top_logprobs": 0,
+          "top_p": 0.98,
+          "truncation": "disabled",
+          "usage": null,
+          "user": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the desk's Azure resource (foundry-project-1-cs-resource), its key read in-process from the desk keychain; sent from the Mac mini, not a GitHub runner (the Builder's ruling (a), 2026-11-20)"
+        },
+        "via": "rest",
+        "call": "GET /openai/v1/responses/resp_0884206c83dae88d006b0092aaa6e48190a9caff32fab231ff (act read), with the build's prompt for the canary diff with that one sentence written \"Everything there is to read is below.\": the read the plan names, again; client time 2026-11-20T18:34:40Z, answered in 0.7 s",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "id": "resp_0884206c83dae88d006b0092aaa6e48190a9caff32fab231ff",
+          "object": "response",
+          "created_at": 1795199658,
+          "status": "completed",
+          "access_programs": null,
+          "background": true,
+          "completed_at": 1795199678,
+          "content_filters": [
+            {
+              "blocked": false,
+              "source_type": "prompt",
+              "content_filter_raw": [],
+              "content_filter_results": {
+                "hate": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "sexual": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "violence": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "self_harm": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "jailbreak": {
+                  "detected": false,
+                  "filtered": false
+                }
+              },
+              "content_filter_offsets": {
+                "start_offset": 0,
+                "end_offset": 6964,
+                "check_offset": 0
+              }
+            },
+            {
+              "blocked": false,
+              "source_type": "completion",
+              "content_filter_raw": [],
+              "content_filter_results": {
+                "protected_material_code": {
+                  "detected": false,
+                  "filtered": false
+                },
+                "protected_material_text": {
+                  "detected": false,
+                  "filtered": false
+                },
+                "hate": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "sexual": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "violence": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "self_harm": {
+                  "filtered": false,
+                  "severity": "safe"
+                }
+              },
+              "content_filter_offsets": {
+                "start_offset": 0,
+                "end_offset": 4647,
+                "check_offset": 0
+              }
+            }
+          ],
+          "error": null,
+          "frequency_penalty": 0.0,
+          "incomplete_details": null,
+          "input_transformations": [],
+          "instructions": null,
+          "max_tool_calls": null,
+          "model": "gpt-6.2-astra",
+          "moderation": null,
+          "output": [
+            {
+              "id": "rs_0884206c83dae88d006b0092ad51e88190aab6499bc812e29b",
+              "type": "reasoning",
+              "content": [],
+              "summary": []
+            },
+            {
+              "id": "rs_0884206c83dae88d006b0092b64058819096ac9feb2597597d",
+              "type": "reasoning",
+              "content": [],
+              "summary": []
+            },
+            {
+              "id": "msg_0884206c83dae88d006b0092b9c520819087c91eae90ea9fb3",
+              "type": "message",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "annotations": [],
+                  "logprobs": [],
+                  "text": "<1395 bytes of text, sha256 cee5fbee1f846792e5890de743f1cb070a9dd33f6d743090d78bb580c9d0041d>"
+                }
+              ],
+              "phase": "final_answer",
+              "role": "assistant"
+            }
+          ],
+          "parallel_tool_calls": true,
+          "presence_penalty": 0.0,
+          "previous_response_id": null,
+          "prompt_cache_key": null,
+          "prompt_cache_retention": "24h",
+          "reasoning": {
+            "context": "all_turns",
+            "effort": "xhigh",
+            "mode": "standard",
+            "summary": null
+          },
+          "safety_identifier": null,
+          "service_tier": "default",
+          "store": true,
+          "temperature": 1.0,
+          "text": {
+            "format": {
+              "type": "text"
+            },
+            "verbosity": "medium"
+          },
+          "tool_choice": "auto",
+          "tool_usage": {
+            "image_gen": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "output_tokens_details": {},
+              "total_tokens": 0
+            },
+            "web_search": {
+              "num_requests": 0
+            }
+          },
+          "tools": [],
+          "top_logprobs": 0,
+          "top_p": 0.98,
+          "truncation": "disabled",
+          "usage": {
+            "input_tokens": 1334,
+            "output_tokens": 1032,
+            "output_tokens_details": {},
+            "total_tokens": 2366
+          },
+          "user": null,
+          "metadata": {}
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.body.max_output_tokens",
+    "exchanges[0].response.body.max_output_tokens",
+    "exchanges[0].response.body.tool_usage.image_gen.input_tokens_details",
+    "exchanges[0].response.body.tool_usage.image_gen.output_tokens_details.image_tokens",
+    "exchanges[0].response.body.tool_usage.image_gen.output_tokens_details.text_tokens",
+    "exchanges[1].response.body.max_output_tokens",
+    "exchanges[1].response.body.tool_usage.image_gen.input_tokens_details",
+    "exchanges[1].response.body.tool_usage.image_gen.output_tokens_details.image_tokens",
+    "exchanges[1].response.body.tool_usage.image_gen.output_tokens_details.text_tokens",
+    "exchanges[1].response.body.usage.input_tokens_details",
+    "exchanges[1].response.body.usage.output_tokens_details.reasoning_tokens",
+    "exchanges[2].request.body.max_output_tokens",
+    "exchanges[2].response.body.max_output_tokens",
+    "exchanges[2].response.body.tool_usage.image_gen.input_tokens_details",
+    "exchanges[2].response.body.tool_usage.image_gen.output_tokens_details.image_tokens",
+    "exchanges[2].response.body.tool_usage.image_gen.output_tokens_details.text_tokens",
+    "exchanges[3].response.body.max_output_tokens",
+    "exchanges[3].response.body.tool_usage.image_gen.input_tokens_details",
+    "exchanges[3].response.body.tool_usage.image_gen.output_tokens_details.image_tokens",
+    "exchanges[3].response.body.tool_usage.image_gen.output_tokens_details.text_tokens",
+    "exchanges[3].response.body.usage.input_tokens_details",
+    "exchanges[3].response.body.usage.output_tokens_details.reasoning_tokens",
+    "exchanges[4].request.body.max_output_tokens",
+    "exchanges[4].response.body.max_output_tokens",
+    "exchanges[4].response.body.tool_usage.image_gen.input_tokens_details",
+    "exchanges[4].response.body.tool_usage.image_gen.output_tokens_details.image_tokens",
+    "exchanges[4].response.body.tool_usage.image_gen.output_tokens_details.text_tokens",
+    "exchanges[5].response.body.max_output_tokens",
+    "exchanges[5].response.body.tool_usage.image_gen.input_tokens_details",
+    "exchanges[5].response.body.tool_usage.image_gen.output_tokens_details.image_tokens",
+    "exchanges[5].response.body.tool_usage.image_gen.output_tokens_details.text_tokens",
+    "exchanges[6].response.body.max_output_tokens",
+    "exchanges[6].response.body.tool_usage.image_gen.input_tokens_details",
+    "exchanges[6].response.body.tool_usage.image_gen.output_tokens_details.image_tokens",
+    "exchanges[6].response.body.tool_usage.image_gen.output_tokens_details.text_tokens",
+    "exchanges[6].response.body.usage.input_tokens_details",
+    "exchanges[6].response.body.usage.output_tokens_details.reasoning_tokens"
+  ],
+  "verdict": "fail"
+}

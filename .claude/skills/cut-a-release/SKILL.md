@@ -20,6 +20,7 @@ next, and roll back in one action".
   that commit. Until the App is registered and its key is in the environment, nothing can cut.
 - **A session never** mints a credential, runs `gh auth token` or anything with `--show-token`, opens the App's key,
   writes or deletes a tag, or dispatches the release workflow. It reads, plans, and hands the Maintainer the one command.
+- **A cut's notes** are the session's to write and the Maintainer's to publish, by the line under Release notes.
 
 ## Before anything runs
 
@@ -90,6 +91,21 @@ concluded, and dispatch it again if the schedule's took its place.
 Read the run's conclusion, the Deployment it recorded on `factory-next`, and the tags again. The step is done when
 the tag and `next` name the commit the plan named. A rollback is timed from the dispatch to its read-back, against
 FR-49's 15 minutes.
+
+## Release notes
+
+Once a cut's read-back is done, the session hands the Maintainer one more line, for the repo's main checkout after
+`git fetch --tags origin`. It publishes the cut's notes as the tag's GitHub Release:
+
+```
+SCRATCH="$(mktemp -d)" && test "$(git rev-parse --is-shallow-repository)" = false && git log --reverse --format=%s factory/vPREVIOUS..factory/vNEW > "$SCRATCH/subjects" && python3 -m release.notes factory/vNEW factory/vPREVIOUS < "$SCRATCH/subjects" > "$SCRATCH/notes.md" && gh release create factory/vNEW --repo combsmith/software-factory --verify-tag --title factory/vNEW --notes-file "$SCRATCH/notes.md"
+```
+
+Each step runs only if the one before succeeded: a shallow clone, a range git cannot read, or no subjects at all
+publishes nothing (`release/notes.py` refuses an empty history and says why on stderr). `--verify-tag` refuses
+unless the tag is already there, and it is what keeps the line from minting a tag: the Maintainer's login may bypass
+the tag ruleset. The notes list each squash subject under its area, any subject not in the plain form as it is, and
+show every subject literally. A rollback publishes nothing.
 
 ## When the workflow cannot run
 

@@ -120,7 +120,7 @@ def facts(**over) -> dict:
          "life_started_at": at(0), "reopened_last_by": "never", "content_id": THIS, "content_changed_at": at(0),
          "label_events": [], "linked": [], "role_comments": [], "last_writer_action_at": at(0),
          "last_writer_comment_at": None, "acts_since_writer": 0, "branch_head": None, "base_head": BASE,
-         "complete": {"timeline": True, "linked": True, "runs": True},
+         "complete": {"timeline": True, "linked": True, "runs": True}, "timeline_bounded": False,
          "read_at": at(50)}
     f.update(over)
     # The two times a close and a reopening carry, as GitHub holds them, unless the case gives them: a person's close
@@ -292,6 +292,61 @@ class Unreadable(unittest.TestCase):
         self.assertEqual(derive(f)["reason"], "facts_incomplete")
         self.assertEqual(derive(facts(complete={"timeline": True, "linked": True}))["evidence"], ["runs"])
         self.assertEqual(derive(facts())["reason"], "acceptance_due")
+
+    def test_a_timeline_past_the_ports_bound_defers_on_its_own_code_and_calls_a_person(self):  # issue 849, decision 0234
+        # The port stopped at its bound: the issue defers `timeline_bounded`, a closed one's too, before a list read short
+        # beside it, and a person is called, since more comments never bring the timeline back under the bound.
+        for f in (facts(), facts(state="closed"), facts(complete={"timeline": False, "linked": False, "runs": False})):
+            f.update(timeline_bounded=True, complete=dict(f["complete"], timeline=False))
+            d = derive(f)
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), (None, "timeline_bounded", ["timeline"]))
+            self.assertEqual((what(decide(f)), decide(f)["attention"]), (("defer", "timeline_bounded", None), "needs_you"))
+        # Cut at a linked pull request's read alone, the issue's own timeline whole, it defers so too (Astra, Kimi).
+        f = facts(timeline_bounded=True, complete={"timeline": True, "linked": False, "runs": True})
+        self.assertEqual((derive(f)["reason"], decide(f)["attention"]), ("timeline_bounded", "needs_you"))
+        # Within the bound, a timeline read short is the plain gap, which mends itself and calls no one.
+        short = facts(timeline_bounded=False, complete={"timeline": False, "linked": True, "runs": True})
+        self.assertEqual((derive(short)["reason"], derive(short)["evidence"], decide(short)["attention"]),
+                         ("facts_incomplete", ["timeline"], "none"))
+        self.assertEqual(derive(facts(timeline_bounded=False))["reason"], "acceptance_due")
+        # A flag that is not exactly true or false cannot say the timeline is whole: it is a gap in it, never read as
+        # within the bound.
+        for flag in (None, "false", 0, 1, "true"):
+            d = derive(facts(timeline_bounded=flag))
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), (None, "facts_incomplete", ["timeline"]), flag)
+        f = facts()
+        del f["timeline_bounded"]
+        self.assertEqual((derive(f)["reason"], derive(f)["evidence"]), ("facts_incomplete", ["timeline"]))
+        self.assertEqual(derive(facts(timeline_bounded=None, complete={"timeline": True, "linked": False, "runs": True}))["evidence"],
+                         ["linked", "timeline"])
+
+    def test_the_issue_world_meets_a_timeline_past_the_bound_under_faults_and_calls_a_person(self):  # decision 0234
+        # The simulator's issue world sets the fact beside a timeline read short, in its own draws, so its fixed seeds
+        # meet the deferral, which calls a person each time.
+        import unittest.mock
+        import sim.issues
+        from sim.issues import IssueWorld
+        met, seen, real = [], [], sim.issues.issue.decide
+
+        def decide(facts, *a):
+            seen.append((facts.get("timeline_bounded"), dict(facts["complete"])))
+            return real(facts, *a)
+        with unittest.mock.patch.object(sim.issues.issue, "decide", decide):
+            for seed in range(1, 11):
+                w = IssueWorld(seed)
+                for _ in range(300):
+                    w.step()
+                met += [line for line in w.trace if "pass: None / timeline_bounded" in line]
+        self.assertTrue(met)
+        self.assertTrue(all(line.endswith("-> defer  [needs_you]") for line in met), met[:3])
+        # The flag stands only beside the timeline or the linked list read short (Astra); each short within the bound is
+        # met unflagged too.
+        self.assertTrue(all(False in (complete["timeline"], complete["linked"]) for bounded, complete in seen if bounded is True))
+        self.assertTrue(any(bounded is True and complete["linked"] is False for bounded, complete in seen))
+        self.assertTrue(any(bounded is True and complete["timeline"] is False for bounded, complete in seen))
+        self.assertTrue(all(bounded in (True, False) for bounded, _ in seen))
+        self.assertTrue(any(bounded is False and complete["timeline"] is False for bounded, complete in seen))
+        self.assertTrue(any(bounded is False and complete["linked"] is False for bounded, complete in seen))
 
     def test_an_unreadable_label_event_defers(self):
         bad = [dict(labelled(HOLD), by={"kind": "bot", "name": "x", "can_write": True}),
@@ -506,6 +561,11 @@ class Unreadable(unittest.TestCase):
         f = facts()
         del f["author"]
         self.assertEqual(derive(f)["reason"], "author_unreadable")
+        # The Decision defers, open or closed, and its reason is an issue's own (decision 0248).
+        closed = facts(state="closed")
+        del closed["author"]
+        for f in (f, closed):
+            self.assertEqual(what(decide(f)), ("defer", "author_unreadable", None))
         self.assertEqual(state(facts(author=dict(MACHINE))), "new")
 
     def test_a_content_id_has_as_many_digits_as_the_schema_allows(self):
@@ -521,6 +581,7 @@ class Unreadable(unittest.TestCase):
             for f in (facts(**over), facts(state="closed", **over)):
                 d = derive(f)
                 self.assertEqual((d["state"], d["reason"]), (None, "content_unreadable"), over)
+                self.assertEqual(what(decide(f)), ("defer", "content_unreadable", None), over)
 
     def test_what_cannot_be_read_is_read_in_its_order(self):
         f = facts(state=None, label_events=None, label_names=None, linked=None, life_started_at=None, content_id=None,
@@ -565,6 +626,10 @@ class Unreadable(unittest.TestCase):
         f = facts()
         del f["type"]
         self.assertEqual(derive(f)["reason"], "type_unreadable")
+        closed = facts(state="closed")
+        del closed["type"]
+        for f in (f, closed):
+            self.assertEqual(what(decide(f)), ("defer", "type_unreadable", None))
         for value in (None, "Bug"):
             self.assertEqual(state(facts(type=value)), "new", value)
 
@@ -1317,6 +1382,75 @@ class Held(unittest.TestCase):
         self.assertEqual(state(outsiders(linked=[pr(), pr(number=12)])), "held")
         self.assertEqual(state(facts(linked=[pr(), pr(number=12, is_open=False, closed=4)])), "in_review")
         self.assertEqual(state(facts(linked=[pr(), strangers(number=12)])), "in_review")
+
+
+class Stands(unittest.TestCase):
+    """How the issue stands for the pull request the Factory opened for it, from its state and its own labels alone
+    (decision 0232)."""
+
+    def stands(self, f, cfg=None):
+        given = copy.deepcopy((f, cfg or config()))
+        got = issue.stands(*given)
+        self.assertEqual(given, copy.deepcopy((f, cfg or config())), "the Kernel changed an argument")
+        self.assertIn(got, ("open", "held", "closed", None))
+        return got
+
+    def test_an_issue_stands_open_held_or_closed_from_its_state_and_its_own_labels(self):
+        self.assertEqual(self.stands(facts()), "open")
+        # A Hold binds whoever placed it; hands-off anyone but a person placed is one. A person's hands-off, a Hold
+        # beside it too, is no stop. factory:admit stops nothing.
+        for by in (WRITER, CONTROLLER, OTHER_APP, OUTSIDER, MACHINE):
+            self.assertEqual(self.stands(facts(label_events=[labelled(HOLD, by)])), "held", by)
+        for by in (CONTROLLER, OTHER_APP, OUTSIDER, MACHINE):
+            self.assertEqual(self.stands(facts(label_events=[labelled(HANDS_OFF, by)])), "held", by)
+        for by in (WRITER, COLLEAGUE):
+            self.assertEqual(self.stands(facts(label_events=[labelled(HANDS_OFF, by)])), "open", by)
+            self.assertEqual(self.stands(facts(label_events=[labelled(HANDS_OFF, by), labelled(HOLD, OTHER_APP, 2)])),
+                             "open", by)
+        # Removed by a person in the second it was placed, a person's hands-off is read as a Hold.
+        self.assertEqual(self.stands(facts(label_events=[labelled(HANDS_OFF), unlabelled(HANDS_OFF, minute=1),
+                                                          labelled(HANDS_OFF, OTHER_APP, 1)])), "held")
+        self.assertEqual(self.stands(facts(label_events=[labelled(HOLD), unlabelled(HOLD)])), "open")
+        self.assertEqual(self.stands(facts(label_events=[labelled(HANDS_OFF, OTHER_APP), unlabelled(HANDS_OFF, COLLEAGUE)])),
+                         "open")
+        for by in (CONTROLLER, OUTSIDER, MACHINE):
+            self.assertEqual(self.stands(facts(label_events=[labelled(HOLD), unlabelled(HOLD, by)])), "held", by)
+        self.assertEqual(self.stands(facts(label_events=[labelled(ADMIT)])), "open")
+        self.assertEqual(self.stands(facts(label_events=[labelled(TRIAGE, CONTROLLER), labelled(READY, READINESS)])), "open")
+        # Closed is GitHub's state alone, whoever closed it, and is read before the labels, which may not be read.
+        for over in ({}, {"label_events": [labelled(HOLD)]}, {"label_events": None},
+                     {"complete": {"timeline": False, "linked": True, "runs": True}}, {"reopened_last_by": "other"}):
+            self.assertEqual(self.stands(facts(**dict({"state": "closed"}, **over))), "closed", over)
+
+    def test_no_row_of_the_issues_own_reading_is_read(self):
+        # Not served, an outsider's, linked twice, with linked pull requests or Runs read short: a Hold still holds.
+        hold = [labelled(HOLD, CONTROLLER)]
+        for f, cfg in ((facts(label_events=hold), config(served_from=None)),
+                       (facts(label_events=hold, label_names=["epic"]), None),
+                       (outsiders(label_events=hold), None),
+                       (facts(label_events=hold, linked=[pr(), pr(number=12)]), None),
+                       (facts(label_events=hold, linked="not a list"), None),
+                       (facts(label_events=hold, author=None), None),
+                       (facts(label_events=hold, complete={"timeline": True, "linked": False, "runs": False}), None)):
+            self.assertEqual(self.stands(f, cfg), "held")
+        # A Hold on a linked draft is the issue's own reading, not the issue's label: it does not stop this one.
+        self.assertEqual(self.stands(facts(linked=[agents(draft=True, events=[labelled(HOLD)])])), "open")
+
+    def test_what_cannot_be_read_gives_none(self):
+        for f in (facts(state="Closed"), facts(state=None), facts(state=True), {"label_events": []}, None, [], "open",
+                  facts(complete={"timeline": False, "linked": True, "runs": True}),
+                  facts(complete={"timeline": 1, "linked": True, "runs": True}), facts(complete=None),
+                  facts(label_events=None), facts(label_events=[dict(labelled(HOLD), by=None)]),
+                  facts(label_events=[dict(labelled(HOLD), at="noon")]),
+                  facts(label_events=[dict(labelled(HOLD), action="added")])):
+            self.assertIsNone(self.stands(f), f)
+        missing = facts()
+        del missing["complete"]
+        self.assertIsNone(self.stands(missing))
+        # Read short, a person's hands-off is not read either: the part not read could hold its removal and a Hold.
+        short = {"timeline": False, "linked": True, "runs": True}
+        self.assertIsNone(self.stands(facts(label_events=[labelled(HANDS_OFF)], complete=short)))
+        self.assertIsNone(self.stands(facts(label_events=[labelled(HANDS_OFF), dict(labelled(HOLD), by=None)])))
 
 
 class Accepted(unittest.TestCase):
@@ -2320,6 +2454,11 @@ class Opening(unittest.TestCase):
                              (("admit", "ready", OPEN), "9f2c41d", False))
         # No other State's Run waits on it.
         self.assertEqual(what(decide(facts(label_events=ACCEPTED, base_head=1)))[2], INVESTIGATE)
+        # Nor does an act: an issue no one has triaged yet is accepted whatever the base reads, or with none at all.
+        new = facts()
+        del new["base_head"]
+        for f in (new, facts(base_head=None), facts(base_head=""), facts(base_head=1), facts(base_head="main")):
+            self.assertEqual(decide(f).get("action"), "accept", f.get("base_head", "left out"))
 
     def test_an_unreadable_branch_head_defers_the_opening_run_alone(self):
         for value in ("", 1, ["9f2c41d"]):

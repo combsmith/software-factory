@@ -567,6 +567,15 @@
       ],
       "minimum": 1
     },
+    "issue_stands": {
+      "description": "How the issue this pull request was opened for stands, as `kernel/issue.py`'s `stands` reads it; null where it was not read or there is none. The Controller fills it by `opened_for`; the facts port gives none of it. With `opened_for` an issue's number, anything but the three words is unreadable (decision 0232). Not required: older facts hold no `opened_for` either",
+      "enum": [
+        "open",
+        "held",
+        "closed",
+        null
+      ]
+    },
     "complete": {
       "type": "object",
       "additionalProperties": false,

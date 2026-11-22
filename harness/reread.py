@@ -4,7 +4,8 @@
 The run records are the records port's list of the Role workflow files, counted by the pass's own token's account;
 the Pause is `FACTORY_PAUSED` on the org and on the item's repo; the facts are the facts port's snapshot of the pull
 request, with the accounts `controller/1` holds, the App that opens pull requests (issue 295), whether the run
-records were read whole and what the item's Lenses recorded in them (`adapters/applied.py`). The context is built from
+records were read whole and what the item's Lenses recorded in them (`adapters/applied.py`), and how the issue it was
+opened for stands, as the pass joins it (decision 0232). The context is built from
 them by `controller/pass_.context_of`, as one pass builds it, with no pass records before, so `passes_since` is
 unreadable, which defers nothing. What cannot be read raises, named by its stage (`harness/shared.unread`), a fault of
 a read's own code as a read GitHub did not answer, and the job that asked records whose fault it was. The Pause's port
@@ -12,15 +13,31 @@ raises nothing: a Pause it could not read is the context's, unless the job asks 
 as a read of the `pause` stage, its part the port's (decision 0192)."""
 from __future__ import annotations
 
-from adapters import applied, facts as facts_, pause as pause_, records, timeline
+from adapters import applied, facts as facts_, issues as issues_, pause as pause_, records, timeline
 from adapters.github import Unanswered
-from controller import pass_, reads as reads_
+from controller import issue_holds, pass_, reads as reads_
 from harness import shared
 
 
 def _parted(err: Exception, part: str) -> Exception:
     err.part = part
     return err
+
+
+def issue_stood(transport, config: dict, home: str, facts: dict, who) -> dict:
+    """`facts`, with how the issue the Factory opened the pull request for stands, as the pass joins it (decision 0232,
+    issue 964): issue N read by the issues port's `stood`, its state and its own label events told by `who`, the account
+    reader the pull request was read with, and `issue_stands` filled by `controller/issue_holds.join`, so by the Kernel's
+    `stands`. One that cannot be read, or that moved while read, gives null, and the Kernel defers the act. A pull
+    request opened for no issue asks nothing."""
+    number = issue_holds.opened_for(facts)
+    if number is None:
+        return facts
+    try:
+        stood = {number: issues_.stood(transport, home, number, who)}
+    except Unanswered:
+        stood = {}
+    return issue_holds.join([{"facts": facts}], stood, pass_.issue_config(config["kernel"]))[0]["facts"]
 
 
 def held(record) -> dict:
@@ -57,6 +74,8 @@ def item(transport, config: dict, number: int, now: str, clock, name_pause: bool
         facts, _, head = facts_.snapshot(transport, home, number, identities, who, listed.get("complete") is True, clock,
                                          with_head=True, opener=facts_.opener_of(controller, config["kernel"], config["apps"]),
                                          recorded=found[number], opened=opened)
+    with shared.staged("issue_stood"):    # one not answered gives null; a fault of its own code is named (0187)
+        facts = issue_stood(transport, config, home, facts, who)
     unread = []
     with shared.staged("pause"):
         if name_pause:
