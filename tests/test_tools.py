@@ -2373,6 +2373,144 @@ class Purity(unittest.TestCase):
         root = planted({"kernel/a.py": "from kernel.extra import clock\n", "kernel/extra/clock.py": "import time\n"})
         self.assertTrue(caught(check_purity.run(root), "extra/clock.py:1 imports time"))
 
+    def test_six_older_ways_past_the_kernels_rules_are_caught(self):  # issue 909
+        run = lambda files: check_purity.run(planted(files))
+        # 1. State kept through frozenset: a call in its argument is read, so a list a generator yields is not kept.
+        box = "def _box():\n    yield []\n\n\n"
+        self.assertTrue(caught(run({"kernel/x.py": box + "_KEPT = frozenset([next(_box())])\n"}), "x.py:5 holds a value that can change"))
+        self.assertTrue(caught(run({"kernel/x.py": box + "def f(x, _k=frozenset([next(_box())])):\n    return x\n"}),
+                               "x.py:5 has a default that can change"))
+        for kept in ("frozenset((x for x in ()))", "frozenset([y := 1])", "frozenset(iterable=[next(_box())])",
+                     "frozenset([x for x in ()])", "frozenset({x for x in ()})", "frozenset({x: 1 for x in ()})",
+                     "frozenset([frozenset([next(_box())])])", "frozenset([B for B in (B,)])", "frozenset([(B for B in (B,))])",
+                     "frozenset({B for B in (B,)})", "frozenset({B: B for B in (B,)})", "frozenset([B := 'b'])",
+                     # The generator itself, which keeps its cursor, and an unpacking, which iterates a set in the
+                     # order the hash seed gives it (Astra's reads).
+                     "frozenset([_box()])", "frozenset({(*frozenset({'a', 'b'}),)})", "frozenset([(*B,)])",
+                     # Text a set is formatted into, in the hash seed's order, and a mapping unpacked (Astra's reads).
+                     "frozenset(('%r' % frozenset(('a', 'b')),))", "frozenset((f'{B!r}',))", "frozenset({**{'a': 1}})",
+                     "frozenset(**{})"):
+            self.assertTrue(caught(run({"kernel/x.py": box + "B = 'b'\n_KEPT = %s\n" % kept}), "x.py:6 holds a value that can change"), kept)
+        self.assertEqual(run({"kernel/terms.py": "A = 'a'\n", "kernel/x.py": "from kernel import terms\n\nB = 'b'\n"
+                              "HELD = frozenset({B, terms.A, ('c', 'd')})\nNONE = frozenset()\nNESTED = frozenset([frozenset()])\n"}), [])
+        # A name in its argument is one bound at the module's top: a local value, a generator say, is kept by no default.
+        local = ("def values():\n    yield 0\n\n\ndef build():\n    cursor = values()\n\n"
+                 "    def kept(saved=frozenset({cursor})):\n        return saved\n    return kept\n")
+        self.assertTrue(caught(run({"kernel/x.py": local}), "x.py:8 has a default that can change"))
+        # So too a name the module's top binds that a function around the default binds again, as a local or a
+        # parameter: the default is evaluated there, to the local (Carbon's read). At the top, it is the module's.
+        for shadow in ("def build():\n    B = values()\n\n", "def build(B):\n", "def build():\n    from kernel.terms import A as B\n\n"):
+            text = "B = 'b'\n\n\ndef values():\n    yield 0\n\n\n" + shadow + "    def kept(saved=frozenset({B})):\n        return saved\n    return kept\n"
+            self.assertTrue(caught(run({"kernel/terms.py": "A = 'a'\n", "kernel/x.py": text}), "has a default that can change"), shadow)
+        # And a yield's value, which is what a caller sends (Astra's read).
+        self.assertTrue(caught(run({"kernel/x.py": "def build():\n    def kept(saved=frozenset({(yield)})):\n        return saved\n"
+                                    "    yield kept\n"}), "x.py:2 has a default that can change"))
+        self.assertTrue(caught(run({"kernel/x.py": "B = ()\n\n\ndef build():\n    def kept(saved=frozenset({(yield from B)})):\n"
+                                    "        return saved\n    yield kept\n"}), "x.py:5 has a default that can change"))
+        self.assertEqual(run({"kernel/x.py": "B = 'b'\n\n\ndef f(B, x=frozenset({B})):\n    return B, x\n\n\n"
+                              "def g():\n    def h(x=frozenset({B})):\n        return x\n    return h\n"}), [])
+        # Read once a node, so that a deep constant is read in time (Astra's read).
+        deep = "KEPT = " + "frozenset([" * 60 + "frozenset()" + "])" * 60 + "\n"
+        self.assertEqual(run({"kernel/x.py": deep}), [])
+        # And frozenset is the builtin: a name the Kernel binds to it, by a function, an import or a parameter, is refused.
+        for text in ("def frozenset():\n    return []\n\n\nKEPT = frozenset()\n", "from kernel.terms import A as frozenset\n",
+                     "def f(frozenset):\n    return frozenset\n", "def f(*, frozenset=None):\n    return frozenset\n",
+                     "def f():\n    frozenset = list\n    return frozenset\n", "def f():\n    for frozenset in ():\n        pass\n",
+                     "def f():\n    return (frozenset := list)\n", "from kernel import terms as frozenset\n"):
+            self.assertTrue(caught(run({"kernel/terms.py": "A = 'a'\n", "kernel/x.py": text}), "binds frozenset"), text)
+        # A name a tuple or a list at the top unpacks into is bound there; a starred one would keep a list, and any other
+        # target changes what it names (Carbon's read).
+        self.assertEqual(run({"kernel/terms.py": "A, B = 'a', 'b'\n", "kernel/x.py": "from kernel.terms import A\n\n"
+                              "[C, (D, E)] = 'c', ('d', 'e')\nBOTH = frozenset((A, C, E))\n"}), [])
+        for text in ("A, *B = 'a', 'b'\n", "A = B, *C = 'a', 'b'\n", "A, B = ('a',)\n", "T = ('a',)\nT[0] = 'b'\n", "A, B = frozenset({'a', 'b'})\n", "A, B = 'a', 'b', 'c'\n",
+                     "[A, (B, C)] = 'a', 'bc'\n"):
+            self.assertTrue(caught(run({"kernel/x.py": text}), "assigns other than to names"), text)
+        # A list written out is unpacked by none: it is a value that can change (Carbon's read).
+        self.assertTrue(caught(run({"kernel/x.py": "A, B = ['a', 'b']\n"}), "x.py:1 holds a value that can change"))
+        # 2. A builtin site adds, each of which reads a file, asks the help system or ends the process, as a value.
+        for word in ("license", "copyright", "credits", "help", "exit", "quit"):
+            self.assertTrue(caught(run({"kernel/x.py": "def f():\n    return str(%s)\n" % word}), "x.py:2 uses %s" % word), word)
+        # 3. A folder that holds a .git is another working tree, which the walk leaves out, and so does this check; but
+        # each way the Kernel could import from it is refused, as an import no file read here answers to.
+        for line, words in (("from kernel.sub import now\n", "x.py:1 imports kernel.sub, a folder here that is not read"),
+                            ("import kernel.sub.y as y\n", "x.py:1 imports kernel.sub.y, which no file read"),
+                            ("from kernel import sub\n", "x.py:1 imports sub from kernel, which no file read"),
+                            ("from .sub import now\n", "x.py:1 imports now from .sub, which no file read"),
+                            ("from . import sub\n", "x.py:1 imports sub from ., which no file read")):
+            hidden = planted({"kernel/x.py": line})
+            (hidden / "kernel" / "sub").mkdir()
+            (hidden / "kernel" / "sub" / ".git").write_text("gitdir: elsewhere\n")
+            (hidden / "kernel" / "sub" / "__init__.py").write_text("import os\n\ndef now():\n    return os.times()\n")
+            (hidden / "kernel" / "sub" / "y.py").write_text("import os\n")
+            found = check_purity.run(hidden)
+            self.assertTrue(caught(found, words), (line, found))
+            self.assertFalse(caught(found, "sub/__init__.py") or caught(found, "sub/y.py"), (line, found))
+        # Nor does a read file vouch for such a folder: Python imports a folder before a file of its name, and a name a
+        # module binds by importing it is no answer (Astra's read).
+        for files, words in (({"kernel/x.py": "import kernel.m as m\n", "kernel/m.py": "SOURCE = 'file'\n"},
+                              "x.py:1 imports kernel.m, a folder here that is not read"),
+                             ({"kernel/x.py": "from .m import SOURCE\n", "kernel/m.py": "SOURCE = 'file'\n"},
+                              "x.py:1 imports SOURCE from .m, which no file read"),
+                             ({"kernel/x.py": "from kernel import m\n", "kernel/m.py": "SOURCE = 'file'\n"},
+                              "x.py:1 imports m from kernel, which no file read")):
+            hidden = planted(files)
+            (hidden / "kernel" / "m").mkdir()
+            (hidden / "kernel" / "m" / ".git").write_text("gitdir: elsewhere\n")
+            (hidden / "kernel" / "m" / "__init__.py").write_text("SOURCE = 'package'\n")
+            self.assertTrue(caught(check_purity.run(hidden), words), files)
+        hidden = planted({"kernel/x.py": "import kernel.sub as s\n", "kernel/sub/__init__.py": "from . import child\n"})
+        (hidden / "kernel" / "sub" / "child").mkdir()
+        (hidden / "kernel" / "sub" / "child" / ".git").write_text("gitdir: elsewhere\n")
+        (hidden / "kernel" / "sub" / "child" / "__init__.py").write_text("import os\n")
+        self.assertTrue(caught(check_purity.run(hidden), "sub/__init__.py:1 imports child from ., which no file read"))
+        for line in ("import kernel.gone as g\n", "from kernel.gone import x\n", "from kernel.terms.deeper import x\n"):
+            self.assertTrue(caught(run({"kernel/terms.py": "", "kernel/x.py": line}), "which no file read here is"), line)
+        self.assertEqual(run({"kernel/terms.py": "A = 'a'\n", "kernel/sub/y.py": "B = 'b'\n", "kernel/x.py":
+                              "import kernel.terms as t\nimport kernel.sub.y as y\nfrom kernel.sub import y as z\n"
+                              "from kernel import terms\n\n\ndef f():\n    return t.A, y.B, z.B, terms.A\n"}), [])
+        # And each name a from-import takes, absolute or relative, is a module read here or a name its module binds.
+        for line in ("from kernel import gone\n", "from .gone import now\n", "from kernel.sub import missing\n",
+                     "from . import gone\n", "from kernel.terms import B\n"):
+            self.assertTrue(caught(run({"kernel/terms.py": "A = 'a'\n", "kernel/sub/__init__.py": "", "kernel/x.py": line}),
+                                   "no file read here is and its module binds no such name"), line)
+        self.assertEqual(run({"kernel/terms.py": "A = 'a'\n", "kernel/sub/y.py": "", "kernel/x.py":
+                              "from kernel.terms import A\nfrom . import terms\nfrom .sub import y\nfrom .terms import A as C\n"}), [])
+        # 4. The package itself, imported under a name, is no module of it: nothing is read off it.
+        self.assertTrue(caught(run({"kernel/q.py": "", "kernel/x.py": "import kernel as k\n\n\ndef f():\n    return k.q\n"}),
+                               "x.py:5 reads q off a value"))
+        # 5. A relative import that climbs past the package; one within it is read by the other rules.
+        self.assertTrue(caught(run({"kernel/x.py": "from .. import tools\n"}), "x.py:1 imports .., from above kernel/"))
+        self.assertTrue(caught(run({"kernel/sub/y.py": "from ... import tools\n"}), "y.py:1 imports ..., from above kernel/"))
+        self.assertEqual(run({"kernel/terms.py": "", "kernel/sub/y.py": "from .. import terms\n"}), [])
+        self.assertTrue(caught(run({"kernel/terms.py": "", "kernel/sub/y.py": "from .. import gone\n"}), "no such name"))
+        # One dot is the module's own folder, not the package's (Astra's read).
+        self.assertTrue(caught(run({"kernel/terms.py": "", "kernel/sub/y.py": "from . import terms\n"}), "no such name"))
+        self.assertEqual(run({"kernel/sub/terms.py": "", "kernel/sub/y.py": "from . import terms\n"}), [])
+        self.assertEqual(run({"kernel/sub/__init__.py": "S = 's'\n", "kernel/x.py": "from kernel.sub import S\n"}), [])
+        # The guards refuse every relative import by their own rule, once: this one is the Kernel's.
+        for line in ("from .. import tools\n", "from . import missing\n", "from .kernel import missing\n"):   # Astra's reads
+            found = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": line}))
+            self.assertEqual(len(found), 1, found)
+            self.assertTrue(caught(found, "guards/ imports itself alone") and not caught(found, "from above"), found)
+        # 6. A statement that calls a method of a value it is handed.
+        for body, does in (("    with facts as f:\n        return f\n", "enters what it is handed"),
+                           ("    assert facts, facts\n    return facts\n", "raises"),
+                           ("    yield from facts\n", "drives what it is handed")):
+            self.assertTrue(caught(run({"kernel/x.py": "def f(facts):\n" + body}), "x.py:2 %s" % does), does)
+            # The guards are held to it too (Astra's read).
+            found = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": "def f(facts):\n" + body}))
+            self.assertTrue(caught(found, "x.py:2 %s" % does), (does, found))
+        for body, does in (("    async with facts as f:\n        return f\n", "enters what it is handed"),
+                           ("    async for item in facts:\n        return item\n", "drives what it is handed"),
+                           ("    return [item async for item in facts]\n", "drives what it is handed"),
+                           ("    return {item async for item in facts}\n", "drives what it is handed"),
+                           ("    return {item: 1 async for item in facts}\n", "drives what it is handed"),
+                           ("    return (item async for item in facts)\n", "drives what it is handed"),
+                           ("    return await facts\n", "awaits what it is handed")):
+            self.assertTrue(caught(run({"kernel/x.py": "async def f(facts):\n" + body}), "x.py:2 %s" % does), does)
+            found = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": "async def f(facts):\n" + body}))
+            self.assertTrue(caught(found, "x.py:2 %s" % does), (does, found))
+
     def test_the_kernel_is_the_package_python_imports_and_reads_nothing_off_a_value(self):  # issue 851
         # What the guards are held to (issue 838) is asked of the Kernel by the same lines. With no __init__.py Python
         # may import a kernel.py at the root in the package's place, which nothing reads.
@@ -2936,7 +3074,7 @@ class Purity(unittest.TestCase):
                  "    return None\n"
         derive = "from kernel import brakes, gate\nfrom kernel.gate import gates\nimport kernel.gate as gate\n\n\n" \
                  "def derive(facts):\n    pause = brakes.paused(derive, facts)\n    return pause or gates(facts, {})\n"
-        clean = {"kernel/gate.py": gate, "kernel/brakes.py": brakes, "kernel/derive.py": derive}
+        clean = {"kernel/gate.py": gate, "kernel/brakes.py": brakes, "kernel/derive.py": derive, "kernel/terms.py": "HELD = 'h'\n"}
         self.assertEqual(check_purity.run(planted(clean)), [])
         # Any binding of a name either owns stands in for theirs, at any depth and in any form, and so does a binding
         # of either module's own name to anything but that module. Each also binds no name of the other's.
@@ -13865,6 +14003,7 @@ class Mutants(unittest.TestCase):
         self.assertEqual(mutants.MUTANTS[start:end], mutants.OUTSIDE)
         own = mutants.MUTANTS[:start] + mutants.MUTANTS[end:]
         self.assertEqual([m[0] for m in own if m[1] in held], [])
+        self.assertEqual([m[0] for m in own if not m[1].startswith("kernel/")], [], "tools/mutants.py holds the Kernel's alone")
         # The runner's list is the one assignment that reads them, right after ISSUE.
         made = [n.value for n in ast.parse((ROOT / "tools" / "mutants.py").read_text(encoding="utf-8")).body
                 if isinstance(n, ast.Assign) and [getattr(t, "id", None) for t in n.targets] == ["MUTANTS"]]
