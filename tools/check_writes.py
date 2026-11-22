@@ -59,8 +59,8 @@ RUNNERS = ("harness/steps.py", "tools/check_decisions.py", "tools/check_trials.p
 # The mutants of the files outside kernel/, as data: each names a command as the text a mutant finds in its target, and
 # runs none, since it imports no module, and names from no file but another there that imports none either (issue 1101;
 # allowed by the Maintainer, 2026-11-21). Its top level is a docstring, imports and assignments, with no def or class
-# anywhere; it calls nothing but DATA_CALLS, and reads none of REACHERS, nor a name of two underscores. Only its
-# assignments may name one; any other file there is read as any other.
+# or lambda anywhere; it calls nothing but DATA_CALLS, binds none of them, sets no attribute or item, reads none of
+# REACHERS, nor a name of two underscores. Only its assignments may name one; any other file there is read as any other.
 # It is read in good faith, as the rest of this check is: every other rule here still reads it.
 MUTANT_DATA = "tools/mutants_of/"
 # A command's name as a string, in any case, by a path or not, `.exe` or not: gh or git alone or opening a command line;
@@ -960,8 +960,11 @@ def _inert(mod, mods: dict, seen: frozenset = frozenset(), known: dict = None) -
     """Whether `mod` is under MUTANT_DATA, holds at its top level nothing but a docstring, imports and assignments, and
     anywhere in it no def or class; imports no module, and names from none but another file there that is inert
     as well, read through each in turn; and reads, imports or binds none of REACHERS and no name or attribute of two
-    underscores; and calls nothing but DATA_CALLS. An import that comes back round is not inert. Each file is read
-    once in a run (`known`)."""
+    underscores; and calls nothing but DATA_CALLS, binds none of them to another value, and sets or deletes no
+    attribute or item. It holds no lambda, which is code that a file it hands one to could call. It names from a file
+    directly in MUTANT_DATA alone, whose package is the one above them all; a module it names from a package must be
+    inert as well, and an import that comes back round is not. Each file is read once in a run
+    (`known`)."""
     known = {} if known is None else known
     if mod.name in known:
         return known[mod.name]
@@ -972,14 +975,22 @@ def _inert(mod, mods: dict, seen: frozenset = frozenset(), known: dict = None) -
     for node in mod.nodes if inert else ():
         said = [node.id] if isinstance(node, ast.Name) else [node.attr] if isinstance(node, ast.Attribute) else \
             [n for alias in node.names for n in (alias.name, alias.asname) if n] if isinstance(node, ast.ImportFrom) else []
+        bound = [node.id] if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) else \
+            [alias.asname or alias.name for alias in node.names] if isinstance(node, ast.ImportFrom) else []
         called = node.func if isinstance(node, ast.Call) else None
-        if called is not None and getattr(called, "attr", getattr(called, "id", None)) not in DATA_CALLS:
+        if isinstance(node, ast.Lambda) or DATA_CALLS.intersection(bound):    # code another file calls; any call
+            inert = False
+        elif isinstance(node, (ast.Attribute, ast.Subscript)) and not isinstance(node.ctx, ast.Load):  # sets another's
+            inert = False
+        elif called is not None and getattr(called, "attr", getattr(called, "id", None)) not in DATA_CALLS:
             inert = False
         elif any(n in REACHERS or n.startswith("__") for n in said):     # a def, class or import: refused above
             inert = False
         elif isinstance(node, ast.ImportFrom):
-            source = None if node.level else mods.get(node.module)
-            inert = source is not None and _inert(source, mods, seen | {mod.name}, known)
+            source = None if node.level or node.module.count(".") != MUTANT_DATA.count("/") else mods.get(node.module)
+            inert = source is not None and _inert(source, mods, seen | {mod.name}, known) and all(
+                _inert(mods[whole], mods, seen | {mod.name}, known) for whole in (
+                    "%s.%s" % (node.module, alias.name) for alias in node.names) if whole in mods)
         if not inert:
             break
     known[mod.name] = inert

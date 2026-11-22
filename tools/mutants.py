@@ -160,6 +160,8 @@ F901_ROLE = ("tests.test_adapters.Issues.test_a_role_apps_comment_is_its_roles_a
 F901_NAMES = ("tests.test_controller.Entry.test_a_queues_or_a_lenss_name_declared_as_an_issues_app_refuses_the_issues_alone_and_the_pull_requests_are_decided",)
 F901_PASS = ("tests.test_controller.Issues.test_issues_whose_apps_cannot_be_told_are_not_decided_and_the_pull_requests_are",)
 F901_TRACKED = ("tests.test_reconcile.Tracking.test_the_tracking_issues_number_is_what_the_passes_recorded_and_none_while_their_records_are_not_whole",)
+F849_KERNEL = ("tests.test_issue.Unreadable.test_a_timeline_past_the_ports_bound_defers_on_its_own_code_and_calls_a_person",)
+F849_WORLD = ("tests.test_issue.Unreadable.test_the_issue_world_meets_a_timeline_past_the_bound_under_faults_and_calls_a_person",)
 F931_PORT = ("tests.test_adapters.Issues.test_the_controllers_tracking_issue_is_told_at_its_first_read_by_its_opener_and_its_body",)
 S3_ROW10 = ("tests.test_controller.Issues.test_with_no_app_declared_for_factory_triage_an_accepted_served_issue_gets_no_acceptance_act",)
 COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers",)
@@ -195,6 +197,10 @@ PERSON_READ = ("tests.test_hooks.RulesChanged.test_a_path_only_a_person_decides_
 BARE_TESTS = ("tests.test_tools.Context.test_a_check_names_a_test_never_a_file_of_tests",)
 NAMED_MUTANTS = ("tests.test_tools.Decisions.test_a_new_or_changed_row_names_the_mutant_its_test_kills",)
 MAIN_ROWS = ("tests.test_tools.Decisions.test_a_row_main_holds_names_no_mutant_until_its_check_changes",)
+# Issue 1101: the tests that hold the files of tools/mutants_of/.
+WRITES_DATA = ("tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one",)
+LOADER = ("tests.test_tools.Mutants.test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone",)
+UNTESTED_DATA = ("Reverts.test_the_lists_of_mutants_are_data_and_the_runner_below_them_is_read",)
 DECLINE_TESTS = ("tests.test_tools.Mutants.test_on_a_pull_request_the_mutants_decline_and_on_a_merge_group_every_shard_runs",)
 ROUTES_655 = ("tests.test_tools.Writes.test_the_routes_issue_655_names_are_refused",)
 RUN_ALONE = ("tests.test_tools.Mutants.test_a_mutant_a_boundary_names_is_run_against_its_own_tests_alone",)
@@ -344,7 +350,8 @@ PATCH_UNREAD = ('tests.test_guards.Patch.test_what_is_not_a_patch_as_git_writes_
 ISSUE = [
     # What is read short or cannot be read, before row 1.
     ("an issue's lists read short are trusted", ISSUE_PY,
-     "    gaps = unread_lists(facts)\n", "    gaps = []\n", ISSUE_TESTS),
+     "    gaps = [name for name in ISSUE_READ_IN_FULL if name in unread_lists(facts) or (name == \"timeline\" and bounded is not False)]\n",
+     "    gaps = []\n", ISSUE_TESTS),
     ("an issue's flag that is not exactly true counts as whole", ISSUE_PY,
      "if flags.get(name) is not True]", "if not flags.get(name, True)]", ISSUE_TESTS),
     ("an issue's unreadable state is trusted", ISSUE_PY,
@@ -1640,8 +1647,13 @@ def area_names(root: pathlib.Path) -> list:
             if path.parent == folder and path.suffix == ".py" and path.stem not in ("__init__", "common")]
 
 
-# Each name is a module name, by AREA_NAME, before it is loaded: nothing but a file of tools/mutants_of/ is imported.
-AREAS = tuple(importlib.import_module("tools.mutants_of." + name) for name in area_names(ROOT) if AREA_NAME.fullmatch(name))
+def areas(root: pathlib.Path, load=importlib.import_module) -> tuple:
+    """Each file of mutants in `root`, loaded by `load` in the order of the names. Each name is a module name, by
+    AREA_NAME, before it is loaded: nothing but a file of tools/mutants_of/ is imported."""
+    return tuple(load("tools.mutants_of." + name) for name in area_names(root) if AREA_NAME.fullmatch(name))
+
+
+AREAS = areas(ROOT)
 OUTSIDE = [mutant for area in AREAS for mutant in area.MUTANTS]
 MUTANTS = ISSUE + OUTSIDE + [
     # Issue 1016: a binary file's change is bound to its full blob id.
@@ -15565,6 +15577,24 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("an account held as a Role and a Lens is not read as a Lens", 'adapters/timeline.py',
      '            if (ident, kind) in self.lenses:\n',
      '            if (ident, kind) in self.lenses and (ident, kind) not in self.roles:\n', F901_ROLE),
+    # Decision 0234: an issue's timeline and its linked pull requests' are read to a bound, and past it the issue defers on
+    # its own code and calls a person.
+    ("a timeline past the port's bound defers as any short one", 'kernel/issue.py',
+     '    if bounded is True:\n        return out(None, "timeline_bounded", ["timeline"])\n', '', F849_KERNEL),
+    ("a bound flag of any truth is a bound", 'kernel/issue.py',
+     '    if bounded is True:\n', '    if bounded:\n', F849_KERNEL),
+    ("a bound flag that cannot be read is read as within the bound", 'kernel/issue.py',
+     ' or (name == "timeline" and bounded is not False)]', ']', F849_KERNEL),
+    ("only a cut of the issue's own timeline is a bound", 'kernel/issue.py',
+     '    if bounded is True:\n', '    if bounded is True and "timeline" in unread_lists(facts):\n', F849_KERNEL),
+    ("a timeline past the port's bound calls no one", 'kernel/issue.py',
+     '    "human_hold",\n    "timeline_bounded",\n', '    "human_hold",\n', F849_KERNEL),
+    ("the issue world never bounds a timeline", 'sim/issues.py',
+     'facts["timeline_bounded"] = short in ("linked", "timeline") and fault < 0.11', 'facts["timeline_bounded"] = False', F849_WORLD),
+    ("the issue world bounds only a linked read", 'sim/issues.py',
+     'facts["timeline_bounded"] = short in ("linked", "timeline") and fault < 0.11', 'facts["timeline_bounded"] = short == "linked" and fault < 0.11', F849_WORLD),
+    ("the issue world bounds a read it did not read short", 'sim/issues.py',
+     'facts["timeline_bounded"] = short in ("linked", "timeline") and fault < 0.11', 'facts["timeline_bounded"] = short not in ("linked", "timeline") and fault < 0.11', F849_WORLD),
     # Decision 0217's row, issue 878: a linked draft the Factory opened carries its head's required checks.
     ("a foreign check under a Lens's name is read past", 'adapters/draft_checks.py',
      '    if derive.foreign_checks(found, kernel):\n        return None\n', '', ("tests.test_adapters.DraftChecks.test_a_drafts_checks_are_read_as_the_pull_requests_kernel_reads_each_required_lens",)),
@@ -18399,42 +18429,64 @@ MUTANTS = ISSUE + OUTSIDE + [
      ('tests.test_tools.Writes.test_on_main_only_the_callers_listed_reach_a_write_and_each_what_it_lists',)),
     # Issue 1101: the mutants of the files outside kernel/ are read after ISSUE, in tools/mutants_of/.
     ("the mutants of the files outside kernel are not run", 'tools/mutants.py',
-     'MUTANTS = ISSUE + OUTSIDE + [\n', 'MUTANTS = ISSUE + [\n', ('tests.test_tools.Mutants.test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone',)),
+     'MUTANTS = ISSUE + OUTSIDE + [\n', 'MUTANTS = ISSUE + [\n', LOADER),
     ("the files' mutants are dropped", 'tools/mutants.py',
-     'OUTSIDE = [mutant for area in AREAS for mutant in area.MUTANTS]\n', 'OUTSIDE = []\n', ('tests.test_tools.Mutants.test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone',)),
+     'OUTSIDE = [mutant for area in AREAS for mutant in area.MUTANTS]\n', 'OUTSIDE = []\n', LOADER),
     ('a file nested below tools/mutants_of is read as one of its files', 'tools/mutants.py',
-     '            if path.parent == folder and path.suffix == ".py" and path.stem not in ("__init__", "common")]\n', '            if path.suffix == ".py" and path.stem not in ("__init__", "common")]\n', ('tests.test_tools.Mutants.test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone',)),
+     '            if path.parent == folder and path.suffix == ".py" and path.stem not in ("__init__", "common")]\n', '            if path.suffix == ".py" and path.stem not in ("__init__", "common")]\n', LOADER),
     ('common.py of the mutants is read as a file of them', 'tools/mutants.py',
-     '            if path.parent == folder and path.suffix == ".py" and path.stem not in ("__init__", "common")]\n', '            if path.parent == folder and path.suffix == ".py" and path.stem not in ("__init__",)]\n', ('tests.test_tools.Mutants.test_each_file_of_mutants_is_loaded_and_holds_its_targets_alone',)),
+     '            if path.parent == folder and path.suffix == ".py" and path.stem not in ("__init__", "common")]\n', '            if path.parent == folder and path.suffix == ".py" and path.stem not in ("__init__",)]\n', LOADER),
     # Issue 1101: a file of the mutants' data may name gh or git as text, and imports nothing that could run either.
     ("a file of mutants is held to the rule for gh or git", 'tools/check_writes.py',
-     'for line in _commands(mod) if line not in data]', 'for line in _commands(mod)]', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+     'for line in _commands(mod) if line not in data]', 'for line in _commands(mod)]', WRITES_DATA),
     ('any file of tools/mutants_of is data, whatever it imports', 'tools/check_writes.py',
-     '    for node in mod.nodes if inert else ():\n', '    for node in ():\n', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+     '    for node in mod.nodes if inert else ():\n', '    for node in ():\n', WRITES_DATA),
     ('a file of mutants may hold any statement at its top level', 'tools/check_writes.py',
-     '    inert = all(isinstance(node, (ast.ImportFrom, ast.Assign)) or (', '    inert = True or all(isinstance(node, (ast.ImportFrom, ast.Assign)) or (', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+     '    inert = all(isinstance(node, (ast.ImportFrom, ast.Assign)) or (', '    inert = True or all(isinstance(node, (ast.ImportFrom, ast.Assign)) or (', WRITES_DATA),
     ('a file of mutants may call anything', 'tools/check_writes.py',
-     '        if called is not None and getattr(called, "attr", getattr(called, "id", None)) not in DATA_CALLS:\n', '        if False:\n', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
-    ("a text's replace is no call of data", 'tools/check_writes.py',
-     'DATA_CALLS = {"replace", "tuple"}', 'DATA_CALLS = {"tuple"}', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
-    ('a file of mutants may read a builtin that reaches code', 'tools/check_writes.py',
-     'n in REACHERS or n.startswith("__") for n in said', 'n.startswith("__") for n in said', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
-    ('a file of mutants may read a name of two underscores', 'tools/check_writes.py',
-     'n in REACHERS or n.startswith("__") for n in said', 'n in REACHERS for n in said', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
-    ('a file of mutants may read any attribute', 'tools/check_writes.py',
-     '[node.attr] if isinstance(node, ast.Attribute) else', '[] if isinstance(node, ast.Attribute) else', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
-    ('a file of mutants may import any name', 'tools/check_writes.py',
-     'for n in (alias.name, alias.asname) if n]', 'for n in () if n]', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+     '        elif called is not None and getattr(called, "attr", getattr(called, "id", None)) not in DATA_CALLS:\n', '        elif False:\n', WRITES_DATA),
+    ('a file of mutants may hold a lambda', 'tools/check_writes.py',
+     'if isinstance(node, ast.Lambda) or DATA_CALLS.intersection(bound):', 'if DATA_CALLS.intersection(bound):', WRITES_DATA),
+    ('a file of mutants may bind a call of data to another value', 'tools/check_writes.py',
+     'if isinstance(node, ast.Lambda) or DATA_CALLS.intersection(bound):', 'if isinstance(node, ast.Lambda):', WRITES_DATA),
+    ('a file of mutants may set an attribute', 'tools/check_writes.py',
+     '        elif isinstance(node, (ast.Attribute, ast.Subscript)) and not isinstance(node.ctx, ast.Load):', '        elif False:', WRITES_DATA),
+    ('a file of mutants may set an item', 'tools/check_writes.py',
+     'isinstance(node, (ast.Attribute, ast.Subscript)) and not isinstance(node.ctx, ast.Load)', 'isinstance(node, ast.Attribute) and not isinstance(node.ctx, ast.Load)', WRITES_DATA),
+    ('a name read is a name bound', 'tools/check_writes.py',
+     'bound = [node.id] if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) else', 'bound = [node.id] if isinstance(node, ast.Name) else', WRITES_DATA),
+    ('an import binds no name', 'tools/check_writes.py',
+     '            [alias.asname or alias.name for alias in node.names] if isinstance(node, ast.ImportFrom) else []\n', '            []\n', WRITES_DATA),
+    ("an import binds its source's name, not the one it gives", 'tools/check_writes.py',
+     '[alias.asname or alias.name for alias in node.names]', '[alias.name for alias in node.names]', WRITES_DATA),
+    ('a file of mutants is loaded whatever its name', 'tools/mutants.py',
+     '    return tuple(load("tools.mutants_of." + name) for name in area_names(root) if AREA_NAME.fullmatch(name))\n', '    return tuple(load("tools.mutants_of." + name) for name in area_names(root))\n', LOADER),
+    ('only the first file of mutants is loaded', 'tools/mutants.py',
+     '    return tuple(load("tools.mutants_of." + name) for name in area_names(root) if AREA_NAME.fullmatch(name))\n', '    return tuple(load("tools.mutants_of." + name) for name in area_names(root)[:1] if AREA_NAME.fullmatch(name))\n', LOADER),
+    ('a module named from a package need not be data', 'tools/check_writes.py',
+     '                _inert(mods[whole], mods, seen | {mod.name}, known) for whole in (', '                True for whole in (', WRITES_DATA),
+    ('a file of mutants may import from a module below a package there', 'tools/check_writes.py',
+     ' or node.module.count(".") != MUTANT_DATA.count("/") else mods.get(node.module)', ' else mods.get(node.module)', WRITES_DATA),
     ('a file of mutants may import from itself, relatively', 'tools/check_writes.py',
-     '            source = None if node.level else mods.get(node.module)\n', '            source = mods.get(node.module)\n', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+     '            source = None if node.level or node.module.count(".")', '            source = None if node.module.count(".")', WRITES_DATA),
     ('a file of mutants may import from any module of the tree', 'tools/check_writes.py',
-     '            inert = source is not None and _inert(source, mods, seen | {mod.name}, known)\n', '            inert = source is not None\n', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+     '            inert = source is not None and _inert(source, mods, seen | {mod.name}, known) and all(\n', '            inert = source is not None and all(\n', WRITES_DATA),
+    ("a text's replace is no call of data", 'tools/check_writes.py',
+     'DATA_CALLS = {"replace", "tuple"}', 'DATA_CALLS = {"tuple"}', WRITES_DATA),
+    ('a file of mutants may read a builtin that reaches code', 'tools/check_writes.py',
+     'n in REACHERS or n.startswith("__") for n in said', 'n.startswith("__") for n in said', WRITES_DATA),
+    ('a file of mutants may read a name of two underscores', 'tools/check_writes.py',
+     'n in REACHERS or n.startswith("__") for n in said', 'n in REACHERS for n in said', WRITES_DATA),
+    ('a file of mutants may read any attribute', 'tools/check_writes.py',
+     '[node.attr] if isinstance(node, ast.Attribute) else', '[] if isinstance(node, ast.Attribute) else', WRITES_DATA),
+    ('a file of mutants may import any name', 'tools/check_writes.py',
+     'for n in (alias.name, alias.asname) if n]', 'for n in () if n]', WRITES_DATA),
     ('a file of mutants may import from one that imports a module', 'tools/check_writes.py',
-     'and _inert(source, mods, seen | {mod.name}, known)', 'and source.rel.startswith(MUTANT_DATA)', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+     'and _inert(source, mods, seen | {mod.name}, known)', 'and source.rel.startswith(MUTANT_DATA)', WRITES_DATA),
     ("a ring of imports among the files of mutants is read as inert", 'tools/check_writes.py',
-     '    if not mod.rel.startswith(MUTANT_DATA) or mod.name in seen:\n', '    if not mod.rel.startswith(MUTANT_DATA):\n', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+     '    if not mod.rel.startswith(MUTANT_DATA) or mod.name in seen:\n', '    if not mod.rel.startswith(MUTANT_DATA):\n', WRITES_DATA),
     ("a file beside tools/mutants_of whose name starts as it does is data", 'tools/check_writes.py',
-     'MUTANT_DATA = "tools/mutants_of/"', 'MUTANT_DATA = "tools/mutants_of"', ('tests.test_tools.Writes.test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one',)),
+     'MUTANT_DATA = "tools/mutants_of/"', 'MUTANT_DATA = "tools/mutants_of"', WRITES_DATA),
     # Issue 640: a name read back through what it is given, an object's class, setattr by another name, a for or
     # with target, a shadow by a nested def, class or catch, a setter under an if, another module's name set or
     # filled, sys and loads reached other ways, code run from text, and a command a shell runs.
@@ -24227,17 +24279,19 @@ MUTANTS = ISSUE + OUTSIDE + [
      ("Trailers.test_a_trailers_span_is_never_read_line_by_line",)),
     # Issue 1101: the lists of a file of tools/mutants_of/ are data, as tools/mutants.py's are.
     ("a file of tools/mutants_of is read as code", "tools/untested.py",
-     'else DATA_FOLDER[1] if rel.startswith(DATA_FOLDER[0]) and plain else ()', 'else ()', ("Reverts.test_the_lists_of_mutants_are_data_and_the_runner_below_them_is_read",)),
+     'else DATA_FOLDER[1] if rel.startswith(DATA_FOLDER[0]) and plain else ()', 'else ()', UNTESTED_DATA),
     ("a file whose path starts as tools/mutants_of does is data", "tools/untested.py",
-     'DATA_FOLDER = ("tools/mutants_of/",', 'DATA_FOLDER = ("tools/mutants_of",', ("Reverts.test_the_lists_of_mutants_are_data_and_the_runner_below_them_is_read",)),
+     'DATA_FOLDER = ("tools/mutants_of/",', 'DATA_FOLDER = ("tools/mutants_of",', UNTESTED_DATA),
     ("an ISSUE of a file of tools/mutants_of is data", "tools/untested.py",
-     'DATA_FOLDER = ("tools/mutants_of/", ("MUTANTS",))', 'DATA_FOLDER = ("tools/mutants_of/", ("ISSUE", "MUTANTS"))', ("Reverts.test_the_lists_of_mutants_are_data_and_the_runner_below_them_is_read",)),
+     'DATA_FOLDER = ("tools/mutants_of/", ("MUTANTS",))', 'DATA_FOLDER = ("tools/mutants_of/", ("ISSUE", "MUTANTS"))', UNTESTED_DATA),
     ("the lists of common.py of the mutants are data", "tools/untested.py",
-     '    plain = rel.rpartition("/")[2] not in ("common.py", "__init__.py")\n', '    plain = True\n', ("Reverts.test_the_lists_of_mutants_are_data_and_the_runner_below_them_is_read",)),
+     '    plain = rel[len(DATA_FOLDER[0]):] not in ("common.py", "__init__.py") and "/" not in rel[len(DATA_FOLDER[0]):]\n', '    plain = True\n', UNTESTED_DATA),
+    ("a file in a folder below tools/mutants_of holds data", "tools/untested.py",
+     ' and "/" not in rel[len(DATA_FOLDER[0]):]\n', '\n', UNTESTED_DATA),
     ("a mutants' file is read as code wherever it is", "tools/untested.py",
-     '            names = holds_data(rel)\n', '            names = holds_data(rel) if rel == DATA[0] else ()\n', ("Reverts.test_the_lists_of_mutants_are_data_and_the_runner_below_them_is_read",)),
+     '            names = holds_data(rel)\n', '            names = holds_data(rel) if rel == DATA[0] else ()\n', UNTESTED_DATA),
     ("every file's lists are read by the names of tools/mutants.py's", "tools/untested.py",
-     'isinstance(target, ast.Name) and target.id in names', 'isinstance(target, ast.Name) and target.id in DATA[1]', ("Reverts.test_the_lists_of_mutants_are_data_and_the_runner_below_them_is_read",)),
+     'isinstance(target, ast.Name) and target.id in names', 'isinstance(target, ast.Name) and target.id in DATA[1]', UNTESTED_DATA),
 )]
 
 
