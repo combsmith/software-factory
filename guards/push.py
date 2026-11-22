@@ -1,5 +1,4 @@
-"""What a Role's push may send, in what order, up to the tree it makes (issue 838; FR-14). That tree's read back, the
-commit, the branch's write and what is read back before the push counts as landed are still to come.
+"""What a Role's push may send, in what order, and what must be read back before it counts as landed (issue 838; FR-14).
 
 A push lands what `guards/patch.py`'s `applied` gave, `changes`, as one commit on the commit the Decision admitted,
 `parent`, on the Run's work branch. This holds the sequence, not each request alone: the caller carries a state, asks
@@ -21,7 +20,14 @@ The order the state allows:
 2. A blob of each written file's base64, once to each content; the name GitHub gives it is kept beside its paths.
 3. One tree upon the admitted commit's, naming each path of `changes` once and no other, each written path by the
    blob made of its bytes. A tree that is the admitted one is no change, and nothing follows it.
-What follows the tree made, its read back, the commit and the branch's write, is the next part's.
+4. That tree read back, whole: the admitted listing with exactly `changes` in it. Only then:
+5. One commit of that tree, whose one parent is `parent`, with `message`; and that commit read back as such.
+   Only then:
+6. The branch made at that commit where `head` is None, or moved to it and never by force where it is not; once.
+7. The branch read again: `state["landed"]` is true only when it is at the commit made.
+
+So a tree that is not the admitted one with the changes in it gets no commit, and the branch is written at no commit
+but one read back as that tree's, on `parent`.
 
 What this rests on, and its stated limits:
 - The state is the caller's and never the port's: it is `began`'s answer or `seen`'s and nothing else, and the port
@@ -32,6 +38,8 @@ What this rests on, and its stated limits:
   value, and the caller hands over only bodies it built whole and answers it read. A blob's name is taken from its
   answer alone.
 - A request is allowed again for as long as its answer has not reached `seen`: the caller stops at an answer lost.
+- A branch rewound, or removed and made again at a commit `parent` stands on, between its read and its move takes
+  the move, since it is a move forward and REST has no compare-and-swap.
 - That `blobs` is the base64 of the bytes `changes` holds is `apply`'s to say, which may import what encodes it.
 - A directory is read by the files under it: an empty one in a listing is passed over. And a repo whose listing
   GitHub truncates takes no push.
@@ -84,7 +92,8 @@ FLAGS = ("branch_read", "checked", "commit_back", "moved", "landed")
 HELD = ("mode", "sha")
 # The requests of a push, each named for what `seen` then asks of its answer.
 REF_READ, COMMIT_READ, TREE_READ, BLOB_READ = "ref_read", "commit_read", "tree_read", "blob_read"
-BLOB_MADE, TREE_MADE = "blob_made", "tree_made"
+BLOB_MADE, TREE_MADE, TREE_BACK, COMMIT_MADE = "blob_made", "tree_made", "tree_back", "commit_made"
+REF_MADE, REF_MOVED, COMMIT_BACK = "ref_made", "ref_moved", "commit_back"
 
 
 def _plain(value) -> bool:
@@ -238,7 +247,7 @@ def _step(state, method, path, body):
     root = "/repos/" + push["repo"] + "/git/"
     if not path.startswith(root):
         return None
-    rest, branch, changes = path[len(root):], push["branch"], push["changes"]
+    rest, branch, changes, commit = path[len(root):], push["branch"], push["changes"], state["commit"]
     if method == "GET":
         if body is not None:
             return None
@@ -248,6 +257,10 @@ def _step(state, method, path, body):
             return COMMIT_READ
         if state["tree"] is not None and rest == "trees/" + state["tree"] + RECURSIVE:
             return TREE_READ
+        if state["new"] is not None and rest == "trees/" + state["new"] + RECURSIVE:
+            return TREE_BACK
+        if commit is not None and rest == "commits/" + commit:
+            return COMMIT_BACK
         if state["before"] is not None and any(rest == "blobs/" + held[1] for held in state["before"].values()
                                                if held[0] != SUBMODULE):
             return BLOB_READ
@@ -263,7 +276,23 @@ def _step(state, method, path, body):
         return None
     if method == "POST" and rest == "trees":
         return TREE_MADE if state["new"] is None and _tree(body, state) else None
-    # What follows the tree made, its read back, the commit and the branch's write, is the next part's.
+    if method == "POST" and rest == "commits":
+        if (state["checked"] and commit is None and isinstance(body, dict) and set(body) == {"message", "tree", "parents"}
+                and body["message"] == push["message"] and body["tree"] == state["new"]
+                and body["parents"] == [push["parent"]]):
+            return COMMIT_MADE
+        return None
+    # The branch is written once, and only at a commit read back as the one made.
+    if commit is None or not state["commit_back"] or state["moved"]:
+        return None
+    if method == "POST" and rest == "refs":
+        # The branch is made only where the Decision admitted none; GitHub refuses to make one that stands.
+        return REF_MADE if push["head"] is None and body == {"ref": HEADS + branch, "sha": commit} else None
+    if method == "PATCH" and rest == "refs/heads/" + branch:
+        # It is moved only where the Decision admitted its head, and never by force: GitHub then refuses a move that
+        # would discard a commit.
+        if push["head"] is not None and body == {"sha": commit, "force": False} and body["force"] is False:
+            return REF_MOVED
     return None
 
 
@@ -301,11 +330,34 @@ def _listing(body, name):
     return out
 
 
+def _holds(before: dict, after: dict, changes: dict, made: dict) -> bool:
+    """Whether `after` is `before` with exactly `changes` in it: no path more or fewer, each file left alone the same
+    blob in the same mode, each file written the blob made of its bytes, in the mode `changes` holds."""
+    written, removed = changes["written"], changes["removed"]
+    if not all(path in before for path in removed):
+        return False
+    if set(after) != set(path for path in before if path not in removed) | set(written):
+        return False
+    return all(after[path] == ((written[path][0], made.get(path)) if path in written else before.get(path))
+               for path in after)
+
+
 def _ref(got, branch):
     """The commit a branch's read or write answers with, or None where the answer names another ref or no commit."""
     if not isinstance(got, dict) or got.get("ref") != HEADS + branch or not isinstance(got.get("object"), dict):
         return None
     return got["object"].get("sha")
+
+
+def _commit(got, name, tree, parent, message) -> bool:
+    """Whether a commit's read answers with the commit made: its name, its tree, its one parent and its message."""
+    if not isinstance(got, dict) or got.get("sha") != name or got.get("message") != message:
+        return False
+    if not isinstance(got.get("tree"), dict) or got["tree"].get("sha") != tree:
+        return False
+    parents = got.get("parents")
+    return (isinstance(parents, list) and len(parents) == 1 and isinstance(parents[0], dict)
+            and parents[0].get("sha") == parent)
 
 
 def seen(state, method, path, body, answer):
@@ -316,14 +368,18 @@ def seen(state, method, path, body, answer):
     if step is None or not _plain(answer) or type(answer) is not dict or set(answer) != {"status", "body"}:
         return None
     status, got, push = answer["status"], answer["body"], state["push"]
-    if step == REF_READ:
-        # The branch is as the Decision admitted it: absent, or at the admitted head.
+    if step == REF_READ and not state["moved"]:
+        # Before the branch is written it is as the Decision admitted it: absent, or at the admitted head.
         if push["head"] is None:
             return dict(state, branch_read=True) if status == ABSENT else None
         if status != OK or _ref(got, push["branch"]) != push["head"]:
             return None
         return dict(state, branch_read=True)
-    if step in (BLOB_MADE, TREE_MADE):
+    if step == REF_READ:
+        if status != OK or _ref(got, push["branch"]) != state["commit"]:
+            return None
+        return dict(state, landed=True)
+    if step in (BLOB_MADE, TREE_MADE, COMMIT_MADE, REF_MADE):
         if status != CREATED:
             return None
     elif status != OK:
@@ -354,10 +410,27 @@ def seen(state, method, path, body, answer):
             if push["blobs"][written] == body["content"]:
                 made[written] = name
         return dict(state, made=made)
-    name = got.get("sha") if isinstance(got, dict) else None
-    if not _sha(name) or name == state["tree"]:
+    if step == TREE_MADE:
+        name = got.get("sha") if isinstance(got, dict) else None
+        if not _sha(name) or name == state["tree"]:
+            return None
+        return dict(state, new=name)
+    if step == TREE_BACK:
+        listing = _listing(got, state["new"])
+        if listing is None or not _holds(state["before"], listing, push["changes"], state["made"]):
+            return None
+        return dict(state, checked=True)
+    if step == COMMIT_MADE:
+        name = got.get("sha") if isinstance(got, dict) else None
+        return dict(state, commit=name) if _sha(name) else None
+    if step == COMMIT_BACK:
+        if not _commit(got, state["commit"], state["new"], push["parent"], push["message"]):
+            return None
+        return dict(state, commit_back=True)
+    # The branch, made or moved: GitHub answers with the branch at the commit made.
+    if _ref(got, push["branch"]) != state["commit"]:
         return None
-    return dict(state, new=name)
+    return dict(state, moved=True)
 
 
 def touched(changes):
