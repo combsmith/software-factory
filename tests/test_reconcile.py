@@ -648,6 +648,10 @@ class SeenPort(unittest.TestCase):
         github = Pages({path: [old, new, late]}, LEFT_ANSWERS)
         self.assertIs(seen_.read(github, ITEM, seen_.GONE, IDENTITIES, APPS, SINCE)[2], True)
         self.assertIn(path + "&page=2", [p for _, p in github.asked])
+        # An issue's read back ends at its close alone, never at a merge before it (Carbon).
+        merged = [{"event": "merged", "actor": PERSON, "created_at": EARLY, "id": 8}]
+        github = Pages({path: [old, closed, merged, old]}, {**LEFT_ANSWERS, ("GET", ISSUE): {"number": 42, "state": "closed"}})
+        self.assertIs(seen_.read(github, dict(ITEM, type="issue"), seen_.GONE, IDENTITIES, APPS, SINCE)[2], True)
         # Items GitHub gives no id, as commits, are kept each, never told apart as one (Carbon).
         commits = [{"event": "committed", "sha": "1" * 40}, {"event": "committed", "sha": "2" * 40}]
         kept, whole = seen_._tail(Pages({path: [old, old, commits + new]}), path, SINCE)

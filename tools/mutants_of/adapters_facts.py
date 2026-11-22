@@ -236,4 +236,8 @@ MUTANTS = [
      'raw["cut"] = {"events": timeline_cut, "reviews": reviews_cut}', 'raw["cut"] = {"events": False, "reviews": reviews_cut}', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
     ("the snapshot keeps the reviews' cut as none", 'adapters/facts.py',
      'raw["cut"] = {"events": timeline_cut, "reviews": reviews_cut}', 'raw["cut"] = {"events": timeline_cut, "reviews": False}', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
+    ('the snapshot keeps no timeline cut', 'adapters/facts.py',
+     'raw["cut"] = {"events": timeline_cut, "reviews": reviews_cut}', 'raw["cut"] = {"events": False, "reviews": reviews_cut}', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
+    ('the snapshot keeps no reviews cut', 'adapters/facts.py',
+     'raw["cut"] = {"events": timeline_cut, "reviews": reviews_cut}', 'raw["cut"] = {"events": timeline_cut, "reviews": False}', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
 ]

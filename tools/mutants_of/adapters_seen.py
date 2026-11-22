@@ -397,4 +397,9 @@ MUTANTS = [
     ("a last page that names a next one when first read is steady", 'adapters/seen.py',
      'and not timeline.NEXT.search(again_link) and not timeline.NEXT.search(end_link))', 'and not timeline.NEXT.search(again_link))',
      ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_is_short_on_what_it_cannot_tell',)),
+    ("a merge ends the read back to an issue's close", 'adapters/seen.py',
+     '    gone = ((("closed", "merged") if item["type"] == "pull_request" else ("closed",)) if kept == GONE else ())',
+     '    gone = (("closed", "merged") if kept == GONE else ())', ('tests.test_reconcile.SeenPort.test_an_item_read_as_gone_is_read_back_to_its_close',)),
+    ("a last page that named a next when first read is whole", 'adapters/seen.py',
+     ' and not timeline.NEXT.search(end_link))', ')', ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_is_short_on_what_it_cannot_tell',)),
 ]
