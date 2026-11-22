@@ -93,6 +93,7 @@ KEPT = frozenset({NEW, TRIAGE, READY})
 # places for unmerged closes calls a person whatever its reason, the Pause's deferral of it too, and is not listed.
 NEEDS_YOU_REASONS = frozenset({
     "human_hold",
+    "timeline_bounded",
     "merged_while_held",
     "merged_while_hands_off",
     "merged_while_declined",
@@ -612,13 +613,37 @@ def held_by(labels: dict, drafts: list) -> list:
     return [name for name in (t.LABEL_HOLD, t.LABEL_HANDS_OFF) if name in labels or any(name in d for d in on_drafts)]
 
 
+def stands(facts, config: dict):
+    """How the issue stands for the pull request the Factory opened for it (decision 0232): `closed` while GitHub says
+    so; `held` while a Hold stands on the issue, or hands-off anyone but a person placed; `open` else, a person's
+    hands-off among them (the Factory never acts under it, and a dequeue is an act); None where it cannot be read.
+    Only the issue's state and own label events are read, never the rows of `derive`."""
+    if not isinstance(facts, dict) or facts.get("state") not in ISSUE_STATES:
+        return None
+    if facts["state"] == "closed":
+        return "closed"
+    flags = facts.get("complete")
+    if not (isinstance(flags, dict) and flags.get("timeline") is True and readable_events(facts.get("label_events"), config)):
+        return None
+    labels = standing_labels(facts)
+    if placed_by_a_person(labels, facts):
+        return t.ISSUE_OPEN
+    return t.HELD if t.LABEL_HOLD in labels or t.LABEL_HANDS_OFF in labels else t.ISSUE_OPEN
+
+
 def derive(facts: dict, runs: list, config: dict) -> dict:
     """Return {'state', 'reason', 'evidence'} for one issue. `state` is None when a fact cannot be read.
 
     What was read short or cannot be read is read first, a closed issue's too: rows 1 and 2 read the linked pull
     requests and the timeline, and neither terminal State admits anything.
     """
-    gaps = unread_lists(facts)
+    # A read the port cut at its bound, the issue's timeline or its linked pull requests', defers on its own code, before
+    # any list read short, and calls a person: more comments never bring it back under the bound (decision 0234). A flag not exactly true or false is a
+    # gap in the timeline, never read as within it.
+    bounded = facts.get("timeline_bounded")
+    if bounded is True:
+        return out(None, "timeline_bounded", ["timeline"])
+    gaps = [name for name in ISSUE_READ_IN_FULL if name in unread_lists(facts) or (name == "timeline" and bounded is not False)]
     if gaps:
         return out(None, "facts_incomplete", gaps)
     if facts.get("state") not in ISSUE_STATES or not readable_close(facts):

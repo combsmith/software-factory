@@ -42,6 +42,7 @@ CHAT = "/openai/v1/chat/completions"
 # A response's id as a path's one segment: no slash, dot, percent or query, so it names no other path.
 IDENT = re.compile(r"[A-Za-z0-9_-]{1,200}")
 LARGEST = 4 * 1024 * 1024       # bytes an answer may hold; one larger is refused, never cut short silently
+WALK = 100000           # the most values a body is walked for, each counted wherever it is held
 CHUNK = 1024 * 1024             # bytes read at a time, so the bound costs no more memory than the answer
 LONGEST = 1200                  # seconds a caller may give one wait: the advise step's own limit (decision 0224)
 REDIRECTS = {301, 302, 303, 307, 308}
@@ -266,20 +267,25 @@ def _answer(status: int, headers, raw: bytes) -> dict:
     return {"status": status, "headers": kept, "body": text}
 
 
-def _named(value, seen):
+def _named(value, left):
     """Each object of a body names its members by text alone: JSON writes a key of another type as text, so that
     `{1: "a", "1": "b"}` would be sent as two members of one name, which readers read otherwise. None is a kind of dict,
-    list or tuple, whose keys may say otherwise than its items, and none is held twice, so JSON's text is no longer."""
+    list or tuple, whose keys may say otherwise than its items. Every value is counted wherever it is held, and a body
+    of more than WALK is not sent, so that one holding a container many times over, or itself, is refused in bounded
+    time and never handed to JSON, which would write it out each time. A container held twice is no fault: CPython
+    shares the empty tuple, and equal constant tuples, between places a body holds them."""
+    left[0] -= 1
+    if left[0] < 0:
+        raise Unanswered("a body of more than %d values; it is not sent" % WALK)
     if isinstance(value, (dict, list, tuple)):
-        if type(value) not in (dict, list, tuple) or id(value) in seen:
-            raise Unanswered("a body that holds a kind of dict, list or tuple, or one of them twice; it is not sent")
-        seen.add(id(value))
+        if type(value) not in (dict, list, tuple):
+            raise Unanswered("a body that holds a kind of dict, list or tuple; it is not sent")
         if type(value) is dict:
             if any(type(k) is not str for k in value):
                 raise Unanswered("a body whose object names a member by other than text; it is not sent")
             value = value.values()
         for each in value:
-            _named(each, seen)
+            _named(each, left)
 
 
 def _bounded(stream, length) -> bytes:
@@ -333,7 +339,7 @@ class Live:
         try:
             verb, path, body = wire(req)
             data = None
-            _named(body, set())
+            _named(body, [WALK])
             if body is not None:
                 data, headers["Content-Type"] = json.dumps(body, allow_nan=False).encode(), "application/json"
             sent = urllib.request.Request("https://%s%s" % (self._host, path), data=data, headers=headers, method=verb)
