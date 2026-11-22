@@ -1,5 +1,6 @@
 """The mutants of `controller/feed.py`: tools/mutants.py runs them."""
 
+F849_CARRY = ("tests.test_controller.Issues.test_an_issue_left_unread_by_the_budget_or_the_list_is_shown_as_the_pass_before_decided_it",)
 TARGETS = ("controller/feed.py",)
 MUTANTS = [
     # Issue 306: every write a Factory identity made matched to a recorded Effect (I-33, decision 0061).
@@ -46,4 +47,24 @@ MUTANTS = [
     ('an item missed by a pass keeps its age', 'controller/feed.py',
      '        if not seen or seen[0]',
      '        if seen and seen[0]', ('tests.test_controller.Feed.test_a_view_rebuilt_from_the_records_equals_the_view_written_pass_by_pass',)),
+    ("the view carries no issue left unread", 'controller/feed.py',
+     'record["issues"] + carried(record, before):', 'record["issues"]:', F849_CARRY),
+    ("the view carries an issue left out for any reason", 'controller/feed.py',
+     '({"item": item, "code": BUDGET} in left or {"item": None, "code": UNLISTED} in left)', 'bool(left)', F849_CARRY),
+    ("a list read short carries no issue", 'controller/feed.py',
+     'return [e for e in before[-1]["issues"] if unread(record, e["decision"]["item"])]',
+     'return [e for e in before[-1]["issues"] if {"item": e["decision"]["item"], "code": BUDGET} in (record.get("left_out") or [])]',
+     F849_CARRY),
+    ("an issue beside one the budget left out is carried too", 'controller/feed.py',
+     '({"item": item, "code": BUDGET} in left', '(any(e.get("code") == BUDGET for e in left)', F849_CARRY),
+    ("the view carries an issue from the oldest record at hand", 'controller/feed.py',
+     'return [e for e in before[-1]["issues"] if unread', 'return [e for e in before[0]["issues"] if unread', F849_CARRY),
+    ("a pull request a pass missed beside a list read short keeps its age", 'controller/feed.py',
+     '    return item["type"] == "issue" and (', '    return (', F849_CARRY),
+    ("the budget is no want of a read", 'controller/feed.py',
+     '({"item": item, "code": BUDGET} in left or ', '(', F849_CARRY),
+    ("a list read short is no want of a read", 'controller/feed.py',
+     ' or {"item": None, "code": UNLISTED} in left)', ')', F849_CARRY),
+    ("an issue's age stops at a pass that left it unread", 'controller/feed.py',
+     '        if not seen and unread(older, item):\n            continue\n', '', F849_CARRY),
 ]

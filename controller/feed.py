@@ -3,6 +3,7 @@
 (decision 0002). Who acts next and what is asked come from `config/feed.json` alone."""
 from __future__ import annotations
 
+from controller.reads import BUDGET, UNLISTED
 from controller.shared import checked, key, seconds
 from kernel import terms as t
 
@@ -34,13 +35,30 @@ def asked(d: dict, feed: dict):
     return None
 
 
+def unread(record: dict, item: dict) -> bool:
+    """Whether `record`'s pass left the issue `item` unread for want of a read alone: its budget spent, or its issue list
+    read short (decision 0234)."""
+    left = record.get("left_out") or []
+    return item["type"] == "issue" and ({"item": item, "code": BUDGET} in left or {"item": None, "code": UNLISTED} in left)
+
+
+def carried(record: dict, before: list) -> list:
+    """The issues `record`'s pass left unread for want of a read alone, each as the record before it decided it, where
+    it did: so the view keeps showing them, one pass deep (decision 0234, ruling B3)."""
+    if not before:
+        return []
+    return [e for e in before[-1]["issues"] if unread(record, e["decision"]["item"])]
+
+
 def age(entry: dict, record: dict, before: list) -> float:
     """Hours the item has been in its State, by the pass records: since the first of the passes in a row, ending with
-    this one, that read it in that State."""
+    this one, that read it in that State. A pass that left the issue unread for want of a read alone is passed over."""
     item, state = entry["decision"]["item"], entry["decision"]["state"]
     since = record["now"]
     for older in reversed(before):
         seen = [e for e in older["pull_requests"] + older["issues"] if e["decision"]["item"] == item]
+        if not seen and unread(older, item):
+            continue
         if not seen or seen[0]["decision"]["state"] != state:
             break
         since = older["now"]
@@ -52,7 +70,7 @@ def view(record: dict, before: list, titles: dict, feed: dict, alerts: list, rec
     alerts of the whole scope, one to a Run unnamed past the window (issue 270), and what reconciliation found, each
     once (decision 0061)."""
     items = []
-    for entry in record["pull_requests"] + record["issues"]:
+    for entry in record["pull_requests"] + record["issues"] + carried(record, before):
         facts, d = entry["facts"], entry["decision"]
         if facts["state"] != "open":
             continue
