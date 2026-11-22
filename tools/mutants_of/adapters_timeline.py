@@ -259,6 +259,8 @@ MUTANTS = [
      '            whole = False\n            continue\n', '            continue\n', ('tests.test_adapters.Timeline.test_a_dismissed_review_the_timeline_does_not_explain_is_refused', 'tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut')),
     ('an explained dismissal beside a timeline cut is left out', 'adapters/timeline.py',
      ' and review.get("id") not in dismissals and timeline_whole is not True:', ' and timeline_whole is not True:', ('tests.test_adapters.Timeline.test_a_dismissed_review_the_timeline_does_not_explain_is_refused',)),
+    ("a cut timeline leaves out every review it cannot explain, dismissed or not", 'adapters/timeline.py',
+     'if state == "dismissed" and review.get("id") not in dismissals and timeline_whole is not True:', 'if review.get("id") not in dismissals and timeline_whole is not True:', ('tests.test_adapters.Timeline.test_a_dismissed_review_the_timeline_does_not_explain_is_refused',)),
     ('a cut reviews list is not handed out', 'adapters/timeline.py',
      '    return found, whole, cut\n', '    return found, whole, False\n', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
 ]
