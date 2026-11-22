@@ -23,7 +23,7 @@ import hashlib
 import json
 import pathlib
 
-from adapters import facts, linked, timeline
+from adapters import effects, facts, linked, timeline
 from adapters.github import Unanswered, raw, request
 from kernel import gate
 from tools.jsonschema_lite import validate
@@ -61,6 +61,22 @@ def own(transport, repo: str, number: int) -> dict:
     if answer["status"] != 200 or not isinstance(body, dict) or body.get("number") != number or "pull_request" in body:
         raise Unanswered("issue %d of %s could not be read" % (number, repo))
     return body
+
+
+class Tracking(Exception):
+    """The issue is the Controller's own tracking issue, which is no Work item: it is read no further (issue 931)."""
+
+
+def tracking(issue: dict, controller) -> bool:
+    """Whether REST's issue is the Controller's tracking issue: opened by its App, `controller`, by the account's id and
+    type, and with a body the write step wrote, by the write step's own test (`adapters/effects.causes_of`). An issue
+    the App opened with any other body is no tracking issue, and is served. An opener that cannot be read refuses the
+    issue, as does a body left out of the App's issue, so that one is never served for want of them. With no App named, `controller` None, the write step writes no
+    tracking issue, and none is one (decision 0233)."""
+    if controller is None:
+        return False
+    _, ident, kind = timeline.Accounts.account(issue.get("user"))
+    return (ident, kind) == tuple(controller) and effects.causes_of(_field(issue, "body")) is not None
 
 
 def _field(node, key: str):
@@ -182,13 +198,17 @@ def comments(events: list, accounts: timeline.Accounts) -> tuple:
 
 
 def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=facts._utc, *, identities: dict,
-         earlier, kernel=None) -> tuple:
+         earlier, controller=None, kernel=None) -> tuple:
     """`(facts, title)`: `issue-facts/1` for one issue of `repo`, held to its schema, and its title beside the facts,
     never in them, for the view alone. `accounts` tells who acted, the Factory's Apps among them, `identities` the class's
     accounts of a pull request that closes it (`adapters/pull.own`), `earlier` the pass records before this pass, oldest
-    first, or None where they could not be read, and `clock` gives the time after the last read. `kernel`, the Kernel's
-    configuration, says whether the Factory's linked draft's checks are read (`adapters/draft_checks.py`)."""
+    first, or None where they could not be read, and `clock` gives the time after the last read. `controller` is the
+    Controller's App's account, `(id, type)`: the issue it opened as its tracking issue is refused, `Tracking`, at its
+    first read, before any other is sent (decision 0233). `kernel`, the Kernel's configuration, says whether the
+    Factory's linked draft's checks are read (`adapters/draft_checks.py`)."""
     issue = own(transport, repo, number)
+    if tracking(issue, controller):
+        raise Tracking("issue %d of %s is the Controller's tracking issue" % (number, repo))
     events, whole = timeline.events(transport, {"number": number, "base": {"repo": {"full_name": repo}}})
     edited = edits(transport, repo, number)
     if edited["updated_at"] != _field(issue, "updated_at"):
@@ -229,6 +249,8 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
         "acts_since_writer": writer["acts_since_writer"],
         "branch_head": None,
         "complete": {"timeline": whole and edited["whole"], "linked": closing_whole, "runs": True},
+        # The port reads no timeline to a bound yet, so it cuts none (decision 0234; its bound is the next part's).
+        "timeline_bounded": False,
         "read_at": now,
     })
     problems = validate(found, SCHEMA)
