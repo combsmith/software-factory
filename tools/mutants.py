@@ -7871,7 +7871,7 @@ MUTANTS = ISSUE + [
     ("a State or an outcome may be ruled twice", "tools/check_examples.py",
      "    states = [row[\"state\"] for row in feed[\"next_actor\"][\"by_state\"][\"rows\"]]\n",
      "    states = []\n", FEED_TESTS),
-    # The feed's one plain sentence for each reason a pull request carries, and the one text it holds (decision 0000).
+    # The feed's one plain sentence for each reason a pull request carries, and the one text it holds (decision 1123).
     ("the feed's sentences are text on any kind", "tools/check_examples.py", '        if name == SENTENCES_FIELD and kind == SENTENCES_KIND and owner == SENTENCES_KIND and path == "$" \\\n',
      '        if name == SENTENCES_FIELD and owner == SENTENCES_KIND and path == "$" \\\n', SHAPE_TESTS),
     ("any property of the feed in the sentences' shape is text", "tools/check_examples.py", '        if name == SENTENCES_FIELD and kind == SENTENCES_KIND and owner == SENTENCES_KIND and path == "$" \\\n', '        if kind == SENTENCES_KIND and owner == SENTENCES_KIND and path == "$" \\\n', SHAPE_TESTS),

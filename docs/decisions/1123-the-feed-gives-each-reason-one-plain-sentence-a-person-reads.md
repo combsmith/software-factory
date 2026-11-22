@@ -1,4 +1,4 @@
-# 0000. The feed gives each reason one plain sentence a person reads
+# 1123. The feed gives each reason one plain sentence a person reads
 
 Status: accepted. The Solution Architect's ruling of 2026-11-22, relayed by the Factory Builder, on the readability lane's plan, item 4, for "status: the factory check shows only codes a newcomer cannot read" (issue 1120). It holds the sentences to `REASONS`, from decision 0248. Part 1 of 2 lands the sentences and their checks. Part 2 lands the writer in `adapters/effects.py`, whose rules are decided here.
 

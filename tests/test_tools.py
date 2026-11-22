@@ -703,7 +703,7 @@ class Examples(unittest.TestCase):
         root = clone({"config/feed.json": json.dumps(dict(feed, decision_required=feed["decision_required"][1:]))})
         self.assertTrue(caught(check_examples.run(root), "config/feed.json: feed: the reason"))
 
-    def test_every_reason_a_pull_request_carries_has_one_plain_sentence(self):  # decision 0000
+    def test_every_reason_a_pull_request_carries_has_one_plain_sentence(self):  # decision 1123
         feed = json.loads((ROOT / "config" / "feed.json").read_text())
         decision = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
         schema = json.loads((ROOT / "schemas" / "feed.schema.json").read_text())
@@ -754,7 +754,7 @@ class Examples(unittest.TestCase):
         root = clone({"config/feed.json": json.dumps(dict(feed, sentences=dict(feed["sentences"], approved="See GH-12 first.")))})
         self.assertTrue(caught(check_examples.run(root), "config/feed.json: feed: the sentence for approved would be shown"))
 
-    def test_the_feeds_sentences_are_text_only_on_the_feed_and_in_their_shape(self):  # decision 0000
+    def test_the_feeds_sentences_are_text_only_on_the_feed_and_in_their_shape(self):  # decision 1123
         schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
                    for p in (ROOT / "schemas").glob("*.schema.json")}
         feed = schemas["feed"]
