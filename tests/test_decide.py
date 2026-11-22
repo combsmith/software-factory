@@ -162,10 +162,11 @@ class Readability(unittest.TestCase):
             for complete in (facts()["complete"], cut):
                 d = go(facts(timeline_bounded=bounded, complete=complete, reviews=[review()]), REVIEWED)
                 self.assertEqual((d["reason"], d["attention"]), ("facts_incomplete", "none"), (bounded, complete))
-                self.assertIn("timeline", d["evidence"], (bounded, complete))
-        # Beside another list read short, the gap is added to it, in the lists' order (Astra).
-        d = go(facts(timeline_bounded=None, complete=dict(facts()["complete"], reviews=False)), REVIEWED)
-        self.assertEqual(d["evidence"], ["reviews", "timeline"])
+                self.assertEqual(d["evidence"], ["timeline"], (bounded, complete))        # once (Carbon)
+        # Beside another list read short, the gap is added to it, in the lists' order (Astra), whichever list (Carbon).
+        for other in [name for name in facts()["complete"] if name != "timeline"]:
+            d = go(facts(timeline_bounded=None, complete=dict(facts()["complete"], **{other: False})), REVIEWED)
+            self.assertEqual(d["evidence"], [name for name in facts()["complete"] if name in (other, "timeline")], other)
         # A merged or closed pull request is what it is, cut or not.
         for state in ("merged", "closed"):
             self.assertEqual(go(facts(timeline_bounded=True, complete=cut, state=state), REVIEWED)["reason"], state)

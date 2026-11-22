@@ -221,4 +221,6 @@ MUTANTS = [
      '"timeline_bounded": timeline_cut or reviews_cut,', '"timeline_bounded": reviews_cut,', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
     ('the reviews are not told the timeline was read short', 'adapters/facts.py',
      ', raw,\n                                                           timeline_whole)', ', raw)', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
+    ("the snapshot says its own timeline was cut", 'adapters/facts.py',
+     '"timeline_bounded": timeline_cut or reviews_cut,', '"timeline_bounded": True,', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
 ]

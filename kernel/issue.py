@@ -645,7 +645,7 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     if bounded is True:
         return out(None, "timeline_bounded", ["timeline"])
     # A chain of keyword spans the pass records broke, while something names the issue, defers on its own code and calls
-    # a person: no later pass mends it (decision 0234). Anything but exact true is read as not broken, since the
+    # a person: no later pass mends it (decision 0253). Anything but exact true is read as not broken, since the
     # linked list it leaves read short defers the issue all the same.
     if facts.get("spans_broken") is True:
         return out(None, "spans_broken", ["linked"])
