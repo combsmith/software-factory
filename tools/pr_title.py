@@ -37,13 +37,15 @@ BODY_CUTOVER = "2026-11-23T00:00:00Z"   # nor, for its body, one opened before t
 HEADINGS = ("Why", "What changed", "What to look at", "Record and protected edits")
 # A code fence: three or more backticks or tildes, after any indent or list marker, so that a fence in a list item hides
 # what it holds too (reading an indented fence as one only hides more); it closes on its own kind, at least as long,
-# with nothing but spaces or tabs after it. A backtick fence's words hold no backtick, or it is inline code.
+# at most three columns further in than it opened, with nothing but spaces or tabs after it. A backtick fence's words
+# hold no backtick, or it is inline code. It opens only on a line that starts outside the scaffolding, read as written.
 FENCE_OPEN = re.compile(r"[ \t]*(?:(?:[-*+]|[0-9]{1,9}[.)])[ \t]+)*(`{3,}|~{3,})([^\n]*)")
 FENCE_CLOSE = re.compile(r"[ \t]*(`{3,}|~{3,})[ \t]*")
 # The template's own scaffolding, which is no text and hides any heading in it: its comments, the checks-and-readers
 # block (nested, of any case, with attributes), and an empty list item. A comment or a block left open runs to the end.
 DETAILS_OPEN = re.compile(r"<details(?:[ \t][^>\n]{0,200})?>", re.I)
 DETAILS_CLOSE = re.compile(r"</details[ \t]*>", re.I)
+COMMENT = re.compile(r"<!--")
 # Inline code, in which GitHub reads no markup: a run of up to eight backticks, then what it holds, then the same run.
 CODE_SPAN = re.compile(r"(`{1,8})(?!`)[^\n]{0,4000}?(?<!`)\1(?!`)")
 EMPTY_ITEM = re.compile(r"[ \t]*(?:[-*+]|[0-9]{1,9}[.)])?[ \t]*")
@@ -108,60 +110,60 @@ def _heading(line: str):
     return words
 
 
+def _tag(line: str, at: int, spans: list, pattern):
+    """The first match of `pattern` in `line` from `at` that starts outside inline code, or None: `spans` holds, at each
+    place in the line, where the code span that holds it ends, or 0."""
+    found = pattern.search(line, at)
+    while found and spans[found.start()]:
+        found = pattern.search(line, spans[found.start()])
+    return found
+
+
 def _visible(line: str, hidden: list) -> str:
     """What of `line` a reader sees outside the scaffolding, `hidden` being [in a comment, details blocks open], which
-    it carries from line to line."""
-    seen, at = [], 0
-    spans = [found.span() for found in CODE_SPAN.finditer(line)]
+    it carries from line to line. Outside a comment, a tag or a comment's opening in inline code is none."""
+    spans, seen, at = [0] * (len(line) + 1), [], 0
+    for span in CODE_SPAN.finditer(line):
+        spans[span.start():span.end()] = [span.end()] * (span.end() - span.start())
     while at < len(line):
         if hidden[0]:
             end = line.find("-->", at)
             hidden[0], at = (False, end + 3) if end >= 0 else (True, len(line))
-        elif hidden[1]:
-            opened, closed = DETAILS_OPEN.search(line, at), DETAILS_CLOSE.search(line, at)
-            if closed and (not opened or closed.start() < opened.start()):
-                hidden[1], at = hidden[1] - 1, closed.end()
-            elif opened:
-                hidden[1], at = hidden[1] + 1, opened.end()
-            else:
-                at = len(line)
+            continue
+        tags = (_tag(line, at, spans, COMMENT), _tag(line, at, spans, DETAILS_OPEN),
+                _tag(line, at, spans, DETAILS_CLOSE) if hidden[1] else None)
+        first = min((tag for tag in tags if tag), key=lambda tag: tag.start(), default=None)
+        if not hidden[1]:
+            seen.append(line[at:first.start() if first else len(line)])
+        if first is None:
+            break
+        at = first.end()
+        if first is tags[0]:
+            hidden[0] = True
         else:
-            comment, opened = line.find("<!--", at), DETAILS_OPEN.search(line, at)
-            while comment >= 0 and any(a <= comment < b for a, b in spans):
-                comment = line.find("<!--", comment + 1)
-            while opened and any(a <= opened.start() < b for a, b in spans):
-                opened = DETAILS_OPEN.search(line, opened.start() + 1)
-            starts = [i for i in (comment, opened.start() if opened else -1) if i >= 0]
-            if not starts:
-                seen.append(line[at:])
-                break
-            seen.append(line[at:min(starts)])
-            if min(starts) == comment:
-                hidden[0], at = True, comment + 4
-            else:
-                hidden[1], at = 1, opened.end()
+            hidden[1] += 1 if first is tags[1] else -1
     return "".join(seen)
 
 
 def body_problems(body: str) -> list:
     """Why `body` is not in the template's shape: nothing where it is. No problem holds a word of it."""
-    seen, section, fence, hidden = [], None, None, [False, 0]
+    seen, section, fence, column, hidden = [], None, None, 0, [False, 0]
     for line in body.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         if fence is not None:
             closing = FENCE_CLOSE.fullmatch(line)
-            if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence):
+            indent = len(line[:closing.start(1)].expandtabs(4)) if closing else 0
+            if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence) and indent <= column + 3:
                 fence = None
             elif section is not None:
                 section[1].append(line)
             continue
         whole = not hidden[0] and not hidden[1]
-        visible = _visible(line, hidden)
-        whole = whole and visible == line
         opening = FENCE_OPEN.fullmatch(line) if whole else None
         if opening and not (opening.group(1)[0] == "`" and "`" in opening.group(2)):
-            fence = opening.group(1)
+            fence, column = opening.group(1), len(line[:opening.start(1)].expandtabs(4))
             continue
-        words = _heading(line) if whole else None
+        visible = _visible(line, hidden)
+        words = _heading(visible) if whole and _heading(line) is not None else None
         if words is not None:
             section = [words, []]
             seen.append(section)
@@ -247,7 +249,7 @@ def main(argv=None) -> int:
             print("usage: python3 -m tools.pr_title --body FILE")
             return 2
         try:
-            found = body_problems(pathlib.Path(args[1]).read_text())
+            found = body_problems(pathlib.Path(args[1]).read_text(encoding="utf-8"))
         except (OSError, ValueError) as err:
             print("body_unreadable: the file cannot be read: %s" % type(err).__name__)
             return 1

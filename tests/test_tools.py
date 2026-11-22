@@ -5625,9 +5625,18 @@ class PullBody(unittest.TestCase):
         self.assertEqual(self.codes("~~~~\n~~~\n" + self.body() + "~~~~\n"), ["body_heading_missing"])
         self.assertEqual(self.codes("```\n~~~\n" + self.body() + "```\n"), ["body_heading_missing"])
         self.assertEqual(self.codes(self.body({"Why": "```\n## What changed\n```"})), [])
+        # A fence closes at most three columns further in than it opened, so a list item's closes at its own indent;
+        # an empty one is no text. A fence and a comment hide each other's marks, and a fence's words open no comment.
+        self.assertEqual(self.codes("```\n    ```\n" + self.body() + "```\n"), ["body_heading_missing"])
+        for hides in ("- ```\n  ## Why\n  ```\n", "```\n<!--\n```\n", "<!--\n```\n-->\n", "``` <!--\nx\n```\n"):
+            self.assertEqual(self.codes(hides + self.body()), [], hides)
+        self.assertEqual(self.codes(self.body({"Why": "```\n```"})), ["body_section_empty"])
         # A heading is "## " and its words, up to three spaces in, closing hashes and spaces dropped; nothing else is.
         self.assertEqual(self.codes(self.body().replace("## Why", "   ## Why ##")), [])
-        for odd in ("# Why", "### Why", "##Why", "    ## Why", "## why", "## Why?"):
+        # It is read on a line that starts outside the scaffolding, as written, and a comment after its words is none.
+        self.assertEqual(self.codes(self.body().replace("## Why\n", "## Why <!-- a note -->\n")), [])
+        for odd in ("# Why", "### Why", "##Why", "    ## Why", "## why", "## Why?", "<!-- x --> ## Why",
+                    "<!--\n## x --> ## Why"):
             self.assertEqual(self.codes(self.body().replace("## Why\n", odd + "\n")), ["body_heading_missing"], odd)
         # A section ends at any second-level heading, its own or not, and a bare "##" is one.
         self.assertEqual(self.codes(self.body({"Why": "## Notes\nText for notes."})), ["body_section_empty"])
@@ -5651,13 +5660,17 @@ class PullBody(unittest.TestCase):
         # A heading inside a comment or a details block is hidden, as GitHub hides it: whole, nested, of any case, with
         # attributes, or left open to the end.
         for wrap in ("<!--\n%s-->\n", "<details>\n%s</details>\n", "<DETAILS open>\n%s</Details>\n",
-                     "<details><details>x</details>\n%s</details>\n", "<!-- left open\n%s"):
+                     "<details><details>x</details>\n%s</details>\n", "<!-- left open\n%s",
+                     "<details>\n`</details>`\n%s</details>\n", "<details>\n<!-- </details> -->\n%s</details>\n"):
             self.assertEqual(len(pr_title.body_problems(wrap % self.body())), 4, wrap)
         self.assertEqual(self.codes(self.body({"Why": "<!-- an edit dropped its close"})),
                          ["body_heading_missing", "body_section_empty"])
         for empty in ("<details open>checks</details>", "<details><details>a</details></details>", "<!-- x --> - "):
             self.assertEqual(self.codes(self.body({"Why": empty})), ["body_section_empty"], empty)
-        self.assertEqual(self.codes(self.body({"Why": "<!-- x --> words"})), [])
+        # A list item, inline code alone, or what follows a closed block of any case, is text.
+        for text in ("<!-- x --> words", "<DETAILS>x</Details> words", "- a change", "1. a step", "`code`",
+                     "``a ` <!-- b``"):
+            self.assertEqual(pr_title.body_problems(self.body({"Why": text})), [], text)
         # Inline code holds no markup: a tag or a comment's opening named in backticks hides nothing.
         self.assertEqual(self.codes(self.body({"Why": "A `<details>` block and a `` <!-- `` stay text."})), [])
         self.assertEqual(self.codes(self.body({"Why": "`<details>` then <details>hidden</details>"})), [])
@@ -5669,10 +5682,14 @@ class PullBody(unittest.TestCase):
         # A heading held twice is still read for its order and for whether each of its sections says something.
         twice = self.body(order=["What changed", "Why", "What to look at", "Record and protected edits"]) + "## Why\n- \n"
         self.assertEqual(self.codes(twice), ["body_heading_out_of_order", "body_heading_twice", "body_section_empty"])
+        self.assertEqual(pr_title.body_problems(self.body({"Why": "- "}) + "## Why\nwords\n"),
+                         ["body_heading_twice: the body has the heading '## Why' 2 times",
+                          "body_section_empty: the section '## Why' holds nothing but the template's own"])
         # Read in time whatever its size: GitHub keeps a body to 65,536 characters.
         started = time.monotonic()
         for long in ("## " + "#" * 65000 + "a", "## a" + " #" * 32000, "<!--" * 16000, "<details " * 7000,
-                     "<details>" * 7000, ("```\n" * 16000), "- " * 32000 + "```"):
+                     "<details>" * 7000, ("```\n" * 16000), "- " * 32000 + "```",
+                     "<details>" + "<!---->" * 9000, "`<!--` " * 9300):
             pr_title.body_problems(long)
         self.assertLess(time.monotonic() - started, 5.0)
         # Every problem at once, never the first alone, and none holds a word of the body.
@@ -5738,14 +5755,16 @@ class PullBody(unittest.TestCase):
 
     def test_the_desk_checks_a_bodys_file(self):
         root = tree({"good.md": self.body(), "bad.md": "::error::x\n"})
+        (root / "latin.md").write_bytes(b"## Why\n\xe9\n")
         for name, code, said in (("good.md", 0, "keeps the template's shape"), ("bad.md", 1, "body_heading_missing"),
-                                 ("missing.md", 1, "body_unreadable")):
+                                 ("missing.md", 1, "body_unreadable"), ("latin.md", 1, "body_unreadable")):
             with contextlib.redirect_stdout(io.StringIO()) as printed:
                 self.assertEqual(pr_title.main(["--body", str(root / name)]), code)
             self.assertIn(said, printed.getvalue())
             self.assertNotIn("::", printed.getvalue())
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(pr_title.main(["--body"]), 2)
+            self.assertEqual(pr_title.main(["--body", "a", "b"]), 2)
             self.assertEqual(pr_title.main(["--title", "x"]), 2)
 
 
