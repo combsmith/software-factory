@@ -7239,6 +7239,8 @@ MUTANTS = ISSUE + [
      '"--shortstat", *FORM, base, "HEAD", "--")', '"--shortstat", *FORM, base, "--")', DESK_SIZE),
     ('text that is no UTF-8 is counted as any', 'tools/desk.py',
      'diff = raw.decode("utf-8")', 'diff = raw.decode("utf-8", "replace")', DESK_SIZE),
+    ("the limits are read from this tree", 'tools/desk.py',
+     '_git(root, "cat-file", "blob", BASE + ":config/defaults.json")', '_git(root, "cat-file", "blob", "HEAD:config/defaults.json")', DESK_SIZE),
     ('a limit that is no whole number is read', 'tools/desk.py',
      '    if not all(type(n) is int and 0 < n < MOST for n in most):\n', '    if False:\n', DESK_SIZE),
     ('a limit too large to compare is read', 'tools/desk.py',
