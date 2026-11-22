@@ -62,13 +62,14 @@ RAW = {
     "adapters.seen._check_runs": {"pull_requests": R, "checks": R},    # the pull request's head, then its checks
     "adapters.seen._threads": {"pull_requests": R},
     "adapters.seen._state": {"issues": R},                            # an issue that left, by its own read (0235)
+    "adapters.seen.repo_read": {"metadata": R},                       # the repo itself, before a deleted issue ends (1145)
     "adapters.seen.pushes": {"contents": R},                           # the repo's activity, as P-47 reads a branch's
     "adapters.tags._ours": {"contents": R}, "adapters.tags._page": {"contents": R},
     "adapters.texts.issues": {"issues": R}, "adapters.threads._read": {"pull_requests": R},
     "adapters.texts.findings": {"pull_requests": R},                   # a review thread and its first comment (issue 856)
     "adapters.timeline.Accounts": {"metadata": R},                     # a login's permission on the repo
     "adapters.timeline._content": {"contents": R},                     # a commit's content, compared with its base
-    "adapters.timeline._pages": {"issues": R, "pull_requests": R},     # the timeline, and the reviews
+    "adapters.timeline._paged": {"issues": R, "pull_requests": R},     # the timeline, and the reviews
     "harness.head.fetch": {"contents": R}, "harness.head.tree": {"contents": R},
 }
 # How many requests each of those builds itself: one more, in a function already classed, is classed again first.
@@ -119,6 +120,7 @@ SITES = {
     "adapters.seen._check_runs": 2,
     "adapters.seen._state": 1,
     "adapters.seen._threads": 1,
+    "adapters.seen.repo_read": 1,
     "adapters.seen.pushes": 1,
     "adapters.tags._ours": 1,
     "adapters.tags._page": 1,
@@ -127,7 +129,7 @@ SITES = {
     "adapters.threads._read": 1,
     "adapters.timeline.Accounts": 1,
     "adapters.timeline._content": 1,
-    "adapters.timeline._pages": 1,
+    "adapters.timeline._paged": 1,
     "harness.head.fetch": 1,
     "harness.head.tree": 1,
 }
@@ -158,7 +160,7 @@ APPROVING = [
     "adapters.threads._read",
     "adapters.timeline.Accounts",
     "adapters.timeline._content",
-    "adapters.timeline._pages",
+    "adapters.timeline._paged",
 ]
 # A request of GitHub's, built where it is sent: whatever function builds one reads or writes GitHub itself.
 REQUESTS = {"request", "download", "tarball"}
