@@ -2,7 +2,8 @@
 and no network, and is handed the schemas it holds an answer and its own Result to. `read` takes the answer the second
 transport returned, `{status, headers, body}`, and `unasked` takes the reason no answer is in hand. Each returns an
 `advice/1`: `completed` only when the call completed, the answer was not cut short, it names the pinned model and it is
-one object held to `advice-answer/1`; otherwise `incomplete` or `failed`, with one code and no Finding.
+one object held to `advice-answer/1`; otherwise `incomplete` or `failed`, with one code and no Finding. A cost not
+known is never nought: the Controller counts it at the configured worst case (decision 0243, Spend).
 
 What the reader says is the author's diff at one remove, so nothing of it is trusted. Its severity is kept as its
 opinion, its category and criterion as hints beside its text, and its title and message under `body` alone. A Finding
@@ -35,6 +36,7 @@ DIGITS = 64             # a whole number of this many digits no count or line ne
 COUNTED = 1000000000    # the most tokens advice/1 holds a count of; one Azure gives above it is not known
 MOST = 100              # the findings one answer may hold, as its schema says: more are not handed to the validator
 MILLION = 1000000
+DEAREST = 100000        # the most dollars advice/1 holds a cost of; a cost above it is not known
 # The reasons a chat completion's one choice may say it ended for: any other has not ended.
 ENDINGS = ("stop", "length", "content_filter", "tool_calls", "function_call")
 
@@ -43,18 +45,28 @@ def _count(value):
     return value if type(value) is int and 0 <= value <= COUNTED else None
 
 
+def _over(part, whole) -> bool:
+    """Whether a figure Azure gives as part of a count, or as its total, is above it, as a float too: one that is no
+    number says nothing."""
+    return type(part) in (int, float) and whole is not None and not part <= whole
+
+
+def _detail(usage: dict, name: str, key: str):
+    details = usage.get(name + "_details")
+    return details.get(key) if isinstance(details, dict) else None
+
+
 def _counts(usage: dict, names: tuple, silent: bool) -> tuple:
     """`(asked, answered)`, the tokens of a read that ended, each a whole count or None. A count that contradicts
     itself is not known, neither of its two, so that the cost is not and is never lower than what was billed: a prompt
     of no tokens, an answer of no tokens from any read but one a content filter ended with no words, a total above the
-    two, or reasoning above the output it is part of. A total below the two is priced at their sum, the higher figure,
-    which errs toward the ceiling."""
+    two, cached input above the input or reasoning above the output it is part of, each told with the other count or
+    without it. A total below the two is priced at their sum, the higher figure, which errs toward the ceiling."""
     asked, answered = _count(usage.get(names[0])), _count(usage.get(names[1]))
-    total, details = usage.get("total_tokens"), usage.get(names[1] + "_details")
-    thought = details.get("reasoning_tokens") if isinstance(details, dict) else None
-    if asked is not None and answered is not None and (
-            asked == 0 or (answered == 0 and not silent) or (type(total) is int and total > asked + answered)
-            or (type(thought) is int and thought > answered)):
+    total = usage.get("total_tokens")
+    if asked == 0 or (answered == 0 and not silent) or _over(_detail(usage, names[0], "cached_tokens"), asked) \
+            or (asked is not None and answered is not None and _over(total, asked + answered)) \
+            or _over(_detail(usage, names[1], "reasoning_tokens"), answered):
         return None, None
     return asked, answered
 
@@ -63,12 +75,13 @@ def _usage(told: dict, model, tokens: tuple, asks: int, seconds) -> dict:
     asked, answered = tokens
     cost = None
     # Only the pinned model's answer is priced: another's is not the model's, and its prices are not the pinned one's.
-    # A cost is counted in millionths of a dollar and rounded up to a whole one, never down to nought, once the float's
-    # own noise below it is gone.
+    # A cost is counted in millionths of a dollar and rounded up to a whole one, never down to nought: a float's noise
+    # above a whole millionth costs one more, which errs toward the ceiling. One above what advice/1 holds is not known.
     if asked is not None and answered is not None and model == told["model"]:
         price = told["usd_per_million"]
-        millionths = round(asked * price["input"] + answered * price["output"], 6)
+        millionths = asked * price["input"] + answered * price["output"]
         cost = -(-millionths // 1) / MILLION
+        cost = cost if cost <= DEAREST else None
     return {"api": told["api"], "deployment": told["deployment"], "model": told["model"],
             "answering_model": model if type(model) is str and MODEL.fullmatch(model) else None,
             "effort": told["effort"], "asks": asks, "input_tokens": asked, "output_tokens": answered,
@@ -152,19 +165,23 @@ def _finished(body: dict) -> bool:
 
 
 def _silent(body: dict, api: str) -> bool:
-    """Whether a read that ended was ended by a content filter and holds no words anywhere: the one read that may have
-    answered no tokens. An empty text is no words."""
+    """Whether a read that ended was ended by a content filter and is shown to hold no words: the one read that may
+    have answered no tokens. An empty text is no words; an output this file cannot read, or any but a message, is not
+    shown to be empty."""
     if api == "responses":
         details, output = body.get("incomplete_details"), body.get("output")
         filtered = body.get("status") == "incomplete" and isinstance(details, dict) \
             and details.get("reason") == "content_filter"
-        parts = [part for item in (output if isinstance(output, list) else [])
-                 if isinstance(item, dict) and isinstance(item.get("content"), list) for part in item["content"]]
-        return filtered and not any(isinstance(part, dict) and (part.get("text") or part.get("refusal")) for part in parts)
+        items = output if isinstance(output, list) else [None]
+        return filtered and all(isinstance(item, dict) and item.get("type") == "message"
+                                and isinstance(item.get("content"), list) for item in items) \
+            and all(isinstance(part, dict) and not (part.get("text") or part.get("refusal"))
+                    for item in items for part in item["content"])
     choice = body["choices"][0]
     message = choice.get("message")
-    return choice.get("finish_reason") == "content_filter" \
-        and not (isinstance(message, dict) and (message.get("content") or message.get("refusal")))
+    return choice.get("finish_reason") == "content_filter" and isinstance(message, dict) \
+        and not (message.get("content") or message.get("refusal") or message.get("tool_calls")
+                 or message.get("function_call"))
 
 
 def _whole(digits: str) -> int:
@@ -221,7 +238,7 @@ def read(told: dict, answer: dict, asks: int, seconds, schemas: dict) -> dict:
     """The Result of what the transport returned for the last ask. `told` is the step's own: the run, the release, the
     Lens, the content id, the change's paths, the API, the deployment, the pinned model, the effort, the cap on a text
     and the prices."""
-    if asks < 1:
+    if type(asks) is not int or asks < 1:
         raise ValueError("an answer read was asked")
     status, body = answer.get("status"), answer.get("body")
     known = isinstance(body, dict) and status == 200

@@ -1034,7 +1034,7 @@ class Parser(unittest.TestCase):
                 self.assertEqual((failed["status"], failed["reason"]), ("incomplete", reason))
         # A chat completion that holds no one choice ended for a reason it names has not answered: it is not priced.
         for body in ({"choices": []}, {"choices": None}, {"choices": [{"finish_reason": None, "message": {"content": ""}}]},
-                     {"choices": [{"message": {"content": "x"}}] * 2}):
+                     {"choices": [{"message": {"content": "x"}}] * 2}, {"choices": [{"finish_reason": "stop", "message": {"content": "x"}}] * 2}):
             running = read(chatted(said(), **body), KIMI)
             self.assertEqual((running["usage"]["cost_usd"], running["usage"]["answering_model"], running["reason"]),
                              (None, None, "unparsed"), body)
@@ -1049,14 +1049,20 @@ class Parser(unittest.TestCase):
         for spent in ({"input_tokens": 1000}, {"input_tokens": "1000", "output_tokens": 500}, {"input_tokens": -1, "output_tokens": 500},
                       {"input_tokens": True, "output_tokens": 500}, {"prompt_tokens": 1000, "completion_tokens": 500}, None, []):
             self.assertIsNone(read(answered(said(), usage=spent))["usage"]["cost_usd"], spent)
+        for spent, counts in (({"input_tokens": 1000}, (1000, None)), ({"output_tokens": 500}, (None, 500)),
+                              ({"input_tokens": 0}, (None, None)), ({"output_tokens": 0}, (None, None)),
+                              ({"output_tokens": 10, "output_tokens_details": {"reasoning_tokens": 11}}, (None, None))):
+            spent = read(answered(said(), usage=spent))["usage"]
+            self.assertEqual((spent["input_tokens"], spent["output_tokens"], spent["cost_usd"]), counts + (None,), spent)
         # Nor is a count that contradicts itself: a prompt of no tokens, an answer with words and none, a total above
         # the two, reasoning above the output it is part of. One that agrees with itself is priced.
         # Neither of its two counts is known then, so the Result says no input either.
         for more in ({"input_tokens": 0, "output_tokens": 0}, {"input_tokens": 0}, {"output_tokens": 0}, {"total_tokens": 1501},
-                     {"total_tokens": 900000}, {"output_tokens_details": {"reasoning_tokens": 501}}):
+                     {"total_tokens": 900000}, {"total_tokens": 9e5}, {"output_tokens_details": {"reasoning_tokens": 501}},
+                     {"output_tokens_details": {"reasoning_tokens": 500.5}}, {"input_tokens_details": {"cached_tokens": 1001}}):
             spent = read(answered(said(), usage=dict({"input_tokens": 1000, "output_tokens": 500}, **more)))["usage"]
             self.assertEqual((spent["input_tokens"], spent["output_tokens"], spent["cost_usd"]), (None, None, None), more)
-        spent = read(chatted(said(), usage={"prompt_tokens": 1000, "completion_tokens": 10,
+        spent = read(chatted(said(), usage={"prompt_tokens": 1000, "completion_tokens": 10, "prompt_tokens_details": {"cached_tokens": 1001},
                                             "completion_tokens_details": {"reasoning_tokens": 50000}}), KIMI)["usage"]
         self.assertEqual((spent["input_tokens"], spent["output_tokens"], spent["cost_usd"]), (None, None, None))
         for more in ({"total_tokens": 1500}, {"total_tokens": 1499}, {"total_tokens": "many"}, {"total_tokens": True},
@@ -1081,7 +1087,9 @@ class Parser(unittest.TestCase):
         for ended, message in (("length", {"content": ""}), ("tool_calls", {"content": None, "tool_calls": []}),
                                ("stop", {"content": ""}), ("length", {"content": "{\"findings\""}),
                                ("content_filter", {"content": "partial"}), ("content_filter", {"content": None, "refusal": "I can't."}),
-                               ("stop", {"content": None, "refusal": "I can't."})):
+                               ("stop", {"content": None, "refusal": "I can't."}), ("content_filter", None),
+                               ("content_filter", {"content": None, "tool_calls": [{"type": "function"}]}),
+                               ("content_filter", {"content": None, "function_call": {"name": "f"}})):
             spent = read(chatted(said(), usage=none, choices=[{"finish_reason": ended, "message": message}]), KIMI)["usage"]
             self.assertEqual((spent["input_tokens"], spent["output_tokens"], spent["cost_usd"]), (None, None, None), (ended, message))
         text = {"type": "output_text", "text": "x"}
@@ -1092,16 +1100,25 @@ class Parser(unittest.TestCase):
                 ("incomplete", {"reason": "max_output_tokens"}, []),
                 ("incomplete", None, []),
                 ("incomplete", {"reason": "content_filter"}, [{"type": "message", "content": [text]}]),
-                ("incomplete", {"reason": "content_filter"}, [{"type": "message", "content": [{"type": "refusal", "refusal": "No."}]}])):
+                ("incomplete", {"reason": "content_filter"}, [{"type": "message", "content": [{"type": "refusal", "refusal": "No."}]}]),
+                ("incomplete", {"reason": "content_filter"}, [{"type": "message", "content": [{"type": "output_text", "text": ""}, text]}]),
+                ("incomplete", {"reason": "content_filter"}, [{"type": "reasoning", "content": [], "summary": [text]}]),
+                ("incomplete", {"reason": "content_filter"}, [{"type": "message", "content": ["x"]}]),
+                ("incomplete", {"reason": "content_filter"}, None)):
             spent = read(answered(said(), status=state, incomplete_details=details, usage=silenced, output=output))["usage"]
             self.assertEqual((spent["input_tokens"], spent["output_tokens"], spent["cost_usd"]), (None, None, None), (state, details, output))
-        # A cost is rounded up to the millionth of a dollar, never down to nought, and the float's own noise is no
-        # millionth: a hundred tokens at seven cents a million are seven millionths, which a float writes a little above.
+        # A cost is rounded up to the millionth of a dollar, never down to nought, and the float's own noise rounds up
+        # too: a hundred tokens at seven cents a million are seven millionths, which a float writes a little above.
         tiny = dict(TOLD, usd_per_million={"input": 0.01, "output": 0.01})
         self.assertEqual(read(answered(said(), usage={"input_tokens": 1, "output_tokens": 1}), tiny)["usage"]["cost_usd"], 0.000001)
         self.assertEqual(read(answered(said(), usage={"input_tokens": 1, "output_tokens": 1}))["usage"]["cost_usd"], 0.000023)
         noisy = dict(TOLD, usd_per_million={"input": 0.07, "output": 0.07})
-        self.assertEqual(read(answered(said(), usage={"input_tokens": 100, "output_tokens": 100}), noisy)["usage"]["cost_usd"], 0.000014)
+        self.assertEqual(read(answered(said(), usage={"input_tokens": 100, "output_tokens": 100}), noisy)["usage"]["cost_usd"], 0.000015)
+        # No fraction of a millionth billed is rounded away, and a cost above what advice/1 holds is not known.
+        for price, cost in (({"input": 0.5, "output": 0.5000001}, 0.000002), ({"input": 1e-07, "output": 1e-07}, 0.000001),
+                            ({"input": 150, "output": 600}, None)):
+            usage = {"input_tokens": 1, "output_tokens": 1 if cost else 2 * 10 ** 8}
+            self.assertEqual(read(answered(said(), usage=usage), dict(TOLD, usd_per_million=price))["usage"]["cost_usd"], cost, price)
         self.assertIsNone(read(answered(said(), model="Astra Model"))["usage"]["answering_model"])
         self.assertIsNone(read(answered(said(), model="astra model"))["usage"]["answering_model"])
         # A count above what advice/1 holds is not known, and never an error of the step's.
@@ -1126,7 +1143,7 @@ class Parser(unittest.TestCase):
                 advice.read(dict(TOLD, **change), answered(said()), 1, 1, SCHEMAS)
             with self.assertRaises(ValueError, msg=change):
                 advice.unasked(dict(TOLD, **change), "budget", 0, 0, SCHEMAS)
-        for asks in (0, 3):     # an answer read was asked once or twice
+        for asks in (0, 3, None):     # an answer read was asked once or twice
             with self.assertRaises(ValueError, msg=asks):
                 advice.read(TOLD, answered(said()), asks, 1, SCHEMAS)
 
