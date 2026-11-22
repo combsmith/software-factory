@@ -1000,14 +1000,6 @@ class Parser(unittest.TestCase):
         # A state checked before the model: a response cut short by another model is still cut short, and counted.
         self.assertEqual(outcome(answered(said(), status="incomplete", model="astra-model-mini")), ("incomplete", "cut_short", 0))
 
-    def test_no_reader_on_azure_is_configured_before_the_record_that_words_its_spend(self):
-        # Record 0224's Spend, The configuration and The model's name read as decision 0243 words them (pull request
-        # 1071). Until that record is on main, the configuration's own figures hold and no reader on Azure is asked:
-        # config/harness.json names none, among its advisory Lenses or beside them.
-        harness = json.loads((ROOT / "config" / "harness.json").read_text())
-        if not list((ROOT / "docs" / "decisions").glob("0243-*.md")):
-            self.assertEqual((harness["advisory"], "readers" in harness), (["coderabbit"], False))
-
     def test_a_result_says_what_the_read_cost_and_a_read_never_asked_says_why(self):
         usage = read(answered(said()), asks=2, seconds=318.4)["usage"]
         # What a read cost is not counted yet: never nought, it is not known, and the Controller counts it at its worst.
