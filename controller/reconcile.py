@@ -355,7 +355,9 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
                         state = e["decision"]["state"]
         if state is not None and state not in MERGEABLE:
             override.append({"item": m["item"]})
-    return {"unmatched": unmatched, "override": override, "unjudged": waved, "short": short}
+    # An issue read whole by its 404 or 410 is named once, as information (decision 0235).
+    gone = [g for g in seen.get("gone", []) if isinstance(g, dict)] if readable else []
+    return {"unmatched": unmatched, "override": override, "unjudged": waved, "short": short, "gone": gone}
 
 
 def alerts(found: dict) -> list:
@@ -369,15 +371,18 @@ def alerts(found: dict) -> list:
 
 
 def entries(found: dict) -> list:
-    """What the view says of a reconciliation, ids and codes alone: each unmatched write, and each Override, once each,
-    since two writes GitHub gives no key for read the same."""
+    """What the view says of a reconciliation, ids and codes alone: each unmatched write, each Override, and each issue
+    read whole by its 404 or 410, its answer as its key (decision 0235), once each, since two writes GitHub gives no key
+    for read the same."""
     out = []
     for e in [{"alert": "hand_unmatched" if u["by"] == HAND else "write_unmatched", "by": u["by"], "write": u["kind"],
                "item": key(u["item"]) if u["item"] is not None else None, "key": u["key"]} for u in found["unmatched"]] \
             + [{"alert": "hand_unjudged", "by": u["by"], "write": u["kind"], "item": key(u["item"]), "key": u["key"]}
                for u in found.get("unjudged", [])] \
             + [{"alert": "merged_by_override", "by": None, "write": "merge", "item": key(o["item"]), "key": None}
-               for o in found["override"]]:
+               for o in found["override"]] \
+            + [{"alert": "issue_gone", "by": None, "write": "other", "item": key(g["item"]), "key": str(g["answer"])}
+               for g in found.get("gone", [])]:
         if e not in out:
             out.append(e)
     return out

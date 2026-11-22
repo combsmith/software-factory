@@ -1,6 +1,6 @@
 # 0218. An issue's timeline is read by REST, whole by its missing next link, and an App's act with a person's token is the App's
 
-Status: accepted. The Factory Builder's ruling (A) of 2026-11-13 on the readers' major of the issues port's first part: an App acting with a person's token was read as that person. It amends decision 0028's row "A timeline is read whole when its last page's `hasNextPage` is false", and the same row of decisions 0139 and 0141.
+Status: replaced by `docs/decisions/0237-a-commit-closer-is-read-only-as-a-listed-pull-requests-merge-and-the-closers-rows-say-what-the-port-reads-and-the-trials-it-still-owes.md`, which holds the rule in force.
 
 ## Decision
 

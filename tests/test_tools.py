@@ -703,6 +703,111 @@ class Examples(unittest.TestCase):
         root = clone({"config/feed.json": json.dumps(dict(feed, decision_required=feed["decision_required"][1:]))})
         self.assertTrue(caught(check_examples.run(root), "config/feed.json: feed: the reason"))
 
+    def test_every_reason_a_pull_request_carries_has_one_plain_sentence(self):  # decision 1123
+        feed = json.loads((ROOT / "config" / "feed.json").read_text())
+        decision = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
+        schema = json.loads((ROOT / "schemas" / "feed.schema.json").read_text())
+        self.assertEqual(set(feed["sentences"]), set(terms.REASONS))
+        self.assertEqual(check_examples._table(feed, decision), [])
+        # A reason with no sentence, and a sentence for an issue's reason, which no pull request carries.
+        broken = copy.deepcopy(feed)
+        del broken["sentences"]["approved"]
+        self.assertTrue(caught(check_examples._table(broken, decision), "the reason approved has no sentence"))
+        broken = copy.deepcopy(feed)
+        broken["sentences"]["acceptance_due"] = "Waiting."
+        self.assertTrue(caught(check_examples._table(broken, decision),
+                               "a sentence for acceptance_due, which is no reason a pull request's Decision carries"))
+        # A sentence is held to the plain pattern here, whatever the schema lets through: no mention, backtick, line break,
+        # placeholder, slash, Markdown mark or other letter, and no more than 100 characters.
+        for bad in ("Approved by @x.", "Approved; run `x`.", "Approved.\nNext.", "Approved.\rNext.", "Approved {x}.",
+                    "Approved %s.", "See a://b.", "See [x](y).", "Approved **now**.", "See www.x.", "See www. It waits.",
+                    "Approved. It waits.", "Approved.\u2028Next.", "Approved.\n", "approved.", "Approved\u00e9.", "A" + "a" * 99 + ".", "Approved"):
+            broken = copy.deepcopy(feed)
+            broken["sentences"]["approved"] = bad
+            self.assertTrue(caught(check_examples._table(broken, decision), "the sentence for approved is not a plain"), bad)
+        broken["sentences"]["approved"] = "Z" + "z" * 98 + "."
+        self.assertEqual(check_examples._table(broken, decision), [])
+        # Nor what GitHub would make a link, an emoji or a reference of, though it is plain.
+        for bad in ("Approved :x: now.", "Approved :ok-1: now.", "See GH-12 first.", "See ABC-3.", "See deadbee first.",
+                    "See d1b3c40af52eaa67910b3e8cccbe89afd1f9688a.", "See D1B3C40.", "See " + "a" * 41 + ".",
+                    "See GHSA-jfh8-c2jp-5v3q."):
+            broken["sentences"]["approved"] = bad
+            self.assertTrue(caught(check_examples._table(broken, decision), "would be shown as a link, an emoji or a"), bad)
+        # For any reason, not one alone.
+        other = copy.deepcopy(feed)
+        other["sentences"]["paused"] = "See GH-12 first."
+        self.assertTrue(caught(check_examples._table(other, decision), "the sentence for paused would be shown as a link"))
+        for good in ("Approved: it waits.", "Approved: x (y): z.", "A run-1 waits.", "It waits at noon - then: 2.",
+                     "It is a decade old.", "See 123456 runs."):
+            broken["sentences"]["approved"] = good
+            self.assertEqual(check_examples._table(broken, decision), [], good)
+        # The schema: a capital first, a full stop only before a space and at the end, and at most 100 characters.
+        self.assertTrue(validate({k: v for k, v in feed.items() if k != "sentences"}, schema))
+        sentence = schema["properties"]["sentences"]["additionalProperties"]
+        self.assertEqual((sentence["maxLength"], sentence["pattern"]), (check_examples.SENTENCE_MOST, check_examples.SENTENCE_PATTERN))
+        for good in ("Z" + "z" * 98 + ".", "Approved; it waits: it is (one) item, isn't it - yes, 2."):
+            self.assertEqual(validate(good, sentence), [], good)
+        for bad in ("A" + "a" * 99 + ".", "approved.", "Approved", "Approved.x.", "Approved..", "Approved. Next.", "Approved?", "Approved /x.",
+                    "Approved\u00e9.", ""):
+            self.assertTrue(validate(bad, sentence), bad)
+        # And from the front door, on the live file.
+        root = clone({"config/feed.json": json.dumps(dict(feed, sentences=dict(feed["sentences"], approved="See GH-12 first.")))})
+        self.assertTrue(caught(check_examples.run(root), "config/feed.json: feed: the sentence for approved would be shown"))
+
+    def test_the_feeds_sentences_are_text_only_on_the_feed_and_in_their_shape(self):  # decision 1123
+        schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
+                   for p in (ROOT / "schemas").glob("*.schema.json")}
+        feed = schemas["feed"]
+        self.assertEqual(check_examples._free(feed, schemas, feed, "feed", "$", set()), [])
+        shaped = feed["properties"]["sentences"]
+        self.assertTrue(check_examples._sentence_shaped(shaped))
+        held = {"type": "object", "additionalProperties": False, "properties": {"sentences": shaped}}
+        self.assertEqual(check_examples._free(held, {}, held, "feed", "$", set()), [])
+        # The same property on any other kind, or under any other name on the feed, is text a Run carries.
+        self.assertTrue(caught(check_examples._free(held, {}, held, "task", "$", set()),
+                               "schema task admits text at $.sentences.*"))
+        # Nor the feed's schema reached by a reference from another kind: the walk began elsewhere.
+        refers = {"type": "object", "additionalProperties": False, "properties": {"context": {"$ref": "feed.schema.json"}}}
+        self.assertTrue(caught(check_examples._free(refers, schemas, refers, "task", "$", set()),
+                               "admits text at $.context.sentences.*"))
+        # Even at the top: another kind that is the feed by a reference, and the feed that is another kind by one.
+        whole = {"$ref": "feed.schema.json"}
+        self.assertTrue(caught(check_examples._free(whole, schemas, whole, "task", "$", set()), "admits text at $.sentences.*"))
+        other = dict(schemas, role={"type": "object", "additionalProperties": False, "properties": {"sentences": shaped}})
+        whole = {"$ref": "role.schema.json"}
+        self.assertTrue(caught(check_examples._free(whole, other, whole, "feed", "$", set()),
+                               "schema role admits text at $.sentences.*"))
+        # Nor a property of that name deeper in the feed: the sentences sit at its top alone.
+        deeper = copy.deepcopy(feed)
+        deeper["properties"]["next_actor"]["properties"]["sentences"] = shaped
+        self.assertTrue(caught(check_examples._free(deeper, schemas, deeper, "feed", "$", set()),
+                               "schema feed admits text at $.next_actor.sentences.*"))
+        named = {"type": "object", "additionalProperties": False, "properties": {"phrases": shaped}}
+        self.assertTrue(caught(check_examples._free(named, {}, named, "feed", "$", set()),
+                               "schema feed admits text at $.phrases.*"))
+        # A shape loosened in any one way is no exemption: a later schema edit cannot let text in silently.
+        value = shaped["additionalProperties"]
+        for loose in (dict(shaped, type="array"), dict(shaped, properties={"x": {"type": "string"}}),
+                      dict(shaped, additionalProperties=True), dict(shaped, additionalProperties=dict(value, type=["string", "null"])),
+                      dict(shaped, additionalProperties=dict(value, pattern=value["pattern"][1:])),
+                      dict(shaped, additionalProperties=dict(value, pattern="^.*$")),
+                      dict(shaped, additionalProperties=dict(value, pattern="^[\\s\\S]*$")),
+                      dict(shaped, additionalProperties=dict(value, pattern="^[^@`]*[.]$")),
+                      dict(shaped, additionalProperties={k: v for k, v in value.items() if k != "pattern"}),
+                      dict(shaped, additionalProperties={k: v for k, v in value.items() if k != "maxLength"}),
+                      dict(shaped, additionalProperties=dict(value, maxLength=check_examples.SENTENCE_MOST + 1)),
+                      dict(shaped, additionalProperties=dict(value, maxLength=0)),
+                      dict(shaped, additionalProperties=dict(value, maxLength=True)),
+                      dict(shaped, additionalProperties=dict(value, minLength=1)), "sentences"):
+            self.assertFalse(check_examples._sentence_shaped(loose), loose)
+        # One loosened is swept as any text is.
+        loose = dict(shaped, additionalProperties={k: v for k, v in value.items() if k != "pattern"})
+        held = {"type": "object", "additionalProperties": False, "properties": {"sentences": loose}}
+        self.assertTrue(caught(check_examples._free(held, {}, held, "feed", "$", set()),
+                               "schema feed admits text at $.sentences.*"))
+        for most in (1, 99, check_examples.SENTENCE_MOST):
+            self.assertTrue(check_examples._sentence_shaped(dict(shaped, additionalProperties=dict(value, maxLength=most))), most)
+
     def test_the_example_feed_follows_the_table(self):  # decision 0039
         feed = json.loads((ROOT / "config" / "feed.json").read_text())
 
@@ -5890,6 +5995,206 @@ class PullTitle(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()) as printed:
             self.assertEqual(pr_title.main([]), 2)
             self.assertEqual(pr_title.main(["a", "b"]), 2)
+
+
+class PullBody(unittest.TestCase):
+    """A pull request's body keeps the template's shape, held by tools/pr_title.py (decision 0246)."""
+
+    HEADS = ("Why", "What changed", "What to look at", "Record and protected edits")
+
+    def body(self, sections=None, order=None):
+        sections = dict({name: "Words about %s." % name for name in self.HEADS}, **(sections or {}))
+        return "\n\n".join("## %s\n%s" % (name, sections[name]) for name in (order or self.HEADS)) + "\n"
+
+    def codes(self, body):
+        return sorted({p.split(":", 1)[0] for p in pr_title.body_problems(body)})
+
+    def test_a_body_keeps_the_templates_shape_or_says_which_part_it_breaks(self):
+        self.assertEqual(pr_title.HEADINGS, self.HEADS)
+        template = (ROOT / ".github" / "pull_request_template.md").read_text()
+        self.assertEqual([line[3:] for line in template.splitlines() if line.startswith("## ")], list(self.HEADS))
+        self.assertEqual(pr_title.body_problems(self.body()), [])
+        # "None." is text, and so is anything but whitespace and the template's own scaffolding; the details block, an
+        # extra section and a level-three heading are allowed.
+        self.assertEqual(pr_title.body_problems(self.body({"Record and protected edits": "None."})), [])
+        self.assertEqual(pr_title.body_problems(self.body({"Record and protected edits": "None.\n\n<details>x</details>"})
+                                                + "## Notes\nmore\n### Sub\nx\n"), [])
+        self.assertEqual(pr_title.body_problems("Lead text.\n" + self.body().replace("\n", "\r\n")), [])
+        # The untouched template keeps no section.
+        self.assertEqual([p.split(": ", 1)[1] for p in pr_title.body_problems(template)],
+                         ["the section '## %s' holds nothing but the template's own" % name for name in self.HEADS])
+        for name in self.HEADS:
+            # Each heading missing, held twice, or over nothing but scaffolding, refuses with its own code.
+            missing = "\n".join(line for line in self.body().splitlines() if line != "## " + name)
+            self.assertIn("body_heading_missing: the body has no heading '## %s'" % name, pr_title.body_problems(missing))
+            self.assertEqual(self.codes(self.body() + "## %s\nagain\n" % name), ["body_heading_twice"], name)
+            for empty in ("", "   \n\t", "<!-- write here -->", "- \n- \n1.", "<details>tallies</details>",
+                          "<!-- a\nb -->\n- <!-- c -->"):
+                self.assertEqual(self.codes(self.body({name: empty})), ["body_section_empty"], (name, empty))
+        # Out of order: any two swapped.
+        for i in range(3):
+            order = list(self.HEADS)
+            order[i], order[i + 1] = order[i + 1], order[i]
+            self.assertEqual(self.codes(self.body(order=order)), ["body_heading_out_of_order"], order)
+        # A heading inside a code fence is no heading, and one outside it is: all four fenced, with none outside, refuses.
+        fenced = "```\n" + self.body() + "```\n"
+        self.assertEqual(self.codes(fenced), ["body_heading_missing"])
+        self.assertEqual(len(pr_title.body_problems(fenced)), 4)
+        self.assertEqual(self.codes("~~~~\n" + self.body() + "~~~\nstill fenced\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes(self.body() + "```md\n## Why\n```\n"), [])
+        self.assertEqual(self.codes("```\n```js\n" + self.body() + "```\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes("```\n``` not a close\n" + self.body() + "```\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes("~~~~\n~~~\n" + self.body() + "~~~~\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes("```\n~~~\n" + self.body() + "```\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes(self.body({"Why": "```\n## What changed\n```"})), [])
+        # A fence closes at most three columns further in than it opened, so a list item's closes at its own indent;
+        # an empty one is no text. A fence and a comment hide each other's marks, and a fence's words open no comment.
+        for code in ("```\n    ```\n", "```\n\t```\n", " ```\n    ```\n"):
+            self.assertEqual(self.codes(code + self.body() + "```\n"), ["body_heading_missing"], code)
+        for hides in ("- ```\n  ## Why\n  ```\n", "```\n   ```\n", "1. ```\n   ## Why\n      ```\n", "~~old~~\n", "```\n<!--\n```\n", "<!--\n```\n-->\n", "``` <!--\nx\n```\n"):
+            self.assertEqual(self.codes(hides + self.body()), [], hides)
+        self.assertEqual(self.codes(self.body({"Why": "```\n```"})), ["body_section_empty"])
+        self.assertEqual(self.codes(self.body({"Why": "```\n-\n```"})), [])
+        # A heading is "## " and its words, up to three spaces in, closing hashes and spaces dropped; nothing else is.
+        self.assertEqual(self.codes(self.body().replace("## Why", "   ## Why ##")), [])
+        # It is read on a line that starts outside the scaffolding, as written, and a comment after its words is none.
+        self.assertEqual(self.codes(self.body().replace("## Why\n", "## Why <!-- a note -->\n")), [])
+        for odd in ("# Why", "### Why", "##Why", "    ## Why", "## why", "## Why?", "<!-- x --> ## Why",
+                    "<!--\n## x --> ## Why", "## Why ## <!-- x -->"):
+            self.assertEqual(self.codes(self.body().replace("## Why\n", odd + "\n")), ["body_heading_missing"], odd)
+        # A section ends at any second-level heading, its own or not, and a bare "##" is one.
+        self.assertEqual(self.codes(self.body({"Why": "## Notes\nText for notes."})), ["body_section_empty"])
+        self.assertEqual(self.codes(self.body({"Why": "##\nText under an empty heading."})), ["body_section_empty"])
+        self.assertEqual(self.codes(self.body({"Why": "## ###\nText under a heading of closing hashes."})),
+                         ["body_section_empty"])
+        # A fence closes on a longer one of its kind; a backtick fence's words hold no backtick, so that is inline code;
+        # and only spaces or tabs may follow a closing fence.
+        self.assertEqual(self.codes(self.body({"Why": "~~~\nsample\n~~~~"})), [])
+        self.assertEqual(self.codes("```example```\n" + self.body()), [])
+        self.assertEqual(self.codes("```\n```\u00a0\n" + self.body() + "```\n"), ["body_heading_missing"])
+        self.assertEqual(self.codes("```\n```\t \n" + self.body()), [])
+        # A fence in a list item hides what it holds.
+        listed = "- ```\n" + "".join("  ## %s\n  x\n" % name for name in self.HEADS) + "  ```\n"
+        self.assertEqual(len(pr_title.body_problems(listed)), 4)
+        # A heading's words are its own: a hash run is closing only after a space or a tab; a tab may follow "##" but
+        # not lead it.
+        self.assertEqual(self.codes(self.body().replace("## Why\n", "## Why#\n")), ["body_heading_missing"])
+        self.assertEqual(self.codes(self.body().replace("## Why\n", "##\tWhy\t#\n")), [])
+        self.assertEqual(self.codes(self.body().replace("## Why\n", "\t## Why\n")), ["body_heading_missing"])
+        # A heading inside a comment or a details block is hidden, as GitHub hides it: whole, nested, of any case, with
+        # attributes, or left open to the end.
+        for wrap in ("<!--\n%s-->\n", "<details>\n%s</details>\n", "<DETAILS open>\n%s</Details>\n",
+                     "<details><details>x</details>\n%s</details>\n", "<!-- left open\n%s",
+                     "<details>\n`</details>`\n%s</details>\n", "<details>\n<!-- </details> -->\n%s</details>\n"):
+            self.assertEqual(len(pr_title.body_problems(wrap % self.body())), 4, wrap)
+        self.assertEqual(self.codes(self.body({"Why": "<!-- an edit dropped its close"})),
+                         ["body_heading_missing", "body_section_empty"])
+        for empty in ("<details open>checks</details>", "<details><details>a</details></details>", "<!-- x --> - "):
+            self.assertEqual(self.codes(self.body({"Why": empty})), ["body_section_empty"], empty)
+        # A list item, inline code alone, or what follows a closed block of any case, is text.
+        for text in ("<!-- x --> words", "<DETAILS>x</Details> words", "- a change", "1. a step", "`code`",
+                     "``a ` <!-- b``", "<details>\nAn unmatched `` then </details> then `ok`.",
+                     "- a\n  - b\n    ```\n    code\n    ```"):
+            self.assertEqual(pr_title.body_problems(self.body({"Why": text})), [], text)
+        # Inline code holds no markup: a tag or a comment's opening named in backticks hides nothing.
+        self.assertEqual(self.codes(self.body({"Why": "A `<details>` block and a `` <!-- `` stay text."})), [])
+        self.assertEqual(self.codes(self.body({"Why": "`<details>` then <details>hidden</details>"})), [])
+        self.assertEqual(self.codes(self.body({"Why": "<details>a `x` b"})), ["body_heading_missing", "body_section_empty"])
+        # Line ends of any kind are line ends, as the web editor's CRLF and the desk's LF are one body.
+        self.assertEqual([p.split(": ", 1)[1] for p in pr_title.body_problems(template.replace("\n", "\r\n"))],
+                         ["the section '## %s' holds nothing but the template's own" % name for name in self.HEADS])
+        self.assertEqual(self.codes(self.body().replace("\n", "\r")), [])
+        # A heading held twice is still read for its order and for whether each of its sections says something.
+        twice = self.body(order=["What changed", "Why", "What to look at", "Record and protected edits"]) + "## Why\n- \n"
+        self.assertEqual(self.codes(twice), ["body_heading_out_of_order", "body_heading_twice", "body_section_empty"])
+        self.assertEqual(pr_title.body_problems(self.body({"Why": "- "}) + "## Why\nwords\n"),
+                         ["body_heading_twice: the body has the heading '## Why' 2 times",
+                          "body_section_empty: the section '## Why' holds nothing but the template's own"])
+        # Every problem at once, never the first alone, and none holds a word of the body.
+        planted = "::error::x\n## Why\n::add-mask::y\n## Why\n"
+        said = pr_title.body_problems(planted)
+        self.assertEqual(self.codes(planted), ["body_heading_missing", "body_heading_twice", "body_section_empty"])
+        self.assertFalse(any("::" in p or "add-mask" in p for p in said))
+
+    @support.wall_clock
+    def test_a_body_of_the_largest_size_is_read_in_time(self):
+        # Whatever its shape: GitHub keeps a body to 65,536 characters.
+        started = time.monotonic()
+        for long in ("## " + "#" * 65000 + "a", "## a" + " #" * 32000, "<!--" * 16000, "<details " * 7000,
+                     "<details>" * 7000, ("```\n" * 16000), "- " * 32000 + "```",
+                     "<details>" + "<!---->" * 9000, "`<!--` " * 9300, "## Why\n" + " " * 65000 + "x", "<!---->" * 4000 + "<details " * 4000):
+            pr_title.body_problems(long)
+        self.assertLess(time.monotonic() - started, 5.0)
+
+    def test_the_body_is_read_on_both_events_from_its_cutover(self):
+        root = tree({})
+        where = root / "event.json"
+        ref = "refs/heads/gh-readonly-queue/main/pr-44-" + "a" * 40
+        good = {"number": 44, "title": PullTitle.GOOD, "body": self.body(), "created_at": pr_title.BODY_CUTOVER,
+                "base": {"repo": {"full_name": "o/r"}}}
+
+        class Asked:
+            def __init__(self, body):
+                self.body, self.asked = body, []
+
+            def send(self, asked):
+                self.asked.append(asked["path"])
+                return {"status": 200, "body": self.body}
+
+        asked = []
+
+        def checked(answer, event="pull_request", stale=None):
+            told = ({"pull_request": {"number": 44}, "repository": {"full_name": "o/r"}} if event == "pull_request" else
+                    {"merge_group": {"head_ref": ref}, "repository": {"full_name": "o/r"}})
+            if stale is not None and event == "pull_request":
+                told["pull_request"]["body"] = stale
+            where.write_text(json.dumps(told))
+            transport = Asked(answer)
+            said = pr_title.check({"EVENT": event, "GITHUB_EVENT_PATH": str(where), "WORKFLOW_TOKEN": "t"}, transport)
+            asked.append(transport.asked)
+            return said
+
+        self.assertEqual(pr_title.BODY_CUTOVER, "2026-11-23T00:00:00Z")
+        for event in ("pull_request", "merge_group"):
+            self.assertEqual(checked(good, event), [], event)
+            # A body out of shape refuses on each event, the merge group's among them, which main's log takes.
+            self.assertIn("body_heading_missing", checked(dict(good, body="Just words."), event)[0])
+            # The body is the one read's, once, never the event's, and nothing of it reaches what the job prints.
+            said = checked(dict(good, body="Just words.\nprivate-draft-marker ::error::x"), event, stale=self.body())
+            self.assertEqual(len(said), 4)
+            self.assertFalse(any("private-draft-marker" in p or "::" in p for p in said))
+            self.assertEqual(asked[-1], ["/repos/o/r/pulls/44"])
+            # A null body, or one of no text type, cannot be read, and refuses.
+            for body in (None, 3, ["## Why"]):
+                self.assertEqual(checked(dict(good, body=body), event),
+                                 ["body_unreadable: the pull request's body cannot be read"])
+            self.assertEqual(checked({k: v for k, v in good.items() if k != "body"}, event),
+                             ["body_unreadable: the pull request's body cannot be read"])
+        # The cutover: a pull request opened one second before it is not read for its body; one opened at it is; the
+        # title is held from its own cutover, before it.
+        self.assertEqual(checked(dict(good, body=None, created_at="2026-11-22T23:59:59Z")), [])
+        self.assertEqual(len(checked(dict(good, body=None, created_at="2026-11-23T00:00:01Z"))), 1)
+        self.assertEqual(checked(dict(good, body=None, title="Bad", created_at="2026-11-22T23:59:59Z"))[0][:13],
+                         "title_no_area")
+        self.assertEqual(len(checked(dict(good, body=None, title="Bad"))), 3)
+        # Title and body are both said, each in full.
+        both = checked(dict(good, title="Bad", body="## Why\nx\n"))
+        self.assertTrue(any(p.startswith("title_no_area") for p in both) and any(p.startswith("body_heading_missing")
+                                                                                 for p in both))
+
+    def test_the_desk_checks_a_bodys_file(self):
+        root = tree({"good.md": self.body(), "bad.md": "::error::x\n"})
+        (root / "latin.md").write_bytes(b"## Why\n\xe9\n")
+        for name, code, said in (("good.md", 0, "keeps the template's shape"), ("bad.md", 1, "body_heading_missing"),
+                                 ("missing.md", 1, "body_unreadable"), ("latin.md", 1, "body_unreadable")):
+            with contextlib.redirect_stdout(io.StringIO()) as printed:
+                self.assertEqual(pr_title.main(["--body", str(root / name)]), code)
+            self.assertIn(said, printed.getvalue())
+            self.assertNotIn("::", printed.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(pr_title.main(["--body"]), 2)
+            self.assertEqual(pr_title.main(["--body", "a", "b"]), 2)
+            self.assertEqual(pr_title.main(["--title", "x"]), 2)
 
 
 class TheList(unittest.TestCase):
@@ -16576,15 +16881,27 @@ class Desk(unittest.TestCase):
         read, write = os.pipe()
         try:        # the null device opened as the stream's own number, closed already: that number is left open
             with mock.patch.object(verify.os, "open", return_value=write):
-                verify.quiet(mock.Mock(fileno=lambda: write))
+                verify.quiet(mock.Mock(fileno=lambda: write, flush=mock.Mock(side_effect=BrokenPipeError)))
             os.fstat(write)
         finally:
             os.close(read)
             os.close(write)
-        printed = io.StringIO()
+        closed = mock.Mock(flush=mock.Mock(side_effect=OSError(28, "no space left")),     # no closed pipe either
+                           fileno=mock.Mock(side_effect=io.UnsupportedOperation))
         with mock.patch.object(verify, "failed", return_value=True), mock.patch.object(desk, "size", return_value="n"), \
-                mock.patch("builtins.print", side_effect=BrokenPipeError), contextlib.redirect_stdout(printed):
+                mock.patch("builtins.print", side_effect=BrokenPipeError), mock.patch.object(sys, "stdout", closed):
             self.assertEqual(verify.main(["--checks"]), 1)      # a stream with no file to point elsewhere
+        with tempfile.TemporaryDirectory() as folder:       # a note that fails for any other cause, an encoding say,
+            stream = open(os.path.join(folder, "out"), "w", encoding="utf-8")        # leaves the checks' output to go out
+            stream.write("what the checks said\n")
+            with mock.patch.object(verify, "failed", return_value=False), \
+                    mock.patch.object(desk, "size", return_value="n"), mock.patch.object(sys, "stdout", stream), \
+                    mock.patch("builtins.print", side_effect=UnicodeEncodeError("ascii", "\u00e9", 0, 1, "no ascii")):
+                self.assertEqual(verify.main(["--checks"]), 0)
+            stream.write("and what comes after\n")         # the stream is left as it was, not pointed elsewhere
+            stream.close()
+            with open(os.path.join(folder, "out"), encoding="utf-8") as written:
+                self.assertEqual(written.read(), "what the checks said\nand what comes after\n")
         for argv, code, said in ((["size"], 0, "the note\n"), ([], 1, "usage: python3 -m tools.desk size\n"),
                                  (["size", "x"], 1, "usage: python3 -m tools.desk size\n")):
             printed = io.StringIO()      # the command prints the note, and anything else asked is refused

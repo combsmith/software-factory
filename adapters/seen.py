@@ -185,7 +185,7 @@ def _state(transport, issue: str, number: int):
 
 def repo_read(transport, repo: str) -> bool:
     """Whether REST answered the repo `repo` itself, by its full name, with its issues on, through `transport`: with
-    them off, every issue answers 410, and none has ended (decision 0235)."""
+    them off, every issue answers 410, and none has ended (decision 1145)."""
     try:
         answer = transport.send(request("GET", "/repos/%s" % repo))
     except Unanswered:
@@ -410,14 +410,16 @@ def pushes(transport, repo: str, approver: dict, since: str, clock=_utc) -> tupl
     return writes, bool(whole)
 
 
-def seen(parts: list, since: str) -> dict:
-    """`seen/1` from each `read`'s and `pushes`'s answer: whole only when every part was."""
+def seen(parts: list, since: str, gone=()) -> dict:
+    """`seen/1` from each `read`'s and `pushes`'s answer: whole only when every part was. `gone` is each issue that left
+    read as whole by its 404 or 410, with that answer, carried only where there is one (decision 1145)."""
     writes, merged, whole = [], [], True
     for part in parts:
         writes += part[0]
         merged += part[1] if len(part) == 3 else []
         whole &= part[-1] is True
-    return {"schema": "seen/1", "since": since, "whole": whole, "writes": writes, "merged": merged}
+    found = {"schema": "seen/1", "since": since, "whole": whole, "writes": writes, "merged": merged}
+    return dict(found, gone=list(gone)) if gone else found
 
 
 def apps_of(accounts: dict, apps: dict) -> dict:
