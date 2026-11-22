@@ -218,12 +218,11 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
         and h["item"]["number"] not in left_]
     if hands:
         held["hand"] = hands
-    known_taken = {(e["key"], e["item"], e["head"]) for e in held.get("taken", [])}
     heads_ = [e for e in held.pop("taken", []) if int(e["item"].rsplit("/", 1)[1]) not in gone_] + [
         {"key": t["key"], "item": key(t["item"]), "head": t["head"]} for t in taken
-        if (t["key"], key(t["item"]), t["head"]) not in known_taken and (t["key"] is None or FITS_KEY.fullmatch(t["key"]))
+        if (t["key"] is None or FITS_KEY.fullmatch(t["key"]))
         and FITS_ITEM.fullmatch(key(t["item"])) and t["item"]["number"] not in left_]
-    heads_ = [e for i, e in enumerate(heads_) if e not in heads_[:i]]      # two keyless of a head in a pass are one
+    heads_ = [e for i, e in enumerate(heads_) if e not in heads_[:i]]      # once: read again, or keyless twice in a pass
     if heads_:
         held["taken"] = heads_
     held["left"] = [e for e in held.get("left", []) if e["number"] not in set(gone)] + [
