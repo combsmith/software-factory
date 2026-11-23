@@ -1359,6 +1359,11 @@ class Issues(unittest.TestCase):
                           if i["item"]["type"] == "issue"], [(7, 0.08)])
         self.assertEqual(bare(w["items"] for w in pass_.rebuild([first, short["record"]], {}, cfg))[-1],
                          bare([short["view"]["items"]])[0])        # a rebuild carries it the same (Carbon)
+        # A carried issue's age walks back over every pass that read it in its State, not the last alone (Carbon).
+        again = pass_.run(reads(issues=[an_issue(7)]), cfg, "2026-10-11T14:05:00Z", [first], mint)["record"]
+        out = pass_.run(reads(issues=[budget]), cfg, "2026-10-11T14:10:00Z", [first, again], mint)
+        self.assertEqual([(i["item"]["number"], i["age_hours"]) for i in out["view"]["items"]["items"]
+                          if i["item"]["type"] == "issue"], [(7, 0.17)])
         # An issue left out for any other reason is not carried.
         moved = {"facts": {"item": {"repo": home, "type": "issue", "number": 7}}, "title": None, "unread": "facts_unanswered"}
         out = pass_.run(reads(issues=[moved]), cfg, "2026-10-11T13:20:00Z", list(kept), mint)
@@ -1368,6 +1373,11 @@ class Issues(unittest.TestCase):
         eight = dict(moved, facts={"item": dict(moved["facts"]["item"], number=8)})
         out = pass_.run(reads(issues=[budget, eight]), cfg, "2026-10-11T15:05:00Z", [both], mint)
         self.assertEqual([i["item"]["number"] for i in out["view"]["items"]["items"] if i["item"]["type"] == "issue"], [7])
+        # Each issue is carried on its own: one the pass decided, or left out by name, keeps no other out (Carbon).
+        for issues, shown in (([an_issue(8), budget], [8, 7]), ([an_issue(8), unlisted], [8, 7]), ([moved, unlisted], [8])):
+            out = pass_.run(reads(issues=issues), cfg, "2026-10-11T15:05:00Z", [both], mint)
+            self.assertEqual([i["item"]["number"] for i in out["view"]["items"]["items"] if i["item"]["type"] == "issue"],
+                             shown)
         # A pull request a pass missed beside a list read short starts its age again: the list is the issues' (Carbon).
         out = pass_.run(reads(pulls=[], issues=[unlisted]), cfg, "2026-10-11T15:10:00Z", [both], mint)
         missed = out["record"]
@@ -1387,9 +1397,10 @@ class Issues(unittest.TestCase):
         gap = pass_.run(reads(issues=[unlisted]), cfg, "2026-10-11T15:55:00Z", [], mint)["record"]
         self.assertEqual(issues_of(pass_.run(reads(issues=[an_issue(7)]), cfg, "2026-10-11T16:00:00Z", [gap], mint)),
                          [(7, 0.0)])
-        gone = pass_.run(reads(issues=[moved]), cfg, "2026-10-11T16:05:00Z", [one], mint)["record"]
-        self.assertEqual(issues_of(pass_.run(reads(issues=[an_issue(7)]), cfg, "2026-10-11T16:10:00Z", [one, gone], mint)),
-                         [(7, 0.0)])
+        for issues in ([moved], [moved, unlisted]):     # beside a short list too (Carbon)
+            gone = pass_.run(reads(issues=issues), cfg, "2026-10-11T16:05:00Z", [one], mint)["record"]
+            self.assertEqual(issues_of(pass_.run(reads(issues=[an_issue(7)]), cfg, "2026-10-11T16:10:00Z", [one, gone],
+                                                 mint)), [(7, 0.0)])
 
     def test_an_issue_list_read_short_raises_its_own_alert_and_no_other(self):  # decision 0252
         # The list read short names no item: it is kept in the record by its code, raises its alert once and no alert of
