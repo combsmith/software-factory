@@ -39,6 +39,7 @@ from adapters.github import Live, Unanswered, request
 from controller import feed as feed_
 from controller import writes as writes_
 from kernel import terms as t
+from tools.check_examples import AUTOLINKED, SENTENCE_MOST, SENTENCE_PATTERN
 from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -407,11 +408,18 @@ def status_id(decision: dict) -> str:
 
 
 def status_output(decision: dict, record: dict, feed: dict) -> dict:
-    """What a person reads: codes and identifiers alone. No title, login, branch name or comment reaches it, and an evidence
-    item that is not a code is counted, never shown. P-12: an edit with no output keeps the old, so the whole is sent."""
+    """What a person reads: the feed's plain sentence for the Decision's reason first, then codes and identifiers alone
+    (decision 1123). No title, login, branch name or comment reaches it, and an evidence item that is not a code is
+    counted, never shown. The sentence is read as the status is written, and the key hashes the Decision alone, so a
+    Release that changes a sentence writes nothing. P-12: an edit with no output keeps the old, so the whole is sent."""
     def code(value) -> str:
         return "null" if value is None else str(value)
-    lines = ["attention: %s" % code(decision.get("attention")), "outcome: %s" % code(decision.get("outcome")),
+    said = (feed.get("sentences") or {}).get(decision.get("reason"))
+    # Shown only while it keeps the plain pattern, its length and the refusals the checks hold it to.
+    plain = isinstance(said, str) and re.fullmatch(SENTENCE_PATTERN, said) is not None and len(said) <= SENTENCE_MOST \
+        and AUTOLINKED.search(said) is None
+    # Its own paragraph: GitHub renders the summary as Markdown, where a line below would join the sentence.
+    lines = ([said, ""] if plain else []) + ["attention: %s" % code(decision.get("attention")), "outcome: %s" % code(decision.get("outcome")),
              "action: %s" % code(decision.get("action")), "next_actor: %s" % code(feed_.next_actor(decision, feed)),
              "content_id: %s" % code(decision.get("content_id")), "pass: %s" % record["pass"], "release: %s" % record["release"]]
     evidence = decision.get("evidence") or []
@@ -435,7 +443,8 @@ def write_status(transport, entry: dict, record: dict, config: dict, status: dic
     in place, and sent only when the Decision changed (I-17). GitHub holds the key, so a status that once failed to write is
     not stale for ever. It never passes or fails, so it can be read as no gate; GitHub would count a neutral check as met, so
     what keeps it from being one is that no ruleset names it. P-12: `filter=all`, since `latest` lists only the later of two,
-    and that later one is what GitHub shows; and GitHub answers a 200 that may not hold what was sent, so it is read back.
+    and that later one is what GitHub shows; and GitHub answers a 200 that may not hold what was sent, so it is read back,
+    its output's title and summary whole among it.
     `wrote` says a write was sent, whatever it answered: a write GitHub limited still counts against the bound."""
     decision, head, home = entry["decision"], entry["head"], config["home"]["repo"]
     want, name, app = status_id(decision), status["name"], status["app_id"]
@@ -456,8 +465,8 @@ def write_status(transport, entry: dict, record: dict, config: dict, status: dic
     target = max(mine, key=lambda r: r["id"]) if mine else None
     if target is not None and target.get("external_id") == want and target.get("status") == "completed" and target.get("conclusion") == "neutral":
         return ("already_applied", target["node_id"], None, False) if keyed(target) else ("failed", None, "not_read_back", False)
-    fields = {"external_id": want, "status": "completed", "conclusion": "neutral",
-              "output": status_output(decision, record, status["feed"])}
+    output = status_output(decision, record, status["feed"])
+    fields = {"external_id": want, "status": "completed", "conclusion": "neutral", "output": output}
     if status.get("run_id"):
         fields["details_url"] = "https://github.com/%s/actions/runs/%s" % (home, status["run_id"])
     if target is not None:
@@ -471,7 +480,9 @@ def write_status(transport, entry: dict, record: dict, config: dict, status: dic
         return fault["state"], None, fault["reason"], True
     held = ours(back) and back.get("head_sha") == head and back.get("external_id") == want \
         and back.get("status") == "completed" and back.get("conclusion") == "neutral" \
-        and (target is None or back.get("id") == target["id"]) and keyed(back)
+        and (target is None or back.get("id") == target["id"]) and keyed(back) \
+        and _body_of(back.get("output")).get("title") == output["title"] \
+        and _body_of(back.get("output")).get("summary") == output["summary"]
     return ("applied", back["node_id"], None, True) if held else ("failed", None, "not_read_back", True)
 
 

@@ -1,5 +1,7 @@
 """The mutants of `adapters/keyword_spans.py`: tools/mutants.py runs them."""
 
+from tools.mutants_of.common import F849_SPANS
+
 # Issue 734: the keyword spans' reader.
 K734 = "tests.test_adapters.KeywordSpans."
 K734_SEEN = (K734 + "test_a_keyword_is_seen_from_the_first_pass_record_that_listed_it_until_the_first_that_saw_it_gone",)
@@ -145,4 +147,11 @@ MUTANTS = [(name, 'adapters/keyword_spans.py', old, new, tests) for name, old, n
     ("with every record at hand passed over, the issue is seen first",
      '        if earlier and not kept:\n            return {}, None\n',
      '', K734_UNLISTED),
-]]
+]] + [
+    ("a record that left the issue out by its budget breaks the chain", 'adapters/keyword_spans.py',
+     'if not unlisted(record) and not budgeted(record, item)]', 'if not unlisted(record)]', F849_SPANS),
+    ("any issue's left out by the budget passes its record over", 'adapters/keyword_spans.py',
+     'entry["item"] == item and entry["code"] == BUDGET', 'entry["code"] == BUDGET', F849_SPANS),
+    ("any left out of the issue passes its record over", 'adapters/keyword_spans.py',
+     'entry["item"] == item and entry["code"] == BUDGET', 'entry["item"] == item', F849_SPANS),
+]

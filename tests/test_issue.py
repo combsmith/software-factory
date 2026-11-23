@@ -320,6 +320,24 @@ class Unreadable(unittest.TestCase):
         self.assertEqual(derive(facts(timeline_bounded=None, complete={"timeline": True, "linked": False, "runs": True}))["evidence"],
                          ["linked", "timeline"])
 
+    def test_a_chain_of_spans_the_records_broke_defers_on_its_own_code_and_calls_a_person(self):  # issue 849, decision 0253
+        # The pass records break the chain of keyword spans while something names the issue: no later pass mends it, so
+        # it defers `spans_broken`, a closed one's too, after a cut read and before a list read short, and calls a person.
+        for f in (facts(), facts(state="closed"), facts(complete={"timeline": True, "linked": False, "runs": False})):
+            f.update(spans_broken=True, complete=dict(f["complete"], linked=False))
+            d = derive(f)
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), (None, "spans_broken", ["linked"]))
+            self.assertEqual((what(decide(f)), decide(f)["attention"]), (("defer", "spans_broken", None), "needs_you"))
+        self.assertEqual(derive(facts(spans_broken=True, timeline_bounded=True))["reason"], "timeline_bounded")
+        # The flag defers alone, whatever the lists say (Astra).
+        whole = facts(spans_broken=True, complete={"timeline": True, "linked": True, "runs": True})
+        self.assertEqual((derive(whole)["reason"], decide(whole)["attention"]), ("spans_broken", "needs_you"))
+        # Anything but exact true is not broken: the list read short beside it defers all the same, calling no one.
+        for flag in (False, None, "true", 1):
+            f = facts(spans_broken=flag, complete={"timeline": True, "linked": False, "runs": True})
+            self.assertEqual((derive(f)["reason"], decide(f)["attention"]), ("facts_incomplete", "none"), flag)
+        self.assertEqual(derive(facts(spans_broken=False))["reason"], "acceptance_due")
+
     def test_the_issue_world_meets_a_timeline_past_the_bound_under_faults_and_calls_a_person(self):  # decision 0234
         # The simulator's issue world sets the fact beside a timeline read short, in its own draws, so its fixed seeds
         # meet the deferral, which calls a person each time.
@@ -347,6 +365,30 @@ class Unreadable(unittest.TestCase):
         self.assertTrue(all(bounded in (True, False) for bounded, _ in seen))
         self.assertTrue(any(bounded is False and complete["timeline"] is False for bounded, complete in seen))
         self.assertTrue(any(bounded is False and complete["linked"] is False for bounded, complete in seen))
+
+    def test_the_issue_world_meets_a_broken_chain_of_spans_under_faults_and_calls_a_person(self):  # decision 0253
+        # The issue world breaks the chain beside the linked list read short alone, so its fixed seeds meet the deferral,
+        # which calls a person each time.
+        import unittest.mock
+        import sim.issues
+        from sim.issues import IssueWorld
+        met, seen, real = [], [], sim.issues.issue.decide
+
+        def decide(facts, *a):
+            seen.append((facts.get("spans_broken"), dict(facts["complete"])))
+            return real(facts, *a)
+        with unittest.mock.patch.object(sim.issues.issue, "decide", decide):
+            for seed in range(1, 11):
+                w = IssueWorld(seed)
+                for _ in range(300):
+                    w.step()
+                met += [line for line in w.trace if "pass: None / spans_broken" in line]
+        self.assertTrue(met)
+        self.assertTrue(all(line.endswith("-> defer  [needs_you]") for line in met), met[:3])
+        self.assertTrue(all(complete["linked"] is False for broken, complete in seen if broken is True))
+        # Every pass says it, true or false, and a linked list read short is met unbroken too (Carbon).
+        self.assertTrue(all(broken in (True, False) for broken, _ in seen))
+        self.assertTrue(any(broken is False and complete["linked"] is False for broken, complete in seen))
 
     def test_an_unreadable_label_event_defers(self):
         bad = [dict(labelled(HOLD), by={"kind": "bot", "name": "x", "can_write": True}),

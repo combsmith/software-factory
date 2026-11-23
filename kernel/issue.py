@@ -94,6 +94,7 @@ KEPT = frozenset({NEW, TRIAGE, READY})
 NEEDS_YOU_REASONS = frozenset({
     "human_hold",
     "timeline_bounded",
+    "spans_broken",
     "merged_while_held",
     "merged_while_hands_off",
     "merged_while_declined",
@@ -643,6 +644,11 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     bounded = facts.get("timeline_bounded")
     if bounded is True:
         return out(None, "timeline_bounded", ["timeline"])
+    # A chain of keyword spans the pass records broke, while something names the issue, defers on its own code and calls
+    # a person: no later pass mends it (decision 0253). Anything but exact true is read as not broken, since the
+    # linked list it leaves read short defers the issue all the same.
+    if facts.get("spans_broken") is True:
+        return out(None, "spans_broken", ["linked"])
     gaps = [name for name in ISSUE_READ_IN_FULL if name in unread_lists(facts) or (name == "timeline" and bounded is not False)]
     if gaps:
         return out(None, "facts_incomplete", gaps)
