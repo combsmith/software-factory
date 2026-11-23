@@ -3439,6 +3439,19 @@ class Ceilings(unittest.TestCase):
             self.assertEqual(go(facts(), REVIEWED + approvals(1), cfg=cfg).get("action"), "issue_approval", bad)
             self.assertEqual(go(approved, REVIEWED + queue, cfg=cfg).get("action"), "enqueue", bad)
 
+    def test_the_adjudication_rounds_are_held_at_max_rounds_never_at_the_rounds_key(self):  # decision 0242
+        # max_rounds and max_implementing_rounds set apart, each way: the owner's rulings are held at max_rounds, and
+        # one round short admits the next ruling, whatever the implementing rounds' key says.
+        for rounds, implementing in ((2, 5), (5, 2)):
+            cfg = copy.deepcopy(CONFIG)
+            cfg["limits"].update(max_rounds=rounds, max_implementing_rounds=implementing, max_runs_per_item=20)
+            laps = [r for i in range(rounds) for r in (run(intent="adjudicate-findings", at=at(20 + 2 * i), name="o%d" % i),
+                                                       run(role="dev-lead", intent="fix-findings", at=at(21 + 2 * i),
+                                                           name="a%d" % i))]
+            self.assertEqual(go(facts(threads=[thread()]), REVIEWED + laps, cfg=cfg)["reason"], "max_rounds", rounds)
+            d = go(facts(threads=[thread()]), REVIEWED + laps[:-2], cfg=cfg)
+            self.assertEqual(d["admit"]["intent"], "adjudicate-findings", rounds)
+
     def test_a_queue_job_spends_no_run_when_it_lands_and_is_held_by_its_own_when_it_does_not(self):  # issue 381
         # The queue App's enqueue and dequeue are each a Run once the queue workflow is named. One that landed is on the
         # timeline among the acts, so it spends no Run; one that keeps failing is held by its own jobs alone.
