@@ -6553,8 +6553,10 @@ class Issues(unittest.TestCase):
         for repo, answer in (({}, None), ({"default_branch": ""}, None), ({"default_branch": 7}, None), (main, []),
                              (main, ref("refs/tags/main")), (main, ref("refs/heads/other")), (main, ref(kind="tag")),
                              (main, ref(sha="main")), (main, ref(sha=self.HEAD.upper())), (main, ref(sha=self.HEAD + "0")),
-                             ({"default_branch": "\ud800"}, None)):
+                             ({"default_branch": "\ud800"}, None), (main, {"ref": "refs/heads/main", "object": "x"}),
+                             (main, {"ref": "refs/heads/main", "object": [ref()["object"]]})):
             self.assertIsNone(head(repo, answer), (repo, answer))
+        self.assertIsNone(head({"default_branch": ""}, ref("refs/heads/"), ""))     # no branch is named: not asked
         # An answer of another status than 200 is none, and a read GitHub does not answer is none too, never a raise
         # that leaves the issue unread: the repo's, or the ref's after it.
         self.assertIsNone(head(main, ref(), status=206))
