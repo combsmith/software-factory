@@ -159,4 +159,7 @@ MUTANTS = [
      '        ended, cut = ended or asked or not read_whole, cut or past\n', '        ended, cut = ended or asked or not read_whole, cut\n', ('tests.test_adapters.Acceptance.test_a_bound_issues_timeline_is_read_to_ten_pages_and_past_them_is_not_whole', 'tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut')),
     ("an issue that ended the read is forgotten at the next issue", 'adapters/acceptance.py',
      '        ended, cut = ended or asked or not read_whole, cut or past\n', '        ended, cut = asked or not read_whole, cut or past\n', ('tests.test_adapters.Acceptance.test_a_bound_issues_timeline_is_read_to_ten_pages_and_past_them_is_not_whole',)),
+    # Muse on part 2 of 2 of issue 986: a cut behind a closing list read short is said.
+    ("a cut behind a closing list read short is not said", 'adapters/acceptance.py',
+     '    return None, whole and not ended, cut\n', '    return None, whole and not ended, cut and whole\n', ('tests.test_adapters.Acceptance.test_a_bound_issues_timeline_is_read_to_ten_pages_and_past_them_is_not_whole',)),
 ]
