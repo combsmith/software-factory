@@ -6553,7 +6553,7 @@ class Issues(unittest.TestCase):
         self.assertEqual(head({"default_branch": "rel/1#2"}, ref("refs/heads/rel/1#2"), "rel/1%232"), self.HEAD)
         for repo, answer in (({}, None), ({"default_branch": ""}, None), ({"default_branch": 7}, None), (main, []),
                              (main, ref("refs/tags/main")), (main, ref("refs/heads/other")), (main, ref(kind="tag")),
-                             (main, ref(sha="main")), (main, ref(sha=self.HEAD.upper())), (main, ref(sha=self.HEAD + "0")), (main, ref(sha=self.HEAD[:7])),
+                             (main, ref(sha="main")), (main, ref(sha=self.HEAD.upper())), (main, ref(sha=self.HEAD + "0")), (main, ref(sha=self.HEAD[:7])), (main, ref(sha=None)),
                              ({"default_branch": "\ud800"}, None), (main, {"ref": "refs/heads/main", "object": "x"}),
                              (main, {"ref": "refs/heads/main", "object": [ref()["object"]]}),
                              (main, {"ref": "refs/heads/main", "object": None})):

@@ -2156,9 +2156,10 @@ class Entry(unittest.TestCase):
                     "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}, "body": {}}
             table[("GET", "/repos/%s/issues/10" % self.HOME)] = {
                 "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:00 GMT", "age": "0"}, "body": {}}
-            if based:   # the default branch and its ref, as GitHub answers them
+            if based:   # the default branch and its ref, as GitHub answers them; "repo", the branch's name alone
                 table[("GET", "/repos/%s" % self.HOME)] = {
                     "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:40 GMT", "age": "5"}, "body": {"default_branch": "main"}}
+            if based is True:
                 table[("GET", "/repos/%s/git/ref/heads/main" % self.HOME)] = {
                     "status": 200, "headers": {"date": "Mon, 12 Oct 2026 10:00:00 GMT", "age": "7200"},
                     "body": {"ref": "refs/heads/main", "object": {"type": "commit", "sha": head}}}
@@ -2219,6 +2220,9 @@ class Entry(unittest.TestCase):
                          [{"read": "facts", "date": "2026-10-12T11:59:40Z", "age": 5},
                           {"read": "facts", "date": "2026-10-12T10:00:00Z", "age": 7200}])
         self.assertEqual((entry_with([5, 10])[0], spied["heads"], len(spied["repo"])), (0, [None, None], 1))
+        code, _, files = entry_with([5, 10], based="repo")        # the repo answered, its ref not: nothing is dated for it
+        self.assertEqual((code, spied["heads"], [r["date"] for r in files["pass.json"]["reads"] if r["read"] == "facts"]),
+                         (0, [None, None], ["2026-10-12T11:59:30Z", "2026-10-12T11:59:00Z"]))
         for listed, whole, recorded in (([], True, True), ([5], False, True), ([5], True, False)):
             entry_with(listed, whole, recorded=recorded, based=True)
             self.assertEqual(spied["repo"], [], (listed, whole, recorded))
