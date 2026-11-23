@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from adapters import azure
+from adapters import advice, azure
 from tools import check_examples, jsonschema_lite
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -791,6 +791,250 @@ class Schemas(unittest.TestCase):
                 at = at[key]
             at[path[-1]] = value
             self.assertTrue(jsonschema_lite.validate(result, SCHEMAS["advice"], schemas=SCHEMAS), (path, value))
+
+
+TOLD = {"run": "r_01JA7Q", "release": "factory/v0.3.1", "lens": "astra", "content_id": "sha256:5d0c",
+        "changed_paths": ["kernel/decide.py", "tests/test_decide.py"], "api": "responses", "deployment": "astra-reader",
+        "model": "astra-model", "effort": "xhigh", "characters": 40000, "usd_per_million": {"input": 2.5, "output": 20}}
+KIMI = dict(TOLD, lens="kimi", api="chat", deployment="Kimi-Reader", model="kimi-model")
+
+
+def said(**changes) -> dict:
+    """One finding of a reader's answer."""
+    finding = {"severity": "major", "category": "functional", "criterion": "PR-3", "file": "kernel/decide.py", "line": 88,
+               "title": "A deferral is returned", "message": "`decide` defers on a whole read."}
+    return dict(finding, **changes)
+
+
+def answered(*findings, text=None, **changes) -> dict:
+    """The transport's answer for a response of the Responses API that completed with these findings."""
+    text = json.dumps({"schema": "advice-answer/1", "findings": list(findings)}) if text is None else text
+    body = {"id": "resp_1", "status": "completed", "model": "astra-model", "usage": {"input_tokens": 1000, "output_tokens": 500},
+            "error": None, "incomplete_details": None,
+            "output": [{"type": "reasoning", "summary": []}, {"type": "message", "status": "completed", "role": "assistant",
+                                                             "content": [{"type": "output_text", "text": text}]}]}
+    return {"status": 200, "headers": {}, "body": dict(body, **changes)}
+
+
+def chatted(*findings, text=None, ended="stop", **changes) -> dict:
+    """The same for a chat completion."""
+    text = json.dumps({"schema": "advice-answer/1", "findings": list(findings)}) if text is None else text
+    body = {"model": "kimi-model", "usage": {"prompt_tokens": 1000, "completion_tokens": 500},
+            "choices": [{"finish_reason": ended, "message": {"role": "assistant", "content": text, "refusal": None}}]}
+    return {"status": 200, "headers": {}, "body": dict(body, **changes)}
+
+
+def read(answer: dict, told: dict = TOLD, asks: int = 1, seconds=12.5) -> dict:
+    """The Result the parser builds, which is an advice/1 whatever it was handed, and agrees with itself."""
+    result = advice.read(told, answer, asks, seconds, SCHEMAS)
+    assert jsonschema_lite.validate(result, SCHEMAS["advice"], schemas=SCHEMAS) == [], result
+    assert (result["status"] == "completed") == (result["reason"] is None), result
+    assert result["status"] == "completed" or not (result["findings"] or result["texts"] or result["off_change"]), result
+    assert [f["id"] for f in result["findings"]] == [t["id"] for t in result["texts"]], result
+    assert all(f["surface"]["key"] == f["id"] for f in result["findings"]), result
+    return result
+
+
+def outcome(answer: dict, told: dict = TOLD) -> tuple:
+    result = read(answer, told)
+    return result["status"], result["reason"], len(result["findings"])
+
+
+def whole_of(digits: int) -> str:
+    """An answer whose one finding names a line of that many digits: a number advice-answer/1 refuses for its size."""
+    return json.dumps({"schema": "advice-answer/1", "findings": [said()]}).replace('"line": 88', '"line": ' + "8" * digits)
+
+
+class Parser(unittest.TestCase):
+    def test_a_readers_findings_become_advisory_findings_whose_ids_are_not_of_their_text(self):
+        result = read(answered(said(), said(file=None, line=7, severity="minor"), said(line=None),
+                               said(file="kernel/brakes.py"), said(file="../kernel/decide.py")))
+        self.assertEqual((result["status"], result["reason"], result["off_change"]), ("completed", None, 2))
+        first, whole, unlined = result["findings"]
+        self.assertEqual(first, {"schema": "finding/1", "id": first["id"],
+                                 "source": {"lens": "astra", "kind": "advisory", "actor": "astra-reader@astra-model"},
+                                 "surface": {"type": "annotation", "key": first["id"]},
+                                 "location": {"path": "kernel/decide.py", "start_line": 88}, "category": "uncategorised",
+                                 "severity": "major", "criterion": None, "content_id": "sha256:5d0c"})
+        # A finding of no file has no place, whatever line it gave; one of a file and no line keeps its path alone.
+        self.assertNotIn("location", whole)
+        self.assertEqual(read(answered(said(file=None, line=9, severity="minor")))["findings"][0]["id"], whole["id"])
+        self.assertEqual((whole["severity"], unlined["location"]), ("minor", {"path": "kernel/decide.py"}))
+        # The reader's words are under `body` alone, with its category and criterion beside them as hints.
+        self.assertEqual(result["texts"][0], {"id": first["id"], "category": "functional", "criterion": "PR-3",
+                                              "body": "A deferral is returned\n\n`decide` defers on a whole read."})
+        self.assertEqual(len(read(answered(said(message="m" * 50000)))["texts"][0]["body"]), 40000)
+        self.assertEqual(read(answered(said()), dict(TOLD, characters=10))["texts"][0]["body"], "A deferral")
+        # A lone surrogate, which JSON allows and UTF-8 does not, cannot leave a text that no file can be written with.
+        self.assertEqual(read(answered(said(message="a\ud800b")))["texts"][0]["body"][-3:], "a?b")
+        # An id is the Lens's name and a digest of the source, the content, the place and the severity: the same
+        # for other words, another for another Lens, deployment, model, content, path, line or severity.
+        ident = first["id"]
+        self.assertRegex(ident, "^astra:[0-9a-f]{32}$")
+        self.assertEqual(read(answered(said(title="Other words", message="Others.", category="security", criterion=None)))
+                         ["findings"][0]["id"], ident)
+        others = [read(answered(said()), dict(TOLD, **change))["findings"][0]["id"]
+                  for change in ({"lens": "astrb"}, {"deployment": "astra-reader-2"}, {"content_id": "sha256:5d0d"})]
+        others += [read(answered(said(), model="astra-model-2"), dict(TOLD, model="astra-model-2"))["findings"][0]["id"]]
+        others += [read(answered(said(**change)))["findings"][0]["id"]
+                   for change in ({"file": "tests/test_decide.py"}, {"line": 89}, {"line": None}, {"severity": "minor"})]
+        others += [read(chatted(said()), dict(KIMI, lens="astra", deployment="astra-reader", model="kimi-model"))["findings"][0]["id"]]
+        self.assertEqual(len(set(others + [ident])), len(others) + 1)
+        # Two findings alike in all of those are two Findings, told apart by their order and never by their words.
+        self.assertEqual(read(answered(said()), dict(TOLD, run="r_01JA7R"))["findings"][0]["id"], ident)
+        self.assertEqual(len({f["id"] for f in read(answered(said(), said(), said()))["findings"]}), 3)
+        twice = read(answered(said(), said(title="Another")))["findings"]
+        self.assertEqual((twice[0]["id"], len({f["id"] for f in twice})), (ident, 2))
+        self.assertEqual(read(answered(said(title="Another"), said()))["findings"][0]["id"], ident)
+        self.assertEqual(read(answered())["findings"], [])
+        # A reader's file is compared whole with the change's paths, as written. One the change holds that is not
+        # one word is left out and counted as the others are, and the rest of the read stands.
+        for path in ("a b.py", "kernel/decide.py ", "a\u3000b.py"):
+            odd = read(answered(said(file=path), said()), dict(TOLD, changed_paths=[path, "kernel/decide.py"]))
+            self.assertEqual((odd["status"], odd["off_change"], len(odd["findings"])), ("completed", 1, 1), path)
+        # A file with a control or hidden character, or past 1,024 characters, breaks the answer's schema: no read.
+        for path in ("a\nb", "a\u202eb", "p" * 1025, "kernel/decide.py\n", "kernel/decide.py\x00.md"):
+            odd = read(answered(said(file=path), said()), dict(TOLD, changed_paths=[path, "kernel/decide.py"]))
+            self.assertEqual((odd["status"], odd["reason"], odd["findings"]), ("failed", "unparsed", []), path)
+        for path in ("./kernel/decide.py", "kernel//decide.py", "KERNEL/decide.py"):
+            self.assertEqual(read(answered(said(file=path)))["off_change"], 1, path)
+
+    def test_an_answer_is_a_read_only_when_it_completed_whole_from_the_pinned_model_and_parses(self):
+        self.assertEqual(outcome(answered(said())), ("completed", None, 1))
+        # A long run of digits in a reader's words is words: only a number of that length is refused.
+        self.assertEqual(outcome(answered(said(message="n" + "7" * 200))), ("completed", None, 1))
+        self.assertEqual(outcome(answered(text=whole_of(63))), ("failed", "unparsed", 0))
+        self.assertEqual(outcome(chatted(said()), KIMI), ("completed", None, 1))
+        fenced = "```json\n%s\n```" % json.dumps({"schema": "advice-answer/1", "findings": [said()]})
+        self.assertEqual(outcome(chatted(text="\n" + fenced + "\n"), KIMI), ("completed", None, 1))
+        self.assertEqual(outcome(chatted(text=fenced.replace("\n", "\r\n")), KIMI), ("completed", None, 1))
+        self.assertEqual(outcome(answered(*[said()] * 100)), ("completed", None, 100))
+        whole = json.dumps({"schema": "advice-answer/1", "findings": [said()]})
+        cases = [
+            # What Azure answered that is no response: a rate limit, a key refused, anything else.
+            ({"status": 429, "headers": {"retry-after": "20"}, "body": {"error": {"code": "rate_limit_exceeded"}}}, "rate_limited"),
+            ({"status": 429, "headers": {}, "body": {}}, "rate_limited"), ({"status": 429, "headers": {}, "body": "Slow down."}, "rate_limited"),
+            ({"status": 401, "headers": {}, "body": {"error": {}}}, "no_key"), ({"status": 403, "headers": {}, "body": {}}, "no_key"),
+            ({"status": 500, "headers": {}, "body": "<html>"}, "transport"), ({"status": 200, "headers": {}, "body": whole}, "transport"),
+            ({"status": 200, "headers": {}, "body": None}, "transport"), ({"status": 201, "headers": {}, "body": answered()["body"]}, "transport"),
+            ({}, "transport"),
+            # A response that did not complete, was cut short or was refused.
+            (answered(said(), status="in_progress"), "timed_out"), (answered(said(), status="queued"), "timed_out"),
+            (answered(said(), status="incomplete", incomplete_details={"reason": "max_output_tokens"}), "cut_short"),
+            (answered(said(), status="incomplete"), "cut_short"),
+            (answered(said(), status="incomplete", incomplete_details={"reason": "content_filter"}), "refused"),
+            (answered(said(), status="failed"), "transport"), (answered(said(), status="cancelled"), "transport"),
+            # What Azure's own error names is its code: a prompt its filter refused, one too long, a limit met late.
+            ({"status": 400, "headers": {}, "body": {"error": {"code": "content_filter"}}}, "refused"),
+            ({"status": 400, "headers": {}, "body": {"error": {"code": "context_length_exceeded"}}}, "too_large"),
+            ({"status": 400, "headers": {}, "body": {"error": {"code": "another"}}}, "transport"),
+            ({"status": 400, "headers": {}, "body": {"error": {"code": ["content_filter"]}}}, "transport"),
+            (answered(said(), status="failed", error={"code": "rate_limit_exceeded"}), "rate_limited"),
+            # A response that says it completed and says beside it that it did not is not a read.
+            (answered(said(), error={"code": "server_error"}), "transport"),
+            (answered(said(), incomplete_details={"reason": "max_output_tokens"}), "cut_short"),
+            (answered(said(), incomplete_details={"reason": "content_filter"}), "refused"),
+            (answered(said(), output=[{"type": "message", "status": "incomplete",
+                                       "content": [{"type": "output_text", "text": whole}]}]), "cut_short"),
+            # A message unfinished, unreadable or another speaker's beside the answer leaves no answer.
+            (answered(said(), output=answered(said())["body"]["output"] + [{"type": "message", "status": "incomplete",
+                                                                            "content": None}]), "cut_short"),
+            (answered(said(), output=[{"type": "message", "status": "in_progress",
+                                       "content": [{"type": "output_text", "text": whole}]}]), "unparsed"),
+            (answered(said(), output=[{"type": "message", "role": "user",
+                                       "content": [{"type": "output_text", "text": whole}]}]), "unparsed"),
+            (answered(said(), output=answered(said())["body"]["output"] + [{"type": "message", "content": None}]), "unparsed"),
+            # A refusal beside a text is a refusal, and a text outside a message is none.
+            (answered(said(), output=[{"type": "message", "content": [{"type": "output_text", "text": whole},
+                                                                      {"type": "refusal", "refusal": "No."}]}]), "refused"),
+            (answered(said(), output=[{"type": "reasoning", "content": [{"type": "output_text", "text": whole}]}]), "unparsed"),
+            (answered(said(), status=None), "transport"),
+            (answered(said(), output=[{"type": "message", "content": [{"type": "refusal", "refusal": "No."}]}]), "refused"),
+            # Another model's answer, however good, is none (decision 0147).
+            (answered(said(), model="astra-model-mini"), "not_the_model"), (answered(said(), model=None), "not_the_model"),
+            (answered(said(), model="Astra-Model"), "not_the_model"),
+            # What does not parse whole against advice-answer/1.
+            (answered(text="No findings."), "unparsed"), (answered(text=""), "unparsed"), (answered(text="[]"), "unparsed"),
+            (answered(text=whole[:-1]), "unparsed"), (answered(text=whole + whole), "unparsed"),
+            (answered(text="Here it is:\n" + fenced), "unparsed"), (answered(text=fenced + "\n" + fenced), "unparsed"),
+            (answered(said(severity="critical")), "unparsed"), (answered(said(), said(line=0)), "unparsed"),
+            (answered(text='{"schema": "advice-answer/1", "findings": [], "cost": NaN}'), "unparsed"),
+            (answered(text='{"schema": "advice-answer/1", "findings": [], "verdict": "approve"}'), "unparsed"),
+            (answered(text="[" * 100000), "unparsed"), (answered(text=whole[:-1] + ', "findings": []}'), "unparsed"),
+            (answered(text=whole.replace('"severity": "major"', '"severity": "major", "severity": "info"')), "unparsed"),
+            (answered(text="\x1e" + whole), "unparsed"), (answered(text="```json\n" + whole), "unparsed"),
+            ({"status": 400, "headers": {}, "body": {"error": "Bad Request"}}, "transport"),
+            (answered(text=whole.replace('"line": 88', '"line": ' + "8" * 64)), "unparsed"),
+            (answered(text=json.dumps({"schema": "advice-answer/1", "findings": [{}] * 101})), "unparsed"), (answered(said(), output=[]), "unparsed"), (answered(said(), output=None), "unparsed"),
+            (answered(said(), output=[{"type": "message", "content": [{"type": "output_text", "text": whole}] * 2}]), "unparsed"),
+            (answered(said(), output=[{"type": "message", "content": [{"type": "output_text", "text": 7}]}]), "unparsed"),
+        ]
+        for answer, reason in cases:
+            status = "failed" if reason in ("unparsed", "not_the_model", "no_key", "transport") else "incomplete"
+            self.assertEqual(outcome(answer), (status, reason, 0), (reason, answer))
+        chats = [(chatted(said(), ended="length"), "cut_short"), (chatted(said(), ended="content_filter"), "refused"),
+                 (chatted(said(), ended="tool_calls"), "unparsed"), (chatted(said(), ended=None), "unparsed"),
+                 (chatted(said(), choices=[]), "unparsed"), (chatted(said(), choices=chatted(said())["body"]["choices"] * 2), "unparsed"),
+                 (chatted(said(), choices=[{"finish_reason": "stop", "message": {"content": None, "refusal": "No."}}]), "refused"),
+                 (chatted(said(), choices=[{"finish_reason": "stop", "message": {"content": "{}", "refusal": "No."}}]), "refused"),
+                 (chatted(said(), choices=[{"finish_reason": "stop", "message": {"content": None}}]), "unparsed"),
+                 (chatted(said(), choices=[{"finish_reason": "stop", "message": {"content": whole, "refusal": []}}]), "refused"),
+                 (chatted(said(), choices=[{"finish_reason": "stop", "message": {"role": "user", "content": whole}}]), "unparsed"),
+                 (chatted(said(), choices=["stop"]), "unparsed"), (chatted(said(), model="kimi-model-2"), "not_the_model"),
+                 (answered(said(), model="kimi-model"), "unparsed")]
+        for answer, reason in chats:
+            status = "failed" if reason in ("unparsed", "not_the_model") else "incomplete"
+            self.assertEqual(outcome(answer, KIMI), (status, reason, 0), (reason, answer))
+        # A number too long to be a count or a line is refused as it is read, and findings past the most an answer may
+        # hold never reach the validator, which would write an error for each: neither costs what its size would.
+        with mock.patch.object(advice, "_whole", wraps=advice._whole) as counted:
+            self.assertEqual(outcome(answered(text=whole_of(64))), ("failed", "unparsed", 0))
+        self.assertIn(mock.call("8" * 64), counted.call_args_list)
+        self.assertEqual(advice._whole("8" * 63), int("8" * 63))
+        with self.assertRaises(ValueError):
+            advice._whole("8" * 64)
+        with mock.patch.object(advice, "validate", wraps=advice.validate) as held:
+            self.assertEqual(outcome(answered(text=json.dumps({"schema": "advice-answer/1", "findings": [{}] * 101}))),
+                             ("failed", "unparsed", 0))
+        self.assertFalse([call for call in held.call_args_list if "findings" in call.args[0] and len(call.args[0]["findings"]) > 100])
+        # A state checked before the model: a response cut short by another model is still cut short, and counted.
+        self.assertEqual(outcome(answered(said(), status="incomplete", model="astra-model-mini")), ("incomplete", "cut_short", 0))
+
+    def test_a_result_says_what_the_read_cost_and_a_read_never_asked_says_why(self):
+        usage = read(answered(said()), asks=2, seconds=318.4)["usage"]
+        # What a read cost is not counted yet: never nought, it is not known, and the Controller counts it at its worst.
+        self.assertEqual(usage, {"api": "responses", "deployment": "astra-reader", "model": "astra-model",
+                                 "answering_model": None, "effort": "xhigh", "asks": 2, "input_tokens": None,
+                                 "output_tokens": None, "cost_usd": None, "seconds": 318.4})
+        chat = read(chatted(said()), KIMI)["usage"]
+        self.assertEqual((chat["api"], chat["deployment"], chat["model"]), ("chat", "Kimi-Reader", "kimi-model"))
+        # A response that says it completed and holds an error beside that is no read, in either API.
+        for failed in (read(answered(said(), error={"code": "server_error"})), read(chatted(said(), error={"code": "x"}), KIMI)):
+            self.assertEqual((failed["usage"]["cost_usd"], failed["usage"]["answering_model"], failed["reason"]),
+                             (None, None, "transport"))
+        # An error Azure names is its code in either API, and never another model's fault.
+        for error, reason in (("content_filter", "refused"), ("rate_limit_exceeded", "rate_limited")):
+            for failed in (read(answered(said(), error={"code": error}, model=None)),
+                           read(chatted(said(), error={"code": error}, model=None), KIMI)):
+                self.assertEqual((failed["status"], failed["reason"]), ("incomplete", reason))
+        # No answer in hand: one of the reasons a step has for it, and no other.
+        for reason, status in (("budget", "incomplete"), ("too_large", "incomplete"), ("timed_out", "incomplete"),
+                               ("rate_limited", "incomplete"), ("no_key", "failed"), ("transport", "failed")):
+            result = advice.unasked(TOLD, reason, 2, 45.5, SCHEMAS)
+            self.assertEqual(jsonschema_lite.validate(result, SCHEMAS["advice"], schemas=SCHEMAS), [])
+            self.assertEqual((result["status"], result["reason"], result["findings"], result["usage"]["asks"],
+                              result["usage"]["seconds"], result["usage"]["cost_usd"]), (status, reason, [], 2, 45.5, None))
+        for reason in (None, "unparsed", "not_the_model", "cut_short", "refused", "completed", "the key is missing"):
+            with self.assertRaises(ValueError, msg=reason):
+                advice.unasked(TOLD, reason, 0, 0, SCHEMAS)
+        # What the step was told that builds no advice/1 is the step's fault, and raised: it is no reader's.
+        for change in ({"run": "1"}, {"lens": "Astra"}, {"effort": "most"}, {"release": "next"}):
+            with self.assertRaises(ValueError, msg=change):
+                advice.read(dict(TOLD, **change), answered(said()), 1, 1, SCHEMAS)
+            with self.assertRaises(ValueError, msg=change):
+                advice.unasked(dict(TOLD, **change), "budget", 0, 0, SCHEMAS)
+        with self.assertRaises(ValueError):
+            advice.read(TOLD, answered(said()), 3, 1, SCHEMAS)
 
 
 if __name__ == "__main__":

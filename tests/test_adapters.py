@@ -2421,6 +2421,15 @@ class Timeline(unittest.TestCase):
                                                                     "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"})
         got, whole, cut = timeline.reviews(router, p7_pull(), [], self.accounts(router), BASE_HEAD, timeline_whole=False)
         self.assertEqual(([r["state"] for r in got], whole, cut), (["approved"], False, False))
+        # It is left out before its commit is asked, so a commit that cannot be read never refuses the read (Muse).
+        unreadable = reviews_read(22)
+        for listed in unreadable._left[0][1]["body"]:
+            if listed["state"] == "DISMISSED":
+                listed["commit_id"] = "not-a-commit"
+        router = Router(unreadable, {"don-petry": "admin", APPROVER: "write"}, {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "d",
+                                                                 "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"})
+        got, whole, cut = timeline.reviews(router, p7_pull(), [], self.accounts(router), BASE_HEAD, timeline_whole=False)
+        self.assertEqual(([r["state"] for r in got], whole, cut), (["approved"], False, False))
         # One the timeline read does explain stays, with who dismissed it, though the timeline was cut (Astra).
         events, _ = timeline.events(replay("P-7", 16), p7_pull())
         router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "d",
@@ -3470,6 +3479,12 @@ class Acceptance(unittest.TestCase):
         self.assertEqual(self.read(closing_answer("o/r", 26, [35, 36]), short, *pages(10, True)[1:], cut=True),
                          (None, False, True))
         self.assertEqual(self.read(*later + pages(10, False)[1:], cut=True), (None, False, False))
+        # So is a cut behind a closing list read short, here by a reference to another repo's issue (Muse).
+        elsewhere = closing_answer("o/r", 26, [36, 37])
+        elsewhere["response"]["body"]["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"][1][
+            "repository"]["nameWithOwner"] = "o/other"
+        self.assertEqual(self.read(elsewhere, *pages(10, True)[1:], cut=True), (None, False, True))
+        self.assertEqual(self.read(elsewhere, *pages(10, False)[1:], cut=True), (None, False, False))
         # A read short within the bound is no cut.
         self.assertEqual(self.read(closing_answer("o/r", 26, [35]), short, cut=True), (None, False, False))
         # And a cut before an issue read whole stays said.

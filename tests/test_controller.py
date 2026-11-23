@@ -1337,6 +1337,77 @@ class Issues(unittest.TestCase):
             self.assertIn("facts_unreadable", out["alerts"], code)
             self.assertFalse({"issue_budget_spent", "issue_list_unreadable"} & set(out["alerts"]), code)
 
+    def test_an_issue_left_unread_by_the_budget_or_the_list_is_shown_as_the_pass_before_decided_it(self):  # decision 1167
+        # Issue 7 decided, then left out by the budget, then by a list read short, then read again. The view shows it as
+        # the record before decided it, one pass deep, and its time in its State passes over the passes that left it
+        # unread; a rebuild from the records shows the same.
+        cfg, mint, kept, written = config(), Mint(), [], []
+        home = support.ITEM["repo"]
+        budget = {"facts": {"item": {"repo": home, "type": "issue", "number": 7}}, "title": None, "unread": "issue_budget"}
+        unlisted = {"facts": {"item": None}, "title": None, "unread": "issue_list_unreadable"}
+        steps = [("2026-10-11T13:00:00Z", [an_issue(7)]), ("2026-10-11T13:05:00Z", [budget]),
+                 ("2026-10-11T13:10:00Z", [unlisted]), ("2026-10-11T13:15:00Z", [an_issue(7)])]
+        for now, issues in steps:
+            out = pass_.run(reads(issues=issues), cfg, now, list(kept), mint)
+            kept.append(out["record"])
+            written.append(out["view"]["items"])
+        shown = [[(i["reason"], i["age_hours"]) for i in w["items"] if i["item"]["type"] == "issue"] for w in written]
+        first = shown[0][0][0]
+        self.assertEqual(shown, [[(first, 0.0)], [(first, 0.08)], [], [(first, 0.25)]])
+        bare = lambda views: [[dict(i, untrusted=None) for i in v["items"]] for v in views]
+        self.assertEqual(bare(w["items"] for w in pass_.rebuild(list(kept), {}, cfg)), bare(written))
+        # A list read short carries every issue the pass before decided (Kimi).
+        first = pass_.run(reads(issues=[an_issue(7)]), cfg, "2026-10-11T14:00:00Z", [], mint)["record"]
+        short = pass_.run(reads(issues=[unlisted]), cfg, "2026-10-11T14:05:00Z", [first], mint)
+        self.assertEqual([(i["item"]["number"], i["age_hours"]) for i in short["view"]["items"]["items"]
+                          if i["item"]["type"] == "issue"], [(7, 0.08)])
+        self.assertEqual(bare(w["items"] for w in pass_.rebuild([first, short["record"]], {}, cfg))[-1],
+                         bare([short["view"]["items"]])[0])        # a rebuild carries it the same (Carbon)
+        # A carried issue's age walks back over every pass that read it in its State, not the last alone (Carbon).
+        again = pass_.run(reads(issues=[an_issue(7)]), cfg, "2026-10-11T14:05:00Z", [first], mint)["record"]
+        out = pass_.run(reads(issues=[budget]), cfg, "2026-10-11T14:10:00Z", [first, again], mint)
+        self.assertEqual([(i["item"]["number"], i["age_hours"]) for i in out["view"]["items"]["items"]
+                          if i["item"]["type"] == "issue"], [(7, 0.17)])
+        # An issue left out for any other reason is not carried.
+        moved = {"facts": {"item": {"repo": home, "type": "issue", "number": 7}}, "title": None, "unread": "facts_unanswered"}
+        out = pass_.run(reads(issues=[moved]), cfg, "2026-10-11T13:20:00Z", list(kept), mint)
+        self.assertEqual([i for i in out["view"]["items"]["items"] if i["item"]["type"] == "issue"], [])
+        # Only the issue the budget left out is carried: one beside it left out for another reason is not (Carbon).
+        both = pass_.run(reads(issues=[an_issue(7), an_issue(8)]), cfg, "2026-10-11T15:00:00Z", [], mint)["record"]
+        eight = dict(moved, facts={"item": dict(moved["facts"]["item"], number=8)})
+        out = pass_.run(reads(issues=[budget, eight]), cfg, "2026-10-11T15:05:00Z", [both], mint)
+        self.assertEqual([i["item"]["number"] for i in out["view"]["items"]["items"] if i["item"]["type"] == "issue"], [7])
+        # Each issue is carried on its own: one the pass decided, or left out by name, keeps no other out (Carbon).
+        # And one no longer listed, beside one the budget left out, is not carried: the list was read whole (Carbon).
+        for issues, shown in (([an_issue(8), budget], [8, 7]), ([an_issue(8), unlisted], [8, 7]), ([moved, unlisted], [8]),
+                              ([budget], [7])):
+            out = pass_.run(reads(issues=issues), cfg, "2026-10-11T15:05:00Z", [both], mint)
+            self.assertEqual([i["item"]["number"] for i in out["view"]["items"]["items"] if i["item"]["type"] == "issue"],
+                             shown)
+        # A pull request a pass missed beside a list read short starts its age again: the list is the issues' (Carbon).
+        out = pass_.run(reads(pulls=[], issues=[unlisted]), cfg, "2026-10-11T15:10:00Z", [both], mint)
+        missed = out["record"]
+        self.assertEqual(sorted((i["item"]["type"], i["item"]["number"]) for i in out["view"]["items"]["items"]),
+                         [("issue", 7), ("issue", 8)])     # both issues carried, no pull request (Astra)
+        again = pass_.run(reads(issues=[an_issue(7), an_issue(8)]), cfg, "2026-10-11T15:15:00Z", [both, missed], mint)
+        self.assertEqual([i["age_hours"] for i in again["view"]["items"]["items"] if i["item"]["type"] == "pull_request"],
+                         [0.0])
+        # A short list carries no issue the pass decided, or left out by name for another reason (Astra).
+        issues_of = lambda out: [(i["item"]["number"], i["age_hours"]) for i in out["view"]["items"]["items"]
+                                 if i["item"]["type"] == "issue"]
+        one = pass_.run(reads(issues=[an_issue(7)]), cfg, "2026-10-11T16:00:00Z", [], mint)["record"]
+        for issues, shown in (([moved, unlisted], []), ([an_issue(7), unlisted], [(7, 0.08)])):
+            self.assertEqual(issues_of(pass_.run(reads(issues=issues), cfg, "2026-10-11T16:05:00Z", [one], mint)), shown)
+        # An issue's age counts only passes that read it in its State: a short list before its first read, or a pass
+        # that left it out by name for another reason, starts it again (Astra).
+        gap = pass_.run(reads(issues=[unlisted]), cfg, "2026-10-11T15:55:00Z", [], mint)["record"]
+        self.assertEqual(issues_of(pass_.run(reads(issues=[an_issue(7)]), cfg, "2026-10-11T16:00:00Z", [gap], mint)),
+                         [(7, 0.0)])
+        for issues in ([moved], [moved, unlisted]):     # beside a short list too (Carbon)
+            gone = pass_.run(reads(issues=issues), cfg, "2026-10-11T16:05:00Z", [one], mint)["record"]
+            self.assertEqual(issues_of(pass_.run(reads(issues=[an_issue(7)]), cfg, "2026-10-11T16:10:00Z", [one, gone],
+                                                 mint)), [(7, 0.0)])
+
     def test_an_issue_list_read_short_raises_its_own_alert_and_no_other(self):  # decision 0252
         # The list read short names no item: it is kept in the record by its code, raises its alert once and no alert of
         # facts unread, and the pull request is decided. Beside an issue the budget left unread, each raises its own.

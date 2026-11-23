@@ -279,6 +279,11 @@ class HumanControl(unittest.TestCase):
             self.assertTrue(left_alone(facts(label_events=[person], **over), CONFIG), over)
         # Labels that cannot be read: nothing says a person did not.
         self.assertTrue(left_alone(facts(complete=dict(whole, timeline=False)), CONFIG))
+        # So is a timeline the port cut, or says it cut in a form that is no truth value, whatever `complete.timeline`
+        # claims (decision 1149; Muse); not cut, it is read.
+        for bounded in (True, None, "true", 0):
+            self.assertTrue(left_alone(facts(timeline_bounded=bounded), CONFIG), bounded)
+        self.assertFalse(left_alone(facts(timeline_bounded=False), CONFIG))
         self.assertTrue(left_alone(facts(label_events=[dict(person, by=None)]), CONFIG))
         # The other side: none, a person's removal, one no person placed, another label, another list not read.
         for events in ([], [person, unlabelled("factory:hands-off", at="2026-10-11T12:05:00Z")],
@@ -883,6 +888,13 @@ class OnlyAPersonEnds(unittest.TestCase):
             d = go(f, REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("action")),
                              (None, "facts_incomplete", "act", "dequeue"), who)
+        # Nor from a timeline the port cut at its bound, or says it cut in a form that is no truth value, whatever
+        # `complete.timeline` claims (decision 1149; Muse).
+        for bounded, reason in ((True, "timeline_bounded"), (None, "facts_incomplete"), ("true", "facts_incomplete")):
+            f = facts(queue=True, reviews=APPROVED, label_events=[labelled("factory:hands-off")], timeline_bounded=bounded)
+            d = go(f, REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("action")),
+                             (None, reason, "act", "dequeue"), bounded)
         # The other side: read in full, a person's hands-off leaves it where it is, whatever else was read short.
         f = facts(queue=True, reviews=APPROVED, label_events=[labelled("factory:hands-off")])
         f["complete"]["threads"] = False
