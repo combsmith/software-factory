@@ -455,6 +455,8 @@ MUTANTS = [
     ('two keyless heads at one commit are one', 'controller/reconcile.py',
      'dict.fromkeys((e["key"], e["item"], e["head"]) for e in heads_)',
      '{(e["key"], e["head"]): (e["key"], e["item"], e["head"]) for e in heads_}.values()', HAND_CARRY),
+    ('a hand is carried as taken too', 'controller/reconcile.py',
+     '    heads_ = [e for e in heads_ if (e["key"], e["item"], e["head"]) not in hand_rows]\n', '', HAND_CARRY),
     ('a keyless head is not carried', 'controller/reconcile.py',
      '            seconds.append({"item": w["item"], "key": w["key"], "head": w["commit"]})',
      '            seconds.append({"item": w["item"], "key": w["key"], "head": w["commit"]}) if w["key"] else None', HAND_CARRY),
