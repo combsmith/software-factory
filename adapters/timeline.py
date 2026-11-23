@@ -33,8 +33,9 @@ from adapters.pull import blobs, canonical
 from kernel.terms import BOT_SUFFIX
 
 PAGE = 100
-# The pages of an issue's timeline, or of a pull request it lists as linked, read at most: a thousand events. Anyone can
-# comment, so the read is bounded; past the bound it is not whole, and an issue's own is said to be bounded (decision 0234).
+# The pages read at most, a thousand items, of an issue's timeline or of a pull request it lists as linked, and of a pull
+# request's own timeline and its reviews. Anyone can comment or review, so each read is bounded; past the bound it is not
+# whole, and said to be cut: an issue's own, and the pull request's as `timeline_bounded` (decisions 0234 and 1150).
 BOUND = 10
 WRITE = {"admin", "maintain", "write"}
 PERMISSIONS = WRITE | {"triage", "read", "none"}

@@ -263,4 +263,9 @@ MUTANTS = [
      'if state == "dismissed" and review.get("id") not in dismissals and timeline_whole is not True:', 'if review.get("id") not in dismissals and timeline_whole is not True:', ('tests.test_adapters.Timeline.test_a_dismissed_review_the_timeline_does_not_explain_is_refused',)),
     ('a cut reviews list is not handed out', 'adapters/timeline.py',
      '    return found, whole, cut\n', '    return found, whole, False\n', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
+    # Muse on part 2 of 4 of issue 1009: a dismissal past a timeline not read whole is left out before its commit is asked.
+    ("a dismissal past a timeline not read whole is left out only after its commit is asked", 'adapters/timeline.py',
+     '        if state == "dismissed" and review.get("id") not in dismissals and timeline_whole is not True:\n            whole = False\n            continue\n        commit = review.get("commit_id")\n        if commit not in contents:\n            contents[commit] = _content(transport, repo, base_head, commit)\n',
+     '        commit = review.get("commit_id")\n        if commit not in contents:\n            contents[commit] = _content(transport, repo, base_head, commit)\n        if state == "dismissed" and review.get("id") not in dismissals and timeline_whole is not True:\n            whole = False\n            continue\n',
+     ('tests.test_adapters.Timeline.test_a_dismissed_review_the_timeline_does_not_explain_is_refused',)),
 ]
