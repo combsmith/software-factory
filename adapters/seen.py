@@ -308,7 +308,8 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str, 
             return [], [], False
         ending = state == "closed"
     # One read as gone is whole only with its close, of any age: its timeline is read back until the close is found.
-    gone = ((("closed", "merged") if item["type"] == "pull_request" else ("closed",)) if kept == GONE else ())
+    # One read as gone that is open again has no close to find, and is read back to `since` alone (Carbon).
+    gone = ((("closed", "merged") if item["type"] == "pull_request" else ("closed",)) if kept == GONE and ending else ())
     if item["type"] == "pull_request" and kept not in (LEFT, GONE):
         parts = dict(kept) if isinstance(kept, dict) else {}
         # A timeline the snapshot cut at its bound is read again from its end, where the writes are; a reviews list

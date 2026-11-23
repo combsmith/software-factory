@@ -655,6 +655,10 @@ class SeenPort(unittest.TestCase):
         merged = [{"event": "merged", "actor": PERSON, "created_at": EARLY, "id": 8}]
         github = Pages({path: [old, closed, merged, old]}, {**LEFT_ANSWERS, ("GET", ISSUE): {"number": 42, "state": "closed"}})
         self.assertIs(seen_.read(github, dict(ITEM, type="issue"), seen_.GONE, IDENTITIES, APPS, SINCE)[2], True)
+        # An issue read as gone that REST reads open again has no close to find: it is read back to `since` alone (Carbon).
+        github = Pages({path: [old] * 27 + [old + new, new, new]}, {**LEFT_ANSWERS, ("GET", ISSUE): {"number": 42, "state": "open"}})
+        self.assertIs(seen_.read(github, dict(ITEM, type="issue"), seen_.GONE, IDENTITIES, APPS, SINCE)[2], True)
+        self.assertEqual(len([p for _, p in github.asked if "/timeline" in p]), 5)
         # Items GitHub gives no id, as commits, are kept each, never told apart as one (Carbon).
         commits = [{"event": "committed", "sha": "1" * 40}, {"event": "committed", "sha": "2" * 40}]
         kept, whole = seen_._tail(Pages({path: [old, old, commits + new]}), path, SINCE)
@@ -721,6 +725,9 @@ class SeenPort(unittest.TestCase):
         begun = [{"event": "reviewed", "user": PERSON, "created_at": EARLY, "submitted_at": AT, "id": 3}]
         writes, _, whole = left(Pages({path: [old, close, begun]}, LEFT_ANSWERS))
         self.assertEqual((whole, [w["kind"] for w in writes]), (True, ["close"]))
+        # A review submitted before `since` reaches it, by its submitted_at alone (Carbon).
+        sent = [{"event": "reviewed", "user": PERSON, "created_at": AT, "submitted_at": EARLY, "id": 4}]
+        self.assertIs(left(Pages({path: [new] * 23 + [sent] + [new] * 5 + [close]}, LEFT_ANSWERS))[2], True)
         # One page that names a last page it does not lead to is short; one page alone is kept by kind and id, and an
         # id that cannot be a key on it is short too (Astra).
         one = Pages({path: [close + close]}, LEFT_ANSWERS)
@@ -742,6 +749,7 @@ class SeenPort(unittest.TestCase):
         github = Pages({path: [old] * 27 + [old + new, new, close + [commit("a" * 40)]]}, LEFT_ANSWERS,
                        again={30: (close + [commit("b" * 40)], False)})
         self.assertIs(left(github)[2], False)
+        self.assertIs(left(Pages({path: [old] * 27 + [old + new, new, close + [commit("a" * 40)]]}, LEFT_ANSWERS))[2], True)
         # A joined first page is read again though the read reached `since` on the second (Kimi, Muse, Astra).
         first = [{"event": "commented", "actor": PERSON, "created_at": EARLY, "id": 1}]
         github = Pages({path: [first, old + close]}, LEFT_ANSWERS, again={1: (old, True)})
