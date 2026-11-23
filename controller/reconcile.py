@@ -227,9 +227,6 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
         and FITS_ITEM.fullmatch(key(t["item"])) and stays(key(t["item"]))]
     # Each once, in order: read again, or keyless twice in a pass.
     heads_ = [dict(zip(("key", "item", "head"), row)) for row in dict.fromkeys((e["key"], e["item"], e["head"]) for e in heads_)]
-    # One carried as the hand is not carried as taken too, so the record says which was read as the hand.
-    hand_rows = {(e["key"], e["item"], e["head"]) for e in hands}
-    heads_ = [e for e in heads_ if (e["key"], e["item"], e["head"]) not in hand_rows]
     if heads_:
         held["taken"] = heads_
     held["left"] = [e for e in held.get("left", []) if e["number"] not in set(gone)] + [

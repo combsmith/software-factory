@@ -634,13 +634,6 @@ class HandApproval(unittest.TestCase):
         self.assertEqual(validate(dict(record, reconciled=taken), SCHEMAS["pass"], schemas=SCHEMAS), [])
         again = [dict(decided_as(hand), reconciled=taken)]
         self.assertEqual(reconcile.carried(again, recorded(), seen(), NOW, taken=second["taken"])["taken"], taken["taken"])
-        # One read as the hand is not carried as taken too, whichever pass read it so.
-        reread = check(seen(approval(), whole=False), before=aged)["taken"]
-        self.assertEqual([t["key"] for t in reread], ["PRR_1"])
-        self.assertNotIn("taken", reconcile.carried(aged, recorded(), seen(), NOW, taken=reread))
-        was = [dict(decided_as(hand), reconciled=reconcile.carried([decided_as(hand)], recorded(), seen(), NOW, taken=reread))]
-        now_hand = reconcile.carried(was, recorded(), seen(), NOW, hand=found["hand"])
-        self.assertEqual((now_hand["hand"], "taken" in now_hand), (held["hand"], False))
         # Two keyless approvals of a head in one pass are carried as one.
         twice = check(seen(approval(None, at="2026-10-11T12:40:00Z"), approval(None, at="2026-10-11T12:45:00Z")), before=aged)
         self.assertEqual(reconcile.carried(aged, recorded(), seen(), NOW, taken=twice["taken"])["taken"],

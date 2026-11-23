@@ -6,10 +6,10 @@ S3_PERSON = ("tests.test_controller.Issues.test_a_person_whose_login_is_an_apps_
 F901_PASS = ("tests.test_controller.Issues.test_issues_whose_apps_cannot_be_told_are_not_decided_and_the_pull_requests_are",)
 S3_ROW10 = ("tests.test_controller.Issues.test_with_no_app_declared_for_factory_triage_an_accepted_served_issue_gets_no_acceptance_act",)
 
-HAND_PASS = ('tests.test_controller.Record.test_a_hand_approval_merged_between_passes_stays_information',)
 F849_ALERTS = ("tests.test_controller.Issues.test_an_issue_left_unread_by_the_budget_raises_its_own_alert_and_no_other",)
 F849_BUDGET = ("tests.test_controller.Entry.test_the_issue_reads_stop_at_the_passs_budget_and_those_left_out_by_it_are_read_first_by_the_next",)
 F849_UNLISTED = ("tests.test_controller.Issues.test_an_issue_list_read_short_raises_its_own_alert_and_no_other",)
+HAND_PASS = ('tests.test_controller.Record.test_a_hand_approval_merged_between_passes_stays_information',)
 TARGETS = ("controller/pass_.py",)
 MUTANTS = [
     # Issue 306: every write a Factory identity made matched to a recorded Effect (I-33, decision 0061).
@@ -331,15 +331,6 @@ MUTANTS = [
     ('a queue act is never dispatched', 'controller/pass_.py',
      '        elif d["outcome"] == t.ACT and d["action"] in writes_.QUEUE_INTENTS and e["run"] is not None:\n            name = _run_name(',
      '        elif False:\n            name = _run_name(', ('tests.test_controller.Record.test_a_queue_act_gets_a_run_id_and_a_dispatch_once_its_workflow_is_named',)),
-    ('the pass carries no hand', 'controller/pass_.py',
-     'served, found["hand"], found["taken"],',
-     'served, (), found["taken"],', HAND_PASS),
-    ('the pass carries no taken head', 'controller/pass_.py',
-     ', found["hand"], found["taken"],\n', ', found["hand"], (),\n', HAND_PASS),
-    ("the pass reads no pull request as open", 'controller/pass_.py',
-     'found["hand"], found["taken"],\n                                               opened)}', 'found["hand"], found["taken"])}', HAND_PASS),
-    ('one left out is not read as open', 'controller/pass_.py',
-     ' + [reads_.item(i) for i in left_out] if', ' if', HAND_PASS),
     ("an issue left unread by the budget is a fault of the facts", 'controller/pass_.py',
      'if code not in reads_.ISSUE_UNREAD\n               and (', 'if (', F849_ALERTS),
     ("an issue left unread by the budget raises no alert of its own", 'controller/pass_.py',
@@ -361,4 +352,13 @@ MUTANTS = [
      'reads_.UNLISTED: "issue_list_unreadable"}', 'reads_.UNLISTED: "issue_budget_spent"}', F849_UNLISTED),
     ("a list read short keeps the queue", 'controller/pass_.py',
      'and reads_.UNLISTED_ENTRY in r["left_out"])]', 'and False)]', F849_BUDGET),
+    ('the pass carries no hand', 'controller/pass_.py',
+     'served, found["hand"], found["taken"],',
+     'served, (), found["taken"],', HAND_PASS),
+    ('the pass carries no taken head', 'controller/pass_.py',
+     ', found["hand"], found["taken"],\n', ', found["hand"], (),\n', HAND_PASS),
+    ("the pass reads no pull request as open", 'controller/pass_.py',
+     'found["hand"], found["taken"],\n                                               opened)}', 'found["hand"], found["taken"])}', HAND_PASS),
+    ('one left out is not read as open', 'controller/pass_.py',
+     ' + [reads_.item(i) for i in left_out] if', ' if', HAND_PASS),
 ]
