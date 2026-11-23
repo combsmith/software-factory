@@ -3683,7 +3683,7 @@ MUTANTS = ISSUE + OUTSIDE + [
      '    failed = _attempts(since, t.ENQUEUE_MERGE)\n    if len(failed) >= limits["max_implementing_rounds"]:', ROUNDS_APART),
     ("the adjudication loop reads the rounds' key", "kernel/brakes.py",
      'if len(rounds) >= limits["max_rounds"]:', 'if len(rounds) >= limits["max_implementing_rounds"]:',
-     ("tests.test_decide.Ceilings.test_the_adjudication_rounds_are_held_at_max_rounds_never_at_the_rounds_key",)),
+     ("tests.test_decide.Ceilings.test_the_rulings_are_held_at_max_rounds_never_at_the_rounds_key",)),
     ("an implementing rounds limit of one is unreadable", "kernel/brakes.py",
      'type(bound) is int and bound >= 1)', 'type(bound) is int and bound > 1)', ROUNDS_OWN),
     ("an implementing rounds limit of a fraction is read", "kernel/brakes.py",
