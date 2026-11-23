@@ -744,6 +744,11 @@ class SeenPort(unittest.TestCase):
         self.assertIs(left(Lying({path: [close]}, LEFT_ANSWERS))[2], False)
         # An empty page before the end is no page GitHub gives: short (Astra).
         self.assertIs(left(Pages({path: [old, old, [], close]}, LEFT_ANSWERS))[2], False)
+        # So is a first page that answers empty and names a next one, joined to the read or not (Muse).
+        self.assertIs(left(Pages({path: [[], close]}, LEFT_ANSWERS))[2], False)
+        self.assertIs(left(Pages({path: [[]] + [old] * 3 + [close]}, LEFT_ANSWERS))[2], False)
+        self.assertIs(left(Pages({path: [new, close]}, LEFT_ANSWERS))[2], True)
+        self.assertIs(left(Pages({path: [old] * 4 + [close]}, LEFT_ANSWERS))[2], True)
         # Two commits on the last page are told apart by their sha, though they carry no id or time (Astra).
         commit = lambda sha: {"event": "committed", "sha": sha}
         github = Pages({path: [old] * 27 + [old + new, new, close + [commit("a" * 40)]]}, LEFT_ANSWERS,

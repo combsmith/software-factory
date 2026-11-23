@@ -146,8 +146,8 @@ def _tail(transport, path: str, since: str, ends=()) -> tuple:
                 reached = reached or _before(got, since)
             joined = page == 2
             again, again_link = _page(transport, path, end)
-            # An empty page before the end is no page GitHub would give (Astra).
-            steady = (all(found) and [_mark(i) for i in again] == [_mark(i) for i in tail]
+            # An empty page before the end is no page GitHub would give (Astra), the first among them (Muse).
+            steady = (bool(items) and all(found) and [_mark(i) for i in again] == [_mark(i) for i in tail]
                       and not timeline.NEXT.search(again_link) and not timeline.NEXT.search(end_link))
             if joined:
                 first, _ = _page(transport, path, 1)

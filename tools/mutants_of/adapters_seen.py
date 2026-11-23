@@ -407,4 +407,8 @@ MUTANTS = [
     ("a review's moment cannot be read", 'adapters/seen.py',
      'at = one.get("submitted_at") if one.get("event") == "reviewed" else one.get("created_at")',
      'at = None if one.get("event") == "reviewed" else one.get("created_at")', ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_holds_its_edges',)),
+    # Muse on part 4 of 4 of issue 1009: a first page that answers empty is no page GitHub gives.
+    ("a first page that answers empty is whole", 'adapters/seen.py',
+     '            steady = (bool(items) and all(found) and', '            steady = (all(found) and',
+     ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_holds_its_edges',)),
 ]
