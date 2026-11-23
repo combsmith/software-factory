@@ -1122,7 +1122,8 @@ class Parser(unittest.TestCase):
         self.assertIsNone(read(answered(said(), model="Astra Model"))["usage"]["answering_model"])
         self.assertIsNone(read(answered(said(), model="astra model"))["usage"]["answering_model"])
         # A count above what advice/1 holds is not known, and never an error of the step's.
-        for spent in ({"input_tokens": 10 ** 9 + 1, "output_tokens": 1}, {"input_tokens": 1, "output_tokens": 10 ** 400}):
+        for spent in ({"input_tokens": 10 ** 9 + 1, "output_tokens": 1}, {"input_tokens": 1, "output_tokens": 10 ** 9 + 1},
+                      {"input_tokens": 1, "output_tokens": 10 ** 400}):
             self.assertIsNone(read(answered(said(), usage=spent))["usage"]["cost_usd"], spent)
         self.assertEqual(read(answered(said(), usage={"input_tokens": 10 ** 9, "output_tokens": 1}))["usage"]["cost_usd"], 2500.00002)
         limited = read({"status": 429, "headers": {}, "body": {}})["usage"]
