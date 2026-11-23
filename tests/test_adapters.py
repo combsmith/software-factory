@@ -3449,6 +3449,12 @@ class Acceptance(unittest.TestCase):
         self.assertEqual(self.read(closing_answer("o/r", 26, [35, 36]), short, *pages(10, True)[1:], cut=True),
                          (None, False, True))
         self.assertEqual(self.read(*later + pages(10, False)[1:], cut=True), (None, False, False))
+        # So is a cut behind a closing list read short, here by a reference to another repo's issue (Muse).
+        elsewhere = closing_answer("o/r", 26, [36, 37])
+        elsewhere["response"]["body"]["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"][1][
+            "repository"]["nameWithOwner"] = "o/other"
+        self.assertEqual(self.read(elsewhere, *pages(10, True)[1:], cut=True), (None, False, True))
+        self.assertEqual(self.read(elsewhere, *pages(10, False)[1:], cut=True), (None, False, False))
         # A read short within the bound is no cut.
         self.assertEqual(self.read(closing_answer("o/r", 26, [35]), short, cut=True), (None, False, False))
         # And a cut before an issue read whole stays said.
