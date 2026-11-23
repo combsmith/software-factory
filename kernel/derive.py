@@ -1228,7 +1228,15 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     if facts["state"] == "closed":
         return {"state": t.CLOSED, "reason": "closed", "evidence": []}
     # A merged or closed item is read from no list. The list of Runs is read once a pass for every item.
+    # The timeline of an issue it closes, cut at the port's bound, defers on its own code, before any list read short,
+    # and calls a person: more comments never bring it back under the bound, and anyone can comment (decision 0234).
+    # Absent, as in facts read before it, it is not cut; present and no truth value, it cannot be read, and is a gap in
+    # acceptance however whole that read claims to be.
+    if facts.get("acceptance_bounded") is True:
+        return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}
     gaps = incomplete(facts)
+    if facts.get("acceptance_bounded", False) is not False and "acceptance" not in gaps:
+        gaps = ["acceptance"] + gaps
     if gaps:
         return {"state": None, "reason": "facts_incomplete", "evidence": gaps}
     if not readable_expired(facts):

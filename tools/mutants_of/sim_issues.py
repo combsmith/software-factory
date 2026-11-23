@@ -2,6 +2,7 @@
 
 F849_WORLD = ("tests.test_issue.Unreadable.test_the_issue_world_meets_a_timeline_past_the_bound_under_faults_and_calls_a_person",)
 
+F849_BROKEN_WORLD = ("tests.test_issue.Unreadable.test_the_issue_world_meets_a_broken_chain_of_spans_under_faults_and_calls_a_person",)
 TARGETS = ("sim/issues.py",)
 MUTANTS = [
     # Issue 838: where the branch does not exist, the opening Run is admitted for the commit it lands on.
@@ -43,4 +44,8 @@ MUTANTS = [
      'facts["timeline_bounded"] = short in ("linked", "timeline") and fault < 0.11', 'facts["timeline_bounded"] = short == "linked" and fault < 0.11', F849_WORLD),
     ("the issue world bounds a read it did not read short", 'sim/issues.py',
      'facts["timeline_bounded"] = short in ("linked", "timeline") and fault < 0.11', 'facts["timeline_bounded"] = short not in ("linked", "timeline") and fault < 0.11', F849_WORLD),
+    ("the issue world never breaks a chain of spans", 'sim/issues.py',
+     'facts["spans_broken"] = short == "linked" and 0.11 <= fault < 0.125', 'facts["spans_broken"] = False', F849_BROKEN_WORLD),
+    ("the issue world breaks a chain beside a list it read whole", 'sim/issues.py',
+     'facts["spans_broken"] = short == "linked" and 0.11 <= fault < 0.125', 'facts["spans_broken"] = short != "linked" and 0.11 <= fault < 0.125', F849_BROKEN_WORLD),
 ]

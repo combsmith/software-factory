@@ -1270,6 +1270,9 @@ class Carried(unittest.TestCase):
         # So too in a pass where another leaves (Astra).
         both = reconcile.carried(before, self.effects(), seen(), self.NEXT, served_issues=[41], gone_issues=[42])
         self.assertEqual(both["left_issues"], [{"number": 42, "at": self.NEXT}])
+        # And one that leaves again where another is served is stamped anew, once (Carbon).
+        again = reconcile.carried(before, self.effects(), seen(), self.NEXT, served_issues=[42], gone_issues=[41])
+        self.assertEqual(again["left_issues"], [{"number": 41, "at": self.NEXT}])
         late = reconcile.carried(before, self.effects(), dict(seen(), since="2026-10-11T14:00:00Z"), self.NEXT)
         self.assertNotIn("left_issues", late)
         self.assertEqual(reconcile.left_issues(before, "2026-10-11T14:00:00Z"), [])

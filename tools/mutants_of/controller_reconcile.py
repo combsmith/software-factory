@@ -268,7 +268,7 @@ MUTANTS = [
     ("an issue served again keeps its stamp where another leaves", 'controller/reconcile.py',
      'unstamped = newly_gone | set(served_issues)', 'unstamped = newly_gone or set(served_issues)', ("tests.test_reconcile.Carried.test_the_issues_owed_and_left_are_carried_as_the_pull_requests_are",)),
     ("an issue that leaves again keeps its first stamp too", 'controller/reconcile.py',
-     '[e for e in held.get("left_issues", []) if e["number"] not in unstamped] + [', 'held.get("left_issues", []) + [', ("tests.test_reconcile.Carried.test_the_issues_owed_and_left_are_carried_as_the_pull_requests_are",)),
+     '    unstamped = newly_gone | set(served_issues)\n', '    unstamped = set(served_issues)\n', ("tests.test_reconcile.Carried.test_the_issues_owed_and_left_are_carried_as_the_pull_requests_are",)),
     ("the issues read as left are not stamped", 'controller/reconcile.py',
      '{"number": n, "at": now} for n in sorted(newly_gone)]', '{"number": n, "at": now} for n in []]', ("tests.test_reconcile.Carried.test_the_issues_owed_and_left_are_carried_as_the_pull_requests_are",)),
     ("an issue kept as left is never dropped by the window", 'controller/reconcile.py',
@@ -405,4 +405,6 @@ MUTANTS = [
     ("approvals of one commit on two pull requests in one second are a tie", 'controller/reconcile.py',
      '] = ties.get((key(w["item"]), w["commit"], w["at"]), 0) + 1',
      '] = sum((v["commit"], v["at"]) == (w["commit"], w["at"]) for v, _ in of_head)', HAND_SHORT),
+    ("an issue that leaves again keeps its stamp where another is served", 'controller/reconcile.py',
+     'unstamped = newly_gone | set(served_issues)', 'unstamped = set(served_issues) or newly_gone', ("tests.test_reconcile.Carried.test_the_issues_owed_and_left_are_carried_as_the_pull_requests_are",)),
 ]

@@ -6,6 +6,9 @@ S3_PERSON = ("tests.test_controller.Issues.test_a_person_whose_login_is_an_apps_
 F901_PASS = ("tests.test_controller.Issues.test_issues_whose_apps_cannot_be_told_are_not_decided_and_the_pull_requests_are",)
 S3_ROW10 = ("tests.test_controller.Issues.test_with_no_app_declared_for_factory_triage_an_accepted_served_issue_gets_no_acceptance_act",)
 
+F849_ALERTS = ("tests.test_controller.Issues.test_an_issue_left_unread_by_the_budget_raises_its_own_alert_and_no_other",)
+F849_BUDGET = ("tests.test_controller.Entry.test_the_issue_reads_stop_at_the_passs_budget_and_those_left_out_by_it_are_read_first_by_the_next",)
+F849_UNLISTED = ("tests.test_controller.Issues.test_an_issue_list_read_short_raises_its_own_alert_and_no_other",)
 TARGETS = ("controller/pass_.py",)
 MUTANTS = [
     # Issue 306: every write a Factory identity made matched to a recorded Effect (I-33, decision 0061).
@@ -263,7 +266,7 @@ MUTANTS = [
      'reads.get("gone_issues") or (), served)}', '(), served)}', ("tests.test_controller.Issues.test_the_pass_carries_the_issues_its_reads_owe_and_read_as_left",)),
     # Issue 658: a pull request that moved while it was read is deferred once with no alert, by the code its record keeps.
     ("a pull request that moved once is the alert", 'controller/pass_.py',
-     '    alarmed = [i for i in left_out if reads_.item(i) is None or key(i) not in graced]',
+     '    alarmed = [i for i, code in zip(left_out, why) if code not in reads_.ISSUE_UNREAD\n               and (reads_.item(i) is None or key(i) not in graced)]',
      '    alarmed = left_out', ('tests.test_controller.Record.test_a_pull_request_that_moved_while_read_is_deferred_once_with_no_alert', 'tests.test_controller.Entry.test_a_snapshot_that_moved_is_kept_by_its_code_and_its_writes_are_owed_once')),
     ("a move in the last pass earns the grace again", 'controller/pass_.py',
      '    again = {key(e["item"]) for e in held if e["code"] == reads_.MOVED and e["item"] is not None}',
@@ -327,4 +330,25 @@ MUTANTS = [
     ('a queue act is never dispatched', 'controller/pass_.py',
      '        elif d["outcome"] == t.ACT and d["action"] in writes_.QUEUE_INTENTS and e["run"] is not None:\n            name = _run_name(',
      '        elif False:\n            name = _run_name(', ('tests.test_controller.Record.test_a_queue_act_gets_a_run_id_and_a_dispatch_once_its_workflow_is_named',)),
+    ("an issue left unread by the budget is a fault of the facts", 'controller/pass_.py',
+     'if code not in reads_.ISSUE_UNREAD\n               and (', 'if (', F849_ALERTS),
+    ("an issue left unread by the budget raises no alert of its own", 'controller/pass_.py',
+     '    alerts = sorted(set(alerts) | {ISSUE_ALERTS[code] for code in why if code in ISSUE_ALERTS})\n', '', F849_ALERTS),
+    ("the issues are read in the listing's order whatever the budget left out", 'controller/pass_.py',
+     '    return sorted(listed, key=lambda n: owed.index(n) if n in owed else len(owed))\n', '    return list(listed)\n', F849_BUDGET),
+    ("those the budget left out are read in the listing's order", 'controller/pass_.py',
+     'key=lambda n: owed.index(n) if n in owed else len(owed))', 'key=lambda n: 0 if n in owed else 1)', F849_BUDGET),
+    ("any issue left out is read first", 'controller/pass_.py',
+     'e.get("code") == reads_.BUDGET and isinstance(e.get("item"), dict)', 'isinstance(e.get("item"), dict)', F849_BUDGET),
+    ("the issues are read first by the oldest record's debts", 'controller/pass_.py',
+     '    last = read[-1] if read else None\n', '    last = read[0] if read else None\n', F849_BUDGET),
+    ("a pull request the budget left out is read first as an issue", 'controller/pass_.py',
+     '                and e["item"].get("type") == "issue":', '                and True:', F849_BUDGET),
+    ("a number listed twice and owed is read once", 'controller/pass_.py',
+     '    return sorted(listed, key=lambda n: owed.index(n) if n in owed else len(owed))\n',
+     '    return owed + [n for n in listed if n not in owed]\n', F849_BUDGET),
+    ("the issue list read short raises the budget's alert", 'controller/pass_.py',
+     'reads_.UNLISTED: "issue_list_unreadable"}', 'reads_.UNLISTED: "issue_budget_spent"}', F849_UNLISTED),
+    ("a list read short keeps the queue", 'controller/pass_.py',
+     'and reads_.UNLISTED_ENTRY in r["left_out"])]', 'and False)]', F849_BUDGET),
 ]

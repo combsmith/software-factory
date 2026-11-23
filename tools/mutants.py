@@ -1399,6 +1399,8 @@ OUTSIDE = [mutant for area in AREAS for mutant in area.MUTANTS]
 # Shared with tools/mutants_of/, and bound here so that an entry below may name them.
 RESULT_PORT = common.RESULT_PORT
 
+F849_BROKEN = ("tests.test_issue.Unreadable.test_a_chain_of_spans_the_records_broke_defers_on_its_own_code_and_calls_a_person",)
+F849_SAID = common.F849_SAID
 MUTANTS = ISSUE + OUTSIDE + [
     # Issue 346: a Lens review whose applied/1 is past retention on an open pull request is asked for again.
     ("a review past retention is never asked for again", 'kernel/derive.py',
@@ -2384,7 +2386,7 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("a result on this content in a word the Kernel does not know is passed over", "kernel/derive.py",
      ' or ev.get("result") not in t.EVIDENCE_RESULTS:\n', ":\n", ("tests.test_decide.Acceptance",)),
     ("unreadable acceptance is not the Maintainer's to see", "kernel/decide.py",
-     '    "acceptance_unreadable", "paths_unreadable",', '    "paths_unreadable",', ("tests.test_decide.Acceptance",)),
+     '    "acceptance_unreadable", "acceptance_bounded",', '    "acceptance_bounded",', ("tests.test_decide.Acceptance",)),
     ("a queued item waiting for its evidence stays in the queue", "kernel/derive.py",
      '    if said == "missing":\n', '    if said == "missing" and "awaiting_review" not in past:\n',
      ("tests.test_decide.Queue",)),
@@ -3601,6 +3603,32 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("the description's anchor takes no records by default", 'kernel/derive.py',
      'def description_anchor(facts: dict, edited: str, *, runs: list):', 'def description_anchor(facts: dict, edited: str, *, runs: list = ()):',
      ('tests.test_decide.Convergence.test_an_approval_is_anchored_at_the_act_that_read_the_description',)),
+    ("a broken chain defers as any short list", 'kernel/issue.py',
+     '    if facts.get("spans_broken") is True:\n        return out(None, "spans_broken", ["linked"])\n', '', F849_BROKEN + F849_SAID),
+    ("a break defers only beside a linked list read short", 'kernel/issue.py',
+     'if facts.get("spans_broken") is True:', 'if facts.get("spans_broken") is True and facts["complete"]["linked"] is False:', F849_BROKEN),
+    ("a break flag of any truth is a break", 'kernel/issue.py',
+     'if facts.get("spans_broken") is True:', 'if facts.get("spans_broken"):', F849_BROKEN),
+    ("a broken chain calls no one", 'kernel/issue.py',
+     '    "timeline_bounded",\n    "spans_broken",\n', '    "timeline_bounded",\n', F849_BROKEN + F849_SAID),
+    ("a broken chain is read before a cut read", 'kernel/issue.py',
+     '    if bounded is True:\n        return out(None, "timeline_bounded", ["timeline"])\n', '    if bounded is True and facts.get("spans_broken") is not True:\n        return out(None, "timeline_bounded", ["timeline"])\n', F849_BROKEN),
+    ("a cut acceptance read calls no one", 'kernel/decide.py',
+     '"acceptance_unreadable", "acceptance_bounded", "paths_unreadable"', '"acceptance_unreadable", "paths_unreadable"', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+    ("a cut acceptance read defers as any read short", 'kernel/derive.py',
+     '    if facts.get("acceptance_bounded") is True:\n        return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}\n', '', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+    ("a cut acceptance read is read after the lists read short", 'kernel/derive.py',
+     '    if facts.get("acceptance_bounded") is True:\n        return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}\n    gaps = incomplete(facts)\n', '    gaps = incomplete(facts)\n    if not [g for g in gaps if g != "acceptance"] and facts.get("acceptance_bounded") is True:\n        return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}\n', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+    ("a cut acceptance read names no evidence", 'kernel/derive.py',
+     '"reason": "acceptance_bounded", "evidence": ["acceptance"]}', '"reason": "acceptance_bounded", "evidence": []}', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+    ("any truthy flag is a cut acceptance read", 'kernel/derive.py',
+     'if facts.get("acceptance_bounded") is True:', 'if facts.get("acceptance_bounded"):', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+    ("a cut flag that is no truth value is read as not cut", 'kernel/derive.py',
+     '    if facts.get("acceptance_bounded", False) is not False and "acceptance" not in gaps:\n        gaps = ["acceptance"] + gaps\n', '', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+    ("an absent cut flag is a gap", 'kernel/derive.py',
+     'if facts.get("acceptance_bounded", False) is not False', 'if facts.get("acceptance_bounded") is not False', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+    ("a cut flag that is no truth value and falsy is read as not cut", 'kernel/derive.py',
+     'if facts.get("acceptance_bounded", False) is not False and', 'if facts.get("acceptance_bounded", False) and', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
 ]
 
 
