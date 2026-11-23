@@ -860,13 +860,19 @@ def standing_labels(facts: dict) -> dict:
     return out
 
 
+def timeline_short(facts: dict) -> bool:
+    """Whether the timeline was not read whole: its flag not exactly true, or the port says it cut it at its bound, or
+    says so in a form that is no truth value, whatever `complete.timeline` claims (decision 1149)."""
+    return "timeline" in incomplete(facts) or facts.get("timeline_bounded", False) is not False
+
+
 def hands_off(facts: dict, config: dict) -> bool:
     """Whether hands-off binds: a person placed it, and the Factory never acts on the item. Placed by anyone else, it
     is read as a Hold, so an App cannot freeze an item in the merge queue, and so is one removed in the same second
     (tied). It is read only from label events read in full and whole: the timeline is paged oldest first, so a read
-    cut short could drop a person's later removal.
+    cut short, or cut at its bound, could drop a person's later removal.
     """
-    if "timeline" in incomplete(facts) or unreadable_labels(facts, config):
+    if timeline_short(facts) or unreadable_labels(facts, config):
         return False
     placed = standing_labels(facts).get(t.LABEL_HANDS_OFF)
     return placed is not None and is_person(placed["by"]) and not tied(placed, facts)
