@@ -590,6 +590,16 @@ class SeenPort(unittest.TestCase):
             github = Pages({ISSUE + "/timeline?per_page=100": [close], reviews: [[] for _ in range(count)]}, answers)
             self.assertIs(seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], whole, count)
             self.assertEqual(len([path for _, path in github.asked if "/reviews?" in path]), 10, count)
+        # So are the timelines the port reads itself: an issue's, and that of a pull request that left, whose close is
+        # on its last page (Muse).
+        events = ISSUE + "/timeline?per_page=100"
+        for count, whole in ((10, True), (11, False)):
+            github = Pages({events: [[] for _ in range(count)]})
+            self.assertIs(seen_.read(github, dict(ITEM, type="issue"), None, IDENTITIES, APPS, SINCE)[2], whole, count)
+            self.assertEqual(len([path for _, path in github.asked if "/timeline?" in path]), 10, count)
+            github = Pages({events: [[] for _ in range(count - 1)] + [close]}, LEFT_ANSWERS)
+            self.assertIs(seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], whole, count)
+            self.assertEqual(len([path for _, path in github.asked if "/timeline?" in path]), 10, count)
 
     def test_each_identitys_writes_are_read_by_its_account_never_its_login(self):  # ruling 2
         reviews = [{"user": APPROVER, "state": "APPROVED", "node_id": "PRR_a", "submitted_at": AT},

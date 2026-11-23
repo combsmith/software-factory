@@ -330,4 +330,11 @@ MUTANTS = [
     ("the seen port reads the reviews of an item that left past ten pages", 'adapters/seen.py',
      '"reviews": _pages(transport, "/repos/', '"reviews": timeline._pages(transport, "/repos/',
      ('tests.test_reconcile.SeenPort.test_a_list_is_read_to_ten_pages_and_past_them_what_was_seen_is_short',)),
+    # Muse on part 3 of 4 of issue 1009: the timelines the seen port reads itself are bounded too.
+    ("the seen port reads the timeline of a pull request that left past ten pages", 'adapters/seen.py',
+     '"events": _pages(transport, issue + "/timeline?per_page=%d" % PAGE),\n                 "reviews": _pages', '"events": timeline._pages(transport, issue + "/timeline?per_page=%d" % PAGE),\n                 "reviews": _pages',
+     ('tests.test_reconcile.SeenPort.test_a_list_is_read_to_ten_pages_and_past_them_what_was_seen_is_short',)),
+    ("the seen port reads an issue's timeline past ten pages", 'adapters/seen.py',
+     '"events": _pages(transport, issue + "/timeline?per_page=%d" % PAGE), "reviews": ([], True),', '"events": timeline._pages(transport, issue + "/timeline?per_page=%d" % PAGE), "reviews": ([], True),',
+     ('tests.test_reconcile.SeenPort.test_a_list_is_read_to_ten_pages_and_past_them_what_was_seen_is_short',)),
 ]
