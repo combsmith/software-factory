@@ -7097,8 +7097,8 @@ class Linked(unittest.TestCase):
     def read(self, exchanges, earlier=()) -> tuple:
         """The linked pull requests as the port reads them, `(number, keyword, spans)` each, and whether whole."""
         router = Router(github.Replay(exchanges), {"don-petry": "admin", "stranger": "read"})
-        found, whole, _ = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router),
-                                      None if earlier is None else list(earlier))
+        found, whole, _, _ = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router),
+                                         None if earlier is None else list(earlier))
         return [(p["number"], p["keyword"], p["keyword_spans"]) for p in found], whole
 
     def test_only_a_pull_request_to_the_default_branch_is_listed_as_linked(self):  # P-33, P-69, decisions 0028, 0236
@@ -7414,7 +7414,7 @@ class Linked(unittest.TestCase):
         self.assertEqual(found, ([(7, False, [span(3)])], True))
         # The Kernel reads it as listed for something; with no span it would be listed for nothing.
         router = Router(github.Replay([linked_read(), pull_read(7), pull_timeline(7)]), {})
-        (kept,), _, _ = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), before)
+        (kept,), _, _, _ = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), before)
         self.assertTrue(issue.readable_keyword(kept))
         self.assertFalse(issue.readable_keyword(dict(kept, keyword_spans=[])))
         # The pass after, whose record holds the span and the keyword gone, ends it; the pull request stays listed.
@@ -7551,14 +7551,50 @@ class Linked(unittest.TestCase):
                        [seen_by(22, issues=[], left_out=[left]), seen_by(25, issues=[], left_out=[left])],   # (ii) left out
                        [seen_by(22, issues=[]), seen_by(25, issues=[], alerts=["issue_apps_unreadable"])],   # (iii) Apps untold
                        [both(3), seen_by(25, issues=[], left_out=[left])]):     # a record newer than the base left it out
+            # While pull requests name the issue, no later pass mends the chain: it defers on its own code and calls a
+            # person (decision 0234's ruling B1 (C), live now that the records are handed on).
             d = derived(broken)
-            self.assertEqual((d["state"], d["reason"], d["evidence"]), (None, "facts_incomplete", ["linked"]), broken)
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), (None, "spans_broken", ["linked"]), broken)
         # Once nothing names the issue, a broken chain is whole again.
         router = Router(github.Replay(issue_read(closing=[linked_read((), [crossed("Issue")])])), {"don-petry": "admin"})
         f = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES,
                         earlier=[seen_by(25, issues=[], alerts=["issue_apps_unreadable"])])[0]
         self.assertEqual((f["linked"], f["complete"]["linked"]), ([], True))
         self.assertNotEqual(issue.derive(f, [], CONFIG)["reason"], "facts_incomplete")
+
+    def test_a_chain_of_spans_the_records_broke_while_something_names_the_issue_is_said(self):  # decision 0253, (C)
+        # The records break the chain while a pull request names the issue: the linked read says so, and the issue's facts
+        # carry it, so the Kernel calls a person; with nothing naming the issue, nothing is said.
+        from kernel import issue
+        from tests.support import CONFIG
+        broke = [seen_by(3, issues=[], alerts=["issue_apps_unreadable"])]
+        router = Router(github.Replay([linked_read(ref(7)), pull_read(7), pull_timeline(7)]), {"don-petry": "admin"})
+        found, whole, cut, broken = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), broke)
+        self.assertEqual(([p["number"] for p in found], whole, cut, broken), ([7], False, False, True))
+        router = Router(github.Replay([linked_read(ref(7)), pull_read(7), pull_timeline(7)]), {"don-petry": "admin"})
+        self.assertIs(linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), [])[3], False)
+        router = Router(github.Replay(issue_read(closing=[linked_read(ref(7)), pull_read(7), pull_timeline(7)])),
+                        {"don-petry": "admin"})
+        f = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=broke)[0]
+        self.assertEqual((f["complete"]["linked"], f["spans_broken"]), (False, True))
+        self.assertEqual((issue.derive(f, [], CONFIG)["reason"], issue.derive(f, [], CONFIG)["state"]), ("spans_broken", None))
+        router = Router(github.Replay(issue_read(closing=[linked_read((), [crossed("Issue")])])), {"don-petry": "admin"})
+        f = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=broke)[0]
+        self.assertEqual((f["linked"], f["spans_broken"]), ([], False))
+        # A pull request's cross-reference alone, its keyword gone, names the issue too: the break is said (Carbon).
+        router = Router(github.Replay(issue_read(closing=[linked_read((), [crossed("PullRequest")])])), {"don-petry": "admin"})
+        f = issues.read(router, "o/r", 41, self.accounts(router), lambda: Issues.NOW, identities=IDENTITIES, earlier=broke)[0]
+        self.assertEqual((f["linked"], f["complete"]["linked"], f["spans_broken"]), ([], False, True))
+        # A broken chain that gives 7 a span while nothing names the issue says no break: the list is short while the
+        # span is in the records at hand, and whole once it has left them, two passes on (decision 0253, ruling (d)).
+        nothing = lambda *more: Router(github.Replay([linked_read((), [crossed("Issue")])] + list(more)), {"don-petry": "admin"})
+        gave = [seen_by(3, [(7, True, [])], False)]
+        steps = [(gave, [7], False), (gave + [seen_by(4, [(7, False, [span(3)])], False)], [7], False),
+                 ([seen_by(4, [(7, False, [span(3)])], False), seen_by(5, [], False)], [], True)]
+        for earlier, listed, whole in steps:
+            router = nothing(*([pull_read(7), pull_timeline(7)] if listed else []))
+            found, *said = linked.read(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), earlier)
+            self.assertEqual(([p["number"] for p in found], said), (listed, [whole, False, False]), earlier)
 
     def test_the_linked_pull_requests_read_short_are_not_whole_and_one_not_answered_refuses_the_issue(self):
         def short7(*after, refs=(7, 8), events=()):

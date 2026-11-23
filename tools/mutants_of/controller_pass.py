@@ -341,7 +341,7 @@ MUTANTS = [
     ("any issue left out is read first", 'controller/pass_.py',
      'e.get("code") == reads_.BUDGET and isinstance(e.get("item"), dict)', 'isinstance(e.get("item"), dict)', F849_BUDGET),
     ("the issues are read first by the oldest record's debts", 'controller/pass_.py',
-     '(decision 0234)."""\n    last = before[-1] if', '(decision 0234)."""\n    last = before[0] if', F849_BUDGET),
+     '    last = read[-1] if read else None\n', '    last = read[0] if read else None\n', F849_BUDGET),
     ("a pull request the budget left out is read first as an issue", 'controller/pass_.py',
      '                and e["item"].get("type") == "issue":', '                and True:', F849_BUDGET),
     ("a number listed twice and owed is read once", 'controller/pass_.py',
@@ -349,4 +349,6 @@ MUTANTS = [
      '    return owed + [n for n in listed if n not in owed]\n', F849_BUDGET),
     ("the issue list read short raises the budget's alert", 'controller/pass_.py',
      'reads_.UNLISTED: "issue_list_unreadable"}', 'reads_.UNLISTED: "issue_budget_spent"}', F849_UNLISTED),
+    ("a list read short keeps the queue", 'controller/pass_.py',
+     'and reads_.UNLISTED_ENTRY in r["left_out"])]', 'and False)]', F849_BUDGET),
 ]

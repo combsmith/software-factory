@@ -66,6 +66,8 @@ MUTANTS = [
      'codes = UNREAD + (ISSUE_UNREAD if kind == "issue-facts" else ())', 'codes = UNREAD', F849_ALERTS),
     ("a pull request may be left out by the issues' codes", 'controller/reads.py',
      '(ISSUE_UNREAD if kind == "issue-facts" else ())', 'ISSUE_UNREAD', F849_ALERTS),
+    ("an issue list read short is a pull request's code too", 'controller/reads.py',
+     'UNREAD = (MOVED, UNANSWERED)\n', 'UNREAD = (MOVED, UNANSWERED, "issue_list_unreadable")\n', F849_ALERTS),
     ("an issue list read short is facts that are not facts", 'controller/reads.py',
      'ISSUE_UNREAD = (BUDGET, UNLISTED)\n', 'ISSUE_UNREAD = (BUDGET,)\n', F849_UNLISTED),
 ]

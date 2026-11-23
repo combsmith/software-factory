@@ -1329,9 +1329,13 @@ class Issues(unittest.TestCase):
         unread = {"facts": {"item": {"repo": home, "type": "issue", "number": 10}}, "title": None, "unread": "facts_unanswered"}
         self.assertLessEqual({"facts_unreadable", "issue_budget_spent"}, set(passed(reads(issues=[budget(8), unread]))["alerts"]))
         self.assertNotIn("facts_unreadable", passed(reads(issues=[budget(8)]))["alerts"])
-        # That code is the issues' alone: a pull request's entry with it is facts that are not facts.
+        # The issues' codes are theirs alone: a pull request's entry with either is facts that are not facts.
         pull = {"facts": {"item": dict(support.ITEM, number=11)}, "title": None, "unread": "issue_budget"}
-        self.assertEqual(passed(reads(pulls=[pull]))["record"]["left_out"], [{"item": dict(support.ITEM, number=11), "code": "not_facts"}])
+        for code in ("issue_budget", "issue_list_unreadable"):
+            out = passed(reads(pulls=[dict(pull, unread=code)]))
+            self.assertEqual(out["record"]["left_out"], [{"item": dict(support.ITEM, number=11), "code": "not_facts"}], code)
+            self.assertIn("facts_unreadable", out["alerts"], code)
+            self.assertFalse({"issue_budget_spent", "issue_list_unreadable"} & set(out["alerts"]), code)
 
     def test_an_issue_list_read_short_raises_its_own_alert_and_no_other(self):  # decision 0252
         # The list read short names no item: it is kept in the record by its code, raises its alert once and no alert of
@@ -2264,6 +2268,10 @@ class Entry(unittest.TestCase):
                                                            {"item": item(6), "code": "issue_budget"},
                                                            {"item": dict(item(2), type="pull_request"), "code": "issue_budget"},
                                                            {"item": item(5), "code": "issue_budget"}])])[0], [6, 5, 1])
+        # A last record whose list was read short is passed over: the queue is the newest one's that read the issues.
+        short = dict(record, now="2026-10-12T11:00:00Z", issues=[], left_out=[{"item": None, "code": "issue_list_unreadable"}])
+        self.assertEqual(run(1, 1, [owing([3, 1], "2026-10-12T10:00:00Z"), short], listed=(1, 2, 3))[0], [3])
+        self.assertEqual(run(1, 1, [short], listed=(1, 2, 3))[0], [1])
         # A number listed twice is read twice, owed or not, and both are left out as listed twice, never decided (Kimi).
         got, record = run(100, 1, [dict(record, left_out=[{"item": item(6), "code": "issue_budget"}])], listed=(5, 6, 6))
         self.assertEqual((got, [e["code"] for e in record["left_out"] if e["item"] == item(6)]), ([6, 6, 5], ["listed_twice"] * 2))

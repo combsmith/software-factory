@@ -449,6 +449,10 @@
       "description": "Whether the port cut a read the facts depend on at its bound: the issue's own timeline at its pages, beside `complete.timeline` false, or a linked pull request's timeline, or the linked pull requests past their count, beside `complete.linked` false. Either stays so however long the issue waits: the Kernel defers it on its own code and calls a person (decision 0234)",
       "type": "boolean"
     },
+    "spans_broken": {
+      "description": "Whether the pass records at hand break the chain of keyword spans while a pull request names the issue, or anything but an issue cross-references it, so that `complete.linked` is false and no later pass mends it: the Kernel defers it on its own code and calls a person. Absent in facts read before it, which the Kernel reads as not broken: the issue defers on its linked list read short all the same (decision 0253)",
+      "type": "boolean"
+    },
     "read_at": {
       "$ref": "#/$defs/time"
     }
