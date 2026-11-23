@@ -203,7 +203,7 @@ def comments(events: list, accounts: timeline.Accounts) -> tuple:
 
 
 def _body(answer) -> dict:
-    return answer["body"] if answer["status"] == 200 and isinstance(answer["body"], dict) else {}
+    return answer["body"] if isinstance(answer["body"], dict) and answer["status"] == 200 else {}
 
 
 def default_head(transport, repo: str):

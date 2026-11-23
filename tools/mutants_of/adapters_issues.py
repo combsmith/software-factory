@@ -286,7 +286,7 @@ MUTANTS = [
     ("the default branch's name is put in its path as it is", 'adapters/issues.py',
      'urllib.parse.quote(branch, safe="/")', 'branch', BASE_READ),
     ("an answer of another status is read for the default head", 'adapters/issues.py',
-     'return answer["body"] if answer["status"] == 200 and', 'return answer["body"] if answer["status"] in (200, 206) and', BASE_READ),
+     'and answer["status"] == 200 else {}', 'and answer["status"] in (200, 206) else {}', BASE_READ),
     ("a branch name no path can carry raises out of the port", 'adapters/issues.py',
      'except (Unanswered, UnicodeError):     # a name', 'except Unanswered:     # a name', BASE_READ),
     ("the issues port carries no base", 'adapters/issues.py',
