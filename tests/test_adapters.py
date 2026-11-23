@@ -4559,6 +4559,15 @@ class Snapshot(unittest.TestCase):
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                                 lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
         self.assertEqual((got["acceptance"], got["complete"]["acceptance"]), (None, False))
+        self.assertIs(got["acceptance_bounded"], False)
+
+    def test_a_snapshot_says_whether_its_acceptance_read_was_cut(self):  # issue 986, decision 0234
+        # The port always gives the fact, so a port that dropped it is caught: false where nothing was cut.
+        router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
+        self.assertIs(got["complete"]["acceptance"], True)
+        self.assertIs(got["acceptance_bounded"], False)
 
     def test_a_snapshot_reads_the_ask_of_the_openers_pull_request_by_its_branch(self):  # issue 295
         # Told that the App that opens pull requests is this one's author, the snapshot reads its branch, which is no
