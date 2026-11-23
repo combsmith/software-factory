@@ -1374,7 +1374,9 @@ class Issues(unittest.TestCase):
         out = pass_.run(reads(issues=[budget, eight]), cfg, "2026-10-11T15:05:00Z", [both], mint)
         self.assertEqual([i["item"]["number"] for i in out["view"]["items"]["items"] if i["item"]["type"] == "issue"], [7])
         # Each issue is carried on its own: one the pass decided, or left out by name, keeps no other out (Carbon).
-        for issues, shown in (([an_issue(8), budget], [8, 7]), ([an_issue(8), unlisted], [8, 7]), ([moved, unlisted], [8])):
+        # And one no longer listed, beside one the budget left out, is not carried: the list was read whole (Carbon).
+        for issues, shown in (([an_issue(8), budget], [8, 7]), ([an_issue(8), unlisted], [8, 7]), ([moved, unlisted], [8]),
+                              ([budget], [7])):
             out = pass_.run(reads(issues=issues), cfg, "2026-10-11T15:05:00Z", [both], mint)
             self.assertEqual([i["item"]["number"] for i in out["view"]["items"]["items"] if i["item"]["type"] == "issue"],
                              shown)

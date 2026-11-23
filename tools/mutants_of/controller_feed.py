@@ -90,4 +90,6 @@ MUTANTS = [
      F849_CARRY),
     ("an issue's age reaches one record back", 'controller/feed.py',
      '        since = older["now"]\n', '        since = older["now"]\n        break\n', F849_CARRY),
+    ("an issue no longer listed is carried beside any left out", 'controller/feed.py',
+     'if named else {"item": None, "code": UNLISTED} in left)', 'if named else bool(left))', F849_CARRY),
 ]
