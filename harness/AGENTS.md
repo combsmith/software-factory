@@ -2,7 +2,7 @@
 
 One Run's jobs. `task.py` builds the Task, `engine.py` runs the CLI with no tool or secret but its own, `run.py` writes the Result, its digest and a push's patch. `apply.py` reads the item again and writes what it may by a narrowed token; `bundle.py` holds
 a push to the base's list; `approve.py` approves (decision 0055). Steps: `read.py`, `verify.py`, `apply_step.py`, `outcome.py`, `approve_step.py`, `reread.py`, `queue.py`, `queue_step.py` (decision 0130), `steps.py`. `eval/`: decision 0053, `eval/AGENTS.md`.
-Not built yet, by the stories that hold their rules: push.py.
+Not built yet, by the stories that hold their rules: push.py, advise.py.
 
 | Rule | Held by |
 |---|---|

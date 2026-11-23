@@ -134,6 +134,8 @@ def _snapshot(transport, repo, number, identities, accounts, runs_whole, clock, 
                                   if r.get("expired") is True),
         "acceptance": contract,
         "opened_for": acceptance.opened_for(first, opener, opened),
+        # The acceptance read reads a closing issue's timeline whole, never cut at a bound, as yet (issue 986).
+        "acceptance_bounded": False,
         "complete": {"acceptance": contract_whole, "reviews": reviews_whole, "threads": threads_whole,
                      "checks": read["complete"], "diff": content["complete"],
                      "changed_paths": paths["complete"], "runs": runs_whole is True, "timeline": timeline_whole},

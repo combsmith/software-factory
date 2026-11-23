@@ -19,7 +19,7 @@ import tempfile
 import unittest
 import unittest.mock
 
-from adapters import acceptance, effects, github, records
+from adapters import acceptance, effects, github, keyword_spans, records
 import controller.__main__ as entry
 from controller import configuration, pass_, shared
 from controller import credentials as credentials_
@@ -1352,6 +1352,115 @@ class Issues(unittest.TestCase):
         # Anything but exact true is no such word.
         self.assertEqual(len(decisions(passed(dict(told, issue_apps_unreadable="yes")))), 2)
 
+    def test_an_issue_left_unread_by_the_budget_raises_its_own_alert_and_no_other(self):  # decision 0234
+        # Two issues the budget left unread: each kept in the record by its code, the budget's alert once, and no alert
+        # of facts unread; the pull request is decided.
+        home = support.ITEM["repo"]
+        budget = lambda n: {"facts": {"item": {"repo": home, "type": "issue", "number": n}}, "title": None, "unread": "issue_budget"}
+        out, plain = passed(reads(issues=[an_issue(7), budget(8), budget(9)])), passed(reads(issues=[an_issue(7)]))
+        self.assertEqual(out["record"]["left_out"], [{"item": {"repo": home, "type": "issue", "number": n}, "code": "issue_budget"}
+                                                     for n in (8, 9)])
+        self.assertEqual(set(out["alerts"]) ^ set(plain["alerts"]), {"issue_budget_spent"})
+        self.assertEqual(out["record"]["alerts"], sorted(out["alerts"]))
+        self.assertEqual([d["item"]["type"] for d in decisions(out)], ["pull_request", "issue"])
+        # Beside a fault of the facts, that alert is raised too, by the fault alone.
+        unread = {"facts": {"item": {"repo": home, "type": "issue", "number": 10}}, "title": None, "unread": "facts_unanswered"}
+        self.assertLessEqual({"facts_unreadable", "issue_budget_spent"}, set(passed(reads(issues=[budget(8), unread]))["alerts"]))
+        self.assertNotIn("facts_unreadable", passed(reads(issues=[budget(8)]))["alerts"])
+        # The issues' codes are theirs alone: a pull request's entry with either is facts that are not facts.
+        pull = {"facts": {"item": dict(support.ITEM, number=11)}, "title": None, "unread": "issue_budget"}
+        for code in ("issue_budget", "issue_list_unreadable"):
+            out = passed(reads(pulls=[dict(pull, unread=code)]))
+            self.assertEqual(out["record"]["left_out"], [{"item": dict(support.ITEM, number=11), "code": "not_facts"}], code)
+            self.assertIn("facts_unreadable", out["alerts"], code)
+            self.assertFalse({"issue_budget_spent", "issue_list_unreadable"} & set(out["alerts"]), code)
+
+    def test_an_issue_left_unread_by_the_budget_or_the_list_is_shown_as_the_pass_before_decided_it(self):  # decision 1167
+        # Issue 7 decided, then left out by the budget, then by a list read short, then read again. The view shows it as
+        # the record before decided it, one pass deep, and its time in its State passes over the passes that left it
+        # unread; a rebuild from the records shows the same.
+        cfg, mint, kept, written = config(), Mint(), [], []
+        home = support.ITEM["repo"]
+        budget = {"facts": {"item": {"repo": home, "type": "issue", "number": 7}}, "title": None, "unread": "issue_budget"}
+        unlisted = {"facts": {"item": None}, "title": None, "unread": "issue_list_unreadable"}
+        steps = [("2026-10-11T13:00:00Z", [an_issue(7)]), ("2026-10-11T13:05:00Z", [budget]),
+                 ("2026-10-11T13:10:00Z", [unlisted]), ("2026-10-11T13:15:00Z", [an_issue(7)])]
+        for now, issues in steps:
+            out = pass_.run(reads(issues=issues), cfg, now, list(kept), mint)
+            kept.append(out["record"])
+            written.append(out["view"]["items"])
+        shown = [[(i["reason"], i["age_hours"]) for i in w["items"] if i["item"]["type"] == "issue"] for w in written]
+        first = shown[0][0][0]
+        self.assertEqual(shown, [[(first, 0.0)], [(first, 0.08)], [], [(first, 0.25)]])
+        bare = lambda views: [[dict(i, untrusted=None) for i in v["items"]] for v in views]
+        self.assertEqual(bare(w["items"] for w in pass_.rebuild(list(kept), {}, cfg)), bare(written))
+        # A list read short carries every issue the pass before decided (Kimi).
+        first = pass_.run(reads(issues=[an_issue(7)]), cfg, "2026-10-11T14:00:00Z", [], mint)["record"]
+        short = pass_.run(reads(issues=[unlisted]), cfg, "2026-10-11T14:05:00Z", [first], mint)
+        self.assertEqual([(i["item"]["number"], i["age_hours"]) for i in short["view"]["items"]["items"]
+                          if i["item"]["type"] == "issue"], [(7, 0.08)])
+        self.assertEqual(bare(w["items"] for w in pass_.rebuild([first, short["record"]], {}, cfg))[-1],
+                         bare([short["view"]["items"]])[0])        # a rebuild carries it the same (Carbon)
+        # A carried issue's age walks back over every pass that read it in its State, not the last alone (Carbon).
+        again = pass_.run(reads(issues=[an_issue(7)]), cfg, "2026-10-11T14:05:00Z", [first], mint)["record"]
+        out = pass_.run(reads(issues=[budget]), cfg, "2026-10-11T14:10:00Z", [first, again], mint)
+        self.assertEqual([(i["item"]["number"], i["age_hours"]) for i in out["view"]["items"]["items"]
+                          if i["item"]["type"] == "issue"], [(7, 0.17)])
+        # An issue left out for any other reason is not carried.
+        moved = {"facts": {"item": {"repo": home, "type": "issue", "number": 7}}, "title": None, "unread": "facts_unanswered"}
+        out = pass_.run(reads(issues=[moved]), cfg, "2026-10-11T13:20:00Z", list(kept), mint)
+        self.assertEqual([i for i in out["view"]["items"]["items"] if i["item"]["type"] == "issue"], [])
+        # Only the issue the budget left out is carried: one beside it left out for another reason is not (Carbon).
+        both = pass_.run(reads(issues=[an_issue(7), an_issue(8)]), cfg, "2026-10-11T15:00:00Z", [], mint)["record"]
+        eight = dict(moved, facts={"item": dict(moved["facts"]["item"], number=8)})
+        out = pass_.run(reads(issues=[budget, eight]), cfg, "2026-10-11T15:05:00Z", [both], mint)
+        self.assertEqual([i["item"]["number"] for i in out["view"]["items"]["items"] if i["item"]["type"] == "issue"], [7])
+        # Each issue is carried on its own: one the pass decided, or left out by name, keeps no other out (Carbon).
+        # And one no longer listed, beside one the budget left out, is not carried: the list was read whole (Carbon).
+        for issues, shown in (([an_issue(8), budget], [8, 7]), ([an_issue(8), unlisted], [8, 7]), ([moved, unlisted], [8]),
+                              ([budget], [7])):
+            out = pass_.run(reads(issues=issues), cfg, "2026-10-11T15:05:00Z", [both], mint)
+            self.assertEqual([i["item"]["number"] for i in out["view"]["items"]["items"] if i["item"]["type"] == "issue"],
+                             shown)
+        # A pull request a pass missed beside a list read short starts its age again: the list is the issues' (Carbon).
+        out = pass_.run(reads(pulls=[], issues=[unlisted]), cfg, "2026-10-11T15:10:00Z", [both], mint)
+        missed = out["record"]
+        self.assertEqual(sorted((i["item"]["type"], i["item"]["number"]) for i in out["view"]["items"]["items"]),
+                         [("issue", 7), ("issue", 8)])     # both issues carried, no pull request (Astra)
+        again = pass_.run(reads(issues=[an_issue(7), an_issue(8)]), cfg, "2026-10-11T15:15:00Z", [both, missed], mint)
+        self.assertEqual([i["age_hours"] for i in again["view"]["items"]["items"] if i["item"]["type"] == "pull_request"],
+                         [0.0])
+        # A short list carries no issue the pass decided, or left out by name for another reason (Astra).
+        issues_of = lambda out: [(i["item"]["number"], i["age_hours"]) for i in out["view"]["items"]["items"]
+                                 if i["item"]["type"] == "issue"]
+        one = pass_.run(reads(issues=[an_issue(7)]), cfg, "2026-10-11T16:00:00Z", [], mint)["record"]
+        for issues, shown in (([moved, unlisted], []), ([an_issue(7), unlisted], [(7, 0.08)])):
+            self.assertEqual(issues_of(pass_.run(reads(issues=issues), cfg, "2026-10-11T16:05:00Z", [one], mint)), shown)
+        # An issue's age counts only passes that read it in its State: a short list before its first read, or a pass
+        # that left it out by name for another reason, starts it again (Astra).
+        gap = pass_.run(reads(issues=[unlisted]), cfg, "2026-10-11T15:55:00Z", [], mint)["record"]
+        self.assertEqual(issues_of(pass_.run(reads(issues=[an_issue(7)]), cfg, "2026-10-11T16:00:00Z", [gap], mint)),
+                         [(7, 0.0)])
+        for issues in ([moved], [moved, unlisted]):     # beside a short list too (Carbon)
+            gone = pass_.run(reads(issues=issues), cfg, "2026-10-11T16:05:00Z", [one], mint)["record"]
+            self.assertEqual(issues_of(pass_.run(reads(issues=[an_issue(7)]), cfg, "2026-10-11T16:10:00Z", [one, gone],
+                                                 mint)), [(7, 0.0)])
+
+    def test_an_issue_list_read_short_raises_its_own_alert_and_no_other(self):  # decision 0252
+        # The list read short names no item: it is kept in the record by its code, raises its alert once and no alert of
+        # facts unread, and the pull request is decided. Beside an issue the budget left unread, each raises its own.
+        home = support.ITEM["repo"]
+        unlisted = {"facts": {"item": None}, "title": None, "unread": "issue_list_unreadable"}
+        out, plain = passed(reads(issues=[an_issue(7), unlisted])), passed(reads(issues=[an_issue(7)]))
+        self.assertEqual(out["record"]["left_out"], [{"item": None, "code": "issue_list_unreadable"}])
+        self.assertEqual(set(out["alerts"]) ^ set(plain["alerts"]), {"issue_list_unreadable"})
+        self.assertEqual([d["item"]["type"] for d in decisions(out)], ["pull_request", "issue"])
+        pulls = lambda passed_: [d for d in decisions(passed_) if d["item"]["type"] == "pull_request"]
+        self.assertEqual(pulls(out), pulls(plain))      # the pull request is decided as with the list whole (Carbon)
+        budget = {"facts": {"item": {"repo": home, "type": "issue", "number": 8}}, "title": None, "unread": "issue_budget"}
+        both = passed(reads(issues=[an_issue(7), budget, unlisted]))
+        self.assertEqual(set(both["alerts"]) ^ set(plain["alerts"]), {"issue_budget_spent", "issue_list_unreadable"})
+
     def test_the_pass_carries_the_issues_its_reads_owe_and_read_as_left(self):  # issue 916, decision 0235
         read = dict(reads(), unread_issues=[9], gone_issues=[41])
         out = passed(read)
@@ -2100,8 +2209,10 @@ class Entry(unittest.TestCase):
         # The listing is handed the number the passes recorded their tracking issue under, to leave it out (issue 901).
         self.assertEqual(spied["listed"], [(self.HOME, since, [8])])
         self.assertEqual([n for _, n, _ in spied["read"]], [5, 6, 9])
-        # Each by the reader the pull requests were read with: a snapshot's copy of it keeps its answers (decision 1138).
-        self.assertTrue(all(who.answers is spied["who"][0].answers for _, _, who in spied["read"]))
+        # Each by a copy of the reader the pull requests were read with, its answers shared (decision 1138), whose
+        # requests the issues' budget counts (decision 0234).
+        self.assertTrue(all(who.answers is spied["who"][0].answers and vars(who).keys() == vars(spied["who"][0]).keys()
+                            and isinstance(who.transport, entry.Counted) for _, _, who in spied["read"]))
         # Each is read with the pull requests' class accounts, and the pass records before this pass, here none.
         self.assertEqual(spied["identities"], [(entry.facts_.accounts_of(CONTROLLER)[0], [])] * 3)
         # And the Kernel's configuration, which says whether a draft's checks are read (decision 0217, issue 878).
@@ -2129,10 +2240,17 @@ class Entry(unittest.TestCase):
         self.assertEqual((code, [r for r in files["pass.json"]["reads"] if r["read"] == "facts"]),
                          (0, [{"read": "facts", "date": "2026-10-12T11:59:30Z", "age": 2},
                               {"read": "facts", "date": "2026-10-12T11:59:00Z", "age": 0}]))
-        # A list read short, or not answered, stops the pass before any issue is read; nothing is written.
+        # A list read short, or not answered, reads no issue; the pull requests are decided as ever, and the pass leaves
+        # out one entry naming no item, by the list's code, with its alert and no other for it (decision 0252).
         for whole in (False, None):
-            self.assertEqual(entry_with([5], whole), (1, "issue_list_unreadable\n", {}), whole)
-            self.assertEqual(spied["read"], [])
+            code, printed, files = entry_with([5], whole)
+            record = files["pass.json"]
+            self.assertEqual((code, printed, spied["read"], record["issues"]), (0, "passed\n", [], []), whole)
+            self.assertEqual(record["left_out"], [{"item": None, "code": "issue_list_unreadable"}])
+            self.assertEqual(len(record["pull_requests"]), 1)
+            self.assertIn("issue_list_unreadable", record["alerts"])
+            self.assertNotIn("facts_unreadable", record["alerts"])
+            self.assertEqual(keyword_spans.UNLISTED, entry.reads_.UNLISTED)
         # The passes' records not read whole: the tracking issue's number may be one not read, so no issue is read, and
         # each listed is left out as unread; the pull requests are decided as ever (issue 901).
         code, printed, files = entry_with([5, 8], recorded=False)
@@ -2180,6 +2298,94 @@ class Entry(unittest.TestCase):
         self.assertEqual((code, spied["listed"], spied["read"], files["pass.json"]["issues"]), (0, [(self.HOME, None, [8])], [], []))
         self.assertEqual(len(spied["graphql"]), 1)
 
+    def test_the_issue_reads_stop_at_the_passs_budget_and_those_left_out_by_it_are_read_first_by_the_next(self):  # 0234
+        # Seven issues listed, every pass the same. Each read sends `cost` requests through the transport the entry
+        # hands the port, counted as sent, answered or not; once `max_issue_requests` are spent no further read starts.
+        since, read, real = "2026-10-01T00:00:00Z", [], entry.configuration
+        written = {"written": [], "read": [], "at": {}, "whole": True}
+
+        def run(budget, cost, previous, listed=(1, 2, 3, 4, 5, 6, 7)):
+            def served(root, release):
+                found = real(root, release)
+                found["kernel"]["issues"]["served_from"] = since
+                found["controller"]["max_issue_requests"] = budget
+                return found
+
+            def snapshot(transport, repo, number, identities, who, runs_whole, clock, **k):
+                return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
+
+            def issue(transport, repo, number, accounts, clock, *, identities, earlier, **_):
+                read.append(number)
+                for at in range(cost):
+                    # Every other request is the account reader's permission read, which is counted too (Claude).
+                    through = accounts.transport if at % 2 else transport
+                    try:
+                        through.send({"method": "GET", "path": "/repos/%s/issues/%d" % (repo, number)})
+                    except github.Unanswered:
+                        pass
+                return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "An issue"
+            del read[:]
+            with unittest.mock.patch.object(entry, "configuration", served), \
+                    unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                    unittest.mock.patch.object(entry.items, "open_issues", lambda *a, **k: (list(listed), True)), \
+                    unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: written), \
+                    unittest.mock.patch.object(entry.passes, "records", lambda *a: previous), \
+                    unittest.mock.patch.object(entry.issues_, "read", issue):
+                code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
+            self.assertEqual(code, 0)
+            record = files["pass.json"]
+            # The next pass reads it as the record before it, an hour on.
+            return list(read), dict(record, now="2026-10-12T11:00:00Z")
+        item = lambda n: {"repo": self.HOME, "type": "issue", "number": n}
+        # A budget of three, a request an issue: three read, the rest left out by the budget, each named, with the
+        # budget's alert once and no alert of facts unread for them.
+        first, record = run(3, 1, None)
+        self.assertEqual(first, [1, 2, 3])
+        self.assertEqual(record["left_out"], [{"item": item(n), "code": "issue_budget"} for n in (4, 5, 6, 7)])
+        self.assertEqual(([e["decision"]["item"]["number"] for e in record["issues"]], record["alerts"].count("issue_budget_spent")),
+                         ([1, 2, 3], 1))
+        self.assertNotIn("facts_unreadable", record["alerts"])
+        # Those the record before left out by the budget are read first, in the order it left them out, then the rest in
+        # the listing's: so, the list unchanged, every issue is read within ceil(7 / 3) = 3 passes, and in every three in
+        # a row after. In the listing's order among them, 7 would be passed over for good from the third pass on.
+        passes = [first]
+        for _ in range(5):
+            got, record = run(3, 1, [record])
+            passes.append(got)
+        self.assertEqual(passes, [[1, 2, 3], [4, 5, 6], [7, 1, 2], [3, 4, 5], [6, 1, 2], [7, 3, 4]])
+        for at in range(len(passes) - 2):
+            self.assertEqual(sorted(set(sum(passes[at:at + 3], []))), [1, 2, 3, 4, 5, 6, 7], at)
+        # A read already begun finishes: at two requests an issue, the second starts at two of three and ends at four;
+        # the third does not start. And every pass reads one issue at least, however dear.
+        self.assertEqual(run(3, 2, None)[0], [1, 2])
+        self.assertEqual(run(1, 5, None)[0], [1])
+        # With the budget never spent, every issue is read, and no budget's alert is raised.
+        got, record = run(100, 1, None)
+        self.assertEqual((got, record["left_out"], "issue_budget_spent" in record["alerts"]), ([1, 2, 3, 4, 5, 6, 7], [], False))
+        # A last record that holds no left out entries, or none by the budget, gives the listing's order.
+        self.assertEqual(run(3, 1, [dict(record, left_out=[{"item": item(6), "code": "facts_unanswered"}])])[0], [1, 2, 3])
+        bare = dict(record)
+        del bare["left_out"]
+        self.assertEqual(run(3, 1, [bare])[0], [1, 2, 3])
+        # Only the last record's debts are read first, never an older one's (Astra).
+        owing = lambda numbers, now: dict(record, now=now, left_out=[{"item": item(n), "code": "issue_budget"} for n in numbers])
+        self.assertEqual(run(1, 1, [owing([2, 3], "2026-10-12T10:00:00Z"), owing([3, 1], "2026-10-12T11:00:00Z")], listed=(1, 2, 3))[0], [3])
+        # An issue the record before left out by the budget that is no longer listed is passed over; one left out twice
+        # is read once; a pull request left out is no issue.
+        self.assertEqual(run(3, 1, [dict(record, left_out=[{"item": item(9), "code": "issue_budget"},
+                                                           {"item": item(6), "code": "issue_budget"},
+                                                           {"item": item(6), "code": "issue_budget"},
+                                                           {"item": dict(item(2), type="pull_request"), "code": "issue_budget"},
+                                                           {"item": item(5), "code": "issue_budget"}])])[0], [6, 5, 1])
+        # A last record whose list was read short is passed over: the queue is the newest one's that read the issues.
+        short = dict(record, now="2026-10-12T11:00:00Z", issues=[], left_out=[{"item": None, "code": "issue_list_unreadable"}])
+        self.assertEqual(run(1, 1, [owing([3, 1], "2026-10-12T10:00:00Z"), short], listed=(1, 2, 3))[0], [3])
+        self.assertEqual(run(1, 1, [short], listed=(1, 2, 3))[0], [1])
+        # A number listed twice is read twice, owed or not, and both are left out as listed twice, never decided (Kimi).
+        got, record = run(100, 1, [dict(record, left_out=[{"item": item(6), "code": "issue_budget"}])], listed=(5, 6, 6))
+        self.assertEqual((got, [e["code"] for e in record["left_out"] if e["item"] == item(6)]), ([6, 6, 5], ["listed_twice"] * 2))
+        self.assertEqual([e["decision"]["item"]["number"] for e in record["issues"]], [5])
+
     def test_a_queues_or_a_lenss_name_declared_as_an_issues_app_refuses_the_issues_alone_and_the_pull_requests_are_decided(self):
         # The reader tells the queue App and a Lens's App by their ids, as a queue and a Lens, never as an App by its
         # name: one named for a label or an Intent could have no act read as that App's. No issue is listed, read or
@@ -2191,7 +2397,7 @@ class Entry(unittest.TestCase):
         intent = lambda app: {"label_apps": {"factory:triage": "combsmith-sf-controller", "factory:ready": None},
                               "intents": {"investigate-issue": {"role": "business-analyst", "app": app},
                                           "judge-readiness": None, "open-pull-request": None}}
-        whos = []
+        whos, asked = [], []
 
         def snapshot(transport, repo, number, identities, who, *a, **k):
             whos.append(who)
@@ -2206,14 +2412,16 @@ class Entry(unittest.TestCase):
             hub = Hub(self.table(numbers=[7]))
             with unittest.mock.patch.object(entry, "configuration", told), \
                     unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
-                    unittest.mock.patch.object(entry.items, "open_issues", lambda t, repo, since, **k: ([], since is None)):
+                    unittest.mock.patch.object(entry.items, "open_issues", lambda t, repo, since, **k: asked.append(since) or ([], since is None)):
                 code, printed, files, _ = self.run_entry(hub)
             record = files.get("pass.json", {})
             return (code, printed, "issue_apps_unreadable" in record.get("alerts", ()),
-                    [e["decision"]["item"]["number"] for e in record.get("pull_requests", ())], record.get("issues"))
+                    [e["decision"]["item"]["number"] for e in record.get("pull_requests", ())], record.get("issues"),
+                    record.get("left_out"), asked[-1])
         ready = lambda name: {"label_apps": {"factory:triage": "combsmith-sf-controller", "factory:ready": name}}
         # The issues are listed as with no date, so none is; pull request 7 is decided, and nothing is written for an issue.
-        refused = (0, "passed\n", True, [7], [])
+        # The listing is asked with no date (decision 0252: a list read short no longer stops the pass to show it).
+        refused = (0, "passed\n", True, [7], [], [], None)
         # The pull requests' reader does not reserve the name that collides, whichever App's it is and wherever it is
         # declared, so no snapshot is refused for it; a name that does not collide stays reserved.
         unreserved = lambda issues, **accounts: (entry_with(issues, **accounts), whos[-1].reserved)
@@ -2233,10 +2441,13 @@ class Entry(unittest.TestCase):
         self.assertEqual(unreserved(ready("combsmith-sf-queue"), queue=dict(queue, login="an-old-login[bot]")), refused)
         self.assertEqual(unreserved(ready("combsmith-sf-pr-review"), lenses=[dict(renamed, id=5000010)]), refused)
         # The queue's name with no queue App held, and any other App's, are no queue's and no Lens's: the issues are
-        # listed from their date, here by a listing that is whole only with no date, which stops the pass.
+        # listed from their date, here by a listing that is whole only with no date, so no issue is read and the pull
+        # requests are decided, with one entry naming no item (decision 0252).
         for issues, accounts in ((ready("combsmith-sf-queue"), {}), (ready("combsmith-sf-readiness"), {"queue": queue}),
                                  (intent("combsmith-sf-business-analyst"), {})):
-            self.assertEqual(entry_with(issues, **accounts)[:2], (1, "issue_list_unreadable\n"), issues)
+            self.assertEqual(entry_with(issues, **accounts),
+                             (0, "passed\n", False, [7], [], [{"item": None, "code": "issue_list_unreadable"}],
+                              "2026-10-01T00:00:00Z"), issues)
 
     def test_the_served_issues_writes_are_read_for_reconciliation(self):  # issue 837
         # Each served issue's writes are read by the seen port as an open pull request's are, with nothing kept by a
@@ -2372,7 +2583,7 @@ class Entry(unittest.TestCase):
         held, handed, probes = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}, [], []
 
         def entry_with(before, short=(), wrote=(), recorded=True, serving="2026-10-01T00:00:00Z", listing=(5,), tracked=(),
-                       unanswered=(), ended=(), repo=True):
+                       unanswered=(), ended=(), repo=True, whole=True):
             del spied[:], handed[:], probes[:]
             answers = list(repo) if isinstance(repo, tuple) else None
 
@@ -2401,7 +2612,7 @@ class Entry(unittest.TestCase):
             with unittest.mock.patch.object(entry, "configuration", dated), \
                     unittest.mock.patch.object(entry.seen_, "repo_read", probe), \
                     unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
-                    unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after, **k: ([n for n in listing if n not in k.get("apart", ())] if after else [], True)), \
+                    unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after, **k: ([n for n in listing if n not in k.get("apart", ())] if after else [], whole)), \
                     unittest.mock.patch.object(entry.issues_, "read", issue_read), \
                     unittest.mock.patch.object(entry.passes, "records", lambda *a: [before]), \
                     unittest.mock.patch.object(entry.seen_, "read", read), \
@@ -2463,6 +2674,11 @@ class Entry(unittest.TestCase):
         record = entry_with(dict(before, issues=[]), serving=None)
         self.assertNotIn("owed_issues", record["reconciled"])
         self.assertNotIn("reconciliation_unreadable", record["alerts"])
+        # So with the issue list read short: no issue that left can be told, and one it listed is no tracking issue, so
+        # every issue served before is owed, none is read, and reconciliation is short (decision 0252).
+        record = entry_with(before, listing=(41,), whole=False)
+        self.assertEqual((record["reconciled"]["owed_issues"], [s for s in spied if s[0] == "issue"]), ([5, 41], []))
+        self.assertIn("reconciliation_unreadable", record["alerts"])
         # The tracking issue, left out unread by a pass that could not tell it, is never read as one that left (Claude).
         record = entry_with(dict(before, left_out=[{"item": issue(9)["facts"]["item"], "code": "facts_unanswered"}]),
                             tracked=(9,), listing=(5, 9))

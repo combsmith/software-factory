@@ -2,7 +2,7 @@
 
 import pathlib
 
-from tools.mutants_of.common import F849_PORT, F901_ROLE, S3_NAMED, S3_PORT, S3_RIVAL
+from tools.mutants_of.common import F849_PORT, F849_SAID, F901_ROLE, S3_NAMED, S3_PORT, S3_RIVAL
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent      # the tree, above tools/mutants_of/
 
@@ -269,4 +269,6 @@ MUTANTS = [
     ('a change of type named by no string is read', 'adapters/issues.py',
      ' if isinstance(kind, str) else (0, 0)',
      '', ISSUE_REFUSED),
+    ("the issues port carries no break", 'adapters/issues.py',
+     '"spans_broken": broken,', '"spans_broken": False,', F849_SAID),
 ]

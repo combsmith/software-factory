@@ -1051,15 +1051,15 @@ class Fixture(unittest.TestCase):
         self.assertLess(event["approval"]["at"], event["enqueued"]["at"])
         self.assertLess(event["enqueued"]["at"], steps[-1]["now"])
         self.assertLess(steps[-1]["now"], event["merged"]["at"])
-        # The status on the item, read back after the merge, is the last step's: its State and code, never a sentence.
+        # The status on the item, read back after the merge, is the last step's: its State and code.
         status = body("%s/commits/%s/check-runs?check_name=%s" % (api, event["head"], defaults["status_on_item"]))
         self.assertEqual(status["total_count"], 1)
         shown, = status["check_runs"]
         self.assertEqual((shown["name"], shown["app"]["slug"], shown["conclusion"], shown["head_sha"]),
                          (defaults["status_on_item"], apps["controller"]["name"], "neutral", event["head"]))
         # Word for word what the effects port writes for the last step's Decision under this pass and Release, who
-        # acts next among it, as `config/feed.json` gives it.
-        feed = json.loads((ROOT / "config" / "feed.json").read_text())
+        # acts next among it, as `config/feed.json` gives it. That Release's feed gave no sentences (decision 1123).
+        feed = {k: v for k, v in json.loads((ROOT / "config" / "feed.json").read_text()).items() if k != "sentences"}
         self.assertEqual(shown["output"], effects.status_output(dict(steps[-1], evidence=[]),
                                                                 {"pass": steps[-1]["pass"], "release": event["release"]}, feed))
 

@@ -205,4 +205,6 @@ MUTANTS = [
     ("the queue workflow's runs are never read", 'adapters/facts.py',
      ' + ([queue] if queue is not None else [])',
      '', ('tests.test_controller.Record.test_the_queue_workflows_runs_are_read_once_it_is_named',)),
+    ("the snapshot leaves out whether the acceptance read was cut", 'adapters/facts.py',
+     '        "acceptance_bounded": False,\n', '', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut',)),
 ]
