@@ -2421,6 +2421,15 @@ class Timeline(unittest.TestCase):
                                                                     "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"})
         got, whole, cut = timeline.reviews(router, p7_pull(), [], self.accounts(router), BASE_HEAD, timeline_whole=False)
         self.assertEqual(([r["state"] for r in got], whole, cut), (["approved"], False, False))
+        # It is left out before its commit is asked, so a commit that cannot be read never refuses the read (Muse).
+        unreadable = reviews_read(22)
+        for listed in unreadable._left[0][1]["body"]:
+            if listed["state"] == "DISMISSED":
+                listed["commit_id"] = "not-a-commit"
+        router = Router(unreadable, {"don-petry": "admin", APPROVER: "write"}, {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "d",
+                                                                 "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"})
+        got, whole, cut = timeline.reviews(router, p7_pull(), [], self.accounts(router), BASE_HEAD, timeline_whole=False)
+        self.assertEqual(([r["state"] for r in got], whole, cut), (["approved"], False, False))
         # One the timeline read does explain stays, with who dismissed it, though the timeline was cut (Astra).
         events, _ = timeline.events(replay("P-7", 16), p7_pull())
         router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "d",
