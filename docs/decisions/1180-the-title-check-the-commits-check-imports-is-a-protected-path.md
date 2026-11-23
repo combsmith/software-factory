@@ -1,4 +1,4 @@
-# 0000. The title check the commits check imports is a protected path
+# 1180. The title check the commits check imports is a protected path
 
 Status: accepted. 2026-11-23, the Factory Builder, by decision 0240's principle; issue 1090. Extends `docs/decisions/0244-a-pull-requests-title-names-its-area-a-plain-change-and-its-issue.md`.
 
