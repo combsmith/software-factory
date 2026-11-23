@@ -237,6 +237,17 @@ class Dated:
         return answer
 
 
+class Kept:
+    """The transport, keeping every answer through it: a read of more than one request is dated by each answer."""
+
+    def __init__(self, transport):
+        self.transport, self.answers = transport, []
+
+    def send(self, req):
+        self.answers.append(self.transport.send(req))
+        return self.answers[-1]
+
+
 class Counted:
     """The transport, counting each request sent through it, whatever it answered or if it failed: the issue reads'
     budget is spent as they are sent (decision 0234)."""
@@ -521,11 +532,11 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
     # The account reader's permission reads for the issues are counted too, its answers shared with the pull requests'.
     asking = who.through(counted)
     # The default branch's head, read once a pass where an issue is to be read, and handed to each as its `base_head`,
-    # left out where it cannot be read; dated as a facts read where it is (decisions 0226 and 0242). Its two requests
+    # left out where it cannot be read; each answer dated as a facts read where it is (decisions 0226 and 0242). Its two requests
     # are fixed, and spend none of the budget, which bounds the reads each issue costs: one issue is read at least.
-    asked = Dated(transport)
+    asked = Kept(transport)
     head = issues_.default_head(asked, home) if listed_whole and listed and apart is not None else None
-    facts_reads += dated(asked.first) if head is not None else []
+    facts_reads += [read for answer in asked.answers for read in dated(answer)] if head is not None else []
     for number in pass_.issue_order(listed if listed_whole else [], before):
         began, through = stages.now(), Dated(counted)
         try:

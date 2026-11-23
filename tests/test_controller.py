@@ -2160,7 +2160,8 @@ class Entry(unittest.TestCase):
                 table[("GET", "/repos/%s" % self.HOME)] = {
                     "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:40 GMT", "age": "5"}, "body": {"default_branch": "main"}}
                 table[("GET", "/repos/%s/git/ref/heads/main" % self.HOME)] = {
-                    "status": 200, "headers": {}, "body": {"ref": "refs/heads/main", "object": {"type": "commit", "sha": head}}}
+                    "status": 200, "headers": {"date": "Mon, 12 Oct 2026 10:00:00 GMT", "age": "7200"},
+                    "body": {"ref": "refs/heads/main", "object": {"type": "commit", "sha": head}}}
             hub = Hub(table)
             with unittest.mock.patch.object(entry, "configuration", configured), \
                     unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
@@ -2170,7 +2171,7 @@ class Entry(unittest.TestCase):
                     unittest.mock.patch.object(entry.issues_, "read", read):
                 code, printed, files, _ = self.run_entry(hub)
             spied["graphql"] = [r for _, r in hub.sent if r["path"] == "/graphql"]
-            spied["repo"] = [r for _, r in hub.sent if r["path"] == "/repos/%s" % self.HOME]
+            spied["repo"] = [r for _, r in hub.sent if r["path"] in ("/repos/%s" % self.HOME, "/repos/%s/git/ref/heads/main" % self.HOME)]
             return code, printed, files
 
         code, printed, files = entry_with([5, 6, 9])
@@ -2213,9 +2214,10 @@ class Entry(unittest.TestCase):
         # The default branch's head is read once for the pass and handed to each issue as its `base_head`, dated as a facts
         # read; unread, each is handed none and no read of it is dated; with no issue to read it is not asked (0226, 0242).
         code, _, files = entry_with([5, 10], based=True)
-        self.assertEqual((code, spied["heads"], len(spied["repo"])), (0, [head, head], 1))
-        self.assertEqual([r for r in files["pass.json"]["reads"] if r["read"] == "facts"][0],
-                         {"read": "facts", "date": "2026-10-12T11:59:40Z", "age": 5})
+        self.assertEqual((code, spied["heads"], len(spied["repo"])), (0, [head, head], 2))
+        self.assertEqual([r for r in files["pass.json"]["reads"] if r["read"] == "facts"][:2],      # the repo's and the ref's
+                         [{"read": "facts", "date": "2026-10-12T11:59:40Z", "age": 5},
+                          {"read": "facts", "date": "2026-10-12T10:00:00Z", "age": 7200}])
         self.assertEqual((entry_with([5, 10])[0], spied["heads"], len(spied["repo"])), (0, [None, None], 1))
         for listed, whole, recorded in (([], True, True), ([5], False, True), ([5], True, False)):
             entry_with(listed, whole, recorded=recorded, based=True)

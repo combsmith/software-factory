@@ -6538,10 +6538,11 @@ class Issues(unittest.TestCase):
     def test_the_default_branchs_head_is_read_by_its_ref_and_given_to_the_facts_or_left_out(self):  # decision 0242
         # The repo names its default branch; that branch's ref, never a name a tag could share, gives its head, a
         # commit's whole name. Anything else is none, and the issue's facts leave `base_head` out (decision 0226).
-        def head(repo, ref=None, branch="main", status=200):
+        def head(repo, ref=None, branch="main", status=200, first=200):
             exchanges = [rest_answer("/repos/o/r", repo)] + ([rest_answer("/repos/o/r/git/ref/heads/" + branch, ref)]
                                                               if ref is not None else [])
             exchanges[-1]["response"]["status"] = status if ref is not None else 200
+            exchanges[0]["response"]["status"] = first
             return issues.default_head(github.Replay(exchanges), "o/r")
 
         def ref(name="refs/heads/main", kind="commit", sha=self.HEAD):
@@ -6549,17 +6550,19 @@ class Issues(unittest.TestCase):
 
         main = {"default_branch": "main"}
         self.assertEqual(head(main, ref()), self.HEAD)
-        self.assertEqual(head({"default_branch": "rel/1 #2"}, ref("refs/heads/rel/1 #2"), "rel/1%20%232"), self.HEAD)
+        self.assertEqual(head({"default_branch": "rel/1#2"}, ref("refs/heads/rel/1#2"), "rel/1%232"), self.HEAD)
         for repo, answer in (({}, None), ({"default_branch": ""}, None), ({"default_branch": 7}, None), (main, []),
                              (main, ref("refs/tags/main")), (main, ref("refs/heads/other")), (main, ref(kind="tag")),
-                             (main, ref(sha="main")), (main, ref(sha=self.HEAD.upper())), (main, ref(sha=self.HEAD + "0")),
+                             (main, ref(sha="main")), (main, ref(sha=self.HEAD.upper())), (main, ref(sha=self.HEAD + "0")), (main, ref(sha=self.HEAD[:7])),
                              ({"default_branch": "\ud800"}, None), (main, {"ref": "refs/heads/main", "object": "x"}),
-                             (main, {"ref": "refs/heads/main", "object": [ref()["object"]]})):
+                             (main, {"ref": "refs/heads/main", "object": [ref()["object"]]}),
+                             (main, {"ref": "refs/heads/main", "object": None})):
             self.assertIsNone(head(repo, answer), (repo, answer))
         self.assertIsNone(head({"default_branch": ""}, ref("refs/heads/"), ""))     # no branch is named: not asked
         # An answer of another status than 200 is none, and a read GitHub does not answer is none too, never a raise
         # that leaves the issue unread: the repo's, or the ref's after it.
         self.assertIsNone(head(main, ref(), status=206))
+        self.assertIsNone(head(main, ref(), first=206))
         self.assertIsNone(issues.default_head(github.Replay([]), "o/r"))
         self.assertIsNone(issues.default_head(github.Replay([rest_answer("/repos/o/r", main)]), "o/r"))
         # The issue's facts carry what the pass read, and leave it out where it read none.
