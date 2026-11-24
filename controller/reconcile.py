@@ -223,8 +223,9 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
 
     def stays(item: str) -> bool:
         return not ours(item) or int(item.rsplit("/", 1)[1]) not in dropped
-    known_hand = {e["key"] for e in held.get("hand", [])}
-    hands = [e for e in held.pop("hand", []) if stays(e["item"])] + [
+    kept = [e for e in held.pop("hand", []) if stays(e["item"])]
+    known_hand = {e["key"] for e in kept}
+    hands = kept + [
         {"key": h["key"], "item": key(h["item"]), "head": h["head"], "at": h["at"]} for h in hand
         if h["key"] not in known_hand and FITS_KEY.fullmatch(h["key"]) and FITS_ITEM.fullmatch(key(h["item"]))
         and stays(key(h["item"]))]

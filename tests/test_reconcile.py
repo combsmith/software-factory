@@ -741,6 +741,19 @@ class HandApproval(unittest.TestCase):
                              [{"number": 43, "at": GIVEN}], spelled)
             same = reconcile.carried(aged, recorded(), seen(), NOW, open_=[spelled], home=home)
             self.assertEqual((same["hand"], same["taken"], same["left"]), (leaving["hand"], leaving["taken"], []), spelled)
+        # The home as the configuration spells it, in any case, is the only one ours.
+        upper = reconcile.carried([dict(decided_as(hand), reconciled=foreign)], recorded(), seen(), NOW,
+                                  home="Combsmith/Software-Factory")
+        self.assertEqual(([e["key"] for e in upper["hand"]], [e["item"] for e in upper["taken"]]),
+                         (["PRR_1", "PRR_8", "PRR_3", "PRR_F"], [e["item"] for e in leaving["taken"]] + [far]))
+        # What is new is judged so too: another repository's head is carried, and a home hand read in a new spelling.
+        aged_home = [dict(decided_as(hand), reconciled=dict(reconcile.EMPTY, left=[{"number": 42, "at": EARLY}],
+                                                              hand=[dict(held["hand"][0])]))]
+        heads_new = [{"key": None, "item": dict(ITEM, repo=r), "head": HEAD} for r in ("elsewhere/software-factory", home)]
+        renamed = dict(found["hand"][0], item=dict(ITEM, repo="Combsmith/Software-Factory"))
+        new_ = reconcile.carried(aged_home, recorded(), seen(), NOW, taken=heads_new, hand=[renamed], home=home)
+        self.assertEqual((new_["taken"], [(e["key"], e["item"]) for e in new_["hand"]]),
+                         ([{"key": None, "item": far, "head": HEAD}], [("PRR_1", cased)]))
 
     def test_an_approval_of_a_head_the_pass_did_not_decide_or_whose_commit_cannot_be_read_is_unmatched(self):
         hand = "model_lens_input_needs_person"
