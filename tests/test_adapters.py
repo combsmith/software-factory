@@ -8122,6 +8122,31 @@ class DraftChecks(unittest.TestCase):
                               lambda: Issues.NOW, identities=IDENTITIES, earlier=[], kernel=given)[0]
             self.assertEqual([p.get("checks") for p in got["linked"]], ["failing", None])
 
+    def test_the_factorys_draft_carries_its_own_head_from_this_repo(self):  # issue 1059
+        # The head an implementing Run is admitted at: the draft's commit and its work branch, from this repo by id.
+        sha, work = "5c1e2d3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d", "factory-work/issue-41-1"
+        good = {"head": {"sha": sha, "ref": work, "repo": {"id": 1}}, "base": {"repo": {"id": 1, "full_name": "o/r"}}}
+        self.assertEqual(draft_checks.head(good), {"sha": sha, "ref": work})
+        head = lambda **over: dict(good, head=dict(good["head"], **over))
+        for bad in (head(repo={"id": 2}), head(repo=None), head(repo={"id": True}), head(repo={}), head(sha=sha[:7]),
+                    head(sha=sha.upper()), head(sha=sha + "0"), head(sha="g" * 40), head(sha=None), head(repo="o/r"),
+                    dict(good, base={"repo": "o/r"}), head(ref="work"), head(ref=work + "-2"),
+                    head(ref=None), dict(good, base={"repo": {"id": True}}), dict(good, base={"repo": {}}), dict(good, base=None),
+                    dict(good, head=None), {}):
+            self.assertIsNone(draft_checks.head(bad), bad)
+        # Through the linked read: carried beside the checks, for the Factory's draft alone, null where not told.
+        given = self.kernel()
+        exchanges = [linked_read(ref(5, 6)), pull_read(5, user=CONTROLLER_APP, draft=True), pull_timeline(5),
+                     pull_read(6, draft=True), pull_timeline(6)]
+        exchanges[1]["response"]["body"]["head"]["ref"] = work
+        with mock.patch.object(draft_checks, "read", lambda transport, got, kernel: "failing"):
+            for ours, want in ((work, {"sha": "a" * 40, "ref": work}), ("work", None)):
+                exchanges[1]["response"]["body"]["head"]["ref"] = ours
+                transport = Router(github.Replay(copy.deepcopy(exchanges)), {"don-petry": "admin"})
+                found = linked.listing(transport, "o/r", 41, UPDATED, CREATED, IDENTITIES, Linked().accounts(transport),
+                                       {}, given)[0]
+                self.assertEqual([(p.get("checks"), p.get("head", "none")) for p in found],
+                                 [("failing", want), (None, "none")], ours)
 
 PUSHED = json.loads((ROOT / "trials" / "P-71.json").read_text())["repo"]       # P-71's repo, and its work branch
 WORK = "factory-work/issue-9971-1"

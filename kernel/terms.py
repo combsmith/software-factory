@@ -190,6 +190,8 @@ LABEL_CONTRACT = "factory:contract"
 # binds the pull request to that issue, never its body. Not under `factory/`, the tags' namespace: a branch never shares
 # a short name with a tag.
 WORK_BRANCH = r"factory-work/issue-([1-9][0-9]*)-([1-9][0-9]*)"
+# Its name up to the issue, for the Kernel, which reads no pattern: the issue and the count follow, joined by a dash.
+WORK_PREFIX = "factory-work/issue-"
 
 # The conclusions of a Run that ran and did not report: with no outcome, it is the item's, an attempt (issue 286).
 RAN_AND_DIED = ("failure", "timed_out")

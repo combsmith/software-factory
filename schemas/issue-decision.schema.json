@@ -106,7 +106,7 @@
           "$ref": "#/$defs/content_id"
         },
         "branch_head": {
-          "description": "The opening Run's alone: the branch head it was admitted for, or null where the branch does not exist yet",
+          "description": "The opening Run's: the head of the next opening's branch it was admitted for, or null where that branch does not exist yet; the implementing Run's: the head of the draft it was admitted for, a commit's whole sha (issue 1059). apply refuses once it has moved",
           "type": [
             "string",
             "null"
