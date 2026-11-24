@@ -2579,7 +2579,7 @@ class Opening(unittest.TestCase):
             self.assertEqual(decide(f).get("action"), "accept", f.get("base_head", "left out"))
 
     def test_an_unreadable_branch_head_defers_the_opening_run_alone(self):
-        for value in ("", 1, ["9f2c41d"], "9f2c41d", "main", BRANCH_HEAD.upper(), BRANCH_HEAD + "0"):
+        for value in ("", 1, ["9f2c41d"], "9f2c41d", "main", BRANCH_HEAD.upper(), BRANCH_HEAD + "0", BRANCH_HEAD[:-1] + "g"):
             self.assertEqual(what(decide(facts(label_events=READIED_BY_A_PERSON, branch_head=value))),
                              ("defer", "branch_unreadable", None), value)
         f = facts(label_events=READIED_BY_A_PERSON)
@@ -2607,6 +2607,10 @@ class Opening(unittest.TestCase):
                 self.assertEqual(derive(f)["state"], derive(facts(label_events=READIED_BY_A_PERSON))["state"])
                 self.assertEqual(what(decide(dict(f, label_events=ACCEPTED)))[2], INVESTIGATE, (flag, head))
                 self.assertEqual(decide(dict(f, label_events=[])).get("action"), "accept", (flag, head))
+                # Not told, it is unknown whether a base is wanted: an unread base is not what is said.
+                unbased = dict(f)
+                del unbased["base_head"]
+                self.assertEqual(what(decide(unbased)), ("defer", "branch_unreadable", None), (flag, head))
         # The implementing Run pushes to its own draft (decision 0217): the next opening's branch, told or not, neither
         # defers nor admits it. Its draft's own head is what it is admitted at, and one not told defers it.
         named = dict(config(), author_role="dev-lead")
