@@ -23,7 +23,7 @@ TARGETS = ("adapters/facts.py",)
 MUTANTS = [
     # Issue 342: a pull request the Factory opens is bound to its issue by the Run that opened it, as well as its branch.
     ("the snapshot hands acceptance no opening Runs", 'adapters/facts.py',
-     'acceptance.read(transport, first, accounts, opener, opened)', 'acceptance.read(transport, first, accounts, opener)', ('tests.test_adapters',)),
+     'acceptance.bounded(transport, first, accounts, opener, opened)', 'acceptance.bounded(transport, first, accounts, opener)', ('tests.test_adapters',)),
     ("no Role opens pull requests whatever the configuration", 'adapters/facts.py',
      '    return intent["role"] if isinstance(intent, dict) else None', '    return None', ('tests.test_adapters',)),
     # Issue 346: a Lens review whose applied/1 is past retention on an open pull request is asked for again.
@@ -172,8 +172,8 @@ MUTANTS = [
      '    if not isinstance(err, Moved):\n', '    if True:\n', ('tests.test_adapters.Snapshot.test_a_snapshot_names_the_part_github_did_not_answer',)),
     # Issue 295: a pull request the Factory opens is bound to its issue by its branch, never its body.
     ('the snapshot is not told the opener', 'adapters/facts.py',
-     '    contract, contract_whole = acceptance.read(transport, first, accounts, opener, opened)\n',
-     '    contract, contract_whole = acceptance.read(transport, first, accounts, opened=opened)\n', ('tests.test_adapters.Snapshot.test_a_snapshot_reads_the_ask_of_the_openers_pull_request_by_its_branch',)),
+     '    contract, contract_whole, contract_cut = acceptance.bounded(transport, first, accounts, opener, opened)\n',
+     '    contract, contract_whole, contract_cut = acceptance.bounded(transport, first, accounts, opened=opened)\n', ('tests.test_adapters.Snapshot.test_a_snapshot_reads_the_ask_of_the_openers_pull_request_by_its_branch',)),
     ('an untold opener is read as none', 'adapters/facts.py',
      '        return acceptance.UNTOLD\n', '        return None\n', ('tests.test_controller.Entry.test_the_app_that_opens_pull_requests_is_read_from_the_configuration_by_its_role',)),
     ("another App's account is the opener's", 'adapters/facts.py',
@@ -206,5 +206,7 @@ MUTANTS = [
      ' + ([queue] if queue is not None else [])',
      '', ('tests.test_controller.Record.test_the_queue_workflows_runs_are_read_once_it_is_named',)),
     ("the snapshot leaves out whether the acceptance read was cut", 'adapters/facts.py',
-     '        "acceptance_bounded": False,\n', '', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut',)),
+     '        "acceptance_bounded": contract_cut,\n', '', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut',)),
+    ("the snapshot says no acceptance read was cut", 'adapters/facts.py',
+     '"acceptance_bounded": contract_cut,', '"acceptance_bounded": False,', ('tests.test_adapters.Acceptance.test_a_bound_issues_timeline_is_read_to_ten_pages_and_past_them_is_not_whole', 'tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut')),
 ]

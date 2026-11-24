@@ -1087,6 +1087,39 @@ class Lifecycle(unittest.TestCase):
         self.assertTrue(caught(problems, "lifecycle/issue.json: the bound max_unmerged_closes is not a limit"),
                         problems)
 
+    def test_the_implementing_rounds_are_held_at_or_below_the_run_ceiling_and_bound_no_transition(self):  # decision 0242
+        # Each round is a Run, so a limit past the Run ceiling would never be reached: the configuration holds it at or
+        # below. And the rounds bound a loop inside in_progress that no transition makes, so no transition may name them,
+        # neither the issue's opening retry nor any of the pull request's.
+        self.assertNotIn("max_implementing_rounds", check_lifecycle.PER_ITEM)
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        ceiling = config["limits"]["max_runs_per_item"]
+        self.assertLessEqual(config["limits"]["max_implementing_rounds"], ceiling)
+        self.assertEqual(check_lifecycle.run(), [])
+        words = "config/defaults.json: max_implementing_rounds is not a whole number at or below max_runs_per_item"
+        missing = object()
+        for value, wrong in ((ceiling, False), (1, False), (ceiling + 1, True), (0, True), (True, True),
+                             (3.0, True), ("3", True), (None, True), (missing, True)):
+            cfg = copy.deepcopy(config)
+            if value is missing:
+                del cfg["limits"]["max_implementing_rounds"]
+            else:
+                cfg["limits"]["max_implementing_rounds"] = value
+            problems = check_lifecycle.run(clone({"config/defaults.json": json.dumps(cfg)}))
+            self.assertEqual(caught(problems, words), wrong, (value, problems))
+        # A Run ceiling that is no whole number, a bool or a fraction above the rounds among them, holds nothing under it.
+        for ceiling, rounds in (("10", 1), (True, 1), (None, 1), (2.5, 2)):
+            cfg = copy.deepcopy(config)
+            cfg["limits"].update(max_runs_per_item=ceiling, max_implementing_rounds=rounds)
+            self.assertTrue(caught(check_lifecycle.run(clone({"config/defaults.json": json.dumps(cfg)})), words),
+                            ceiling)
+        words = "the bound max_implementing_rounds is not a limit the Kernel counts for each item"
+        for name, start, end in (("issue", "in_progress", "ready"), ("pull_request", "converged", "queued")):
+            lc = copy.deepcopy(check_lifecycle.load(name))
+            tr = next(tr for tr in lc["transitions"] if (tr["from"], tr["to"]) == (start, end) and tr["bound"] is not None)
+            tr["bound"] = "max_implementing_rounds"
+            self.assertTrue(caught(check_lifecycle.check(lc, config["limits"]), words), name)
+
     def test_the_act_ceiling_can_bound_a_transition(self):
         # An enqueue is an act, not a Run; a cycle through the merge queue is bounded by the act ceiling.
         lc = copy.deepcopy(check_lifecycle.load())
