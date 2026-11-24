@@ -98,7 +98,7 @@ def _snapshot(transport, repo, number, identities, accounts, runs_whole, clock, 
     part[0] = "checks"
     read = checks.read(transport, first, raw)
     part[0] = "acceptance"
-    contract, contract_whole = acceptance.read(transport, first, accounts, opener, opened)
+    contract, contract_whole, contract_cut = acceptance.bounded(transport, first, accounts, opener, opened)
     part[0] = "threads"
     found, threads_whole = applied.held(*threads.read(transport, first, accounts, raw), recorded, content["content_id"])
     part[0] = "edits"
@@ -134,8 +134,7 @@ def _snapshot(transport, repo, number, identities, accounts, runs_whole, clock, 
                                   if r.get("expired") is True),
         "acceptance": contract,
         "opened_for": acceptance.opened_for(first, opener, opened),
-        # The acceptance read reads a closing issue's timeline whole, never cut at a bound, as yet (issue 986).
-        "acceptance_bounded": False,
+        "acceptance_bounded": contract_cut,
         "complete": {"acceptance": contract_whole, "reviews": reviews_whole, "threads": threads_whole,
                      "checks": read["complete"], "diff": content["complete"],
                      "changed_paths": paths["complete"], "runs": runs_whole is True, "timeline": timeline_whole},
