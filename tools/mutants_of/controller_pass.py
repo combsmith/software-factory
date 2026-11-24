@@ -359,6 +359,8 @@ MUTANTS = [
      ', found["hand"], found["taken"],\n', ', found["hand"], (),\n', HAND_PASS),
     ("the pass reads no pull request as open", 'controller/pass_.py',
      'found["hand"], found["taken"],\n                                               opened, config', 'found["hand"], found["taken"],\n                                               (), config', HAND_PASS),
+    ('a pass with no window read reads none open', 'controller/pass_.py',
+     '  opened, config["controller"]', '  opened if reads.get("seen") is not None else (), config["controller"]', HAND_PASS),
     ('the pass hands its carry no home', 'controller/pass_.py',
      'opened, config["controller"]["home"]["repo"])}', 'opened)}', HAND_PASS),
     ('one left out is not read as open', 'controller/pass_.py',

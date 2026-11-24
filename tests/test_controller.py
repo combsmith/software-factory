@@ -329,6 +329,8 @@ class Record(unittest.TestCase):
                          ([{"number": 42, "at": "2026-10-11T13:00:00Z"}], []))
         left_out = passed(reads(pulls=[moved], seen=seen), now="2026-10-11T14:00:00Z", previous=chain[:2])["record"]
         self.assertEqual(left_out["reconciled"]["left"], [])
+        unseen = passed(reads(pulls=[pull], seen=None, runs=[run(number=42)]), now="2026-10-11T14:00:00Z", previous=chain[:2])
+        self.assertEqual(unseen["record"]["reconciled"]["left"], [])
         # One decided and one left out in the same pass both drop their stamps; one newly left is stamped.
         both = dict(chain[1], reconciled=dict(chain[1]["reconciled"], left=[{"number": n, "at": "2026-10-11T13:00:00Z"}
                                                                             for n in (42, 43)]))

@@ -445,6 +445,8 @@ MUTANTS = [
      'return not ours(item) or int(', 'return int(', HAND_CARRY + HAND_PASS),
     ("another repository's read open clears a stamp", 'controller/reconcile.py',
      '[1] == "pull" and ours(i)}\n', '[1] == "pull"}\n', HAND_CARRY),
+    ("another owner's repository of that name is ours", 'controller/reconcile.py',
+     'item.startswith("https://github.com/%s/" % home)', 'item.split("/")[4] == home.split("/")[1]', HAND_CARRY),
     ("a repository's name as its prefix is ours", 'controller/reconcile.py',
      '"https://github.com/%s/" % home)', '"https://github.com/%s" % home)', HAND_PASS),
     ('one newly left keeps every reopened stamp', 'controller/reconcile.py',

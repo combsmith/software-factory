@@ -720,7 +720,7 @@ class HandApproval(unittest.TestCase):
         mixed = reconcile.carried(inside, recorded(), None, NOW, gone=[44], open_=[URL, URL.replace("/42", "/43")])
         self.assertEqual(mixed["left"], [{"number": 44, "at": NOW}])
         # Another repository's row of that number stays for good: its leaving and a read open are ours alone (issue 1190).
-        far, home = URL.replace("software-factory", "elsewhere"), "combsmith/software-factory"
+        far, home = URL.replace("combsmith/", "elsewhere/"), "combsmith/software-factory"
         foreign = dict(leaving, hand=leaving["hand"] + [dict(leaving["hand"][0], key="PRR_F", item=far)],
                        taken=leaving["taken"] + [{"key": None, "item": far, "head": HEAD}], left=[{"number": 42, "at": EARLY}])
         kept = reconcile.carried([dict(decided_as(hand), reconciled=foreign)], recorded(), seen(), NOW, home=home)
