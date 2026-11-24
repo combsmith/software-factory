@@ -324,6 +324,13 @@ class Record(unittest.TestCase):
                          ([{"number": 42, "at": "2026-10-11T13:00:00Z"}], []))
         left_out = passed(reads(pulls=[moved], seen=seen), now="2026-10-11T14:00:00Z", previous=chain[:2])["record"]
         self.assertEqual(left_out["reconciled"]["left"], [])
+        # One decided and one left out in the same pass both drop their stamps; one newly left is stamped.
+        both = dict(chain[1], reconciled=dict(chain[1]["reconciled"], left=[{"number": n, "at": "2026-10-11T13:00:00Z"}
+                                                                            for n in (42, 43)]))
+        other_moved = {"facts": {"item": dict(support.ITEM, number=43)}, "title": None, "unread": "facts_unanswered"}
+        mixed = dict(reads(pulls=[pull, other_moved], seen=seen, runs=[run(number=42)]), gone=[44])
+        self.assertEqual(passed(mixed, now="2026-10-11T14:00:00Z", previous=[first, both])["record"]["reconciled"]["left"],
+                         [{"number": 44, "at": "2026-10-11T14:00:00Z"}])
         self.assertEqual(chain[-2]["reconciled"].get("hand"), carried_)
         self.assertEqual(("write_unmatched" in chain[-1]["alerts"], chain[-1]["reconciled"].get("hand")), (False, carried_))
 

@@ -716,6 +716,9 @@ class HandApproval(unittest.TestCase):
                          (leaving["hand"], leaving["taken"], [{"number": 43, "at": GIVEN}]))
         issue = reconcile.carried(inside, recorded(), seen(), NOW, open_=[URL.replace("/pull/", "/issues/")])
         self.assertEqual(issue["left"], inside[0]["reconciled"]["left"])
+        # Both read open and one newly left in one pass, with no window read: the newly left alone is stamped.
+        mixed = reconcile.carried(inside, recorded(), None, NOW, gone=[44], open_=[URL, URL.replace("/42", "/43")])
+        self.assertEqual(mixed["left"], [{"number": 44, "at": NOW}])
 
     def test_an_approval_of_a_head_the_pass_did_not_decide_or_whose_commit_cannot_be_read_is_unmatched(self):
         hand = "model_lens_input_needs_person"
