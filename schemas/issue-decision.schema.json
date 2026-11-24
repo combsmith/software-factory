@@ -106,12 +106,12 @@
           "$ref": "#/$defs/content_id"
         },
         "branch_head": {
-          "description": "The opening Run's alone: the branch head it was admitted for, or null where the branch does not exist yet",
+          "description": "The opening Run's alone: the branch head it was admitted for, a commit's whole name, or null where the branch does not exist yet",
           "type": [
             "string",
             "null"
           ],
-          "minLength": 1
+          "pattern": "^[0-9a-f]{40}$"
         },
         "base_head": {
           "description": "The opening Run's alone, where the branch does not exist yet: the default branch's head it was admitted for, the commit it reads and lands its one commit on",

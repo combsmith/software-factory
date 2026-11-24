@@ -1,0 +1,13 @@
+{
+  "schema": "issue-decision/1",
+  "item": {
+    "repo": "combsmith/software-factory",
+    "type": "issue",
+    "number": 41
+  },
+  "state": "ready",
+  "reason": "branch_unreadable",
+  "evidence": [],
+  "attention": "ready",
+  "outcome": "defer"
+}

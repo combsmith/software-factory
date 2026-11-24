@@ -848,10 +848,23 @@ def readable_writer(facts: dict) -> bool:
                for name in ("last_writer_action_at", "last_writer_comment_at"))
 
 
+def branch_told(facts: dict) -> bool:
+    """Whether the issues port told the next opening's branch: `complete.branch` exactly true. Not one of the lists every
+    rule reads (`ISSUE_READ_IN_FULL`): a branch not told defers an opening alone (decision 0242)."""
+    flags = facts.get("complete")
+    return isinstance(flags, dict) and flags.get("branch") is True
+
+
 def readable_head(facts: dict) -> bool:
-    """The head of the branch the next opening Run would push to: a name, or null while that branch does not exist."""
-    return "branch_head" in facts and (facts["branch_head"] is None
-                                       or (isinstance(facts["branch_head"], str) and facts["branch_head"] != ""))
+    """The head of the branch the next opening Run would push to, told: a commit's whole sha, or null while that branch
+    does not exist. Where the port did not tell it, `complete.branch` not exactly true, a null is unread too (issue 1059)."""
+    return branch_told(facts) and "branch_head" in facts and (
+        facts["branch_head"] is None or is_commit(facts["branch_head"]))
+
+
+def is_commit(value) -> bool:
+    """A commit's whole name, as GitHub writes it: forty lowercase hex digits, and no branch's or tag's name."""
+    return isinstance(value, str) and len(value) == len(COMMIT_SHAPE) and all(c in t.HEX_DIGITS for c in value)
 
 
 def readable_base(facts: dict) -> bool:
