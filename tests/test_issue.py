@@ -1827,8 +1827,9 @@ class Outcomes(unittest.TestCase):
 
     def test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted(self):  # issue 825
         # Slice 2's S9 (rulings-422, section 3): while the draft the Factory opened for the issue fails its required checks,
-        # the issue admits another implementing Run, the author Role's, for that draft; bounded by max_attempts, every
-        # implementing Run that completed counted as a round, and by the Run ceiling. Dormant while no author Role is named.
+        # the issue admits another implementing Run, the author Role's, for that draft; bounded by max_implementing_rounds
+        # (decision 0242), every implementing Run that completed counted as a round, and by the Run ceiling. Dormant while
+        # no author Role is named.
         named = dict(config(), author_role="dev-lead")
         failing = facts(linked=[agents(draft=True, checks="failing")])
         d = decide(failing, cfg=named)
@@ -1871,9 +1872,10 @@ class Outcomes(unittest.TestCase):
         for draft in (agents(draft=True, checks="pending"), dict(agents(draft=True), checks=None)):
             d = decide(facts(linked=[draft]), [flying], cfg=named)
             self.assertEqual((what(d), d["attention"]), (("nothing", "linked_draft", None), "working"), draft["checks"])
-        # max_attempts implementing Runs completed, each of which left the checks failing: held, the issue calls a person.
+        # max_implementing_rounds implementing Runs completed, each of which left the checks failing: held, the issue
+        # calls a person.
         rounds = [run(intent=issue.IMPLEMENT, role="dev-lead", name="m%d" % n, minute=7 + n)
-                  for n in range(LIMITS["max_attempts"])]
+                  for n in range(LIMITS["max_implementing_rounds"])]
         self.assertEqual(what(decide(failing, rounds[:-1], cfg=named)), ("admit", "linked_draft", issue.IMPLEMENT))
         held = ("held", "hold", "attempts_exhausted", "needs_you", [r["run"] for r in rounds])
         d = decide(failing, rounds, cfg=named)
@@ -1900,11 +1902,76 @@ class Outcomes(unittest.TestCase):
         d = decide(failing, rounds[:-1] + [flying], cfg=named)
         self.assertEqual((what(d), d["attention"]), (("nothing", "linked_draft", None), "working"))
         # A writer's action renews the rounds, as it renews every count.
-        renewed = dict(failing, last_writer_action_at=at(7 + LIMITS["max_attempts"]))
+        renewed = dict(failing, last_writer_action_at=at(7 + LIMITS["max_implementing_rounds"]))
         self.assertEqual(what(decide(renewed, rounds, cfg=named)), ("admit", "linked_draft", issue.IMPLEMENT))
         # The Run ceiling bounds it too, whatever Runs spent it.
         spent = [run(intent="judge-readiness", name="j%d" % n, minute=7 + n) for n in range(LIMITS["max_runs_per_item"])]
         self.assertEqual(what(decide(failing, spent, cfg=named))[:2], ("hold", "run_ceiling"))
+
+    def test_the_implementing_rounds_have_a_limit_of_their_own_read_from_no_other_key(self):  # issue 1038, decision 0242
+        # Held at max_implementing_rounds whatever max_attempts is: one short admits; at the bound, attempts_exhausted,
+        # the rounds as evidence (decision 0217).
+        failing = facts(linked=[agents(draft=True, checks="failing")])
+
+        def rounds(n: int) -> list:
+            return [run(intent=issue.IMPLEMENT, role="dev-lead", name="m%d" % i, minute=7 + i) for i in range(n)]
+
+        def named(**limits) -> dict:
+            # The Run ceiling is set above every count here, so that no Hold below is the ceiling's.
+            c = dict(config(), author_role="dev-lead")
+            c["limits"] = dict(c["limits"], max_runs_per_item=20, **limits)
+            return c
+
+        for top, attempts in ((2, 5), (4, 1), (1, 3)):
+            cfg = named(max_implementing_rounds=top, max_attempts=attempts)
+            self.assertEqual(what(decide(failing, rounds(top - 1), cfg=cfg)), ("admit", "linked_draft", issue.IMPLEMENT),
+                             (top, attempts))
+            d = decide(failing, rounds(top), cfg=cfg)
+            self.assertEqual((d["state"], what(d)[:2], d["attention"], d["evidence"]),
+                             ("held", ("hold", "attempts_exhausted"), "needs_you", [r["run"] for r in rounds(top)]),
+                             (top, attempts))
+        # A round is any implementing Run that completed, whatever it concluded: one that failed by the item counts as a
+        # round too, below the attempts' bound, and is named among the rounds.
+        cfg = named(max_implementing_rounds=2, max_attempts=5)
+        mixed = [dict(rounds(1)[0], conclusion="failure", outcome="item"), rounds(2)[1]]
+        d = decide(failing, mixed, cfg=cfg)
+        self.assertEqual((what(d)[:2], d["evidence"]), (("hold", "attempts_exhausted"), ["m0", "m1"]))
+        # So is one that spent no model, its Engine never started, which counts apart from the Run ceiling.
+        idle = dict(rounds(1)[0], conclusion="failure", outcome="environment", engine_started=False)
+        d = decide(failing, [idle, rounds(2)[1]], cfg=cfg)
+        self.assertEqual((what(d)[:2], d["evidence"]), (("hold", "attempts_exhausted"), ["m0", "m1"]))
+        # Where both bounds are reached, the rounds' Hold is the one given, naming every round, not the attempts' alone.
+        both = [rounds(1)[0], dict(rounds(2)[1], conclusion="failure", outcome="item")]
+        d = decide(failing, both, cfg=named(max_implementing_rounds=2, max_attempts=1))
+        self.assertEqual((what(d)[:2], d["evidence"]), (("hold", "attempts_exhausted"), ["m0", "m1"]))
+        # A key missing, null or no whole number of at least one holds the issue, limits_unreadable, naming no Run, with
+        # a Run in flight too: never another key's number, nor a deferral.
+        missing = object()
+        for bad in (missing, None, 0, -1, True, 3.0, "3", [3]):
+            cfg = named()
+            if bad is missing:
+                del cfg["limits"]["max_implementing_rounds"]
+            else:
+                cfg["limits"]["max_implementing_rounds"] = bad
+            for spent in ([], rounds(1)):
+                d = decide(failing, spent, cfg=cfg)
+                self.assertEqual((d["state"], what(d), d["attention"], d["evidence"]),
+                                 ("held", ("hold", "limits_unreadable", None), "needs_you", []), (bad, spent))
+            flying = run(intent=issue.IMPLEMENT, status="in_progress", role="dev-lead", name="m9", minute=30)
+            d = decide(failing, [flying], cfg=cfg)
+            self.assertEqual((d["state"], what(d), d["attention"], d["evidence"]),
+                             ("held", ("hold", "limits_unreadable", None), "needs_you", []), bad)
+            # Another Intent's loop never reads the rounds' key, readable or not.
+            self.assertEqual(what(decide(TRIAGED, cfg=cfg)), ("admit", "triage", INVESTIGATE), bad)
+        # Runs that failed by the item are held at max_attempts, the implementing Run's as every Intent's, never at the
+        # lower of the two keys.
+        cfg = named(max_implementing_rounds=3, max_attempts=1)
+        broke = dict(rounds(1)[0], conclusion="failure", outcome="item")
+        self.assertEqual(what(decide(failing, [broke], cfg=cfg))[:2], ("hold", "attempts_exhausted"))
+        self.assertEqual(what(decide(failing, rounds(1), cfg=cfg)), ("admit", "linked_draft", issue.IMPLEMENT))
+        self.assertEqual(what(decide(TRIAGED, [failed(INVESTIGATE, 1, "f0")], cfg=cfg))[:2], ("hold", "attempts_exhausted"))
+        cfg = named(max_implementing_rounds=1, max_attempts=3)
+        self.assertEqual(what(decide(TRIAGED, [failed(INVESTIGATE, 1, "f0")], cfg=cfg)), ("admit", "triage", INVESTIGATE))
 
     def test_no_author_role_is_named_while_the_implementing_rule_is_owed_its_reads(self):  # issue 825, decision 0217
         # The implementing rule is dormant until the author Role is named, and four things are owed before it is: the

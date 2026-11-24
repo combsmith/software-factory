@@ -1057,9 +1057,10 @@ def _implementing(facts, state, reason, evidence, mine, config):
     """The implementing Run a linked draft calls for (slice 2's S9, issue 825), or the Decision that admits none: while
     the draft the Factory opened fails its required checks, another of the author Role's, for that draft. A person's or
     a stranger's draft waits for its author, and every draft does while no author Role is named. The draft's checks are
-    read only where the rule would act on them, and checks that cannot be read defer. `max_attempts` bounds the rounds:
-    every implementing Run that completed since a writer acted is one, whatever it concluded, since the checks it left
-    failing are what admit the next, a brake the brakes keep (issue 874); the Run ceiling bounds it as it bounds any Run."""
+    read only where the rule would act on them, and checks that cannot be read defer. `max_implementing_rounds` bounds
+    the rounds (decision 0242): every implementing Run that completed since a writer acted is one, whatever it concluded,
+    since the checks it left failing are what admit the next, a brake the brakes keep (issue 874); the Run ceiling, and
+    `max_attempts` for its Runs that failed by the item, bound it as they bound any Run."""
     draft = [p for p in facts["linked"] if str(p["number"]) == evidence[0]][0]
     if config["author_role"] is None or draft["class"] != "agent":
         return _decision(facts, state, reason, evidence, t.NOTHING)
@@ -1067,7 +1068,8 @@ def _implementing(facts, state, reason, evidence, mine, config):
         return _decision(facts, state, "draft_checks_unreadable", evidence, t.DEFER)
     if draft["checks"] != "failing":
         return _decision(facts, state, reason, evidence, t.NOTHING)
-    held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"])
+    unreadable = _decision(facts, t.HELD, "limits_unreadable", [], t.HOLD)
+    held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"], unreadable)
     if held:
         return held
     return (config["author_role"], IMPLEMENT, {"pull_request": draft["number"]})
