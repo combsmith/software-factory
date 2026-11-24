@@ -410,7 +410,7 @@
       "minimum": 0
     },
     "branch_head": {
-      "description": "The head of the branch the next opening Run would push to, named from the issue's number and the count of pull requests the Factory has opened for it; null while that branch does not exist. The opening Run is admitted for it, and apply refuses once it has moved",
+      "description": "The head of the branch the next opening Run would push to, named from the issue's number and the count of pull requests the Factory has opened for it; null while that branch does not exist, and null where it was not read, which complete.branch tells apart (decision 0242). The opening Run is admitted for it, and apply refuses once it has moved",
       "type": [
         "string",
         "null"
@@ -441,6 +441,10 @@
         },
         "runs": {
           "description": "Whether the list of run records the pass read was whole",
+          "type": "boolean"
+        },
+        "branch": {
+          "description": "Whether branch_head was told: the next opening's branch named, from the count of pull requests the Factory opened for the issue, and its head read as a commit or as no branch. Not required, as facts made before it was do not hold it; one that is not exactly true defers an opening alone, as branch_unreadable (decision 0242)",
           "type": "boolean"
         }
       }
