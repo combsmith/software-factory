@@ -296,13 +296,24 @@ class TheAct(unittest.TestCase):
         done, ended, github = act(GitHub({("GET", PULL + "/reviews?per_page=100"): listed}), read=reads(f))
         self.assertEqual((effect(done)[1:3], github.writes()), (("refused", None), []))
         self.assertEqual([r["path"] for r in github.log if r["method"] == "GET"], ["/user"])
-        # Nor on a timeline the port cut at its bound, or says it cut in a form that is no truth value, whatever
-        # complete.timeline claims (decision 1149; Muse).
-        for cut in (True, None):
-            done, ended, github = act(GitHub({("GET", PULL + "/reviews?per_page=100"): listed}),
-                                      read=reads(facts(timeline_bounded=cut)))
-            self.assertEqual((effect(done)[1:3], github.writes()), (("refused", None), []), cut)
-            self.assertEqual([r["path"] for r in github.log if r["method"] == "GET"], ["/user"], cut)
+        # Nor on a timeline the port cut at its bound, whatever complete.timeline claims (decision 1149; Muse): the
+        # Kernel defers, and the act claims nothing. A cut flag that is no truth value never reaches the gate: the
+        # snapshot's schema refuses it first (Claude, security, Astra).
+        for cut, whole, why in ((True, True, ("superseded", "not_wanted")), (True, False, ("superseded", "not_wanted")),
+                                (None, True, ("environment", "snapshot_unreadable")),
+                                (0, True, ("environment", "snapshot_unreadable"))):
+            f = facts(timeline_bounded=cut)
+            f["complete"] = dict(f["complete"], timeline=whole)
+            done, ended, github = act(GitHub({("GET", PULL + "/reviews?per_page=100"): listed}), read=reads(f))
+            self.assertEqual((effect(done)[1:3], fault(ended), github.writes()), (("refused", None), why, []),
+                             (cut, whole))
+            self.assertEqual([r["path"] for r in github.log if r["method"] == "GET"], ["/user"], (cut, whole))
+        # Absent, as in facts read before it, it is not cut: an approval that landed is recovered (Astra).
+        landed = dict(LANDED, id=5, node_id="PRR_landed")
+        f = facts(reviews=[review()])
+        del f["timeline_bounded"]
+        done, ended, github = act(at(PULL + "/reviews?per_page=100", {"status": 200, "body": [landed]}), read=reads(f))
+        self.assertEqual((effect(done)[1:3], github.writes()), (("already_applied", "PRR_landed"), []))
 
     def test_a_re_run_claims_no_approval_of_a_pull_request_now_closed(self):  # issue 378, decision 0079
         # An earlier attempt's approval of a pull request closed under it claimed nothing; a re-run that finds the pull
