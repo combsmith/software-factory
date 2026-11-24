@@ -62,6 +62,8 @@ MUTANTS = [
     ("the carry's line counts no issue owed", "controller/__main__.py", '"left", "owed_issues", "left_issues", "hands")', '"left", "left_issues", "hands")', STAGED),
     ("the carry's line counts no issue left", "controller/__main__.py", '"owed_issues", "left_issues", "hands")', '"owed_issues", "hands")', STAGED),
     ("the carry's line counts no hand approval or taken head", "controller/__main__.py", 'CARRIED = ("hand", "taken",\n', 'CARRIED = (\n', STAGED),
+    ("the carry's line counts no hand approval", "controller/__main__.py", 'CARRIED = ("hand", "taken",\n', 'CARRIED = ("taken",\n', STAGED),
+    ("the carry's line counts no taken head", "controller/__main__.py", 'CARRIED = ("hand", "taken",\n', 'CARRIED = ("hand",\n', STAGED),
     ("the carry's line counts no hand's thread", "controller/__main__.py", '"owed_issues", "left_issues", "hands")', '"owed_issues", "left_issues")', STAGED),
     ("the open pull requests' reads are not timed", "controller/__main__.py", '        stages.count(tally, "open_pull_requests", seconds)\n', '', STAGED),
     ("the carry's size is not said beside the pass", "controller/__main__.py", "        counts.update(stages.carried(out.get(\"record\")))\n", "", ('tests.test_controller.Entry.test_each_stage_of_a_pass_is_timed_in_the_log_alone_and_times_no_read_differently',)),
