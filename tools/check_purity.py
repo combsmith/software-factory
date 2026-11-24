@@ -21,7 +21,17 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 # `typing` is not among them: it reaches `sys` and an `eval` of its own, and the Kernel needs none of it (issue 588).
 ALLOWED_IMPORTS = {"__future__", "kernel"}
 FORBIDDEN_NAMES = {"open", "print", "input", "exec", "eval", "__import__", "compile", "globals", "locals", "vars",
-                   "getattr", "setattr", "delattr", "__builtins__", "breakpoint", "callable", "iter"}
+                   "getattr", "setattr", "delattr", "__builtins__", "breakpoint", "callable", "iter",
+                   # site's builtins, each of which reads a file, starts the help system or ends the process as a value
+                   # it is handed, `str(license)` among them (issue 909).
+                   "license", "copyright", "credits", "help", "exit", "quit"}
+# The statements that call a method of a value they are handed: `__enter__` and `__exit__`, `__await__`, the iterator
+# `yield from` drives, and `assert`, which raises (issue 909). A `for` over a value is not among them: what the Kernel
+# loops over is a fact, a list or a dictionary, and so is what it hands `next()` or `len()`: the line is drawn at the
+# statements, which a fact never needs.
+HANDLING = {ast.With: "enters what it is handed", ast.AsyncWith: "enters what it is handed",
+            ast.Await: "awaits what it is handed", ast.YieldFrom: "drives what it is handed",
+            ast.Assert: "raises", ast.AsyncFor: "drives what it is handed"}
 # What a module may hold at its top level: a value that cannot change after import.
 CONSTANT_CALLS = {"frozenset"}
 # The calendar, which nobody chooses, and so the only numbers but 0 and 1 the Kernel may write: each a constant of
@@ -80,12 +90,102 @@ def _special(node) -> list:
     return [w for w in words if len(w) > 4 and w.startswith("__") and w.endswith("__")]
 
 
-def _constant(node) -> bool:
+def _assigned(node) -> list:
+    """The names an assignment at a module's top binds, each element of a tuple or list it unpacks into among them."""
+    targets = list(getattr(node, "targets", [getattr(node, "target", None)]))
+    names = []
+    while targets:
+        target = targets.pop(0)
+        if isinstance(target, ast.Name):
+            names.append(target.id)
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            targets += target.elts
+    return names
+
+
+def _shaped(target, value) -> bool:
+    """Whether an assignment at a module's top binds names alone, and unpacks into a tuple or list of them only a tuple
+    written out with as many elements, each of its own shape: so that no starred name keeps a list, and no name is a
+    set's element in an order the hash seed picks. A list written out is a value that can change, refused before."""
+    if isinstance(target, ast.Name):
+        return True
+    return (isinstance(target, (ast.Tuple, ast.List)) and isinstance(value, ast.Tuple)
+            and len(target.elts) == len(value.elts) and all(_shaped(t, v) for t, v in zip(target.elts, value.elts)))
+
+
+def _top_names(tree) -> set:
+    """The names a module binds at its top: a function's, an assignment's, an import's."""
+    return {word for node in tree.body for word in _bound(node) + _assigned(node)
+            + ([alias.asname or alias.name.split(".")[0] for alias in node.names]
+               if isinstance(node, (ast.Import, ast.ImportFrom)) else [])}
+
+
+def _answered(name: str, node, word: str, read: set, bound: dict, hidden=lambda parts: False) -> bool:
+    """Whether `from <module> import word` in the file `name` is answered by what is read here: `word` is a module of
+    the package read, or a name its module's file binds at its top (issue 909). A relative import is read from the
+    file's own folder; one that climbs past the package is another rule's. Neither the module nor `word` may be a
+    folder that is `hidden`, there with its `__init__.py` unread: Python imports that folder before a file of its
+    name, or a name its module binds by importing it."""
+    folder = name.split("/")[:-1]
+    if node.level:
+        if node.level - 1 > len(folder):
+            return True
+        parts = folder[:len(folder) - (node.level - 1)] + (node.module.split(".") if node.module else [])
+    else:
+        parts = node.module.split(".")[1:]
+    module = ["/".join(parts + ["__init__.py"]).lstrip("/"), "/".join(parts) + ".py"]
+    inner = "/".join(parts + [word])
+    if word != "*" and (hidden(parts) or hidden(parts + [word])):
+        return False
+    return (word == "*" or inner + ".py" in read or inner + "/__init__.py" in read
+            or any(word in bound.get(m, ()) for m in module))
+
+
+def _constant(node, held: frozenset = frozenset()) -> bool:
+    """Whether `node` is a value that cannot change after import: a constant, a tuple of them, or a call of
+    CONSTANT_CALLS whose arguments call nothing but another such call and name nothing but `held`, the names bound at
+    the module's top (less, for a default inside a function, those the function may bind; `_scopes`), and attributes
+    of them: so that no list a generator yields, and no local value, is kept in it (issue 909). Each node is read
+    once."""
     if isinstance(node, ast.Constant):
         return True
     if isinstance(node, ast.Tuple):
-        return all(_constant(e) for e in node.elts)
-    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in CONSTANT_CALLS
+        return all(_constant(e, held) for e in node.elts)
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in CONSTANT_CALLS
+            and not any(k.arg is None for k in node.keywords)
+            and all(_inert(argument, held) for argument in node.args + [k.value for k in node.keywords]))
+
+
+def _scopes(tree, held: frozenset) -> dict:
+    """The names a default may name, by the id of each function or lambda: `held` for one at the module's top, whose
+    defaults the module's top evaluates; for one inside another, `held` less every name bound anywhere in the statement
+    at the top that holds it, as its defaults are evaluated where such a name may be a local (issue 909)."""
+    scopes = {}
+    for top in tree.body:
+        inner = frozenset(word for node in ast.walk(top) for word in _bound(node) + (
+            [alias.asname or alias.name.split(".")[0] for alias in node.names]
+            if isinstance(node, (ast.Import, ast.ImportFrom)) else []))
+        for node in ast.walk(top):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                scopes[id(node)] = held if node is top else held - inner
+    return scopes
+
+
+def _inert(node, held: frozenset) -> bool:
+    """Whether `node`, in a constant's argument, evaluates to a value that cannot change: it calls nothing but a
+    constant's own call, binds nothing, iterates nothing, an unpacking of either kind among it, formats nothing into
+    text, which could write a set's order there, and names only `held`, read once each."""
+    if isinstance(node, ast.Call):
+        return _constant(node, held)
+    if isinstance(node, (ast.GeneratorExp, ast.ListComp, ast.SetComp, ast.DictComp, ast.NamedExpr, ast.Yield,
+                         ast.YieldFrom, ast.Starred, ast.JoinedStr)):
+        return False
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod) or isinstance(node, ast.Dict) and None in node.keys:
+        return False
+    if isinstance(node, ast.Name):
+        return node.id in held
+    return all(_inert(child, held) for child in ast.iter_child_nodes(node)
+               if not isinstance(child, ast.expr_context))
 
 
 def _pinned(name: str, node) -> bool:
@@ -569,8 +669,9 @@ def _modules(tree, trees: dict, package: str) -> tuple:
     found, imports, twice = {}, set(), []
     for node in ast.walk(tree):
         own = []
-        if isinstance(node, ast.Import):
-            own = [alias for alias in node.names if alias.asname and alias.name.split(".")[0] == package]
+        if isinstance(node, ast.Import):       # the package itself is no module of it: `import kernel as k` binds none
+            own = [alias for alias in node.names if alias.asname and alias.name.split(".")[0] == package
+                   and "." in alias.name]
         elif isinstance(node, ast.ImportFrom) and not node.level and (node.module or "").split(".")[0] == package:
             folder = "/".join(node.module.split(".")[1:] + [""]).lstrip("/")
             own = [alias for alias in node.names
@@ -621,6 +722,9 @@ def _alone(root: pathlib.Path, read: set, trees: dict, package: str) -> list:
     - A limit: a module's name is resolved file-wide, not by scope, so a name a guard imports in one function and reads
       in another, where Python reads it as a builtin, passes. No builtin's plain attribute reaches a frame, globals or
       builtins, for the Kernel and the guards alike.
+    - A limit: a folder that holds a `.git` is another working tree, left out as tools/walk.py leaves it out. What the
+      package imports of it is refused, as every import no file read here answers to is (issue 909); what only code
+      outside the package imports of it is not this check's. Git commits no `.git`, so only a desk's tree can hold one.
     """
     problems, guest = [], package != "kernel"
     if (root / package).is_symlink():
@@ -714,11 +818,20 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
     takers = _takers(trees)
     tops = {name: _names(name, tree, trees) for name, tree in trees.items()}
     problems += _packages(trees, tops)
+    bound = {name: _top_names(tree) for name, tree in trees.items()}
+
+    def hidden(parts: list) -> bool:
+        """A folder of the package that is there, its `__init__.py` not read: another working tree, which the walk
+        leaves out, or a folder Python imports as a namespace (issue 909)."""
+        return (root / package).joinpath(*parts).is_dir() and "/".join(parts + ["__init__.py"]) not in read
+
     for name, tree in trees.items():
         problems += _confined(name, tree, owned)
         problems += _calls(name, tree, trees, takers, tops)
         calendar, wrong = _calendar(name, tree)
         problems += wrong
+        held = frozenset(bound[name])
+        scopes = _scopes(tree, held)
         for node in ast.walk(tree):
             line = getattr(node, "lineno", 0)
             mods = []
@@ -729,6 +842,35 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
             for mod in mods:
                 if mod.split(".")[0] not in ALLOWED_IMPORTS:
                     problems.append("%s:%d imports %s" % (name, line, mod))
+                inner = "/".join(mod.split(".")[1:])
+                if mod.split(".")[0] == "kernel" and inner and hidden(inner.split("/")):
+                    problems.append("%s:%d imports %s, a folder here that is not read, which Python imports before a "
+                                    "file of its name" % (name, line, mod))
+                elif mod.split(".")[0] == "kernel" and inner and inner + ".py" not in read and inner + "/__init__.py" not in read:
+                    problems.append("%s:%d imports %s, which no file read here is: Python would import what this does "
+                                    "not read" % (name, line, mod))
+            # The guards refuse every relative import by their own rule, whatever it names.
+            if isinstance(node, ast.ImportFrom) and ((node.level and package == "kernel")
+                                                     or (not node.level and (node.module or "").split(".")[0] == "kernel")):
+                for alias in node.names:
+                    if not _answered(name, node, alias.name, read, bound, hidden):
+                        problems.append("%s:%d imports %s from %s, which no file read here is and its module binds no "
+                                        "such name" % (name, line, alias.name, "." * node.level + (node.module or "")))
+            if package == "kernel" and isinstance(node, ast.ImportFrom) and node.level > name.count("/") + 1:
+                problems.append("%s:%d imports %s, from above kernel/, which no rule here reads"
+                                % (name, line, "." * node.level + (node.module or "")))
+            for word in _bound(node) + ([alias.asname or alias.name.split(".")[0] for alias in node.names]
+                                         if isinstance(node, (ast.Import, ast.ImportFrom)) else []):
+                if word in CONSTANT_CALLS:
+                    problems.append("%s:%d binds %s, the builtin a constant is made by; a module's top would then keep "
+                                    "what that name returns" % (name, line, word))
+            if isinstance(node, ast.comprehension) and node.is_async:
+                problems.append("%s:%d drives what it is handed, which calls a method of a value; the Kernel calls none"
+                                % (name, getattr(node.iter, "lineno", line)))
+            for kind, does in HANDLING.items():
+                if isinstance(node, kind):
+                    problems.append("%s:%d %s, which calls a method of a value; the Kernel calls none"
+                                    % (name, line, does))
             if isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
                 problems.append("%s:%d uses %s" % (name, line, node.id))
             if (isinstance(node, ast.Constant) and type(node.value) in (int, float) and node.value not in (0, 1)
@@ -739,7 +881,7 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
                 problems.append("%s:%d keeps state between calls" % (name, line))
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
                 defaults = node.args.defaults + [d for d in node.args.kw_defaults if d is not None]
-                if not all(_constant(d) for d in defaults):
+                if not all(_constant(d, scopes[id(node)]) for d in defaults):
                     problems.append("%s:%d has a default that can change, which is state kept between calls"
                                     % (name, line))
             if isinstance(node, ast.ClassDef):
@@ -764,6 +906,10 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
             elif value is None:
                 problems.append("%s:%d runs when the module is imported; a module holds constants and functions"
                                 % (name, node.lineno))
-            elif not _constant(value):
+            elif not _constant(value, held):
                 problems.append("%s:%d holds a value that can change; State is never stored" % (name, node.lineno))
+            elif not all(_shaped(target, value) for target in (node.targets if isinstance(node, ast.Assign) else [node.target])):
+                problems.append("%s:%d assigns other than to names, or unpacks other than a tuple of its own shape, which "
+                                "can keep a list a starred name unpacks into, or a set's order; "
+                                "State is never stored" % (name, node.lineno))
     return unread + own + ([_said(problem, package) for problem in problems] if package != "kernel" else problems)

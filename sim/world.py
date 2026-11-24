@@ -440,6 +440,7 @@ class World:
             "opened_for": self.opened_for,
             # No person holds or closes an issue here; tests/test_transitions.py explores both (decision 0232).
             "issue_stands": "open" if self.opened_for is not None else None,
+            "acceptance_bounded": False,
             "complete": {"acceptance": True, "reviews": True, "threads": True, "checks": True, "diff": True,
                          "changed_paths": True, "runs": True, "timeline": True},
             "read_at": self.now(),

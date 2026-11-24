@@ -12,8 +12,9 @@ A queued item is read as if it were not, and stays only if that reading is appro
 | Calls only its own functions, listed builtins and methods, and `_decision` | `tests/test_tools.py::test_the_kernel_calls_nothing_it_is_given`, `tests/test_tools.py::test_a_module_is_called_into_only_at_its_functions` |
 | Facts in, Decision out, as plain dictionaries and lists. An argument is never changed | `tests/test_decide.py::test_the_same_inputs_give_the_same_decision` |
 | No text from outside: no function takes a comment body or a title | `examples/invalid/facts.carries-prose.json` |
-| A reason is a code that matches `^[a-z_]+$`, never a sentence | `examples/invalid/decision.sentence-as-reason.json` |
-| Fail to a deferral or a Hold. No fact has a default but `opened_for`: unread, no fix (record 0216) | `tests/test_decide.py::test_unreadable_capacity_defers`, `tests/test_decide.py::test_the_authors_fix_is_admitted_only_on_a_pull_request_the_factory_opened` |
+| A reason is a code, `^[a-z_]+$`, never a sentence, in `terms.REASONS` or, an issue's alone, `ISSUE_REASONS` (record 0248) | `examples/invalid/decision.sentence-as-reason.json`, `tests/test_reasons.py::test_every_decision_and_every_member_keeps_to_its_set` |
+| Fail to a deferral or a Hold. Defaults: `opened_for` unread is no fix (0216); the next row's | `tests/test_decide.py::test_unreadable_capacity_defers`, `tests/test_decide.py::test_the_authors_fix_is_admitted_only_on_a_pull_request_the_factory_opened` |
+| `acceptance_bounded` absent is not cut: its read short defers all the same (record 1147) | `tests/test_decide.py::test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person` |
 | The gate imports no Kernel code, the brakes only its codes. Nothing else binds their names or their own; no attribute is assigned | `tests/test_tools.py::test_the_brakes_and_the_gate_stand_apart`, `tests/test_tools.py::test_an_attribute_assigned_is_caught` |
 | No number but 0 and 1, but the calendar's that `tools/check_purity.py` pins. A limit is read from `config` | `tests/test_tools.py::test_a_limit_written_into_the_kernel_is_caught`, `tests/test_tools.py::test_only_the_calendar_may_write_a_number` |
 
@@ -26,13 +27,12 @@ and take "not held yet" out of the documents `make verify` names. `python3 -m un
 
 1. The boundary case: `tests/test_decide.py::test_empty_diff_never_converges`. Written first. Assert both sides of the boundary.
 2. The rule: the line in `derive.py` that returns the reason `empty_diff`.
-3. The mutant: the entry "an empty diff converges" in `tools/mutants.py`. It names the file, the
-   exact text of the rule, and what to put in its place. The text must appear once in the file.
+3. The mutant: the entry "an empty diff converges" in `tools/mutants.py`. It names the file, the exact text of the rule, and what to put in its place. The text must appear once in the file.
    A rule that acts in two places gets a mutant for each; one that changes an existing line gets a mutant that puts the old line back.
 
 Then, only if your rule needs it:
 
-- A person must act on the new reason: add it to `NEEDS_YOU_REASONS` in `decide.py`. A new brake goes in `brakes.py`, and what gates in `gate.py`.
+- A new reason goes in `REASONS` or `ISSUE_REASONS` in `terms.py`, and in `NEEDS_YOU_REASONS` in `decide.py` if a person must act on it. A new brake goes in `brakes.py`, and what gates in `gate.py`.
 - It reads a new fact: add the field to `schemas/facts.schema.json`, `examples/facts.json`,
   `facts()` in `tests/support.py` and `sim/world.py`, together; a flag in `complete`, to `terms.py` too.
 - It reads a new limit: add it to `config/defaults.json` and `schemas/config.schema.json`. A staleness limit stays in `lifecycle/`.

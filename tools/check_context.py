@@ -42,9 +42,28 @@ PATHLIKE = re.compile(r"^[\w.-]+(/[\w.-]+)*/?$")
 SUFFIXES = (".py", ".json", ".md", ".yml", ".yaml")
 EXTENSION = re.compile(r"\.[a-z0-9]{1,5}$")
 PENDING = "not held yet"
+# From this record on, a record's title after "# NNNN. " is at most RECORD_TITLE characters, and its file is named by it:
+# the title lowercased, every character but an ASCII letter, a digit, a space or a dash dropped, the spaces at either
+# end left out, then each run of spaces turned to one dash (decision 0245). A title with no letter or digit names nothing.
+# The records before keep their names, since a record is never edited.
+FIRST_SHORT = 245
+RECORD_TITLE = 72
 # A record is numbered by the pull request that adds it, which tools/commits_are_the_maintainers.py holds, so numbers
 # leave gaps; the number is the file's, at least four digits, and no two records share one (decision 1121).
 RECORD_NUMBER = re.compile(r"^([0-9]{4,})-")
+# From this record on, a record is a short why-log that points to the code, held to a budget (decision 1166). A word is
+# a run between spaces with a letter or a digit in it, so a table's pipes are none; the Status counts none in backticks.
+# From it on, a record may also give an issue or a pull request by its number alone, never as a bare #N.
+BUDGET_FROM = 1166
+STATUS_WORDS = 40
+REASONS_WORDS = 300     # the Decision and the Why together
+REPLACING_WORDS = 450   # the same, for a record whose Status replaces others
+CELL_WORDS = 40         # a cell of a Decision table
+DECISION_ROWS = 8       # the rows of the Decision's tables together
+BEHAVIOUR_WORDS = 30    # a Boundary row's first cell
+# The one form tools/check_decisions.py lets a Status replace records in, which gives the larger budget.
+REPLACING = re.compile(r"\AStatus: accepted\. Replaces `")
+ROW_MUTANT = re.compile(r'mutant: "[^"\n]+"')
 WAITING = re.compile(r"waiting on `([^`\n]+)`", re.I)
 MODULE = re.compile(r"python3 -m ([\w.]*\w)")
 BARE_NUMBER = re.compile(r"(?<![&`])(?<!\]\()#\d+\b")
@@ -265,9 +284,11 @@ def _references(path: pathlib.Path, text: str, root: pathlib.Path) -> list:
             problems.append("%s: runs %s, which is not in this repo" % (rel, module))
     if BARE_NUMBER.search(text):
         problems.append("%s: a bare issue or pull-request number; give its title" % rel)
+    record = RECORD_NUMBER.match(path.name) if rel.parent.as_posix() == "docs/decisions" else None
+    titled = record is None or int(record.group(1)) < BUDGET_FROM
     for block in re.split(r"\n\s*\n", text):
         for part in (block.splitlines() if block.lstrip().startswith("|") else [block]):
-            if NUMBERED.search(part) and not TITLE.search(part):
+            if titled and NUMBERED.search(part) and not TITLE.search(part):
                 problems.append("%s: an issue or pull request is numbered without its title" % rel)
     return problems
 
@@ -365,6 +386,8 @@ def _decisions(root: pathlib.Path) -> list:
         seen.setdefault(number, path.name)
         if named is None or not text.startswith("# %s. " % named.group(1)):
             problems.append("docs/decisions/%s: the title must open with its number" % path.name)
+        if named and number >= FIRST_SHORT and text.startswith("# %s. " % named.group(1)):
+            problems += _short(path.name, number, text)
         parts = dict(_sections(text, "## "))
         for need in ("Decision", "Why", "Boundaries"):
             if not parts.get(need, "").strip():
@@ -372,11 +395,71 @@ def _decisions(root: pathlib.Path) -> list:
         for extra in sorted(set(parts) - {"Decision", "Why", "Boundaries"}):
             problems.append("docs/decisions/%s: a section '%s'; a record has Decision, Why and Boundaries"
                             % (path.name, extra))
+        if named and number >= BUDGET_FROM:
+            problems += _budget("docs/decisions/" + path.name, text, _sections(text, "## "))
         rows = _rows(parts.get("Boundaries", ""))
         if not rows:
             problems.append("docs/decisions/%s: names no boundary a check can assert" % path.name)
         for i, cells in enumerate(rows, 1):
             problems += _held(cells[-1], "docs/decisions/%s, boundary %d" % (path.name, i), root, path.parent)
+    return problems
+
+
+def _words(text: str) -> int:
+    """The words in `text`: each run between spaces with a letter or a digit in it."""
+    return sum(1 for word in text.split() if any(c.isalpha() or c.isdigit() for c in word))
+
+
+def _budget(where: str, text: str, sections: list) -> list:
+    """Why a record from BUDGET_FROM on is over its budget of words, rows or mutants: nothing where it is not. The
+    Status is all that comes before the first section, its lines joined; a section given twice is counted whole."""
+    head = text.split("\n## ", 1)[0]
+    status = " ".join(head.split("\n", 1)[1].split()) if "\n" in head else ""
+    parts = {name: "\n\n".join(body for heading, body in sections if heading == name)
+             for name in ("Decision", "Why", "Boundaries")}
+    problems = []
+    said = _words(TOKEN.sub("", status[len("Status:"):] if status.startswith("Status:") else status))
+    if said > STATUS_WORDS:
+        problems.append("%s: the Status is %d words, and the most is %d, not counting words in backticks"
+                        % (where, said, STATUS_WORDS))
+    most = REPLACING_WORDS if REPLACING.match(status) else REASONS_WORDS
+    reasons = _words(parts["Decision"]) + _words(parts["Why"])
+    if reasons > most:
+        problems.append("%s: the Decision and the Why are %d words, and the most is %d" % (where, reasons, most))
+    rows = [cells for table in _tables(parts["Decision"]) for cells in table[2:]]
+    if len(rows) > DECISION_ROWS:
+        problems.append("%s: the Decision has %d rows, and the most is %d" % (where, len(rows), DECISION_ROWS))
+    heads = [table[0] for table in _tables(parts["Decision"])]
+    for i, cells in enumerate(rows, 1):
+        if any(_words(cell) > CELL_WORDS for cell in cells):
+            problems.append("%s: Decision row %d has a cell over %d words" % (where, i, CELL_WORDS))
+    if any(_words(cell) > CELL_WORDS for cells in heads for cell in cells):
+        problems.append("%s: a Decision table's header has a cell over %d words" % (where, CELL_WORDS))
+    for i, cells in enumerate(_rows(parts["Boundaries"]), 1):
+        if _words(cells[0]) > BEHAVIOUR_WORDS:
+            problems.append("%s, boundary %d: the behaviour is over %d words" % (where, i, BEHAVIOUR_WORDS))
+        if len(ROW_MUTANT.findall(cells[-1])) > 1:
+            problems.append("%s, boundary %d: the Check names more than one mutant; name one" % (where, i))
+    return problems
+
+
+def _slug(title: str) -> str:
+    """A record's file name for `title`: lowercased, spaces to dashes, all but an ASCII letter, a digit or a dash dropped."""
+    return re.sub(r" +", "-", re.sub(r"[^a-z0-9 -]", "", title.lower()).strip())
+
+
+def _short(name: str, number: int, text: str) -> list:
+    """Why a record from FIRST_SHORT on has a long title, or a file not named by its title: nothing where it has neither.
+    Its digits are its file's, as written, so a number padded with zeros is held too."""
+    digits = name.split("-", 1)[0]
+    title = text.split("\n", 1)[0][len("# %s. " % digits):].rstrip()
+    problems = [] if re.search(r"[a-z0-9]", _slug(title)) else ["docs/decisions/%s: the title names nothing" % name]
+    if len(title) > RECORD_TITLE:
+        problems.append("docs/decisions/%s: the title is %d characters, and from record %04d on the most is %d"
+                        % (name, len(title), FIRST_SHORT, RECORD_TITLE))
+    if name != "%s-%s.md" % (digits, _slug(title)):
+        problems.append("docs/decisions/%s: from record %04d on the file is named by its title, %s-%s.md"
+                        % (name, FIRST_SHORT, digits, _slug(title)))
     return problems
 
 

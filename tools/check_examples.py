@@ -6,6 +6,7 @@ import pathlib
 import re
 
 from kernel import decide, derive, issue
+from kernel import terms
 from kernel.coverage import covered
 from tools import walk
 from tools.jsonschema_lite import ANNOTATIONS, FILE, SchemaError, _resolve, validate
@@ -30,11 +31,12 @@ COVERAGE_AGAINST = ("config/rubric-pr-review.json", "examples/finding.json", "ex
 # reference, and carries nothing; a data file a person edits carries `schema`, its path being its identity and the commit
 # its Release. A document's class names its identity.
 ENVELOPE = {"task": ("document", "run"), "result": ("document", "run"), "applied": ("document", "run"),
-            "outcome": ("document", "run"), "verdict": ("document", "run"), "pass": ("document", "pass"), "writes": ("document", "pass"),
+            "outcome": ("document", "run"), "verdict": ("document", "run"), "advice": ("document", "run"), "pass": ("document", "pass"), "writes": ("document", "pass"),
             "written": ("document", "pass"), "view-meta": ("document", "pass"),
             "view-items": ("document", "pass"), "health": ("document", "pass"),
             "eval-report": ("document", "commit"), "eval-aggregate": ("document", "commit"), "eval-ledger": ("document", "commit"),
             "facts": "record", "issue-facts": "record", "seen": "record", "decision": "record", "issue-decision": "record", "finding": "record",
+            "advice-answer": "record",
             "effect": "part", "disposition": "part", "coverage": "part", "run-name": "part", "run-record": "part",
             "view-item": "part",
             "config": "data", "hooks": "data", "lifecycle": "data", "authority": "data", "apps": "data", "rubric": "data", "checklist": "data",
@@ -49,7 +51,7 @@ RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # a record RECORDS names, held by that kind's own rules, so the existing records are not swept.
 CODES_ONLY = ("task", "result", "effect", "disposition", "run-name", "coverage", "run-record",
               "pass", "writes", "written", "applied", "outcome", "view-meta", "view-items", "view-item", "health", "role", "feed",
-              "eval-set", "eval-report", "eval-aggregate", "eval-ledger", "rings")
+              "eval-set", "eval-report", "eval-aggregate", "eval-ledger", "rings", "advice")
 # The references out of CODES_ONLY into a record, each by the kind that makes it and the record whole, as they stand: the
 # pass record keeps facts and decisions as the ports and the Kernel made them, and the applied artifact keeps each
 # posted Finding's finding/1, whose path and criterion are free strings of its own (a limit record 0038 names). Any
@@ -64,6 +66,18 @@ SPACES = ("\t\n\x0b\x0c\r\x1c\x1d\x1e\x1f \x85\xa0\u1680\u2000\u2001\u2002\u2003
 TEXT_FIELD = "body"
 UNTRUSTED_FIELD = "untrusted"
 UNTRUSTED_KIND = "view-item"
+# The feed's one plain sentence for each reason a pull request's Decision carries, shown to a person beside the codes
+# and never read back: the feed's own schema holds each to a capital, plain punctuation and a full stop, with no @,
+# link, backtick, line break or placeholder, and _table holds the map to the Kernel's set exactly.
+SENTENCES_FIELD = "sentences"
+SENTENCES_KIND = "feed"
+SENTENCE_MOST = 100
+# One plain sentence, the one pattern its schema may give it: a capital, then letters, digits, spaces and plain marks,
+# and one full stop, at the end. No @, backtick, line break, placeholder, slash or Markdown mark.
+SENTENCE_PATTERN = "^[A-Z][A-Za-z0-9 ,;:'()-]*[.]$"
+# What GitHub would still make of a plain sentence: a code between colons an emoji, letters, a dash and digits a
+# reference, an advisory's id a link, and a word of seven or more hex digits, in either case, a commit.
+AUTOLINKED = re.compile(r":[a-z0-9+-]+:|\b[A-Z]+-[0-9]+\b|\bGHSA-|\b(?i:[0-9a-f]{7,})\b")
 # The reasons the Kernel gives `needs_you` beside its own sets: a Hold deferred under a Pause, or one it cannot read
 # (tests/test_decide.py::test_an_approver_who_is_the_author_or_last_pusher_takes_it_out_of_the_queue,
 # tests/test_issue.py::test_placing_a_hold_is_stopped_only_by_the_pause_and_not_once_the_hold_is_there,
@@ -214,6 +228,18 @@ def _string_only(node) -> bool:
     return "string" in kinds and not (set(kinds) - {"string", "null"})
 
 
+def _sentence_shaped(node) -> bool:
+    """Whether `node` has the shape of the feed's sentences: an object whose every value is a string held by
+    SENTENCE_PATTERN itself and a length of at most SENTENCE_MOST, with nothing beside them that could let text in."""
+    if not (isinstance(node, dict) and node.get("type") == "object"
+            and not set(node) - ANNOTATIONS - {"type", "additionalProperties"}):
+        return False
+    value = node.get("additionalProperties")
+    return isinstance(value, dict) and value.get("type") == "string" \
+        and not set(value) - ANNOTATIONS - {"type", "pattern", "maxLength"} and value.get("pattern") == SENTENCE_PATTERN \
+        and type(value.get("maxLength")) is int and 0 < value["maxLength"] <= SENTENCE_MOST
+
+
 def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: tuple = (), owner: str = None) -> list:
     """What is wrong with `schema`, of the kind named, as the schema of what one Run carries: where it admits a string
     that no enum, const or anchored pattern holds, and a reference it makes that cannot be followed, has a keyword
@@ -260,6 +286,10 @@ def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: 
             continue
         if name == UNTRUSTED_FIELD and kind == UNTRUSTED_KIND:
             continue
+        # The feed's own sentences alone, at its top: never deeper, nor the feed's schema reached from another kind.
+        if name == SENTENCES_FIELD and kind == SENTENCES_KIND and owner == SENTENCES_KIND and path == "$" \
+                and _sentence_shaped(prop):
+            continue
         out += _free(prop, schemas, root, kind, "%s.%s" % (path, name), seen, owner=owner)
     if isinstance(schema.get("items"), dict):
         out += _free(schema["items"], schemas, root, kind, path + "[]", seen, owner=owner)
@@ -270,7 +300,8 @@ def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: 
 
 def _table(feed, decision_schema) -> list:
     """What is wrong with the feed's table, valid to its schema: a reason the Kernel gives needs_you with no row, a row
-    for one it never does, a reason with two rows, and an attention class with no rule or with two."""
+    for one it never does, a reason with two rows, a pull request's reason with no sentence or a sentence for none, and
+    an attention class with no rule or with two."""
     needs = set(decide.NEEDS_YOU_REASONS) | set(issue.NEEDS_YOU_REASONS) | ALSO_NEEDS_YOU
     out = []
     reasons = [row["reason"] for row in feed["decision_required"]]
@@ -280,6 +311,16 @@ def _table(feed, decision_schema) -> list:
         out.append("feed: a row for %s, a reason the Kernel never gives needs_you" % reason)
     for reason in sorted({r for r in reasons if reasons.count(r) > 1}):
         out.append("feed: the reason %s has two rows" % reason)
+    said = set(feed["sentences"])
+    for reason in sorted(terms.REASONS - said):
+        out.append("feed: the reason %s has no sentence" % reason)
+    for reason in sorted(said - terms.REASONS):
+        out.append("feed: a sentence for %s, which is no reason a pull request's Decision carries" % reason)
+    for reason, sentence in sorted(feed["sentences"].items()):
+        if not re.fullmatch(SENTENCE_PATTERN, sentence) or len(sentence) > SENTENCE_MOST:
+            out.append("feed: the sentence for %s is not a plain sentence" % reason)
+        elif AUTOLINKED.search(sentence):
+            out.append("feed: the sentence for %s would be shown as a link, an emoji or a reference" % reason)
     classes = decision_schema["properties"]["attention"]["enum"]
     ruled = [row["attention"] for row in feed["next_actor"]["by_attention"]]
     for name in classes:
@@ -434,10 +475,12 @@ def run(root: pathlib.Path = ROOT) -> list:
         if kind == "result" and not errors:
             errors = _reason_unsuited(value)
         if kind == "config" and not errors:
-            # A Role named to open pull requests before open_pull_request has its writer is tools/check_authority.py's
-            # to refuse (issue 808).
+            # A Role named to open pull requests before open_pull_request has its writer (issue 808), and then before
+            # the issues port reads the work branch's head (issue 1059), is tools/check_authority.py's to refuse: the
+            # first part missing is named, so a counter-example of either is wrong in one way.
             from tools import check_authority
             errors = check_authority.opening_problems(value, root)
+            errors = errors or check_authority.branch_read_problems(value, root)
         if kind == "consumer" and not errors:
             errors = _unprotected(value)
         if not errors:

@@ -1,0 +1,43 @@
+"""The mutants of `lifecycle/pull_request.json`: tools/mutants.py runs them."""
+
+TARGETS = ("lifecycle/pull_request.json",)
+MUTANTS = [
+    # Issue 757: a Role's Run that ended environment or never started is counted apart from the Run ceiling.
+    ("a Hold at the bound apart from verifying is undeclared", "lifecycle/pull_request.json",
+     '    {\n      "from": "verifying",\n      "to": "held",\n      "by": "factory",\n      "bound": "max_environment_runs_per_item"\n    },\n',
+     "", ("tests.test_transitions.Transitions.test_a_hold_no_person_makes_names_what_bounds_it",)),
+    ("a Hold a Lens makes at the bound apart is undeclared", "lifecycle/pull_request.json",
+     '    {\n      "from": "verifying",\n      "to": "held",\n      "by": "lens",\n      "bound": "max_environment_runs_per_item"\n    },\n',
+     "", ("tests.test_transitions.Transitions.test_a_hold_no_person_makes_names_what_bounds_it",)),
+    ("a Hold a platform makes at the bound apart is undeclared", "lifecycle/pull_request.json",
+     '    {\n      "from": "verifying",\n      "to": "held",\n      "by": "platform",\n      "bound": "max_environment_runs_per_item"\n    },\n',
+     "", ("tests.test_transitions.Transitions.test_a_hold_no_person_makes_names_what_bounds_it",)),
+    ("a Hold at the bound apart from addressing by platform is undeclared", "lifecycle/pull_request.json",
+     "    {\n      \"from\": \"addressing\",\n      \"to\": \"held\",\n      \"by\": \"platform\",\n      \"bound\": \"max_environment_runs_per_item\"\n    },\n",
+     "", ("tests.test_transitions.Transitions.test_a_hold_no_person_makes_names_what_bounds_it",)),
+    ("a Hold at the bound apart from adjudicating by lens is undeclared", "lifecycle/pull_request.json",
+     "    {\n      \"from\": \"adjudicating\",\n      \"to\": \"held\",\n      \"by\": \"lens\",\n      \"bound\": \"max_environment_runs_per_item\"\n    },\n",
+     "", ("tests.test_transitions.Transitions.test_a_hold_no_person_makes_names_what_bounds_it",)),
+    ("a Hold at the bound apart from adjudicating by platform is undeclared", "lifecycle/pull_request.json",
+     "    {\n      \"from\": \"adjudicating\",\n      \"to\": \"held\",\n      \"by\": \"platform\",\n      \"bound\": \"max_environment_runs_per_item\"\n    },\n",
+     "", ("tests.test_transitions.Transitions.test_a_hold_no_person_makes_names_what_bounds_it",)),
+    ("a Hold at the bound apart from converged by platform is undeclared", "lifecycle/pull_request.json",
+     "    {\n      \"from\": \"converged\",\n      \"to\": \"held\",\n      \"by\": \"platform\",\n      \"bound\": \"max_environment_runs_per_item\"\n    },\n",
+     "", ("tests.test_transitions.Transitions.test_a_hold_no_person_makes_names_what_bounds_it",)),
+    ("a Hold at the bound apart from queued by platform is undeclared", "lifecycle/pull_request.json",
+     "    {\n      \"from\": \"queued\",\n      \"to\": \"held\",\n      \"by\": \"platform\",\n      \"bound\": \"max_environment_runs_per_item\"\n    },\n",
+     "", ("tests.test_transitions.Transitions.test_a_hold_no_person_makes_names_what_bounds_it",)),
+    ("a Lens taking an item out of a Hold at the bound apart is undeclared", "lifecycle/pull_request.json",
+     "    {\n      \"from\": \"held\",\n      \"to\": \"adjudicating\",\n      \"by\": \"lens\",\n      \"bound\": \"max_runs_per_item\"\n    },\n",
+     "", ("tests.test_transitions.Transitions.test_every_change_of_state_is_declared_with_who_makes_it",)),
+    ("the Run ceiling's Hold a Lens's review makes from addressing is undeclared", "lifecycle/pull_request.json",
+     "    {\n      \"from\": \"addressing\",\n      \"to\": \"held\",\n      \"by\": \"lens\",\n      \"bound\": \"max_runs_per_item\"\n    },\n",
+     "", ("tests.test_transitions.Transitions.test_a_hold_no_person_makes_names_what_bounds_it",)),
+    # Issue 962: a conflict the base's next move clears at once, and the platform's ending of a ceiling Hold.
+    ("the platform's ending of a Hold in adjudicating is not declared", "lifecycle/pull_request.json",
+     '      "to": "adjudicating",\n      "by": "platform",\n      "bound": null\n    },\n    {\n      "from": "held",\n      "to": "queued",',
+     '      "to": "adjudicating",\n      "by": "human",\n      "bound": null\n    },\n    {\n      "from": "held",\n      "to": "queued",', ('tests.test_transitions.Transitions.test_a_conflict_that_clears_at_once_is_explored',)),
+    ("the platform's ending of a Hold in converged is not declared", "lifecycle/pull_request.json",
+     '      "to": "converged",\n      "by": "platform",\n      "bound": null\n    },\n    {\n      "from": "held",\n      "to": "adjudicating",\n      "by": "platform",',
+     '      "to": "converged",\n      "by": "human",\n      "bound": null\n    },\n    {\n      "from": "held",\n      "to": "adjudicating",\n      "by": "platform",', ('tests.test_transitions.Transitions.test_a_conflict_that_clears_at_once_is_explored',)),
+]

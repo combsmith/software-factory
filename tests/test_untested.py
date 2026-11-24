@@ -300,7 +300,8 @@ class Reverts(unittest.TestCase):
         for rel, names in (("tools/mutants.py", ("ISSUE", "MUTANTS")), ("tools/mutants_of/adapters_pull.py", ("MUTANTS",)),
                            ("tools/mutants_of/common.py", ()), ("tools/mutants_of/__init__.py", ()), ("tools/mutants_of.py", ()),
                            ("tools/untested.py", ()), ("pkg/tools/mutants_of/x.py", ()), ("tools/mutants_of/deep/x.py", ()),
-                           ("tools/mutants_of/deep/common.py", ())):
+                           ("tools/mutants_of/deep/common.py", ()), ("tools/mutants_of/C.py", ()), ("tools/mutants_of/x.y.py", ()),
+                           ("tools/mutants_of/2x.py", ()), ("tools/mutants_of/x2.py", ("MUTANTS",)), ("tools/mutants_of/_2x.py", ("MUTANTS",))):
             self.assertEqual(untested.holds_data(rel), names, rel)
         self.assertEqual(untested.data_lines("ISSUE = [\n    1,\n]\nMUTANTS = [\n    2,\n]\n", ("MUTANTS",)), {5})
         listed = "ISSUE = [\n    ('q', True),\n]\nMUTANTS = [\n    ('a', 'b'),\n]\n"

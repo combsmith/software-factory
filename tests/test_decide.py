@@ -2541,6 +2541,41 @@ class Acceptance(unittest.TestCase):
             d = go(facts(acceptance=contract(["AC-1"], [evidence("AC-1")] + now)), REVIEWED)
             self.assertEqual((d["state"], d["reason"]), (None, "acceptance_unreadable"), now)
 
+    def test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person(self):  # issue 986, record 0234
+        # The issue a pull request closes was commented past the port's bound: more comments never bring it back, and an
+        # outsider can bring it about, so the pull request defers on its own code, before any list read short, and calls
+        # a person; queued, it is taken out, as for any read short.
+        cut = dict(facts()["complete"], acceptance=False)
+        for reviews in ([], APPROVED):
+            for short in ((), ("threads",), ("timeline",)):
+                d = go(facts(acceptance_bounded=True, reviews=reviews, complete=dict(cut, **{s: False for s in short})),
+                       REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                                 (None, "acceptance_bounded", ["acceptance"], "defer", "needs_you"), (reviews, short))
+        d = go(facts(acceptance_bounded=True, queue=True, reviews=APPROVED, complete=cut), REVIEWED)
+        self.assertEqual((d["reason"], d["outcome"], d.get("action"), d["attention"]),
+                         ("acceptance_bounded", "act", "dequeue", "needs_you"))
+        # The cut decides, whatever the completeness flag claims beside it.
+        self.assertEqual(go(facts(acceptance_bounded=True), REVIEWED)["reason"], "acceptance_bounded")
+        # The other side: not cut, its read short defers as facts_incomplete, needing no person, and read whole it
+        # converges.
+        self.assertEqual(go(facts(acceptance_bounded=False, complete=cut), REVIEWED)["reason"], "facts_incomplete")
+        self.assertEqual(go(facts(acceptance_bounded=False), REVIEWED)["reason"], "approval_due")
+        # Absent, as in facts read before the field, an eval set's among them, it is not cut (the one default).
+        for complete, reason in ((facts()["complete"], "approval_due"), (cut, "facts_incomplete")):
+            f = facts(complete=complete)
+            del f["acceptance_bounded"]
+            self.assertEqual(go(f, REVIEWED)["reason"], reason, complete)
+        # Present but no truth value, it cannot be read: a gap in acceptance, read short or whole, never a convergence.
+        for bounded in (None, "true", 1, 0, [], {}):
+            for complete in (facts()["complete"], cut):
+                d = go(facts(acceptance_bounded=bounded, complete=complete, reviews=APPROVED), REVIEWED)
+                self.assertEqual((d["reason"], d["evidence"], d["attention"]), ("facts_incomplete", ["acceptance"], "none"),
+                                 (bounded, complete))
+        # A merged or closed pull request is what it is, cut or not.
+        for state in ("merged", "closed"):
+            self.assertEqual(go(facts(acceptance_bounded=True, complete=cut, state=state), REVIEWED)["reason"], state)
+
     def test_a_contract_read_short_is_incomplete(self):  # I-13, I-20, the ruling on #17
         # Whether the contract, or that there is none, was read in full is `complete.acceptance`, read with the other
         # flags: a read short defers as facts_incomplete, a wait that needs no person. No contract read short is not
@@ -3403,6 +3438,16 @@ class Ceilings(unittest.TestCase):
             del cfg["limits"]["max_implementing_rounds"]
             self.assertEqual(go(facts(), REVIEWED + approvals(1), cfg=cfg).get("action"), "issue_approval", bad)
             self.assertEqual(go(approved, REVIEWED + queue, cfg=cfg).get("action"), "enqueue", bad)
+
+    def test_the_rulings_are_held_at_max_rounds_never_at_the_rounds_key(self):  # decision 0242
+        for rounds, other in ((2, 5), (5, 2)):  # the two keys set apart, each way
+            cfg = copy.deepcopy(CONFIG)
+            cfg["limits"].update(max_rounds=rounds, max_implementing_rounds=other, max_runs_per_item=20)
+            laps = [r for i in range(rounds) for r in (run(intent="adjudicate-findings", at=at(20 + 2 * i), name="o%d" % i),
+                                                       run(role="dev-lead", intent="fix-findings", at=at(21 + 2 * i), name="a%d" % i))]
+            self.assertEqual(go(facts(threads=[thread()]), REVIEWED + laps, cfg=cfg)["reason"], "max_rounds", rounds)
+            d = go(facts(threads=[thread()]), REVIEWED + laps[:-2], cfg=cfg)
+            self.assertEqual(d["admit"]["intent"], "adjudicate-findings", rounds)
 
     def test_a_queue_job_spends_no_run_when_it_lands_and_is_held_by_its_own_when_it_does_not(self):  # issue 381
         # The queue App's enqueue and dequeue are each a Run once the queue workflow is named. One that landed is on the

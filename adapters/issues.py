@@ -14,20 +14,25 @@ The pull requests that close the issue are read by `adapters/linked.py`, after t
 true only where it reads the list and the spans whole, or as that port says where the records break their chain
 (decision 0186). The issue is read once more after them, and refused if it moved, and `read_at` is taken after that: no
 earlier than the closing references are read. Not read yet, and said so: `branch_head`, which needs the count of pull requests
-the Factory opened for the issue, is null. `complete.runs` is true: the pass puts the records port's answer in its place
-(`controller/pass_.py`'s `asked`), and false here would leave every issue unreadable.
+the Factory opened for the issue, is null. `base_head`, the default branch's head, is read once for each repo in a pass
+by `default_head`, and left out where it could not be read (decisions 0226 and 0242). `complete.runs` is true: the pass
+puts the records port's answer in its place (`controller/pass_.py`'s `asked`), and false here would leave every issue
+unreadable.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import pathlib
+import re
+import urllib.parse
 
 from adapters import effects, facts, linked, timeline
 from adapters.github import Unanswered, raw, request
 from kernel import gate
 from tools.jsonschema_lite import validate
 
+SHA = re.compile(r"[0-9a-f]{40}")
 PAGE = 100            # changes of type read at most; more is not the whole timeline
 STATES = ("open", "closed")
 # Where each change of type names the type before and after: none, where it names neither.
@@ -197,19 +202,43 @@ def comments(events: list, accounts: timeline.Accounts) -> tuple:
     return [{"by": login, "at": latest[login]} for login in sorted(latest)], said
 
 
+def _body(answer) -> dict:
+    return answer["body"] if isinstance(answer["body"], dict) and answer["status"] == 200 else {}
+
+
+def default_head(transport, repo: str):
+    """The commit at the head of `repo`'s default branch, or None where it cannot be read: the repo's own read names
+    the branch, and the branch's ref, never a name a tag could share, gives its head (decision 0226). Read once for each
+    repo in a pass, and handed to each issue's read as its `base_head`."""
+    try:
+        branch = _body(transport.send(request("GET", "/repos/%s" % repo))).get("default_branch")
+        if not (isinstance(branch, str) and branch):
+            return None
+        ref = _body(transport.send(request("GET", "/repos/%s/git/ref/heads/%s" % (repo, urllib.parse.quote(branch, safe="/")))))
+    except (Unanswered, UnicodeError):     # a name no path can carry, a lone surrogate among them, is none too
+        return None
+    head = ref.get("object") if isinstance(ref.get("object"), dict) else {}
+    sha = head.get("sha")
+    if ref.get("ref") != "refs/heads/" + branch or head.get("type") != "commit" \
+            or not (isinstance(sha, str) and SHA.fullmatch(sha)):
+        return None
+    return sha
+
+
 def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=facts._utc, *, identities: dict,
-         earlier, controller=None, kernel=None) -> tuple:
+         earlier, controller=None, kernel=None, base_head=None) -> tuple:
     """`(facts, title)`: `issue-facts/1` for one issue of `repo`, held to its schema, and its title beside the facts,
     never in them, for the view alone. `accounts` tells who acted, the Factory's Apps among them, `identities` the class's
     accounts of a pull request that closes it (`adapters/pull.own`), `earlier` the pass records before this pass, oldest
     first, or None where they could not be read, and `clock` gives the time after the last read. `controller` is the
     Controller's App's account, `(id, type)`: the issue it opened as its tracking issue is refused, `Tracking`, at its
     first read, before any other is sent (decision 0233). `kernel`, the Kernel's configuration, says whether the
-    Factory's linked draft's checks are read (`adapters/draft_checks.py`)."""
+    Factory's linked draft's checks are read (`adapters/draft_checks.py`). `base_head` is the pass's `default_head`:
+    None leaves the fact out, unread, and the opening Run of a branch that does not exist defers (decision 0226)."""
     issue = own(transport, repo, number)
     if tracking(issue, controller):
         raise Tracking("issue %d of %s is the Controller's tracking issue" % (number, repo))
-    events, whole = timeline.events(transport, {"number": number, "base": {"repo": {"full_name": repo}}})
+    events, whole, cut = timeline.bounded(transport, {"number": number, "base": {"repo": {"full_name": repo}}})
     edited = edits(transport, repo, number)
     if edited["updated_at"] != _field(issue, "updated_at"):
         raise facts.Moved("the issue changed while it was read; it is read again at the next pass")
@@ -224,8 +253,9 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
     author, labels = accounts.acted(opened), timeline.label_events(events, accounts)
     writer = timeline.since_writer(events, accounts)
     apps, said = comments(events, accounts)
-    closing, closing_whole = linked.read(transport, repo, number, edited["updated_at"], lived["life_started_at"],
-                                         identities, accounts, earlier, kernel)
+    # Read whatever the timeline's bound did: a record not whole still opens a span for each keyword it read (0186).
+    closing, closing_whole, linked_cut, broken = linked.read(transport, repo, number, edited["updated_at"],
+                                                     lived["life_started_at"], identities, accounts, earlier, kernel)
     # A merge may have closed it since: read once more, as `adapters/pull.unchanged` does.
     if _field(own(transport, repo, number), "updated_at") != _field(issue, "updated_at"):
         raise facts.Moved("the issue changed while its pull requests were read; it is read again at the next pass")
@@ -249,10 +279,10 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
         "acts_since_writer": writer["acts_since_writer"],
         "branch_head": None,
         "complete": {"timeline": whole and edited["whole"], "linked": closing_whole, "runs": True},
-        # The port reads no timeline to a bound yet, so it cuts none (decision 0234; its bound is the next part's).
-        "timeline_bounded": False,
+        "timeline_bounded": cut or linked_cut,
+        "spans_broken": broken,
         "read_at": now,
-    })
+    }, **({} if base_head is None else {"base_head": base_head}))
     problems = validate(found, SCHEMA)
     if problems:
         raise Unanswered("the issue's facts do not hold to issue-facts/1: %s" % problems[0])

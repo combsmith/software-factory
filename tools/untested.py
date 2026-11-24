@@ -154,8 +154,9 @@ def shape(text: str) -> str:
 def holds_data(rel: str) -> tuple:
     """The names of the lists that are data in `rel`: DATA's in tools/mutants.py, DATA_FOLDER's in a file of
     tools/mutants_of/ that holds a target's mutants, and none in any other file, its common.py and __init__.py too, or
-    one in a folder below it, which tools/mutants.py never loads."""
-    plain = rel[len(DATA_FOLDER[0]):] not in ("common.py", "__init__.py") and "/" not in rel[len(DATA_FOLDER[0]):]
+    one in a folder below it or not named as a module, which tools/mutants.py never loads."""
+    plain = rel[len(DATA_FOLDER[0]):] not in ("common.py", "__init__.py") and re.fullmatch(
+        r"[a-z_][a-z0-9_]*\.py", rel[len(DATA_FOLDER[0]):]) is not None
     return DATA[1] if rel == DATA[0] else DATA_FOLDER[1] if rel.startswith(DATA_FOLDER[0]) and plain else ()
 
 

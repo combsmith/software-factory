@@ -320,6 +320,24 @@ class Unreadable(unittest.TestCase):
         self.assertEqual(derive(facts(timeline_bounded=None, complete={"timeline": True, "linked": False, "runs": True}))["evidence"],
                          ["linked", "timeline"])
 
+    def test_a_chain_of_spans_the_records_broke_defers_on_its_own_code_and_calls_a_person(self):  # issue 849, decision 0253
+        # The pass records break the chain of keyword spans while something names the issue: no later pass mends it, so
+        # it defers `spans_broken`, a closed one's too, after a cut read and before a list read short, and calls a person.
+        for f in (facts(), facts(state="closed"), facts(complete={"timeline": True, "linked": False, "runs": False})):
+            f.update(spans_broken=True, complete=dict(f["complete"], linked=False))
+            d = derive(f)
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), (None, "spans_broken", ["linked"]))
+            self.assertEqual((what(decide(f)), decide(f)["attention"]), (("defer", "spans_broken", None), "needs_you"))
+        self.assertEqual(derive(facts(spans_broken=True, timeline_bounded=True))["reason"], "timeline_bounded")
+        # The flag defers alone, whatever the lists say (Astra).
+        whole = facts(spans_broken=True, complete={"timeline": True, "linked": True, "runs": True})
+        self.assertEqual((derive(whole)["reason"], decide(whole)["attention"]), ("spans_broken", "needs_you"))
+        # Anything but exact true is not broken: the list read short beside it defers all the same, calling no one.
+        for flag in (False, None, "true", 1):
+            f = facts(spans_broken=flag, complete={"timeline": True, "linked": False, "runs": True})
+            self.assertEqual((derive(f)["reason"], decide(f)["attention"]), ("facts_incomplete", "none"), flag)
+        self.assertEqual(derive(facts(spans_broken=False))["reason"], "acceptance_due")
+
     def test_the_issue_world_meets_a_timeline_past_the_bound_under_faults_and_calls_a_person(self):  # decision 0234
         # The simulator's issue world sets the fact beside a timeline read short, in its own draws, so its fixed seeds
         # meet the deferral, which calls a person each time.
@@ -347,6 +365,30 @@ class Unreadable(unittest.TestCase):
         self.assertTrue(all(bounded in (True, False) for bounded, _ in seen))
         self.assertTrue(any(bounded is False and complete["timeline"] is False for bounded, complete in seen))
         self.assertTrue(any(bounded is False and complete["linked"] is False for bounded, complete in seen))
+
+    def test_the_issue_world_meets_a_broken_chain_of_spans_under_faults_and_calls_a_person(self):  # decision 0253
+        # The issue world breaks the chain beside the linked list read short alone, so its fixed seeds meet the deferral,
+        # which calls a person each time.
+        import unittest.mock
+        import sim.issues
+        from sim.issues import IssueWorld
+        met, seen, real = [], [], sim.issues.issue.decide
+
+        def decide(facts, *a):
+            seen.append((facts.get("spans_broken"), dict(facts["complete"])))
+            return real(facts, *a)
+        with unittest.mock.patch.object(sim.issues.issue, "decide", decide):
+            for seed in range(1, 11):
+                w = IssueWorld(seed)
+                for _ in range(300):
+                    w.step()
+                met += [line for line in w.trace if "pass: None / spans_broken" in line]
+        self.assertTrue(met)
+        self.assertTrue(all(line.endswith("-> defer  [needs_you]") for line in met), met[:3])
+        self.assertTrue(all(complete["linked"] is False for broken, complete in seen if broken is True))
+        # Every pass says it, true or false, and a linked list read short is met unbroken too (Carbon).
+        self.assertTrue(all(broken in (True, False) for broken, _ in seen))
+        self.assertTrue(any(broken is False and complete["linked"] is False for broken, complete in seen))
 
     def test_an_unreadable_label_event_defers(self):
         bad = [dict(labelled(HOLD), by={"kind": "bot", "name": "x", "can_write": True}),
@@ -561,6 +603,11 @@ class Unreadable(unittest.TestCase):
         f = facts()
         del f["author"]
         self.assertEqual(derive(f)["reason"], "author_unreadable")
+        # The Decision defers, open or closed, and its reason is an issue's own (decision 0248).
+        closed = facts(state="closed")
+        del closed["author"]
+        for f in (f, closed):
+            self.assertEqual(what(decide(f)), ("defer", "author_unreadable", None))
         self.assertEqual(state(facts(author=dict(MACHINE))), "new")
 
     def test_a_content_id_has_as_many_digits_as_the_schema_allows(self):
@@ -576,6 +623,7 @@ class Unreadable(unittest.TestCase):
             for f in (facts(**over), facts(state="closed", **over)):
                 d = derive(f)
                 self.assertEqual((d["state"], d["reason"]), (None, "content_unreadable"), over)
+                self.assertEqual(what(decide(f)), ("defer", "content_unreadable", None), over)
 
     def test_what_cannot_be_read_is_read_in_its_order(self):
         f = facts(state=None, label_events=None, label_names=None, linked=None, life_started_at=None, content_id=None,
@@ -620,6 +668,10 @@ class Unreadable(unittest.TestCase):
         f = facts()
         del f["type"]
         self.assertEqual(derive(f)["reason"], "type_unreadable")
+        closed = facts(state="closed")
+        del closed["type"]
+        for f in (f, closed):
+            self.assertEqual(what(decide(f)), ("defer", "type_unreadable", None))
         for value in (None, "Bug"):
             self.assertEqual(state(facts(type=value)), "new", value)
 
@@ -1857,9 +1909,8 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(what(decide(failing, spent, cfg=named))[:2], ("hold", "run_ceiling"))
 
     def test_the_implementing_rounds_have_a_limit_of_their_own_read_from_no_other_key(self):  # issue 1038, decision 0242
-        # The rounds are held at max_implementing_rounds, which the brakes' implementing_rounds alone reads: max_attempts,
-        # one number for every Intent's attempts, moves neither way with it. One short admits; at the bound the issue is
-        # held, attempts_exhausted, its rounds as evidence, as decision 0217 has it.
+        # Held at max_implementing_rounds whatever max_attempts is: one short admits; at the bound, attempts_exhausted,
+        # the rounds as evidence (decision 0217).
         failing = facts(linked=[agents(draft=True, checks="failing")])
 
         def rounds(n: int) -> list:
@@ -1893,9 +1944,8 @@ class Outcomes(unittest.TestCase):
         both = [rounds(1)[0], dict(rounds(2)[1], conclusion="failure", outcome="item")]
         d = decide(failing, both, cfg=named(max_implementing_rounds=2, max_attempts=1))
         self.assertEqual((what(d)[:2], d["evidence"]), (("hold", "attempts_exhausted"), ["m0", "m1"]))
-        # A key missing, null, or no whole number of at least one, holds the issue for a person, limits_unreadable,
-        # naming no Run though rounds were spent, and with a Run in flight too: never a round admitted by another key's
-        # number, nor a deferral.
+        # A key missing, null or no whole number of at least one holds the issue, limits_unreadable, naming no Run, with
+        # a Run in flight too: never another key's number, nor a deferral.
         missing = object()
         for bad in (missing, None, 0, -1, True, 3.0, "3", [3]):
             cfg = named()
@@ -1913,9 +1963,8 @@ class Outcomes(unittest.TestCase):
                              ("held", ("hold", "limits_unreadable", None), "needs_you", []), bad)
             # Another Intent's loop never reads the rounds' key, readable or not.
             self.assertEqual(what(decide(TRIAGED, cfg=cfg)), ("admit", "triage", INVESTIGATE), bad)
-        # The implementing Run's attempts, Runs that failed by a fault of the item, are still held at max_attempts by the
-        # brakes, as every Intent's are, whatever the rounds' key says; and so is another Intent's loop, held at
-        # max_attempts and not at the lower of the two keys.
+        # Runs that failed by the item are held at max_attempts, the implementing Run's as every Intent's, never at the
+        # lower of the two keys.
         cfg = named(max_implementing_rounds=3, max_attempts=1)
         broke = dict(rounds(1)[0], conclusion="failure", outcome="item")
         self.assertEqual(what(decide(failing, [broke], cfg=cfg))[:2], ("hold", "attempts_exhausted"))
@@ -2514,6 +2563,11 @@ class Opening(unittest.TestCase):
                              (("admit", "ready", OPEN), "9f2c41d", False))
         # No other State's Run waits on it.
         self.assertEqual(what(decide(facts(label_events=ACCEPTED, base_head=1)))[2], INVESTIGATE)
+        # Nor does an act: an issue no one has triaged yet is accepted whatever the base reads, or with none at all.
+        new = facts()
+        del new["base_head"]
+        for f in (new, facts(base_head=None), facts(base_head=""), facts(base_head=1), facts(base_head="main")):
+            self.assertEqual(decide(f).get("action"), "accept", f.get("base_head", "left out"))
 
     def test_an_unreadable_branch_head_defers_the_opening_run_alone(self):
         for value in ("", 1, ["9f2c41d"]):

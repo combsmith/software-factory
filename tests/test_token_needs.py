@@ -42,6 +42,7 @@ RAW = {
     "adapters.identity.mint": {}, "adapters.identity.revoke": {},
     "adapters.items.open_pull_requests": {"pull_requests": R}, "adapters.items.open_issues": {"issues": R},
     "adapters.issues.own": {"issues": R}, "adapters.issues.edits": {"issues": R},  # an issue, and its edits by GraphQL
+    "adapters.issues.default_head": {"metadata": R, "contents": R},    # the repo's default branch, then its ref (0226)
     "adapters.passes.find": {"actions": R}, "adapters.passes.records": {"actions": R},
     "adapters.passes.started": {"actions": R}, "adapters.passes.written": {"actions": R},
     # FACTORY_PAUSED, the repo's and the org's through the repo.
@@ -62,13 +63,14 @@ RAW = {
     "adapters.seen._check_runs": {"pull_requests": R, "checks": R},    # the pull request's head, then its checks
     "adapters.seen._threads": {"pull_requests": R},
     "adapters.seen._state": {"issues": R},                            # an issue that left, by its own read (0235)
+    "adapters.seen.repo_read": {"metadata": R},                       # the repo itself, before a deleted issue ends (1145)
     "adapters.seen.pushes": {"contents": R},                           # the repo's activity, as P-47 reads a branch's
     "adapters.tags._ours": {"contents": R}, "adapters.tags._page": {"contents": R},
     "adapters.texts.issues": {"issues": R}, "adapters.threads._read": {"pull_requests": R},
     "adapters.texts.findings": {"pull_requests": R},                   # a review thread and its first comment (issue 856)
     "adapters.timeline.Accounts": {"metadata": R},                     # a login's permission on the repo
     "adapters.timeline._content": {"contents": R},                     # a commit's content, compared with its base
-    "adapters.timeline._pages": {"issues": R, "pull_requests": R},     # the timeline, and the reviews
+    "adapters.timeline._paged": {"issues": R, "pull_requests": R},     # the timeline, and the reviews
     "harness.head.fetch": {"contents": R}, "harness.head.tree": {"contents": R},
 }
 # How many requests each of those builds itself: one more, in a function already classed, is classed again first.
@@ -89,6 +91,7 @@ SITES = {
     "adapters.effects.write_status": 3,
     "adapters.identity.mint": 2,
     "adapters.identity.revoke": 1,
+    "adapters.issues.default_head": 2,
     "adapters.issues.edits": 1,
     "adapters.issues.own": 1,
     "adapters.items.open_issues": 1,
@@ -119,6 +122,7 @@ SITES = {
     "adapters.seen._check_runs": 2,
     "adapters.seen._state": 1,
     "adapters.seen._threads": 1,
+    "adapters.seen.repo_read": 1,
     "adapters.seen.pushes": 1,
     "adapters.tags._ours": 1,
     "adapters.tags._page": 1,
@@ -127,7 +131,7 @@ SITES = {
     "adapters.threads._read": 1,
     "adapters.timeline.Accounts": 1,
     "adapters.timeline._content": 1,
-    "adapters.timeline._pages": 1,
+    "adapters.timeline._paged": 1,
     "harness.head.fetch": 1,
     "harness.head.tree": 1,
 }
@@ -143,6 +147,7 @@ APPROVING = [
     "adapters.effects.approval_of",
     "adapters.effects.approve",
     "adapters.effects.approver_of",
+    "adapters.issues.own",                     # how the issue a Factory pull request was opened for stands (0232)
     "adapters.passes.find",
     "adapters.pause._org_value",
     "adapters.pause._value",
@@ -157,7 +162,7 @@ APPROVING = [
     "adapters.threads._read",
     "adapters.timeline.Accounts",
     "adapters.timeline._content",
-    "adapters.timeline._pages",
+    "adapters.timeline._paged",
 ]
 # A request of GitHub's, built where it is sent: whatever function builds one reads or writes GitHub itself.
 REQUESTS = {"request", "download", "tarball"}
@@ -365,6 +370,11 @@ class TokenNeeds(unittest.TestCase):
                         <= reached("harness.read", "step"))
         self.assertTrue({"adapters.passes.find", "adapters.checks._read", "adapters.pause._value"}
                         <= reached("harness.apply_step", "written"))
+        # The read again reads the issue a Factory pull request was opened for, as the pass joins it (decision 0232,
+        # issue 964): apply's token holds issues: read for it, and the approving act's reads name it.
+        self.assertIn("adapters.issues.own", reached("harness.reread", "issue_stood"))
+        self.assertIn("adapters.issues.own", reached("harness.apply_step", "written"))
+        self.assertIn("adapters.issues.own", reached("harness.approve_step", "written"))
         self.assertTrue({"adapters.queue.pull", "adapters.queue.enqueue"} <= reached("harness.queue_step", "written"))
         self.assertTrue({"adapters.items.open_pull_requests", "adapters.items.open_issues", "adapters.issues.own", "adapters.linked.joined",
                          "adapters.checks._read", "adapters.pause._value",

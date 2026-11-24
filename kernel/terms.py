@@ -60,6 +60,35 @@ SEVERITIES = ("blocking", "major", "minor", "info")
 GATE_REASONS = ("human_finding", "findings_open", "awaiting_human", "proposals_await_owner")
 # The waits that end on their own, and that a queued item is read past: they never take it out of the merge queue.
 QUEUE_WAITS = ("mergeable_unreadable", "awaiting_checks", "awaiting_review", "resolve_due")
+# Every reason a Decision can carry, in two sets that no rule reads (decision 0248). The first holds a pull request's,
+# decision/1's: a reason an issue's Decision gives too, from the brakes or a reading both share, is here. The second
+# holds the reasons only an issue's Decision gives, issue-decision/1's. Each reason the Kernel writes or compares is in
+# one, and each member is given by a Decision of its kind (tests/test_reasons.py). A new reason goes in one of them.
+REASONS = frozenset({
+    "acceptance_bounded", "acceptance_evidence_missing", "acceptance_failed", "acceptance_reporters_unreadable",
+    "acceptance_unreadable", "act_ceiling", "acts_unreadable", "approval_due", "approval_lost", "approved",
+    "approver_is_author_or_last_pusher",
+    "attempts_exhausted", "awaiting_checks", "awaiting_human", "awaiting_review", "base_not_protected", "capacity",
+    "capacity_unreadable", "check_failed", "check_unreadable", "closed", "concurrency", "conflict", "contract_changed",
+    "contract_not_approved", "description_edited_after_approval", "description_unreadable", "draft", "empty_diff",
+    "environment_ceiling", "facts_incomplete", "findings_open", "gate_open", "hands_off", "human_finding",
+    "human_hold", "in_merge_queue", "issue_stands_unreadable", "issue_stopped", "label_unreadable",
+    "last_pusher_unreadable", "max_rounds", "mergeable_unreadable", "merged", "model_lens_input_needs_person",
+    "outside_not_admitted", "path_needs_person", "paths_unreadable", "pause_unreadable", "paused",
+    "proposals_await_owner", "protected_paths_unreadable", "resolve_due", "review_unreadable", "run_ceiling",
+    "run_unidentified", "run_unreadable", "runs_unnamed", "thread_unreadable", "too_large",
+})
+ISSUE_REASONS = frozenset({
+    "acceptance_due", "acceptance_lapsed", "author_unreadable", "base_unreadable", "branch_unreadable",
+    "closed_by_outsider_merge", "comments_unreadable", "content_unreadable", "draft_checks_unreadable",
+    "intent_undeclared", "intents_share_a_role", "intents_share_an_app", "intents_unreadable", "issues_unreadable",
+    "judged", "label_not_counted", "left_out", "life_unreadable", "limits_unreadable", "linked_draft", "linked_ready",
+    "linked_twice", "linked_unreadable", "merge_closing", "merged_while_declined", "merged_while_hands_off",
+    "merged_while_held", "no_statement", "not_accepted", "opening_run", "ready", "ready_removed", "reopened_by_other",
+    "spans_broken",
+    "state_unreadable", "timeline_bounded", "triage", "triage_removed", "triage_stands", "type_unreadable",
+    "unmerged_closes", "writer_unreadable",
+})
 
 # The kinds of actor, and the states of a review: schemas/facts.schema.json names them too. The port tells them apart
 # from GitHub's account type and the configuration, never from a name's spelling: a person (`human`), the App of a

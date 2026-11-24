@@ -38,7 +38,27 @@
     {"path": ".git/packed-refs", "is": "git's packed branches, which a stop compares the branch with"},
     {"path": ".git/info/grafts", "is": "git's grafts, which change the history a stop compares the branch with"},
     {"path": "guards/", "is": "the guards: what a Role's own write may land"},
-    {"path": "release/decision-points.json", "is": "the Maintainer's continue or stop, which he alone decides"}
+    {"path": "release/decision-points.json", "is": "the Maintainer's continue or stop, which he alone decides"},
+    {"path": "tools/check_workflows.*", "is": "the check that holds each workflow, and what a workflow beside a secret reads of a head"},
+    {"path": "tools/commits_are_the_maintainers.*", "is": "the check that every commit a pull request carries names the Maintainer"},
+    {"path": "tools/check_writes.*", "is": "the check that only the callers it lists reach a GitHub write"},
+    {"path": "tools/check_repo.*", "is": "the check that nothing is installed or fetched and no secret is written down"},
+    {"path": "tools/verify.*", "is": "the list of checks verify runs, which decides whether a protected check runs at all"},
+    {"path": "tools/walk.*", "is": "the files of the tree, which decide what the checks of writes and of fetches read"},
+    {"path": "tools/needs_passed.*", "is": "the required check's verdict on the jobs it needs"},
+    {"path": "tools/pr_title.*", "is": "the title check the check of the commits imports and folds into its verdict"},
+    {"path": "tools/check_workflows/", "is": "a package that Python would import in place of the check that holds each workflow"},
+    {"path": "tools/commits_are_the_maintainers/", "is": "a package that Python would import in place of the check of the commits"},
+    {"path": "tools/check_writes/", "is": "a package that Python would import in place of the check of who reaches a GitHub write"},
+    {"path": "tools/check_repo/", "is": "a package that Python would import in place of the check that nothing is fetched"},
+    {"path": "tools/verify/", "is": "a package that Python would import in place of verify's list of checks"},
+    {"path": "tools/walk/", "is": "a package that Python would import in place of the walk of the tree"},
+    {"path": "tools/needs_passed/", "is": "a package that Python would import in place of the required check's verdict"},
+    {"path": "tools/pr_title/", "is": "a package that Python would import in place of the title check"},
+    {"path": "tools/__init__.*", "is": "the package the checks are imported from, which runs before every one of them"},
+    {"path": "tools/__pycache__/", "is": "the compiled modules of the checks, which Python may load in place of their source"},
+    {"path": "Makefile", "is": "how make verify runs the checks, which decides whether they run at all"},
+    {"path": "GNUmakefile", "is": "the file make reads before the Makefile, which decides whether the checks run at all"}
   ],
   "reported": [
     {"path": "docs/decisions/", "is": "a decision record, which is never edited, only replaced"},
@@ -47,7 +67,8 @@
     {"path": "kernel/derive.py", "is": "the State, which reads the gate"},
     {"path": "kernel/terms.py", "is": "the Kernel's codes"},
     {"path": "tests/test_decide.py", "is": "the boundary cases"},
-    {"path": "tools/mutants.py", "is": "the deliberate breaks that show each rule is tested"}
+    {"path": "tools/mutants.py", "is": "the deliberate breaks that show each rule is tested"},
+    {"path": "tools/mutants_of/", "is": "the deliberate breaks of the files outside kernel/"}
   ],
   "lens_inputs": [
     {"lens": "verify", "path": "Makefile", "is": "how verify runs the checks and the tests"},

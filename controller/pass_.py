@@ -57,6 +57,8 @@ CAPACITY, ENVIRONMENT = health_.CAPACITY, health_.ENVIRONMENT
 NOT_RUN = "not_run"
 NEVER_STARTED = "runs_never_started"
 ISSUE_APPS = "issue_apps_unreadable"
+# The alert each issue left out for want of a read raises, once a pass: the budget spent, and the list read short.
+ISSUE_ALERTS = {reads_.BUDGET: "issue_budget_spent", reads_.UNLISTED: "issue_list_unreadable"}
 __all__ = ["Refused", "run", "rebuild", "wait_before_reading", "context_of", "issue_config"]
 
 
@@ -296,6 +298,30 @@ def issue_config(kernel: dict) -> dict:
     return dict(kernel, issues=issues)
 
 
+def issue_order(listed: list, before) -> list:
+    """The order the issues listed are read in: those the newest pass record that read the issues left out as
+    `issue_budget` first, in the order it left them out, then the rest in the listing's order. So the issues go round as a queue: with the list
+    unchanged each is read within as many passes as the budget's fit goes into it, which the listing's order among those
+    left out would not give, since the last of them would be passed over for good. A last record that cannot be read,
+    or holds no `left_out`, gives the listing's order. Derived from the record before alone, which a replay holds
+    (decision 0234)."""
+    # The newest record whose pass read the issues: one that read none, its list read short, owes nothing and keeps
+    # nothing of the queue, so it is passed over (decision 0234, ruling B4).
+    read = [r for r in before if not (isinstance(r, dict) and isinstance(r.get("left_out"), list)
+                                      and reads_.UNLISTED_ENTRY in r["left_out"])] if isinstance(before, list) else []
+    last = read[-1] if read else None
+    held = last.get("left_out") if isinstance(last, dict) else None
+    if not isinstance(held, list):
+        return list(listed)
+    owed = []
+    for e in held:
+        if isinstance(e, dict) and e.get("code") == reads_.BUDGET and isinstance(e.get("item"), dict) \
+                and e["item"].get("type") == "issue":
+            owed.append(e["item"]["number"])
+    # Each listed number is kept as often as listed, so one listed twice is still read twice and left out as such (Kimi).
+    return sorted(listed, key=lambda n: owed.index(n) if n in owed else len(owed))
+
+
 def moved_once(left_out: list, why: list, before) -> set:
     """The pages of the items left out because they moved while read that the last pass record read and did not leave
     out as moved: each is deferred with no alert, once, and a pull request's writes are owed to the next pass (#658).
@@ -326,7 +352,9 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     # the pass its change starts reads it again. Any other left out, or one that moved twice in a row, is the alert
     # (#658, decision 0229).
     graced = moved_once(left_out, why, before)
-    alarmed = [i for i in left_out if reads_.item(i) is None or key(i) not in graced]
+    # An issue the budget left unread, and the issue list read short, are each their own alert, and no fact's fault.
+    alarmed = [i for i, code in zip(left_out, why) if code not in reads_.ISSUE_UNREAD
+               and (reads_.item(i) is None or key(i) not in graced)]
     repos = {e["facts"]["item"]["repo"] for e in pulls + issues}
 
     records = reads.get("records")
@@ -371,8 +399,13 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
 
     # Every write a Factory identity made, matched to an Effect the Factory recorded; one alert for any that is not, and
     # one for a reconciliation that is short (I-33, decision 0061). What it found is in the record before it is checked.
+    # The issues this pass served, read or left out, as the next pass's entry reads them from this record (issue 916).
+    served = [e["facts"]["item"]["number"] for e in issues] \
+        + [i["number"] for i in map(reads_.item, also) if i is not None and i["type"] == "issue"]
     found = reconcile_.reconcile(reads.get("seen"), reads.get("effects"), runs if listed and whole else None, before,
                                  rules["accounts"])
+    # Read open, decided or left out: one reopened keeps what was carried (decision 0241).
+    opened = [key(i) for i in [e["facts"]["item"] for e in pulls] + [reads_.item(i) for i in left_out] if i is not None]
     record = {"schema": "pass/1", "pass": pass_id, "release": config["release"], "now": now,
               "started_by": started_by(reads.get("started"), rules["accounts"]), "context": context, "runs": runs,
               "reads": (copy.deepcopy(records["reads"]) if listed else [])
@@ -382,7 +415,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
               "reconciliation": reconcile_.entries(found),
               "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or (),
                                                reads.get("gone") or (), reads.get("unread_issues") or (),
-                                               reads.get("gone_issues") or ())}
+                                               reads.get("gone_issues") or (), served, found["hand"], found["taken"],
+                                               opened)}
     checked(record, "pass")
     entries = record["pull_requests"] + record["issues"]
     ids = [record["pass"]] + [e["run"] for e in entries if e["run"] is not None]
@@ -423,6 +457,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
                             bool(alarmed), raised, unnamed, reconcile_.alerts(found), due,
                             whole and never_started(runs, now, rules["automatic_pause"]))
     alerts = sorted(alerts + [ISSUE_APPS]) if refused else alerts
+    alerts = sorted(set(alerts) | {ISSUE_ALERTS[code] for code in why if code in ISSUE_ALERTS})
     decided = [e["facts"]["item"] for e in entries]
     titles = {key(e["facts"]["item"]): e.get("title") if isinstance(e.get("title"), str) else ""
               for e in pulls + issues if e["facts"]["item"] in decided}

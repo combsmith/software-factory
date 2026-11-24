@@ -1,0 +1,23 @@
+{
+  "schema": "advice/1",
+  "run": "r_01JA7Q",
+  "release": "factory/v0.3.1",
+  "lens": "kimi",
+  "status": "incomplete",
+  "reason": "rate_limited",
+  "findings": [],
+  "texts": [],
+  "off_change": 0,
+  "usage": {
+    "api": "chat",
+    "deployment": "Kimi-Reader",
+    "model": "kimi-model",
+    "answering_model": null,
+    "effort": "xhigh",
+    "asks": 2,
+    "input_tokens": null,
+    "output_tokens": null,
+    "cost_usd": null,
+    "seconds": 61.0
+  }
+}
