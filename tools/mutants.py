@@ -912,7 +912,7 @@ ISSUE = [
     ("the implementing rounds are unbounded", "kernel/brakes.py",
      'if len(rounds) >= bound:', 'if False:',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
-    ("max_attempts rounds admit one more", "kernel/brakes.py",
+    ("max_implementing_rounds rounds admit one more", "kernel/brakes.py",
      'if len(rounds) >= bound:', 'if len(rounds) > bound:',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
     ("every Run counts as an implementing round", "kernel/brakes.py", 'r["intent"] == t.IMPLEMENT and ', '',
