@@ -548,7 +548,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
                                "unread": reads_.BUDGET})
                 continue
             facts, title = issues_.read(through, home, number, asking, lambda: utc(clock), identities=identities,
-                                        earlier=before, kernel=config["kernel"], base_head=head,
+                                        earlier=before, kernel=config["kernel"], base_head=head, opener=opens,
                                         controller=(own_app["id"], own_app["type"]) if own_app else None)
             issues.append({"facts": facts, "title": title})
             facts_reads += dated(through.first)

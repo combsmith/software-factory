@@ -29,6 +29,7 @@ ISSUE_OWN = ("tests.test_adapters.Issues.test_the_issues_own_facts_hold_to_the_s
 BASE_READ = ("tests.test_adapters.Issues.test_the_default_branchs_head_is_read_by_its_ref_and_given_to_the_facts_or_left_out",)
 F931_PORT = ("tests.test_adapters.Issues.test_the_controllers_tracking_issue_is_told_at_its_first_read_by_its_opener_and_its_body",)
 
+PORT_HANDS = ("tests.test_adapters.Branches.test_the_issues_port_hands_the_work_branchs_head_and_whether_it_was_told",)  # issue 1059
 TARGETS = ("adapters/issues.py",)
 MUTANTS = [
     # Decision 0232: a pull request the Factory opened stands with its issue, held while a person holds or has closed it.
@@ -301,4 +302,14 @@ MUTANTS = [
      '{} if base_head is None else {"base_head": base_head}', '{}', BASE_READ),
     ("the issues port carries an unread base as null", 'adapters/issues.py',
      '{} if base_head is None else {"base_head": base_head}', '{"base_head": base_head}', BASE_READ),
+    # Issue 1059: the issues port hands the work branch's head and whether it was told.
+    ('the issues port says the branch was told whatever it read', 'adapters/issues.py',
+     '"branch": branch_whole}', '"branch": True}',
+     PORT_HANDS),
+    ('the issues port hands no branch head', 'adapters/issues.py',
+     '        "branch_head": branch_head,\n', '        "branch_head": None,\n',
+     PORT_HANDS),
+    ('the work branch is read with no opener', 'adapters/issues.py',
+     'branches.work_head(transport, repo, number, opener)', 'branches.work_head(transport, repo, number, None)',
+     PORT_HANDS),
 ]
