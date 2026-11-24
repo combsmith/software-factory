@@ -700,14 +700,14 @@ class HandApproval(unittest.TestCase):
         # A read of what was seen that cannot be read reads no window, and drops nothing.
         unread = reconcile.carried(aged, recorded(), None, NOW)
         self.assertEqual((unread["hand"], unread["taken"]), (leaving["hand"], leaving["taken"]))
-        # Reopened, or leaving again, it keeps its own; another repository's of that number is no reopening.
+        # Reopened, or leaving again, it keeps its own, as it does when another repository's of that number is read open.
         reopened = reconcile.carried(aged, recorded(), seen(), NOW, open_=[URL])
         self.assertEqual((reopened["hand"], reopened["taken"], reopened["left"]), (leaving["hand"], leaving["taken"], []))
         again_ = reconcile.carried(aged, recorded(), seen(), NOW, gone=[42])
         self.assertEqual((again_["hand"], again_["taken"], again_["left"]),
                          (leaving["hand"], leaving["taken"], [{"number": 42, "at": NOW}]))
         elsewhere = reconcile.carried(aged, recorded(), seen(), NOW, open_=[URL.replace("software-factory", "elsewhere")])
-        self.assertEqual([e["key"] for e in elsewhere["hand"]], ["PRR_8"])
+        self.assertEqual((elsewhere["hand"], elsewhere["taken"], elsewhere["left"]), (leaving["hand"], leaving["taken"], []))
         self.assertNotIn("hand", reconcile.carried([], recorded(), seen(), NOW))
         # Read open inside the window, it keeps no stamp of its leaving (issue 1191); an issue of its number is no reopening.
         inside = [dict(decided_as(hand), reconciled=dict(leaving, left=leaving["left"] + [{"number": 43, "at": GIVEN}]))]
@@ -728,10 +728,13 @@ class HandApproval(unittest.TestCase):
         kept = reconcile.carried([dict(decided_as(hand), reconciled=foreign)], recorded(), seen(), NOW, home=home)
         self.assertEqual(([e["key"] for e in kept["hand"]], [e["item"] for e in kept["taken"]]),
                          (["PRR_8", "PRR_F"], [other[0]["item"], far, cased]))
-        # Any pull request of that number read open clears the stamp, a home spelled otherwise among them.
+        # Any pull request of that number read open clears the stamp, a home spelled otherwise among them, and keeps
+        # the home's rows in the very pass whose window passes their leaving.
         for spelled in (far, cased):
             self.assertEqual(reconcile.carried(inside, recorded(), seen(), NOW, open_=[spelled], home=home)["left"],
                              [{"number": 43, "at": GIVEN}], spelled)
+            same = reconcile.carried(aged, recorded(), seen(), NOW, open_=[spelled], home=home)
+            self.assertEqual((same["hand"], same["taken"], same["left"]), (leaving["hand"], leaving["taken"], []), spelled)
 
     def test_an_approval_of_a_head_the_pass_did_not_decide_or_whose_commit_cannot_be_read_is_unmatched(self):
         hand = "model_lens_input_needs_person"

@@ -204,9 +204,9 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     (issue 916). So are `hand` and `taken` until the pass that drops their leaving; one in `open_`, read open, keeps
     its own (decision 0241), and a pull request read open keeps no stamp of an earlier leaving, as a served issue
     (issue 1191). `left` holds numbers alone, so a leaving drops only the rows of `home`, the pass's repository, as the
-    configuration spells it, and another's stay for good. Any pull request of that number read open clears the stamp,
-    however its repository is spelled, which only keeps rows longer. With no `home`, every repository is read as it
-    (issue 1190)."""
+    configuration spells it, and another's stay for good. Any pull request of that number read open clears the stamp
+    and keeps the home's rows, however its repository is spelled, which only keeps rows longer. With no `home`, every
+    repository is read as it (issue 1190)."""
     since = seen["since"] if seen is not None and not errors(seen, "seen") else None
     held = {name: [e for e in rows if name in ("owed", "owed_issues", "hand", "taken") or since is None
                    or _within(e["at"], since, name == "items")]
@@ -215,12 +215,13 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     # One clock: kept until the pass that drops the leaving (decision 0241).
     dropped = {e["number"] for e in _last(before).get("left", [])} - {e["number"] for e in held.get("left", [])} - set(gone)
     opened = set(open_)
+    restamped = set(gone) | {int(i.rsplit("/", 1)[1]) for i in opened if i.rsplit("/", 2)[1] == "pull"}
 
     def ours(item: str) -> bool:
         return home is None or item.startswith("https://github.com/%s/" % home)
 
     def stays(item: str) -> bool:
-        return not ours(item) or int(item.rsplit("/", 1)[1]) not in dropped or item in opened
+        return not ours(item) or int(item.rsplit("/", 1)[1]) not in dropped - restamped
     known_hand = {e["key"] for e in held.get("hand", [])}
     hands = [e for e in held.pop("hand", []) if stays(e["item"])] + [
         {"key": h["key"], "item": key(h["item"]), "head": h["head"], "at": h["at"]} for h in hand
@@ -239,7 +240,6 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     heads_ = [e for e in heads_ if (e["key"], e["item"], e["head"]) not in hand_rows]
     if heads_:
         held["taken"] = heads_
-    restamped = set(gone) | {int(i.rsplit("/", 1)[1]) for i in opened if i.rsplit("/", 2)[1] == "pull"}
     held["left"] = [e for e in held.get("left", []) if e["number"] not in restamped] + [
         {"number": n, "at": now} for n in sorted(set(gone))]
     # A hand's resolution that was matched, or that nothing could judge, is stamped again each pass it is seen.
