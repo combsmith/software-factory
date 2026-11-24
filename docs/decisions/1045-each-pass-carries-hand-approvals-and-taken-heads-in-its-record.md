@@ -6,7 +6,7 @@ Status: accepted. 2026-11-22, the Solution Architect's ruling on issue 1026. Ext
 
 Each pass writes `reconciled.hand` and `reconciled.taken` into its record, as decision 0241's row "Carried" says. `controller/reconcile.py` (`carried`) holds the exact form and `schemas/pass.schema.json` the shape. The cut-a-release skill says such a hand approval is information, any other unmatched one alarms, and every entry is read.
 
-Limits: a pull request left out of the last pass, its facts unread, and closed before the next, is read as leaving by no pass. So its entries stay: a head stays taken, which raises more alarms, never fewer.
+Limits: a pull request left out of the last pass, its facts unread and nothing of it owed, and closed before the next, is read as leaving by no pass. So its entries stay: a head stays taken, which raises more alarms, never fewer.
 
 ## Why
 
