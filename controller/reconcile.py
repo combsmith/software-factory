@@ -191,7 +191,7 @@ def unfit(effects) -> bool:
 
 
 def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(), gone_issues=(), served_issues=(),
-            hand=(), taken=(), open_=()) -> dict:
+            hand=(), taken=(), open_=(), home=None) -> dict:
     """What this pass's record carries for the next: what was read in the window and the keys it held, those older than the
     window dropped, and the pull requests whose writes it could not read. A key, which one write alone can match, is stamped
     with when it was read, so it outlasts the write it records. A write matched by its item is credit any such write could
@@ -203,7 +203,8 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     of an earlier leaving, so that it is read as left anew once it leaves again, whatever pass between could not list it
     (issue 916). So are `hand` and `taken` until the pass that drops their leaving; one in `open_`, read open, keeps
     its own (decision 0241), and a pull request read open keeps no stamp of an earlier leaving, as a served issue
-    (issue 1191)."""
+    (issue 1191). `left` holds numbers alone, so a leaving drops, and a read open clears, only the rows of `home`, the
+    pass's repository, and any other's stay for good; with no `home`, every repository is read as it (issue 1190)."""
     since = seen["since"] if seen is not None and not errors(seen, "seen") else None
     held = {name: [e for e in rows if name in ("owed", "owed_issues", "hand", "taken") or since is None
                    or _within(e["at"], since, name == "items")]
@@ -213,8 +214,11 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     dropped = {e["number"] for e in _last(before).get("left", [])} - {e["number"] for e in held.get("left", [])} - set(gone)
     opened = set(open_)
 
+    def ours(item: str) -> bool:
+        return home is None or item.startswith("https://github.com/%s/" % home)
+
     def stays(item: str) -> bool:
-        return int(item.rsplit("/", 1)[1]) not in dropped or item in opened
+        return not ours(item) or int(item.rsplit("/", 1)[1]) not in dropped or item in opened
     known_hand = {e["key"] for e in held.get("hand", [])}
     hands = [e for e in held.pop("hand", []) if stays(e["item"])] + [
         {"key": h["key"], "item": key(h["item"]), "head": h["head"], "at": h["at"]} for h in hand
@@ -233,7 +237,7 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     heads_ = [e for e in heads_ if (e["key"], e["item"], e["head"]) not in hand_rows]
     if heads_:
         held["taken"] = heads_
-    restamped = set(gone) | {int(i.rsplit("/", 1)[1]) for i in opened if i.rsplit("/", 2)[1] == "pull"}
+    restamped = set(gone) | {int(i.rsplit("/", 1)[1]) for i in opened if i.rsplit("/", 2)[1] == "pull" and ours(i)}
     held["left"] = [e for e in held.get("left", []) if e["number"] not in restamped] + [
         {"number": n, "at": now} for n in sorted(set(gone))]
     # A hand's resolution that was matched, or that nothing could judge, is stamped again each pass it is seen.

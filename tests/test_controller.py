@@ -302,6 +302,11 @@ class Record(unittest.TestCase):
         window = dict(SEEN, since="2026-10-11T14:00:00Z")
         gone = passed(reads(pulls=[], seen=window), now="2026-10-12T20:00:00Z", previous=records[-2:])["record"]
         self.assertEqual(("hand" in gone["reconciled"], gone["reconciled"]["left"]), (False, []))
+        # Another repository's row of that number is not dropped by this one's leaving (issue 1190).
+        far = dict(records[-1]["reconciled"]["hand"][0], item=url.replace(REPO, REPO + "-elsewhere"))
+        theirs = dict(records[-1], reconciled=dict(records[-1]["reconciled"], hand=records[-1]["reconciled"]["hand"] + [far]))
+        kept = passed(reads(pulls=[], seen=window), now="2026-10-12T20:00:00Z", previous=[records[-2], theirs])["record"]
+        self.assertEqual(kept["reconciled"]["hand"], [far])
         back = passed(reads(pulls=[pull], seen=window, runs=[run(number=42)]), now="2026-10-12T20:00:00Z",
                       previous=records[-2:])["record"]
         self.assertEqual((back["reconciled"]["hand"], back["reconciled"]["left"]), (records[-1]["reconciled"]["hand"], []))

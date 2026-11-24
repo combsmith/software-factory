@@ -92,7 +92,7 @@ MUTANTS = [
      '    record["successor"] = False\n', ('tests.test_effects',)),
     # No mutant drops FITS_ITEM from carried(): written/1 holds an item's repo to the pass record's own alphabet (issue
     # 913), so no write it admits has an item too wide to carry, and the guard is left for a schema that widens again.
-    ('the pass record carries nothing', 'controller/pass_.py', '              "reconciliation": reconcile_.entries(found),\n              "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or (),\n                                               reads.get("gone") or (), reads.get("unread_issues") or (),\n                                               reads.get("gone_issues") or (), served, found["hand"], found["taken"],\n                                               opened)}\n', '              "reconciliation": reconcile_.entries(found)}\n', WIRE_ENTRY),
+    ('the pass record carries nothing', 'controller/pass_.py', '              "reconciliation": reconcile_.entries(found),\n              "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or (),\n                                               reads.get("gone") or (), reads.get("unread_issues") or (),\n                                               reads.get("gone_issues") or (), served, found["hand"], found["taken"],\n                                               opened, config["controller"]["home"]["repo"])}\n', '              "reconciliation": reconcile_.entries(found)}\n', WIRE_ENTRY),
     ('the pass record owes nothing', 'controller/pass_.py', ', now, reads.get("unread") or (),', ', now, (),', WIRE_ENTRY),
     # The Controller's pass, issue 193's first pull request: one mutant to a rule of controller/, or more.
     ('the pass reads the Kernel past its two entry points', 'controller/pass_.py',
@@ -358,7 +358,9 @@ MUTANTS = [
     ('the pass carries no taken head', 'controller/pass_.py',
      ', found["hand"], found["taken"],\n', ', found["hand"], (),\n', HAND_PASS),
     ("the pass reads no pull request as open", 'controller/pass_.py',
-     'found["hand"], found["taken"],\n                                               opened)}', 'found["hand"], found["taken"])}', HAND_PASS),
+     'found["hand"], found["taken"],\n                                               opened, config', 'found["hand"], found["taken"],\n                                               (), config', HAND_PASS),
+    ('the pass hands its carry no home', 'controller/pass_.py',
+     'opened, config["controller"]["home"]["repo"])}', 'opened)}', HAND_PASS),
     ('one left out is not read as open', 'controller/pass_.py',
      ' + [reads_.item(i) for i in left_out] if', ' if', HAND_PASS),
     ('one decided is not read as open', 'controller/pass_.py',

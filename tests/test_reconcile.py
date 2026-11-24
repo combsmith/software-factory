@@ -719,6 +719,15 @@ class HandApproval(unittest.TestCase):
         # Both read open and one newly left in one pass, with no window read: the newly left alone is stamped.
         mixed = reconcile.carried(inside, recorded(), None, NOW, gone=[44], open_=[URL, URL.replace("/42", "/43")])
         self.assertEqual(mixed["left"], [{"number": 44, "at": NOW}])
+        # Another repository's row of that number stays for good: its leaving and a read open are ours alone (issue 1190).
+        far, home = URL.replace("software-factory", "elsewhere"), "combsmith/software-factory"
+        foreign = dict(leaving, hand=leaving["hand"] + [dict(leaving["hand"][0], key="PRR_F", item=far)],
+                       taken=leaving["taken"] + [{"key": None, "item": far, "head": HEAD}], left=[{"number": 42, "at": EARLY}])
+        kept = reconcile.carried([dict(decided_as(hand), reconciled=foreign)], recorded(), seen(), NOW, home=home)
+        self.assertEqual(([e["key"] for e in kept["hand"]], [e["item"] for e in kept["taken"]]),
+                         (["PRR_8", "PRR_F"], [other[0]["item"], far]))
+        self.assertEqual(reconcile.carried(inside, recorded(), seen(), NOW, open_=[far], home=home)["left"][0],
+                         {"number": 42, "at": NOW})
 
     def test_an_approval_of_a_head_the_pass_did_not_decide_or_whose_commit_cannot_be_read_is_unmatched(self):
         hand = "model_lens_input_needs_person"
