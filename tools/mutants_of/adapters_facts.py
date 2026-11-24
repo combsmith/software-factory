@@ -213,4 +213,6 @@ MUTANTS = [
      '        "timeline_bounded": False,\n', '', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut',)),
     ("the snapshot says its own timeline was cut", 'adapters/facts.py',
      '        "timeline_bounded": False,\n', '        "timeline_bounded": True,\n', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut',)),
+    ("a snapshot's own cut flag is its acceptance read's", 'adapters/facts.py',
+     '        "timeline_bounded": False,\n', '        "timeline_bounded": contract_cut,\n', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut',)),
 ]

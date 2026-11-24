@@ -167,6 +167,9 @@ class Readability(unittest.TestCase):
         for other in [name for name in facts()["complete"] if name != "timeline"]:
             d = go(facts(timeline_bounded=None, complete=dict(facts()["complete"], **{other: False})), REVIEWED)
             self.assertEqual(d["evidence"], [name for name in facts()["complete"] if name in (other, "timeline")], other)
+        # Both flags no truth value in one snapshot: both are gaps, the acceptance read's first (Astra).
+        d = go(facts(acceptance_bounded=None, timeline_bounded=None), REVIEWED)
+        self.assertEqual((d["reason"], d["evidence"]), ("facts_incomplete", ["acceptance", "timeline"]))
         # A merged or closed pull request is what it is, cut or not.
         for state in ("merged", "closed"):
             self.assertEqual(go(facts(timeline_bounded=True, complete=cut, state=state), REVIEWED)["reason"], state)
@@ -284,6 +287,11 @@ class HumanControl(unittest.TestCase):
         for bounded in (True, None, "true", 0):
             self.assertTrue(left_alone(facts(timeline_bounded=bounded), CONFIG), bounded)
         self.assertFalse(left_alone(facts(timeline_bounded=False), CONFIG))
+        # Absent, as in facts read before it, it is not cut: a person's hands-off is read, and none leaves it (Astra).
+        legacy, placed = facts(), facts(label_events=[person])
+        del legacy["timeline_bounded"], placed["timeline_bounded"]
+        self.assertFalse(left_alone(legacy, CONFIG))
+        self.assertTrue(derive.hands_off(placed, CONFIG))
         self.assertTrue(left_alone(facts(label_events=[dict(person, by=None)]), CONFIG))
         # The other side: none, a person's removal, one no person placed, another label, another list not read.
         for events in ([], [person, unlabelled("factory:hands-off", at="2026-10-11T12:05:00Z")],
@@ -890,7 +898,8 @@ class OnlyAPersonEnds(unittest.TestCase):
                              (None, "facts_incomplete", "act", "dequeue"), who)
         # Nor from a timeline the port cut at its bound, or says it cut in a form that is no truth value, whatever
         # `complete.timeline` claims (decision 1149; Muse).
-        for bounded, reason in ((True, "timeline_bounded"), (None, "facts_incomplete"), ("true", "facts_incomplete")):
+        for bounded, reason in ((True, "timeline_bounded"), (None, "facts_incomplete"), ("true", "facts_incomplete"),
+                                (0, "facts_incomplete")):
             f = facts(queue=True, reviews=APPROVED, label_events=[labelled("factory:hands-off")], timeline_bounded=bounded)
             d = go(f, REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("action")),
@@ -900,6 +909,12 @@ class OnlyAPersonEnds(unittest.TestCase):
         f["complete"]["threads"] = False
         d = go(f, REVIEWED)
         self.assertEqual((d["reason"], d["outcome"]), ("facts_incomplete", "defer"))
+        self.assertNotIn("action", d)
+        # Nor is the flag absent, as in facts read before it, any cut: hands-off is read, and nothing dequeues (security).
+        f = facts(queue=True, reviews=APPROVED, label_events=[labelled("factory:hands-off")])
+        del f["timeline_bounded"]
+        d = go(f, REVIEWED)
+        self.assertEqual((d["reason"], d["outcome"]), ("hands_off", "hold"))
         self.assertNotIn("action", d)
 
     def test_a_person_whose_login_is_a_bots_is_unreadable(self):  # I-13, L-57
@@ -2136,6 +2151,10 @@ class Convergence(unittest.TestCase):
         f = facts(reviews=rv)
         f["complete"] = dict(f["complete"], timeline=False)
         self.assertIsNone(derive.standing_approval(f, CONFIG))
+        # Nor on one cut at its bound, or said cut in a form that is no truth value, whatever the flag claims (Muse).
+        for cut in (True, None, "true", 0):
+            self.assertIsNone(derive.standing_approval(facts(reviews=rv, timeline_bounded=cut), CONFIG), cut)
+        self.assertIsNotNone(derive.standing_approval(facts(reviews=rv, timeline_bounded=False), CONFIG))
 
     def test_a_description_edited_after_the_approval_holds_until_a_person_approves(self):  # issue 519, trials/P-58.json
         # P-58: every edit of the description moves its last editedAt, a reviewer App's too, and nothing else does. An
