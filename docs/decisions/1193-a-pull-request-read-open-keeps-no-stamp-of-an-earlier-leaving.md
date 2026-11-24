@@ -1,4 +1,4 @@
-# 9999. A pull request read open keeps no stamp of an earlier leaving
+# 1193. A pull request read open keeps no stamp of an earlier leaving
 
 Status: accepted. 2026-11-24, the Factory Builder; issue 1191. Extends decision 1045, whose Limits line it makes hold.
 
