@@ -604,9 +604,9 @@ An issue has facts of its own (§4.1, the issue Lifecycle):
 | `role_comments` | For each Factory App that has commented: the time of its latest comment |
 | `last_writer_action_at`, `last_writer_comment_at` | The last action on the issue by a person with write access, and that person's last comment |
 | `acts_since_writer` | As for a pull request: the Factory's acts on the issue since a person with write access last acted, which the act ceiling bounds (decision 0031) |
-| `branch_head` | The head of the branch the next opening Run would push to, or null while it does not exist. The opening Run is admitted for it, and `apply` refuses once it has moved (decision 0031) |
+| `branch_head` | The head of the branch the next opening Run would push to, a commit's whole name, or null while it does not exist; null is "no branch" only where `complete.branch` says the port read it (decision 0242, issue 1059). The opening Run is admitted for it, and `apply` refuses once it has moved (decision 0031) |
 | `base_head` | The default branch's head as the pass read it. Where `branch_head` is null, the opening Run is admitted for it: the Run reads that commit and its one commit lands on it. A commit's whole name; left out, it is unread and that Run is deferred. `apply` does not refuse when the default branch has moved since; its read that the commit is still on the default branch is owed with the push (decision 0226) |
-| `complete`, `read_at` | As for a pull request; `complete` says whether the `timeline`, the `linked` pull requests and the `runs` were read in full |
+| `complete`, `read_at` | As for a pull request; `complete` says whether the `timeline`, the `linked` pull requests and the `runs` were read in full, and `branch` whether `branch_head` was read; a branch not read defers the opening Run alone |
 
 No field holds prose. Thread and comment bodies are read by the port into a separate `texts` set,
 keyed by id and labelled with a trust class. An issue's body is classed by its author alone;

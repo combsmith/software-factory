@@ -106,12 +106,12 @@
           "$ref": "#/$defs/content_id"
         },
         "branch_head": {
-          "description": "The opening Run's: the head of the next opening's branch it was admitted for, or null where that branch does not exist yet; the implementing Run's: the head of the draft it was admitted for, a commit's whole sha (issue 1059). apply refuses once it has moved",
+          "description": "The opening Run's: the head of the next opening's branch it was admitted for, a commit's whole name, or null where that branch does not exist yet; the implementing Run's: the head of the draft it was admitted for, a commit's whole sha (issue 1059). apply refuses once it has moved",
           "type": [
             "string",
             "null"
           ],
-          "minLength": 1
+          "pattern": "^[0-9a-f]{40}$"
         },
         "base_head": {
           "description": "The opening Run's alone, where the branch does not exist yet: the default branch's head it was admitted for, the commit it reads and lands its one commit on",
