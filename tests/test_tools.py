@@ -1470,8 +1470,8 @@ class Authority(unittest.TestCase):
 
     def test_a_role_named_to_open_pull_requests_waits_on_the_branch_read(self):  # issue 1059
         # No Role is named to open pull requests until the issues port reads the work branch's head: adapters/branches.py
-        # exists and parses, and adapters/issues.py parses and imports it at its top, read from the syntax. With none
-        # named it passes; this repo, with no adapters/branches.py yet, refuses one named.
+        # exists and parses, and adapters/issues.py parses, imports it at its top and writes no head as None, read from
+        # the syntax. With none named it passes; this repo, with no adapters/branches.py yet, refuses one named.
         config = json.loads((ROOT / "config" / "defaults.json").read_text())
         self.assertEqual(check_authority.branch_read_problems(config), [])
         named = copy.deepcopy(config)
@@ -1499,7 +1499,8 @@ class Authority(unittest.TestCase):
         reads = "from adapters import branches\n"
         for port in (reads, "from adapters import facts, branches as b\n", "import adapters.branches\n",
                      "import json, adapters.branches as b\n", "from adapters.branches import head\n",
-                     "from . import branches\n", "from .branches import head\n", '"""The port."""\n' + reads):
+                     "from . import branches\n", "from .branches import head\n", '"""The port."""\n' + reads,
+                     reads + "def read(t):\n    return {'branch_head': branches.head(t), 'other': None}\n"):
             with self.subTest(port=port):
                 self.assertEqual(check_authority.branch_read_problems(named, tree(port)), [])
         self.assertEqual(check_authority.branch_read_problems(config, tree(None, None)), [])
@@ -1516,7 +1517,10 @@ class Authority(unittest.TestCase):
                                      ("def read():\n    from adapters import branches\n", "", unread),
                                      ("if True:\n    import adapters.branches\n", "", unread),
                                      ("# from adapters import branches\n", "", unread),
-                                     ("'from adapters import branches'\n", "", unread)):
+                                     ("'from adapters import branches'\n", "", unread),
+                                     (reads + "FACTS = {'branch_head': None}\n", "", "still writes a work branch's head as None"),
+                                     (reads + "def read(t):\n    return {'n': 1, 'branch_head': None}\n", "",
+                                      "still writes a work branch's head as None")):
             with self.subTest(port=port, branches=branches):
                 self.assertTrue(caught(check_authority.branch_read_problems(named, tree(port, branches)), said))
 
