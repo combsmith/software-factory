@@ -3211,17 +3211,19 @@ class Acceptance(unittest.TestCase):
     OPENED = dict(PULL, user={"login": "combsmith-sf-dev-lead[bot]", "id": 12, "type": "Bot"},
                   head={"ref": "factory-work/issue-36-1", "repo": {"full_name": "o/r"}})
 
-    def read(self, *found, pull=None, opener=None, opened=None):
+    def read(self, *found, pull=None, opener=None, opened=None, cut=False):
+        """`acceptance.read`'s answer, or with `cut` `acceptance.bounded`'s, which says the cut too."""
         router = Router(github.Replay(list(found)), {"don-petry": "admin", "reader": "read"})
-        return acceptance.read(router, pull or self.PULL, timeline.Accounts(router, "o/r", MACHINE, {}), opener,
-                               opened if opened is not None else NOT_OPENED)
+        return (acceptance.bounded if cut else acceptance.read)(
+            router, pull or self.PULL, timeline.Accounts(router, "o/r", MACHINE, {}), opener,
+            opened if opened is not None else NOT_OPENED)
 
-    def opened(self, *found, ref="factory-work/issue-36-1", user=None, repo="o/r", opener=OPENER, made=None):
+    def opened(self, *found, ref="factory-work/issue-36-1", user=None, repo="o/r", opener=OPENER, made=None, cut=False):
         """What the pull request the opener's App opened on branch `ref` reads as, its opening Runs' records `made`."""
         pull = dict(self.OPENED, head={"ref": ref, "repo": {"full_name": repo}})
         if user is not None:
             pull["user"] = user
-        return self.read(*found, pull=pull, opener=opener, opened=made)
+        return self.read(*found, pull=pull, opener=opener, opened=made, cut=cut)
 
     def test_the_role_that_opens_pull_requests_is_the_configurations(self):  # issue 342
         # The opening Runs are read for the Role the configuration names for open-pull-request: none in slice 1.
@@ -3414,6 +3416,50 @@ class Acceptance(unittest.TestCase):
         short["request"]["call"] = "GET /repos/o/r/issues/36/timeline?per_page=100&page=2"
         self.assertEqual(self.read(closing_answer("o/r", 26, [36]), issue_timeline("o/r", 36, [], more=True), short),
                          (None, False))
+
+    def test_a_bound_issues_timeline_is_read_to_ten_pages_and_past_them_is_not_whole(self):  # issue 986, decision 0234
+        # Anyone can comment on the issue a pull request closes, so its timeline is read as the issues port reads an
+        # issue's: ten pages that end there are whole; a tenth that names an eleventh is not, and the eleventh, which
+        # would end the list, is never asked.
+        nxt = '<https://x>; rel="next"'
+
+        def pages(count, last_more):
+            later = [rest_answer("/repos/o/r/issues/36/timeline?per_page=100&page=%d" % n,
+                                 [label_event("labeled", label="bug")], nxt if n < count or last_more else "")
+                     for n in range(2, count + 1)]
+            return [closing_answer("o/r", 26, [36]), issue_timeline("o/r", 36, [], more=True)] + later
+        self.assertEqual(timeline.BOUND, 10)
+        self.assertEqual(self.read(*pages(10, False)), (None, True))
+        eleventh = rest_answer("/repos/o/r/issues/36/timeline?per_page=100&page=11", [])
+        replay = github.Replay(pages(10, True) + [eleventh])
+        router = Router(replay, {"don-petry": "admin"})
+        self.assertEqual(acceptance.read(router, self.PULL, timeline.Accounts(router, "o/r", MACHINE, {}), None,
+                                         NOT_OPENED), (None, False))
+        self.assertEqual([asked[1] for asked, _ in replay._left], [eleventh["request"]["call"].split(" ", 1)[1]])
+        # The cut is said, beside not whole; ten pages that end there are no cut.
+        self.assertEqual(self.read(*pages(10, True), cut=True), (None, False, True))
+        self.assertEqual(self.read(*pages(10, False), cut=True), (None, True, False))
+        # The issue a Factory pull request's branch binds it to is read so too, with no closing reference to it.
+        bound = [closing_answer("o/r", 26, []), issue_answer("o/r", 36)] + pages(10, True)[1:]
+        self.assertEqual(self.opened(*bound, cut=True), (None, False, True))
+        # A cut behind an issue that asks, or one read short, is still said: every issue is read (Astra, Muse).
+        later = [closing_answer("o/r", 26, [35, 36], labelled=[35]), issue_timeline("o/r", 35, [label_event("labeled")])]
+        self.assertEqual(self.read(*later + pages(10, True)[1:], cut=True), (None, False, True))
+        short = issue_timeline("o/r", 35, {"message": "not a list"})
+        self.assertEqual(self.read(closing_answer("o/r", 26, [35, 36]), short, *pages(10, True)[1:], cut=True),
+                         (None, False, True))
+        self.assertEqual(self.read(*later + pages(10, False)[1:], cut=True), (None, False, False))
+        # So is a cut behind a closing list read short, here by a reference to another repo's issue (Muse).
+        elsewhere = closing_answer("o/r", 26, [36, 37])
+        elsewhere["response"]["body"]["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"][1][
+            "repository"]["nameWithOwner"] = "o/other"
+        self.assertEqual(self.read(elsewhere, *pages(10, True)[1:], cut=True), (None, False, True))
+        self.assertEqual(self.read(elsewhere, *pages(10, False)[1:], cut=True), (None, False, False))
+        # A read short within the bound is no cut.
+        self.assertEqual(self.read(closing_answer("o/r", 26, [35]), short, cut=True), (None, False, False))
+        # And a cut before an issue read whole stays said.
+        first = [closing_answer("o/r", 26, [36, 37])] + pages(10, True)[1:] + [issue_timeline("o/r", 37, [])]
+        self.assertEqual(self.read(*first, cut=True), (None, False, True))
 
     def test_closing_references_are_whole_only_of_this_repo_and_every_one_counted(self):
         self.assertIn("closingIssuesReferences(first: 10)", acceptance.QUERY)
@@ -4562,12 +4608,23 @@ class Snapshot(unittest.TestCase):
         self.assertIs(got["acceptance_bounded"], False)
 
     def test_a_snapshot_says_whether_its_acceptance_read_was_cut(self):  # issue 986, decision 0234
-        # The port always gives the fact, so a port that dropped it is caught: false where nothing was cut.
-        router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
+        # The port always gives the fact, so a port that dropped it is caught: false where nothing was cut, and true
+        # where the closing issue's timeline was cut at its tenth page, beside acceptance not whole.
+        seq = self.sequence(1)
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                                 lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
         self.assertIs(got["complete"]["acceptance"], True)
         self.assertIs(got["acceptance_bounded"], False)
+        nxt = '<https://x>; rel="next"'
+        at = len(seq) - 4
+        seq[at:at + 1] = [closing_answer(canary(), 26, [36]), issue_timeline(canary(), 36, [], more=True)] + [
+            rest_answer("/repos/%s/issues/36/timeline?per_page=100&page=%d" % (canary(), n), [], nxt) for n in range(2, 11)]
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
+        self.assertEqual((got["acceptance"], got["complete"]["acceptance"]), (None, False))
+        self.assertIs(got["acceptance_bounded"], True)
 
     def test_a_snapshot_reads_the_ask_of_the_openers_pull_request_by_its_branch(self):  # issue 295
         # Told that the App that opens pull requests is this one's author, the snapshot reads its branch, which is no
@@ -4582,9 +4639,9 @@ class Snapshot(unittest.TestCase):
         # What the opening Runs recorded is handed to the acceptance read as it was given (issue 342).
         made, handed = {"named": {26: [("r_01JA7Q", 36)]}, "unreadable": set(), "whole": True}, []
         router = Router(github.Replay(seq), {"don-petry": "admin"})
-        with mock.patch.object(facts.acceptance, "read",
+        with mock.patch.object(facts.acceptance, "bounded",
                                lambda transport, pull_, accounts, opener=None, opened=None: handed.append(opened)
-                               or (None, True)):
+                               or (None, True, False)):
             facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                            lambda: self.NOW, opener=(author["id"], author["type"]), recorded=NOTHING, opened=made)
         self.assertIs(handed[0], made)
