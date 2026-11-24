@@ -1246,7 +1246,10 @@ class Authority(unittest.TestCase):
         named = copy.deepcopy(config)
         named["issues"]["intents"]["open-pull-request"] = {"role": "dev-lead", "app": "combsmith-sf-dev-lead"}
         self.assertTrue(caught(check_authority.run(config=named), "no adapter sends a write to a repo's pulls"))
-        # Its counter-example is refused, for that alone, and so still once the work branch's head is read (issue 1059).
+        # Its counter-example is refused, for that alone, where the port does not read the work branch's head, here a
+        # read module of another name, and so still where it does, as this repo's port does (issue 1059).
+        with mock.patch.object(check_authority, "BRANCHES", "adapters/branches_unbuilt.py"):
+            self.assertFalse(caught(check_examples.run(), "config.an-opening-role-with-no-writer.json"))
         self.assertFalse(caught(check_examples.run(), "config.an-opening-role-with-no-writer.json"))
         with mock.patch.object(check_authority, "branch_read_problems", return_value=[]):
             self.assertFalse(caught(check_examples.run(), "config.an-opening-role-with-no-writer.json"))
