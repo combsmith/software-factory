@@ -3411,6 +3411,44 @@ class Ceilings(unittest.TestCase):
         self.assertEqual(go(facts(threads=accepted, acts_since_writer=0), REVIEWED + theirs[1:])["action"], "resolve_thread")
         self.assertEqual(go(facts(acts_since_writer=0), REVIEWED + theirs)["action"], "issue_approval")
 
+    def test_the_approval_and_queue_loops_are_held_at_max_attempts_never_at_the_rounds_key(self):  # decision 0242
+        # max_attempts and an issue's max_implementing_rounds set apart, each way: an approval's and an enqueue's jobs
+        # that failed by the item are held at max_attempts, and one fewer goes on, whatever the rounds' key says.
+        landed = run(intent="resolve-thread", role="pr-review", at=at(12), name="r_0RES001")
+        approved = facts(reviews=APPROVED, acts_since_writer=0)
+        for attempts, rounds in ((2, 5), (5, 2)):
+            cfg = copy.deepcopy(CONFIG)
+            cfg["limits"].update(max_attempts=attempts, max_implementing_rounds=rounds)
+            failed = approvals(attempts)
+            d = go(facts(), REVIEWED + failed, cfg=cfg)
+            self.assertEqual((d["outcome"], d["reason"]), ("hold", "attempts_exhausted"), (attempts, rounds))
+            self.assertEqual(go(facts(), REVIEWED + failed[1:], cfg=cfg).get("action"), "issue_approval", (attempts, rounds))
+            queue = [dict(landed, run="r_0EQ%03d" % i, intent="enqueue-merge", started_at=at(13 + i), conclusion="failure",
+                          outcome="item") for i in range(attempts)]
+            d = go(approved, REVIEWED + queue, cfg=cfg)
+            self.assertEqual((d["outcome"], d["reason"]), ("hold", "attempts_exhausted"), (attempts, rounds))
+            self.assertEqual(go(approved, REVIEWED + queue[1:], cfg=cfg).get("action"), "enqueue", (attempts, rounds))
+        # Nor does a rounds' key that cannot be read hold either loop: it is the implementing rounds' alone.
+        for bad in (None, "3", 0):
+            cfg = copy.deepcopy(CONFIG)
+            cfg["limits"].update(max_attempts=2, max_implementing_rounds=bad)
+            self.assertEqual(go(facts(), REVIEWED + approvals(1), cfg=cfg).get("action"), "issue_approval", bad)
+            queue = [dict(landed, run="r_0EQ001", intent="enqueue-merge", started_at=at(13), conclusion="failure", outcome="item")]
+            self.assertEqual(go(approved, REVIEWED + queue, cfg=cfg).get("action"), "enqueue", bad)
+            del cfg["limits"]["max_implementing_rounds"]
+            self.assertEqual(go(facts(), REVIEWED + approvals(1), cfg=cfg).get("action"), "issue_approval", bad)
+            self.assertEqual(go(approved, REVIEWED + queue, cfg=cfg).get("action"), "enqueue", bad)
+
+    def test_the_rulings_are_held_at_max_rounds_never_at_the_rounds_key(self):  # decision 0242
+        for rounds, other in ((2, 5), (5, 2)):  # the two keys set apart, each way
+            cfg = copy.deepcopy(CONFIG)
+            cfg["limits"].update(max_rounds=rounds, max_implementing_rounds=other, max_runs_per_item=20)
+            laps = [r for i in range(rounds) for r in (run(intent="adjudicate-findings", at=at(20 + 2 * i), name="o%d" % i),
+                                                       run(role="dev-lead", intent="fix-findings", at=at(21 + 2 * i), name="a%d" % i))]
+            self.assertEqual(go(facts(threads=[thread()]), REVIEWED + laps, cfg=cfg)["reason"], "max_rounds", rounds)
+            d = go(facts(threads=[thread()]), REVIEWED + laps[:-2], cfg=cfg)
+            self.assertEqual(d["admit"]["intent"], "adjudicate-findings", rounds)
+
     def test_a_queue_job_spends_no_run_when_it_lands_and_is_held_by_its_own_when_it_does_not(self):  # issue 381
         # The queue App's enqueue and dequeue are each a Run once the queue workflow is named. One that landed is on the
         # timeline among the acts, so it spends no Run; one that keeps failing is held by its own jobs alone.
