@@ -475,9 +475,9 @@ def run(root: pathlib.Path = ROOT) -> list:
         if kind == "result" and not errors:
             errors = _reason_unsuited(value)
         if kind == "config" and not errors:
-            # A Role named to open pull requests before open_pull_request has its writer (issue 808), and then before the
-            # issues port reads the work branch's head (issue 1059), is tools/check_authority.py's to refuse: the first
-            # part missing is named, so a counter-example of either is wrong in one way.
+            # A Role named to open pull requests before open_pull_request has its writer (issue 808), and then before
+            # the issues port reads the work branch's head (issue 1059), is tools/check_authority.py's to refuse: the
+            # first part missing is named, so a counter-example of either is wrong in one way.
             from tools import check_authority
             errors = check_authority.opening_problems(value, root)
             errors = errors or check_authority.branch_read_problems(value, root)

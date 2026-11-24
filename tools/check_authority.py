@@ -343,7 +343,8 @@ def branch_read_problems(config: dict, root: pathlib.Path = None) -> list:
     if (intents.get("open-pull-request") if isinstance(intents, dict) else None) is None:
         return []
     root = ROOT if root is None else root
-    said, wait = "the configuration names a Role to open pull requests, and ", "; name none until the port reads it (issue 1059)"
+    said = "the configuration names a Role to open pull requests, and "
+    wait = "; name none until the port reads it (issue 1059)"
     if _parsed(root / BRANCHES) is None:
         return [said + "%s, the read of a work branch's head, is missing or cannot be read%s" % (BRANCHES, wait)]
     port = _parsed(root / PORT)

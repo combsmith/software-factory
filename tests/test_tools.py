@@ -1469,24 +1469,29 @@ class Authority(unittest.TestCase):
                                        "no adapter sends a write"))
 
     def test_a_role_named_to_open_pull_requests_waits_on_the_branch_read(self):  # issue 1059
-        # No Role is named to open pull requests until the issues port reads the work branch's head: adapters/branches.py
-        # exists and parses, and adapters/issues.py parses, imports it at its top and writes no head as None, read from
-        # the syntax. With none named it passes; this repo, with no adapters/branches.py yet, refuses one named.
+        # No Role is named to open pull requests until the issues port reads the work branch's head: the file
+        # adapters/branches.py exists and parses, and adapters/issues.py parses, imports it at its top and writes no
+        # head as None, read from the syntax. With none named it passes; this repo, with no adapters/branches.py yet,
+        # refuses one named.
         config = json.loads((ROOT / "config" / "defaults.json").read_text())
         self.assertEqual(check_authority.branch_read_problems(config), [])
         named = copy.deepcopy(config)
         named["issues"]["intents"]["open-pull-request"] = {"role": "dev-lead", "app": "combsmith-sf-dev-lead"}
-        self.assertTrue(caught(check_authority.run(config=named), "adapters/branches.py, the read of a work branch's head"))
-        self.assertTrue(caught(check_authority.branch_read_problems(named), "is missing or cannot be read"))
+        waits = "name none until the port reads it (issue 1059)"
+        self.assertTrue(caught(check_authority.run(config=named), waits))
+        self.assertTrue(caught(check_authority.branch_read_problems(named), waits))
         # Its counter-example is refused, for that alone, once the writer stands: the writer's part, named first,
         # refuses it today.
-        counter = json.loads((ROOT / "examples" / "invalid" / "config.an-opening-role-with-no-branch-read.json").read_text())
-        self.assertTrue(caught(check_authority.branch_read_problems(counter), "is missing or cannot be read"))
+        counter = ROOT / "examples" / "invalid" / "config.an-opening-role-with-no-branch-read.json"
+        counter = json.loads(counter.read_text())
+        self.assertTrue(caught(check_authority.branch_read_problems(counter), waits))
         with mock.patch.object(check_authority, "opening_problems", return_value=[]):
             problems = check_examples.run()
         self.assertFalse(caught(problems, "config.an-opening-role-with-no-branch-read.json"), problems)
 
-        def tree(port, branches="def head(transport, repo, branch):\n    return None\n"):
+        helper = "def head(transport, repo, branch):\n    return None\n"
+
+        def tree(port, branches=helper):
             folder = tempfile.TemporaryDirectory()
             self.addCleanup(folder.cleanup)
             root = pathlib.Path(folder.name)
@@ -1505,22 +1510,18 @@ class Authority(unittest.TestCase):
                 self.assertEqual(check_authority.branch_read_problems(named, tree(port)), [])
         self.assertEqual(check_authority.branch_read_problems(config, tree(None, None)), [])
         missing, unread = "is missing or cannot be read", "cannot be read or does not import adapters/branches.py"
-        for port, branches, said in ((reads, None, missing), (reads, "def head(:\n", missing),
-                                     (reads, b"x = 1\n\xff\n", missing),
-                                     (None, "", unread), ("from adapters import branches\nx = (\n", "", unread),
-                                     ("from adapters import facts\n", "", unread), ("import adapters\n", "", unread),
-                                     ("import branches\n", "", unread), ("from adapters import branches_old\n", "", unread),
-                                     ("import adapters.branches_old\n", "", unread),
-                                     ("from adapters.branches2 import head\n", "", unread),
-                                     ("from .. import branches\n", "", unread), ("from ..branches import head\n", "", unread),
-                                     ("from adapters.facts import branches\n", "", unread),
-                                     ("def read():\n    from adapters import branches\n", "", unread),
-                                     ("if True:\n    import adapters.branches\n", "", unread),
-                                     ("# from adapters import branches\n", "", unread),
-                                     ("'from adapters import branches'\n", "", unread),
-                                     (reads + "FACTS = {'branch_head': None}\n", "", "still writes a work branch's head as None"),
-                                     (reads + "def read(t):\n    return {'n': 1, 'branch_head': None}\n", "",
-                                      "still writes a work branch's head as None")):
+        still = "still writes a work branch's head as None"
+        refused = [(reads, None, missing), (reads, "def head(:\n", missing), (reads, b"x = 1\n\xff\n", missing)]
+        refused += [(port, helper, unread) for port in (
+            None, "from adapters import branches\nx = (\n", "from adapters import facts\n", "import adapters\n",
+            "import branches\n", "from adapters import branches_old\n", "import adapters.branches_old\n",
+            "from adapters.branches2 import head\n", "from .. import branches\n", "from ..branches import head\n",
+            "from adapters.facts import branches\n", "from adapters import facts as branches\n",
+            "def read():\n    from adapters import branches\n", "if True:\n    import adapters.branches\n",
+            "# from adapters import branches\n", "'from adapters import branches'\n")]
+        refused += [(reads + more, helper, still) for more in (
+            "FACTS = {'branch_head': None}\n", "def read(t):\n    return {'n': 1, 'branch_head': None}\n")]
+        for port, branches, said in refused:
             with self.subTest(port=port, branches=branches):
                 self.assertTrue(caught(check_authority.branch_read_problems(named, tree(port, branches)), said))
 

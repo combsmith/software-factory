@@ -294,7 +294,7 @@ MUTANTS = [
      '', BRANCH_READ),
     ('an opening Role named none waits on the branch read', "tools/check_authority.py",
      'if (intents.get("open-pull-request") if isinstance(intents, dict) else None) is None:',
-     'if True:', BRANCH_READ),
+     'if False:', BRANCH_READ),
     ('the branch read never refuses an opening Role', "tools/check_authority.py",
      'if (intents.get("open-pull-request") if isinstance(intents, dict) else None) is None:',
      'if (intents.get("open-pull-request") if isinstance(intents, dict) else None) is not False:', BRANCH_READ),
@@ -352,4 +352,7 @@ MUTANTS = [
     ('a head written unread inside a statement is not read', "tools/check_authority.py",
      'for node in ast.walk(tree) if isinstance(node, ast.Dict)',
      'for node in tree.body if isinstance(node, ast.Dict)', BRANCH_READ),
+    ('branches from adapters under its alias is read', "tools/check_authority.py",
+     'any(a.name == "branches" for a in node.names)',
+     'any("branches" in (a.name, a.asname) for a in node.names)', BRANCH_READ),
 ]
