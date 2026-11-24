@@ -719,15 +719,17 @@ class HandApproval(unittest.TestCase):
         # Both read open and one newly left in one pass, with no window read: the newly left alone is stamped.
         mixed = reconcile.carried(inside, recorded(), None, NOW, gone=[44], open_=[URL, URL.replace("/42", "/43")])
         self.assertEqual(mixed["left"], [{"number": 44, "at": NOW}])
-        # Another repository's row of that number stays for good: its leaving and a read open are ours alone (issue 1190).
+        # Another repository's row of that number, or one spelled otherwise, stays for good: a leaving is ours alone (issue 1190).
         far, home = URL.replace("combsmith/", "elsewhere/"), "combsmith/software-factory"
+        cased = URL.replace(home, "Combsmith/Software-Factory")
         foreign = dict(leaving, hand=leaving["hand"] + [dict(leaving["hand"][0], key="PRR_F", item=far)],
-                       taken=leaving["taken"] + [{"key": None, "item": far, "head": HEAD}], left=[{"number": 42, "at": EARLY}])
+                       taken=leaving["taken"] + [{"key": None, "item": i, "head": HEAD} for i in (far, cased)],
+                       left=[{"number": 42, "at": EARLY}])
         kept = reconcile.carried([dict(decided_as(hand), reconciled=foreign)], recorded(), seen(), NOW, home=home)
         self.assertEqual(([e["key"] for e in kept["hand"]], [e["item"] for e in kept["taken"]]),
-                         (["PRR_8", "PRR_F"], [other[0]["item"], far]))
+                         (["PRR_8", "PRR_F"], [other[0]["item"], far, cased]))
         # Any pull request of that number read open clears the stamp, a home spelled otherwise among them.
-        for spelled in (far, URL.replace(home, "Combsmith/Software-Factory")):
+        for spelled in (far, cased):
             self.assertEqual(reconcile.carried(inside, recorded(), seen(), NOW, open_=[spelled], home=home)["left"],
                              [{"number": 43, "at": GIVEN}], spelled)
 

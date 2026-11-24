@@ -8,7 +8,7 @@ A pass that reads a pull request open, decided or left out, drops that number fr
 
 A leaving drops only the rows of the pass's home repository, as the configuration spells it, which `controller/pass_.py` hands `carried`. This supersedes decision 1045's drop by number alone. A read open of any pull request of that number clears the stamp, however its repository is spelled: that only keeps rows longer, and a renamed or differently cased home still clears its own.
 
-Limits: another repository's rows are never dropped: they stay for good, which raises more alarms, never fewer. The day a pass serves more than one repository, `left` must hold the repository too, a schema change.
+Limits: another repository's rows, and home rows spelled otherwise than the configuration, are never dropped: they stay for good, which raises more alarms, never fewer. The day a pass serves more than one repository, `left` must hold the repository too, a schema change.
 
 A pull request left out of the last pass and closed before the next is still read as leaving by no pass, as decision 1045 says. An old stamp no longer keeps it read until that stamp ages.
 
@@ -20,5 +20,6 @@ A pull request that left and was read open again kept its old stamp. Left out of
 
 | Boundary | Check |
 |---|---|
-| A pull request read open drops its earlier stamp, however its repository is spelled; an issue of its number does not; its hand approval outlives the old stamp | `tests/test_reconcile.py::test_hand_and_taken_are_carried_until_the_window_passes_their_leaving`, `tests/test_controller.py::test_a_hand_approval_merged_between_passes_stays_information`, `controller/reconcile.py`, mutant: "a reopened one keeps its stamp" |
+| A pull request read open drops its earlier stamp, an issue of its number does not, and its hand approval outlives the old stamp | `tests/test_reconcile.py::test_hand_and_taken_are_carried_until_the_window_passes_their_leaving`, `tests/test_controller.py::test_a_hand_approval_merged_between_passes_stays_information`, `controller/reconcile.py`, mutant: "a reopened one keeps its stamp" |
 | Another repository's rows of that number survive the home repository's leaving | `tests/test_reconcile.py::test_hand_and_taken_are_carried_until_the_window_passes_their_leaving`, `tests/test_controller.py::test_a_hand_approval_merged_between_passes_stays_information`, `controller/reconcile.py`, mutant: "another repository's leaving drops its rows" |
+| A read open clears its number's stamp however its repository is spelled; rows spelled otherwise than the home survive its leaving | `tests/test_reconcile.py::test_hand_and_taken_are_carried_until_the_window_passes_their_leaving`, `controller/reconcile.py`, mutant: "only the home as spelled clears a stamp" |
