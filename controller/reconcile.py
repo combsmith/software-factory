@@ -212,16 +212,17 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
                    or _within(e["at"], since, name == "items")]
             for name, rows in _last(before).items()}
     held["owed"] = sorted(set(unread))
-    # One clock: kept until the pass that drops the leaving (decision 0241).
-    dropped = {e["number"] for e in _last(before).get("left", [])} - {e["number"] for e in held.get("left", [])} - set(gone)
+    # One clock: kept until the pass that drops the leaving (decision 0241), unless it leaves again or is read open.
+    passed = {e["number"] for e in _last(before).get("left", [])} - {e["number"] for e in held.get("left", [])}
     opened = set(open_)
-    restamped = set(gone) | {int(i.rsplit("/", 1)[1]) for i in opened if i.rsplit("/", 2)[1] == "pull"}
 
     def ours(item: str) -> bool:
         return home is None or item.startswith("https://github.com/%s/" % home)
+    restamped = set(gone) | {int(i.rsplit("/", 1)[1]) for i in opened if i.rsplit("/", 2)[1] == "pull"}
+    dropped = passed - restamped
 
     def stays(item: str) -> bool:
-        return not ours(item) or int(item.rsplit("/", 1)[1]) not in dropped - restamped
+        return not ours(item) or int(item.rsplit("/", 1)[1]) not in dropped
     known_hand = {e["key"] for e in held.get("hand", [])}
     hands = [e for e in held.pop("hand", []) if stays(e["item"])] + [
         {"key": h["key"], "item": key(h["item"]), "head": h["head"], "at": h["at"]} for h in hand

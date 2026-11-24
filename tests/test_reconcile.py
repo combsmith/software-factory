@@ -708,6 +708,12 @@ class HandApproval(unittest.TestCase):
                          (leaving["hand"], leaving["taken"], [{"number": 42, "at": NOW}]))
         elsewhere = reconcile.carried(aged, recorded(), seen(), NOW, open_=[URL.replace("software-factory", "elsewhere")])
         self.assertEqual((elsewhere["hand"], elsewhere["taken"], elsewhere["left"]), (leaving["hand"], leaving["taken"], []))
+        # Only that number's rows: another whose leaving the window passed drops though one is read open.
+        two_aged = [dict(decided_as(hand), reconciled=dict(leaving, left=[{"number": n, "at": EARLY} for n in (42, 43)]))]
+        one = reconcile.carried(two_aged, recorded(), seen(), NOW, open_=[URL])
+        self.assertEqual((one["hand"], one["taken"], one["left"]),
+                         ([e for e in leaving["hand"] if not e["item"].endswith("/43")],
+                          [e for e in leaving["taken"] if not e["item"].endswith("/43")], []))
         self.assertNotIn("hand", reconcile.carried([], recorded(), seen(), NOW))
         # Read open inside the window, it keeps no stamp of its leaving (issue 1191); an issue of its number is no reopening.
         inside = [dict(decided_as(hand), reconciled=dict(leaving, left=leaving["left"] + [{"number": 43, "at": GIVEN}]))]
