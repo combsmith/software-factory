@@ -10,6 +10,23 @@ STAGED = ("tests.test_controller.Entry.test_each_stage_of_a_pass_is_timed_in_the
 F849_BUDGET = ("tests.test_controller.Entry.test_the_issue_reads_stop_at_the_passs_budget_and_those_left_out_by_it_are_read_first_by_the_next",)
 TARGETS = ("controller/__main__.py",)
 MUTANTS = [
+    # The default branch's head, read once a pass and given to each issue (decisions 0226 and 0242).
+    ("each issue is given no base head", 'controller/__main__.py',
+     'kernel=config["kernel"], base_head=head,', 'kernel=config["kernel"], base_head=None,', S3_ENTRY),
+    ("the base head's read is not dated", 'controller/__main__.py',
+     'facts_reads += [read for answer in asked.answers for read in dated(answer)] if head', 'facts_reads += [] if head', S3_ENTRY),
+    ("the base head's read is dated where it gave none", 'controller/__main__.py',
+     ' for read in dated(answer)] if head is not None else []', ' for read in dated(answer)]', S3_ENTRY),
+    ("the base head is dated by its first answer alone", 'controller/__main__.py',
+     '[read for answer in asked.answers for read in dated(answer)]', 'dated(asked.answers[0])', S3_ENTRY),
+    ("the base head is read with no issue listed", 'controller/__main__.py',
+     'if listed_whole and listed and apart is not None else None', 'if listed_whole and apart is not None else None', S3_ENTRY),
+    ("the base head is read from a list read short", 'controller/__main__.py',
+     'if listed_whole and listed and apart is not None else None', 'if listed and apart is not None else None', S3_ENTRY),
+    ("the base head is read where the tracking issue is unknown", 'controller/__main__.py',
+     'if listed_whole and listed and apart is not None else None', 'if listed_whole and listed else None', S3_ENTRY),
+    ("the base head's read spends the issues' budget", 'controller/__main__.py',
+     '    asked = Kept(transport)\n', '    asked = Kept(counted)\n', F849_BUDGET),
     # Issue 342: a pull request the Factory opens is bound to its issue by the Run that opened it, as well as its branch.
     ("the pass reads no Role's opening Runs", 'controller/__main__.py',
      'made = applied.opened(transport, home, runs, facts_.opener_role(config["kernel"]))',

@@ -2091,8 +2091,9 @@ class Entry(unittest.TestCase):
     def test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is(self):  # S3
         # Listed from `issues.served_from`, each issue is read with the pull requests' account reader and dated as they
         # are; one not read is left out by its code, and a list read short stops the pass.
-        since, spied = "2026-10-01T00:00:00Z", {"listed": [], "read": [], "who": [], "identities": [], "controller": []}
-        real = entry.configuration
+        since, spied = "2026-10-01T00:00:00Z", {"listed": [], "read": [], "who": [], "identities": [], "controller": [],
+                                                "heads": [], "repo": []}
+        real, head = entry.configuration, "3b8e5d1c0a9f7e6d5c4b3a291807f6e5d4c3b2a1"
 
         def served(root, release):
             found = real(root, release)
@@ -2123,8 +2124,9 @@ class Entry(unittest.TestCase):
                     return listed_by_the_port(transport, repo, after, apart=apart)
             return open_issues
 
-        def read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller):
+        def read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head):
             spied["read"].append((repo, number, accounts))
+            spied["heads"].append(base_head)
             spied["identities"].append((identities, earlier))
             spied["controller"].append(controller)
             # Issue 3 is the Controller's tracking issue, as the port tells it by the App it is handed (decision 0233).
@@ -2138,7 +2140,7 @@ class Entry(unittest.TestCase):
             transport.send({"method": "GET", "path": "/repos/%s/issues/%d" % (repo, number)})
             return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "Issue five"
 
-        def entry_with(listed, whole=True, configured=served, recorded=True, tracked=True, previous=None):
+        def entry_with(listed, whole=True, configured=served, recorded=True, tracked=True, previous=None, based=False):
             for found in spied.values():
                 del found[:]
             # The passes before recorded their tracking issue's write under its number, 8, unless none is `tracked`.
@@ -2154,6 +2156,13 @@ class Entry(unittest.TestCase):
                     "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}, "body": {}}
             table[("GET", "/repos/%s/issues/10" % self.HOME)] = {
                 "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:00 GMT", "age": "0"}, "body": {}}
+            if based:   # the default branch and its ref, as GitHub answers them; "repo", the branch's name alone
+                table[("GET", "/repos/%s" % self.HOME)] = {
+                    "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:40 GMT", "age": "5"}, "body": {"default_branch": "main"}}
+            if based is True:
+                table[("GET", "/repos/%s/git/ref/heads/main" % self.HOME)] = {
+                    "status": 200, "headers": {"date": "Mon, 12 Oct 2026 10:00:00 GMT", "age": "7200"},
+                    "body": {"ref": "refs/heads/main", "object": {"type": "commit", "sha": head}}}
             hub = Hub(table)
             with unittest.mock.patch.object(entry, "configuration", configured), \
                     unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
@@ -2163,6 +2172,7 @@ class Entry(unittest.TestCase):
                     unittest.mock.patch.object(entry.issues_, "read", read):
                 code, printed, files, _ = self.run_entry(hub)
             spied["graphql"] = [r for _, r in hub.sent if r["path"] == "/graphql"]
+            spied["repo"] = [r for _, r in hub.sent if r["path"] in ("/repos/%s" % self.HOME, "/repos/%s/git/ref/heads/main" % self.HOME)]
             return code, printed, files
 
         code, printed, files = entry_with([5, 6, 9])
@@ -2202,6 +2212,20 @@ class Entry(unittest.TestCase):
         self.assertEqual((code, [r for r in files["pass.json"]["reads"] if r["read"] == "facts"]),
                          (0, [{"read": "facts", "date": "2026-10-12T11:59:30Z", "age": 2},
                               {"read": "facts", "date": "2026-10-12T11:59:00Z", "age": 0}]))
+        # The default branch's head is read once for the pass and handed to each issue as its `base_head`, dated as a facts
+        # read; unread, each is handed none and no read of it is dated; with no issue to read it is not asked (0226, 0242).
+        code, _, files = entry_with([5, 10], based=True)
+        self.assertEqual((code, spied["heads"], len(spied["repo"])), (0, [head, head], 2))
+        self.assertEqual([r for r in files["pass.json"]["reads"] if r["read"] == "facts"][:2],      # the repo's and the ref's
+                         [{"read": "facts", "date": "2026-10-12T11:59:40Z", "age": 5},
+                          {"read": "facts", "date": "2026-10-12T10:00:00Z", "age": 7200}])
+        self.assertEqual((entry_with([5, 10])[0], spied["heads"], len(spied["repo"])), (0, [None, None], 1))
+        code, _, files = entry_with([5, 10], based="repo")        # the repo answered, its ref not: nothing is dated for it
+        self.assertEqual((code, spied["heads"], [r["date"] for r in files["pass.json"]["reads"] if r["read"] == "facts"]),
+                         (0, [None, None], ["2026-10-12T11:59:30Z", "2026-10-12T11:59:00Z"]))
+        for listed, whole, recorded in (([], True, True), ([5], False, True), ([5], True, False)):
+            entry_with(listed, whole, recorded=recorded, based=True)
+            self.assertEqual(spied["repo"], [], (listed, whole, recorded))
         # A list read short, or not answered, reads no issue; the pull requests are decided as ever, and the pass leaves
         # out one entry naming no item, by the list's code, with its alert and no other for it (decision 0252).
         for whole in (False, None):
@@ -2426,7 +2450,7 @@ class Entry(unittest.TestCase):
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
-        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller):
+        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head):
             if number == 6:
                 raise entry.facts_.Moved("moved")
             # Issue 8 is the Controller's tracking issue, told at its own read: it is no served issue, and its writes
@@ -2845,7 +2869,7 @@ class Entry(unittest.TestCase):
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
-        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller):
+        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head):
             return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "An issue"
 
         def runs(*args, **kw):
@@ -2875,7 +2899,7 @@ class Entry(unittest.TestCase):
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
-        def moved(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller):
+        def moved(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head):
             raise entry.facts_.Moved("moved")
 
         def read(transport, item, kept, identities, apps, since, **_):
