@@ -3004,7 +3004,8 @@ class Entry(unittest.TestCase):
         # The wait is timed as it was, the timer read once at each end of it: a second on.
         self.assertEqual(lines[stages.index("wait")]["seconds"], 1.0)
         # The pass times nothing itself: its carry's rebuild and record's check are in "decide", the carry's size beside.
-        carried = ("runs", "passes", "keys", "items", "dispatched", "owed", "left", "owed_issues", "left_issues", "hands")
+        carried = ("hand", "taken", "runs", "passes", "keys", "items", "dispatched", "owed", "left", "owed_issues",
+                   "left_issues", "hands")
         decided, held = lines[stages.index("decide")], files["pass.json"]["reconciled"]
         self.assertEqual({k: decided[k] for k in carried if k in decided}, {k: len(held[k]) for k in carried if k in held})
         # Each by its name, the issues' and the hands' among them.
