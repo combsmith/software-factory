@@ -726,8 +726,10 @@ class HandApproval(unittest.TestCase):
         kept = reconcile.carried([dict(decided_as(hand), reconciled=foreign)], recorded(), seen(), NOW, home=home)
         self.assertEqual(([e["key"] for e in kept["hand"]], [e["item"] for e in kept["taken"]]),
                          (["PRR_8", "PRR_F"], [other[0]["item"], far]))
-        self.assertEqual(reconcile.carried(inside, recorded(), seen(), NOW, open_=[far], home=home)["left"][0],
-                         {"number": 42, "at": NOW})
+        # Any pull request of that number read open clears the stamp, a home spelled otherwise among them.
+        for spelled in (far, URL.replace(home, "Combsmith/Software-Factory")):
+            self.assertEqual(reconcile.carried(inside, recorded(), seen(), NOW, open_=[spelled], home=home)["left"],
+                             [{"number": 43, "at": GIVEN}], spelled)
 
     def test_an_approval_of_a_head_the_pass_did_not_decide_or_whose_commit_cannot_be_read_is_unmatched(self):
         hand = "model_lens_input_needs_person"

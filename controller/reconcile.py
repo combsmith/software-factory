@@ -203,9 +203,10 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     of an earlier leaving, so that it is read as left anew once it leaves again, whatever pass between could not list it
     (issue 916). So are `hand` and `taken` until the pass that drops their leaving; one in `open_`, read open, keeps
     its own (decision 0241), and a pull request read open keeps no stamp of an earlier leaving, as a served issue
-    (issue 1191). `left` holds numbers alone, so a leaving drops only the rows of `home`, the pass's repository, and
-    only `home`'s pull request read open clears a stamp; another's rows stay for good, whatever stamp their number has.
-    With no `home`, every repository is read as it (issue 1190)."""
+    (issue 1191). `left` holds numbers alone, so a leaving drops only the rows of `home`, the pass's repository, as the
+    configuration spells it, and another's stay for good. Any pull request of that number read open clears the stamp,
+    however its repository is spelled, which only keeps rows longer. With no `home`, every repository is read as it
+    (issue 1190)."""
     since = seen["since"] if seen is not None and not errors(seen, "seen") else None
     held = {name: [e for e in rows if name in ("owed", "owed_issues", "hand", "taken") or since is None
                    or _within(e["at"], since, name == "items")]
@@ -238,7 +239,7 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     heads_ = [e for e in heads_ if (e["key"], e["item"], e["head"]) not in hand_rows]
     if heads_:
         held["taken"] = heads_
-    restamped = set(gone) | {int(i.rsplit("/", 1)[1]) for i in opened if i.rsplit("/", 2)[1] == "pull" and ours(i)}
+    restamped = set(gone) | {int(i.rsplit("/", 1)[1]) for i in opened if i.rsplit("/", 2)[1] == "pull"}
     held["left"] = [e for e in held.get("left", []) if e["number"] not in restamped] + [
         {"number": n, "at": now} for n in sorted(set(gone))]
     # A hand's resolution that was matched, or that nothing could judge, is stamped again each pass it is seen.
