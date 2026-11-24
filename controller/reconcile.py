@@ -203,8 +203,9 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     of an earlier leaving, so that it is read as left anew once it leaves again, whatever pass between could not list it
     (issue 916). So are `hand` and `taken` until the pass that drops their leaving; one in `open_`, read open, keeps
     its own (decision 0241), and a pull request read open keeps no stamp of an earlier leaving, as a served issue
-    (issue 1191). `left` holds numbers alone, so a leaving drops, and a read open clears, only the rows of `home`, the
-    pass's repository, and any other's stay for good; with no `home`, every repository is read as it (issue 1190)."""
+    (issue 1191). `left` holds numbers alone, so a leaving drops only the rows of `home`, the pass's repository, and
+    only `home`'s pull request read open clears a stamp; another's rows stay for good, whatever stamp their number has.
+    With no `home`, every repository is read as it (issue 1190)."""
     since = seen["since"] if seen is not None and not errors(seen, "seen") else None
     held = {name: [e for e in rows if name in ("owed", "owed_issues", "hand", "taken") or since is None
                    or _within(e["at"], since, name == "items")]
