@@ -309,6 +309,18 @@ class Record(unittest.TestCase):
         moved = {"facts": {"item": dict(support.ITEM, number=42)}, "title": None, "unread": "facts_unanswered"}
         out = passed(reads(pulls=[moved], seen=window), now="2026-10-12T20:00:00Z", previous=records[-2:])["record"]
         self.assertEqual(out["reconciled"]["hand"], records[-1]["reconciled"]["hand"])
+        # Left, read open inside the window, approved, left out and closed: the old stamp drops nothing (issue 1191).
+        late = dict(approval, at="2026-10-11T14:30:00Z")
+        chain = [first]
+        for now, pulls, gone_, writes in (("2026-10-11T13:00:00Z", [], [42], []), ("2026-10-11T14:00:00Z", [pull], [], []),
+                                          ("2026-10-11T15:00:00Z", [moved], [], [late]), ("2026-10-12T20:00:00Z", [], [], []),
+                                          ("2026-10-12T21:00:00Z", [pull], [], [late])):
+            r = dict(reads(pulls=pulls, seen=dict(seen if now < "2026-10-12" else window, writes=writes),
+                           runs=[run(number=42)] if pulls == [pull] else []),
+                     gone=gone_)
+            chain.append(passed(r, now=now, previous=chain[-2:])["record"])
+        self.assertEqual(("write_unmatched" in chain[-1]["alerts"], chain[-1]["reconciled"].get("hand")),
+                         (False, [{"key": "PRR_h", "item": url, "head": head, "at": late["at"]}]))
 
     def test_an_issue_decision_replays_through_the_issues_kernel_configuration(self):  # decisions 0002, 0218
         # Replayed through `pass_.issue_config`, as the pass asked it, the Controller's factory:triage counts.

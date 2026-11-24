@@ -639,6 +639,7 @@ class HandApproval(unittest.TestCase):
         self.assertEqual([t["key"] for t in reread], ["PRR_1"])
         self.assertNotIn("taken", reconcile.carried(aged, recorded(), seen(), NOW, taken=reread))
         was = [dict(decided_as(hand), reconciled=reconcile.carried([decided_as(hand)], recorded(), seen(), NOW, taken=reread))]
+        self.assertEqual([h["key"] for h in check(seen(approval()), before=was)["hand"]], ["PRR_1"])
         now_hand = reconcile.carried(was, recorded(), seen(), NOW, hand=found["hand"])
         self.assertEqual((now_hand["hand"], "taken" in now_hand), (held["hand"], False))
         # A carried hand whose review now reads another head keeps that head taken.
@@ -708,6 +709,12 @@ class HandApproval(unittest.TestCase):
         elsewhere = reconcile.carried(aged, recorded(), seen(), NOW, open_=[URL.replace("software-factory", "elsewhere")])
         self.assertEqual([e["key"] for e in elsewhere["hand"]], ["PRR_8"])
         self.assertNotIn("hand", reconcile.carried([], recorded(), seen(), NOW))
+        # Read open inside the window, it keeps no stamp of its leaving (issue 1191); an issue of its number is no reopening.
+        inside = [dict(decided_as(hand), reconciled=leaving)]
+        back = reconcile.carried(inside, recorded(), seen(), NOW, open_=[URL])
+        self.assertEqual((back["hand"], back["taken"], back["left"]), (leaving["hand"], leaving["taken"], []))
+        issue = reconcile.carried(inside, recorded(), seen(), NOW, open_=[URL.replace("/pull/", "/issues/")])
+        self.assertEqual(issue["left"], leaving["left"])
 
     def test_an_approval_of_a_head_the_pass_did_not_decide_or_whose_commit_cannot_be_read_is_unmatched(self):
         hand = "model_lens_input_needs_person"

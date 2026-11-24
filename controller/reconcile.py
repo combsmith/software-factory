@@ -202,7 +202,8 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     the issues, `unread_issues` and `gone_issues`; but an issue in `served_issues`, served by this pass, keeps no stamp
     of an earlier leaving, so that it is read as left anew once it leaves again, whatever pass between could not list it
     (issue 916). So are `hand` and `taken` until the pass that drops their leaving; one in `open_`, read open, keeps
-    its own (decision 0241)."""
+    its own (decision 0241), and a pull request read open keeps no stamp of an earlier leaving, as a served issue
+    (issue 1191)."""
     since = seen["since"] if seen is not None and not errors(seen, "seen") else None
     held = {name: [e for e in rows if name in ("owed", "owed_issues", "hand", "taken") or since is None
                    or _within(e["at"], since, name == "items")]
@@ -232,7 +233,8 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     heads_ = [e for e in heads_ if (e["key"], e["item"], e["head"]) not in hand_rows]
     if heads_:
         held["taken"] = heads_
-    held["left"] = [e for e in held.get("left", []) if e["number"] not in set(gone)] + [
+    reopened = {int(i.rsplit("/", 1)[1]) for i in opened if i.rsplit("/", 2)[1] == "pull"}
+    held["left"] = [e for e in held.get("left", []) if e["number"] not in set(gone) | reopened] + [
         {"number": n, "at": now} for n in sorted(set(gone))]
     # A hand's resolution that was matched, or that nothing could judge, is stamped again each pass it is seen.
     matched = set().union(*_hands(seen, before)) if since is not None else set()

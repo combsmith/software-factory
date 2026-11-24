@@ -361,4 +361,6 @@ MUTANTS = [
      'found["hand"], found["taken"],\n                                               opened)}', 'found["hand"], found["taken"])}', HAND_PASS),
     ('one left out is not read as open', 'controller/pass_.py',
      ' + [reads_.item(i) for i in left_out] if', ' if', HAND_PASS),
+    ('one decided is not read as open', 'controller/pass_.py',
+     '[e["facts"]["item"] for e in pulls] + [reads_.item(i) for i in left_out]', '[reads_.item(i) for i in left_out]', HAND_PASS),
 ]
