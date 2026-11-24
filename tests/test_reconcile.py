@@ -645,6 +645,11 @@ class HandApproval(unittest.TestCase):
         moved = check(seen(approval(commit=OTHER_HEAD)), before=aged)["taken"]
         self.assertEqual(reconcile.carried(aged, recorded(), seen(), NOW, taken=moved)["taken"],
                          [{"key": "PRR_1", "item": URL, "head": OTHER_HEAD}])
+        # Two hands new in one pass are both carried; a keyless head carried alone keeps its head taken.
+        two = reconcile.carried([decided_as(hand)], recorded(), seen(), NOW, hand=found["hand"] + [dict(found["hand"][0], key="PRR_3")])
+        self.assertEqual([e["key"] for e in two["hand"]], ["PRR_1", "PRR_3"])
+        keyless = [decided_as(hand, reconciled=dict(reconcile.EMPTY, taken=[{"key": None, "item": URL, "head": HEAD}]))]
+        self.assertEqual(check(seen(approval("PRR_2")), before=keyless)["hand"], [])
         # Two keyless approvals of a head in one pass are carried as one.
         twice = check(seen(approval(None, at="2026-10-11T12:40:00Z"), approval(None, at="2026-10-11T12:45:00Z")), before=aged)
         self.assertEqual(reconcile.carried(aged, recorded(), seen(), NOW, taken=twice["taken"])["taken"],
