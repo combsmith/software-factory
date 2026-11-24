@@ -190,7 +190,8 @@ def unfit(effects) -> bool:
         or any(not FITS_ITEM.fullmatch(item) for _, item in items)
 
 
-def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(), gone_issues=(), served_issues=()) -> dict:
+def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(), gone_issues=(), served_issues=(),
+            hand=(), taken=(), open_=()) -> dict:
     """What this pass's record carries for the next: what was read in the window and the keys it held, those older than the
     window dropped, and the pull requests whose writes it could not read. A key, which one write alone can match, is stamped
     with when it was read, so it outlasts the write it records. A write matched by its item is credit any such write could
@@ -200,12 +201,37 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     pass, is stamped with now, and one a record before stamped is kept until the window passes it (issue 787). So are
     the issues, `unread_issues` and `gone_issues`; but an issue in `served_issues`, served by this pass, keeps no stamp
     of an earlier leaving, so that it is read as left anew once it leaves again, whatever pass between could not list it
-    (issue 916)."""
+    (issue 916). So are `hand` and `taken` until the pass that drops their leaving; one in `open_`, read open, keeps
+    its own (decision 0241)."""
     since = seen["since"] if seen is not None and not errors(seen, "seen") else None
-    held = {name: [e for e in rows if name in ("owed", "owed_issues") or since is None
+    held = {name: [e for e in rows if name in ("owed", "owed_issues", "hand", "taken") or since is None
                    or _within(e["at"], since, name == "items")]
             for name, rows in _last(before).items()}
     held["owed"] = sorted(set(unread))
+    # One clock: kept until the pass that drops the leaving (decision 0241).
+    dropped = {e["number"] for e in _last(before).get("left", [])} - {e["number"] for e in held.get("left", [])} - set(gone)
+    opened = set(open_)
+
+    def stays(item: str) -> bool:
+        return int(item.rsplit("/", 1)[1]) not in dropped or item in opened
+    known_hand = {e["key"] for e in held.get("hand", [])}
+    hands = [e for e in held.pop("hand", []) if stays(e["item"])] + [
+        {"key": h["key"], "item": key(h["item"]), "head": h["head"], "at": h["at"]} for h in hand
+        if h["key"] not in known_hand and FITS_KEY.fullmatch(h["key"]) and FITS_ITEM.fullmatch(key(h["item"]))
+        and stays(key(h["item"]))]
+    if hands:
+        held["hand"] = hands
+    heads_ = [e for e in held.pop("taken", []) if stays(e["item"])] + [
+        {"key": t["key"], "item": key(t["item"]), "head": t["head"]} for t in taken
+        if (t["key"] is None or FITS_KEY.fullmatch(t["key"]))
+        and FITS_ITEM.fullmatch(key(t["item"])) and stays(key(t["item"]))]
+    # Each once, in order: read again, or keyless twice in a pass.
+    heads_ = [dict(zip(("key", "item", "head"), row)) for row in dict.fromkeys((e["key"], e["item"], e["head"]) for e in heads_)]
+    # One carried as the hand is not carried as taken too, so the record says which was read as the hand.
+    hand_rows = {(e["key"], e["item"], e["head"]) for e in hands}
+    heads_ = [e for e in heads_ if (e["key"], e["item"], e["head"]) not in hand_rows]
+    if heads_:
+        held["taken"] = heads_
     held["left"] = [e for e in held.get("left", []) if e["number"] not in set(gone)] + [
         {"number": n, "at": now} for n in sorted(set(gone))]
     # A hand's resolution that was matched, or that nothing could judge, is stamped again each pass it is seen.
@@ -387,7 +413,7 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
         short = True
     # A carried hand approval stands; any other is judged in the order given, one to a head (decision 0241).
     carried_hand = {e["key"]: e for e in _last(before).get("hand", [])}
-    # Each head an approval took, a hand one or any other, by the keys that took it, until its pull request leaves.
+    # Each head an approval took, a hand one or any other, by the keys that took it, until the window passes its leaving.
     heads, seconds = {}, []
     for e in list(carried_hand.values()) + _last(before).get("taken", []):
         heads.setdefault((e["item"], e["head"]), set()).add(e["key"])
@@ -417,8 +443,7 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
         else:
             # Matched, unmatched or keyless, it takes its head: an approval of that head after it is a second (0241).
             heads.setdefault((key(w["item"]), w["commit"]), set()).add(w["key"])
-            if w["key"] is not None:
-                seconds.append({"item": w["item"], "key": w["key"], "head": w["commit"]})
+            seconds.append({"item": w["item"], "key": w["key"], "head": w["commit"]})
     unmatched = [u for u in unmatched if not any(u is t for t in taken)]
     for m in seen["merged"] if readable else []:
         # What the last pass before the merge read of the item: a pass after it reads it merged.

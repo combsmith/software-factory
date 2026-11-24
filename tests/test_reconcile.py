@@ -539,7 +539,7 @@ class HandApproval(unittest.TestCase):
 
     def test_an_unmatched_approval_takes_its_head(self):
         # An approval read unmatched, its pass reading no hand wait, still takes its head: one after it is a second,
-        # in the same pass and, carried, in the passes after, until the pull request leaves (decision 0241).
+        # in the same pass and, carried, in the passes after, until the window passes its leaving (decision 0241).
         hand = "model_lens_input_needs_person"
         first, second = approval("PRR_1", at="2026-10-11T11:30:00Z"), approval("PRR_2")
         before = [decided_as("awaiting_review", now="2026-10-11T11:00:00Z"), decided_as(hand)]
@@ -614,6 +614,100 @@ class HandApproval(unittest.TestCase):
         self.assertEqual((first_role["hand"], [u["key"] for u in first_role["unmatched"]]), ([], ["PRR_9", "PRR_2"]))
         for changed in (approval(commit=None), approval(commit=OTHER_HEAD), approval(at="2026-10-11T12:31:00Z")):
             self.assertEqual(kinds(check(seen(changed), before=later)), [("approver", "approval")], changed)
+
+    def test_hand_and_taken_are_carried_until_the_window_passes_their_leaving(self):
+        hand = "model_lens_input_needs_person"
+        found = check(seen(approval()), before=[decided_as(hand)])
+        held = reconcile.carried([decided_as(hand)], recorded(), seen(), NOW, hand=found["hand"], taken=found["taken"])
+        self.assertEqual((held["hand"], "taken" in held), ([{"key": "PRR_1", "item": URL, "head": HEAD, "at": GIVEN}], False))
+        record = dict(json.loads((ROOT / "examples" / "pass.json").read_text()), reconciled=held)
+        self.assertEqual(validate(record, SCHEMAS["pass"], schemas=SCHEMAS), [])
+        # Kept, once, however old, while the pull request is open; read again, it is not carried twice.
+        old = dict(held, hand=[dict(held["hand"][0], at="2026-10-09T00:00:00Z")])
+        aged = [dict(decided_as(hand), reconciled=old)]
+        self.assertEqual(reconcile.carried(aged, recorded(), seen(), NOW, hand=found["hand"])["hand"], old["hand"])
+        # An unmatched approval's head is carried too, a keyless one's among them, once each.
+        second = check(seen(approval("PRR_2"), approval(None, at="2026-10-11T12:40:00Z")), before=aged)
+        self.assertEqual([t["key"] for t in second["taken"]], ["PRR_2", None])
+        taken = reconcile.carried(aged, recorded(), seen(), NOW, taken=second["taken"])
+        self.assertEqual(taken["taken"], [{"key": "PRR_2", "item": URL, "head": HEAD}, {"key": None, "item": URL, "head": HEAD}])
+        self.assertEqual(validate(dict(record, reconciled=taken), SCHEMAS["pass"], schemas=SCHEMAS), [])
+        again = [dict(decided_as(hand), reconciled=taken)]
+        self.assertEqual(reconcile.carried(again, recorded(), seen(), NOW, taken=second["taken"])["taken"], taken["taken"])
+        # One read as the hand is not carried as taken too, whichever pass read it so.
+        reread = check(seen(approval(), whole=False), before=aged)["taken"]
+        self.assertEqual([t["key"] for t in reread], ["PRR_1"])
+        self.assertNotIn("taken", reconcile.carried(aged, recorded(), seen(), NOW, taken=reread))
+        was = [dict(decided_as(hand), reconciled=reconcile.carried([decided_as(hand)], recorded(), seen(), NOW, taken=reread))]
+        now_hand = reconcile.carried(was, recorded(), seen(), NOW, hand=found["hand"])
+        self.assertEqual((now_hand["hand"], "taken" in now_hand), (held["hand"], False))
+        # A carried hand whose review now reads another head keeps that head taken.
+        moved = check(seen(approval(commit=OTHER_HEAD)), before=aged)["taken"]
+        self.assertEqual(reconcile.carried(aged, recorded(), seen(), NOW, taken=moved)["taken"],
+                         [{"key": "PRR_1", "item": URL, "head": OTHER_HEAD}])
+        # Two hands new in one pass are both carried; a keyless head carried alone keeps its head taken.
+        two = reconcile.carried([decided_as(hand)], recorded(), seen(), NOW, hand=found["hand"] + [dict(found["hand"][0], key="PRR_3")])
+        self.assertEqual([e["key"] for e in two["hand"]], ["PRR_1", "PRR_3"])
+        keyless = [decided_as(hand, reconciled=dict(reconcile.EMPTY, taken=[{"key": None, "item": URL, "head": HEAD}]))]
+        self.assertEqual(check(seen(approval("PRR_2")), before=keyless)["hand"], [])
+        # Two keyless approvals of a head in one pass are carried as one.
+        twice = check(seen(approval(None, at="2026-10-11T12:40:00Z"), approval(None, at="2026-10-11T12:45:00Z")), before=aged)
+        self.assertEqual(reconcile.carried(aged, recorded(), seen(), NOW, taken=twice["taken"])["taken"],
+                         [{"key": None, "item": URL, "head": HEAD}])
+        # A matched approval's head and a Role's are carried as an unmatched one's is.
+        role = dict(wrote("pr-review", "approval", "PRR_9", at="2026-10-11T12:20:00Z"), commit=HEAD)
+        own = check(seen(approval("PRR_4"), role), recorded([applied(("approve", "PRR_4", "applied"))]), before=[decided_as(hand)])
+        self.assertEqual(sorted(t["key"] for t in reconcile.carried([decided_as(hand)], recorded(), seen(), NOW,
+                                                                    taken=own["taken"])["taken"]), ["PRR_4", "PRR_9"])
+        # Two keyless approvals of two heads are two.
+        apart = seen(approval(None, at="2026-10-11T12:40:00Z"), approval(None, commit=OTHER_HEAD, at="2026-10-11T12:45:00Z"))
+        heads = reconcile.carried(aged, recorded(), seen(), NOW, taken=check(apart, before=aged)["taken"])["taken"]
+        self.assertEqual([t["head"] for t in heads], [HEAD, OTHER_HEAD])
+        # A short read drops neither, and carries a head it took new.
+        fresh_short = check(seen(approval(None), whole=False), before=[decided_as(hand)])
+        self.assertEqual((fresh_short["hand"], fresh_short["short"]), ([], True))
+        for name, effects, s in (("effects unread", None, seen()), ("seen unread", recorded(), None),
+                                 ("seen short", recorded(), seen(whole=False))):
+            short = reconcile.carried(again, effects, s, "2026-10-13T12:00:00Z")
+            self.assertEqual((short["hand"], short["taken"]), (taken["hand"], taken["taken"]), name)
+            self.assertEqual(reconcile.carried([decided_as(hand)], effects, s, NOW, taken=fresh_short["taken"])["taken"],
+                             [{"key": None, "item": URL, "head": HEAD}], name)
+        # One read as leaving keeps its own, and what is new for it is carried.
+        other = [{"key": None, "item": URL.replace("/42", "/43"), "head": HEAD}]
+        theirs = [dict(taken["hand"][0], key="PRR_8", item=other[0]["item"])]
+        both = dict(taken, taken=taken["taken"] + other, hand=taken["hand"] + theirs)
+        new = [{"key": "PRR_6", "item": ITEM, "head": OTHER_HEAD}]
+        leaving = reconcile.carried([dict(decided_as(hand), reconciled=both)], recorded(), seen(), NOW, gone=[42], taken=new,
+                                   hand=[dict(found["hand"][0], key="PRR_3")])
+        self.assertEqual(([e["key"] for e in leaving["hand"]], [e["key"] for e in leaving["taken"]], leaving["left"]),
+                         (["PRR_1", "PRR_8", "PRR_3"], ["PRR_2", None, None, "PRR_6"], [{"number": 42, "at": NOW}]))
+        stamped = dict(reconcile.EMPTY, left=[{"number": 42, "at": NOW}])
+        fresh = reconcile.carried([dict(decided_as(hand), reconciled=stamped)], recorded(), seen(), NOW,
+                                  hand=found["hand"], taken=second["taken"])
+        self.assertEqual((fresh["hand"], [t["key"] for t in fresh["taken"]]), (held["hand"], ["PRR_2", None]))
+        # Kept so by the passes after, while its leaving is held, by the same window.
+        later = reconcile.carried([dict(decided_as(hand), reconciled=leaving)], recorded(), seen(), "2026-10-11T14:00:00Z")
+        self.assertEqual((later["hand"], later["taken"], later["left"]), (leaving["hand"], leaving["taken"], leaving["left"]))
+        # Dropped by the pass whose window passes its leaving, with what is new for it, another's kept.
+        aged = [dict(decided_as(hand), reconciled=dict(leaving, left=[{"number": 42, "at": EARLY}]))]
+        past = reconcile.carried(aged, recorded(), seen(), NOW, hand=[dict(found["hand"][0], key="PRR_5")], taken=new)
+        self.assertEqual(([e["key"] for e in past["hand"]], [e["key"] for e in past["taken"]], past["left"]),
+                         (["PRR_8"], [None], []))
+        alone = [dict(decided_as(hand), reconciled=dict(taken, left=[{"number": 42, "at": EARLY}]))]
+        for name in ("hand", "taken"):
+            self.assertNotIn(name, reconcile.carried(alone, recorded(), seen(), NOW), name)
+        # A read of what was seen that cannot be read reads no window, and drops nothing.
+        unread = reconcile.carried(aged, recorded(), None, NOW)
+        self.assertEqual((unread["hand"], unread["taken"]), (leaving["hand"], leaving["taken"]))
+        # Reopened, or leaving again, it keeps its own; another repository's of that number is no reopening.
+        reopened = reconcile.carried(aged, recorded(), seen(), NOW, open_=[URL])
+        self.assertEqual((reopened["hand"], reopened["taken"], reopened["left"]), (leaving["hand"], leaving["taken"], []))
+        again_ = reconcile.carried(aged, recorded(), seen(), NOW, gone=[42])
+        self.assertEqual((again_["hand"], again_["taken"], again_["left"]),
+                         (leaving["hand"], leaving["taken"], [{"number": 42, "at": NOW}]))
+        elsewhere = reconcile.carried(aged, recorded(), seen(), NOW, open_=[URL.replace("software-factory", "elsewhere")])
+        self.assertEqual([e["key"] for e in elsewhere["hand"]], ["PRR_8"])
+        self.assertNotIn("hand", reconcile.carried([], recorded(), seen(), NOW))
 
     def test_an_approval_of_a_head_the_pass_did_not_decide_or_whose_commit_cannot_be_read_is_unmatched(self):
         hand = "model_lens_input_needs_person"

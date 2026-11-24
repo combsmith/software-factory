@@ -272,6 +272,44 @@ class Record(unittest.TestCase):
         self.assertEqual(decisions({"record": full})[0]["reason"], "concurrency")
         replays(full)
 
+    def test_a_hand_approval_merged_between_passes_stays_information(self):
+        # decision 0241: information until the window passes its leaving; a reopened one keeps it.
+        from tests import test_decide
+        facts = test_decide.changing(changed_paths=["docs/notes.md", "harness/run.py"], **test_decide.DEPENDENCY)
+        facts["item"] = dict(support.ITEM, number=42)
+        head, url = "a" * 40, "https://github.com/%s/pull/42" % REPO
+        pull = {"facts": facts, "title": "t", "head": head}
+        first = passed(reads(pulls=[pull], runs=[run(number=42)]), now="2026-10-11T12:00:00Z")["record"]
+        approval = {"by": "approver", "kind": "approval", "item": dict(support.ITEM, number=42), "key": "PRR_h",
+                    "at": "2026-10-11T12:30:00Z", "commit": head}
+        seen = dict(SEEN, since="2026-10-11T00:00:00Z", writes=[approval])
+        entry = {"alert": "hand_approval", "by": "approver", "write": "approval", "item": url, "key": "PRR_h"}
+        records = [first]
+        for now in ("2026-10-11T13:00:00Z", "2026-10-11T14:00:00Z", "2026-10-12T06:00:00Z"):
+            r = dict(reads(pulls=[], seen=seen), gone=[42] if len(records) == 1 else [])
+            out = passed(r, now=now, previous=records[-2:])["record"]
+            self.assertEqual(shared.errors(out, "pass"), [], now)
+            self.assertIn(entry, out["reconciliation"], now)
+            self.assertNotIn("write_unmatched", out["alerts"], now)
+            self.assertEqual(out["reconciled"]["hand"], [{"key": "PRR_h", "item": url, "head": head, "at": approval["at"]}], now)
+            self.assertEqual(out["reconciled"]["left"], [{"number": 42, "at": "2026-10-11T13:00:00Z"}], now)
+            records.append(out)
+        # On another head it is unmatched, and its head alone is carried, as taken.
+        other = passed(reads(pulls=[], seen=dict(seen, writes=[dict(approval, commit="b" * 40)])), previous=[first])["record"]
+        self.assertEqual(("write_unmatched" in other["alerts"], "hand" in other["reconciled"], other["reconciled"]["taken"]),
+                         (True, False, [{"key": "PRR_h", "item": url, "head": "b" * 40}]))
+        # The pass whose window passes its leaving drops it; one that reads it open again keeps it.
+        window = dict(SEEN, since="2026-10-11T14:00:00Z")
+        gone = passed(reads(pulls=[], seen=window), now="2026-10-12T20:00:00Z", previous=records[-2:])["record"]
+        self.assertEqual(("hand" in gone["reconciled"], gone["reconciled"]["left"]), (False, []))
+        back = passed(reads(pulls=[pull], seen=window, runs=[run(number=42)]), now="2026-10-12T20:00:00Z",
+                      previous=records[-2:])["record"]
+        self.assertEqual((back["reconciled"]["hand"], back["reconciled"]["left"]), (records[-1]["reconciled"]["hand"], []))
+        # So does one it leaves out, read open though its facts could not be read.
+        moved = {"facts": {"item": dict(support.ITEM, number=42)}, "title": None, "unread": "facts_unanswered"}
+        out = passed(reads(pulls=[moved], seen=window), now="2026-10-12T20:00:00Z", previous=records[-2:])["record"]
+        self.assertEqual(out["reconciled"]["hand"], records[-1]["reconciled"]["hand"])
+
     def test_an_issue_decision_replays_through_the_issues_kernel_configuration(self):  # decisions 0002, 0218
         # Replayed through `pass_.issue_config`, as the pass asked it, the Controller's factory:triage counts.
         from kernel import issue
@@ -2990,7 +3028,8 @@ class Entry(unittest.TestCase):
         # The wait is timed as it was, the timer read once at each end of it: a second on.
         self.assertEqual(lines[stages.index("wait")]["seconds"], 1.0)
         # The pass times nothing itself: its carry's rebuild and record's check are in "decide", the carry's size beside.
-        carried = ("runs", "passes", "keys", "items", "dispatched", "owed", "left", "owed_issues", "left_issues", "hands")
+        carried = ("hand", "taken", "runs", "passes", "keys", "items", "dispatched", "owed", "left", "owed_issues",
+                   "left_issues", "hands")
         decided, held = lines[stages.index("decide")], files["pass.json"]["reconciled"]
         self.assertEqual({k: decided[k] for k in carried if k in decided}, {k: len(held[k]) for k in carried if k in held})
         # Each by its name, the issues' and the hands' among them.

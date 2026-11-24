@@ -9,6 +9,7 @@ S3_ROW10 = ("tests.test_controller.Issues.test_with_no_app_declared_for_factory_
 F849_ALERTS = ("tests.test_controller.Issues.test_an_issue_left_unread_by_the_budget_raises_its_own_alert_and_no_other",)
 F849_BUDGET = ("tests.test_controller.Entry.test_the_issue_reads_stop_at_the_passs_budget_and_those_left_out_by_it_are_read_first_by_the_next",)
 F849_UNLISTED = ("tests.test_controller.Issues.test_an_issue_list_read_short_raises_its_own_alert_and_no_other",)
+HAND_PASS = ('tests.test_controller.Record.test_a_hand_approval_merged_between_passes_stays_information',)
 TARGETS = ("controller/pass_.py",)
 MUTANTS = [
     # Issue 306: every write a Factory identity made matched to a recorded Effect (I-33, decision 0061).
@@ -91,7 +92,7 @@ MUTANTS = [
      '    record["successor"] = False\n', ('tests.test_effects',)),
     # No mutant drops FITS_ITEM from carried(): written/1 holds an item's repo to the pass record's own alphabet (issue
     # 913), so no write it admits has an item too wide to carry, and the guard is left for a schema that widens again.
-    ('the pass record carries nothing', 'controller/pass_.py', '              "reconciliation": reconcile_.entries(found),\n              "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or (),\n                                               reads.get("gone") or (), reads.get("unread_issues") or (),\n                                               reads.get("gone_issues") or (), served)}\n', '              "reconciliation": reconcile_.entries(found)}\n', WIRE_ENTRY),
+    ('the pass record carries nothing', 'controller/pass_.py', '              "reconciliation": reconcile_.entries(found),\n              "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or (),\n                                               reads.get("gone") or (), reads.get("unread_issues") or (),\n                                               reads.get("gone_issues") or (), served, found["hand"], found["taken"],\n                                               opened)}\n', '              "reconciliation": reconcile_.entries(found)}\n', WIRE_ENTRY),
     ('the pass record owes nothing', 'controller/pass_.py', ', now, reads.get("unread") or (),', ', now, (),', WIRE_ENTRY),
     # The Controller's pass, issue 193's first pull request: one mutant to a rule of controller/, or more.
     ('the pass reads the Kernel past its two entry points', 'controller/pass_.py',
@@ -259,11 +260,11 @@ MUTANTS = [
     ("an issue left out unread is not one the pass served", 'controller/pass_.py',
      'map(reads_.item, also)', 'map(reads_.item, [])', ("tests.test_controller.Entry.test_an_issue_that_left_is_read_with_its_close_and_one_read_short_is_owed",)),
     ("the pass hands its carry no issue it served", 'controller/pass_.py',
-     'reads.get("gone_issues") or (), served)}', 'reads.get("gone_issues") or ())}', ("tests.test_controller.Entry.test_an_issue_that_left_is_read_with_its_close_and_one_read_short_is_owed",)),
+     'reads.get("gone_issues") or (), served, found', 'reads.get("gone_issues") or (), (), found', ("tests.test_controller.Entry.test_an_issue_that_left_is_read_with_its_close_and_one_read_short_is_owed",)),
     ("the pass carries no issue left unread", 'controller/pass_.py',
      'reads.get("unread_issues") or (),', '(),', ("tests.test_controller.Issues.test_the_pass_carries_the_issues_its_reads_owe_and_read_as_left",)),
     ("the pass stamps no issue as left", 'controller/pass_.py',
-     'reads.get("gone_issues") or (), served)}', '(), served)}', ("tests.test_controller.Issues.test_the_pass_carries_the_issues_its_reads_owe_and_read_as_left",)),
+     'reads.get("gone_issues") or (), served, found["hand"]', '(), served, found["hand"]', ("tests.test_controller.Issues.test_the_pass_carries_the_issues_its_reads_owe_and_read_as_left",)),
     # Issue 658: a pull request that moved while it was read is deferred once with no alert, by the code its record keeps.
     ("a pull request that moved once is the alert", 'controller/pass_.py',
      '    alarmed = [i for i, code in zip(left_out, why) if code not in reads_.ISSUE_UNREAD\n               and (reads_.item(i) is None or key(i) not in graced)]',
@@ -351,4 +352,13 @@ MUTANTS = [
      'reads_.UNLISTED: "issue_list_unreadable"}', 'reads_.UNLISTED: "issue_budget_spent"}', F849_UNLISTED),
     ("a list read short keeps the queue", 'controller/pass_.py',
      'and reads_.UNLISTED_ENTRY in r["left_out"])]', 'and False)]', F849_BUDGET),
+    ('the pass carries no hand', 'controller/pass_.py',
+     'served, found["hand"], found["taken"],',
+     'served, (), found["taken"],', HAND_PASS),
+    ('the pass carries no taken head', 'controller/pass_.py',
+     ', found["hand"], found["taken"],\n', ', found["hand"], (),\n', HAND_PASS),
+    ("the pass reads no pull request as open", 'controller/pass_.py',
+     'found["hand"], found["taken"],\n                                               opened)}', 'found["hand"], found["taken"])}', HAND_PASS),
+    ('one left out is not read as open', 'controller/pass_.py',
+     ' + [reads_.item(i) for i in left_out] if', ' if', HAND_PASS),
 ]
