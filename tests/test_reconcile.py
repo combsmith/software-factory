@@ -710,11 +710,12 @@ class HandApproval(unittest.TestCase):
         self.assertEqual([e["key"] for e in elsewhere["hand"]], ["PRR_8"])
         self.assertNotIn("hand", reconcile.carried([], recorded(), seen(), NOW))
         # Read open inside the window, it keeps no stamp of its leaving (issue 1191); an issue of its number is no reopening.
-        inside = [dict(decided_as(hand), reconciled=leaving)]
+        inside = [dict(decided_as(hand), reconciled=dict(leaving, left=leaving["left"] + [{"number": 43, "at": GIVEN}]))]
         back = reconcile.carried(inside, recorded(), seen(), NOW, open_=[URL])
-        self.assertEqual((back["hand"], back["taken"], back["left"]), (leaving["hand"], leaving["taken"], []))
+        self.assertEqual((back["hand"], back["taken"], back["left"]),
+                         (leaving["hand"], leaving["taken"], [{"number": 43, "at": GIVEN}]))
         issue = reconcile.carried(inside, recorded(), seen(), NOW, open_=[URL.replace("/pull/", "/issues/")])
-        self.assertEqual(issue["left"], leaving["left"])
+        self.assertEqual(issue["left"], inside[0]["reconciled"]["left"])
 
     def test_an_approval_of_a_head_the_pass_did_not_decide_or_whose_commit_cannot_be_read_is_unmatched(self):
         hand = "model_lens_input_needs_person"

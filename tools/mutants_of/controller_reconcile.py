@@ -256,7 +256,7 @@ MUTANTS = [
     ("a pull request that left is not stamped", 'controller/reconcile.py',
      ' + [\n        {"number": n, "at": now} for n in sorted(set(gone))]', '', ("tests.test_reconcile.Carried.test_a_pull_request_that_left_is_kept_until_the_window_passes_it", "tests.test_controller.Entry.test_the_entry_gathers_what_reconciliation_reads")),
     ("a pull request that leaves again keeps its first stamp", 'controller/reconcile.py',
-     'if e["number"] not in set(gone)]', ']', ("tests.test_reconcile.Carried.test_a_pull_request_that_left_is_kept_until_the_window_passes_it",)),
+     'restamped = set(gone) | {', 'restamped = {', ("tests.test_reconcile.Carried.test_a_pull_request_that_left_is_kept_until_the_window_passes_it",)),
     # Decision 0235: an issue a pass served that has left is read with its close, and one read short is owed (issue 916).
     # An issue that left is read first by its state: open needs no close, 404 or 410 ends it where its repo was read.
     ("an issue read whole by its end is not named", 'controller/reconcile.py',
@@ -437,9 +437,10 @@ MUTANTS = [
     ('a reopened one drops', 'controller/reconcile.py',
      'not in dropped or item in opened\n', 'not in dropped\n', HAND_CARRY + HAND_PASS),
     ('a reopened one keeps its stamp', 'controller/reconcile.py',
-     'not in set(gone) | reopened] + [', 'not in set(gone)] + [', HAND_CARRY + HAND_PASS),
+     'restamped = set(gone) | {int(i.rsplit("/", 1)[1]) for i in opened if i.rsplit("/", 2)[1] == "pull"}',
+     'restamped = set(gone)', HAND_CARRY + HAND_PASS),
     ('an issue of its number clears its stamp', 'controller/reconcile.py',
-     ' for i in opened if i.rsplit("/", 2)[1] == "pull"}', ' for i in opened}', HAND_CARRY),
+     ' for i in opened if i.rsplit("/", 2)[1] == "pull"}\n', ' for i in opened}\n', HAND_CARRY),
     ('a head its own key took is a second', 'controller/reconcile.py',
      'set()) - {w["key"]}', 'set())', HAND_CARRY),
     ("another repository's number keeps", 'controller/reconcile.py',

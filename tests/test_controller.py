@@ -319,8 +319,13 @@ class Record(unittest.TestCase):
                            runs=[run(number=42)] if pulls == [pull] else []),
                      gone=gone_)
             chain.append(passed(r, now=now, previous=chain[-2:])["record"])
-        self.assertEqual(("write_unmatched" in chain[-1]["alerts"], chain[-1]["reconciled"].get("hand")),
-                         (False, [{"key": "PRR_h", "item": url, "head": head, "at": late["at"]}]))
+        carried_ = [{"key": "PRR_h", "item": url, "head": head, "at": late["at"]}]
+        self.assertEqual((chain[1]["reconciled"]["left"], chain[2]["reconciled"]["left"]),
+                         ([{"number": 42, "at": "2026-10-11T13:00:00Z"}], []))
+        left_out = passed(reads(pulls=[moved], seen=seen), now="2026-10-11T14:00:00Z", previous=chain[:2])["record"]
+        self.assertEqual(left_out["reconciled"]["left"], [])
+        self.assertEqual(chain[-2]["reconciled"].get("hand"), carried_)
+        self.assertEqual(("write_unmatched" in chain[-1]["alerts"], chain[-1]["reconciled"].get("hand")), (False, carried_))
 
     def test_an_issue_decision_replays_through_the_issues_kernel_configuration(self):  # decisions 0002, 0218
         # Replayed through `pass_.issue_config`, as the pass asked it, the Controller's factory:triage counts.

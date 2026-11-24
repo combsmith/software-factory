@@ -8,6 +8,8 @@ A pass that reads a pull request open, decided or left out, drops that number fr
 
 Limits: `left` holds numbers alone, so a pull request of that number in another repository clears the stamp too (issue 1190). The pass serves one home repository, so this cannot happen today.
 
+A pull request left out of the last pass and closed before the next is still read as leaving by no pass, as decision 1045 says. An old stamp no longer keeps it read until that stamp ages.
+
 ## Why
 
 A pull request that left and was read open again kept its old stamp. Left out of a later pass and closed before the next, it was read as leaving by no pass. Once the window passed the old stamp, its hand approvals and taken heads dropped. A hand approval then read again raised a false `write_unmatched`, against decision 1045's "its entries stay for good".

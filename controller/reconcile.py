@@ -233,8 +233,8 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     heads_ = [e for e in heads_ if (e["key"], e["item"], e["head"]) not in hand_rows]
     if heads_:
         held["taken"] = heads_
-    reopened = {int(i.rsplit("/", 1)[1]) for i in opened if i.rsplit("/", 2)[1] == "pull"}
-    held["left"] = [e for e in held.get("left", []) if e["number"] not in set(gone) | reopened] + [
+    restamped = set(gone) | {int(i.rsplit("/", 1)[1]) for i in opened if i.rsplit("/", 2)[1] == "pull"}
+    held["left"] = [e for e in held.get("left", []) if e["number"] not in restamped] + [
         {"number": n, "at": now} for n in sorted(set(gone))]
     # A hand's resolution that was matched, or that nothing could judge, is stamped again each pass it is seen.
     matched = set().union(*_hands(seen, before)) if since is not None else set()
