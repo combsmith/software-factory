@@ -296,6 +296,13 @@ class TheAct(unittest.TestCase):
         done, ended, github = act(GitHub({("GET", PULL + "/reviews?per_page=100"): listed}), read=reads(f))
         self.assertEqual((effect(done)[1:3], github.writes()), (("refused", None), []))
         self.assertEqual([r["path"] for r in github.log if r["method"] == "GET"], ["/user"])
+        # Nor on a timeline the port cut at its bound, or says it cut in a form that is no truth value, whatever
+        # complete.timeline claims (decision 1149; Muse).
+        for cut in (True, None):
+            done, ended, github = act(GitHub({("GET", PULL + "/reviews?per_page=100"): listed}),
+                                      read=reads(facts(timeline_bounded=cut)))
+            self.assertEqual((effect(done)[1:3], github.writes()), (("refused", None), []), cut)
+            self.assertEqual([r["path"] for r in github.log if r["method"] == "GET"], ["/user"], cut)
 
     def test_a_re_run_claims_no_approval_of_a_pull_request_now_closed(self):  # issue 378, decision 0079
         # An earlier attempt's approval of a pull request closed under it claimed nothing; a re-run that finds the pull
