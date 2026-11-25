@@ -1246,7 +1246,10 @@ class Authority(unittest.TestCase):
         named = copy.deepcopy(config)
         named["issues"]["intents"]["open-pull-request"] = {"role": "dev-lead", "app": "combsmith-sf-dev-lead"}
         self.assertTrue(caught(check_authority.run(config=named), "no adapter sends a write to a repo's pulls"))
-        # Its counter-example is refused, for that alone, and so still once the work branch's head is read (issue 1059).
+        # Its counter-example is refused, for that alone, where the port does not read the work branch's head, here a
+        # read module of another name, and so still where it does, as this repo's port does (issue 1059).
+        with mock.patch.object(check_authority, "BRANCHES", "adapters/branches_unbuilt.py"):
+            self.assertFalse(caught(check_examples.run(), "config.an-opening-role-with-no-writer.json"))
         self.assertFalse(caught(check_examples.run(), "config.an-opening-role-with-no-writer.json"))
         with mock.patch.object(check_authority, "branch_read_problems", return_value=[]):
             self.assertFalse(caught(check_examples.run(), "config.an-opening-role-with-no-writer.json"))
@@ -1504,21 +1507,25 @@ class Authority(unittest.TestCase):
     def test_a_role_named_to_open_pull_requests_waits_on_the_branch_read(self):  # issue 1059
         # No Role is named to open pull requests until the issues port reads the work branch's head: the file
         # adapters/branches.py exists and parses, and adapters/issues.py parses, imports it at its top and writes no
-        # head as None, read from the syntax. With none named it passes; this repo, with no adapters/branches.py yet,
-        # refuses one named.
+        # head as None, read from the syntax. With none named it passes. This repo's port reads it, so one named passes
+        # this part; a repo whose port names a read that is not there, here a module of another name, refuses it.
         config = json.loads((ROOT / "config" / "defaults.json").read_text())
         self.assertEqual(check_authority.branch_read_problems(config), [])
         named = copy.deepcopy(config)
         named["issues"]["intents"]["open-pull-request"] = {"role": "dev-lead", "app": "combsmith-sf-dev-lead"}
         waits = "name none until the port reads it (issue 1059)"
-        self.assertTrue(caught(check_authority.run(config=named), waits))
-        self.assertTrue(caught(check_authority.branch_read_problems(named), waits))
-        # Its counter-example is refused, for that alone, once the writer stands: the writer's part, named first,
-        # refuses it today.
+        self.assertEqual(check_authority.branch_read_problems(named), [])
+        self.assertFalse(caught(check_authority.run(config=named), waits))
+        unbuilt = mock.patch.object(check_authority, "BRANCHES", "adapters/branches_unbuilt.py")
+        with unbuilt:
+            self.assertTrue(caught(check_authority.run(config=named), waits))
+            self.assertTrue(caught(check_authority.branch_read_problems(named), waits))
+        # Its counter-example, a port without the read, is refused for that alone once the writer stands: the writer's
+        # part, named first, refuses it today. Once both stand, the writer's change retires it with this case.
         counter = ROOT / "examples" / "invalid" / "config.an-opening-role-with-no-branch-read.json"
         counter = json.loads(counter.read_text())
-        self.assertTrue(caught(check_authority.branch_read_problems(counter), waits))
-        with mock.patch.object(check_authority, "opening_problems", return_value=[]):
+        with unbuilt, mock.patch.object(check_authority, "opening_problems", return_value=[]):
+            self.assertTrue(caught(check_authority.branch_read_problems(counter), waits))
             problems = check_examples.run()
         self.assertFalse(caught(problems, "config.an-opening-role-with-no-branch-read.json"), problems)
 
