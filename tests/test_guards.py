@@ -558,6 +558,17 @@ class Patch(unittest.TestCase):
         self.assertEqual((both["docs/a.md"][1], both["docs/c.md"][1]), (b"a\nb\nC\nd\ne\nf\ng\nh\n", OLD))
         mode = b"diff --git a/docs/a.md b/docs/a.md\nold mode 100644\nnew mode 100755\n"
         self.assertEqual(landed(mode)[0]["written"], {"docs/a.md": ("100755", OLD)})
+        # A mode change may take the bit away as well as give it, with a hunk or without.
+        plain = b"diff --git a/run.sh b/run.sh\nold mode 100755\nnew mode 100644\n"
+        self.assertEqual(landed(plain)[0]["written"], {"run.sh": (FILE, b"#!/bin/sh\n")})
+        edited = plain + b"index 1111111..2222222\n--- a/run.sh\n+++ b/run.sh\n@@ -1 +1 @@\n-#!/bin/sh\n+#!/bin/bash\n"
+        self.assertEqual(landed(edited)[0]["written"], {"run.sh": (FILE, b"#!/bin/bash\n")})
+        # Each file a rename or a copy reads is said, and each a rename takes away.
+        two = (b"diff --git a/docs/a.md b/docs/c.md\nsimilarity index 100%\ncopy from docs/a.md\ncopy to docs/c.md\n"
+               b"diff --git a/run.sh b/r2\nsimilarity index 100%\ncopy from run.sh\ncopy to r2\n")
+        self.assertEqual(landed(two)[0]["read"], ["docs/a.md", "run.sh"])
+        moves = landed(two.replace(b"copy ", b"rename "))[0]
+        self.assertEqual((moves["read"], moves["removed"]), (["docs/a.md", "run.sh"], ["docs/a.md", "run.sh"]))
         # A copy with a hunk is the admitted commit's file with the hunk applied, and the file itself stays.
         changed = (copied.replace(b"100%", b"87%") + b"index 1111111..2222222 100644\n--- a/docs/a.md\n+++ b/docs/c.md\n"
                    b"@@ -1,2 +1,2 @@\n-a\n+A\n b\n")
@@ -614,7 +625,8 @@ class Patch(unittest.TestCase):
                 self.assertEqual(landed(data), (None, patch.NOT_APPLIED))
         # A removal that leaves bytes is no removal: the tree holds more than the patch takes.
         self.assertEqual(landed(gone, held=dict(HELD, **{"tests/t.py": b"x\ny\n"})), (None, patch.NOT_APPLIED))
-        # An empty file is removed with no hunk, as git writes it.
+        # An empty file is removed with no hunk, as git writes it; one whose bytes were not handed over is not.
+        self.assertEqual(landed(gone[:gone.index(b"--- ")], held={}), (None, patch.NOT_APPLIED))
         self.assertEqual(landed(gone[:gone.index(b"--- ")], held=dict(HELD, **{"tests/t.py": b""}))[0]["removed"], ["tests/t.py"])
         # A file the tree does not hold is not the patch's to change, whatever bytes were read for its name.
         self.assertEqual(landed(section("docs/none.md", b"@@ -1 +1 @@\n-a\n+b\n"), held={"docs/none.md": b"a\n"}),
