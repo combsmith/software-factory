@@ -2222,6 +2222,11 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("a person's Finding is read as a Lens's", "kernel/derive.py",
      '            if any(g["by"]["kind"] == "human" for g in open_gates if g["id"] in for_author):\n',
      "            if False:\n", ("tests.test_decide.HumanControl",)),
+    # Issue 1137: a set of strings iterates in the hash seed's order, so a replay in another process decides otherwise.
+    ("the open gates' ids are read in a set's order", "kernel/derive.py",
+     '        for_author = [gid for gid, who in turns.items() if who == "author"]\n',
+     '        for_author = [gid for gid in set(turns) if turns[gid] == "author"]\n',
+     ("tests.test_decide.Derived.test_the_same_inputs_give_the_same_decision_under_another_hash_seed",)),
     ("the States that admit nothing are only the ends", "kernel/terms.py",
      "ADMITS_NOTHING = frozenset({MERGED, CLOSED, NOT_SERVED})", "ADMITS_NOTHING = frozenset({MERGED, CLOSED})",
      ("tests.test_decide.Classes",)),
