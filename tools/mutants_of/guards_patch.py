@@ -956,4 +956,10 @@ MUTANTS = [
     ('only the last file a patch writes is asked about its twins', 'guards/patch.py',
      '    for path in written:\n        if any(_folded(name) in twins',
      '    for path in list(written)[-1:]:\n        if any(_folded(name) in twins', PATCH_CASE),
+    ('a canonical form is folded once in a name', 'guards/patch.py',
+     'folded = plain.join(folded.split(form))',
+     'folded = plain.join(folded.split(form, 1))', PATCH_CASE),
+    ("a runnable file's missing bytes are not asked for", 'guards/patch.py',
+     'tree.get(s["old"]) in FILE_MODES and s["old"] not in',
+     'tree.get(s["old"]) == FILE_MODES[0] and s["old"] not in', PATCH_PORT),
 ]

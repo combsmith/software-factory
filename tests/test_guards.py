@@ -751,7 +751,8 @@ class Patch(unittest.TestCase):
         copied = b"diff --git a/%s b/%s\nsimilarity index 100%%\ncopy from %s\ncopy to %s\n"
         self.assertEqual(landed(copied % ((b"docs/a.md", b"docs/A.md") * 2)), (None, patch.PATH_TWIN))
         # A name in another canonical form is the same name: U+037E is a semicolon, U+1FEF a grave accent.
-        for name, other in ((b"a;", "a\u037e"), (b"x`", "x\u1fef"), (b"l;/x", "l\u037e")):
+        for name, other in ((b"a;", "a\u037e"), (b"x`", "x\u1fef"), (b"l;/x", "l\u037e"), (b"a;;", "a\u037e\u037e"),
+                            (b"x``", "x\u1fef\u1fef")):
             self.assertEqual(landed(EMPTY % (name, name), tree={other: FILE}, held={}), (None, patch.PATH_TWIN), other)
         # Each file written is asked, the first and the last alike.
         for data in (EMPTY % (b"Docs/n", b"Docs/n") + EMPTY % (b"ok", b"ok"), EMPTY % (b"ok", b"ok") + EMPTY % (b"Docs/n", b"Docs/n")):
@@ -847,6 +848,8 @@ class Patch(unittest.TestCase):
                          (None, patch.TREE_UNREAD))
         self.assertEqual(landed(wrong + GONE, held={"docs/a.md": OLD}), (None, patch.TREE_UNREAD))
         self.assertEqual(landed(CHANGE + GONE, held={"tests/t.py": b"x\n"}), (None, patch.TREE_UNREAD))
+        plain = b"diff --git a/run.sh b/run.sh\nold mode 100755\nnew mode 100644\n"     # a runnable file's bytes too
+        self.assertEqual(landed(plain, held={}), (None, patch.TREE_UNREAD))
         self.assertEqual(landed(wrong + GONE + EMPTY % (b"n", b"n"), held={"docs/a.md": OLD}), (None, patch.TREE_UNREAD))
         self.assertEqual(landed(wrong + GONE), (None, patch.NOT_APPLIED))
         # A new file reads nothing, and a new file where the tree holds one is the Role's, read or not.
