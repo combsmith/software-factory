@@ -1,4 +1,4 @@
-# 9999. A pull request left out and then closed is read as left
+# 1197. A pull request left out and then closed is read as left
 
 Status: accepted. 2026-11-25, the Factory Builder; issue 1194. Extends decisions 1045 and 1193: the Limits line each holds on a pull request left out and then closed ends here.
 
