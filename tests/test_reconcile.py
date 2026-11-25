@@ -1184,7 +1184,8 @@ class SeenPort(unittest.TestCase):
         self.assertIs(whole(Linked({path: [old, close]}, {1: named.format(2) + notice})), True)
         self.assertIs(whole(Linked({path: [old, close]}, {1: (named.format(2), named.format(2) + notice)})), True)
         # The end names no last past itself; each page read back names the one after it, and the same last (Astra).
-        for asks in (('<%(at)s&page=3>; rel="last"', ''), ('', '<%(at)s&page=3>; rel="last"')):
+        past, prev = '<%(at)s&page=1>; rel="prev", <%(at)s&page=3>; rel="last"', '<%(at)s&page=1>; rel="prev"'
+        for asks in ((past, prev), (prev, past)):
             self.assertIs(whole(Linked({path: [old, close]}, {2: asks})), False, asks)
         self.assertIs(whole(Linked({path: [old, old, old, close]}, {1: '<%(at)s&page=3>; rel="next", <%(at)s&page=4>; rel="last"'})),
                       False)
