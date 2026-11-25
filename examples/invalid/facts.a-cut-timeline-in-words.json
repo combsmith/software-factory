@@ -14,25 +14,12 @@
   "mergeable": true,
   "content_id": "sha256:5d0c",
   "diff": {
-    "files": 3,
+    "files": 0,
     "lines": 120,
     "truncated": false,
     "characters": 4800
   },
-  "changed_paths": [
-    {
-      "path": "kernel/derive.py",
-      "previous": "kernel/derive_old.py"
-    },
-    {
-      "path": "tests/test_decide.py",
-      "previous": null
-    },
-    {
-      "path": "docs/glossary.md",
-      "previous": null
-    }
-  ],
+  "changed_paths": [],
   "label_events": [],
   "last_push_at": "2026-10-11T12:00:00Z",
   "last_reopened_at": null,

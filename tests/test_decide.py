@@ -178,9 +178,8 @@ class Readability(unittest.TestCase):
             self.assertEqual(go(facts(timeline_bounded=True, complete=cut, state=state), REVIEWED)["reason"], state)
 
     def test_a_reviews_list_cut_at_its_bound_defers_as_a_cut_timeline_and_names_the_reviews(self):  # record 1150
-        # Anyone can review a pull request, so the port cuts its reviews at the bound too, and says so in the one flag.
-        # The cut defers on that code and calls a person; its evidence names the reads not whole, both where each claims
-        # to be (the Solution Architect, 2026-11-24).
+        # The port cuts the reviews at the bound too, in the one flag: the cut defers on that code and calls a person,
+        # naming the reads not whole, or both where each claims to be (the Solution Architect, 2026-11-24).
         whole = facts()["complete"]
         for short, evidence in (({"reviews": False}, ["reviews"]), ({"timeline": False}, ["timeline"]),
                                 ({"reviews": False, "timeline": False}, ["reviews", "timeline"]),
@@ -193,11 +192,6 @@ class Readability(unittest.TestCase):
         # The other side: reviews read short and not cut are any read short, calling no one.
         d = go(facts(timeline_bounded=False, reviews=[review()], complete=dict(whole, reviews=False)), REVIEWED)
         self.assertEqual((d["reason"], d["evidence"], d["attention"]), ("facts_incomplete", ["reviews"], "none"))
-        # A flag that is no truth value is a gap in the reads it stands for: those not whole, or both.
-        for short, evidence in (({"reviews": False}, ["reviews"]), ({}, ["reviews", "timeline"]),
-                                ({"threads": False}, ["reviews", "threads", "timeline"])):
-            d = go(facts(timeline_bounded="true", complete=dict(whole, **short)), REVIEWED)
-            self.assertEqual((d["reason"], d["evidence"], d["attention"]), ("facts_incomplete", evidence, "none"), short)
 
     def test_a_flag_that_is_not_exactly_true_is_incomplete(self):  # I-13, I-20
         # A fact read from outside is never given a default: a missing or malformed flag is not a whole list.

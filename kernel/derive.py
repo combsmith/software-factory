@@ -869,8 +869,8 @@ def timeline_short(facts: dict) -> bool:
 def cut_reads(facts: dict) -> list:
     """The reads `timeline_bounded` speaks for: the pull request's own timeline and its reviews, those of them not read
     whole, or both where each claims to be, in the lists' order (decision 1150)."""
-    gaps = incomplete(facts)
-    return [name for name in ("reviews", "timeline") if name in gaps] or ["reviews", "timeline"]
+    short = incomplete(facts)
+    return [name for name in ("reviews", "timeline") if name in short] or ["reviews", "timeline"]
 
 
 def hands_off(facts: dict, config: dict) -> bool:
@@ -1248,8 +1248,7 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     # acceptance however whole that read claims to be.
     if facts.get("acceptance_bounded") is True:
         return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}
-    # Its own timeline, or its reviews, cut at the port's bound do the same: anyone can comment on or review a pull
-    # request (issue 1009). The evidence names the reads not whole, or both where each claims to be (decision 1150).
+    # Its own timeline cut at the port's bound does the same: anyone can comment on a pull request (issue 1009).
     if facts.get("timeline_bounded") is True:
         return {"state": None, "reason": "timeline_bounded", "evidence": cut_reads(facts)}
     gaps = incomplete(facts)
