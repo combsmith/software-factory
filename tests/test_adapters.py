@@ -6914,6 +6914,12 @@ class Branches(unittest.TestCase):
             self.assertEqual(landed(listed(r1), {"r_A1": (kept, True)})[0], (found, True), state)
             kept = dict(kept, effects=kept["effects"][::-1])
             self.assertEqual(landed(listed(r1), {"r_A1": (kept, True)})[0], (found, True), state)
+        # A Run skipped, as opened or past its retention, ends nothing: a later Run's push is still read.
+        opened_pr = dict(both, effects=both["effects"] + [{"id": "e2", "type": "open_pull_request", "state": "applied",
+                                                           "key": "146", "reason": None}])
+        for first in ((opened_pr, True), (artifacts.EXPIRED, True)):
+            self.assertEqual(landed(listed(r1, r2), {"r_A1": first, "r_A2": (record("r_A2", other), True)})[0],
+                             ({other}, True), first[0])
         for stranger in (run("r_B1", who="qa-lead"), run("r_B1", intent="investigate-issue"), run("r_B1", number=42),
                          run("r_B1", repo="o/other"), run("r_B1", kind="pull_request")):
             self.assertEqual(landed(listed(stranger), {"r_B1": "unanswered"}), ((set(), True), []), stranger)
