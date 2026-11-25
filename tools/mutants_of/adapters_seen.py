@@ -432,4 +432,7 @@ MUTANTS = [
      '    gone = ((("closed", "merged") if item["type"] == "pull_request" else ("closed",)) if kept == GONE and ending else ())',
      '    gone = (("closed",) if kept == GONE and ending else ())',
      ('tests.test_reconcile.SeenPort.test_an_item_read_as_gone_is_read_back_to_its_close',)),
+    ("a list cut at its bound is seen as nothing", 'adapters/seen.py',
+     '        return items, whole\n    except', '        return (items if whole else []), whole\n    except',
+     ('tests.test_reconcile.SeenPort.test_a_list_is_read_to_ten_pages_and_past_them_what_was_seen_is_short',)),
 ]
