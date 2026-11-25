@@ -128,7 +128,8 @@
   "complete": {
     "timeline": true,
     "linked": true,
-    "runs": true
+    "runs": true,
+    "branch": true
   },
   "timeline_bounded": false,
   "read_at": "2026-10-11T12:00:00Z"

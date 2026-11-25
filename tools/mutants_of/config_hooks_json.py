@@ -47,6 +47,11 @@ MUTANTS = [
      '    {"path": "tools/walk/", "is"', '    {"path": "tools/walk/unused", "is"', ('tests.test_apply.Push.test_the_checks_that_hold_a_trust_boundary_are_on_the_repos_own_list',)),
     ("a package that shadows tools/needs_passed.py is pushed by a Role", "config/hooks.json",
      '    {"path": "tools/needs_passed/", "is"', '    {"path": "tools/needs_passed/unused", "is"', ('tests.test_apply.Push.test_the_checks_that_hold_a_trust_boundary_are_on_the_repos_own_list',)),
+    # Issue 1090: the title check the commits' check imports is protected too.
+    ("the title check the commits' check imports is pushed by a Role", "config/hooks.json",
+     '    {"path": "tools/pr_title.*", "is"', '    {"path": "tools/pr_title.py", "is"', ('tests.test_apply.Push.test_the_checks_that_hold_a_trust_boundary_are_on_the_repos_own_list',)),
+    ("a package that shadows tools/pr_title.py is pushed by a Role", "config/hooks.json",
+     '    {"path": "tools/pr_title/", "is"', '    {"path": "tools/pr_title/unused", "is"', ('tests.test_apply.Push.test_the_checks_that_hold_a_trust_boundary_are_on_the_repos_own_list',)),
     ("the package the checks are imported from is pushed by a Role", "config/hooks.json",
      '    {"path": "tools/__init__.*", "is"', '    {"path": "tools/__init__.py", "is"', ('tests.test_apply.Push.test_the_checks_that_hold_a_trust_boundary_are_on_the_repos_own_list',)),
     ("the Makefile verify runs by is pushed by a Role", "config/hooks.json",

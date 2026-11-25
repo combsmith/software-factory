@@ -211,6 +211,8 @@ MUTANTS = [
      '"acceptance_bounded": contract_cut,', '"acceptance_bounded": False,', ('tests.test_adapters.Acceptance.test_a_bound_issues_timeline_is_read_to_ten_pages_and_past_them_is_not_whole', 'tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut')),
     ('the snapshot leaves out whether its own timeline was cut', 'adapters/facts.py',
      '        "timeline_bounded": timeline_cut or reviews_cut,\n', '', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
+    ('a cut timeline is kept whole for reconciliation', 'adapters/facts.py',
+     'raw["events"] = (events, timeline_whole)', 'raw["events"] = (events, True)', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
     ('the snapshot reads its own timeline past ten pages', 'adapters/facts.py',
      'events, timeline_whole, timeline_cut = timeline.bounded(transport, first)', 'events, timeline_whole = timeline.events(transport, first)\n    timeline_cut = False', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
     ('the snapshot says its own timeline was not cut', 'adapters/facts.py',
@@ -223,4 +225,6 @@ MUTANTS = [
      ', raw,\n                                                           timeline_whole)', ', raw)', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
     ("the snapshot says its own timeline was cut", 'adapters/facts.py',
      '"timeline_bounded": timeline_cut or reviews_cut,', '"timeline_bounded": True,', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
+    ("a snapshot's own cut flag is its acceptance read's", 'adapters/facts.py',
+     '"timeline_bounded": timeline_cut or reviews_cut,', '"timeline_bounded": contract_cut,', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut',)),
 ]

@@ -604,9 +604,9 @@ An issue has facts of its own (§4.1, the issue Lifecycle):
 | `role_comments` | For each Factory App that has commented: the time of its latest comment |
 | `last_writer_action_at`, `last_writer_comment_at` | The last action on the issue by a person with write access, and that person's last comment |
 | `acts_since_writer` | As for a pull request: the Factory's acts on the issue since a person with write access last acted, which the act ceiling bounds (decision 0031) |
-| `branch_head` | The head of the branch the next opening Run would push to, or null while it does not exist. The opening Run is admitted for it, and `apply` refuses once it has moved (decision 0031) |
+| `branch_head` | The head of the branch the next opening Run would push to, a commit's whole name, or null while it does not exist; null is "no branch" only where `complete.branch` says the port read it (decision 0242, issue 1059). The opening Run is admitted for it, and `apply` refuses once it has moved (decision 0031) |
 | `base_head` | The default branch's head as the pass read it. Where `branch_head` is null, the opening Run is admitted for it: the Run reads that commit and its one commit lands on it. A commit's whole name; left out, it is unread and that Run is deferred. `apply` does not refuse when the default branch has moved since; its read that the commit is still on the default branch is owed with the push (decision 0226) |
-| `complete`, `read_at` | As for a pull request; `complete` says whether the `timeline`, the `linked` pull requests and the `runs` were read in full |
+| `complete`, `read_at` | As for a pull request; `complete` says whether the `timeline`, the `linked` pull requests and the `runs` were read in full, and `branch` whether `branch_head` was read; a branch not read defers the opening Run alone |
 
 No field holds prose. Thread and comment bodies are read by the port into a separate `texts` set,
 keyed by id and labelled with a trust class. An issue's body is classed by its author alone;
@@ -1626,6 +1626,7 @@ and read from the configuration. The Lifecycle schema and the configuration gain
 | `ready` to `in_progress` and back, when an opening Run ends having opened nothing | `max_attempts`, counted from the run records. The bound is reached, and the Hold placed, long before a record expires | The Kernel holds the issue, as for a pull request. Whether the Controller also adds `factory:hold` for a Hold of the brakes is decided with `controller/`, for both item types (decision 0031) |
 | `in_progress` or `in_review` back to `ready` or `triage`, when a linked pull request closes unmerged | `max_unmerged_closes`, starting at one. The first unmerged close is the retry it allows: the issue goes back to `ready` or `triage` | On the close after that, the Controller adds `factory:hold` and assigns the Maintainer |
 | `triage` to `ready` and back, when the content keeps changing | `max_runs_per_item`: every investigating and readiness Run counts toward the issue's Run ceiling, but one that spent no model, which counts toward `max_environment_runs_per_item` (decision 0202) | The Kernel holds the issue, as for a pull request |
+| Implementing rounds within `in_progress`, while the draft the Factory opened fails its checks | `max_implementing_rounds`, starting at 3, at or below `max_runs_per_item`, read by the brakes from the configuration and named by no transition: every implementing Run that completed since a person with write access last acted is a round (decisions 0217 and 0242). `max_attempts` still counts the Runs of it that failed by the item | The Kernel holds the issue, `attempts_exhausted`, as for a pull request |
 | Investigation and verdict within `triage` | One of each for each `content_id` and each action by a person with write access | Nothing more is admitted; the issue waits for a person |
 
 Unmerged closes are counted from the closed linked pull requests themselves, which GitHub keeps,

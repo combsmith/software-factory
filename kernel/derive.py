@@ -862,8 +862,16 @@ def standing_labels(facts: dict) -> dict:
 
 def timeline_short(facts: dict) -> bool:
     """Whether the timeline was not read whole: its flag not exactly true, or the port says it cut it at its bound, or
-    says so in a form that is no truth value, whatever `complete.timeline` claims (decision 1149)."""
+    says so in a form that is no truth value, whatever `complete.timeline` claims (decision 1149). The flag says a
+    cut of the reviews too, which is read so as well: the side that acts on nothing (decision 1150)."""
     return "timeline" in incomplete(facts) or facts.get("timeline_bounded", False) is not False
+
+
+def cut_reads(facts: dict) -> list:
+    """The reads `timeline_bounded` speaks for: the pull request's own timeline and its reviews, those of them not read
+    whole, or both where each claims to be, in the lists' order (decision 1150)."""
+    short = incomplete(facts)
+    return [name for name in ("reviews", "timeline") if name in short] or ["reviews", "timeline"]
 
 
 def hands_off(facts: dict, config: dict) -> bool:
@@ -1180,9 +1188,10 @@ def standing_approval(facts: dict, config: dict):
     it has write access, without which GitHub does not count it. A person's approval answers that person's request for
     changes, and approves no content. One submitted before the pull request was last reopened does not stand, though
     GitHub reads it approved again (trials/P-7.reopened.json, issue 378): it may have been given while the pull
-    request was closed. Whether it was is read from the timeline, so none stands on a timeline not read whole.
+    request was closed. Whether it was is read from the timeline, so none stands on a timeline not read whole, nor
+    on one cut at its bound (decision 1149).
     """
-    if facts["complete"]["timeline"] is not True:
+    if timeline_short(facts):
         return None
     for rv in facts["reviews"]:
         if (
@@ -1242,12 +1251,13 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
         return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}
     # Its own timeline cut at the port's bound does the same: anyone can comment on a pull request (issue 1009).
     if facts.get("timeline_bounded") is True:
-        return {"state": None, "reason": "timeline_bounded", "evidence": ["timeline"]}
+        return {"state": None, "reason": "timeline_bounded", "evidence": cut_reads(facts)}
     gaps = incomplete(facts)
     if facts.get("acceptance_bounded", False) is not False and "acceptance" not in gaps:
         gaps = ["acceptance"] + gaps
-    if facts.get("timeline_bounded", False) is not False and "timeline" not in gaps:
-        gaps = gaps + ["timeline"]
+    if facts.get("timeline_bounded", False) is not False:
+        cut = cut_reads(facts)
+        gaps = [name for name in t.READ_IN_FULL if name in gaps or name in cut]
     if gaps:
         return {"state": None, "reason": "facts_incomplete", "evidence": gaps}
     if not readable_expired(facts):

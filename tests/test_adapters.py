@@ -4656,6 +4656,7 @@ class Snapshot(unittest.TestCase):
                                 lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
         self.assertEqual((got["acceptance"], got["complete"]["acceptance"]), (None, False))
         self.assertIs(got["acceptance_bounded"], True)
+        self.assertIs(got["timeline_bounded"], False)        # the closing issue's cut is not its own (Astra)
 
     def test_a_snapshot_says_whether_its_own_timeline_was_cut(self):  # issue 1009, decision 0234
         # Anyone can comment on, or review, a pull request, so its timeline and its reviews are read to ten pages each. A
@@ -4681,12 +4682,13 @@ class Snapshot(unittest.TestCase):
         seq = self.sequence(1)
         eleventh = paged(seq, 5, "/repos/%s/issues/26/timeline?per_page=100" % canary())
         seq.append(eleventh)
-        replay = github.Replay(seq)
+        replay, kept = github.Replay(seq), {}
         router = Router(replay, {"don-petry": "admin"})
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
-                                lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
+                                lambda: self.NOW, kept, recorded=NOTHING, opened=NOT_OPENED)
         self.assertIs(got["complete"]["timeline"], False)
         self.assertIs(got["timeline_bounded"], True)
+        self.assertIs(kept["events"][1], False)               # reconciliation reads it short too (Astra)
         self.assertIs(got["complete"]["reviews"], True)       # with no dismissal, the reviews stay whole (Carbon)
         self.assertEqual([asked[1] for asked, _ in replay._left], [eleventh["request"]["call"].split(" ", 1)[1]])
         # A review dismissed past the cut, whose dismissal the timeline read does not hold, leaves the reviews not
@@ -6716,12 +6718,48 @@ def issue_read(events=(), more=False, last=None, types=(), edits=None, closing=N
 
 class Issues(unittest.TestCase):
     NOW = "2026-10-11T12:00:00Z"
+    HEAD = "3b8e5d1c0a9f7e6d5c4b3a291807f6e5d4c3b2a1"
+
+    def test_the_default_branchs_head_is_read_by_its_ref_and_given_to_the_facts_or_left_out(self):  # decision 0242
+        # The repo names its default branch; that branch's ref, never a name a tag could share, gives its head, a
+        # commit's whole name. Anything else is none, and the issue's facts leave `base_head` out (decision 0226).
+        def head(repo, ref=None, branch="main", status=200, first=200):
+            exchanges = [rest_answer("/repos/o/r", repo)] + ([rest_answer("/repos/o/r/git/ref/heads/" + branch, ref)]
+                                                              if ref is not None else [])
+            exchanges[-1]["response"]["status"] = status if ref is not None else 200
+            exchanges[0]["response"]["status"] = first
+            return issues.default_head(github.Replay(exchanges), "o/r")
+
+        def ref(name="refs/heads/main", kind="commit", sha=self.HEAD):
+            return {"ref": name, "object": {"type": kind, "sha": sha}}
+
+        main = {"default_branch": "main"}
+        self.assertEqual(head(main, ref()), self.HEAD)
+        self.assertEqual(head({"default_branch": "rel/1#2"}, ref("refs/heads/rel/1#2"), "rel/1%232"), self.HEAD)
+        for repo, answer in (({}, None), ({"default_branch": ""}, None), ({"default_branch": 7}, None), (main, []),
+                             (main, ref("refs/tags/main")), (main, ref("refs/heads/other")), (main, ref(kind="tag")),
+                             (main, ref(sha="main")), (main, ref(sha=self.HEAD.upper())), (main, ref(sha=self.HEAD + "0")), (main, ref(sha=self.HEAD[:7])), (main, ref(sha=None)),
+                             ({"default_branch": "\ud800"}, None), (main, {"ref": "refs/heads/main", "object": "x"}),
+                             (main, {"ref": "refs/heads/main", "object": [ref()["object"]]}),
+                             (main, {"ref": "refs/heads/main", "object": None})):
+            self.assertIsNone(head(repo, answer), (repo, answer))
+        self.assertIsNone(head({"default_branch": ""}, ref("refs/heads/"), ""))     # no branch is named: not asked
+        # An answer of another status than 200 is none, and a read GitHub does not answer is none too, never a raise
+        # that leaves the issue unread: the repo's, or the ref's after it.
+        self.assertIsNone(head(main, ref(), status=206))
+        self.assertIsNone(head(main, ref(), first=206))
+        self.assertIsNone(issues.default_head(github.Replay([]), "o/r"))
+        self.assertIsNone(issues.default_head(github.Replay([rest_answer("/repos/o/r", main)]), "o/r"))
+        # The issue's facts carry what the pass read, and leave it out where it read none.
+        self.assertEqual(self.read(issue_read())["base_head"], self.HEAD)
+        self.HEAD = None
+        self.assertNotIn("base_head", self.read(issue_read()))
 
     def read(self, exchanges, clock=None, transport=None, earlier=()):
         router = transport or Router(github.Replay(exchanges), {"don-petry": "admin", "stranger": "read"})
         accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]})
         found, title = issues.read(router, "o/r", 41, accounts, clock or (lambda: self.NOW), identities=IDENTITIES,
-                                   earlier=None if earlier is None else list(earlier))
+                                   earlier=None if earlier is None else list(earlier), base_head=self.HEAD)
         # The title is handed beside the facts, never in them.
         self.assertEqual(title, (exchanges or issue_read())[0]["response"]["body"]["title"])
         self.assertNotIn(title, json.dumps(found))
