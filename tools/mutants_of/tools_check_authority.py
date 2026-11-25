@@ -300,7 +300,7 @@ MUTANTS = [
      'if (intents.get("open-pull-request") if isinstance(intents, dict) else None) is not False:', BRANCH_READ),
     # And until trial P-80 is run and a test tells a head the Factory pushed (the Solution Architect, 2026-11-25).
     ('an opening Role need not wait on trial P-80', "tools/check_authority.py",
-     '    if _read(root / TRIAL) is None:\n',
+     '    if not isinstance(trial, dict) or trial.get("trial") != TRIAL[1]:\n',
      '    if False:\n', BRANCH_READ),
     ('an opening Role need not wait on the test that tells a head the Factory pushed', "tools/check_authority.py",
      '    if tests is None or not holds_test(tests, HEAD_MATCH[1]):\n',
