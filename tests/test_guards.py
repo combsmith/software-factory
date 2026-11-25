@@ -753,6 +753,9 @@ class Patch(unittest.TestCase):
         # A name in another canonical form is the same name: U+037E is a semicolon, U+1FEF a grave accent.
         for name, other in ((b"a;", "a\u037e"), (b"x`", "x\u1fef"), (b"l;/x", "l\u037e")):
             self.assertEqual(landed(EMPTY % (name, name), tree={other: FILE}, held={}), (None, patch.PATH_TWIN), other)
+        # Each file written is asked, the first and the last alike.
+        for data in (EMPTY % (b"Docs/n", b"Docs/n") + EMPTY % (b"ok", b"ok"), EMPTY % (b"ok", b"ok") + EMPTY % (b"Docs/n", b"Docs/n")):
+            self.assertEqual(landed(data), (None, patch.PATH_TWIN), data)
         # A file changed or moved in beside a twin that stays is refused as a new one is.
         self.assertEqual(landed(MODE, tree={"docs/a.md": FILE, "docs/A.md": FILE}, held={"docs/a.md": OLD}),
                          (None, patch.PATH_TWIN))
@@ -784,6 +787,8 @@ class Patch(unittest.TestCase):
                            # and a pair in no shape stands anywhere, the first as well as the last
                            ({b"f": FILE, **TREE}, HELD), ({"lone": "040000", **TREE}, HELD), ({1: FILE, **TREE}, HELD),
                            (TREE, {b"other": b"", **HELD}), (TREE, {"tests/t.py": None, "docs/a.md": OLD}),
+                           ({"/".join(["d"] * 33): FILE, **TREE}, HELD), ({"docs/./x": FILE, **TREE}, HELD),
+                           (TREE, {"other": b"", **HELD}),
                            # nor a `.` or `..` part, which would name another path: docs/./a.md is docs/a.md
                            ({**TREE, "docs/./x": FILE}, HELD), ({**TREE, "docs/../x": FILE}, HELD),
                            ({**TREE, "./x": FILE}, HELD), ({**TREE, "x/..": FILE}, HELD), ({**TREE, ".": FILE}, HELD),
@@ -821,6 +826,7 @@ class Patch(unittest.TestCase):
         self.assertEqual(landed(b"diff --git a/docs/a.md b/docs/a.md\nold mode 100755\nnew mode 100644\n", held={}),
                          (None, patch.TREE_UNREAD))
         self.assertEqual(landed(wrong + GONE, held={"docs/a.md": OLD}), (None, patch.TREE_UNREAD))
+        self.assertEqual(landed(CHANGE + GONE, held={"tests/t.py": b"x\n"}), (None, patch.TREE_UNREAD))
         self.assertEqual(landed(wrong + GONE), (None, patch.NOT_APPLIED))
         # A new file reads nothing, and a new file where the tree holds one is the Role's, read or not.
         self.assertEqual(landed(EMPTY % (b"docs/a.md", b"docs/a.md"), held={}), (None, patch.NOT_APPLIED))
