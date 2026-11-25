@@ -214,6 +214,9 @@ def held(found: list, whole: bool, recorded_: tuple, content_id=None) -> tuple:
 
 OPENS = "open-pull-request"       # the Intent whose Run opens a pull request for an issue
 OPENED = "open_pull_request"      # the Effect that records the pull request it opened
+PUSHED = "push_commits"           # the Effect that records the commit it pushed, keyed by that commit's sha
+LANDED = ("applied", "already_applied")   # an Effect's states that say its write is on GitHub
+SHA = re.compile(r"[0-9a-f]{40}")
 
 
 def effects(transport, repo: str, runs, since: str, known, most: int = READS, sleep=time.sleep) -> dict:
@@ -328,3 +331,40 @@ def opened(transport, repo: str, runs, role) -> dict:
             out["named"].setdefault(int(key), []).append((record["run"], item["number"]))
     return out
 
+
+
+def landed(transport, repo: str, runs, role, number: int) -> tuple:
+    """`(shas, whole)`: the commits the opening Runs of issue `number` of `repo` recorded as pushed, each the key of a
+    landed `push_commits` Effect in a Run's `applied/1`, the pushed commit's whole sha (design section 3.6, the head
+    match). A Run counts as `opened` counts one: the records port names it of `role`, its Intent `open-pull-request`, its
+    item this issue. Whole only where the run list was read whole and lists no Run before its name, none of these Runs
+    is still in flight, each is named by one GitHub run, and each record was read whole and keys every push it landed
+    by a whole sha; anything else is not whole, never none. A record past its retention records no push, read whole: a
+    commit it pushed is told as none the Factory pushed, and the Kernel holds the issue for a person. With no Role
+    named, nothing is read, and nothing is whole. `apply`, asking again, leaves its own Run out of `runs` (I-38)."""
+    read_whole = isinstance(runs, dict) and runs.get("complete") is True and isinstance(runs.get("github_ids"), dict) \
+        and isinstance(runs.get("runs"), list)
+    if role is None or not read_whole or runs.get("unidentified") != []:
+        return set(), False
+    shas = set()
+    mine = [r for r in runs["runs"] if (r["role"], r.get("intent"), r["item"]["type"], r["item"]["repo"],
+                                        r["item"]["number"]) == (role, OPENS, "issue", repo, number)]
+    for record in mine:
+        # One still running may have pushed a commit it has not yet recorded.
+        github, succeeded = runs["github_ids"].get(record["run"]), record.get("conclusion") == "success"
+        if record["status"] != "completed" or not isinstance(github, list) or len(github) != 1:
+            return set(), False
+        try:
+            kept, whole = artifacts.applied(transport, repo, github[0], record["run"], required=succeeded)
+        except Unanswered:
+            return set(), False
+        if kept is artifacts.EXPIRED:   # past its retention: no push it made can be read
+            continue
+        if not whole:
+            return set(), False
+        for effect in (kept or {}).get("effects", ()):
+            if effect["type"] == PUSHED and effect["state"] in LANDED:
+                if not (isinstance(effect["key"], str) and SHA.fullmatch(effect["key"])):
+                    return set(), False
+                shas.add(effect["key"])
+    return shas, True

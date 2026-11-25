@@ -314,4 +314,13 @@ MUTANTS = [
      PORT_HANDS),
     ("the branch is read with no transport", 'adapters/issues.py',
      'branches.work_head(transport, repo, number, opener)', 'branches.work_head(None, repo, number, opener)', PORT_HANDS),
+    # The head match (the Solution Architect, 2026-11-25): a head no opening Run recorded pushing is told so.
+    ("a head the Factory never pushed is told as pushed", 'adapters/issues.py',
+     'pushed = branch_head in shas if pushed_whole else None', 'pushed = True if pushed_whole else None', ("tests.test_adapters.Branches.test_a_work_branch_head_the_factory_never_pushed_is_not_its_own",)),
+    ("pushes not read whole leave the branch told", 'adapters/issues.py',
+     '        branch_head, branch_whole = (branch_head, branch_whole) if pushed_whole else (None, False)\n', '', ("tests.test_adapters.Branches.test_a_work_branch_head_the_factory_never_pushed_is_not_its_own",)),
+    ("whether the head was pushed is not handed on", 'adapters/issues.py',
+     '"branch_pushed": pushed,', '"branch_pushed": None,', ("tests.test_adapters.Branches.test_a_work_branch_head_the_factory_never_pushed_is_not_its_own",)),
+    ("pushes are asked where no branch stands", 'adapters/issues.py',
+     '    if branch_head is not None:\n        shas, pushed_whole', '    if True:\n        shas, pushed_whole', ("tests.test_adapters.Branches.test_a_work_branch_head_the_factory_never_pushed_is_not_its_own",)),
 ]
