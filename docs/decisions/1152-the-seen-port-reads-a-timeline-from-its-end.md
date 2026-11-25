@@ -6,11 +6,11 @@ Status: accepted. Extends decision 0234, as "adapters: bound a pull request's ti
 
 | What | Decided | Because |
 |---|---|---|
-| A timeline read from its end | The seen port reads an issue's timeline, an item's that left, and one the snapshot cut, from its end (`_tail` in `adapters/seen.py`). The first page names the last (`rel="last"`, as trials/P-43.json recorded it); pages are read back until one holds a moment before `since`, or to the second, which joins the first. Ten pages at most, the last read again, and a joined first page too: one that changed by then leaves the read not whole. Items are kept once by kind and id. One read as gone is read on back, within the bound, until its close is found | A timeline's writes since `since`, and an item's close, are at its end: read from its start, a cut timeline would never be read whole again, and an item that left would be read every pass |
+| A timeline read from its end | The seen port reads an issue's timeline, an item's that left, and one the snapshot cut, from its end (`_tail` in `adapters/seen.py`). The first page names the last (trials/P-43.json); pages are read back until one holds a moment before `since`, or to the second, which joins the first. Ten pages at most, the last read again, and a joined first page too: one that changed by then leaves the read not whole. Items are kept once by kind and id. One read as gone is read on back, within the bound, until its close is found | A timeline's writes since `since`, and an item's close, are at its end: read from its start, a cut timeline would never be read whole again, and an item that left would be read every pass |
 
 ## Why
 
-Decision 1150 cuts a pull request's timeline at ten pages from its start, and decision 1151 bounds the seen port's lists. Read from the start, a cut timeline never gives its newest writes again. So the seen port reads its timelines from their end, back to the window.
+Decisions 1150 and 1151 cut lists at ten pages from their start, so a cut timeline would never give its newest writes again. The seen port reads its timelines from their end instead.
 
 ## Boundaries
 
