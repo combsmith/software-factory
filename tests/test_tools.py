@@ -1588,6 +1588,10 @@ class Authority(unittest.TestCase):
         for fixture, tests, said in ((None, held, trial), ("{", held, trial), (b"\xff\n", held, trial),
                                      ("[]", held, trial), ('{"trial": "P-1"}', held, trial),
                                      ('{"trial": "P-8"}', held, trial), ('{"trial": "P-800"}', held, trial),
+                                     ('{"related": "P-80"}', held, trial),
+                                     ('{"trial": "P-1", "related": "P-80"}', held, trial),
+                                     (ran, "class T:\n    def test_x(self):\n        pass\n\n    @pending\n"
+                                      "    def %s(self):\n        pass\n" % name, match),
                                      (ran, None, match), (ran, "def %s(:\n" % name, match), (ran, "", match),
                                      (ran, held.replace(name, name + "_too"), match),
                                      (ran, held.replace(name, "test_a_work_branch_head"), match),
