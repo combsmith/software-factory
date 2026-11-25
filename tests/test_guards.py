@@ -664,6 +664,7 @@ class Patch(unittest.TestCase):
                b"@@ -0,0 +1 @@\n+docs/a.md\n")
         cases = (
             EMPTY % (b"ok", b"ok") + EMPTY % (b"link/x", b"link/x"),             # each file is asked, not the first
+            EMPTY % (b"link/x", b"link/x") + EMPTY % (b"ok", b"ok"),             # nor the last
             new % (b"l", b"l", b"120000", b"l"),                               # a link
             new % (b"m", b"m", b"160000", b"m"),                               # a submodule
             section("link", b"@@ -1 +1 @@\n-docs/a.md\n\\ No newline at end of file\n+run.sh\n\\ No newline at end of file\n",
@@ -720,6 +721,11 @@ class Patch(unittest.TestCase):
         into = b"diff --git a/run.sh b/run.sh/x\nsimilarity index 100%\nrename from run.sh\nrename to run.sh/x\n"
         self.assertEqual(landed(into)[0], {"written": {"run.sh/x": ("100755", b"#!/bin/sh\n")}, "removed": ["run.sh"],
                                            "read": ["run.sh"]})      # and a file moved under its own old name
+        # Each file removed leaves its place, not the first or the last alone.
+        for first, second in ((b"e", b"f"), (b"f", b"e")):
+            data = empty_gone % (first, first) + empty_gone % (second, second) + empty_new % (b"f/x", b"f/x")
+            self.assertEqual(landed(data, tree={"e": FILE, "f": FILE}, held={"e": b"", "f": b""})[0]["written"],
+                             {"f/x": (FILE, b"")}, data)
         # A directory that keeps one file, or a file that stays, is still in the way.
         for data, tree, held in ((empty_new % (b"d", b"d") + empty_gone % (b"d/x", b"d/x"), {"d/x": FILE, "d/y": FILE},
                                   {"d/x": b""}),

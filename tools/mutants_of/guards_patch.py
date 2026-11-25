@@ -878,4 +878,13 @@ MUTANTS = [
     ('only the top directory above a path the push leaves is named in case', 'guards/patch.py',
      '        for name in _above(path) + [path]:\n            if cases.get',
      '        for name in _above(path)[:1] + [path]:\n            if cases.get', PATCH_CASE),
+    ('only the last file a patch writes is asked where it stands', 'guards/patch.py',
+     '    for path in written:\n        if not _placed',
+     '    for path in list(written)[-1:]:\n        if not _placed', PATCH_NO_FILE),
+    ('only the first file removed leaves its place', 'guards/patch.py',
+     'gone = {path: True for path in removed}',
+     'gone = {path: True for path in removed[:1]}', PATCH_NO_FILE),
+    ('only the last file removed leaves its place', 'guards/patch.py',
+     'gone = {path: True for path in removed}',
+     'gone = {path: True for path in removed[-1:]}', PATCH_NO_FILE),
 ]
