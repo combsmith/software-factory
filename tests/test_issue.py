@@ -103,9 +103,13 @@ def closes(when: str) -> list:
     return [{"action": "closed", "by": dict(WRITER), "at": when}]
 
 
+# The head of the Factory's draft, from this repo, on its work branch, as the linked port reads it with its checks.
+DRAFT_HEAD = {"sha": "5c1e2d3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d", "ref": "factory-work/issue-7-1"}
+
+
 def agents(**over) -> dict:
-    """The Factory's own pull request: its author's App opened it, its head's required checks pending."""
-    return pr(**dict({"by": AUTHOR_APP, "cls": "agent", "checks": "pending"}, **over))
+    """The Factory's own pull request: its author's App opened it, its head's required checks pending, its head read."""
+    return pr(**dict({"by": AUTHOR_APP, "cls": "agent", "checks": "pending", "head": dict(DRAFT_HEAD)}, **over))
 
 
 def strangers(admitted=False, **over) -> dict:
@@ -1838,7 +1842,8 @@ class Outcomes(unittest.TestCase):
         failing = facts(linked=[agents(draft=True, checks="failing")])
         d = decide(failing, cfg=named)
         self.assertEqual((d["outcome"], d["reason"], d["admit"]), ("admit", "linked_draft", {
-            "role": "dev-lead", "intent": issue.IMPLEMENT, "content_id": THIS, "pull_request": 11}))
+            "role": "dev-lead", "intent": issue.IMPLEMENT, "content_id": THIS, "pull_request": 11,
+            "branch_head": DRAFT_HEAD["sha"]}))
         # Its checks pending, or passing, or its head's checks not yet listed after a push (trial P-42): nothing.
         for checks in ("pending", "passing"):
             self.assertEqual(what(decide(facts(linked=[agents(draft=True, checks=checks)]), cfg=named)),
@@ -2607,14 +2612,41 @@ class Opening(unittest.TestCase):
                 del unbased["base_head"]
                 self.assertEqual(what(decide(unbased)), ("defer", "branch_unreadable", None), (flag, head))
         # The implementing Run pushes to its own draft (decision 0217): the next opening's branch, told or not, neither
-        # defers nor admits it.
+        # defers nor admits it. Its draft's own head is what it is admitted at, and one not told defers it.
         named = dict(config(), author_role="dev-lead")
         failing = facts(linked=[agents(draft=True, checks="failing")])
         d = decide(failing, cfg=named)
-        self.assertEqual(d["outcome"], "admit")
+        self.assertEqual((d["outcome"], d["admit"]["branch_head"]), ("admit", DRAFT_HEAD["sha"]))
         for flag in (False, None, "true", missing):
             f = dict(failing, complete=dict(told) if flag is missing else dict(told, branch=flag), branch_head=None)
             self.assertEqual(decide(f, cfg=named)["admit"], d["admit"], flag)
+        # With the next opening's branch told and standing at another commit, the Run still carries its draft's head.
+        other = "b" * 40
+        self.assertEqual(decide(dict(failing, branch_head=other), cfg=named)["admit"], d["admit"])
+        # A draft whose head is another commit at apply refuses the Run (I-21).
+        moved = facts(linked=[agents(draft=True, checks="failing", head=dict(DRAFT_HEAD, sha=other))])
+        self.assertFalse(issue.still_admitted(d, decide(moved, cfg=named)))
+        self.assertTrue(issue.still_admitted(d, decide(failing, cfg=named)))
+        # A later opening's draft, its count of two digits, is admitted at its own head as well.
+        later = facts(linked=[agents(draft=True, checks="failing", head=dict(DRAFT_HEAD, ref="factory-work/issue-7-12"))])
+        self.assertEqual(decide(later, cfg=named)["admit"]["branch_head"], DRAFT_HEAD["sha"])
+        for head in (missing, None, {}, {"sha": sha}, {"ref": DRAFT_HEAD["ref"]}, dict(DRAFT_HEAD, sha=sha[:7]),
+                     dict(DRAFT_HEAD, sha=sha.upper()), dict(DRAFT_HEAD, ref=""), dict(DRAFT_HEAD, ref=7), "main",
+                     dict(DRAFT_HEAD, ref="main"), dict(DRAFT_HEAD, ref="factory-work/issue-8-1"),
+                     dict(DRAFT_HEAD, ref="factory-work/issue-7-01"), dict(DRAFT_HEAD, ref="factory-work/issue-7-"),
+                     dict(DRAFT_HEAD, ref="factory-work/issue-07-1"), dict(DRAFT_HEAD, ref="factory-work/issue-7-1-2"),
+                     dict(DRAFT_HEAD, ref="factory-work/issue-7-x"), dict(DRAFT_HEAD, ref="factory-wurk/issue-7-1")):
+            draft = agents(draft=True, checks="failing")
+            if head is missing:
+                del draft["head"]
+            else:
+                draft["head"] = head
+            f = facts(linked=[draft])
+            self.assertEqual(what(decide(f, cfg=named)), ("defer", "branch_unreadable", None), head)
+            # Nothing else waits on it: no author Role, or checks that do not fail, admit nothing either way.
+            self.assertEqual(what(decide(f, cfg=dict(named, author_role=None))), ("nothing", "linked_draft", None), head)
+            passing = facts(linked=[dict(draft, checks="passing")])
+            self.assertEqual(what(decide(passing, cfg=named)), ("nothing", "linked_draft", None), head)
 
     def test_an_outsiders_issue_opens_only_from_a_statement_made_since_its_content_changed(self):
         events = [labelled(ADMIT), labelled(READY, minute=2)]

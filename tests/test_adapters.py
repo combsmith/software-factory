@@ -2359,7 +2359,7 @@ class Timeline(unittest.TestCase):
                                           (asked, {"kind": "app", "name": "don-petry", "can_write": False},
                                            "changes_requested")):
             router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, compares)
-            got, _ = timeline.reviews(router, p7_pull(), timeline_read, self.accounts(router), BASE_HEAD)
+            got, _, _ = timeline.reviews(router, p7_pull(), timeline_read, self.accounts(router), BASE_HEAD)
             self.assertEqual((got[0]["dismissed_by"], got[0]["dismissed_from"]), (by, before))
 
     def test_a_reopening_is_read_from_the_timeline(self):  # issue 378, trials/P-7.reopened.json
@@ -2390,7 +2390,7 @@ class Timeline(unittest.TestCase):
                     "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "diff --git a/y b/y\n"}
         router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, compares)
         kept = {}
-        got, whole = timeline.reviews(router, p7_pull(), events, self.accounts(router), BASE_HEAD, kept)
+        got, whole, _ = timeline.reviews(router, p7_pull(), events, self.accounts(router), BASE_HEAD, kept)
         self.assertIs(whole, True)
         # The list is kept as GitHub gave it, for reconciliation (decision 0061).
         self.assertEqual(([r.get("node_id") for r in kept["reviews"][0]], kept["reviews"][1]),
@@ -2415,6 +2415,36 @@ class Timeline(unittest.TestCase):
                                                                     "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"})
         with self.assertRaises(github.Unanswered):
             timeline.reviews(router, p7_pull(), [], self.accounts(router), BASE_HEAD)
+        # Beside a timeline not read whole, cut at its bound, the dismissal may be past its end: the reviews are not
+        # whole, never refused, so the snapshot still says the cut and the pull request calls a person (issue 1009).
+        router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "d",
+                                                                    "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"})
+        got, whole, cut = timeline.reviews(router, p7_pull(), [], self.accounts(router), BASE_HEAD, timeline_whole=False)
+        self.assertEqual(([r["state"] for r in got], whole, cut), (["approved"], False, False))
+        # It is left out before its commit is asked, so a commit that cannot be read never refuses the read (Muse).
+        unreadable = reviews_read(22)
+        for listed in unreadable._left[0][1]["body"]:
+            if listed["state"] == "DISMISSED":
+                listed["commit_id"] = "not-a-commit"
+        router = Router(unreadable, {"don-petry": "admin", APPROVER: "write"}, {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "d",
+                                                                 "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"})
+        got, whole, cut = timeline.reviews(router, p7_pull(), [], self.accounts(router), BASE_HEAD, timeline_whole=False)
+        self.assertEqual(([r["state"] for r in got], whole, cut), (["approved"], False, False))
+        # One the timeline read does explain stays, with who dismissed it, though the timeline was cut (Astra).
+        events, _ = timeline.events(replay("P-7", 16), p7_pull())
+        router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "d",
+                                                                    "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"})
+        got, whole, _ = timeline.reviews(router, p7_pull(), events, self.accounts(router), BASE_HEAD, timeline_whole=False)
+        self.assertEqual(([r["state"] for r in got], whole), (["dismissed", "dismissed", "approved"], True))
+        # With one dismissal past the cut and one read, the one read stays, with who dismissed it, and the reviews are
+        # not whole (Carbon).
+        first = [i for i, e in enumerate(events) if e.get("event") == "review_dismissed"][0]
+        router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "d",
+                                                                    "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"})
+        got, whole, cut = timeline.reviews(router, p7_pull(), events[:first] + events[first + 1:], self.accounts(router),
+                                           BASE_HEAD, timeline_whole=False)
+        self.assertEqual(([r["state"] for r in got], whole, cut), (["dismissed", "approved"], False, False))
+        self.assertEqual(got[0]["dismissed_by"]["name"], "combsmith-sf-trial-author[bot]")
 
     def test_a_reviews_commit_too_large_to_diff_or_gone_is_its_own_id(self):
         commit = "f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb"
@@ -2522,7 +2552,7 @@ class Timeline(unittest.TestCase):
                 timeline_change(told)
             return timeline.reviews(router, p7_pull(), told, self.accounts(router), BASE_HEAD)
 
-        got, _ = with_reviews(lambda listed: listed.append(dict(listed[-1], state="PENDING", id=1)))
+        got, _, _ = with_reviews(lambda listed: listed.append(dict(listed[-1], state="PENDING", id=1)))
         self.assertEqual(len(got), 3)
         with self.assertRaises(github.Unanswered):
             with_reviews(lambda listed: listed[-1].update(state="WEIRD"))
@@ -2651,7 +2681,7 @@ class Timeline(unittest.TestCase):
         reviews = reviews_read(22)
         reviews._left[0][1]["body"] = {"message": "x"}
         router = Router(reviews)
-        self.assertEqual(timeline.reviews(router, p7_pull(), [], self.accounts(router), BASE_HEAD), ([], False))
+        self.assertEqual(timeline.reviews(router, p7_pull(), [], self.accounts(router), BASE_HEAD), ([], False, False))
         # An item of the timeline that is not an object is refused, never skipped.
         with self.assertRaises(github.Unanswered):
             timeline.label_events(["labeled"], self.accounts(router))
@@ -4517,7 +4547,7 @@ class Snapshot(unittest.TestCase):
         # A fault of the snapshot's own code is named by its part as a read GitHub refused is, and one in putting the
         # facts together, after the last read, by a part of its own (decision 0187).
         odd = lambda *a, **k: (_ for _ in ()).throw(TypeError("an answer no adapter expected"))
-        for target, name, part in ((timeline, "events", "timeline"), (timeline, "since_writer", "writer"),
+        for target, name, part in ((timeline, "bounded", "timeline"), (timeline, "since_writer", "writer"),
                                    (timeline, "reopened_at", "assembly")):
             router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
             with unittest.mock.patch.object(target, name, odd), self.assertRaises(TypeError) as raised:
@@ -4627,6 +4657,102 @@ class Snapshot(unittest.TestCase):
         self.assertEqual((got["acceptance"], got["complete"]["acceptance"]), (None, False))
         self.assertIs(got["acceptance_bounded"], True)
         self.assertIs(got["timeline_bounded"], False)        # the closing issue's cut is not its own (Astra)
+
+    def test_a_snapshot_says_whether_its_own_timeline_was_cut(self):  # issue 1009, decision 0234
+        # Anyone can comment on, or review, a pull request, so its timeline and its reviews are read to ten pages each. A
+        # tenth that names an eleventh is not whole, the eleventh is never asked, and a cut timeline is said; a
+        # timeline read whole says it was not cut. Each review is an event of the timeline too.
+        nxt = '<https://x>; rel="next"'
+
+        def paged(seq, at, path):
+            first = copy.deepcopy(seq[at])
+            first["response"]["headers"] = dict(first["response"]["headers"] or {}, link=nxt)
+            eleventh = rest_answer("%s&page=11" % path, [])
+            seq[at:at + 1] = [first] + [rest_answer("%s&page=%d" % (path, n), [], nxt) for n in range(2, 11)]
+            return eleventh
+
+        def snap(seq):
+            router = Router(github.Replay(seq), {"don-petry": "admin"})
+            got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}),
+                                    True, lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
+            return got
+        got = snap(self.sequence(1))
+        self.assertIs(got["complete"]["timeline"], True)
+        self.assertIs(got["timeline_bounded"], False)
+        seq = self.sequence(1)
+        eleventh = paged(seq, 5, "/repos/%s/issues/26/timeline?per_page=100" % canary())
+        seq.append(eleventh)
+        replay, kept = github.Replay(seq), {}
+        router = Router(replay, {"don-petry": "admin"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW, kept, recorded=NOTHING, opened=NOT_OPENED)
+        self.assertIs(got["complete"]["timeline"], False)
+        self.assertIs(got["timeline_bounded"], True)
+        self.assertIs(kept["events"][1], False)               # reconciliation reads it short too (Astra)
+        self.assertIs(got["complete"]["reviews"], True)       # with no dismissal, the reviews stay whole (Carbon)
+        self.assertEqual([asked[1] for asked, _ in replay._left], [eleventh["request"]["call"].split(" ", 1)[1]])
+        # A review dismissed past the cut, whose dismissal the timeline read does not hold, leaves the reviews not
+        # whole, never the snapshot refused: the cut is still said (Claude, security).
+        seq = self.sequence(1)
+        dismissed = next(r for r in body("P-7", 22) if r["state"] == "DISMISSED")
+        seq[6] = copy.deepcopy(seq[6])
+        seq[6]["response"]["body"] = [dismissed]
+        paged(seq, 5, "/repos/%s/issues/26/timeline?per_page=100" % canary())
+        router = Router(github.Replay(seq), {"don-petry": "admin"}, {dismissed["commit_id"]: "diff --git a/x b/x\n"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
+        self.assertEqual((got["complete"]["timeline"], got["complete"]["reviews"], got["reviews"]), (False, False, []))
+        self.assertIs(got["timeline_bounded"], True)
+        # The reviews past their ten pages leave the reviews not whole, and are said cut too, whatever the timeline
+        # gave (Astra, security); ten pages that end there are whole.
+        seq = self.sequence(1)
+        paged(seq, 6, "/repos/%s/pulls/26/reviews?per_page=100" % canary())
+        got = snap(seq)
+        self.assertEqual((got["complete"]["reviews"], got["complete"]["timeline"]), (False, True))
+        self.assertIs(got["timeline_bounded"], True)
+        for at, path, part in ((5, "/repos/%s/issues/26/timeline?per_page=100", "timeline"),
+                               (6, "/repos/%s/pulls/26/reviews?per_page=100", "reviews")):
+            seq = self.sequence(1)
+            paged(seq, at, path % canary())
+            seq[at + 9]["response"]["headers"] = {"link": ""}
+            got = snap(seq)
+            self.assertIs(got["complete"][part], True, part)
+            self.assertIs(got["timeline_bounded"], False, part)
+        # Reviews cut beside a timeline read short within its bound are a cut all the same (Carbon).
+        seq = self.sequence(1)
+        seq[5] = copy.deepcopy(seq[5])
+        seq[5]["response"]["body"] = {"message": "not a list"}
+        paged(seq, 6, "/repos/%s/pulls/26/reviews?per_page=100" % canary())
+        got = snap(seq)
+        self.assertEqual((got["complete"]["timeline"], got["complete"]["reviews"], got["timeline_bounded"]),
+                         (False, False, True))
+        # Both cut is a cut (Astra).
+        seq = self.sequence(1)
+        paged(seq, 6, "/repos/%s/pulls/26/reviews?per_page=100" % canary())
+        paged(seq, 5, "/repos/%s/issues/26/timeline?per_page=100" % canary())
+        self.assertIs(snap(seq)["timeline_bounded"], True)
+        # A timeline read short within the bound and a review dismissed past what it read: the reviews are short too,
+        # never the snapshot refused, and nothing is said cut (Astra).
+        seq = self.sequence(1)
+        seq[6] = copy.deepcopy(seq[6])
+        seq[6]["response"]["body"] = [dismissed]
+        paged(seq, 5, "/repos/%s/issues/26/timeline?per_page=100" % canary())
+        seq[6]["response"]["body"] = {"message": "not a list"}
+        del seq[7:15]
+        router = Router(github.Replay(seq), {"don-petry": "admin"}, {dismissed["commit_id"]: "diff --git a/x b/x\n"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
+        self.assertEqual((got["complete"]["timeline"], got["complete"]["reviews"], got["timeline_bounded"], got["reviews"]),
+                         (False, False, False, []))     # its diff readable, it is the dismissal that leaves it out (Carbon)
+        # A timeline read short within the bound, a page that is no list, is not cut: it defers as any read short.
+        seq = self.sequence(1)
+        paged(seq, 5, "/repos/%s/issues/26/timeline?per_page=100" % canary())
+        seq[6]["response"]["body"] = {"message": "not a list"}
+        del seq[7:15]
+        got = snap(seq)
+        self.assertIs(got["complete"]["timeline"], False)
+        self.assertIs(got["timeline_bounded"], False)
+        self.assertIs(got["complete"]["reviews"], True)       # with no dismissal, the reviews stay whole (Carbon)
 
     def test_a_snapshot_reads_the_ask_of_the_openers_pull_request_by_its_branch(self):  # issue 295
         # Told that the App that opens pull requests is this one's author, the snapshot reads its branch, which is no
@@ -5112,7 +5238,7 @@ class Contract(unittest.TestCase):
                     "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "diff --git a/y b/y\n"}
         router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, compares)
         events, _ = timeline.events(replay("P-7", 16), p7_pull())
-        reviewed, _ = timeline.reviews(router, p7_pull(), events, timeline.Accounts(router, canary(), MACHINE, {}),
+        reviewed, _, _ = timeline.reviews(router, p7_pull(), events, timeline.Accounts(router, canary(), MACHINE, {}),
                                        BASE_HEAD)
         # P-41: pull request 64's request, push and two dismissals, and 66's labels, each read as the port asks.
         p41_pull = {"number": 64, "base": {"repo": {"full_name": canary()}}}
@@ -5121,7 +5247,7 @@ class Contract(unittest.TestCase):
                             {"99aa98a4b50b73eb09b7f31323df44988346611c": "diff --git a/x b/x\n",
                              "706cb893291b1dc51761d73e523bd96350a57b06": "diff --git a/y b/y\n"})
         p41_accounts = timeline.Accounts(p41_router, canary(), MACHINE, {})
-        p41_reviews, _ = timeline.reviews(p41_router, p41_pull, p41_events, p41_accounts, BASE_HEAD)
+        p41_reviews, _, _ = timeline.reviews(p41_router, p41_pull, p41_events, p41_accounts, BASE_HEAD)
         p41_head = body("P-41", 49)["head"]["sha"]
         p41_labels = timeline.label_events(timeline.events(replay("P-41", 54), dict(p41_pull, number=66))[0],
                                            timeline.Accounts(Router(github.Replay([])), canary(), MACHINE, {}))
@@ -5346,7 +5472,7 @@ class Contract(unittest.TestCase):
         queue = [(e["event"], e["id"], timeline.Accounts.account(e["actor"])) for e in events
                  if e.get("event") in timeline.QUEUE | {"merged"}]
         replayed = github.Replay(found[2:5])
-        reviews, listed = timeline.reviews(replayed, canary58, events, timeline.Accounts(replayed, canary(), MACHINE, {}),
+        reviews, listed, _ = timeline.reviews(replayed, canary58, events, timeline.Accounts(replayed, canary(), MACHINE, {}),
                                            found[0]["response"]["body"]["object"]["sha"])
         removed = [e["id"] for e in exchanges("P-2.queue")[14]["response"]["body"] if e["event"] == "removed_from_merge_queue"]
         out = next(e["created_at"] for e in events if e.get("event") == "removed_from_merge_queue")
@@ -8124,6 +8250,31 @@ class DraftChecks(unittest.TestCase):
                               lambda: Issues.NOW, identities=IDENTITIES, earlier=[], kernel=given)[0]
             self.assertEqual([p.get("checks") for p in got["linked"]], ["failing", None])
 
+    def test_the_factorys_draft_carries_its_own_head_from_this_repo(self):  # issue 1059
+        # The head an implementing Run is admitted at: the draft's commit and its work branch, from this repo by id.
+        sha, work = "5c1e2d3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d", "factory-work/issue-41-1"
+        good = {"head": {"sha": sha, "ref": work, "repo": {"id": 1}}, "base": {"repo": {"id": 1, "full_name": "o/r"}}}
+        self.assertEqual(draft_checks.head(good), {"sha": sha, "ref": work})
+        head = lambda **over: dict(good, head=dict(good["head"], **over))
+        for bad in (head(repo={"id": 2}), head(repo=None), head(repo={"id": True}), head(repo={}), head(sha=sha[:7]),
+                    head(sha=sha.upper()), head(sha=sha + "0"), head(sha="g" * 40), head(sha=None), head(repo="o/r"),
+                    dict(good, base={"repo": "o/r"}), head(ref="work"), head(ref=work + "-2"),
+                    head(ref=None), dict(good, base={"repo": {"id": True}}), dict(good, base={"repo": {}}), dict(good, base=None),
+                    dict(good, head=None), {}):
+            self.assertIsNone(draft_checks.head(bad), bad)
+        # Through the linked read: carried beside the checks, for the Factory's draft alone, null where not told.
+        given = self.kernel()
+        exchanges = [linked_read(ref(5, 6)), pull_read(5, user=CONTROLLER_APP, draft=True), pull_timeline(5),
+                     pull_read(6, draft=True), pull_timeline(6)]
+        exchanges[1]["response"]["body"]["head"]["ref"] = work
+        with mock.patch.object(draft_checks, "read", lambda transport, got, kernel: "failing"):
+            for ours, want in ((work, {"sha": "a" * 40, "ref": work}), ("work", None)):
+                exchanges[1]["response"]["body"]["head"]["ref"] = ours
+                transport = Router(github.Replay(copy.deepcopy(exchanges)), {"don-petry": "admin"})
+                found = linked.listing(transport, "o/r", 41, UPDATED, CREATED, IDENTITIES, Linked().accounts(transport),
+                                       {}, given)[0]
+                self.assertEqual([(p.get("checks"), p.get("head", "none")) for p in found],
+                                 [("failing", want), (None, "none")], ours)
 
 PUSHED = json.loads((ROOT / "trials" / "P-71.json").read_text())["repo"]       # P-71's repo, and its work branch
 WORK = "factory-work/issue-9971-1"
