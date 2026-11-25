@@ -1143,8 +1143,9 @@ class SeenPort(unittest.TestCase):
         self.assertIs(whole(Pages({path: [old, old, old, close]}, LEFT_ANSWERS)), True)
         # 6. A first page that names a next one and a last page before the second is short (Carbon).
         named = '<%(at)s&page=2>; rel="next", <%(at)s&page={}>; rel="last"'
-        self.assertIs(whole(Linked({path: [old + close]}, {1: named.format(0), 0: ''})), False)
-        self.assertIs(whole(Linked({path: [old + close]}, {1: (named.format(1), '')})), False)
+        self.assertIs(seen_._tail(Linked({path: [old, old]}, {1: named.format(0), 0: ''}), path, SINCE)[1], False)
+        self.assertIs(seen_._tail(Linked({path: [old, old]}, {1: (named.format(1), '')}), path, SINCE)[1], False)
+        self.assertIs(seen_._tail(Linked({path: [old, old]}, {1: named.format(2)}), path, SINCE)[1], True)
 
     def test_an_event_that_lands_while_the_end_is_read_leaves_it_short(self):  # issue 1009, the Builder's ruling
         # An event that lands while the pages are read back moves the pages: one read could fall between them. So the
