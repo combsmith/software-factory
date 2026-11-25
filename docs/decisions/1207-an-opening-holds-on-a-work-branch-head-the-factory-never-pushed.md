@@ -20,6 +20,6 @@ The security read of pull request 1199 found that a branch planted at the next w
 
 | Boundary | Check |
 |---|---|
-| A head no opening Run recorded pushing holds the issue for a person; a commit head not told so defers | `tests/test_issue.py::test_a_work_branch_head_no_opening_run_pushed_holds_the_issue_for_a_person`, `kernel/issue.py`, mutant: "a head the Factory never pushed is opened from" |
+| A head no opening Run recorded pushing holds the issue for a person; a commit head not told so, or a value told with no branch, defers | `tests/test_issue.py::test_a_work_branch_head_no_opening_run_pushed_holds_the_issue_for_a_person`, `kernel/issue.py`, mutant: "a head the Factory never pushed is opened from" |
 | `push_commits` is keyed by the sha of the commit the Run itself pushed, never by the head read back | waiting on `harness/push.py`, the push `apply` makes before the `open_pull_request` Effect |
 | The port tells a head no opening Run of the issue recorded as not pushed, reading records only where a branch stands | `tests/test_adapters.py::test_a_work_branch_head_the_factory_never_pushed_is_not_its_own`, `adapters/issues.py`, mutant: "a head the Factory never pushed is told as pushed" |
