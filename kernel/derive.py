@@ -862,7 +862,8 @@ def standing_labels(facts: dict) -> dict:
 
 def timeline_short(facts: dict) -> bool:
     """Whether the timeline was not read whole: its flag not exactly true, or the port says it cut it at its bound, or
-    says so in a form that is no truth value, whatever `complete.timeline` claims (decision 1149)."""
+    says so in a form that is no truth value, whatever `complete.timeline` claims (decision 1149). The flag says a
+    cut of the reviews too, which is read so as well: the side that acts on nothing (decision 1150)."""
     return "timeline" in incomplete(facts) or facts.get("timeline_bounded", False) is not False
 
 
