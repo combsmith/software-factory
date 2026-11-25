@@ -71,6 +71,9 @@ KEYED_BUILTINS = frozenset({"map", "filter", "sorted", "max", "min"})
 # The builtins never handed to be called: each calls what it is then given, `type` given three as a class's bases, so
 # `map(map, [f], [xs])` would call f unread (issue 593).
 UNHANDED_BUILTINS = frozenset({"map", "filter", "type"})
+# The builtins whose value is written into text as its address in memory, or as a set in the hash seed's order (issue
+# 1202).
+RENDERED_BUILTINS = frozenset({"map", "filter", "zip", "enumerate", "set", "frozenset"})
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 
 
@@ -601,6 +604,14 @@ def _calls(name: str, tree, trees: dict, takers: dict, tops: dict) -> list:
             problems.append("%s:%d writes a function into text, which is its address in memory, and so another "
                             "process's replay reads other text; the Kernel writes no function into text"
                             % (name, node.lineno))
+        # So is a map, filter, zip or enumerate object, or a generator, and a set is its elements in the hash seed's
+        # order, each written out where it is made (issue 1202).
+        if any(isinstance(value, (ast.GeneratorExp, ast.Set, ast.SetComp)) or (
+                isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and value.func.id in RENDERED_BUILTINS
+                and resolve(value.func.id, chain)[0] == "builtin") for value in shown):
+            problems.append("%s:%d writes an address or a set's order into text, which another process or hash seed "
+                            "writes otherwise; the Kernel writes no map, filter, zip or enumerate object, generator or "
+                            "set into text" % (name, node.lineno))
         if isinstance(node, ast.Attribute):
             bases.add(id(node.value))
         if isinstance(node, (ast.Name, ast.Attribute)) and isinstance(node.ctx, ast.Load) and id(node) not in bases \
