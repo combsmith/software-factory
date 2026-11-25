@@ -9686,7 +9686,8 @@ class OutputMadeAlone(unittest.TestCase):
                "trial_p54_issue_lookup.sh": ("KEY", CONTROLLER, "42"),
                "trial_p12_status.sh": ("KEY", CONTROLLER, "a" * 40),
                "trial_p56_comments.sh": ("KEY", CONTROLLER, "42"),
-               "trial_p58_edits.sh": ("KEY", READER, "96")}
+               "trial_p58_edits.sh": ("KEY", READER, "96"),
+               "trial_p80_branch_reads.sh": ("KEY", CONTROLLER) + tuple("factory-work/issue-%d-1" % (8001 + i) for i in range(5))}
     # These read more before they mint or ask, so OUT is not made here; the check on its parent comes first of all.
     OTHERS = {"trial_p13_cli.sh": ("config",), "trial_p13_ended.sh": ("config",), "trial_p26_sandbox.sh": ("config",),
               "context_eval.sh": ("config", "repo", "a" * 40, "sentence", "held")}
@@ -10007,7 +10008,7 @@ fi
         for script in ("context_eval.sh", "trial_as_app.sh", "trial_p13_cli.sh", "trial_p13_ended.sh", "trial_p26_sandbox.sh",
                        "trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh", "trial_p54_issue_lookup.sh",
                        "trial_p12_status.sh",
-                       "trial_p56_comments.sh", "trial_p58_edits.sh",
+                       "trial_p56_comments.sh", "trial_p58_edits.sh", "trial_p80_branch_reads.sh",
                        "trial_reader_reads.sh"):
             self.assertNotIn('cd "$(mktemp', (ROOT / "tools" / script).read_text(), script)
 
@@ -10282,7 +10283,8 @@ sys.exit(subprocess.run([%r] + sys.argv[1:], input=said).returncode)
         # Issue 424: each trial keeps the last head's status, since a proxy's block, or an interim answer, comes first.
         # A blank line in a body opens no head, and an HTTP line after it is the body's (Argon).
         for name in ("trial_reader_reads.sh", "trial_p39_reach.sh", "trial_p8_cost.sh", "trial_p52_pause.sh", "trial_p4_narrow.sh",
-                     "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh", "trial_p58_edits.sh"):
+                     "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh", "trial_p58_edits.sh",
+                     "trial_p80_branch_reads.sh"):
             text = (ROOT / "tools" / name).read_text()
             self.assertNotIn("sed -n '1s/^HTTP", text, name)
             programs = re.findall(r"awk '(BEGIN \{ head = 1 \}[^']+)'", text)
@@ -16142,6 +16144,146 @@ class CommentsReadTrial(IssueLookupTrial):
         '''status, answer = 200, {"number": int(url.rsplit("/", 1)[1]), "title": "A trial", "labels": [{"name": "question"}]}''',
         '''status, answer = 200, [{"id": 7, "user": {"id": 9, "type": "User"}, "leak": "gh" + "s_" + "L" * 36}]''', 1)
 
+
+
+class BranchReadsTrial(IssueLookupTrial):
+    """`tools/trial_p80_branch_reads.sh`, run against the same stand-ins and never GitHub (issue 1075). It is P-54's script
+    with a token narrowed to what `adapters/branches.py` reads with, each work branch's two reads, the port's own, and a
+    second token for one ref, so every test of that one that is not about what is asked runs over it too, by inheritance.
+    The stand-in tells each branch's state by its issue: 8001 open, 8002 closed, 8003 merged, 8004 bare, 8005 never.
+    No fork is asked: none can be made (issue 1075)."""
+
+    SCRIPT = ROOT / "tools" / "trial_p80_branch_reads.sh"
+    STATES = ("open", "closed", "merged", "bare", "never")
+    BRANCHES = tuple("factory-work/issue-%d-1" % (8001 + i) for i in range(5))
+    GIVEN = (IssueLookupTrial.CANARY,) + BRANCHES
+    FIRST = "contents: read and pull_requests: read"
+    SHA = "c" * 40
+    # The stand-in answers the list by the branch its head filter names and the ref by its path, each by that branch's
+    # issue, as the docstring says; the control token, narrowed to pull_requests alone, is answered 404 on a ref unless
+    # a file beside it says the repo is public.
+    CURL = IssueLookupTrial.CURL.replace('elif "/issues/" in url:', """elif "/pulls?" in url or "/git/ref/heads/" in url:
+    if os.path.exists(os.path.join(here, "read.broke")):
+        sys.stdout.write("HTTP/2 200\\r\\n\\r\\n{")
+        sys.exit(18)
+    if os.path.exists(os.path.join(here, "read.cut")):
+        sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\n\\r\\n{\\"cut")
+        sys.exit(0)
+    import urllib.parse
+    if "/pulls?" in url:
+        branch = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)["head"][0].split(":", 1)[1]
+    else:
+        branch = url.split("/git/ref/heads/", 1)[1]
+    kind = ("open", "closed", "merged", "bare", "never")[int(branch.split("-")[-2]) - 8001]
+    repo = url.split("/repos/", 1)[1].split("/pulls")[0].split("/git/")[0]
+    if "/pulls?" in url:
+        row = {"number": 7, "state": "closed" if kind != "open" else "open", "merged_at": None,
+               "head": {"ref": branch, "repo": {"full_name": repo}},
+               "user": {"id": 9, "type": "Bot", "login": "combsmith-sf-trial-author[bot]"}}
+        status, answer = 200, [row] if kind in ("open", "closed", "merged") else []
+    elif grant == "pull_requests" and not os.path.exists(os.path.join(here, "public")):
+        status, answer = 404, {"message": "Not Found"}
+    elif kind in ("open", "closed", "bare"):
+        status, answer = 200, {"ref": "refs/heads/" + branch, "object": {"type": "commit", "sha": "c" * 40}}
+    else:
+        status, answer = 404, {"message": "Not Found"}
+elif "/issues/" in url:""", 1)
+
+    def port_reads(self, branch: str) -> list:
+        """The two paths `adapters/branches.py` sends for `branch`, issue N's first work branch, taken from the port
+        itself: its list by the head filter, answered empty, then its ref."""
+        sent = []
+
+        class Transport:
+            def send(self, asked):
+                sent.append(asked["path"])
+                return {"status": 200, "body": [], "headers": {}} if "/pulls?" in asked["path"] else \
+                    {"status": 404, "body": {}, "headers": {}}
+        from adapters import branches
+        number = int(branch.split("-")[-2])
+        self.assertEqual(branches.work_head(Transport(), self.CANARY, number, (9, "Bot")), (None, True))
+        return sent
+
+    def test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept(self):
+        grants = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
+        listed = [e for e in grants["exchanges"] if e["request"]["call"] == "GET /orgs/combsmith/installations"][0]
+        app = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["controller"]
+        installation = [i["id"] for i in listed["response"]["body"]["installations"] if i["app_id"] == app["app_id"]][0]
+        for public, control in ((False, 404), (True, 200)):
+            with self.subTest(public=public):
+                self.setUp()
+                if public:
+                    (self.stand_in / "public").write_text("")
+                ran = self.run_script()
+                self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
+                calls = self.calls()
+                self.assertEqual([c["method"] for c in calls], ["POST"] + ["GET"] * 10 + ["DELETE", "POST", "GET", "DELETE"])
+                mints = [c for c in calls if c["url"].endswith("/access_tokens")]
+                self.assertEqual([m["url"].split("/app/")[1] for m in mints],
+                                 ["installations/%d/access_tokens" % installation] * 2)
+                name = self.CANARY.split("/")[1]
+                self.assertEqual([json.loads(m["body"]) for m in mints],
+                                 [{"repositories": [name], "permissions": {"contents": "read", "pull_requests": "read"}},
+                                  {"repositories": [name], "permissions": {"pull_requests": "read"}}])
+                # Each branch's two reads are the port's own, byte for byte, in the order the states are given.
+                reads = [c["url"] for c in calls if c["method"] == "GET"]
+                self.assertEqual(reads, ["https://api.github.com" + path for b in self.BRANCHES for path in self.port_reads(b)]
+                                 + ["https://api.github.com" + self.port_reads(self.BRANCHES[3])[1]])
+                self.assertTrue(all(c["credential"] for c in calls), "every call carries its credential on stdin")
+                texts = {p.name: p.read_text() for p in self.out.iterdir()}
+                self.assertEqual(sorted(texts), sorted(["ran_at", "requests.json"] + ["%s-%d" % (kind, n) for n in range(1, 12)
+                                                                                      for kind in ("clean", "redacted")]))
+                asked = json.loads(texts["requests.json"])
+                both, alone = self.FIRST, "pull_requests: read"
+                self.assertEqual([(a["narrowed_to"], a["of"], a["branch"], a["call"].split("/")[-1].split("?")[0], a["status"])
+                                  for a in asked if "call" in a],
+                                 [(both, state, branch, read, status) for state, branch, ref in zip(self.STATES, self.BRANCHES,
+                                                                                                     (200, 200, 404, 200, 404))
+                                  for read, status in (("pulls", 200), (branch.split("/")[-1], ref))]
+                                 + [(alone, "bare", self.BRANCHES[3], self.BRANCHES[3].split("/")[-1], control)])
+                self.assertEqual([a for a in asked if "call" not in a], [{"revoked": both, "status": 204},
+                                                                         {"revoked": alone, "status": 204}])
+                self.assertIn('"type": "Bot"', texts["clean-1"])
+                self.assertIn('"sha": "%s"' % self.SHA, texts["clean-2"])
+                self.assertNotIn("gh" + "s_", "".join(texts.values()) + ran.stdout + ran.stderr)
+                self.assertTrue(all(texts["redacted-%d" % n].strip() for n in range(1, 12)))
+
+    def test_the_status_kept_is_the_last_heads(self):
+        # A proxy's block comes first, 200, and GitHub's answer after it is the read's: the 404s stay 404s.
+        (self.stand_in / "proxied").write_text("")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        asked = json.loads((self.out / "requests.json").read_text())
+        self.assertEqual([a["status"] for a in asked if "call" in a], [200, 200, 200, 200, 200, 404, 200, 200, 200, 404, 404])
+
+    def test_each_refusal_comes_before_anything_is_minted(self):
+        self.out.parent.mkdir(parents=True, exist_ok=True)
+        branches = self.BRANCHES
+        not_a_branch = "is not a work branch's name, factory-work/issue-N-k"
+        elsewhere = "is not the canary the Controller is installed on"
+        for given, out, said in (((self.CANARY,) + branches, self.out.parent, "exists"),
+                                 ((self.CANARY,) + branches, ROOT / self.INSIDE[0], "inside the repo"),
+                                 (("combsmith/software-factory",) + branches, None, elsewhere),
+                                 (("combsmith/elsewhere",) + branches, None, elsewhere),
+                                 (("combsmith",) + branches, None, "is not owner/name"),
+                                 ((self.CANARY, "main") + branches[1:], None, not_a_branch),
+                                 ((self.CANARY, "factory-work/issue-01-1") + branches[1:], None, not_a_branch),
+                                 ((self.CANARY, "factory-work/issue-1-0") + branches[1:], None, not_a_branch),
+                                 ((self.CANARY, branches[0] + "/x") + branches[1:], None, not_a_branch),
+                                 ((self.CANARY, branches[0] + "\n") + branches[1:], None, not_a_branch),
+                                 ((self.CANARY, "../" + branches[0]) + branches[1:], None, not_a_branch),
+                                 ((self.CANARY, "none") + branches[1:], None, not_a_branch),
+                                 ((self.CANARY,) + branches[:4] + (branches[0],), None, "is named twice"),
+                                 ((self.CANARY,) + branches[:4], None, "usage:"),
+                                 ((self.CANARY,) + branches + ("none",), None, "usage:")):
+            ran = self.run_script(*given, out=out)
+            self.assertNotEqual(ran.returncode, 0, given)
+            self.assertIn(said, ran.stderr, given)
+            self.assertEqual(self.calls(), [], given)
+        self.key.unlink()
+        ran = self.run_script()
+        self.assertIn("cannot read the key file", ran.stderr)
+        self.assertEqual(self.calls(), [])
 
 class EditsReadTrial(IssueLookupTrial):
     """`tools/trial_p58_edits.sh`, run against the same stand-ins and never GitHub (issue 519). It is P-54's script held to

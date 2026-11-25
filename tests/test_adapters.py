@@ -6810,7 +6810,10 @@ class Branches(unittest.TestCase):
         twice = [self.opened(1), dict(self.opened(1), number=108)]
         unread = [self.opened(1), dict(self.opened(1), user={"id": 77})]
         unid = [self.opened(1), dict(self.opened(1), user={"id": "77", "type": "Bot"})]
-        for rows in ([self.opened(1, by=(5, "User"))], [stray], [forked], [self.opened(1), forked], [flat],
+        # A stranger's pull request from a fork's branch of the same name, were the head filter to list it: no fork can
+        # be made for trial P-80, so its unfavourable answer is taken, and a branch from a fork is never the Factory's.
+        stranger = dict(forked, user={"id": 5, "type": "User"})
+        for rows in ([self.opened(1, by=(5, "User"))], [stray], [forked], [self.opened(1), forked], [flat], [stranger],
                      [self.opened(1, by=(77, "User"))], [self.opened(1, by=(5, "Bot"))], twice, unread, unid, aside):
             self.assertEqual(self.head({self.pulls(1): (200, rows, {}), self.pulls(2): (200, [], {}),
                                         self.ref(1): self.branch(1), self.ref(2): self.branch(2)})[0], (None, False), rows)
