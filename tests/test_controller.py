@@ -304,6 +304,11 @@ class Record(unittest.TestCase):
         window = dict(SEEN, since="2026-10-11T14:00:00Z")
         gone = passed(reads(pulls=[], seen=window), now="2026-10-12T20:00:00Z", previous=records[-2:])["record"]
         self.assertEqual(("hand" in gone["reconciled"], gone["reconciled"]["left"]), (False, []))
+        # Another repository's row of that number is not dropped by this one's leaving (issue 1190).
+        far = dict(records[-1]["reconciled"]["hand"][0], item=url.replace(REPO, REPO + "-elsewhere"))
+        theirs = dict(records[-1], reconciled=dict(records[-1]["reconciled"], hand=records[-1]["reconciled"]["hand"] + [far]))
+        kept = passed(reads(pulls=[], seen=window), now="2026-10-12T20:00:00Z", previous=[records[-2], theirs])["record"]
+        self.assertEqual(kept["reconciled"]["hand"], [far])
         back = passed(reads(pulls=[pull], seen=window, runs=[run(number=42)]), now="2026-10-12T20:00:00Z",
                       previous=records[-2:])["record"]
         self.assertEqual((back["reconciled"]["hand"], back["reconciled"]["left"]), (records[-1]["reconciled"]["hand"], []))
@@ -311,6 +316,32 @@ class Record(unittest.TestCase):
         moved = {"facts": {"item": dict(support.ITEM, number=42)}, "title": None, "unread": "facts_unanswered"}
         out = passed(reads(pulls=[moved], seen=window), now="2026-10-12T20:00:00Z", previous=records[-2:])["record"]
         self.assertEqual(out["reconciled"]["hand"], records[-1]["reconciled"]["hand"])
+        # Left, read open inside the window, approved, left out and closed: the old stamp drops nothing (issue 1191).
+        late = dict(approval, at="2026-10-11T14:30:00Z")
+        chain = [first]
+        for now, pulls, gone_, writes in (("2026-10-11T13:00:00Z", [], [42], []), ("2026-10-11T14:00:00Z", [pull], [], []),
+                                          ("2026-10-11T15:00:00Z", [moved], [], [late]), ("2026-10-12T20:00:00Z", [], [], []),
+                                          ("2026-10-12T21:00:00Z", [pull], [], [late])):
+            r = dict(reads(pulls=pulls, seen=dict(seen if now < "2026-10-12" else window, writes=writes),
+                           runs=[run(number=42)] if pulls == [pull] else []),
+                     gone=gone_)
+            chain.append(passed(r, now=now, previous=chain[-2:])["record"])
+        carried_ = [{"key": "PRR_h", "item": url, "head": head, "at": late["at"]}]
+        self.assertEqual((chain[1]["reconciled"]["left"], chain[2]["reconciled"]["left"]),
+                         ([{"number": 42, "at": "2026-10-11T13:00:00Z"}], []))
+        left_out = passed(reads(pulls=[moved], seen=seen), now="2026-10-11T14:00:00Z", previous=chain[:2])["record"]
+        self.assertEqual(left_out["reconciled"]["left"], [])
+        unseen = passed(reads(pulls=[pull], seen=None, runs=[run(number=42)]), now="2026-10-11T14:00:00Z", previous=chain[:2])
+        self.assertEqual(unseen["record"]["reconciled"]["left"], [])
+        # One decided and one left out in the same pass both drop their stamps; one newly left is stamped.
+        both = dict(chain[1], reconciled=dict(chain[1]["reconciled"], left=[{"number": n, "at": "2026-10-11T13:00:00Z"}
+                                                                            for n in (42, 43)]))
+        other_moved = {"facts": {"item": dict(support.ITEM, number=43)}, "title": None, "unread": "facts_unanswered"}
+        mixed = dict(reads(pulls=[pull, other_moved], seen=seen, runs=[run(number=42)]), gone=[44])
+        self.assertEqual(passed(mixed, now="2026-10-11T14:00:00Z", previous=[first, both])["record"]["reconciled"]["left"],
+                         [{"number": 44, "at": "2026-10-11T14:00:00Z"}])
+        self.assertEqual(chain[-2]["reconciled"].get("hand"), carried_)
+        self.assertEqual(("write_unmatched" in chain[-1]["alerts"], chain[-1]["reconciled"].get("hand")), (False, carried_))
 
     def test_an_issue_decision_replays_through_the_issues_kernel_configuration(self):  # decisions 0002, 0218
         # Replayed through `pass_.issue_config`, as the pass asked it, the Controller's factory:triage counts.

@@ -416,7 +416,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
               "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or (),
                                                reads.get("gone") or (), reads.get("unread_issues") or (),
                                                reads.get("gone_issues") or (), served, found["hand"], found["taken"],
-                                               opened)}
+                                               opened, config["controller"]["home"]["repo"])}
     checked(record, "pass")
     entries = record["pull_requests"] + record["issues"]
     ids = [record["pass"]] + [e["run"] for e in entries if e["run"] is not None]

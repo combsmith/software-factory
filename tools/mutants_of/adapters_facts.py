@@ -209,4 +209,10 @@ MUTANTS = [
      '        "acceptance_bounded": contract_cut,\n', '', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut',)),
     ("the snapshot says no acceptance read was cut", 'adapters/facts.py',
      '"acceptance_bounded": contract_cut,', '"acceptance_bounded": False,', ('tests.test_adapters.Acceptance.test_a_bound_issues_timeline_is_read_to_ten_pages_and_past_them_is_not_whole', 'tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut')),
+    ('the snapshot leaves out whether its own timeline was cut', 'adapters/facts.py',
+     '        "timeline_bounded": False,\n', '', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut',)),
+    ("the snapshot says its own timeline was cut", 'adapters/facts.py',
+     '        "timeline_bounded": False,\n', '        "timeline_bounded": True,\n', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut',)),
+    ("a snapshot's own cut flag is its acceptance read's", 'adapters/facts.py',
+     '        "timeline_bounded": False,\n', '        "timeline_bounded": contract_cut,\n', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut',)),
 ]
