@@ -130,7 +130,7 @@ def _links(link: str) -> dict:
             continue
         address = urllib.parse.urlsplit(one.group(1))
         pages = [v for k, v in urllib.parse.parse_qsl(address.query, keep_blank_values=True) if k == "page"]
-        if address.fragment or len(pages) != 1 or not PAGE_NUMBER.fullmatch(pages[0]) or one.group(2) in out:
+        if len(pages) != 1 or not PAGE_NUMBER.fullmatch(pages[0]) or one.group(2) in out:
             raise ValueError("a link header that cannot be read whole")
         out[one.group(2)] = int(pages[0])
     return out
