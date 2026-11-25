@@ -1097,6 +1097,54 @@ class SeenPort(unittest.TestCase):
         self.assertIs(left(github)[2], False)
         self.assertIs(left(Pages({path: [first, old + close]}, LEFT_ANSWERS))[2], True)
 
+    def test_a_read_from_the_end_trusts_no_answer_that_contradicts_itself(self):  # issue 1206
+        # GitHub's answers can be malformed, or contradict each other between reads: each such read is short.
+        new = [{"event": "commented", "actor": PERSON, "created_at": AT}]
+        old = [{"event": "commented", "actor": PERSON, "created_at": EARLY}]
+        close = [{"event": "closed", "actor": CONTROLLER, "created_at": AT, "id": 1}]
+        path = ISSUE + "/timeline?per_page=100"
+
+        class Linked(Pages):
+            """Pages whose link header, page by page, is the one given for it: one for every ask, or one for each ask in
+            turn, the last for the rest."""
+
+            def __init__(self, lists, links):
+                super().__init__(lists, LEFT_ANSWERS)
+                self.links = links
+
+            def send(self, req):
+                answer = super().send(req)
+                n = int(req["path"].partition("&page=")[2] or 1)
+                if req["path"].partition("&page=")[0] == path and n in self.links:
+                    links = self.links[n] if isinstance(self.links[n], tuple) else (self.links[n],)
+                    link = links[min(self.times[path, n], len(links)) - 1]
+                    answer = dict(answer, headers={"link": link % {"at": "https://api.github.com" + path}})
+                return answer
+
+        def whole(github):
+            return seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2]
+        # 1. An item whose kind cannot be read never says the read reached `since` (Astra).
+        kindless = [{"event": None, "actor": PERSON, "created_at": EARLY}]
+        self.assertIs(seen_._tail(Pages({path: [old, old, kindless, close]}), path, SINCE)[1], False)
+        self.assertIs(seen_._tail(Pages({path: [old, old, old, close]}), path, SINCE)[1], True)
+        # 2. One page that names a last page by a number that cannot be read is short (Astra).
+        self.assertIs(whole(Linked({path: [close]}, {1: '<%(at)s&page=x>; rel="last"'})), False)
+        self.assertIs(whole(Linked({path: [close]}, {1: ''})), True)
+        # 3. A page read back that names no next one, though a later page was read, is short (Astra).
+        self.assertIs(whole(Linked({path: [old, new, new, close]}, {3: '<%(at)s&page=4>; rel="last"'})), False)
+        self.assertIs(whole(Linked({path: [old, new, new, close]}, {3: '<%(at)s&page=4>; rel="next"'})), True)
+        self.assertIs(whole(Pages({path: [old, new, new, close]}, LEFT_ANSWERS)), True)
+        # 4. An id read again as a truth value is not the number it was (Astra).
+        self.assertIs(whole(Pages({path: [old] * 3 + [close]}, LEFT_ANSWERS, again={4: ([dict(close[0], id=True)], False)})),
+                      False)
+        # 5. A first page past `since` before a later page from before it is out of order: short (Astra).
+        self.assertIs(whole(Pages({path: [new, old, old, close]}, LEFT_ANSWERS)), False)
+        self.assertIs(whole(Pages({path: [old, old, old, close]}, LEFT_ANSWERS)), True)
+        # 6. A first page that names a next one and a last page before the second is short (Carbon).
+        named = '<%(at)s&page=2>; rel="next", <%(at)s&page={}>; rel="last"'
+        self.assertIs(whole(Linked({path: [old + close]}, {1: named.format(0), 0: ''})), False)
+        self.assertIs(whole(Linked({path: [old + close]}, {1: (named.format(1), '')})), False)
+
     def test_an_event_that_lands_while_the_end_is_read_leaves_it_short(self):  # issue 1009, the Builder's ruling
         # An event that lands while the pages are read back moves the pages: one read could fall between them. So the
         # last page is read again at the end, and one whose items or number changed leaves the read not whole.
