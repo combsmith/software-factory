@@ -7,6 +7,7 @@ AT_ONCE = ("tests.test_controller.Entry.test_the_open_pull_requests_are_read_fou
 RATE = ("tests.test_controller.Entry.test_a_rate_limit_is_a_429_or_a_403_with_no_request_left_or_a_time_to_wait",)
 STAGED = ("tests.test_controller.Entry.test_each_stage_of_a_pass_is_timed_in_the_log_alone_and_times_no_read_differently",)
 
+LEFT_OUT = ("tests.test_controller.Entry.test_a_pull_request_left_out_and_closed_before_the_next_pass_is_read_as_left",)
 F849_BUDGET = ("tests.test_controller.Entry.test_the_issue_reads_stop_at_the_passs_budget_and_those_left_out_by_it_are_read_first_by_the_next",)
 TARGETS = ("controller/__main__.py",)
 MUTANTS = [
@@ -173,6 +174,17 @@ MUTANTS = [
     ("a pull request that left is read once", 'controller/__main__.py', '\n                         + [(n, seen_.GONE) for n in sorted(gone)]', '', ("tests.test_controller.Entry.test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it",)),
     ("an owed pull request that left is read as newly left", 'controller/__main__.py',
      '(set(reconcile.owed(before)) - set(numbers) - held)', '(set(reconcile.owed(before)) - set(numbers))', ("tests.test_controller.Entry.test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it",)),
+    # Issue 1194: a pull request the last pass left out, and no longer open, has left, as one it decided.
+    ("a pull request left out is not read as left", 'controller/__main__.py',
+     ' | left_out) - set(numbers))', ') - set(numbers))', LEFT_OUT),
+    ("an issue left out is read as a pull request that left", 'controller/__main__.py',
+     ' and e["item"].get("type") == "pull_request"}', '}', LEFT_OUT),
+    ("one left out and listed open is read as left", 'controller/__main__.py',
+     '(({e["facts"]["item"]["number"] for e in last} | left_out) - set(numbers))',
+     '(({e["facts"]["item"]["number"] for e in last} - set(numbers)) | left_out)', LEFT_OUT),
+    ("an entry left out that names no item is read", 'controller/__main__.py',
+     '                if isinstance(e.get("item"), dict) and e["item"].get("type") == "pull_request"}',
+     '                if e["item"].get("type") == "pull_request"}', LEFT_OUT),
     ("the entry stamps none that left", 'controller/__main__.py', 'return seen_.seen(parts, since, told), unread, sorted(newly)',
      'return seen_.seen(parts, since, told), unread, []', ("tests.test_controller.Entry.test_the_entry_gathers_what_reconciliation_reads",)),
     # Issue 757: the run record says whether a Run's Engine step started, from the outcome apply writes.
