@@ -48,7 +48,7 @@ def _opened(transport, repo: str, branch: str, opener):
         return None
     mine = [r for r in rows if (r["user"].get("id"), r["user"].get("type")) == tuple(opener)
             and r["head"].get("ref") == branch]
-    if any((r["head"].get("repo") or {}).get("full_name") != repo for r in mine):
+    if any(not isinstance(r["head"].get("repo"), dict) or r["head"]["repo"].get("full_name") != repo for r in mine):
         return None
     if not mine and rows or len(mine) > 1:
         return None

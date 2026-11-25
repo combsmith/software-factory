@@ -6608,7 +6608,7 @@ class Branches(unittest.TestCase):
         return {"number": 100 + k, "user": {"id": by[0], "type": by[1], "login": "x"},
                 "head": {"ref": "factory-work/issue-%d-%d" % (number, k), "repo": {"full_name": "o/r"}}}
 
-    def head(self, answers: dict, opener=OPENER) -> tuple:
+    def head(self, answers: dict, opener=OPENER, number: int = 41) -> tuple:
         asked = []
 
         class Answers:
@@ -6618,7 +6618,7 @@ class Branches(unittest.TestCase):
                     raise github.Unanswered("not in the table")
                 status, body, headers = answers[req["path"]]
                 return {"status": status, "headers": headers, "body": body}
-        return branches.work_head(Answers(), "o/r", 41, opener), asked
+        return branches.work_head(Answers(), "o/r", number, opener), asked
 
     def branch(self, k: int, sha=SHA) -> tuple:
         return 200, {"ref": "refs/heads/factory-work/issue-41-%d" % k, "object": {"type": "commit", "sha": sha}}, {}
@@ -6638,14 +6638,17 @@ class Branches(unittest.TestCase):
         # than the one asked of, cannot be told the Factory's or not: not told. Nor can the opener's from another repo.
         stray = dict(self.opened(1), head={"ref": "factory-work/issue-41-9", "repo": {"full_name": "o/r"}})
         forked = dict(self.opened(1), head={"ref": "factory-work/issue-41-1", "repo": {"full_name": "p/r"}})
+        flat = dict(self.opened(1), head={"ref": "factory-work/issue-41-1", "repo": "o/r"})
         # Each half of the opener's account is read: the same id of another type, or another Bot, is not the opener. Two
         # of the opener's on one branch are no count of one, and a row whose author or branch cannot be read is no row.
         twice = [self.opened(1), dict(self.opened(1), number=108)]
         unread = [self.opened(1), dict(self.opened(1), user={"id": 77})]
-        for rows in ([self.opened(1, by=(5, "User"))], [stray], [forked], [self.opened(1), forked],
+        for rows in ([self.opened(1, by=(5, "User"))], [stray], [forked], [self.opened(1), forked], [flat],
                      [self.opened(1, by=(77, "User"))], [self.opened(1, by=(5, "Bot"))], twice, unread):
             self.assertEqual(self.head({self.pulls(1): (200, rows, {}), self.pulls(2): (200, [], {}),
                                         self.ref(1): self.branch(1), self.ref(2): self.branch(2)})[0], (None, False), rows)
+        # A branch name not of the Kernel's shape, as for issue 0, is not told, and its ref is not asked.
+        self.assertEqual(self.head({self.pulls(1, 0): (200, [], {})}, number=0), ((None, False), [self.pulls(1, 0)]))
         # Not told, and never read as no branch: no opener, or one untold, asks nothing.
         for opener in (None, acceptance.UNTOLD):
             self.assertEqual(self.head({}, opener=opener), ((None, False), []), opener)
