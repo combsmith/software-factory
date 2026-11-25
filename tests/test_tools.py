@@ -16162,7 +16162,13 @@ class BranchReadsTrial(IssueLookupTrial):
     # The stand-in answers the list by the branch its head filter names and the ref by its path, each by that branch's
     # issue, as the docstring says; the control token, narrowed to pull_requests alone, is answered 404 on a ref unless
     # a file beside it says the repo is public.
-    CURL = IssueLookupTrial.CURL.replace('elif "/issues/" in url:', """elif "/pulls?" in url or "/git/ref/heads/" in url:
+    CURL = IssueLookupTrial.CURL.replace('if url.endswith("/access_tokens"):\n', """if url.endswith("/access_tokens") and os.path.exists(os.path.join(here, "mint.slow")):
+    told, held = (int(n) for n in open(os.path.join(here, "mint.slow")).read().split())
+    os.write(told, b"m")
+    os.read(held, 1)
+    sys.exit(28)
+if url.endswith("/access_tokens"):
+""", 1).replace('elif "/issues/" in url:', """elif "/pulls?" in url or "/git/ref/heads/" in url:
     if os.path.exists(os.path.join(here, "read.broke")):
         sys.stdout.write("HTTP/2 200\\r\\n\\r\\n{")
         sys.exit(18)
@@ -16252,7 +16258,10 @@ elif "/issues/" in url:""", 1)
                                  + [(alone, "bare", self.BRANCHES[3], self.BRANCHES[3].split("/")[-1], control)])
                 self.assertEqual([a for a in asked if "call" not in a], [{"revoked": both, "status": 204},
                                                                          {"revoked": alone, "status": 204}])
-                self.assertIn('"type": "Bot"', texts["clean-1"])
+                self.assertTrue(all(a["call"] == "GET " + url.split("https://api.github.com", 1)[1]
+                                    for a, url in zip([a for a in asked if "call" in a], reads)), asked)
+                for kept in ('"type": "Bot"', '"id": 9', '"full_name": "%s"' % self.CANARY, '"ref": "%s"' % self.BRANCHES[0]):
+                    self.assertIn(kept, texts["clean-1"])
                 self.assertIn('link: <https://api.github.com/x?page=1>; rel="first"', texts["clean-1"])
                 # A merge is told from a close by its time, kept as it came: the merged branch's list holds one.
                 self.assertIn('"merged_at": null', texts["clean-3"])
@@ -16260,6 +16269,44 @@ elif "/issues/" in url:""", 1)
                 self.assertIn('"sha": "%s"' % self.SHA, texts["clean-2"])
                 self.assertNotIn("gh" + "s_", "".join(texts.values()) + ran.stdout + ran.stderr)
                 self.assertTrue(all(texts["redacted-%d" % n].strip() for n in range(1, 12)))
+
+    def test_a_later_attempts_branch_is_taken_and_read(self):
+        # A work branch past an issue's first attempt is one the port reads too: its count of two digits is taken.
+        ran = self.run_script(*(self.GIVEN[:-1] + ("factory-work/issue-8005-12",)))
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        self.assertEqual(sum("issue-8005-12" in c["url"] for c in self.calls()), 2)
+
+    def test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live(self):
+        # Stopped while the mint is asked, the answer never comes back, and GitHub may have minted a token all the same.
+        told_r, told_w = os.pipe()
+        held_r, held_w = os.pipe()
+        (self.stand_in / "mint.slow").write_text("%d %d\n" % (told_w, held_r))
+        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C"}
+        running = subprocess.Popen([SIGNAL_SHELL, str(self.SCRIPT), str(self.out), str(self.key), *self.GIVEN],
+                                   cwd=SCRATCH.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                                   pass_fds=(told_w, held_r))
+        os.close(told_w)
+        os.close(held_r)
+        try:
+            begun = os.read(told_r, 1)
+            running.terminate()
+        finally:
+            os.close(told_r)
+            os.close(held_w)
+        out, err = running.communicate(timeout=60)
+        self.assertEqual(begun, b"m", err)
+        self.assertNotEqual(running.returncode, 0)
+        self.assertIn("stopped while a token was being minted", err)
+        self.assertNotIn("DELETE", [c["method"] for c in self.calls()])
+
+    def test_an_inherited_mint_answer_is_never_revoked(self):
+        # A token-shaped answer in the environment is no mint of this run's: a refusal sends nothing at all.
+        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
+               "minted": '{"token": "%s"}' % self.TOKEN, "token": self.TOKEN}
+        ran = subprocess.run(["sh", str(self.SCRIPT), str(self.out), str(self.key), self.CANARY, "main"] + list(self.BRANCHES[1:]),
+                             cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=60)
+        self.assertEqual(ran.returncode, 2, ran.stderr)
+        self.assertEqual(self.calls(), [])
 
     def test_a_read_the_second_token_makes_that_fails_stops_the_run_and_its_token_is_revoked(self):
         # The control token's one read broken: the first token was revoked already, the second is revoked as the run

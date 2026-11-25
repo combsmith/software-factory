@@ -24,32 +24,15 @@
 # trial's page states it as a limit, and the port takes the unfavourable answer, that the head filter lists such a pull
 # request: a branch from a fork is never the Factory's, and leaves the branch not told (adapters/branches.py).
 #
-# The pass condition, written before the run (docs/architecture/trials/P-80.md holds it whole):
-#   pass: under a token for the Controller's installation narrowed to contents: read and pull_requests: read, on REPO
-#   alone, the list of each of OPEN, CLOSED and MERGED is 200 with exactly one pull request: its head.ref the branch,
-#   its head.repo.full_name REPO, its user.id the trial-author App's bot account's whole number and its user.type Bot,
-#   in the state it was left in, and no link header naming a next page; the list of BARE and of NEVER is 200 and empty;
-#   the ref of OPEN and of BARE is 200, its ref refs/heads/ and the branch, its object of type commit with a whole sha;
-#   the ref of MERGED and of NEVER is 404.
-#   fail otherwise.
-#   Recorded, deciding nothing: CLOSED's ref, which the port never reads; and what a token narrowed to
-#   pull_requests: read alone is answered for BARE's ref. REPO is public, so a grant it lacks may not show there
-#   (decision 0068); a private repo is not asked here.
+# The pass condition, written before the run, is the trial's page, docs/architecture/trials/P-80.md: each list and ref
+# answered as the port needs it, or the port miscounts the Factory's pull requests or misreads a branch as absent.
 #
-# Twice: once with a token narrowed to contents: read and pull_requests: read, which makes every branch's two reads,
-# the list then the ref, in the order above; and once with one narrowed to pull_requests: read, which reads BARE's ref
-# alone. Each time: sign a JWT with the key; mint a token for the Controller's installation that P-39 found
-# (trials/P-39.grants.json), on REPO alone; make the reads; and revoke the token, recording the revocation's status.
-# Each read is sent as the port sends it: the list's query built by urllib.parse.urlencode, the ref's path with the
-# branch as it is. A token or a JWT is held in a shell variable only, reaches curl on its standard input, and is never
-# printed, logged or written to a file. Each response is captured in a scratch directory outside the repo, redacted
-# there by tools/redact_trial.py, and deleted; OUT receives only the redacted response (clean-N), what was asked
-# (requests.json, each read with the branch it was of) and when the run started (ran_at). A read GitHub refuses is kept
-# with its status. A session then builds the fixture from OUT alone.
-#
-# A mint that curl fails or GitHub refuses, or a revocation that does not return 204, stops the script with a
-# non-zero exit; a refused mint shows its status and GitHub's answer, redacted, and a token that may be live is told
-# to the Maintainer.
+# Two tokens for the Controller's installation that P-39 found, each on REPO alone, each minted, used and revoked in
+# turn: one narrowed to contents and pull_requests reads each branch's list, then its ref, as the port sends them; one
+# narrowed to pull_requests reads BARE's ref. A token or JWT lives in a shell variable only and reaches curl on its
+# standard input. Each answer is redacted by tools/redact_trial.py in a scratch directory outside the repo; OUT gets
+# only the clean answers (clean-N), what was asked (requests.json) and when the run began (ran_at). A refused mint, a
+# failed read or a revocation not answered 204 stops the run, and a token that may be live is told to the Maintainer.
 set -eu
 set +x
 
@@ -123,6 +106,9 @@ case "$scratch/" in "$root"/*)
     echo "trial_p80_branch_reads: the scratch directory $scratch is inside the repo; set TMPDIR outside it" >&2
     exit 2 ;;
 esac
+# No credential's name is taken from the environment: one exported there would reach every child, and a mint answer
+# inherited would be revoked by the exit trap though this run never minted it.
+unset token jwt minted minting
 token=""
 
 revoke() {
