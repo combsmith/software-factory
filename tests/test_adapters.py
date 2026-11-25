@@ -6967,7 +6967,7 @@ class Branches(unittest.TestCase):
                            (listed(r1, ids={}), {}), (listed(r1, ids={"r_A1": [1, 2]}), {}),
                            (listed(r1), {"r_A1": (None, False)}), (listed(r1), {"r_A1": "unanswered"}),
                            (listed(r1), {"r_A1": (record("r_A1", self.SHA[:7]), True)}),
-                           (listed(r1), {"r_A1": (record("r_A1", self.SHA + "x"), True)}),
+                           (listed(r1), {"r_A1": (record("r_A1", self.SHA + "0"), True)}),
                            (listed(r1), {"r_A1": (record("r_A1", "g" * 40), True)}),
                            (listed(r1, r2), {"r_A1": (record("r_A1", self.SHA), True), "r_A2": (None, False)}),
                            (listed(r1, r2), {"r_A1": (record("r_A1", self.SHA), True), "r_A2": "unanswered"}),
