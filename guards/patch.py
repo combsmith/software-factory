@@ -453,22 +453,24 @@ def _placed(path: str, tree: dict, folders: dict) -> bool:
 
 def _handed(tree, contents) -> bool:
     """Whether `tree` and `contents` are in a shape a port gives. A tree is a mapping of paths, as text, to the modes
-    git writes of what is no directory; no path of it has an empty part, a `.` or `..` part or a NUL, which git holds
-    in no tree, as each would name another path or none, or more
-    parts than `DEEPEST` has characters, as no name this reads has; and none is a directory to another. Contents are a
-    mapping of paths, as text, to bytes. Each is of its type exactly: a subclass of `dict`, `str` or `bytes` would be
-    read by its own methods."""
+    git writes of what is no directory. No path of it has more parts than `DEEPEST` has characters, as no name this
+    reads has; nor an empty part, a `.` or `..` part or a NUL, which git holds in no tree; and none is a directory to
+    another. Contents are a mapping of paths the tree holds to bytes. Each is of its type exactly: a subclass of
+    `dict`, `str` or `bytes` would be read by its own methods. Each pair is read as it stands, and no key is looked up
+    until every key is known to be plain text, since a lookup compares keys."""
     if type(tree) is not dict or type(contents) is not dict:
         return False
-    if not all(type(path) is str and type(tree[path]) is str and tree[path] in TREE_MODES for path in tree):
+    if not all(type(path) is str and type(mode) is str and mode in TREE_MODES for path, mode in tree.items()):
+        return False
+    # A bound on depth, asked before a path is split, bounds what is built of each path here and in `_above`.
+    if not all(path.count("/") < len(DEEPEST) for path in tree):
         return False
     if not all(all(part not in ("", ".", "..") for part in path.split("/")) and str(NUL, "ascii") not in path
                for path in tree):
         return False
-    # A bound on depth bounds what `_above` builds of each path below.
-    if not all(path.count("/") < len(DEEPEST) for path in tree):
+    if not all(type(path) is str and type(said) is bytes for path, said in contents.items()):
         return False
-    if not all(type(path) is str and type(contents[path]) is bytes for path in contents):
+    if not all(path in tree for path in contents):
         return False
     return not any(part in tree for path in tree for part in _above(path))
 
@@ -484,6 +486,10 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
     sections = read(patch)
     if sections is None:
         return None, UNREADABLE
+    # A file the patch reads, of the tree, whose bytes were not handed over is the Factory's, whatever else is wrong
+    # with the patch, and in whatever order its sections stand.
+    if any(s["kind"] != "new" and tree.get(s["old"]) in FILE_MODES and s["old"] not in contents for s in sections):
+        return None, TREE_UNREAD
     written, removed, taken, copied = {}, [], {}, {}
     for section in sections:
         kind, old, new = section["kind"], section["old"], section["new"]
@@ -495,13 +501,12 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
             if new in tree:
                 return None, NOT_APPLIED
         else:
-            before, mode = contents.get(old), tree.get(old)
+            mode = tree.get(old)
             if mode is None:
                 return None, NOT_APPLIED
             if mode not in FILE_MODES:
                 return None, NOT_A_FILE
-            if type(before) is not bytes:
-                return None, TREE_UNREAD
+            before = contents[old]
             if section["old_mode"] not in (None, mode) or section["index_mode"] not in (None, mode):
                 return None, NOT_APPLIED
             if kind in ("rename", "copy") and new in tree:
