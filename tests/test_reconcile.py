@@ -851,6 +851,43 @@ class GitHub:
         return {"status": 200, "headers": {}, "body": copy.deepcopy(found)}
 
 
+class Pages(GitHub):
+    """A stand-in GitHub that gives each list in `lists` page by page, as GitHub links them (trials/P-43.json): each
+    page names the next and the last, or no last where `last` is false. `again` gives a page's items, and whether it
+    then names a next one, when it is asked a second time, as after an event landed."""
+
+    def __init__(self, lists, over=None, last=True, again=None, first_more=()):
+        super().__init__(over)
+        self.lists, self.last, self.again, self.times = lists, last, dict(again or {}), {}
+        self.first_more = set(first_more)
+
+    def send(self, req):
+        base, _, page = req["path"].partition("&page=")
+        if base not in self.lists:
+            return super().send(req)
+        self.asked.append((req["method"], req["path"]))
+        pages, n = self.lists[base], int(page or 1)
+        self.times[base, n] = self.times.get((base, n), 0) + 1
+        items, more = (pages[n - 1] if n <= len(pages) else []), n < len(pages)
+        if self.times[base, n] > 1 and n in self.again:
+            items, more = self.again[n]
+        if self.times[base, n] == 1 and n in self.first_more:
+            more = True
+        link = ['<https://api.github.com%s&page=%d>; rel="next"' % (base, n + 1)] if more else []
+        if self.last and len(pages) > 1:
+            link.append('<https://api.github.com%s&page=%d>; rel="last"' % (base, len(pages)))
+        return {"status": 200, "headers": {"link": ", ".join(link)}, "body": copy.deepcopy(items)}
+
+
+# What an item that left answers beyond its timeline: no reviews, threads or check runs.
+LEFT_ANSWERS = {("GET", PULL + "/reviews?per_page=100"): [],
+                ("POST", "/graphql"): {"data": {"repository": {"pullRequest": {"reviewThreads": {
+                    "totalCount": 0, "pageInfo": {"hasNextPage": False}, "nodes": []}}}}},
+                ("GET", PULL): {"head": {"sha": "c0ffee" + "0" * 34}},
+                ("GET", "/repos/%s/commits/%s/check-runs?per_page=100" % (ITEM["repo"], "c0ffee" + "0" * 34)): {
+                    "total_count": 0, "check_runs": []}}
+
+
 def check_run(app, ident, at=AT) -> dict:
     """A check run's node as the facts port's checks read keeps it."""
     return {"__typename": "CheckRun", "id": ident, "startedAt": at, "checkSuite": {"app": {"databaseId": app}}}
@@ -868,6 +905,42 @@ def port(parts=NOTHING, over=None, item=ITEM) -> tuple:
 
 
 class SeenPort(unittest.TestCase):
+    def test_a_list_is_read_to_ten_pages_and_past_them_what_was_seen_is_short(self):  # issue 1009, decision 0234
+        # The comments, which GitHub gives as updated from `since` on, are read to ten pages: ten that end there are
+        # whole; a tenth that names an eleventh is not, and the eleventh is never asked.
+        for last, whole in ((10, True), (11, False)):
+            github = Pages({COMMENTS[1]: [[] for _ in range(last)]})
+            self.assertIs(seen_.read(github, ITEM, kept(), IDENTITIES, APPS, SINCE)[2], whole, last)
+            self.assertEqual(len([path for _, path in github.asked if "/comments?" in path]), 10, last)
+        # The reviews of an item that left, which GitHub lists in the order they were started, are read forward so too.
+        close = [{"event": "closed", "actor": CONTROLLER, "created_at": AT, "id": 9}]
+        reviews = PULL + "/reviews?per_page=100"
+        for count, whole in ((10, True), (11, False)):
+            answers = {k: v for k, v in LEFT_ANSWERS.items() if k != ("GET", reviews)}
+            github = Pages({ISSUE + "/timeline?per_page=100": [close], reviews: [[] for _ in range(count)]}, answers)
+            self.assertIs(seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], whole, count)
+            self.assertEqual(len([path for _, path in github.asked if "/reviews?" in path]), 10, count)
+        # So are the timelines the port reads itself: an issue's, and that of a pull request that left, whose close is
+        # on its last page (Muse).
+        events = ISSUE + "/timeline?per_page=100"
+        for count, whole in ((10, True), (11, False)):
+            github = Pages({events: [[] for _ in range(count)]})
+            self.assertIs(seen_.read(github, dict(ITEM, type="issue"), None, IDENTITIES, APPS, SINCE)[2], whole, count)
+            self.assertEqual(len([path for _, path in github.asked if "/timeline?" in path]), 10, count)
+            github = Pages({events: [[] for _ in range(count - 1)] + [close]}, LEFT_ANSWERS)
+            self.assertIs(seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], whole, count)
+            self.assertEqual(len([path for _, path in github.asked if "/timeline?" in path]), 10, count)
+
+    def test_what_a_later_page_holds_is_seen_and_a_cut_snapshot_is_short(self):  # issue 1009, decision 0234 (Astra)
+        # A write on the second page, past a first of a hundred, is seen.
+        other = {"id": 77, "type": "User", "login": "someone"}
+        first = [{"user": other, "node_id": "IC_%d" % n, "created_at": AT} for n in range(100)]
+        github = Pages({COMMENTS[1]: [first, [{"user": CONTROLLER, "node_id": "IC_c", "created_at": AT}]]})
+        writes, _, whole = seen_.read(github, ITEM, kept(), IDENTITIES, APPS, SINCE)
+        self.assertEqual(([(w["by"], w["kind"]) for w in writes], whole), ([("controller", "comment")], True))
+        # Reviews the snapshot cut at their bound leave what was seen of the pull request short.
+        self.assertIs(port(kept(reviews=([], False)))[2], False)
+
     def test_each_identitys_writes_are_read_by_its_account_never_its_login(self):  # ruling 2
         reviews = [{"user": APPROVER, "state": "APPROVED", "node_id": "PRR_a", "submitted_at": AT},
                    {"user": APPROVER, "state": "COMMENTED", "node_id": "PRR_b", "submitted_at": AT},

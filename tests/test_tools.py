@@ -2617,6 +2617,30 @@ class Purity(unittest.TestCase):
             found = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": "async def f(facts):\n" + body}))
             self.assertTrue(caught(found, "x.py:2 %s" % does), (does, found))
 
+    def test_the_kernel_writes_no_function_into_text(self):  # issue 1137
+        # A function's text is its address in memory, which a replay in another process gives otherwise. A good-faith
+        # mark (decision 0215's limit row): a function the Kernel defines or imports, or a lambda, written by `str`, an
+        # f-string or `%`, is refused; one reached through another name is for review.
+        terms = "from __future__ import annotations\n\n\ndef g(x):\n    return x\n"
+        head = ("from __future__ import annotations\n\nfrom kernel import terms\nfrom kernel.terms import g\n\n\n"
+                "def f(x):\n    return x\n\n\ndef h(x):\n")
+        run = lambda body: check_purity.run(planted({"kernel/terms.py": terms, "kernel/x.py": head + body}))
+        for body in ("    return str(f)\n", "    return str(object=f)\n", "    return f'{f}'\n", "    return f'{f!r:>9}'\n",
+                     "    return '%s' % f\n", "    return '%s %s' % (x, f)\n", "    return '%(a)s' % {'a': f}\n",
+                     "    return str(terms.g)\n", "    return str(g)\n", "    return str(lambda: x)\n",
+                     "    return str(f if x else '')\n", "    return str('' if x else f)\n", "    return str(x and f)\n", "    return f'{x or g}'\n", "    return str((k := f))\n", "    s = '%s'\n    s %= f\n    return s\n",
+                     "    def k():\n        return x\n    return f'{k}'\n"):
+            line = 14 if "def k" in body else 13 if "%=" in body else 12
+            self.assertTrue(caught(run(body), "x.py:%d writes a function into text" % line), body)
+            held = check_purity.guards(planted({"guards/__init__.py": "", "guards/codes.py": terms, "guards/x.py": (
+                head + body).replace("kernel", "guards").replace("terms", "codes")}))
+            self.assertTrue(caught(held, "x.py:%d writes a function into text" % line), (body, held))
+        # What a function gives, or any other value, is written as before; `repr`, `format` and a value's own `format`
+        # are refused already, as no builtin or method the Kernel calls.
+        self.assertEqual(run("    return str(x), f'{x}', '%s' % x, str(f(x)), '%s' % (f(x),), f'{g(x)}', str(f(x) if x else '')\n"), [])
+        for body in ("    return repr(f)\n", "    return format(f)\n", "    return '{}'.format(f)\n"):
+            self.assertNotEqual(run(body), [], body)
+
     def test_the_kernel_is_the_package_python_imports_and_reads_nothing_off_a_value(self):  # issue 851
         # What the guards are held to (issue 838) is asked of the Kernel by the same lines. With no __init__.py Python
         # may import a kernel.py at the root in the package's place, which nothing reads.

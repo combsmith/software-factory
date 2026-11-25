@@ -5,8 +5,11 @@ import ast
 import copy
 import datetime
 import json
+import os
 import random
 import re
+import subprocess
+import sys
 import unittest
 
 from kernel import derive
@@ -286,6 +289,39 @@ class Derived(unittest.TestCase):
         go(facts(label_events=[labelled("factory:hold")]))
         self.assertEqual(go(f, runs), first)
         self.assertEqual(json.dumps([f, runs], sort_keys=True), before)
+
+    def test_the_same_inputs_give_the_same_decision_under_another_hash_seed(self):  # issue 1137
+        # A replay runs in another process, under another hash seed, where a set of strings iterates in another order.
+        # So both simulated worlds' fixed seeds are run in four processes, each under a hash seed of its own, and every
+        # call of the Kernel, its inputs' digest and its decision, must be the same, text for text.
+        child = ("import hashlib, json, sys\nimport kernel.issue\nfrom sim import issues, world\nmade = []\n\n\n"
+                 "def kept(decide, world):\n    def call(*args):\n"
+                 "        given = hashlib.sha256(json.dumps(args).encode()).hexdigest()\n        decision = decide(*args)\n"
+                 "        made.append(json.dumps([world, given, decision]))\n        return decision\n    return call\n\n\n"
+                 "world.decide = kept(world.decide, 'pull request')\nkernel.issue.decide = kept(kernel.issue.decide, 'issue')\n"
+                 "for make in (world.World, issues.IssueWorld):\n    for seed in range(1, 21):\n"
+                 "        w = make(seed)\n        for _ in range(250):\n            w.step()\n"
+                 "sys.stdout.write('\\n'.join(made))\n")
+        children = [subprocess.Popen([sys.executable, "-B", "-c", child], cwd=str(ROOT), stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE, text=True,
+                                     env=dict(os.environ, PYTHONHASHSEED=seed, PYTHONPATH=str(ROOT)))
+                    for seed in ("1", "2", "3", "4")]
+        made = []
+        try:
+            for process in children:
+                out, err = process.communicate()
+                self.assertEqual(process.returncode, 0, err[-2000:])
+                made.append(out.split("\n"))
+        finally:
+            for process in children:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate()
+        # Each world's calls are read, the issue's among them.
+        self.assertEqual({json.loads(line)[0] for line in made[0]}, {"pull request", "issue"})
+        for other in made[1:]:
+            apart = next((i for i, (one, two) in enumerate(zip(made[0], other)) if one != two), None)
+            self.assertEqual((len(other), apart), (len(made[0]), None), apart is not None and other[apart][:400])
 
     def test_admission_is_given_facts_and_never_an_event(self):
         code = decide.__code__
@@ -923,6 +959,15 @@ class OnlyAPersonEnds(unittest.TestCase):
             d = go(f, REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("action")),
                              (None, reason, "act", "dequeue"), bounded)
+        # A malformed flag beside reviews read short, the timeline whole, is the deferral the Decision gives, before
+        # hands-off or anything else can act (the Solution Architect, 2026-11-25; Astra).
+        for bounded in (None, "true", 0, 1):
+            f = facts(reviews=APPROVED, label_events=[labelled("factory:hands-off")], timeline_bounded=bounded)
+            f["complete"]["reviews"] = False
+            d = go(f, REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                             (None, "facts_incomplete", ["reviews"], "defer", "none"), bounded)
+            self.assertNotIn("action", d)
         # The other side: read in full, a person's hands-off leaves it where it is, whatever else was read short.
         f = facts(queue=True, reviews=APPROVED, label_events=[labelled("factory:hands-off")])
         f["complete"]["threads"] = False

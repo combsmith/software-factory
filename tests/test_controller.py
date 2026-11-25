@@ -3238,6 +3238,43 @@ class Entry(unittest.TestCase):
                          [("poller", None), ("poller_list", 2), ("poller_artifacts", 1),
                           ("applied", None), ("applied_list", 1), ("applied_artifacts", 2)])
 
+    def test_a_pull_request_left_out_and_closed_before_the_next_pass_is_read_as_left(self):  # issue 1194
+        # The last pass left out 42, its facts unanswered, 43, moved twice, and 46, not facts, and owed none: closed
+        # before this pass, each is read as left and stamped, by its type whatever its code. One still listed is read
+        # open; an issue of a number, or an entry naming no item, is no pull request that left; nor is one an older
+        # record alone left out (Astra, Muse).
+        config = entry.configuration(ROOT, "factory/v0.3.1")
+        home = config["controller"]["home"]["repo"]
+        pull = lambda n: {"repo": home, "type": "pull_request", "number": n}
+        reconciled = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}
+        older = {"pull_requests": [], "left_out": [{"item": pull(41), "code": "facts_unanswered"}], "reconciled": reconciled}
+        before = [older, {"pull_requests": [{"facts": {"item": pull(7)}}],
+                          "left_out": [{"item": pull(42), "code": "facts_unanswered"},
+                                       {"item": pull(43), "code": "pull_moved"},
+                                       {"item": pull(45), "code": "facts_unanswered"},
+                                       {"item": {"repo": home, "type": "issue", "number": 44}, "code": "facts_unanswered"},
+                                       {"item": pull(46), "code": "not_facts"}, {"item": None, "code": "not_facts"}],
+                          "reconciled": reconciled}]
+        spied = []
+
+        def read(transport, item, held, *rest, **told):
+            spied.append((item["type"], item["number"], held))
+            return [], [], True
+        with unittest.mock.patch.object(entry.seen_, "read", read), \
+                unittest.mock.patch.object(entry.seen_, "repo_read", lambda *a: True), \
+                unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)):
+            seen, unread, newly, _, _ = entry.writes_seen(None, config, [7, 45], {}, before, "2026-10-11T06:00:00Z",
+                                                          lambda: self.CLOCK)
+        self.assertEqual([s for s in spied if s[0] == "pull_request"],
+                         [("pull_request", 7, None), ("pull_request", 45, None),
+                          ("pull_request", 42, entry.seen_.LEFT), ("pull_request", 43, entry.seen_.LEFT),
+                          ("pull_request", 46, entry.seen_.LEFT)])
+        self.assertEqual((newly, unread), ([42, 43, 46], []))
+        self.assertIn(("issue", 44, entry.seen_.LEFT), spied)
+        now = "2026-10-12T12:00:00Z"
+        self.assertEqual(entry.reconcile.carried(before, None, seen, now, unread, newly)["left"],
+                         [{"number": n, "at": now} for n in (42, 43, 46)])
+
     def test_only_the_entry_reads_the_clock_or_the_environment(self):
         # Every other module of controller/ is a function of what it is given (the test above it); the entry takes the
         # clock, the environment, the sleep and the transport as arguments, so that a test gives each.

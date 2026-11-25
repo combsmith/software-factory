@@ -325,4 +325,23 @@ MUTANTS = [
      '    if ending:\n', '    if ending and item["type"] == "pull_request":\n', ("tests.test_reconcile.SeenPort.test_an_issue_that_left_is_read_with_its_close",)),
     ("a merge closes an issue that left", 'adapters/seen.py',
      'ends = ("closed", "merged") if item["type"] == "pull_request" else ("closed",)', 'ends = ("closed", "merged")', ("tests.test_reconcile.SeenPort.test_an_issue_that_left_is_read_with_its_close",)),
+    ('the seen port reads the comments past ten pages', 'adapters/seen.py',
+     'timeline._paged(transport, path, timeline.BOUND)', 'timeline._paged(transport, path, None)', ('tests.test_reconcile.SeenPort.test_a_list_is_read_to_ten_pages_and_past_them_what_was_seen_is_short',)),
+    ("the seen port reads the reviews of an item that left past ten pages", 'adapters/seen.py',
+     '"reviews": _pages(transport, "/repos/', '"reviews": timeline._pages(transport, "/repos/',
+     ('tests.test_reconcile.SeenPort.test_a_list_is_read_to_ten_pages_and_past_them_what_was_seen_is_short',)),
+    # Muse on part 3 of 4 of issue 1009: the timelines the seen port reads itself are bounded too.
+    ("the seen port reads the timeline of a pull request that left past ten pages", 'adapters/seen.py',
+     '"events": _pages(transport, issue + "/timeline?per_page=%d" % PAGE),\n                 "reviews": _pages', '"events": timeline._pages(transport, issue + "/timeline?per_page=%d" % PAGE),\n                 "reviews": _pages',
+     ('tests.test_reconcile.SeenPort.test_a_list_is_read_to_ten_pages_and_past_them_what_was_seen_is_short',)),
+    ("the seen port reads an issue's timeline past ten pages", 'adapters/seen.py',
+     '"events": _pages(transport, issue + "/timeline?per_page=%d" % PAGE), "reviews": ([], True),', '"events": timeline._pages(transport, issue + "/timeline?per_page=%d" % PAGE), "reviews": ([], True),',
+     ('tests.test_reconcile.SeenPort.test_a_list_is_read_to_ten_pages_and_past_them_what_was_seen_is_short',)),
+    # Astra on part 3 of 4 of issue 1009: what a later page holds is seen, and a cut snapshot is short.
+    ("the seen port drops what a page past the first holds", 'adapters/seen.py',
+     '        return items, whole\n    except', '        return items[:PAGE], whole\n    except',
+     ('tests.test_reconcile.SeenPort.test_what_a_later_page_holds_is_seen_and_a_cut_snapshot_is_short',)),
+    ("a reviews list the snapshot cut is seen whole", 'adapters/seen.py',
+     'isinstance(got[0], list) and got[1] is True\n', 'isinstance(got[0], list) and (got[1] is True or name == "reviews")\n',
+     ('tests.test_reconcile.SeenPort.test_what_a_later_page_holds_is_seen_and_a_cut_snapshot_is_short',)),
 ]
