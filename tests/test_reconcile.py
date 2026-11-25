@@ -1061,7 +1061,7 @@ class SeenPort(unittest.TestCase):
         self.assertEqual((whole, [w["kind"] for w in writes]), (True, ["close"]))
         # A review submitted before `since` reaches it, by its submitted_at alone (Carbon).
         sent = [{"event": "reviewed", "user": PERSON, "created_at": AT, "submitted_at": EARLY, "id": 4}]
-        self.assertIs(left(Pages({path: [new] * 23 + [sent] + [new] * 5 + [close]}, LEFT_ANSWERS))[2], True)
+        self.assertIs(left(Pages({path: [old] * 23 + [sent] + [new] * 5 + [close]}, LEFT_ANSWERS))[2], True)
         # One page that names a last page it does not lead to is short; one page alone is kept by kind and id, and an
         # id that cannot be a key on it is short too (Astra).
         one = Pages({path: [close + close]}, LEFT_ANSWERS)
@@ -1125,8 +1125,8 @@ class SeenPort(unittest.TestCase):
             return seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2]
         # 1. An item whose kind cannot be read never says the read reached `since` (Astra).
         kindless = [{"event": None, "actor": PERSON, "created_at": EARLY}]
-        self.assertIs(seen_._tail(Pages({path: [old, old, kindless, close]}), path, SINCE)[1], False)
-        self.assertIs(seen_._tail(Pages({path: [old, old, old, close]}), path, SINCE)[1], True)
+        self.assertIs(seen_._tail(Pages({path: [old] + [new] * 12 + [kindless, close]}), path, SINCE)[1], False)
+        self.assertIs(seen_._tail(Pages({path: [old] + [new] * 12 + [old, close]}), path, SINCE)[1], True)
         # 2. One page that names a last page by a number that cannot be read is short (Astra).
         self.assertIs(whole(Linked({path: [close]}, {1: '<%(at)s&page=x>; rel="last"'})), False)
         self.assertIs(whole(Linked({path: [close]}, {1: ''})), True)
@@ -1139,6 +1139,7 @@ class SeenPort(unittest.TestCase):
                       False)
         # 5. A first page past `since` before a later page from before it is out of order: short (Astra).
         self.assertIs(whole(Pages({path: [new, old, old, close]}, LEFT_ANSWERS)), False)
+        self.assertIs(whole(Pages({path: [[dict(new[0], created_at=SINCE)], old, old, close]}, LEFT_ANSWERS)), False)
         self.assertIs(whole(Pages({path: [old, old, old, close]}, LEFT_ANSWERS)), True)
         # 6. A first page that names a next one and a last page before the second is short (Carbon).
         named = '<%(at)s&page=2>; rel="next", <%(at)s&page={}>; rel="last"'

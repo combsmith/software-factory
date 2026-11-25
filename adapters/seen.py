@@ -76,6 +76,7 @@ ACTIVITY = {"push": "push", "force_push": "force_push", "branch_creation": "bran
 ENDED = (404, 410)
 # The last page a list's link header names, as trials/P-43.json recorded one: `<...&page=12>; rel="last"`.
 LAST = re.compile(r'<[^>]*[?&]page=([0-9]+)[^>]*>;\s*rel="last"')
+NAMES_LAST = re.compile(r'rel="last"')  # a link header that names a last page, whether its number can be read or not
 
 
 def _pages(transport, path: str) -> tuple:
@@ -98,22 +99,29 @@ def _page(transport, path: str, page: int) -> tuple:
     return answer["body"], str((answer.get("headers") or {}).get("link", ""))
 
 
-def _before(items: list, since: str) -> bool:
-    """Whether a page holds an item from before `since`, by its `created_at` or `submitted_at`: only a moment that can
-    be read counts, so one that cannot never says the read reached `since` (Astra)."""
+def _moments(items: list) -> list:
+    """The moments a page's items can be read at, by their `created_at` or `submitted_at`: only an item whose kind
+    and moment can be read has one, so one that cannot never says where the read is (Astra, issue 1206)."""
+    out = []
     for item in items:
         one = _object(item)
         at = one.get("submitted_at") if one.get("event") == "reviewed" else one.get("created_at")
-        if isinstance(at, str) and AT.fullmatch(at) and at < since:
-            return True
-    return False
+        if isinstance(one.get("event"), str) and isinstance(at, str) and AT.fullmatch(at):
+            out.append(at)
+    return out
+
+
+def _before(items: list, since: str) -> bool:
+    """Whether a page holds an item from before `since`."""
+    return any(at < since for at in _moments(items))
 
 
 def _mark(item):
     """What tells one item of a list from another while it is read: its kind, its ids, a commit's sha, and its time."""
     one = _object(item)
-    return (one.get("event"), one.get("id"), one.get("node_id"), one.get("sha"), one.get("created_at"),
-            one.get("submitted_at"))
+    # Each with its type, so that an id read again as a truth value is not the number it was (Astra, issue 1206).
+    return tuple((type(v), v) for v in (one.get("event"), one.get("id"), one.get("node_id"), one.get("sha"),
+                                         one.get("created_at"), one.get("submitted_at")))
 
 
 def _tail(transport, path: str, since: str, ends=()) -> tuple:
@@ -132,24 +140,30 @@ def _tail(transport, path: str, since: str, ends=()) -> tuple:
         items, link = _page(transport, path, 1)
         last = LAST.search(link)
         if not timeline.NEXT.search(link):
-            # One page: whole, unless it names a last page it does not lead to (Astra).
-            found, joined, reached, steady = [], True, False, last is None
-        elif last is None:
+            # One page: whole, unless it names a last page it does not lead to, by a number or not (Astra).
+            found, joined, reached, steady = [], True, False, not NAMES_LAST.search(link)
+        elif last is None or int(last.group(1)) < 2:
+            # A next page with no last, or a last before the second, cannot be read from its end (Carbon, issue 1206).
             return [], False
         else:
             end = int(last.group(1))
             tail, end_link = _page(transport, path, end)
-            found, page, reached = [tail], end, _before(tail, since)
+            found, page, reached, links = [tail], end, _before(tail, since), []
             while not (reached and _ended(found, ends)) and page > 2 and len(found) < timeline.BOUND - 3:
                 page -= 1
-                got, _ = _page(transport, path, page)
+                got, got_link = _page(transport, path, page)
                 found.insert(0, got)
+                links.append(got_link)
                 reached = reached or _before(got, since)
             joined = page == 2
             again, again_link = _page(transport, path, end)
             # An empty page before the end is no page GitHub would give (Astra), the first among them (Muse).
             steady = (bool(items) and all(found) and [_mark(i) for i in again] == [_mark(i) for i in tail]
                       and not timeline.NEXT.search(again_link) and not timeline.NEXT.search(end_link))
+            # A page read back names the next, as the pages after it were read; a first page left out holds nothing
+            # from `since` on, as a later page from before it was read: else the answers contradict (Astra, issue 1206).
+            steady = steady and all(timeline.NEXT.search(got) for got in links)
+            steady = steady and (joined or not any(at >= since for at in _moments(items)))
             if joined:
                 first, first_link = _page(transport, path, 1)
                 steady = steady and first_link == link and [_mark(i) for i in first] == [_mark(i) for i in items]
