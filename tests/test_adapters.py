@@ -4751,11 +4751,12 @@ class Snapshot(unittest.TestCase):
         paged(seq, 5, "/repos/%s/issues/26/timeline?per_page=100" % canary())
         seq[6]["response"]["body"] = {"message": "not a list"}
         del seq[7:15]
-        router = Router(github.Replay(seq), {"don-petry": "admin"}, {dismissed["commit_id"]: "diff --git a/x b/x\n"})
+        router, kept = Router(github.Replay(seq), {"don-petry": "admin"}, {dismissed["commit_id"]: "diff --git a/x b/x\n"}), {}
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
-                                lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
+                                lambda: self.NOW, kept, recorded=NOTHING, opened=NOT_OPENED)
         self.assertEqual((got["complete"]["timeline"], got["complete"]["reviews"], got["timeline_bounded"], got["reviews"]),
                          (False, False, False, []))     # its diff readable, it is the dismissal that leaves it out (Carbon)
+        self.assertEqual(kept["cut"], {"events": False, "reviews": False})   # reviews short are not cut (Carbon)
         # A timeline read short within the bound, a page that is no list, is not cut: it defers as any read short.
         seq = self.sequence(1)
         paged(seq, 5, "/repos/%s/issues/26/timeline?per_page=100" % canary())

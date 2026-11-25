@@ -240,4 +240,6 @@ MUTANTS = [
      'raw["cut"] = {"events": timeline_cut, "reviews": reviews_cut}', 'raw["cut"] = {"events": timeline_cut, "reviews": False}', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
     ("a snapshot's own cut flag is its acceptance read's", 'adapters/facts.py',
      '"timeline_bounded": timeline_cut or reviews_cut,', '"timeline_bounded": contract_cut,', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut',)),
+    ("a reviews list read short is kept as cut", 'adapters/facts.py',
+     'raw["cut"] = {"events": timeline_cut, "reviews": reviews_cut}', 'raw["cut"] = {"events": timeline_cut, "reviews": not reviews_whole}', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
 ]
