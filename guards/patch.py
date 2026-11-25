@@ -387,7 +387,7 @@ def content(old: bytes, hunks: list):
     if type(old) is not bytes:
         return None
     held = old.split(b"\n") if old else []
-    bare = bool(held) and held[-1] != b""
+    bare = bool(old) and not old.endswith(b"\n")
     if held and not bare:
         held.pop()
     last = len(held) - 1
