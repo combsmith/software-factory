@@ -1137,7 +1137,7 @@ MUTANTS = [
      '    read_one "$1" "repos/$repo/git/ref/heads/$3" "$2" "$3"\n    read_one "$1" "repos/$repo/pulls?$query" "$2" "$3"\n', ('tests.test_tools.BranchReadsTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept',)),
     ("P-80 tells nothing of a stop mid-mint", 'tools/trial_p80_branch_reads.sh', '    elif [ -n "${minting:-}" ]; then', '    elif false; then',
      ("tests.test_tools.BranchReadsTrial.test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live",)),
-    ("P-80 takes credentials from the environment", 'tools/trial_p80_branch_reads.sh', 'unset token jwt minted minting\n', '',
+    ("P-80 takes credentials from the environment", 'tools/trial_p80_branch_reads.sh', 'unset token jwt signature minted minting\n', '',
      ("tests.test_tools.BranchReadsTrial.test_an_inherited_mint_answer_is_never_revoked",)),
     ("P-80 takes a first attempt alone", 'tools/trial_p80_branch_reads.sh', 'factory-work/issue-[1-9][0-9]*-[1-9][0-9]*", name', 'factory-work/issue-[1-9][0-9]*-1", name',
      ("tests.test_tools.BranchReadsTrial.test_a_later_attempts_branch_is_taken_and_read",)),

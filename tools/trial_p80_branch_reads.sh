@@ -108,7 +108,7 @@ case "$scratch/" in "$root"/*)
 esac
 # No credential's name is taken from the environment: one exported there would reach every child, and a mint answer
 # inherited would be revoked by the exit trap though this run never minted it.
-unset token jwt minted minting
+unset token jwt signature minted minting
 token=""
 
 revoke() {
@@ -244,7 +244,7 @@ with_token() {   # NARROWED PERMISSIONS
     minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
         -H "$VERSION" -d "{\"repositories\":[\"$name\"],\"permissions\":{$2}}" \
         "$API/app/installations/$installation/access_tokens" && printf '\n0' || printf '\n%s' "$?")
-    jwt="" minting=""
+    jwt="" signature="" minting=""
     minted_exit=$(printf '%s\n' "$minted" | tail -n 1)
     minted=$(printf '%s\n' "$minted" | sed '$d')
     minted_status=$(printf '%s\n' "$minted" | tail -n 1)
