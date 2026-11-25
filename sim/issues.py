@@ -218,7 +218,8 @@ class IssueWorld:
             "acts_since_writer": self.acts, "branch_head": self.branch_head,
             # The default branch moves as the world's clock does: no Run in flight is stopped by it (decision 0226).
             "base_head": "%040x" % (0xba5e0000 + self.minute),
-            "complete": {"timeline": True, "linked": True, "runs": True}, "timeline_bounded": False,
+            # The work branch is told at every read here: a short read of it is a short list, below (issue 1059).
+            "complete": {"timeline": True, "linked": True, "runs": True, "branch": True}, "timeline_bounded": False,
             "spans_broken": False,
             "read_at": self.now(),
         })

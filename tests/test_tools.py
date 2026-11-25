@@ -1087,6 +1087,39 @@ class Lifecycle(unittest.TestCase):
         self.assertTrue(caught(problems, "lifecycle/issue.json: the bound max_unmerged_closes is not a limit"),
                         problems)
 
+    def test_the_implementing_rounds_are_held_at_or_below_the_run_ceiling_and_bound_no_transition(self):  # decision 0242
+        # Each round is a Run, so a limit past the Run ceiling would never be reached: the configuration holds it at or
+        # below. And the rounds bound a loop inside in_progress that no transition makes, so no transition may name them,
+        # neither the issue's opening retry nor any of the pull request's.
+        self.assertNotIn("max_implementing_rounds", check_lifecycle.PER_ITEM)
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        ceiling = config["limits"]["max_runs_per_item"]
+        self.assertLessEqual(config["limits"]["max_implementing_rounds"], ceiling)
+        self.assertEqual(check_lifecycle.run(), [])
+        words = "config/defaults.json: max_implementing_rounds is not a whole number at or below max_runs_per_item"
+        missing = object()
+        for value, wrong in ((ceiling, False), (1, False), (ceiling + 1, True), (0, True), (True, True),
+                             (3.0, True), ("3", True), (None, True), (missing, True)):
+            cfg = copy.deepcopy(config)
+            if value is missing:
+                del cfg["limits"]["max_implementing_rounds"]
+            else:
+                cfg["limits"]["max_implementing_rounds"] = value
+            problems = check_lifecycle.run(clone({"config/defaults.json": json.dumps(cfg)}))
+            self.assertEqual(caught(problems, words), wrong, (value, problems))
+        # A Run ceiling that is no whole number, a bool or a fraction above the rounds among them, holds nothing under it.
+        for ceiling, rounds in (("10", 1), (True, 1), (None, 1), (2.5, 2)):
+            cfg = copy.deepcopy(config)
+            cfg["limits"].update(max_runs_per_item=ceiling, max_implementing_rounds=rounds)
+            self.assertTrue(caught(check_lifecycle.run(clone({"config/defaults.json": json.dumps(cfg)})), words),
+                            ceiling)
+        words = "the bound max_implementing_rounds is not a limit the Kernel counts for each item"
+        for name, start, end in (("issue", "in_progress", "ready"), ("pull_request", "converged", "queued")):
+            lc = copy.deepcopy(check_lifecycle.load(name))
+            tr = next(tr for tr in lc["transitions"] if (tr["from"], tr["to"]) == (start, end) and tr["bound"] is not None)
+            tr["bound"] = "max_implementing_rounds"
+            self.assertTrue(caught(check_lifecycle.check(lc, config["limits"]), words), name)
+
     def test_the_act_ceiling_can_bound_a_transition(self):
         # An enqueue is an act, not a Run; a cycle through the merge queue is bounded by the act ceiling.
         lc = copy.deepcopy(check_lifecycle.load())
@@ -1213,8 +1246,10 @@ class Authority(unittest.TestCase):
         named = copy.deepcopy(config)
         named["issues"]["intents"]["open-pull-request"] = {"role": "dev-lead", "app": "combsmith-sf-dev-lead"}
         self.assertTrue(caught(check_authority.run(config=named), "no adapter sends a write to a repo's pulls"))
-        # Its counter-example is refused, for that alone.
+        # Its counter-example is refused, for that alone, and so still once the work branch's head is read (issue 1059).
         self.assertFalse(caught(check_examples.run(), "config.an-opening-role-with-no-writer.json"))
+        with mock.patch.object(check_authority, "branch_read_problems", return_value=[]):
+            self.assertFalse(caught(check_examples.run(), "config.an-opening-role-with-no-writer.json"))
         opener = "adapters.opening:open_pull_request"
         step = "harness/open_step.py"
 
@@ -1465,6 +1500,63 @@ class Authority(unittest.TestCase):
             with self.subTest(adapter=adapter):
                 self.assertTrue(caught(check_authority.opening_problems(named, tree(adapter, records), callers),
                                        "no adapter sends a write"))
+
+    def test_a_role_named_to_open_pull_requests_waits_on_the_branch_read(self):  # issue 1059
+        # No Role is named to open pull requests until the issues port reads the work branch's head: the file
+        # adapters/branches.py exists and parses, and adapters/issues.py parses, imports it at its top and writes no
+        # head as None, read from the syntax. With none named it passes; this repo, with no adapters/branches.py yet,
+        # refuses one named.
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        self.assertEqual(check_authority.branch_read_problems(config), [])
+        named = copy.deepcopy(config)
+        named["issues"]["intents"]["open-pull-request"] = {"role": "dev-lead", "app": "combsmith-sf-dev-lead"}
+        waits = "name none until the port reads it (issue 1059)"
+        self.assertTrue(caught(check_authority.run(config=named), waits))
+        self.assertTrue(caught(check_authority.branch_read_problems(named), waits))
+        # Its counter-example is refused, for that alone, once the writer stands: the writer's part, named first,
+        # refuses it today.
+        counter = ROOT / "examples" / "invalid" / "config.an-opening-role-with-no-branch-read.json"
+        counter = json.loads(counter.read_text())
+        self.assertTrue(caught(check_authority.branch_read_problems(counter), waits))
+        with mock.patch.object(check_authority, "opening_problems", return_value=[]):
+            problems = check_examples.run()
+        self.assertFalse(caught(problems, "config.an-opening-role-with-no-branch-read.json"), problems)
+
+        helper = "def head(transport, repo, branch):\n    return None\n"
+
+        def tree(port, branches=helper):
+            folder = tempfile.TemporaryDirectory()
+            self.addCleanup(folder.cleanup)
+            root = pathlib.Path(folder.name)
+            (root / "adapters").mkdir()
+            for name, text in (("issues.py", port), ("branches.py", branches)):
+                if text is not None:
+                    (root / "adapters" / name).write_bytes(text if isinstance(text, bytes) else text.encode())
+            return root
+
+        reads = "from adapters import branches\n"
+        for port in (reads, "from adapters import facts, branches as b\n", "import adapters.branches\n",
+                     "import json, adapters.branches as b\n", "from adapters.branches import head\n",
+                     "from . import branches\n", "from .branches import head\n", '"""The port."""\n' + reads,
+                     reads + "def read(t):\n    return {'branch_head': branches.head(t), 'other': None}\n"):
+            with self.subTest(port=port):
+                self.assertEqual(check_authority.branch_read_problems(named, tree(port)), [])
+        self.assertEqual(check_authority.branch_read_problems(config, tree(None, None)), [])
+        missing, unread = "is missing or cannot be read", "cannot be read or does not import adapters/branches.py"
+        still = "still writes a work branch's head as None"
+        refused = [(reads, None, missing), (reads, "def head(:\n", missing), (reads, b"x = 1\n\xff\n", missing)]
+        refused += [(port, helper, unread) for port in (
+            None, "from adapters import branches\nx = (\n", "from adapters import facts\n", "import adapters\n",
+            "import branches\n", "from adapters import branches_old\n", "import adapters.branches_old\n",
+            "from adapters.branches2 import head\n", "from .. import branches\n", "from ..branches import head\n",
+            "from adapters.facts import branches\n", "from adapters import facts as branches\n",
+            "def read():\n    from adapters import branches\n", "if True:\n    import adapters.branches\n",
+            "# from adapters import branches\n", "'from adapters import branches'\n")]
+        refused += [(reads + more, helper, still) for more in (
+            "FACTS = {'branch_head': None}\n", "def read(t):\n    return {'n': 1, 'branch_head': None}\n")]
+        for port, branches, said in refused:
+            with self.subTest(port=port, branches=branches):
+                self.assertTrue(caught(check_authority.branch_read_problems(named, tree(port, branches)), said))
 
     def test_a_value_held_twice_must_agree(self):
         self.table["max_rounds"] = 9

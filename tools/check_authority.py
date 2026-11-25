@@ -307,6 +307,54 @@ def opening_problems(config: dict, root: pathlib.Path = None, callers: dict = No
     return []
 
 
+# The issues port's read of a work branch's head (issue 1059). Without it a branch's head is null, read or not, and an
+# opening admission could carry the default branch's head where a work branch already stands.
+BRANCHES, PORT = "adapters/branches.py", "adapters/issues.py"
+
+
+def imports_branches(tree) -> bool:
+    """Whether a module directly in adapters/ imports BRANCHES at its top: `import adapters.branches`, under any name;
+    `from adapters import branches`, or a name from `adapters.branches`; or either from `.`, which is adapters there."""
+    for node in tree.body:
+        if isinstance(node, ast.Import) and any(a.name == "adapters.branches" for a in node.names):
+            return True
+        if isinstance(node, ast.ImportFrom) and node.level in (0, 1):
+            module = node.module if not node.level else ".".join(["adapters"] + [node.module] * bool(node.module))
+            if module == "adapters.branches" or module == "adapters" and any(a.name == "branches" for a in node.names):
+                return True
+    return False
+
+
+def writes_head_unread(tree) -> bool:
+    """Whether a module holds, anywhere, a dict entry whose key is "branch_head" and whose value is the constant None:
+    the head written unread, as the issues port writes it until it reads the branch."""
+    return any(isinstance(key, ast.Constant) and key.value == "branch_head" and isinstance(value, ast.Constant)
+               and value.value is None for node in ast.walk(tree) if isinstance(node, ast.Dict)
+               for key, value in zip(node.keys, node.values))
+
+
+def branch_read_problems(config: dict, root: pathlib.Path = None) -> list:
+    """A configuration that names a Role for `open-pull-request` while the issues port does not read the work branch's
+    head: BRANCHES exists and parses, and PORT parses, imports it (`imports_branches`) and writes no head as None
+    (`writes_head_unread`), each read from the syntax, never by importing it. A file that cannot be read stays red.
+    None named passes."""
+    issues = config.get("issues") if isinstance(config, dict) else None
+    intents = issues.get("intents") if isinstance(issues, dict) else None
+    if (intents.get("open-pull-request") if isinstance(intents, dict) else None) is None:
+        return []
+    root = ROOT if root is None else root
+    said = "the configuration names a Role to open pull requests, and "
+    wait = "; name none until the port reads it (issue 1059)"
+    if _parsed(root / BRANCHES) is None:
+        return [said + "%s, the read of a work branch's head, is missing or cannot be read%s" % (BRANCHES, wait)]
+    port = _parsed(root / PORT)
+    if port is None or not imports_branches(port):
+        return [said + "%s cannot be read or does not import %s at its top%s" % (PORT, BRANCHES, wait)]
+    if writes_head_unread(port):
+        return [said + "%s still writes a work branch's head as None, unread%s" % (PORT, wait)]
+    return []
+
+
 def _read(path: pathlib.Path):
     """A JSON file, or None where it cannot be read."""
     try:
@@ -441,6 +489,7 @@ def run(authority: dict = None, config: dict = None, facts: dict = None, result:
             problems.append("the configuration's %s is %r, and roles/ holds no %s.json%s"
                             % (field, name, name, "; name none until it does" if field == "author_role" else ""))
     problems += opening_problems(c)
+    problems += branch_read_problems(c)
     if a["max_rounds"] != c["limits"]["max_rounds"]:
         problems.append("max_rounds differs between the authority table and the configuration")
     # A Lens or a check named twice, deterministic or model, could pin two Apps or be read as the other, and which one

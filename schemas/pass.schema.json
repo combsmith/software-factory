@@ -218,7 +218,7 @@
       }
     },
     "reconciliation": {
-      "description": "What reconciliation found, as the view says it, each once: each write a Factory identity made that no Effect recorded, each resolution by a hand unmatched or unjudged (decision 0223), each merge read as an Override, and each issue that left read whole by its 404 or 410 (decision 1145), ids and codes alone (decision 0061). Absent in a record written before reconciliation",
+      "description": "What reconciliation found, as the view says it, each once: each write a Factory identity made that no Effect recorded, each resolution by a hand unmatched or unjudged (decision 0223), each merge read as an Override, each hand approval (decision 0241), and each issue that left read whole by its 404 or 410 (decision 1145), ids and codes alone (decision 0061). Absent in a record written before reconciliation",
       "type": "array",
       "uniqueItems": true,
       "items": {
@@ -399,6 +399,35 @@
             "required": ["key", "at"],
             "properties": {
               "key": {"type": "string", "pattern": "^[A-Za-z0-9_=:-]{1,100}$"},
+              "at": {"type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"}
+            }
+          }
+        },
+        "taken": {
+          "description": "Each head an approval not read as the hand took, any account's: its review's key (null if unread), its pull request and the head, kept while that is open or its leaving is held, so a later approval of the head is a second (decision 0241). Absent if none.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "item", "head"],
+            "properties": {
+              "key": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9_=:-]{1,100}$"},
+              "item": {"type": "string", "pattern": "^https://github\\.com/[^/\\s]+/[^/\\s]+/pull/[1-9][0-9]*$"},
+              "head": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+            }
+          }
+        },
+        "hand": {
+          "description": "Each machine user approval read as the Maintainer's hand: its review's key, its pull request, the head and when given, kept while that is open or its leaving is held, so later passes read it as one and a second of that head is not (decision 0241). Absent if none.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "item", "head", "at"],
+            "properties": {
+              "key": {"type": "string", "pattern": "^[A-Za-z0-9_=:-]{1,100}$"},
+              "item": {"type": "string", "pattern": "^https://github\\.com/[^/\\s]+/[^/\\s]+/pull/[1-9][0-9]*$"},
+              "head": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
               "at": {"type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"}
             }
           }
