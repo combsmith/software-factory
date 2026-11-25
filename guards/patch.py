@@ -86,7 +86,7 @@ NUL = b"\x00"
 UNREADABLE = "bundle_unreadable"        # no patch this reads: the Role's, as decision 0188 has it
 NOT_APPLIED = "patch_does_not_apply"    # a patch, but not of the admitted commit's files
 NOT_A_FILE = "push_not_a_file"          # it writes what is no file, or through one
-CASE_TWIN = "push_case_collision"      # it writes a path another it leaves differs from by case alone
+PATH_TWIN = "push_path_collision"      # it writes a path another it leaves differs from by case alone
 
 
 def _number(said):
@@ -516,5 +516,5 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
             cases[name.casefold()] = name
     for path in written:
         if any(name.casefold() in twins for name in _above(path) + [path]):
-            return None, CASE_TWIN
+            return None, PATH_TWIN
     return {"written": written, "removed": removed, "read": list(taken)}, None

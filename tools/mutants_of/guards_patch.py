@@ -729,7 +729,7 @@ MUTANTS = [
      'if not isinstance(before, bytes):', PATCH_ONCE),
     # guards/patch.py writes no file beside another the push leaves that differs from it by case alone.
     ('a file lands beside another that differs from it by case alone', 'guards/patch.py',
-     '            return None, CASE_TWIN\n',
+     '            return None, PATH_TWIN\n',
      '            pass\n', PATCH_CASE),
     ('a directory above a file is not asked about its case', 'guards/patch.py',
      'if any(name.casefold() in twins for name in _above(path) + [path]):',
@@ -753,9 +753,9 @@ MUTANTS = [
      'cases.get(name.casefold(), name) != name',
      'cases.get(name, name) != name', PATCH_CASE),
     ('a collision in case is no file', 'guards/patch.py',
-     '            return None, CASE_TWIN\n',
+     '            return None, PATH_TWIN\n',
      '            return None, NOT_A_FILE\n', PATCH_CASE),
     ("the code of a collision in case is another's", 'guards/patch.py',
-     '"push_case_collision"',
+     '"push_path_collision"',
      '"push_not_a_file"', PATCH_CASE),
 ]
