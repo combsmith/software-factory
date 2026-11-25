@@ -28,7 +28,7 @@ BRANCH = re.compile(terms.WORK_BRANCH)
 MOST = 100            # branches of one issue read at most: more pull requests than any brake lets the Factory open
 PAGE = 100            # pull requests of one branch on its one page
 SHA = re.compile(r"[0-9a-f]{40}")
-NEXT = 'rel="next"'     # anywhere in the link header: a next page, however its parameters are written
+NEXT = "next"           # anywhere in the link header: a next page, however its relation is written
 
 
 def _opened(transport, repo: str, branch: str, opener):
@@ -44,10 +44,9 @@ def _opened(transport, repo: str, branch: str, opener):
         return None
     if not all(isinstance(r, dict) and isinstance(r.get("user"), dict) and isinstance(r.get("head"), dict)
                and type(r["user"].get("id")) is int and isinstance(r["user"].get("type"), str)
-               and isinstance(r["head"].get("ref"), str) for r in rows):
+               and r["head"].get("ref") == branch for r in rows):
         return None
-    mine = [r for r in rows if (r["user"].get("id"), r["user"].get("type")) == tuple(opener)
-            and r["head"].get("ref") == branch]
+    mine = [r for r in rows if (r["user"].get("id"), r["user"].get("type")) == tuple(opener)]
     if any(not isinstance(r["head"].get("repo"), dict) or r["head"]["repo"].get("full_name") != repo for r in mine):
         return None
     if not mine and rows or len(mine) > 1:

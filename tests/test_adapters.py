@@ -6655,6 +6655,7 @@ class Branches(unittest.TestCase):
         # A count that cannot be read: a list not answered, one read short, one that is no list of pull requests.
         for answer in ((500, [], {}), (200, [], {"link": '<https://api.github.com/x?page=2>; rel="next"'}),
                        (200, [], {"link": '<https://api.github.com/x?page=2>; type="application/json"; rel="next"'}),
+                       (200, [], {"link": '<https://api.github.com/x?page=2>; rel=next'}),
                        (200, {"message": "x"}, {}), (200, [{"user": None, "head": {}}], {}), (200, ["7"], {})):
             self.assertEqual(self.head({self.pulls(1): answer, self.ref(1): self.branch(1)}),
                              ((None, False), [self.pulls(1)]), answer)
