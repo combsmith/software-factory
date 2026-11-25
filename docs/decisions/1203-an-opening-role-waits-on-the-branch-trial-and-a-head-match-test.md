@@ -1,4 +1,4 @@
-# 9999. An opening Role waits on the branch trial and a head match test
+# 1203. An opening Role waits on the branch trial and a head match test
 
 Status: accepted. 2026-11-25, the Solution Architect; issue 1059. Extends decisions 0234 and 0242.
 
