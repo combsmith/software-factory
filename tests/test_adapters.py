@@ -4616,6 +4616,7 @@ class Snapshot(unittest.TestCase):
                                 lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
         self.assertIs(got["complete"]["acceptance"], True)
         self.assertIs(got["acceptance_bounded"], False)
+        self.assertIs(got["timeline_bounded"], False)
         nxt = '<https://x>; rel="next"'
         at = len(seq) - 4
         seq[at:at + 1] = [closing_answer(canary(), 26, [36]), issue_timeline(canary(), 36, [], more=True)] + [
@@ -4625,6 +4626,7 @@ class Snapshot(unittest.TestCase):
                                 lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
         self.assertEqual((got["acceptance"], got["complete"]["acceptance"]), (None, False))
         self.assertIs(got["acceptance_bounded"], True)
+        self.assertIs(got["timeline_bounded"], False)        # the closing issue's cut is not its own (Astra)
 
     def test_a_snapshot_reads_the_ask_of_the_openers_pull_request_by_its_branch(self):  # issue 295
         # Told that the App that opens pull requests is this one's author, the snapshot reads its branch, which is no

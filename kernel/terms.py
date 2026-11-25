@@ -76,6 +76,7 @@ REASONS = frozenset({
     "last_pusher_unreadable", "max_rounds", "mergeable_unreadable", "merged", "model_lens_input_needs_person",
     "outside_not_admitted", "path_needs_person", "paths_unreadable", "pause_unreadable", "paused",
     "proposals_await_owner", "protected_paths_unreadable", "resolve_due", "review_unreadable", "run_ceiling",
+    "timeline_bounded",
     "run_unidentified", "run_unreadable", "runs_unnamed", "thread_unreadable", "too_large",
 })
 ISSUE_REASONS = frozenset({
@@ -86,7 +87,7 @@ ISSUE_REASONS = frozenset({
     "linked_twice", "linked_unreadable", "merge_closing", "merged_while_declined", "merged_while_hands_off",
     "merged_while_held", "no_statement", "not_accepted", "opening_run", "ready", "ready_removed", "reopened_by_other",
     "spans_broken",
-    "state_unreadable", "timeline_bounded", "triage", "triage_removed", "triage_stands", "type_unreadable",
+    "state_unreadable", "triage", "triage_removed", "triage_stands", "type_unreadable",
     "unmerged_closes", "writer_unreadable",
 })
 
