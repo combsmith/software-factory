@@ -4693,6 +4693,13 @@ class Snapshot(unittest.TestCase):
         self.assertIs(got["complete"]["timeline"], False)
         self.assertIs(got["timeline_bounded"], True)
         self.assertIs(kept["events"][1], False)               # reconciliation reads it short too (Astra)
+        # Given what the snapshot kept, the seen port reads that timeline again from its end (the Lens on #1152).
+        from adapters import seen
+        from tests.test_reconcile import APPS, IDENTITIES, Pages
+        path = "/repos/%s/issues/26/timeline?per_page=100" % canary()
+        pages = Pages({path: [[]] * 3})
+        seen.read(pages, {"repo": canary(), "type": "pull_request", "number": 26}, kept, IDENTITIES, APPS, self.NOW)
+        self.assertIn(path + "&page=3", [p for _, p in pages.asked])
         self.assertIs(got["complete"]["reviews"], True)       # with no dismissal, the reviews stay whole (Carbon)
         self.assertEqual([asked[1] for asked, _ in replay._left], [eleventh["request"]["call"].split(" ", 1)[1]])
         # A review dismissed past the cut, whose dismissal the timeline read does not hold, leaves the reviews not
@@ -6814,10 +6821,16 @@ class Branches(unittest.TestCase):
         twice = [self.opened(1), dict(self.opened(1), number=108)]
         unread = [self.opened(1), dict(self.opened(1), user={"id": 77})]
         unid = [self.opened(1), dict(self.opened(1), user={"id": "77", "type": "Bot"})]
-        for rows in ([self.opened(1, by=(5, "User"))], [stray], [forked], [self.opened(1), forked], [flat],
+        # A stranger's pull request from a fork's branch of the same name, were the head filter to list it: no fork can
+        # be made for trial P-80, so its unfavourable answer is taken, and a branch from a fork is never the Factory's.
+        stranger = dict(forked, user={"id": 5, "type": "User"})
+        for rows in ([self.opened(1, by=(5, "User"))], [stray], [forked], [self.opened(1), forked], [flat], [stranger],
                      [self.opened(1, by=(77, "User"))], [self.opened(1, by=(5, "Bot"))], twice, unread, unid, aside):
             self.assertEqual(self.head({self.pulls(1): (200, rows, {}), self.pulls(2): (200, [], {}),
                                         self.ref(1): self.branch(1), self.ref(2): self.branch(2)})[0], (None, False), rows)
+        # So it is where the stranger's fork alone holds the name and the repo holds no such branch: its ref is not asked.
+        self.assertEqual(self.head({self.pulls(1): (200, [stranger], {}), self.ref(1): (404, {}, {})}),
+                         ((None, False), [self.pulls(1)]))
         # A branch name not of the Kernel's shape, as for issue 0, is not told, and its ref is not asked.
         self.assertEqual(self.head({self.pulls(1, 0): (200, [], {})}, number=0), ((None, False), [self.pulls(1, 0)]))
         # Not told, and never read as no branch: no opener, or one untold, asks nothing.
