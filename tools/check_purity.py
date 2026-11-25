@@ -893,8 +893,18 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
         problems += wrong
         held = frozenset(bound[name])
         scopes = _scopes(tree, held)
+        # Python runs an annotation where it stands, at import for a function's or a module's, unless the module turns
+        # every annotation into text with this import (issue 1136). So a module that annotates anything starts with it.
+        textual = any(isinstance(node, ast.ImportFrom) and node.module == "__future__" and not node.level
+                      and any(alias.name == "annotations" for alias in node.names) for node in tree.body)
         for node in ast.walk(tree):
             line = getattr(node, "lineno", 0)
+            annotated = (isinstance(node, ast.arg) and node.annotation is not None) or isinstance(node, ast.AnnAssign) \
+                or (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.returns is not None)
+            if annotated and not textual:
+                problems.append("%s:%d annotates in a module without `from __future__ import annotations`; Python runs "
+                                "a function's or a module's annotation when the module is imported, unless that import "
+                                "keeps it as text" % (name, line))
             mods = []
             if isinstance(node, ast.Import):
                 mods = [alias.name for alias in node.names]

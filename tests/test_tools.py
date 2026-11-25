@@ -1246,7 +1246,10 @@ class Authority(unittest.TestCase):
         named = copy.deepcopy(config)
         named["issues"]["intents"]["open-pull-request"] = {"role": "dev-lead", "app": "combsmith-sf-dev-lead"}
         self.assertTrue(caught(check_authority.run(config=named), "no adapter sends a write to a repo's pulls"))
-        # Its counter-example is refused, for that alone, and so still once the work branch's head is read (issue 1059).
+        # Its counter-example is refused, for that alone, where the port does not read the work branch's head, here a
+        # read module of another name, and so still where it does, as this repo's port does (issue 1059).
+        with mock.patch.object(check_authority, "BRANCHES", "adapters/branches_unbuilt.py"):
+            self.assertFalse(caught(check_examples.run(), "config.an-opening-role-with-no-writer.json"))
         self.assertFalse(caught(check_examples.run(), "config.an-opening-role-with-no-writer.json"))
         with mock.patch.object(check_authority, "branch_read_problems", return_value=[]):
             self.assertFalse(caught(check_examples.run(), "config.an-opening-role-with-no-writer.json"))
@@ -1504,21 +1507,25 @@ class Authority(unittest.TestCase):
     def test_a_role_named_to_open_pull_requests_waits_on_the_branch_read(self):  # issue 1059
         # No Role is named to open pull requests until the issues port reads the work branch's head: the file
         # adapters/branches.py exists and parses, and adapters/issues.py parses, imports it at its top and writes no
-        # head as None, read from the syntax. With none named it passes; this repo, with no adapters/branches.py yet,
-        # refuses one named.
+        # head as None, read from the syntax. With none named it passes. This repo's port reads it, so one named passes
+        # this part; a repo whose port names a read that is not there, here a module of another name, refuses it.
         config = json.loads((ROOT / "config" / "defaults.json").read_text())
         self.assertEqual(check_authority.branch_read_problems(config), [])
         named = copy.deepcopy(config)
         named["issues"]["intents"]["open-pull-request"] = {"role": "dev-lead", "app": "combsmith-sf-dev-lead"}
         waits = "name none until the port reads it (issue 1059)"
-        self.assertTrue(caught(check_authority.run(config=named), waits))
-        self.assertTrue(caught(check_authority.branch_read_problems(named), waits))
-        # Its counter-example is refused, for that alone, once the writer stands: the writer's part, named first,
-        # refuses it today.
+        self.assertEqual(check_authority.branch_read_problems(named), [])
+        self.assertFalse(caught(check_authority.run(config=named), waits))
+        unbuilt = mock.patch.object(check_authority, "BRANCHES", "adapters/branches_unbuilt.py")
+        with unbuilt:
+            self.assertTrue(caught(check_authority.run(config=named), waits))
+            self.assertTrue(caught(check_authority.branch_read_problems(named), waits))
+        # Its counter-example, a port without the read, is refused for that alone once the writer stands: the writer's
+        # part, named first, refuses it today. Once both stand, the writer's change retires it with this case.
         counter = ROOT / "examples" / "invalid" / "config.an-opening-role-with-no-branch-read.json"
         counter = json.loads(counter.read_text())
-        self.assertTrue(caught(check_authority.branch_read_problems(counter), waits))
-        with mock.patch.object(check_authority, "opening_problems", return_value=[]):
+        with unbuilt, mock.patch.object(check_authority, "opening_problems", return_value=[]):
+            self.assertTrue(caught(check_authority.branch_read_problems(counter), waits))
             problems = check_examples.run()
         self.assertFalse(caught(problems, "config.an-opening-role-with-no-branch-read.json"), problems)
 
@@ -2569,6 +2576,37 @@ class Purity(unittest.TestCase):
             self.assertTrue(caught(run({"kernel/x.py": "async def f(facts):\n" + body}), "x.py:2 %s" % does), does)
             found = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": "async def f(facts):\n" + body}))
             self.assertTrue(caught(found, "x.py:2 %s" % does), (does, found))
+
+    def test_a_module_that_annotates_starts_with_the_future_import(self):  # issue 1136
+        # Python runs a function's annotations, and a module's, when the module is imported, so a call there would run
+        # Kernel code at import; the future import keeps every annotation as text. Annotations anywhere ask for it.
+        future = "from __future__ import annotations\n\n\n"
+        note = "def _note(x):\n    return x\n\n\n"
+        for text, line in ((note + "def decide(facts: _note(1)):\n    return facts\n", 5),
+                           (note + "def decide(facts) -> _note(1):\n    return facts\n", 5),
+                           (note + "X: _note(1) = 'a'\n", 5),
+                           ("def decide(*, facts: dict):\n    return facts\n", 1),
+                           ("def decide(facts,\n           **rest: dict):\n    return facts\n", 2),
+                           ("def decide(facts,\n           *rest: dict):\n    return facts\n", 2),
+                           ("def decide(facts: dict, /):\n    return facts\n", 1),
+                           ("async def decide(facts) -> dict:\n    return facts\n", 1),
+                           ("def decide(facts):\n    seen: int\n    return facts\n", 2),
+                           ("def decide(facts):\n    seen: int = 0\n    return seen\n", 2)):
+            found = check_purity.run(planted({"kernel/x.py": text}))
+            self.assertTrue(caught(found, "x.py:%d annotates in a module without `from __future__ import "
+                                          "annotations`" % line), (text, found))
+            self.assertFalse(caught(check_purity.run(planted({"kernel/x.py": future + text})), "annotates"), text)
+            held = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": text}))
+            self.assertTrue(caught(held, "x.py:%d annotates" % line), (text, held))
+        # The import read is the future's, by its feature's name: one of another feature keeps nothing as text.
+        # A name `annotations` a module of the Kernel's binds is no future import (Claude's read).
+        for head in ("from __future__ import division\n\n\n", "from __future__ import generator_stop, annotations\n\n\n",
+                     "from kernel.codes import annotations\n\n\n"):
+            found = check_purity.run(planted({"kernel/codes.py": "annotations = 'a'\n",
+                                              "kernel/x.py": head + "def decide(facts: dict):\n    return facts\n"}))
+            self.assertEqual(caught(found, "x.py:4 annotates"), "__future__ import generator_stop" not in head, (head, found))
+        # A module that annotates nothing, the Kernel's docstring-alone __init__.py among them, needs no import.
+        self.assertEqual(check_purity.run(planted({"kernel/x.py": '"""Codes."""\nA = "a"\n\n\ndef f(x):\n    return x\n'})), [])
 
     def test_the_kernel_writes_no_function_into_text(self):  # issue 1137
         # A function's text is its address in memory, which a replay in another process gives otherwise. A good-faith

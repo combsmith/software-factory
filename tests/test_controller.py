@@ -34,6 +34,8 @@ NOW = support.NOW                       # 2026-10-11T13:00:00Z
 REPO = support.ITEM["repo"]
 OTHER_REPO = "combsmith/markets"
 CONTROLLER = json.loads((ROOT / "config" / "controller.json").read_text())
+# The account of the App that opens the Factory's pull requests, as a test hands it to the issues port (issue 1059).
+OPENS = (77, "Bot")
 # Each stored credential's dates, as a table would hold them with none near its limit at NOW (issue 305).
 CREDENTIALS = json.loads((ROOT / "examples" / "credential-ages.json").read_text())
 TOKEN = {"id": 41898282, "type": "Bot"}       # the workflow's own token's account, as a configuration would hold it
@@ -2193,8 +2195,9 @@ class Entry(unittest.TestCase):
                     return listed_by_the_port(transport, repo, after, apart=apart)
             return open_issues
 
-        def read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head):
+        def read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head, opener):
             spied["read"].append((repo, number, accounts))
+            spied.setdefault("openers", []).append(opener)
             spied["heads"].append(base_head)
             spied["identities"].append((identities, earlier))
             spied["controller"].append(controller)
@@ -2238,7 +2241,8 @@ class Entry(unittest.TestCase):
                     unittest.mock.patch.object(entry.items, "open_issues", listing(listed, whole)), \
                     unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: written), \
                     unittest.mock.patch.object(entry.passes, "records", held), \
-                    unittest.mock.patch.object(entry.issues_, "read", read):
+                    unittest.mock.patch.object(entry.issues_, "read", read), \
+                    unittest.mock.patch.object(entry, "opener", lambda *a: OPENS):
                 code, printed, files, _ = self.run_entry(hub)
             spied["graphql"] = [r for _, r in hub.sent if r["path"] == "/graphql"]
             spied["repo"] = [r for _, r in hub.sent if r["path"] in ("/repos/%s" % self.HOME, "/repos/%s/git/ref/heads/main" % self.HOME)]
@@ -2254,6 +2258,8 @@ class Entry(unittest.TestCase):
         # requests the issues' budget counts (decision 0234).
         self.assertTrue(all(who.answers is spied["who"][0].answers and vars(who).keys() == vars(spied["who"][0]).keys()
                             and isinstance(who.transport, entry.Counted) for _, _, who in spied["read"]))
+        # Each is handed the account of the App that opens the Factory's pull requests, which names its work branch (#1059).
+        self.assertEqual(spied["openers"], [OPENS] * 3)
         # Each is read with the pull requests' class accounts, and the pass records before this pass, here none.
         self.assertEqual(spied["identities"], [(entry.facts_.accounts_of(CONTROLLER)[0], [])] * 3)
         # And the Kernel's configuration, which says whether a draft's checks are read (decision 0217, issue 878).
@@ -2519,7 +2525,7 @@ class Entry(unittest.TestCase):
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
-        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head):
+        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head, opener):
             if number == 6:
                 raise entry.facts_.Moved("moved")
             # Issue 8 is the Controller's tracking issue, told at its own read: it is no served issue, and its writes
@@ -2938,7 +2944,7 @@ class Entry(unittest.TestCase):
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
-        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head):
+        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head, opener):
             return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "An issue"
 
         def runs(*args, **kw):
@@ -2968,7 +2974,7 @@ class Entry(unittest.TestCase):
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
-        def moved(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head):
+        def moved(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head, opener):
             raise entry.facts_.Moved("moved")
 
         def read(transport, item, kept, identities, apps, since, **_):
@@ -3231,6 +3237,43 @@ class Entry(unittest.TestCase):
         self.assertEqual([(l["stage"], l.get("count")) for l in lines],
                          [("poller", None), ("poller_list", 2), ("poller_artifacts", 1),
                           ("applied", None), ("applied_list", 1), ("applied_artifacts", 2)])
+
+    def test_a_pull_request_left_out_and_closed_before_the_next_pass_is_read_as_left(self):  # issue 1194
+        # The last pass left out 42, its facts unanswered, 43, moved twice, and 46, not facts, and owed none: closed
+        # before this pass, each is read as left and stamped, by its type whatever its code. One still listed is read
+        # open; an issue of a number, or an entry naming no item, is no pull request that left; nor is one an older
+        # record alone left out (Astra, Muse).
+        config = entry.configuration(ROOT, "factory/v0.3.1")
+        home = config["controller"]["home"]["repo"]
+        pull = lambda n: {"repo": home, "type": "pull_request", "number": n}
+        reconciled = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}
+        older = {"pull_requests": [], "left_out": [{"item": pull(41), "code": "facts_unanswered"}], "reconciled": reconciled}
+        before = [older, {"pull_requests": [{"facts": {"item": pull(7)}}],
+                          "left_out": [{"item": pull(42), "code": "facts_unanswered"},
+                                       {"item": pull(43), "code": "pull_moved"},
+                                       {"item": pull(45), "code": "facts_unanswered"},
+                                       {"item": {"repo": home, "type": "issue", "number": 44}, "code": "facts_unanswered"},
+                                       {"item": pull(46), "code": "not_facts"}, {"item": None, "code": "not_facts"}],
+                          "reconciled": reconciled}]
+        spied = []
+
+        def read(transport, item, held, *rest, **told):
+            spied.append((item["type"], item["number"], held))
+            return [], [], True
+        with unittest.mock.patch.object(entry.seen_, "read", read), \
+                unittest.mock.patch.object(entry.seen_, "repo_read", lambda *a: True), \
+                unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)):
+            seen, unread, newly, _, _ = entry.writes_seen(None, config, [7, 45], {}, before, "2026-10-11T06:00:00Z",
+                                                          lambda: self.CLOCK)
+        self.assertEqual([s for s in spied if s[0] == "pull_request"],
+                         [("pull_request", 7, None), ("pull_request", 45, None),
+                          ("pull_request", 42, entry.seen_.LEFT), ("pull_request", 43, entry.seen_.LEFT),
+                          ("pull_request", 46, entry.seen_.LEFT)])
+        self.assertEqual((newly, unread), ([42, 43, 46], []))
+        self.assertIn(("issue", 44, entry.seen_.LEFT), spied)
+        now = "2026-10-12T12:00:00Z"
+        self.assertEqual(entry.reconcile.carried(before, None, seen, now, unread, newly)["left"],
+                         [{"number": n, "at": now} for n in (42, 43, 46)])
 
     def test_only_the_entry_reads_the_clock_or_the_environment(self):
         # Every other module of controller/ is a function of what it is given (the test above it); the entry takes the
