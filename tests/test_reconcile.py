@@ -931,6 +931,16 @@ class SeenPort(unittest.TestCase):
             self.assertIs(seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], whole, count)
             self.assertEqual(len([path for _, path in github.asked if "/timeline?" in path]), 10, count)
 
+    def test_what_a_later_page_holds_is_seen_and_a_cut_snapshot_is_short(self):  # issue 1009, decision 0234 (Astra)
+        # A write on the second page, past a first of a hundred, is seen.
+        other = {"id": 77, "type": "User", "login": "someone"}
+        first = [{"user": other, "node_id": "IC_%d" % n, "created_at": AT} for n in range(100)]
+        github = Pages({COMMENTS[1]: [first, [{"user": CONTROLLER, "node_id": "IC_c", "created_at": AT}]]})
+        writes, _, whole = seen_.read(github, ITEM, kept(), IDENTITIES, APPS, SINCE)
+        self.assertEqual(([(w["by"], w["kind"]) for w in writes], whole), ([("controller", "comment")], True))
+        # Reviews the snapshot cut at their bound leave what was seen of the pull request short.
+        self.assertIs(port(kept(reviews=([], False)))[2], False)
+
     def test_each_identitys_writes_are_read_by_its_account_never_its_login(self):  # ruling 2
         reviews = [{"user": APPROVER, "state": "APPROVED", "node_id": "PRR_a", "submitted_at": AT},
                    {"user": APPROVER, "state": "COMMENTED", "node_id": "PRR_b", "submitted_at": AT},

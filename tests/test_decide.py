@@ -925,7 +925,7 @@ class OnlyAPersonEnds(unittest.TestCase):
                              (None, reason, "act", "dequeue"), bounded)
         # A malformed flag beside reviews read short, the timeline whole, is the deferral the Decision gives, before
         # hands-off or anything else can act (the Solution Architect, 2026-11-25; Astra).
-        for bounded in (None, "true", 0):
+        for bounded in (None, "true", 0, 1):
             f = facts(reviews=APPROVED, label_events=[labelled("factory:hands-off")], timeline_bounded=bounded)
             f["complete"]["reviews"] = False
             d = go(f, REVIEWED)
