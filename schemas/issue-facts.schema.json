@@ -230,7 +230,7 @@
               },
               "ref": {
                 "type": "string",
-                "minLength": 1
+                "pattern": "^factory-work/issue-[1-9][0-9]*-[1-9][0-9]*$"
               }
             }
           },
