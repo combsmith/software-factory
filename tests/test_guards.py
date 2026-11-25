@@ -822,7 +822,7 @@ class Patch(unittest.TestCase):
             self.assertEqual(patch.applied(CHANGE, tree, held), (None, patch.TREE_UNREAD), (tree, held))
         # A path of more parts than DEEPEST has characters is in no tree a port gives; one of as many parts is.
         # A path whose part holds .git but is not it is a name; a link's bytes may be handed over.
-        self.assertIsNone(patch.applied(CHANGE, {**TREE, ".github/x": FILE, "x.git": FILE}, HELD)[1])
+        self.assertIsNone(patch.applied(CHANGE, {**TREE, ".github/x": FILE, "x.git": FILE, "git~1/x": FILE, ".git.": FILE}, HELD)[1])
         # Refusing reads no key that is not plain text, so no method of one is called: not its hash, nor its equality.
         class Counted(str):
             calls = []

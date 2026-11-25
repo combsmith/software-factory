@@ -987,4 +987,7 @@ MUTANTS = [
     ('only a file is asked whether it stands under another', 'guards/patch.py',
      'for path in tree for part in _above(path))',
      'for path in tree if tree[path] in FILE_MODES for part in _above(path))', PATCH_PORT),
+    ("a tree's part that git reads as its own directory elsewhere is refused", 'guards/patch.py',
+     'part.casefold() != GIT_OWN',
+     'not _gits(part)', PATCH_PORT),
 ]
