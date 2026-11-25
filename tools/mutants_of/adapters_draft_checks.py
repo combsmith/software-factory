@@ -34,4 +34,14 @@ MUTANTS = [
      ' and own["state"] == "open"', '', ("tests.test_adapters.DraftChecks.test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read",)),
     ("a pull request out of draft has its checks read", 'adapters/draft_checks.py',
      ' and own["is_draft"] is True', '', ("tests.test_adapters.DraftChecks.test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read",)),
+    # Issue 1059: the Factory's draft carries its own head, from this repo, on a work branch.
+    ("a draft's sha of any letters is read", 'adapters/draft_checks.py',
+     'SHA = re.compile(r"[0-9a-f]{40}")', 'SHA = re.compile(r"[0-9a-z]{40}")', ("tests.test_adapters.DraftChecks.test_the_factorys_draft_carries_its_own_head_from_this_repo",)),
+    ("a draft's head repo that is no object is read", 'adapters/draft_checks.py',
+     '    mine = held.get("id") if isinstance(held, dict) else None\n', '    mine = held.get("id")\n', ("tests.test_adapters.DraftChecks.test_the_factorys_draft_carries_its_own_head_from_this_repo",)),
+    ("a draft's head from another repo is read", 'adapters/draft_checks.py', 'mine == home and ', '', ("tests.test_adapters.DraftChecks.test_the_factorys_draft_carries_its_own_head_from_this_repo",)),
+    ("a draft's base repo id of another type is read", 'adapters/draft_checks.py', 'type(home) is int and ', '', ("tests.test_adapters.DraftChecks.test_the_factorys_draft_carries_its_own_head_from_this_repo",)),
+    ("a draft's head repo id of another type is read", 'adapters/draft_checks.py', ' and type(mine) is int', '', ("tests.test_adapters.DraftChecks.test_the_factorys_draft_carries_its_own_head_from_this_repo",)),
+    ("a draft's sha with more after it is read", 'adapters/draft_checks.py', 'SHA.fullmatch(sha)', 'SHA.match(sha)', ("tests.test_adapters.DraftChecks.test_the_factorys_draft_carries_its_own_head_from_this_repo",)),
+    ("a draft's branch of another shape is read", 'adapters/draft_checks.py', 'WORK.fullmatch(ref)', 'ref', ("tests.test_adapters.DraftChecks.test_the_factorys_draft_carries_its_own_head_from_this_repo",)),
 ]

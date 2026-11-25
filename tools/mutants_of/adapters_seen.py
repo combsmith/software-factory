@@ -411,4 +411,11 @@ MUTANTS = [
     ("a first page that answers empty is whole", 'adapters/seen.py',
      '            steady = (bool(items) and all(found) and', '            steady = (all(found) and',
      ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_holds_its_edges',)),
+    # Astra on part 3 of 4 of issue 1009: what a later page holds is seen, and a cut snapshot is short.
+    ("the seen port drops what a page past the first holds", 'adapters/seen.py',
+     '        return items, whole\n    except', '        return items[:PAGE], whole\n    except',
+     ('tests.test_reconcile.SeenPort.test_what_a_later_page_holds_is_seen_and_a_cut_snapshot_is_short',)),
+    ("a reviews list the snapshot cut is seen whole", 'adapters/seen.py',
+     'isinstance(got[0], list) and got[1] is True\n', 'isinstance(got[0], list) and (got[1] is True or name == "reviews")\n',
+     ('tests.test_reconcile.SeenPort.test_what_a_later_page_holds_is_seen_and_a_cut_snapshot_is_short',)),
 ]

@@ -10,7 +10,7 @@ Status: accepted. Extends decision 0234 with its bound on the seen port's lists 
 
 ## Why
 
-Decisions 1149 and 1150 bound the facts port's reads of a pull request. Reconciliation's seen port read each item's comments, and the reviews of an item that left, whole on every pass, and anyone can comment or review: this part bounds those lists too, and a list past its bound leaves what was seen short.
+Decision 1150 bounds the facts port's reads of a pull request; decision 1149 adds the Kernel's rule on what they cut, `timeline_bounded`, and bounds no read. Reconciliation's seen port read each item's comments, and the reviews of an item that left, whole on every pass, and anyone can comment or review: this part bounds those lists too, and a list past its bound leaves what was seen short.
 
 ## Boundaries
 

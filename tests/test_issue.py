@@ -103,9 +103,13 @@ def closes(when: str) -> list:
     return [{"action": "closed", "by": dict(WRITER), "at": when}]
 
 
+# The head of the Factory's draft, from this repo, on its work branch, as the linked port reads it with its checks.
+DRAFT_HEAD = {"sha": "5c1e2d3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d", "ref": "factory-work/issue-7-1"}
+
+
 def agents(**over) -> dict:
-    """The Factory's own pull request: its author's App opened it, its head's required checks pending."""
-    return pr(**dict({"by": AUTHOR_APP, "cls": "agent", "checks": "pending"}, **over))
+    """The Factory's own pull request: its author's App opened it, its head's required checks pending, its head read."""
+    return pr(**dict({"by": AUTHOR_APP, "cls": "agent", "checks": "pending", "head": dict(DRAFT_HEAD)}, **over))
 
 
 def strangers(admitted=False, **over) -> dict:
@@ -114,13 +118,17 @@ def strangers(admitted=False, **over) -> dict:
     return pr(**dict({"by": OUTSIDER, "cls": "outside", "events": events}, **over))
 
 
+# The work branch's head, a commit's whole sha, where that branch stands (issue 1059).
+BRANCH_HEAD = "9f2c41d07a3be58e1c6d0b4a7e25f3c18d90ab6e"
+
+
 def facts(**over) -> dict:
     """An open issue the Maintainer opened at minute 0, with no label and no pull request, read in full."""
     f = {"schema": "issue-facts/1", "item": dict(ITEM), "state": "open", "author": dict(WRITER), "type": None, "type_events": [], "label_names": [], "assignees": [],
          "life_started_at": at(0), "reopened_last_by": "never", "content_id": THIS, "content_changed_at": at(0),
          "label_events": [], "linked": [], "role_comments": [], "last_writer_action_at": at(0),
          "last_writer_comment_at": None, "acts_since_writer": 0, "branch_head": None, "base_head": BASE,
-         "complete": {"timeline": True, "linked": True, "runs": True}, "timeline_bounded": False,
+         "complete": {"timeline": True, "linked": True, "runs": True, "branch": True}, "timeline_bounded": False,
          "read_at": at(50)}
     f.update(over)
     # The two times a close and a reopening carry, as GitHub holds them, unless the case gives them: a person's close
@@ -1827,13 +1835,15 @@ class Outcomes(unittest.TestCase):
 
     def test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted(self):  # issue 825
         # Slice 2's S9 (rulings-422, section 3): while the draft the Factory opened for the issue fails its required checks,
-        # the issue admits another implementing Run, the author Role's, for that draft; bounded by max_attempts, every
-        # implementing Run that completed counted as a round, and by the Run ceiling. Dormant while no author Role is named.
+        # the issue admits another implementing Run, the author Role's, for that draft; bounded by max_implementing_rounds
+        # (decision 0242), every implementing Run that completed counted as a round, and by the Run ceiling. Dormant while
+        # no author Role is named.
         named = dict(config(), author_role="dev-lead")
         failing = facts(linked=[agents(draft=True, checks="failing")])
         d = decide(failing, cfg=named)
         self.assertEqual((d["outcome"], d["reason"], d["admit"]), ("admit", "linked_draft", {
-            "role": "dev-lead", "intent": issue.IMPLEMENT, "content_id": THIS, "pull_request": 11}))
+            "role": "dev-lead", "intent": issue.IMPLEMENT, "content_id": THIS, "pull_request": 11,
+            "branch_head": DRAFT_HEAD["sha"]}))
         # Its checks pending, or passing, or its head's checks not yet listed after a push (trial P-42): nothing.
         for checks in ("pending", "passing"):
             self.assertEqual(what(decide(facts(linked=[agents(draft=True, checks=checks)]), cfg=named)),
@@ -1871,9 +1881,10 @@ class Outcomes(unittest.TestCase):
         for draft in (agents(draft=True, checks="pending"), dict(agents(draft=True), checks=None)):
             d = decide(facts(linked=[draft]), [flying], cfg=named)
             self.assertEqual((what(d), d["attention"]), (("nothing", "linked_draft", None), "working"), draft["checks"])
-        # max_attempts implementing Runs completed, each of which left the checks failing: held, the issue calls a person.
+        # max_implementing_rounds implementing Runs completed, each of which left the checks failing: held, the issue
+        # calls a person.
         rounds = [run(intent=issue.IMPLEMENT, role="dev-lead", name="m%d" % n, minute=7 + n)
-                  for n in range(LIMITS["max_attempts"])]
+                  for n in range(LIMITS["max_implementing_rounds"])]
         self.assertEqual(what(decide(failing, rounds[:-1], cfg=named)), ("admit", "linked_draft", issue.IMPLEMENT))
         held = ("held", "hold", "attempts_exhausted", "needs_you", [r["run"] for r in rounds])
         d = decide(failing, rounds, cfg=named)
@@ -1900,11 +1911,76 @@ class Outcomes(unittest.TestCase):
         d = decide(failing, rounds[:-1] + [flying], cfg=named)
         self.assertEqual((what(d), d["attention"]), (("nothing", "linked_draft", None), "working"))
         # A writer's action renews the rounds, as it renews every count.
-        renewed = dict(failing, last_writer_action_at=at(7 + LIMITS["max_attempts"]))
+        renewed = dict(failing, last_writer_action_at=at(7 + LIMITS["max_implementing_rounds"]))
         self.assertEqual(what(decide(renewed, rounds, cfg=named)), ("admit", "linked_draft", issue.IMPLEMENT))
         # The Run ceiling bounds it too, whatever Runs spent it.
         spent = [run(intent="judge-readiness", name="j%d" % n, minute=7 + n) for n in range(LIMITS["max_runs_per_item"])]
         self.assertEqual(what(decide(failing, spent, cfg=named))[:2], ("hold", "run_ceiling"))
+
+    def test_the_implementing_rounds_have_a_limit_of_their_own_read_from_no_other_key(self):  # issue 1038, decision 0242
+        # Held at max_implementing_rounds whatever max_attempts is: one short admits; at the bound, attempts_exhausted,
+        # the rounds as evidence (decision 0217).
+        failing = facts(linked=[agents(draft=True, checks="failing")])
+
+        def rounds(n: int) -> list:
+            return [run(intent=issue.IMPLEMENT, role="dev-lead", name="m%d" % i, minute=7 + i) for i in range(n)]
+
+        def named(**limits) -> dict:
+            # The Run ceiling is set above every count here, so that no Hold below is the ceiling's.
+            c = dict(config(), author_role="dev-lead")
+            c["limits"] = dict(c["limits"], max_runs_per_item=20, **limits)
+            return c
+
+        for top, attempts in ((2, 5), (4, 1), (1, 3)):
+            cfg = named(max_implementing_rounds=top, max_attempts=attempts)
+            self.assertEqual(what(decide(failing, rounds(top - 1), cfg=cfg)), ("admit", "linked_draft", issue.IMPLEMENT),
+                             (top, attempts))
+            d = decide(failing, rounds(top), cfg=cfg)
+            self.assertEqual((d["state"], what(d)[:2], d["attention"], d["evidence"]),
+                             ("held", ("hold", "attempts_exhausted"), "needs_you", [r["run"] for r in rounds(top)]),
+                             (top, attempts))
+        # A round is any implementing Run that completed, whatever it concluded: one that failed by the item counts as a
+        # round too, below the attempts' bound, and is named among the rounds.
+        cfg = named(max_implementing_rounds=2, max_attempts=5)
+        mixed = [dict(rounds(1)[0], conclusion="failure", outcome="item"), rounds(2)[1]]
+        d = decide(failing, mixed, cfg=cfg)
+        self.assertEqual((what(d)[:2], d["evidence"]), (("hold", "attempts_exhausted"), ["m0", "m1"]))
+        # So is one that spent no model, its Engine never started, which counts apart from the Run ceiling.
+        idle = dict(rounds(1)[0], conclusion="failure", outcome="environment", engine_started=False)
+        d = decide(failing, [idle, rounds(2)[1]], cfg=cfg)
+        self.assertEqual((what(d)[:2], d["evidence"]), (("hold", "attempts_exhausted"), ["m0", "m1"]))
+        # Where both bounds are reached, the rounds' Hold is the one given, naming every round, not the attempts' alone.
+        both = [rounds(1)[0], dict(rounds(2)[1], conclusion="failure", outcome="item")]
+        d = decide(failing, both, cfg=named(max_implementing_rounds=2, max_attempts=1))
+        self.assertEqual((what(d)[:2], d["evidence"]), (("hold", "attempts_exhausted"), ["m0", "m1"]))
+        # A key missing, null or no whole number of at least one holds the issue, limits_unreadable, naming no Run, with
+        # a Run in flight too: never another key's number, nor a deferral.
+        missing = object()
+        for bad in (missing, None, 0, -1, True, 3.0, "3", [3]):
+            cfg = named()
+            if bad is missing:
+                del cfg["limits"]["max_implementing_rounds"]
+            else:
+                cfg["limits"]["max_implementing_rounds"] = bad
+            for spent in ([], rounds(1)):
+                d = decide(failing, spent, cfg=cfg)
+                self.assertEqual((d["state"], what(d), d["attention"], d["evidence"]),
+                                 ("held", ("hold", "limits_unreadable", None), "needs_you", []), (bad, spent))
+            flying = run(intent=issue.IMPLEMENT, status="in_progress", role="dev-lead", name="m9", minute=30)
+            d = decide(failing, [flying], cfg=cfg)
+            self.assertEqual((d["state"], what(d), d["attention"], d["evidence"]),
+                             ("held", ("hold", "limits_unreadable", None), "needs_you", []), bad)
+            # Another Intent's loop never reads the rounds' key, readable or not.
+            self.assertEqual(what(decide(TRIAGED, cfg=cfg)), ("admit", "triage", INVESTIGATE), bad)
+        # Runs that failed by the item are held at max_attempts, the implementing Run's as every Intent's, never at the
+        # lower of the two keys.
+        cfg = named(max_implementing_rounds=3, max_attempts=1)
+        broke = dict(rounds(1)[0], conclusion="failure", outcome="item")
+        self.assertEqual(what(decide(failing, [broke], cfg=cfg))[:2], ("hold", "attempts_exhausted"))
+        self.assertEqual(what(decide(failing, rounds(1), cfg=cfg)), ("admit", "linked_draft", issue.IMPLEMENT))
+        self.assertEqual(what(decide(TRIAGED, [failed(INVESTIGATE, 1, "f0")], cfg=cfg))[:2], ("hold", "attempts_exhausted"))
+        cfg = named(max_implementing_rounds=1, max_attempts=3)
+        self.assertEqual(what(decide(TRIAGED, [failed(INVESTIGATE, 1, "f0")], cfg=cfg)), ("admit", "triage", INVESTIGATE))
 
     def test_no_author_role_is_named_while_the_implementing_rule_is_owed_its_reads(self):  # issue 825, decision 0217
         # The implementing rule is dormant until the author Role is named, and four things are owed before it is: the
@@ -2460,8 +2536,8 @@ class Opening(unittest.TestCase):
         self.assertEqual((what(d), d["admit"]), (("admit", "ready", OPEN), {"role": "dev-lead", "intent": OPEN,
                                                                            "content_id": THIS, "branch_head": None,
                                                                            "base_head": BASE}))
-        d = decide(facts(label_events=READIED_BY_A_PERSON, branch_head="9f2c41d"))
-        self.assertEqual(d["admit"]["branch_head"], "9f2c41d")
+        d = decide(facts(label_events=READIED_BY_A_PERSON, branch_head=BRANCH_HEAD))
+        self.assertEqual(d["admit"]["branch_head"], BRANCH_HEAD)
         self.assertNotIn("branch_head", decide(TRIAGED)["admit"])
 
     def test_the_opening_run_of_a_branch_that_does_not_exist_is_admitted_for_the_commit_it_lands_on(self):
@@ -2488,12 +2564,12 @@ class Opening(unittest.TestCase):
         self.assertEqual(what(decide(facts(label_events=READIED_BY_A_PERSON, branch_head="", base_head="")))[1], "branch_unreadable")
         # Where the branch exists, an earlier Run's commit stands on it and this Run pushes none: no base is asked
         # for, read or not, and none is carried.
-        for f in (facts(label_events=READIED_BY_A_PERSON, branch_head="9f2c41d"),
-                  facts(label_events=READIED_BY_A_PERSON, branch_head="9f2c41d", base_head=None),
-                  facts(label_events=READIED_BY_A_PERSON, branch_head="9f2c41d", base_head=1)):
+        for f in (facts(label_events=READIED_BY_A_PERSON, branch_head=BRANCH_HEAD),
+                  facts(label_events=READIED_BY_A_PERSON, branch_head=BRANCH_HEAD, base_head=None),
+                  facts(label_events=READIED_BY_A_PERSON, branch_head=BRANCH_HEAD, base_head=1)):
             d = decide(f)
             self.assertEqual((what(d), d["admit"]["branch_head"], "base_head" in d["admit"]),
-                             (("admit", "ready", OPEN), "9f2c41d", False))
+                             (("admit", "ready", OPEN), BRANCH_HEAD, False))
         # No other State's Run waits on it.
         self.assertEqual(what(decide(facts(label_events=ACCEPTED, base_head=1)))[2], INVESTIGATE)
         # Nor does an act: an issue no one has triaged yet is accepted whatever the base reads, or with none at all.
@@ -2503,13 +2579,74 @@ class Opening(unittest.TestCase):
             self.assertEqual(decide(f).get("action"), "accept", f.get("base_head", "left out"))
 
     def test_an_unreadable_branch_head_defers_the_opening_run_alone(self):
-        for value in ("", 1, ["9f2c41d"]):
+        for value in ("", 1, ["9f2c41d"], "9f2c41d", "main", BRANCH_HEAD.upper(), BRANCH_HEAD + "0", BRANCH_HEAD[:-1] + "g"):
             self.assertEqual(what(decide(facts(label_events=READIED_BY_A_PERSON, branch_head=value))),
                              ("defer", "branch_unreadable", None), value)
         f = facts(label_events=READIED_BY_A_PERSON)
         del f["branch_head"]
         self.assertEqual(what(decide(f)), ("defer", "branch_unreadable", None))
         self.assertEqual(what(decide(facts(label_events=ACCEPTED, branch_head=1)))[2], INVESTIGATE)
+
+    def test_the_work_branch_is_read_as_a_commit_as_no_branch_or_not_told_and_only_no_branch_carries_a_base(self):
+        # Issue 1059, decision 0242: the issues port tells three values apart. A commit admits the opening Run for it, a
+        # branch read as not standing admits the first opening at the default branch's head, and a branch not told,
+        # `complete.branch` anything but exactly true, defers that admission whatever head the facts hold.
+        sha = "9f2c41d07a3be58e1c6d0b4a7e25f3c18d90ab6e"
+        d = decide(facts(label_events=READIED_BY_A_PERSON, branch_head=sha))
+        self.assertEqual((d["outcome"], d["admit"]["branch_head"], "base_head" in d["admit"]), ("admit", sha, False))
+        d = decide(facts(label_events=READIED_BY_A_PERSON))
+        self.assertEqual((d["outcome"], d["admit"]["branch_head"], d["admit"]["base_head"]), ("admit", None, BASE))
+        told = {"timeline": True, "linked": True, "runs": True}
+        missing = object()
+        for flag in (False, None, "true", 1, missing):
+            for head in (None, sha):
+                f = facts(label_events=READIED_BY_A_PERSON, branch_head=head,
+                          complete=dict(told) if flag is missing else dict(told, branch=flag))
+                self.assertEqual(what(decide(f)), ("defer", "branch_unreadable", None), (flag, head))
+                # Nothing else on the issue waits on it: its State, its investigation and the acceptance act.
+                self.assertEqual(derive(f)["state"], derive(facts(label_events=READIED_BY_A_PERSON))["state"])
+                self.assertEqual(what(decide(dict(f, label_events=ACCEPTED)))[2], INVESTIGATE, (flag, head))
+                self.assertEqual(decide(dict(f, label_events=[])).get("action"), "accept", (flag, head))
+                # Not told, it is unknown whether a base is wanted: an unread base is not what is said.
+                unbased = dict(f)
+                del unbased["base_head"]
+                self.assertEqual(what(decide(unbased)), ("defer", "branch_unreadable", None), (flag, head))
+        # The implementing Run pushes to its own draft (decision 0217): the next opening's branch, told or not, neither
+        # defers nor admits it. Its draft's own head is what it is admitted at, and one not told defers it.
+        named = dict(config(), author_role="dev-lead")
+        failing = facts(linked=[agents(draft=True, checks="failing")])
+        d = decide(failing, cfg=named)
+        self.assertEqual((d["outcome"], d["admit"]["branch_head"]), ("admit", DRAFT_HEAD["sha"]))
+        for flag in (False, None, "true", missing):
+            f = dict(failing, complete=dict(told) if flag is missing else dict(told, branch=flag), branch_head=None)
+            self.assertEqual(decide(f, cfg=named)["admit"], d["admit"], flag)
+        # With the next opening's branch told and standing at another commit, the Run still carries its draft's head.
+        other = "b" * 40
+        self.assertEqual(decide(dict(failing, branch_head=other), cfg=named)["admit"], d["admit"])
+        # A draft whose head is another commit at apply refuses the Run (I-21).
+        moved = facts(linked=[agents(draft=True, checks="failing", head=dict(DRAFT_HEAD, sha=other))])
+        self.assertFalse(issue.still_admitted(d, decide(moved, cfg=named)))
+        self.assertTrue(issue.still_admitted(d, decide(failing, cfg=named)))
+        # A later opening's draft, its count of two digits, is admitted at its own head as well.
+        later = facts(linked=[agents(draft=True, checks="failing", head=dict(DRAFT_HEAD, ref="factory-work/issue-7-12"))])
+        self.assertEqual(decide(later, cfg=named)["admit"]["branch_head"], DRAFT_HEAD["sha"])
+        for head in (missing, None, {}, {"sha": sha}, {"ref": DRAFT_HEAD["ref"]}, dict(DRAFT_HEAD, sha=sha[:7]),
+                     dict(DRAFT_HEAD, sha=sha.upper()), dict(DRAFT_HEAD, ref=""), dict(DRAFT_HEAD, ref=7), "main",
+                     dict(DRAFT_HEAD, ref="main"), dict(DRAFT_HEAD, ref="factory-work/issue-8-1"),
+                     dict(DRAFT_HEAD, ref="factory-work/issue-7-01"), dict(DRAFT_HEAD, ref="factory-work/issue-7-"),
+                     dict(DRAFT_HEAD, ref="factory-work/issue-07-1"), dict(DRAFT_HEAD, ref="factory-work/issue-7-1-2"),
+                     dict(DRAFT_HEAD, ref="factory-work/issue-7-x"), dict(DRAFT_HEAD, ref="factory-wurk/issue-7-1")):
+            draft = agents(draft=True, checks="failing")
+            if head is missing:
+                del draft["head"]
+            else:
+                draft["head"] = head
+            f = facts(linked=[draft])
+            self.assertEqual(what(decide(f, cfg=named)), ("defer", "branch_unreadable", None), head)
+            # Nothing else waits on it: no author Role, or checks that do not fail, admit nothing either way.
+            self.assertEqual(what(decide(f, cfg=dict(named, author_role=None))), ("nothing", "linked_draft", None), head)
+            passing = facts(linked=[dict(draft, checks="passing")])
+            self.assertEqual(what(decide(passing, cfg=named)), ("nothing", "linked_draft", None), head)
 
     def test_an_outsiders_issue_opens_only_from_a_statement_made_since_its_content_changed(self):
         events = [labelled(ADMIT), labelled(READY, minute=2)]
@@ -2683,7 +2820,7 @@ class Apply(unittest.TestCase):
         self.assertEqual(issue.still_admitted(admitted, decide(f, runs)), want, f["label_events"])
 
     def test_the_opening_run_is_refused_after_a_label_is_removed_a_hold_added_the_content_changed_or_the_head_moved(self):
-        f = facts(label_events=READIED_BY_A_PERSON, branch_head="9f2c41d")
+        f = facts(label_events=READIED_BY_A_PERSON, branch_head=BRANCH_HEAD)
         admitted = decide(f)
         self.assertEqual(admitted["outcome"], "admit")
         # In flight, the Run holds the issue; left out, it is the Run still wanted.

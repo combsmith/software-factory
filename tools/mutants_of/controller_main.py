@@ -7,9 +7,27 @@ AT_ONCE = ("tests.test_controller.Entry.test_the_open_pull_requests_are_read_fou
 RATE = ("tests.test_controller.Entry.test_a_rate_limit_is_a_429_or_a_403_with_no_request_left_or_a_time_to_wait",)
 STAGED = ("tests.test_controller.Entry.test_each_stage_of_a_pass_is_timed_in_the_log_alone_and_times_no_read_differently",)
 
+LEFT_OUT = ("tests.test_controller.Entry.test_a_pull_request_left_out_and_closed_before_the_next_pass_is_read_as_left",)
 F849_BUDGET = ("tests.test_controller.Entry.test_the_issue_reads_stop_at_the_passs_budget_and_those_left_out_by_it_are_read_first_by_the_next",)
 TARGETS = ("controller/__main__.py",)
 MUTANTS = [
+    # The default branch's head, read once a pass and given to each issue (decisions 0226 and 0242).
+    ("each issue is given no base head", 'controller/__main__.py',
+     'kernel=config["kernel"], base_head=head,', 'kernel=config["kernel"], base_head=None,', S3_ENTRY),
+    ("the base head's read is not dated", 'controller/__main__.py',
+     'facts_reads += [read for answer in asked.answers for read in dated(answer)] if head', 'facts_reads += [] if head', S3_ENTRY),
+    ("the base head's read is dated where it gave none", 'controller/__main__.py',
+     ' for read in dated(answer)] if head is not None else []', ' for read in dated(answer)]', S3_ENTRY),
+    ("the base head is dated by its first answer alone", 'controller/__main__.py',
+     '[read for answer in asked.answers for read in dated(answer)]', 'dated(asked.answers[0])', S3_ENTRY),
+    ("the base head is read with no issue listed", 'controller/__main__.py',
+     'if listed_whole and listed and apart is not None else None', 'if listed_whole and apart is not None else None', S3_ENTRY),
+    ("the base head is read from a list read short", 'controller/__main__.py',
+     'if listed_whole and listed and apart is not None else None', 'if listed and apart is not None else None', S3_ENTRY),
+    ("the base head is read where the tracking issue is unknown", 'controller/__main__.py',
+     'if listed_whole and listed and apart is not None else None', 'if listed_whole and listed else None', S3_ENTRY),
+    ("the base head's read spends the issues' budget", 'controller/__main__.py',
+     '    asked = Kept(transport)\n', '    asked = Kept(counted)\n', F849_BUDGET),
     # Issue 342: a pull request the Factory opens is bound to its issue by the Run that opened it, as well as its branch.
     ("the pass reads no Role's opening Runs", 'controller/__main__.py',
      'made = applied.opened(transport, home, runs, facts_.opener_role(config["kernel"]))',
@@ -44,6 +62,9 @@ MUTANTS = [
     ("any 403 is a rate limit", "controller/__main__.py", '(status == 403 and (str(', '(status == 403 or (str(', RATE),
     ("the carry's line counts no issue owed", "controller/__main__.py", '"left", "owed_issues", "left_issues", "hands")', '"left", "left_issues", "hands")', STAGED),
     ("the carry's line counts no issue left", "controller/__main__.py", '"owed_issues", "left_issues", "hands")', '"owed_issues", "hands")', STAGED),
+    ("the carry's line counts no hand approval or taken head", "controller/__main__.py", 'CARRIED = ("hand", "taken",\n', 'CARRIED = (\n', STAGED),
+    ("the carry's line counts no hand approval", "controller/__main__.py", 'CARRIED = ("hand", "taken",\n', 'CARRIED = ("taken",\n', STAGED),
+    ("the carry's line counts no taken head", "controller/__main__.py", 'CARRIED = ("hand", "taken",\n', 'CARRIED = ("hand",\n', STAGED),
     ("the carry's line counts no hand's thread", "controller/__main__.py", '"owed_issues", "left_issues", "hands")', '"owed_issues", "left_issues")', STAGED),
     ("the open pull requests' reads are not timed", "controller/__main__.py", '        stages.count(tally, "open_pull_requests", seconds)\n', '', STAGED),
     ("the carry's size is not said beside the pass", "controller/__main__.py", "        counts.update(stages.carried(out.get(\"record\")))\n", "", ('tests.test_controller.Entry.test_each_stage_of_a_pass_is_timed_in_the_log_alone_and_times_no_read_differently',)),
@@ -129,7 +150,7 @@ MUTANTS = [
     ('the entry hands the seen port no read', 'controller/__main__.py', 'kept[number] = held\n', 'pass\n', WIRE_ENTRY),
     ('what a failed snapshot kept is handed on', 'controller/__main__.py', '            facts, title, head = facts_.snapshot(through, home, number, identities, who.through(own), runs_whole,\n', '            kept[number] = held\n            facts, title, head = facts_.snapshot(through, home, number, identities, who.through(own), runs_whole,\n', WIRE_ENTRY),
     ('an item that has left is not read', 'controller/__main__.py', '[(n, seen_.LEFT) for n in sorted(newly)]', '[]', WIRE_ENTRY),
-    ('every item the last record held has left', 'controller/__main__.py', '({e["facts"]["item"]["number"] for e in last} - set(numbers))', '({e["facts"]["item"]["number"] for e in last})', WIRE_ENTRY),
+    ('every item the last record held has left', 'controller/__main__.py', '(({e["facts"]["item"]["number"] for e in last} | left_out) - set(numbers))', '({e["facts"]["item"]["number"] for e in last} | left_out)', WIRE_ENTRY),
     ('the older record says what has left', 'controller/__main__.py', 'last = before[-1]["pull_requests"] if before else []', 'last = before[0]["pull_requests"] if before else []', WIRE_ENTRY),
     ('what is owed is not read by the entry', 'controller/__main__.py', ' | (set(reconcile.owed(before)) - set(numbers) - held)', '', WIRE_ENTRY),
     ('an unread part is not owed', 'controller/__main__.py', '        if part[-1] is not True:\n            unread.append(number)\n', '', WIRE_ENTRY),
@@ -153,6 +174,21 @@ MUTANTS = [
     ("a pull request that left is read once", 'controller/__main__.py', '\n                         + [(n, seen_.GONE) for n in sorted(gone)]', '', ("tests.test_controller.Entry.test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it",)),
     ("an owed pull request that left is read as newly left", 'controller/__main__.py',
      '(set(reconcile.owed(before)) - set(numbers) - held)', '(set(reconcile.owed(before)) - set(numbers))', ("tests.test_controller.Entry.test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it",)),
+    # Issue 1194: a pull request the last pass left out, and no longer open, has left, as one it decided.
+    ("a pull request left out is not read as left", 'controller/__main__.py',
+     ' | left_out) - set(numbers))', ') - set(numbers))', LEFT_OUT),
+    ("an issue left out is read as a pull request that left", 'controller/__main__.py',
+     ' and e["item"].get("type") == "pull_request"}', '}', LEFT_OUT),
+    ("one left out and listed open is read as left", 'controller/__main__.py',
+     '(({e["facts"]["item"]["number"] for e in last} | left_out) - set(numbers))',
+     '(({e["facts"]["item"]["number"] for e in last} - set(numbers)) | left_out)', LEFT_OUT),
+    ("the oldest record's left out are read as left", 'controller/__main__.py',
+     'left_out = {e["item"]["number"] for e in ((before[-1]', 'left_out = {e["item"]["number"] for e in ((before[0]', LEFT_OUT),
+    ("a pull request left out as not facts is not read as left", 'controller/__main__.py',
+     ' and e["item"].get("type") == "pull_request"}', ' and e["item"].get("type") == "pull_request" and e["code"] != "not_facts"}', LEFT_OUT),
+    ("an entry left out that names no item is read", 'controller/__main__.py',
+     '                if isinstance(e.get("item"), dict) and e["item"].get("type") == "pull_request"}',
+     '                if e["item"].get("type") == "pull_request"}', LEFT_OUT),
     ("the entry stamps none that left", 'controller/__main__.py', 'return seen_.seen(parts, since, told), unread, sorted(newly)',
      'return seen_.seen(parts, since, told), unread, []', ("tests.test_controller.Entry.test_the_entry_gathers_what_reconciliation_reads",)),
     # Issue 757: the run record says whether a Run's Engine step started, from the outcome apply writes.

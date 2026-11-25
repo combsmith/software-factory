@@ -4658,6 +4658,7 @@ class Snapshot(unittest.TestCase):
                                 lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
         self.assertEqual((got["acceptance"], got["complete"]["acceptance"]), (None, False))
         self.assertIs(got["acceptance_bounded"], True)
+        self.assertIs(got["timeline_bounded"], False)        # the closing issue's cut is not its own (Astra)
 
     def test_a_snapshot_says_whether_its_own_timeline_was_cut(self):  # issue 1009, decision 0234
         # Anyone can comment on, or review, a pull request, so its timeline and its reviews are read to ten pages each. A
@@ -4683,15 +4684,15 @@ class Snapshot(unittest.TestCase):
         seq = self.sequence(1)
         eleventh = paged(seq, 5, "/repos/%s/issues/26/timeline?per_page=100" % canary())
         seq.append(eleventh)
-        replay = github.Replay(seq)
+        replay, kept = github.Replay(seq), {}
         router = Router(replay, {"don-petry": "admin"})
-        kept = {}
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                                 lambda: self.NOW, kept, recorded=NOTHING, opened=NOT_OPENED)
         # The cut is kept for the seen port, which reads that timeline again from its end (issue 1009).
         self.assertEqual(kept["cut"], {"events": True, "reviews": False})
         self.assertIs(got["complete"]["timeline"], False)
         self.assertIs(got["timeline_bounded"], True)
+        self.assertIs(kept["events"][1], False)               # reconciliation reads it short too (Astra)
         self.assertIs(got["complete"]["reviews"], True)       # with no dismissal, the reviews stay whole (Carbon)
         self.assertEqual([asked[1] for asked, _ in replay._left], [eleventh["request"]["call"].split(" ", 1)[1]])
         # A review dismissed past the cut, whose dismissal the timeline read does not hold, leaves the reviews not
@@ -4767,6 +4768,29 @@ class Snapshot(unittest.TestCase):
         self.assertIs(got["timeline_bounded"], False)
         self.assertIs(got["complete"]["reviews"], True)       # with no dismissal, the reviews stay whole (Carbon)
         self.assertEqual(kept["cut"], {"events": False, "reviews": False})   # short is not cut, for the seen port (Carbon)
+        # A review submitted on a later page, past a first page of a hundred, reaches the snapshot (Astra).
+        approved = next(r for r in body("P-7", 22) if r["state"] == "APPROVED")
+        seq = self.sequence(1)
+        paged(seq, 6, "/repos/%s/pulls/26/reviews?per_page=100" % canary())
+        seq[6]["response"]["body"] = [{"id": n, "state": "PENDING"} for n in range(100)]
+        seq[7]["response"]["body"] = [approved]
+        seq[15]["response"]["headers"] = {"link": ""}
+        router = Router(github.Replay(seq), {"don-petry": "admin"}, {approved["commit_id"]: "diff --git a/x b/x\n"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
+        self.assertEqual([(r["state"], r["commit"]) for r in got["reviews"]], [("approved", approved["commit_id"])])
+        self.assertIs(got["complete"]["reviews"], True)
+        # Reviews cut beside a timeline read short, not cut, with a dismissal it cannot explain: the row is left out,
+        # and the reviews' cut is still said (Astra).
+        seq = self.sequence(1)
+        seq[5] = copy.deepcopy(seq[5])
+        seq[5]["response"]["body"] = {"message": "not a list"}
+        seq[6] = copy.deepcopy(seq[6])
+        seq[6]["response"]["body"] = [dismissed]
+        paged(seq, 6, "/repos/%s/pulls/26/reviews?per_page=100" % canary())
+        got = snap(seq)
+        self.assertEqual((got["complete"]["timeline"], got["complete"]["reviews"], got["timeline_bounded"], got["reviews"]),
+                         (False, False, True, []))
 
     def test_a_snapshot_reads_the_ask_of_the_openers_pull_request_by_its_branch(self):  # issue 295
         # Told that the App that opens pull requests is this one's author, the snapshot reads its branch, which is no
@@ -6732,12 +6756,48 @@ def issue_read(events=(), more=False, last=None, types=(), edits=None, closing=N
 
 class Issues(unittest.TestCase):
     NOW = "2026-10-11T12:00:00Z"
+    HEAD = "3b8e5d1c0a9f7e6d5c4b3a291807f6e5d4c3b2a1"
+
+    def test_the_default_branchs_head_is_read_by_its_ref_and_given_to_the_facts_or_left_out(self):  # decision 0242
+        # The repo names its default branch; that branch's ref, never a name a tag could share, gives its head, a
+        # commit's whole name. Anything else is none, and the issue's facts leave `base_head` out (decision 0226).
+        def head(repo, ref=None, branch="main", status=200, first=200):
+            exchanges = [rest_answer("/repos/o/r", repo)] + ([rest_answer("/repos/o/r/git/ref/heads/" + branch, ref)]
+                                                              if ref is not None else [])
+            exchanges[-1]["response"]["status"] = status if ref is not None else 200
+            exchanges[0]["response"]["status"] = first
+            return issues.default_head(github.Replay(exchanges), "o/r")
+
+        def ref(name="refs/heads/main", kind="commit", sha=self.HEAD):
+            return {"ref": name, "object": {"type": kind, "sha": sha}}
+
+        main = {"default_branch": "main"}
+        self.assertEqual(head(main, ref()), self.HEAD)
+        self.assertEqual(head({"default_branch": "rel/1#2"}, ref("refs/heads/rel/1#2"), "rel/1%232"), self.HEAD)
+        for repo, answer in (({}, None), ({"default_branch": ""}, None), ({"default_branch": 7}, None), (main, []),
+                             (main, ref("refs/tags/main")), (main, ref("refs/heads/other")), (main, ref(kind="tag")),
+                             (main, ref(sha="main")), (main, ref(sha=self.HEAD.upper())), (main, ref(sha=self.HEAD + "0")), (main, ref(sha=self.HEAD[:7])), (main, ref(sha=None)),
+                             ({"default_branch": "\ud800"}, None), (main, {"ref": "refs/heads/main", "object": "x"}),
+                             (main, {"ref": "refs/heads/main", "object": [ref()["object"]]}),
+                             (main, {"ref": "refs/heads/main", "object": None})):
+            self.assertIsNone(head(repo, answer), (repo, answer))
+        self.assertIsNone(head({"default_branch": ""}, ref("refs/heads/"), ""))     # no branch is named: not asked
+        # An answer of another status than 200 is none, and a read GitHub does not answer is none too, never a raise
+        # that leaves the issue unread: the repo's, or the ref's after it.
+        self.assertIsNone(head(main, ref(), status=206))
+        self.assertIsNone(head(main, ref(), first=206))
+        self.assertIsNone(issues.default_head(github.Replay([]), "o/r"))
+        self.assertIsNone(issues.default_head(github.Replay([rest_answer("/repos/o/r", main)]), "o/r"))
+        # The issue's facts carry what the pass read, and leave it out where it read none.
+        self.assertEqual(self.read(issue_read())["base_head"], self.HEAD)
+        self.HEAD = None
+        self.assertNotIn("base_head", self.read(issue_read()))
 
     def read(self, exchanges, clock=None, transport=None, earlier=()):
         router = transport or Router(github.Replay(exchanges), {"don-petry": "admin", "stranger": "read"})
         accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]})
         found, title = issues.read(router, "o/r", 41, accounts, clock or (lambda: self.NOW), identities=IDENTITIES,
-                                   earlier=None if earlier is None else list(earlier))
+                                   earlier=None if earlier is None else list(earlier), base_head=self.HEAD)
         # The title is handed beside the facts, never in them.
         self.assertEqual(title, (exchanges or issue_read())[0]["response"]["body"]["title"])
         self.assertNotIn(title, json.dumps(found))
@@ -8228,6 +8288,31 @@ class DraftChecks(unittest.TestCase):
                               lambda: Issues.NOW, identities=IDENTITIES, earlier=[], kernel=given)[0]
             self.assertEqual([p.get("checks") for p in got["linked"]], ["failing", None])
 
+    def test_the_factorys_draft_carries_its_own_head_from_this_repo(self):  # issue 1059
+        # The head an implementing Run is admitted at: the draft's commit and its work branch, from this repo by id.
+        sha, work = "5c1e2d3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d", "factory-work/issue-41-1"
+        good = {"head": {"sha": sha, "ref": work, "repo": {"id": 1}}, "base": {"repo": {"id": 1, "full_name": "o/r"}}}
+        self.assertEqual(draft_checks.head(good), {"sha": sha, "ref": work})
+        head = lambda **over: dict(good, head=dict(good["head"], **over))
+        for bad in (head(repo={"id": 2}), head(repo=None), head(repo={"id": True}), head(repo={}), head(sha=sha[:7]),
+                    head(sha=sha.upper()), head(sha=sha + "0"), head(sha="g" * 40), head(sha=None), head(repo="o/r"),
+                    dict(good, base={"repo": "o/r"}), head(ref="work"), head(ref=work + "-2"),
+                    head(ref=None), dict(good, base={"repo": {"id": True}}), dict(good, base={"repo": {}}), dict(good, base=None),
+                    dict(good, head=None), {}):
+            self.assertIsNone(draft_checks.head(bad), bad)
+        # Through the linked read: carried beside the checks, for the Factory's draft alone, null where not told.
+        given = self.kernel()
+        exchanges = [linked_read(ref(5, 6)), pull_read(5, user=CONTROLLER_APP, draft=True), pull_timeline(5),
+                     pull_read(6, draft=True), pull_timeline(6)]
+        exchanges[1]["response"]["body"]["head"]["ref"] = work
+        with mock.patch.object(draft_checks, "read", lambda transport, got, kernel: "failing"):
+            for ours, want in ((work, {"sha": "a" * 40, "ref": work}), ("work", None)):
+                exchanges[1]["response"]["body"]["head"]["ref"] = ours
+                transport = Router(github.Replay(copy.deepcopy(exchanges)), {"don-petry": "admin"})
+                found = linked.listing(transport, "o/r", 41, UPDATED, CREATED, IDENTITIES, Linked().accounts(transport),
+                                       {}, given)[0]
+                self.assertEqual([(p.get("checks"), p.get("head", "none")) for p in found],
+                                 [("failing", want), (None, "none")], ours)
 
 PUSHED = json.loads((ROOT / "trials" / "P-71.json").read_text())["repo"]       # P-71's repo, and its work branch
 WORK = "factory-work/issue-9971-1"

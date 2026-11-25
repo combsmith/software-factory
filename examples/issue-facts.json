@@ -68,7 +68,12 @@
       "link_events": [],
       "keyword": true,
       "keyword_spans": [],
-      "close_events": []
+      "close_events": [],
+      "checks": "failing",
+      "head": {
+        "sha": "4d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e",
+        "ref": "factory-work/issue-41-1"
+      }
     },
     {
       "number": 140,
@@ -128,7 +133,8 @@
   "complete": {
     "timeline": true,
     "linked": true,
-    "runs": true
+    "runs": true,
+    "branch": true
   },
   "timeline_bounded": false,
   "read_at": "2026-10-11T12:00:00Z"

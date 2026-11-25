@@ -42,6 +42,7 @@ RAW = {
     "adapters.identity.mint": {}, "adapters.identity.revoke": {},
     "adapters.items.open_pull_requests": {"pull_requests": R}, "adapters.items.open_issues": {"issues": R},
     "adapters.issues.own": {"issues": R}, "adapters.issues.edits": {"issues": R},  # an issue, and its edits by GraphQL
+    "adapters.issues.default_head": {"metadata": R, "contents": R},    # the repo's default branch, then its ref (0226)
     "adapters.passes.find": {"actions": R}, "adapters.passes.records": {"actions": R},
     "adapters.passes.started": {"actions": R}, "adapters.passes.written": {"actions": R},
     # FACTORY_PAUSED, the repo's and the org's through the repo.
@@ -91,6 +92,7 @@ SITES = {
     "adapters.effects.write_status": 3,
     "adapters.identity.mint": 2,
     "adapters.identity.revoke": 1,
+    "adapters.issues.default_head": 2,
     "adapters.issues.edits": 1,
     "adapters.issues.own": 1,
     "adapters.items.open_issues": 1,

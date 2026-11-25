@@ -212,6 +212,28 @@
           "draft": {
             "type": "boolean"
           },
+          "head": {
+            "description": "The draft's own head, read where its checks are: the commit's whole sha and its branch's name, from this repo; null where it cannot be told, as from another repo. An implementing Run is admitted at it, and defers while it is null or missing (issue 1059)",
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "sha",
+              "ref"
+            ],
+            "properties": {
+              "sha": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "ref": {
+                "type": "string",
+                "pattern": "^factory-work/issue-[1-9][0-9]*-[1-9][0-9]*$"
+              }
+            }
+          },
           "checks": {
             "description": "How its head's required checks stand: failing once one has concluded against it, pending while one has not concluded or is not yet listed, as after a push, passing once all have passed; null where they could not be read. Read only where a draft the Factory opened is linked",
             "enum": [
@@ -410,12 +432,12 @@
       "minimum": 0
     },
     "branch_head": {
-      "description": "The head of the branch the next opening Run would push to, named from the issue's number and the count of pull requests the Factory has opened for it; null while that branch does not exist. The opening Run is admitted for it, and apply refuses once it has moved",
+      "description": "The head of the branch the next opening Run would push to, named from the issue's number and the count of pull requests the Factory has opened for it; null while that branch does not exist, and null where it was not read, which complete.branch tells apart (decision 0242). A commit's whole name where it stands. The opening Run is admitted for it, and apply refuses once it has moved",
       "type": [
         "string",
         "null"
       ],
-      "minLength": 1
+      "pattern": "^[0-9a-f]{40}$"
     },
     "base_head": {
       "description": "The default branch's head as the pass read it: the commit an opening Run reads, and the parent of its one commit where the branch does not exist. Not required: left out, it is unread, and the Kernel defers the opening Run of a branch that does not exist",
@@ -441,6 +463,10 @@
         },
         "runs": {
           "description": "Whether the list of run records the pass read was whole",
+          "type": "boolean"
+        },
+        "branch": {
+          "description": "Whether branch_head was told: the branch named, from the count of pull requests the Factory opened for the issue, and its head read as a commit or as no branch. Not required, as facts made before it was do not hold it; one that is not exactly true defers an opening alone, as branch_unreadable; an implementing Run reads its draft's own head (decision 0242)",
           "type": "boolean"
         }
       }

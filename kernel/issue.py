@@ -848,10 +848,39 @@ def readable_writer(facts: dict) -> bool:
                for name in ("last_writer_action_at", "last_writer_comment_at"))
 
 
+def branch_told(facts: dict) -> bool:
+    """Whether the issues port told the next opening's branch: `complete.branch` exactly true. Not one of the lists every
+    rule reads (`ISSUE_READ_IN_FULL`): a branch not told defers an opening alone (decision 0242)."""
+    flags = facts.get("complete")
+    return isinstance(flags, dict) and flags.get("branch") is True
+
+
 def readable_head(facts: dict) -> bool:
-    """The head of the branch the next opening Run would push to: a name, or null while that branch does not exist."""
-    return "branch_head" in facts and (facts["branch_head"] is None
-                                       or (isinstance(facts["branch_head"], str) and facts["branch_head"] != ""))
+    """The head of the branch the next opening Run would push to, told: a commit's whole sha, or null while that branch
+    does not exist. Where the port did not tell it, `complete.branch` not exactly true, a null is unread too (issue 1059)."""
+    return branch_told(facts) and "branch_head" in facts and (
+        facts["branch_head"] is None or is_commit(facts["branch_head"]))
+
+
+def draft_head(draft: dict, number) -> bool:
+    """Whether the Factory's draft's own head was told: its commit's whole sha, on a work branch of issue `number`, read
+    with the draft from this repo (`adapters/draft_checks.head`); anything else is not (issue 1059)."""
+    head = draft.get("head")
+    return isinstance(head, dict) and is_commit(head.get("sha")) and work_branch_of(head.get("ref"), number)
+
+
+def work_branch_of(ref, number) -> bool:
+    """Whether `ref` is a work branch of issue `number`, as terms.py's WORK_BRANCH spells one: the prefix, the issue, a
+    dash and the count, each a whole number from 1 with no leading zero (decision 0068)."""
+    if not (isinstance(ref, str) and ref.startswith(t.WORK_PREFIX)):
+        return False
+    issue, _, count = ref[len(t.WORK_PREFIX):].partition("-")
+    return issue == str(number) and all(p != "" and p[0] != "0" and all(c in t.DIGITS for c in p) for p in (issue, count))
+
+
+def is_commit(value) -> bool:
+    """A commit's whole name, as GitHub writes it: forty lowercase hex digits, and no branch's or tag's name."""
+    return isinstance(value, str) and len(value) == len(COMMIT_SHAPE) and all(c in t.HEX_DIGITS for c in value)
 
 
 def readable_base(facts: dict) -> bool:
@@ -1057,9 +1086,10 @@ def _implementing(facts, state, reason, evidence, mine, config):
     """The implementing Run a linked draft calls for (slice 2's S9, issue 825), or the Decision that admits none: while
     the draft the Factory opened fails its required checks, another of the author Role's, for that draft. A person's or
     a stranger's draft waits for its author, and every draft does while no author Role is named. The draft's checks are
-    read only where the rule would act on them, and checks that cannot be read defer. `max_attempts` bounds the rounds:
-    every implementing Run that completed since a writer acted is one, whatever it concluded, since the checks it left
-    failing are what admit the next, a brake the brakes keep (issue 874); the Run ceiling bounds it as it bounds any Run."""
+    read only where the rule would act on them, and checks that cannot be read defer. `max_implementing_rounds` bounds
+    the rounds (decision 0242): every implementing Run that completed since a writer acted is one, whatever it concluded,
+    since the checks it left failing are what admit the next, a brake the brakes keep (issue 874); the Run ceiling, and
+    `max_attempts` for its Runs that failed by the item, bound it as they bound any Run."""
     draft = [p for p in facts["linked"] if str(p["number"]) == evidence[0]][0]
     if config["author_role"] is None or draft["class"] != "agent":
         return _decision(facts, state, reason, evidence, t.NOTHING)
@@ -1067,10 +1097,15 @@ def _implementing(facts, state, reason, evidence, mine, config):
         return _decision(facts, state, "draft_checks_unreadable", evidence, t.DEFER)
     if draft["checks"] != "failing":
         return _decision(facts, state, reason, evidence, t.NOTHING)
-    held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"])
+    unreadable = _decision(facts, t.HELD, "limits_unreadable", [], t.HOLD)
+    held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"], unreadable)
     if held:
         return held
-    return (config["author_role"], IMPLEMENT, {"pull_request": draft["number"]})
+    # The Run pushes to the draft it is admitted for (decision 0217), so its own head is what it is admitted at: one the
+    # port could not tell defers it. The next opening's branch is no branch it touches (issue 1059).
+    if not draft_head(draft, facts["item"]["number"]):
+        return _decision(facts, state, "branch_unreadable", evidence, t.DEFER)
+    return (config["author_role"], IMPLEMENT, {"pull_request": draft["number"], "branch_head": draft["head"]["sha"]})
 
 
 def moved_at(facts: dict, runs: list, config: dict, now: str):
@@ -1213,8 +1248,8 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
 def still_admitted(admitted: dict, again: dict) -> bool:
     """Whether `apply` may write. Before any Effect it asks the Kernel again, leaving its own Run out of the records
     (I-38), and writes nothing unless that admits the same Run: the same Role and Intent, which only one State admits,
-    for the same content, and for the opening Run the same branch head (I-21). So a label removed, a Hold added, an
-    edit made or a head moved while the Run was in flight each stop it. The default branch moving does not: the Run's
+    for the same content, and the same branch head, the opening Run's or the implementing Run's draft's (I-21, issue
+    1059). So a label removed, a Hold added, an edit made or a head moved while the Run was in flight each stop it. The default branch moving does not: the Run's
     commit lands on the commit it was admitted for, `base_head`, which is left out of the comparison, and nothing
     holds the default branch still meanwhile. A base stands on both admissions or on neither, and where it stands
     each is a commit's whole name: the commit lands on its own admission's base, never the second asking's."""
