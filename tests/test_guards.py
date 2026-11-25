@@ -530,6 +530,10 @@ class Patch(unittest.TestCase):
         # Hunks that are not the file's land nothing, of this file or of any other the patch names.
         wrong = CHANGE + section("run.sh", b"@@ -1 +1 @@\n-#!/bin/bash\n+exit\n", extended=b"index 1111111..2222222 100755\n")
         self.assertEqual(landed(wrong), (None, patch.NOT_APPLIED))
+        # A last line with no newline lands with none: no byte is added where git's marker stands.
+        bare = (b"diff --git a/n b/n\nnew file mode 100644\nindex 0000000..2222222\n--- /dev/null\n+++ b/n\n"
+                b"@@ -0,0 +1 @@\n+x\n\\ No newline at end of file\n")
+        self.assertEqual(landed(bare), ({"written": {"n": (FILE, b"x")}, "removed": [], "read": []}, None))
 
     def test_a_new_a_removed_a_renamed_and_a_copied_file_are_each_what_the_patch_says(self):
         new = (b"diff --git a/docs/n.md b/docs/n.md\nnew file mode 100644\nindex 0000000..2222222\n--- /dev/null\n"
@@ -546,8 +550,8 @@ class Patch(unittest.TestCase):
         self.assertEqual(landed(moved)[0], {"written": {"docs/b.md": (FILE, b"A" + OLD[1:])}, "removed": ["docs/a.md"],
                                             "read": ["docs/a.md"]})
         whole = b"diff --git a/run.sh b/bin/run.sh\nsimilarity index 100%\nrename from run.sh\nrename to bin/run.sh\n"
-        self.assertEqual(landed(whole)[0], {"written": {"bin/run.sh": ("100755", b"#!/bin/sh\n")}, "removed": ["run.sh"],
-                                            "read": ["run.sh"]})
+        self.assertEqual(landed(whole), ({"written": {"bin/run.sh": ("100755", b"#!/bin/sh\n")}, "removed": ["run.sh"],
+                                          "read": ["run.sh"]}, None))
         copied = b"diff --git a/docs/a.md b/docs/c.md\nsimilarity index 100%\ncopy from docs/a.md\ncopy to docs/c.md\n"
         self.assertEqual(landed(copied), ({"written": {"docs/c.md": (FILE, OLD)}, "removed": [], "read": ["docs/a.md"]}, None))
         # A section of no hunk lands the bytes that were read, themselves: a copy costs the patch no bytes anew.
@@ -569,6 +573,8 @@ class Patch(unittest.TestCase):
         self.assertEqual(landed(two)[0]["read"], ["docs/a.md", "run.sh"])
         moves = landed(two.replace(b"copy ", b"rename "))[0]
         self.assertEqual((moves["read"], moves["removed"]), (["docs/a.md", "run.sh"], ["docs/a.md", "run.sh"]))
+        mixed = landed(two.replace(b"copy from run.sh\ncopy to", b"rename from run.sh\nrename to"))[0]
+        self.assertEqual((mixed["read"], mixed["removed"]), (["docs/a.md", "run.sh"], ["run.sh"]))
         # A copy with a hunk is the admitted commit's file with the hunk applied, and the file itself stays.
         changed = (copied.replace(b"100%", b"87%") + b"index 1111111..2222222 100644\n--- a/docs/a.md\n+++ b/docs/c.md\n"
                    b"@@ -1,2 +1,2 @@\n-a\n+A\n b\n")
@@ -645,6 +651,8 @@ class Patch(unittest.TestCase):
                  gone + away, moved % ((b"docs/b.md",) * 2) + moved % ((b"docs/c.md",) * 2),      # a file moved once it is gone
                  copied % ((b"docs/c.md",) * 2) + copied % ((b"docs/c.md",) * 2),
                  copied % ((b"docs/c.md",) * 2) + copied % ((b"docs/d.md",) * 2),     # a file copied twice
+                 copied % ((b"docs/c.md",) * 2) + b"diff --git a/run.sh b/r2\nsimilarity index 100%\ncopy from run.sh\n"
+                 b"copy to r2\n" + copied % ((b"docs/d.md",) * 2),                     # and with another copy between
                  # two files moved onto one name; a new file and a copy on one name
                  moved % ((b"x",) * 2) + away, new % ((b"docs/c.md",) * 3) + copied % ((b"docs/c.md",) * 2))
         for data in twice:
@@ -655,6 +663,7 @@ class Patch(unittest.TestCase):
         new = (b"diff --git a/%s b/%s\nnew file mode %s\nindex 0000000..2222222\n--- /dev/null\n+++ b/%s\n"
                b"@@ -0,0 +1 @@\n+docs/a.md\n")
         cases = (
+            EMPTY % (b"ok", b"ok") + EMPTY % (b"link/x", b"link/x"),             # each file is asked, not the first
             new % (b"l", b"l", b"120000", b"l"),                               # a link
             new % (b"m", b"m", b"160000", b"m"),                               # a submodule
             section("link", b"@@ -1 +1 @@\n-docs/a.md\n\\ No newline at end of file\n+run.sh\n\\ No newline at end of file\n",
