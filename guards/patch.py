@@ -63,6 +63,8 @@ PLAIN_MODES = (b"100644", b"100755")
 FILE_MODES = ("100644", "100755")
 # The modes of what a tree holds that is no directory: a file's two, a link's and a submodule's.
 TREE_MODES = ("100644", "100755", "120000", "160000")
+# A submodule's mode: what it names is a commit of another repository, with no bytes here to read.
+SUBMODULE = "160000"
 DIGITS = b"0123456789"
 HEX = b"0123456789abcdef"
 # A hash of more characters than this, a SHA-256 name in full, is no hash git writes; nor is one of fewer than this,
@@ -451,8 +453,10 @@ def _folded(name: str) -> str:
     patch writes, and each directory above it, is of `NAME_CHARS`, which are ASCII, and two names are one only where
     both fold to it. So it is enough to fold each name exactly where its fold is ASCII: case folding, and the two
     characters `CANONICAL` holds, do that. A test reads every character against the real fold."""
-    forms = dict(CANONICAL)
-    return "".join(forms.get(c, c) for c in name.casefold())
+    folded = name.casefold()
+    for form, plain in CANONICAL:
+        folded = plain.join(folded.split(form))
+    return folded
 
 
 def _above(path: str) -> list:
@@ -470,8 +474,9 @@ def _placed(path: str, tree: dict, folders: dict) -> bool:
 def _handed(tree, contents) -> bool:
     """Whether `tree` and `contents` are in a shape a port gives. A tree is a mapping of paths, as text, to the modes
     git writes of what is no directory. No path of it has more parts than `DEEPEST` has characters, as no name this
-    reads has; nor an empty part, a `.` or `..` part or a NUL, which git holds in no tree; and none is a directory to
-    another. Contents are a mapping of paths the tree holds to bytes. Each is of its type exactly: a subclass of
+    reads has; nor an empty part, a `.` or `..` part, git's own directory in any case, or a NUL, which git holds in no
+    tree; and none is a directory to another. Contents are a mapping of paths the tree holds, none a submodule, to
+    bytes. Each is of its type exactly: a subclass of
     `dict`, `str` or `bytes` would be read by its own methods. Each pair is read as it stands, and no key is looked up
     until every key is known to be plain text, since a lookup compares keys."""
     if type(tree) is not dict or type(contents) is not dict:
@@ -481,12 +486,12 @@ def _handed(tree, contents) -> bool:
     # A bound on depth, asked before a path is split, bounds what is built of each path here and in `_above`.
     if not all(path.count("/") < len(DEEPEST) for path in tree):
         return False
-    if not all(all(part not in ("", ".", "..") for part in path.split("/")) and str(NUL, "ascii") not in path
-               for path in tree):
+    if not all(all(part not in ("", ".", "..") and part.casefold() != GIT_OWN for part in path.split("/"))
+               and str(NUL, "ascii") not in path for path in tree):
         return False
     if not all(type(path) is str and type(said) is bytes for path, said in contents.items()):
         return False
-    if not all(path in tree for path in contents):
+    if not all(path in tree and tree[path] != SUBMODULE for path in contents):
         return False
     return not any(part in tree for path in tree for part in _above(path))
 

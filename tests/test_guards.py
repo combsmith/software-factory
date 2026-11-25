@@ -789,6 +789,9 @@ class Patch(unittest.TestCase):
                            (TREE, {b"other": b"", **HELD}), (TREE, {"tests/t.py": None, "docs/a.md": OLD}),
                            ({"/".join(["d"] * 33): FILE, **TREE}, HELD), ({"docs/./x": FILE, **TREE}, HELD),
                            (TREE, {"other": b"", **HELD}),
+                           # git's own directory, in any case; and bytes for a submodule, which has none to read
+                           ({**TREE, "d/.git/config": FILE}, HELD), ({**TREE, ".GIT": FILE}, HELD),
+                           (TREE, {**HELD, "vendored": b"x"}),
                            # nor a `.` or `..` part, which would name another path: docs/./a.md is docs/a.md
                            ({**TREE, "docs/./x": FILE}, HELD), ({**TREE, "docs/../x": FILE}, HELD),
                            ({**TREE, "./x": FILE}, HELD), ({**TREE, "x/..": FILE}, HELD), ({**TREE, ".": FILE}, HELD),
@@ -810,6 +813,23 @@ class Patch(unittest.TestCase):
                            (TREE, {**HELD, "run.sh": Said(b"")})):
             self.assertEqual(patch.applied(CHANGE, tree, held), (None, patch.TREE_UNREAD), (tree, held))
         # A path of more parts than DEEPEST has characters is in no tree a port gives; one of as many parts is.
+        # A path whose part holds .git but is not it is a name; a link's bytes may be handed over.
+        self.assertIsNone(patch.applied(CHANGE, {**TREE, ".github/x": FILE, "x.git": FILE}, HELD)[1])
+        # Refusing reads no key that is not plain text, so no method of one is called: not its hash, nor its equality.
+        class Counted(str):
+            calls = []
+
+            def __hash__(self):
+                Counted.calls.append("hash")
+                return str.__hash__(self)
+
+            def __eq__(self, other):
+                Counted.calls.append("eq")
+                return str.__eq__(self, other)
+        for tree, held in (({**TREE, Counted("n"): FILE}, HELD), (TREE, {**HELD, Counted("n"): b""})):
+            del Counted.calls[:]
+            self.assertEqual(patch.applied(CHANGE, tree, held), (None, patch.TREE_UNREAD))
+            self.assertEqual(Counted.calls, [])
         # A part that begins or ends with dots is a name all the same.
         self.assertIsNone(patch.applied(CHANGE, {**TREE, ".x/...": FILE, "..y": FILE}, HELD)[1])
         deepest = "/".join(["d"] * len(patch.DEEPEST))
@@ -827,6 +847,7 @@ class Patch(unittest.TestCase):
                          (None, patch.TREE_UNREAD))
         self.assertEqual(landed(wrong + GONE, held={"docs/a.md": OLD}), (None, patch.TREE_UNREAD))
         self.assertEqual(landed(CHANGE + GONE, held={"tests/t.py": b"x\n"}), (None, patch.TREE_UNREAD))
+        self.assertEqual(landed(wrong + GONE + EMPTY % (b"n", b"n"), held={"docs/a.md": OLD}), (None, patch.TREE_UNREAD))
         self.assertEqual(landed(wrong + GONE), (None, patch.NOT_APPLIED))
         # A new file reads nothing, and a new file where the tree holds one is the Role's, read or not.
         self.assertEqual(landed(EMPTY % (b"docs/a.md", b"docs/a.md"), held={}), (None, patch.NOT_APPLIED))
