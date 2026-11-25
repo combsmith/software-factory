@@ -6682,7 +6682,7 @@ class Branches(unittest.TestCase):
         told = []
 
         def head(transport, repo, number, opener):
-            told.append((repo, number, opener))
+            told.append((transport is router, repo, number, opener))
             return answer
         for answer in ((self.SHA, True), (None, True), (None, False)):
             router = Router(github.Replay(issue_read()), {"don-petry": "admin", "stranger": "read"})
@@ -6691,7 +6691,7 @@ class Branches(unittest.TestCase):
                 found, _ = issues.read(router, "o/r", 41, accounts, lambda: Issues.NOW, identities=IDENTITIES, earlier=[],
                                        opener=self.OPENER)
             self.assertEqual((found["branch_head"], found["complete"]["branch"]), answer)
-        self.assertEqual(told, [("o/r", 41, self.OPENER)] * 3)
+        self.assertEqual(told, [(True, "o/r", 41, self.OPENER)] * 3)
 
 
 class Issues(unittest.TestCase):

@@ -312,4 +312,6 @@ MUTANTS = [
     ('the work branch is read with no opener', 'adapters/issues.py',
      'branches.work_head(transport, repo, number, opener)', 'branches.work_head(transport, repo, number, None)',
      PORT_HANDS),
+    ("the branch is read with no transport", 'adapters/issues.py',
+     'branches.work_head(transport, repo, number, opener)', 'branches.work_head(None, repo, number, opener)', PORT_HANDS),
 ]
