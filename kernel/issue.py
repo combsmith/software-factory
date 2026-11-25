@@ -860,9 +860,10 @@ def readable_head(facts: dict) -> bool:
     """The head of the branch the next opening Run would push to, told: a commit's whole sha, or null while that branch
     does not exist. Where the port did not tell it, `complete.branch` not exactly true, a null is unread too (issue 1059).
     A commit is told only with `branch_pushed`, whether an earlier opening Run of the issue recorded pushing it, exactly
-    true or false; with no branch there is nothing to tell."""
+    true or false; with no branch there is nothing to tell, and a push told of no branch contradicts it."""
     return branch_told(facts) and "branch_head" in facts and (
-        facts["branch_head"] is None or is_commit(facts["branch_head"]) and type(facts.get("branch_pushed")) is bool)
+        facts["branch_head"] is None and facts.get("branch_pushed") is None
+        or is_commit(facts["branch_head"]) and type(facts.get("branch_pushed")) is bool)
 
 
 def draft_head(draft: dict, number) -> bool:
