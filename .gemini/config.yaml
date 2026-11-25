@@ -1,0 +1,5 @@
+# Gemini Code Assist's settings for this repo; every key left out keeps Google's default.
+# Schema: https://docs.cloud.google.com/gemini/docs/code-review/customize-repo-review
+# Only findings of high or critical severity become review threads (issue 1209).
+code_review:
+  comment_severity_threshold: HIGH
