@@ -1509,9 +1509,9 @@ class Authority(unittest.TestCase):
         # adapters/branches.py exists and parses, and adapters/issues.py parses, imports it at its top and writes no
         # head as None, read from the syntax; and until trials/P-80.json reads as JSON recording trial P-80, and
         # tests/test_adapters.py holds the test that tells a head the Factory pushed from one it never did: a method
-        # of that name, undecorated, directly in a class at the module's top. With none named it passes. This repo's
-        # port reads the branch, so one named passes that part and waits on the trial or the test; a repo whose port
-        # names a read that is not there, here a module of another name, refuses it for that.
+        # of that name, undecorated, directly in an undecorated class at the module's top. With none named it passes.
+        # This repo's port reads the branch, so one named passes that part; a repo whose port names a read that is not
+        # there, here a module of another name, refuses it for that. The trial is named before the test.
         config = json.loads((ROOT / "config" / "defaults.json").read_text())
         self.assertEqual(check_authority.branch_read_problems(config), [])
         named = copy.deepcopy(config)
@@ -1522,9 +1522,7 @@ class Authority(unittest.TestCase):
         self.assertEqual(check_authority.HEAD_MATCH, ("tests/test_adapters.py", name))
         self.assertEqual(check_authority.TRIAL, ("trials/P-80.json", "P-80"))
         match = "tests/test_adapters.py holds no %s" % name
-        problems = check_authority.run(config=named)
-        self.assertFalse(caught(problems, waits))
-        self.assertTrue(caught(problems, trial) or caught(problems, match), problems)
+        self.assertFalse(caught(check_authority.run(config=named), waits))
         unbuilt = mock.patch.object(check_authority, "BRANCHES", "adapters/branches_unbuilt.py")
         with unbuilt:
             self.assertTrue(caught(check_authority.run(config=named), waits))
@@ -1578,6 +1576,8 @@ class Authority(unittest.TestCase):
             with self.subTest(port=port, branches=branches):
                 self.assertTrue(caught(check_authority.branch_read_problems(named, tree(port, branches)), said))
         said = "the configuration names a Role to open pull requests, and "
+        self.assertEqual(check_authority.branch_read_problems(named, tree(reads, fixture=None, tests=None)),
+                         [said + trial + "; name none until it is run (issue 1075)"])
         self.assertEqual(check_authority.branch_read_problems(named, tree(reads, tests=None)), [said + match + (
             ", which tells a work branch's head the Factory pushed from one it never did; name none until it does "
             "(issue 1059)")])
@@ -1587,7 +1587,7 @@ class Authority(unittest.TestCase):
         wrapped = "class T:\n    %%sdef %s(self):\n        pass\n" % name
         for fixture, tests, said in ((None, held, trial), ("{", held, trial), (b"\xff\n", held, trial),
                                      ("[]", held, trial), ('{"trial": "P-1"}', held, trial),
-                                     ('{"trial": "P-8"}', held, trial),
+                                     ('{"trial": "P-8"}', held, trial), ('{"trial": "P-800"}', held, trial),
                                      (ran, None, match), (ran, "def %s(:\n" % name, match), (ran, "", match),
                                      (ran, held.replace(name, name + "_too"), match),
                                      (ran, held.replace(name, "test_a_work_branch_head"), match),
@@ -1599,6 +1599,7 @@ class Authority(unittest.TestCase):
                                      (ran, wrapped % "@pending\n    ", match),
                                      (ran, wrapped % "@unittest.skip('x')\n    ", match),
                                      (ran, wrapped % "async ", match), (ran, "class %s:\n    pass\n" % name, match),
+                                     (ran, "@unittest.skip('x')\n" + held, match), (ran, "@pending\n" + held, match),
                                      (ran, "# def %s():\n%s = 1\n" % (name, name), match)):
             with self.subTest(fixture=fixture, tests=tests):
                 problems = check_authority.branch_read_problems(named, tree(reads, fixture=fixture, tests=tests))

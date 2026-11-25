@@ -339,11 +339,11 @@ def writes_head_unread(tree) -> bool:
 
 
 def holds_test(tree, name: str) -> bool:
-    """Whether a test module holds a method of that name, undecorated, directly in a class at its top, as unittest
-    collects a test case's: a function nested, guarded, decorated (as `pending` or `skip` is), async or alone at the
-    module's top is none."""
+    """Whether a test module holds a method of that name, undecorated, directly in an undecorated class at its top, as
+    unittest collects a test case's: a function nested, guarded, decorated (as `pending` or `skip` is) or in a class so
+    decorated, async or alone at the module's top is none."""
     return any(isinstance(node, ast.FunctionDef) and node.name == name and not node.decorator_list
-               for top in tree.body if isinstance(top, ast.ClassDef) for node in top.body)
+               for top in tree.body if isinstance(top, ast.ClassDef) and not top.decorator_list for node in top.body)
 
 
 def branch_read_problems(config: dict, root: pathlib.Path = None) -> list:
