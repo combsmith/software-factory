@@ -6,7 +6,10 @@ import copy
 import datetime
 import json
 import random
+import os
 import re
+import subprocess
+import sys
 import unittest
 
 from kernel import derive
@@ -267,6 +270,23 @@ class Derived(unittest.TestCase):
         go(facts(label_events=[labelled("factory:hold")]))
         self.assertEqual(go(f, runs), first)
         self.assertEqual(json.dumps([f, runs], sort_keys=True), before)
+
+    def test_the_same_inputs_give_the_same_decision_under_another_hash_seed(self):  # issue 1137
+        # A replay runs in another process, under another hash seed, where a set of strings iterates in another order.
+        # So the decisions of both simulated worlds' fixed seeds are made twice, each in a process of its own, and
+        # must be the same, text for text.
+        child = ("import json, sys\nimport kernel.issue\nfrom sim import issues, world\nmade = []\n\n\n"
+                 "def kept(decide):\n    def call(*args):\n        decision = decide(*args)\n"
+                 "        made.append(json.dumps(decision))\n        return decision\n    return call\n\n\n"
+                 "world.decide, kernel.issue.decide = kept(world.decide), kept(kernel.issue.decide)\n"
+                 "for make in (world.World, issues.IssueWorld):\n    for seed in range(1, 21):\n"
+                 "        w = make(seed)\n        for _ in range(250):\n            w.step()\n"
+                 "sys.stdout.write('\\n'.join(made))\n")
+        made = [subprocess.run([sys.executable, "-B", "-c", child], cwd=str(ROOT), capture_output=True, text=True,
+                               env=dict(os.environ, PYTHONHASHSEED=seed), check=True).stdout.split("\n")
+                for seed in ("1", "2")]
+        self.assertGreater(len(made[0]), 1000)
+        self.assertEqual(made[0], made[1])
 
     def test_admission_is_given_facts_and_never_an_event(self):
         code = decide.__code__

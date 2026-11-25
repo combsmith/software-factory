@@ -7,7 +7,9 @@ only what CONFINED allows, and no module binds a name either of them owns but as
 no function it is given but the parameters CALLABLE_PARAMETERS names, and on a value only the built-in
 types' methods BUILTIN_METHODS names, so that no function handed in can read the world for it. It calls a module only
 at a function the module defines or imports, raises nothing and names no special name, and where Python would
-import another module than the one it reads, it refuses that (issue 593).
+import another module than the one it reads, it refuses that (issue 593). It writes no function into text, by `str`,
+an f-string or `%`, which would give its address in memory (issue 1137). That mark assumes good faith, as decision
+0215's limit row says: a function reached through another name, a container or a parameter is for review.
 """
 from __future__ import annotations
 
@@ -579,6 +581,21 @@ def _calls(name: str, tree, trees: dict, takers: dict, tops: dict) -> list:
                             % (name, node.lineno, node.module or "." * node.level))
         if isinstance(node, ast.Call):
             call(node, chain)
+        # A function written into text is its address in memory, which another process gives otherwise (issue 1137).
+        shown = []
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "str":
+            shown = node.args + [k.value for k in node.keywords]
+        elif isinstance(node, ast.FormattedValue):
+            shown = [node.value]
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
+            right = node.right
+            shown = [right] + (right.elts if isinstance(right, ast.Tuple) else right.values if isinstance(right, ast.Dict)
+                               else [])
+        if any(isinstance(value, ast.Lambda) or kernel_function(value, chain) is not None
+               or (isinstance(value, ast.Name) and resolve(value.id, chain)[0] == "function") for value in shown):
+            problems.append("%s:%d writes a function into text, which is its address in memory, and so another "
+                            "process's replay reads other text; the Kernel writes no function into text"
+                            % (name, node.lineno))
         if isinstance(node, ast.Attribute):
             bases.add(id(node.value))
         if isinstance(node, (ast.Name, ast.Attribute)) and isinstance(node.ctx, ast.Load) and id(node) not in bases \
