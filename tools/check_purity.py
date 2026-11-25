@@ -71,9 +71,12 @@ KEYED_BUILTINS = frozenset({"map", "filter", "sorted", "max", "min"})
 # The builtins never handed to be called: each calls what it is then given, `type` given three as a class's bases, so
 # `map(map, [f], [xs])` would call f unread (issue 593).
 UNHANDED_BUILTINS = frozenset({"map", "filter", "type"})
-# The builtins whose value is written into text as its address in memory, or as a set in the hash seed's order (issue
-# 1202).
-RENDERED_BUILTINS = frozenset({"map", "filter", "zip", "enumerate", "set", "frozenset"})
+# The builtins whose value is written into text as its address in memory, those that make a set, written in the hash
+# seed's order, the operators that make a set of sets, and the builtins that keep a set's order (issue 1202).
+ADDRESS_BUILTINS = frozenset({"map", "filter", "zip", "enumerate"})
+SET_BUILTINS = frozenset({"set", "frozenset"})
+SET_OPERATORS = (ast.BitOr, ast.BitAnd, ast.Sub, ast.BitXor)
+ORDER_KEEPING_BUILTINS = frozenset({"list", "tuple"})
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 
 
@@ -458,6 +461,11 @@ def _calls(name: str, tree, trees: dict, takers: dict, tops: dict) -> list:
             target = detail
         return None
 
+    def builtin_call(node, names, chain) -> bool:
+        """Whether an expression calls a builtin of these names, by a name the module does not bind."""
+        return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in names \
+            and resolve(node.func.id, chain)[0] == "builtin"
+
     def kernel_function(node, chain):
         """The (file, function) a name or a module's attribute is, at a module's top in the Kernel, or None."""
         if isinstance(node, ast.Name):
@@ -604,14 +612,26 @@ def _calls(name: str, tree, trees: dict, takers: dict, tops: dict) -> list:
             problems.append("%s:%d writes a function into text, which is its address in memory, and so another "
                             "process's replay reads other text; the Kernel writes no function into text"
                             % (name, node.lineno))
-        # So is a map, filter, zip or enumerate object, or a generator, and a set is its elements in the hash seed's
-        # order, each written out where it is made (issue 1202).
-        if any(isinstance(value, (ast.GeneratorExp, ast.Set, ast.SetComp)) or (
-                isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and value.func.id in RENDERED_BUILTINS
-                and resolve(value.func.id, chain)[0] == "builtin") for value in shown):
+        # So is a map, filter, zip or enumerate object or a generator expression, and a set is its elements in the hash
+        # seed's order, each written out where it is made (issue 1202): in a container, a set operation or a pick, too,
+        # and a set through `list`, `tuple` or `.join`, which keep its order (Claude, security, Astra, Muse, Carbon).
+        made = [(value, True) for value in shown]
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "join":
+            made = [(value, False) for value in node.args]
+        for value, whole in made:
+            made += [(part, whole) for part in (
+                value.elts if isinstance(value, (ast.List, ast.Tuple)) else
+                [part for part in value.keys + value.values if part is not None] if isinstance(value, ast.Dict) else
+                [value.left, value.right] if isinstance(value, ast.BinOp) and isinstance(value.op, SET_OPERATORS) else
+                [value.body, value.orelse] if isinstance(value, ast.IfExp) else value.values if isinstance(value, ast.BoolOp)
+                else [value.value] if isinstance(value, (ast.NamedExpr, ast.Starred)) else [])]
+            if builtin_call(value, ORDER_KEEPING_BUILTINS, chain):
+                made += [(part, False) for part in value.args]
+        if any(isinstance(value, (ast.Set, ast.SetComp)) or builtin_call(value, SET_BUILTINS, chain) or whole and (
+                isinstance(value, ast.GeneratorExp) or builtin_call(value, ADDRESS_BUILTINS, chain)) for value, whole in made):
             problems.append("%s:%d writes an address or a set's order into text, which another process or hash seed "
-                            "writes otherwise; the Kernel writes no map, filter, zip or enumerate object, generator or "
-                            "set into text" % (name, node.lineno))
+                            "writes otherwise; the Kernel writes no map, filter, zip or enumerate object, generator "
+                            "expression or set into text" % (name, node.lineno))
         if isinstance(node, ast.Attribute):
             bases.add(id(node.value))
         if isinstance(node, (ast.Name, ast.Attribute)) and isinstance(node.ctx, ast.Load) and id(node) not in bases \
