@@ -6905,6 +6905,15 @@ class Branches(unittest.TestCase):
             self.assertEqual(landed(listed(r1), {"r_A1": kept})[0], (set(), True), kept)
         self.assertEqual(landed(listed(r1), {"r_A1": (record("r_A1", self.SHA, state="already_applied"), True)})[0],
                          ({self.SHA}, True))
+        # Every Effect of a record is read. A Run that opened its pull request pushed to that pull request's branch,
+        # never the next one, so its push vouches for nothing; one whose opening did not land still does.
+        both = record("r_A1", self.SHA)
+        for state, found in (("applied", set()), ("already_applied", set()), ("refused", {self.SHA}), ("failed", {self.SHA})):
+            kept = dict(both, effects=both["effects"] + [{"id": "e2", "type": "open_pull_request", "state": state,
+                                                          "key": "146", "reason": None}])
+            self.assertEqual(landed(listed(r1), {"r_A1": (kept, True)})[0], (found, True), state)
+            kept = dict(kept, effects=kept["effects"][::-1])
+            self.assertEqual(landed(listed(r1), {"r_A1": (kept, True)})[0], (found, True), state)
         for stranger in (run("r_B1", who="qa-lead"), run("r_B1", intent="investigate-issue"), run("r_B1", number=42),
                          run("r_B1", repo="o/other"), run("r_B1", kind="pull_request")):
             self.assertEqual(landed(listed(stranger), {"r_B1": "unanswered"}), ((set(), True), []), stranger)
@@ -6914,6 +6923,9 @@ class Branches(unittest.TestCase):
                            (listed(r1, ids={}), {}), (listed(r1, ids={"r_A1": [1, 2]}), {}),
                            (listed(r1), {"r_A1": (None, False)}), (listed(r1), {"r_A1": "unanswered"}),
                            (listed(r1), {"r_A1": (record("r_A1", self.SHA[:7]), True)}),
+                           (listed(r1), {"r_A1": (record("r_A1", self.SHA + "x"), True)}),
+                           (listed(r1, r2), {"r_A1": (record("r_A1", self.SHA), True), "r_A2": (None, False)}),
+                           (listed(r1, r2), {"r_A1": (record("r_A1", self.SHA), True), "r_A2": "unanswered"}),
                            (listed(r1), {"r_A1": (record("r_A1", None), True)}),
                            (listed(r1, complete=False), {}), (listed(r1, unidentified=["x"]), {}), (None, {})):
             self.assertEqual(landed(runs, kept)[0], (set(), False), (runs, kept))

@@ -2180,6 +2180,14 @@ class Entry(unittest.TestCase):
             spied["who"].append(who)
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
+        records_runs = entry.records.runs
+
+        def answered(*a, **k):
+            # The records port's own answer, kept by identity: each issue read is handed this very list (head match).
+            found = records_runs(*a, **k)
+            spied.setdefault("runs", []).append(found)
+            return found
+
         listed_by_the_port = entry.items.open_issues
 
         def listing(listed, whole=True):
@@ -2246,7 +2254,8 @@ class Entry(unittest.TestCase):
                     unittest.mock.patch.object(entry.passes, "records", held), \
                     unittest.mock.patch.object(entry.issues_, "read", read), \
                     unittest.mock.patch.object(entry, "opener", lambda *a: OPENS), \
-                    unittest.mock.patch.object(entry.facts_, "opener_role", lambda kernel: "dev-lead"):
+                    unittest.mock.patch.object(entry.facts_, "opener_role", lambda kernel: "dev-lead"), \
+                    unittest.mock.patch.object(entry.records, "runs", answered):
                 code, printed, files, _ = self.run_entry(hub)
             spied["graphql"] = [r for _, r in hub.sent if r["path"] == "/graphql"]
             spied["repo"] = [r for _, r in hub.sent if r["path"] in ("/repos/%s" % self.HOME, "/repos/%s/git/ref/heads/main" % self.HOME)]
@@ -2268,7 +2277,7 @@ class Entry(unittest.TestCase):
         # whether a work branch's head is one the Factory pushed (the head match).
         handed = spied["pushes"]
         self.assertEqual(len(handed), 3)
-        self.assertTrue(all(runs is handed[0][0] and isinstance(runs, dict) for runs, _ in handed))
+        self.assertTrue(all(runs is spied["runs"][-1] for runs, _ in handed))
         self.assertEqual({role for _, role in handed}, {"dev-lead"})
         # Each is read with the pull requests' class accounts, and the pass records before this pass, here none.
         self.assertEqual(spied["identities"], [(entry.facts_.accounts_of(CONTROLLER)[0], [])] * 3)

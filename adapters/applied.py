@@ -337,7 +337,7 @@ def landed(transport, repo: str, runs, role, number: int) -> tuple:
     """`(shas, whole)`: the commits the opening Runs of issue `number` of `repo` recorded as pushed, each the key of a
     landed `push_commits` Effect in a Run's `applied/1`, the pushed commit's whole sha (design section 3.6, the head
     match). A Run counts as `opened` counts one: the records port names it of `role`, its Intent `open-pull-request`, its
-    item this issue. Whole only where the run list was read whole and lists no Run before its name, none of these Runs
+    item this issue; but not one that recorded opening its pull request, whose push is on that pull request's branch. Whole only where the run list was read whole and lists no Run before its name, none of these Runs
     is still in flight, each is named by one GitHub run, and each record was read whole and keys every push it landed
     by a whole sha; anything else is not whole, never none. A record past its retention records no push, read whole: a
     commit it pushed is told as none the Factory pushed, and the Kernel holds the issue for a person. With no Role
@@ -362,7 +362,11 @@ def landed(transport, repo: str, runs, role, number: int) -> tuple:
             continue
         if not whole:
             return set(), False
-        for effect in (kept or {}).get("effects", ()):
+        done = (kept or {}).get("effects", ())
+        # A Run that opened its pull request pushed to that pull request's branch, which is never the next one.
+        if any(e["type"] == OPENED and e["state"] in LANDED for e in done):
+            continue
+        for effect in done:
             if effect["type"] == PUSHED and effect["state"] in LANDED:
                 if not (isinstance(effect["key"], str) and SHA.fullmatch(effect["key"])):
                     return set(), False
