@@ -488,7 +488,7 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
         return None, UNREADABLE
     # A file the patch reads, of the tree, whose bytes were not handed over is the Factory's, whatever else is wrong
     # with the patch, and in whatever order its sections stand.
-    if any(s["kind"] != "new" and tree.get(s["old"]) in FILE_MODES and s["old"] not in contents for s in sections):
+    if any(tree.get(s["old"]) in FILE_MODES and s["old"] not in contents for s in sections if s["kind"] != "new"):
         return None, TREE_UNREAD
     written, removed, taken, copied = {}, [], {}, {}
     for section in sections:

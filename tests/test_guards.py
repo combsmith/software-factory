@@ -767,7 +767,8 @@ class Patch(unittest.TestCase):
                            # nor a `.` or `..` part, which would name another path: docs/./a.md is docs/a.md
                            ({**TREE, "docs/./x": FILE}, HELD), ({**TREE, "docs/../x": FILE}, HELD),
                            ({**TREE, "./x": FILE}, HELD), ({**TREE, "x/..": FILE}, HELD), ({**TREE, ".": FILE}, HELD),
-                           (TREE, {**HELD, b"other": b""}), (TREE, {**HELD, "other": None}), (TREE, {**HELD, "other": "text"})):
+                           (TREE, {**HELD, b"other": b""}), (TREE, {**HELD, "tests/t.py": None}),
+                           (TREE, {**HELD, "tests/t.py": "text"})):
             self.assertEqual(patch.applied(CHANGE, tree, held), (None, patch.TREE_UNREAD))
             self.assertEqual(patch.applied(b"no patch\n", tree, held), (None, patch.TREE_UNREAD))
         # Each is of its type exactly: a subclass of dict, str or bytes would be read by its own methods.
@@ -780,8 +781,8 @@ class Patch(unittest.TestCase):
         class Said(bytes):
             pass
         for tree, held in ((Map(TREE), HELD), (TREE, Map(HELD)), ({**TREE, Text("n"): FILE}, HELD),
-                           ({**TREE, "n": Text(FILE)}, HELD), (TREE, {**HELD, Text("other"): b""}),
-                           (TREE, {**HELD, "other": Said(b"")})):
+                           ({**TREE, "n": Text(FILE)}, HELD), (TREE, {"docs/a.md": OLD, Text("run.sh"): b""}),
+                           (TREE, {**HELD, "run.sh": Said(b"")})):
             self.assertEqual(patch.applied(CHANGE, tree, held), (None, patch.TREE_UNREAD), (tree, held))
         # A path of more parts than DEEPEST has characters is in no tree a port gives; one of as many parts is.
         # A part that begins or ends with dots is a name all the same.
