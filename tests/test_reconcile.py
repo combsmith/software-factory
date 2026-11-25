@@ -1151,8 +1151,8 @@ class SeenPort(unittest.TestCase):
         shape.update({n: '<%%(at)s&page=%d>; rel="prev", <%%(at)s&page=%d>; rel="next", <%%(at)s&page=4>; rel="last", '
                          '<%%(at)s&page=1>; rel="first"' % (n - 1, n + 1) for n in (2, 3)})
         self.assertIs(whole(Linked({path: [old, new, new, close]}, shape)), True)
-        for n, wrong in ((4, '<%(at)s&page=9>; rel="prev"'), (4, '<%(at)s&page=2>; rel="first"'),
-                         (1, shape[1] + ', <%(at)s&page=1>; rel="first"')):
+        for n, wrong in ((4, '<%(at)s&page=9>; rel="prev"'), (4, '<%(at)s&page=2>; rel="first"'), (4, ''),
+                         (1, shape[1] + ', <%(at)s&page=1>; rel="first"'), (1, shape[1] + ', <%(at)s&page=0>; rel="prev"')):
             self.assertIs(whole(Linked({path: [old, new, new, close]}, {**shape, n: wrong})), False, (n, wrong))
         named = '<%(at)s&page=2>; rel="next", <%(at)s&page={}>; rel="last"'
         # A link header read in part says nothing of where the list ends: an unquoted relation, a page that is no
@@ -1170,10 +1170,16 @@ class SeenPort(unittest.TestCase):
         small = {"at": "https://api.github.com" + path.replace("per_page=100", "per_page=1")}
         self.assertIs(whole(Linked({path: [old, close]}, {1: (named.format(2) % small).replace("%", "%%")})), False)
         self.assertIs(whole(Linked({path: [close]}, {1: '<%(at)s&page=2>; rel="deprecation"; rel="next"'})), False)
+        # So is a relation that names a paging one among others or in capitals, and a header read whole only in part,
+        # its paging links first (Astra, Kimi, Claude).
+        for link in ('<%(at)s&page=2>; rel="next last"', '<%(at)s&page=2>; rel="NEXT"'):
+            self.assertIs(whole(Linked({path: [close]}, {1: link})), False, link)
+        self.assertIs(whole(Linked({path: [old, close]}, {1: named.format(2) + ', unreadable'})), False)
         # A relation that pages nothing, as GitHub's deprecation notice, is passed over, whatever its parameters say,
         # and the first page read again is the same however its links fall (Claude, Astra).
         notice = ', <https://docs.github.com/en/rest/about-the-rest-api/api-versions>; rel="deprecation"; type="text/html"'
-        for other in (notice, ', <https://docs.github.com>; rel="latest-version"; title="REST API, version 2"'):
+        for other in (notice, ', <https://docs.github.com>; rel="latest-version"; title="REST API, version 2"',
+                      ', <https://docs.github.com>; rel="deprecation"; title="Use \\"v2\\""'):
             self.assertIs(whole(Linked({path: [close]}, {1: other[2:]})), True, other)
         self.assertIs(whole(Linked({path: [old, close]}, {1: named.format(2) + notice})), True)
         self.assertIs(whole(Linked({path: [old, close]}, {1: (named.format(2), named.format(2) + notice)})), True)
@@ -1211,8 +1217,9 @@ class SeenPort(unittest.TestCase):
         dismissal = [{"event": "review_dismissed", "actor": CONTROLLER, "created_at": AT, "id": 6,
                       "dismissed_review": {"review_id": 3, "state": "approved"}}]
         dismissal_again = [dict(dismissal[0], dismissed_review={"review_id": 3, "state": "commented"})]
-        self.assertIs(whole(Pages({path: [old] * 3 + [close + dismissal]}, LEFT_ANSWERS, again={4: (close + dismissal_again, False)})),
-                      False)
+        for again in (dismissal_again, [dict(dismissal[0], dismissed_review={"review_id": 4, "state": "approved"})]):
+            self.assertIs(whole(Pages({path: [old] * 3 + [close + dismissal]}, LEFT_ANSWERS, again={4: (close + again, False)})),
+                          False, again)
         # One event read on two pages as two, by its id, its id's type or its node, is a contradiction, a first page
         # left out among them; read the same, it is kept once (Astra, Muse).
         twice = [dict(close[0], actor=PERSON)]
@@ -1220,6 +1227,12 @@ class SeenPort(unittest.TestCase):
         self.assertIs(seen_._tail(Pages({path: [old + [dict(close[0], id="1")], close]}), path, SINCE)[1], False)
         node = [dict(close[0], node_id="CE_n")]
         self.assertIs(seen_._tail(Pages({path: [old + node, [dict(node[0], id=8)]]}), path, SINCE)[1], False)
+        # One with no id is kept once by its node; two kinds that share a node are not one event (Astra, Claude).
+        bare = [{"event": "closed", "actor": CONTROLLER, "created_at": AT, "node_id": "CE_b"}]
+        self.assertEqual(seen_._tail(Pages({path: [old + bare, bare]}), path, SINCE), (old + bare, True))
+        review = [{"event": "reviewed", "user": PERSON, "submitted_at": AT, "id": 3, "node_id": "PRR_r"}]
+        lines = [{"event": "line-commented", "node_id": "PRR_r"}]
+        self.assertIs(seen_._tail(Pages({path: [old + review, lines]}), path, SINCE)[1], True)
         early = [dict(close[0], actor=PERSON, created_at=EARLY)]
         self.assertIs(seen_._tail(Pages({path: [early, new, old, close]}), path, SINCE)[1], False)
         self.assertEqual(seen_._tail(Pages({path: [old + close, close]}), path, SINCE), (old + close, True))

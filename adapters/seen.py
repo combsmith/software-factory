@@ -78,8 +78,8 @@ ENDED = (404, 410)
 # A list's link header, as trials/P-43.json recorded one: entries `<...&page=12>; rel="last"`, each with its
 # parameters, quoted, as GitHub's deprecation notice has more (trials/P-1.json), and no white space in its address,
 # which urllib would drop (Carbon); the relations that page a list.
-ENTRY = re.compile(r'\s*<([^<>\s]*)>((?:\s*;\s*[a-z-]+="[^"]*")+)\s*(?:,|$)')
-PARAM = re.compile(r'\s*;\s*([a-z-]+)="([^"]*)"')
+ENTRY = re.compile(r'\s*<([^<>\s]*)>((?:\s*;\s*[a-z-]+="(?:[^"\\]|\\.)*")+)\s*(?:,|$)')
+PARAM = re.compile(r'\s*;\s*([a-z-]+)="((?:[^"\\]|\\.)*)"')
 PAGING = ("next", "last", "prev", "first")
 PAGE_NUMBER = re.compile(r"[0-9]{1,9}")
 KIND = re.compile(r"[a-z][a-z0-9_-]*")      # an event's kind as GitHub names one, `added_to_project_v2` among them
@@ -131,6 +131,10 @@ def _links(link: str, size) -> dict:
             raise ValueError("a link header that cannot be read whole")
         at = one.end()
         if rels[0] not in PAGING:
+            # A relation that pages nothing; one that names a paging relation among others, or in capitals, is
+            # read in part (Astra, Kimi, Claude).
+            if set(rels[0].lower().split()) & set(PAGING):
+                raise ValueError("a link header that cannot be read whole")
             continue
         query = urllib.parse.parse_qsl(urllib.parse.urlsplit(one.group(1)).query, keep_blank_values=True)
         pages = [value for name, value in query if name == "page"]
@@ -143,12 +147,12 @@ def _links(link: str, size) -> dict:
 
 def _agrees(named: dict, page: int, end: int) -> bool:
     """Whether a page's links say it is page `page` of `end`: the next and the last before the end, no next there and
-    no last past it; the page before and the first past the first page, and neither on it (Astra, Claude, issue
-    1206)."""
+    no last past it; the page before and the first past the first page, and neither on it; and past the first page,
+    some link, as GitHub gives every page but a list's only one (Astra, Claude, issue 1206)."""
     return (named.get("next") == (page + 1 if page < end else None)
             and (named.get("last") == end if page < end else named.get("last", end) == end)
             and named.get("prev", page - 1) == page - 1 and named.get("first", 1) == 1
-            and (page > 1 or not {"prev", "first"} & set(named)))
+            and (page > 1 or not {"prev", "first"} & set(named)) and (page == 1 or bool(named)))
 
 
 def _before(items: list, since: str) -> bool:
@@ -229,12 +233,15 @@ def _tail(transport, path: str, since: str, ends=()) -> tuple:
             # One event read twice as two, by its id or its node, on any pages read: the answers contradict (Astra,
             # Muse, issue 1206).
             node = _object(one).get("node_id")
-            names = ([(key[0], str(key[1]))] if key[1] is not None else []) + ([node] if isinstance(node, str) else [])
+            by_node = (key[0], "node", node) if isinstance(node, str) else None
+            names = ([(key[0], str(key[1]))] if key[1] is not None else []) + ([by_node] if by_node else [])
             for told in names:
                 if marks.setdefault(told, _mark(one)) != _mark(one):
                     return [], False
-            if (number or joined) and (key[1] is None or key not in seen):
-                seen.add(key)
+            # Kept once each, by its kind and id, or its node where it has no id (Astra).
+            once = key if key[1] is not None else by_node
+            if (number or joined) and (once is None or once not in seen):
+                seen.add(once)
                 kept.append(one)
     return kept, (reached or joined) and steady
 
