@@ -33,6 +33,7 @@ from adapters.facts import Moved
 from harness import shared
 from kernel import terms as t
 from kernel.decide import decide, still_wanted
+from kernel.derive import timeline_short
 
 SHA = re.compile(r"[0-9a-f]{40}")
 APPROVAL = "issue_approval"
@@ -135,10 +136,11 @@ def job(record, run: str, read, port, config: dict, now: str) -> tuple:
     # head carries the same content; otherwise the Kernel decides (Argon's read).
     # And only while the pull request is open: one closed under an earlier attempt holds an approval that attempt
     # claimed nothing for, and a re-run must not claim it now (issue 378). And only on a timeline read whole, which
-    # alone can say the pull request's last reopening (Codex on PR 380).
+    # alone can say the pull request's last reopening (Codex on PR 380), and never past one cut at its bound, whatever
+    # complete.timeline claims (decision 1149; Muse).
     done = {"state": None}
     if facts.get("content_id") == decided["content_id"] and facts.get("state") == "open" \
-            and (facts.get("complete") or {}).get("timeline") is True:
+            and not timeline_short(facts):
         done = port.recover(item, head)
         if done["fault"] is not None:
             return _records(run, release, "refused", None, (done["fault"], done["reason"]))

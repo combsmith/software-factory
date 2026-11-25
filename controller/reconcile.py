@@ -191,7 +191,7 @@ def unfit(effects) -> bool:
 
 
 def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(), gone_issues=(), served_issues=(),
-            hand=(), taken=(), open_=()) -> dict:
+            hand=(), taken=(), open_=(), home=None) -> dict:
     """What this pass's record carries for the next: what was read in the window and the keys it held, those older than the
     window dropped, and the pull requests whose writes it could not read. A key, which one write alone can match, is stamped
     with when it was read, so it outlasts the write it records. A write matched by its item is credit any such write could
@@ -202,20 +202,30 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     the issues, `unread_issues` and `gone_issues`; but an issue in `served_issues`, served by this pass, keeps no stamp
     of an earlier leaving, so that it is read as left anew once it leaves again, whatever pass between could not list it
     (issue 916). So are `hand` and `taken` until the pass that drops their leaving; one in `open_`, read open, keeps
-    its own (decision 0241)."""
+    its own (decision 0241), and a pull request read open keeps no stamp of an earlier leaving, as a served issue
+    (issue 1191). `left` holds numbers alone, so a leaving drops only the rows of `home`, the pass's repository, as the
+    configuration spells it, and another's stay for good. Any pull request of that number read open clears the stamp
+    and keeps the home's rows, however its repository is spelled, which only keeps rows longer. With no `home`, every
+    repository is read as it (issue 1190)."""
     since = seen["since"] if seen is not None and not errors(seen, "seen") else None
     held = {name: [e for e in rows if name in ("owed", "owed_issues", "hand", "taken") or since is None
                    or _within(e["at"], since, name == "items")]
             for name, rows in _last(before).items()}
     held["owed"] = sorted(set(unread))
-    # One clock: kept until the pass that drops the leaving (decision 0241).
-    dropped = {e["number"] for e in _last(before).get("left", [])} - {e["number"] for e in held.get("left", [])} - set(gone)
+    # One clock: kept until the pass that drops the leaving (decision 0241), unless it leaves again or is read open.
+    passed = {e["number"] for e in _last(before).get("left", [])} - {e["number"] for e in held.get("left", [])}
     opened = set(open_)
 
+    def ours(item: str) -> bool:
+        return home is None or item.startswith("https://github.com/%s/" % home)
+    restamped = set(gone) | {int(i.rsplit("/", 1)[1]) for i in opened if i.rsplit("/", 2)[1] == "pull"}
+    dropped = passed - restamped
+
     def stays(item: str) -> bool:
-        return int(item.rsplit("/", 1)[1]) not in dropped or item in opened
-    known_hand = {e["key"] for e in held.get("hand", [])}
-    hands = [e for e in held.pop("hand", []) if stays(e["item"])] + [
+        return not ours(item) or int(item.rsplit("/", 1)[1]) not in dropped
+    kept = [e for e in held.pop("hand", []) if stays(e["item"])]
+    known_hand = {e["key"] for e in kept}
+    hands = kept + [
         {"key": h["key"], "item": key(h["item"]), "head": h["head"], "at": h["at"]} for h in hand
         if h["key"] not in known_hand and FITS_KEY.fullmatch(h["key"]) and FITS_ITEM.fullmatch(key(h["item"]))
         and stays(key(h["item"]))]
@@ -232,7 +242,7 @@ def carried(before, effects, seen, now: str, unread=(), gone=(), unread_issues=(
     heads_ = [e for e in heads_ if (e["key"], e["item"], e["head"]) not in hand_rows]
     if heads_:
         held["taken"] = heads_
-    held["left"] = [e for e in held.get("left", []) if e["number"] not in set(gone)] + [
+    held["left"] = [e for e in held.get("left", []) if e["number"] not in restamped] + [
         {"number": n, "at": now} for n in sorted(set(gone))]
     # A hand's resolution that was matched, or that nothing could judge, is stamped again each pass it is seen.
     matched = set().union(*_hands(seen, before)) if since is not None else set()
