@@ -2623,10 +2623,13 @@ class Opening(unittest.TestCase):
         # With the next opening's branch told and standing at another commit, the Run still carries its draft's head.
         other = "b" * 40
         self.assertEqual(decide(dict(failing, branch_head=other), cfg=named)["admit"], d["admit"])
-        # A push to the draft between the admission and apply refuses the Run (I-21).
+        # A draft whose head is another commit at apply refuses the Run (I-21).
         moved = facts(linked=[agents(draft=True, checks="failing", head=dict(DRAFT_HEAD, sha=other))])
         self.assertFalse(issue.still_admitted(d, decide(moved, cfg=named)))
         self.assertTrue(issue.still_admitted(d, decide(failing, cfg=named)))
+        # A later opening's draft, its count of two digits, is admitted at its own head as well.
+        later = facts(linked=[agents(draft=True, checks="failing", head=dict(DRAFT_HEAD, ref="factory-work/issue-7-12"))])
+        self.assertEqual(decide(later, cfg=named)["admit"]["branch_head"], DRAFT_HEAD["sha"])
         for head in (missing, None, {}, {"sha": sha}, {"ref": DRAFT_HEAD["ref"]}, dict(DRAFT_HEAD, sha=sha[:7]),
                      dict(DRAFT_HEAD, sha=sha.upper()), dict(DRAFT_HEAD, ref=""), dict(DRAFT_HEAD, ref=7), "main",
                      dict(DRAFT_HEAD, ref="main"), dict(DRAFT_HEAD, ref="factory-work/issue-8-1"),
