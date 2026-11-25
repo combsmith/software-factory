@@ -440,7 +440,7 @@
       "pattern": "^[0-9a-f]{40}$"
     },
     "branch_pushed": {
-      "description": "Whether an earlier opening Run of the issue recorded pushing branch_head: true where an applied/1 of one names that commit's sha in a landed push_commits, false where none does, its record past its retention, or never uploaded by a Run that did not succeed, among them; null where no branch stands, where true or false contradicts the read and defers the opening Run. While an opening Run of the issue is in flight, or a record cannot be read whole, it is not told: the branch is not told at all. Not required: facts made before it do not hold it, and with a commit for the head one not exactly true or false defers the opening Run, as branch_unreadable. False holds the issue, branch_not_pushed, for a person",
+      "description": "Whether an earlier opening Run of the issue recorded pushing branch_head: true where an applied/1 of one names that commit's sha in a landed push_commits, false where none does, its record past its retention, or never uploaded by a Run that did not succeed, among them; null where no branch stands; there, true or false contradicts the read and defers the opening Run. While an opening Run of the issue is in flight, or a record cannot be read whole, it is not told: the branch is not told at all. Not required: facts made before it do not hold it, and with a commit for the head one not exactly true or false defers the opening Run, as branch_unreadable. False holds the issue, branch_not_pushed, for a person",
       "type": [
         "boolean",
         "null"

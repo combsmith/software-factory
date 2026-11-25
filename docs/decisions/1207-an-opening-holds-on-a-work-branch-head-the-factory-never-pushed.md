@@ -4,7 +4,7 @@ Status: accepted. 2026-11-25, the Solution Architect; issue 1059. Extends decisi
 
 ## Decision
 
-Where the next opening's work branch stands, the issues port tells whether an earlier opening Run of the issue recorded pushing its head, by its sha in that Run's `applied/1`: `branch_pushed`. False holds the issue, `branch_not_pushed`, and calls a person (`kernel/issue.py`). An opening Run in flight, records not read whole, or a value told with no branch defer the opening. Decision 0239's check at `apply` stays the second line. The port's half lands with pull request 1208.
+Where the next opening's work branch stands, the issues port tells whether an earlier opening Run of the issue recorded pushing its head, by its sha in that Run's `applied/1`: `branch_pushed`. False holds the issue, `branch_not_pushed`, and calls a person (`kernel/issue.py`). An opening Run in flight, records not read whole, or true or false told with no branch defer the opening. Decision 0239's check at `apply` stays the second line. The port's half lands with pull request 1208.
 
 Design section 3.6 now keys `push_commits` by the sha of the commit the Run itself pushed, not the branch head's tree digest; the head read back is only compared with it.
 
@@ -20,5 +20,5 @@ The security read of pull request 1199 found that a branch planted at the next w
 
 | Boundary | Check |
 |---|---|
-| A head no opening Run recorded pushing holds the issue for a person; a commit head not told so, or a value told with no branch, defers | `tests/test_issue.py::test_a_work_branch_head_no_opening_run_pushed_holds_the_issue_for_a_person`, `kernel/issue.py`, mutant: "a head the Factory never pushed is opened from" |
+| A head no opening Run recorded pushing holds the issue for a person; a commit head not told so, or true or false told with no branch, defers | `tests/test_issue.py::test_a_work_branch_head_no_opening_run_pushed_holds_the_issue_for_a_person`, `kernel/issue.py`, mutant: "a head the Factory never pushed is opened from" |
 | `push_commits` is keyed by the sha of the commit the Run itself pushed, never by the head read back | waiting on `harness/push.py`, the push `apply` makes before the `open_pull_request` Effect |
