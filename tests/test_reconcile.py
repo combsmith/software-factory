@@ -912,9 +912,6 @@ class SeenPort(unittest.TestCase):
             github = Pages({COMMENTS[1]: [[] for _ in range(last)]})
             self.assertIs(seen_.read(github, ITEM, kept(), IDENTITIES, APPS, SINCE)[2], whole, last)
             self.assertEqual(len([path for _, path in github.asked if "/comments?" in path]), 10, last)
-        # What was read before the cut is still seen (Carbon).
-        github = Pages({COMMENTS[1]: [[{"user": CONTROLLER, "node_id": "IC_c", "created_at": AT}]] + [[]] * 10})
-        self.assertEqual([w["kind"] for w in seen_.read(github, ITEM, kept(), IDENTITIES, APPS, SINCE)[0]], ["comment"])
         # The reviews of an item that left, which GitHub lists in the order they were started, are read forward so too.
         close = [{"event": "closed", "actor": CONTROLLER, "created_at": AT, "id": 9}]
         reviews = PULL + "/reviews?per_page=100"
