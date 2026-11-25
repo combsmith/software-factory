@@ -75,12 +75,14 @@ ACTIVITY = {"push": "push", "force_push": "force_push", "branch_creation": "bran
 # the end of the issue only where the same token read its repo in the same pass; else access may be what was lost, and
 # what was seen is short. A transfer's 301 is not among them: the transport keeps no redirect's code (decision 0235).
 ENDED = (404, 410)
-# One entry of a list's link header, as trials/P-43.json recorded them, `<...&page=12>; rel="last"`, with any
-# parameters after it, as GitHub's deprecation notice has (trials/P-1.json); the relations that page a list; and a page.
-LINK = re.compile(r'<([^<>]*)>;\s*rel="([a-z]+)"(?:;\s*[a-z-]+="[^"]*")*')
+# A list's link header, as trials/P-43.json recorded one: entries `<...&page=12>; rel="last"`, each with its
+# parameters, quoted, as GitHub's deprecation notice has more (trials/P-1.json), and no white space in its address,
+# which urllib would drop (Carbon); the relations that page a list.
+ENTRY = re.compile(r'\s*<([^<>\s]*)>((?:\s*;\s*[a-z-]+="[^"]*")+)\s*(?:,|$)')
+PARAM = re.compile(r'\s*;\s*([a-z-]+)="([^"]*)"')
 PAGING = ("next", "last", "prev", "first")
 PAGE_NUMBER = re.compile(r"[0-9]{1,9}")
-KIND = re.compile(r"[a-z][a-z_-]*")     # an event's kind as GitHub names one
+KIND = re.compile(r"[a-z][a-z0-9_-]*")      # an event's kind as GitHub names one, `added_to_project_v2` among them
 
 
 def _pages(transport, path: str) -> tuple:
@@ -116,24 +118,37 @@ def _moments(items: list) -> list:
     return out
 
 
-def _links(link: str) -> dict:
-    """`{rel: page}` of the relations that page a list in a link header, read whole: every entry `<address>;
-    rel="name"`, each paging relation once, its address naming one page in its query. One read in part raises
-    ValueError, so that it never says where a list ends (Astra, Muse, Kimi, issue 1206); a relation that pages nothing
-    is passed over (Claude)."""
-    out = {}
-    for entry in link.split(",") if link.strip() else ():
-        one = LINK.fullmatch(entry.strip())
-        if one is None:
+def _links(link: str, size) -> dict:
+    """`{rel: page}` of the relations that page a list in a link header, read whole: every entry `<address>` with its
+    quoted parameters, one `rel` among them; each paging relation once, its address naming one page, and the page size
+    `size`, in its query. One read in part raises ValueError, so that it never says where a list ends (Astra, Muse,
+    Kimi, issue 1206); a relation that pages nothing is passed over (Claude)."""
+    out, at = {}, 0
+    while link[at:].strip():
+        one = ENTRY.match(link, at)
+        rels = [value for name, value in PARAM.findall(one.group(2)) if name == "rel"] if one else []
+        if len(rels) != 1:
             raise ValueError("a link header that cannot be read whole")
-        if one.group(2) not in PAGING:
+        at = one.end()
+        if rels[0] not in PAGING:
             continue
-        address = urllib.parse.urlsplit(one.group(1))
-        pages = [v for k, v in urllib.parse.parse_qsl(address.query, keep_blank_values=True) if k == "page"]
-        if len(pages) != 1 or not PAGE_NUMBER.fullmatch(pages[0]) or one.group(2) in out:
+        query = urllib.parse.parse_qsl(urllib.parse.urlsplit(one.group(1)).query, keep_blank_values=True)
+        pages = [value for name, value in query if name == "page"]
+        if len(pages) != 1 or not PAGE_NUMBER.fullmatch(pages[0]) or rels[0] in out \
+                or [value for name, value in query if name == "per_page"] != [size]:
             raise ValueError("a link header that cannot be read whole")
-        out[one.group(2)] = int(pages[0])
+        out[rels[0]] = int(pages[0])
     return out
+
+
+def _agrees(named: dict, page: int, end: int) -> bool:
+    """Whether a page's links say it is page `page` of `end`: the next and the last before the end, no next there and
+    no last past it; the page before and the first past the first page, and neither on it (Astra, Claude, issue
+    1206)."""
+    return (named.get("next") == (page + 1 if page < end else None)
+            and (named.get("last") == end if page < end else named.get("last", end) == end)
+            and named.get("prev", page - 1) == page - 1 and named.get("first", 1) == 1
+            and (page > 1 or not {"prev", "first"} & set(named)))
 
 
 def _before(items: list, since: str) -> bool:
@@ -144,12 +159,14 @@ def _before(items: list, since: str) -> bool:
 def _mark(item):
     """What tells one item of a list from another while it is read: its kind, its ids, a commit's sha, and its time."""
     one = _object(item)
-    # Each with its type, so that an id read again as a truth value is not the number it was; and who made it, and
-    # its label, so that a write read again as another's is not the same (Astra, issue 1206).
+    # Each with its type, so that an id read again as a truth value is not the number it was; and who made it, its
+    # label and the review it dismissed, so that a write read again as another is not the same (Astra, Muse, issue
+    # 1206).
     by = [_object(one.get(field)).get(key) for field in ("actor", "user") for key in ("id", "type")]
+    dismissed = [_object(one.get("dismissed_review")).get(key) for key in ("review_id", "state")]
     return tuple((type(v), v) for v in [one.get("event"), one.get("id"), one.get("node_id"), one.get("sha"),
                                          one.get("created_at"), one.get("submitted_at"),
-                                         _object(one.get("label")).get("name")] + by)
+                                         _object(one.get("label")).get("name")] + by + dismissed)
 
 
 def _tail(transport, path: str, since: str, ends=()) -> tuple:
@@ -165,13 +182,14 @@ def _tail(transport, path: str, since: str, ends=()) -> tuple:
     as gone, whose close may be older than `since`, it reads on back, within the same bound, until one of them is
     found (Claude)."""
     try:
+        size = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(path).query)).get("per_page")
         items, link = _page(transport, path, 1)
-        named = _links(link)
+        named = _links(link, size)
         if "next" not in named:
             # One page: whole, unless it names another, a last it does not lead to or one before it (Astra, Claude).
             found, joined, reached, steady = [], True, False, not named
-        elif named["next"] != 2 or named.get("last", 0) < 2:
-            # A next page that is not the second, or no last past the first, cannot be read from its end (Carbon,
+        elif not _agrees(named, 1, named.get("last", 0)):
+            # A first page that does not say it is the first of a last past it cannot be read from its end (Carbon,
             # issue 1206).
             return [], False
         else:
@@ -182,19 +200,19 @@ def _tail(transport, path: str, since: str, ends=()) -> tuple:
                 page -= 1
                 got, got_link = _page(transport, path, page)
                 found.insert(0, got)
-                links.append((page, _links(got_link)))
+                links.append((page, _links(got_link, size)))
                 reached = reached or _before(got, since)
             joined = page == 2
             again, again_link = _page(transport, path, end)
             # An empty page before the end is no page GitHub would give (Astra), the first among them (Muse).
             steady = (bool(items) and all(found) and [_mark(i) for i in again] == [_mark(i) for i in tail]
-                      and all("next" not in got and got.get("last", end) == end
-                              for got in (_links(end_link), _links(again_link))))
-            # Each page read back names the one after it and the same last (Astra, issue 1206).
-            steady = steady and all(got.get("next") == at + 1 and got.get("last") == end for at, got in links)
+                      and all(_agrees(_links(got, size), end, end) for got in (end_link, again_link)))
+            # Each page read back says where it is (Astra, issue 1206).
+            steady = steady and all(_agrees(got, at, end) for at, got in links)
             if joined:
                 first, first_link = _page(transport, path, 1)
-                steady = steady and first_link == link and [_mark(i) for i in first] == [_mark(i) for i in items]
+                steady = steady and _links(first_link, size) == named and [_mark(i) for i in first] == [
+                    _mark(i) for i in items]
         # The moments read run in order, the skipped pages' with them, and a first page left out holds nothing that
         # could be a write and cannot be placed: else the answers contradict (Astra, Muse, issue 1206).
         order = [at for one in [items] + found for at in _moments(one)]
@@ -202,19 +220,22 @@ def _tail(transport, path: str, since: str, ends=()) -> tuple:
         steady = steady and (joined or all(_moments([i]) or _object(i).get("event") in NOT_WRITES for i in items))
     except (Unanswered, KeyError, TypeError, ValueError):
         return [], False
-    kept, seen = [], {}
-    for item in ([items] if joined else []) + found:
+    kept, seen, marks = [], set(), {}
+    for number, item in enumerate([items] + found):
         for one in item:
             key = (_object(one).get("event"), _object(one).get("id"))
             if not all(k is None or isinstance(k, (str, int)) and not isinstance(k, bool) for k in key):
                 return [], False
-            if key[1] is not None and key in seen:
-                if seen[key] != _mark(one):
-                    # One event read twice as two: the answers contradict (Astra, issue 1206).
+            # One event read twice as two, by its id or its node, on any pages read: the answers contradict (Astra,
+            # Muse, issue 1206).
+            node = _object(one).get("node_id")
+            names = ([(key[0], str(key[1]))] if key[1] is not None else []) + ([node] if isinstance(node, str) else [])
+            for told in names:
+                if marks.setdefault(told, _mark(one)) != _mark(one):
                     return [], False
-                continue
-            seen[key] = _mark(one)
-            kept.append(one)
+            if (number or joined) and (key[1] is None or key not in seen):
+                seen.add(key)
+                kept.append(one)
     return kept, (reached or joined) and steady
 
 
