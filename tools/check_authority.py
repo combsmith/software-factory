@@ -310,6 +310,11 @@ def opening_problems(config: dict, root: pathlib.Path = None, callers: dict = No
 # The issues port's read of a work branch's head (issue 1059). Without it a branch's head is null, read or not, and an
 # opening admission could carry the default branch's head where a work branch already stands.
 BRANCHES, PORT = "adapters/branches.py", "adapters/issues.py"
+# And until trial P-80 has read that branch under the App's token (issue 1075), and a test tells a work branch's head
+# the Factory pushed from one it never did, as a branch planted at the next name would be: each is a file read here,
+# the trial's fixture and the test's name in its module (the Solution Architect, 2026-11-25).
+TRIAL = "trials/P-80.json"
+HEAD_MATCH = ("tests/test_adapters.py", "test_a_work_branch_head_the_factory_never_pushed_is_not_its_own")
 
 
 def imports_branches(tree) -> bool:
@@ -333,11 +338,18 @@ def writes_head_unread(tree) -> bool:
                for key, value in zip(node.keys, node.values))
 
 
+def holds_test(tree, name: str) -> bool:
+    """Whether a test module defines a function of that name, at any depth, as a test case's method is."""
+    return any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name
+               for node in ast.walk(tree))
+
+
 def branch_read_problems(config: dict, root: pathlib.Path = None) -> list:
     """A configuration that names a Role for `open-pull-request` while the issues port does not read the work branch's
     head: BRANCHES exists and parses, and PORT parses, imports it (`imports_branches`) and writes no head as None
-    (`writes_head_unread`), each read from the syntax, never by importing it. A file that cannot be read stays red.
-    None named passes."""
+    (`writes_head_unread`), each read from the syntax, never by importing it; or while TRIAL cannot be read as JSON,
+    or HEAD_MATCH's module defines no test of its name (`holds_test`). A file that cannot be read stays red, and the
+    first part missing is named. None named passes."""
     issues = config.get("issues") if isinstance(config, dict) else None
     intents = issues.get("intents") if isinstance(issues, dict) else None
     if (intents.get("open-pull-request") if isinstance(intents, dict) else None) is None:
@@ -352,6 +364,13 @@ def branch_read_problems(config: dict, root: pathlib.Path = None) -> list:
         return [said + "%s cannot be read or does not import %s at its top%s" % (PORT, BRANCHES, wait)]
     if writes_head_unread(port):
         return [said + "%s still writes a work branch's head as None, unread%s" % (PORT, wait)]
+    if _read(root / TRIAL) is None:
+        return [said + "%s, the trial of that read under the App's token, is missing or cannot be read; name none "
+                "until it is run (issue 1075)" % TRIAL]
+    tests = _parsed(root / HEAD_MATCH[0])
+    if tests is None or not holds_test(tests, HEAD_MATCH[1]):
+        return [said + "%s holds no %s, which tells a work branch's head the Factory pushed from one it never did; "
+                "name none until it does (issue 1059)" % HEAD_MATCH]
     return []
 
 
