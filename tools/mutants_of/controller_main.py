@@ -150,7 +150,7 @@ MUTANTS = [
     ('the entry hands the seen port no read', 'controller/__main__.py', 'kept[number] = held\n', 'pass\n', WIRE_ENTRY),
     ('what a failed snapshot kept is handed on', 'controller/__main__.py', '            facts, title, head = facts_.snapshot(through, home, number, identities, who.through(own), runs_whole,\n', '            kept[number] = held\n            facts, title, head = facts_.snapshot(through, home, number, identities, who.through(own), runs_whole,\n', WIRE_ENTRY),
     ('an item that has left is not read', 'controller/__main__.py', '[(n, seen_.LEFT) for n in sorted(newly)]', '[]', WIRE_ENTRY),
-    ('every item the last record held has left', 'controller/__main__.py', '({e["facts"]["item"]["number"] for e in last} - set(numbers))', '({e["facts"]["item"]["number"] for e in last})', WIRE_ENTRY),
+    ('every item the last record held has left', 'controller/__main__.py', '(({e["facts"]["item"]["number"] for e in last} | left_out) - set(numbers))', '({e["facts"]["item"]["number"] for e in last} | left_out)', WIRE_ENTRY),
     ('the older record says what has left', 'controller/__main__.py', 'last = before[-1]["pull_requests"] if before else []', 'last = before[0]["pull_requests"] if before else []', WIRE_ENTRY),
     ('what is owed is not read by the entry', 'controller/__main__.py', ' | (set(reconcile.owed(before)) - set(numbers) - held)', '', WIRE_ENTRY),
     ('an unread part is not owed', 'controller/__main__.py', '        if part[-1] is not True:\n            unread.append(number)\n', '', WIRE_ENTRY),
