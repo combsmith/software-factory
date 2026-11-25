@@ -16,5 +16,5 @@ A pull request left out of the last pass, its facts unanswered or moved twice, i
 
 | Boundary | Check |
 |---|---|
-| A pull request the last pass left out, no longer listed, is read as left and stamped; one still listed is read open; a left-out issue is not | `tests/test_controller.py::test_a_pull_request_left_out_and_closed_before_the_next_pass_is_read_as_left`, `controller/__main__.py`, mutant: "a pull request left out is not read as left" |
+| A pull request the last pass left out, no longer listed, is read as left and stamped; one still listed is read open; a left-out issue is not read as a pull request that left | `tests/test_controller.py::test_a_pull_request_left_out_and_closed_before_the_next_pass_is_read_as_left`, `controller/__main__.py`, mutant: "a pull request left out is not read as left" |
 | What an older record alone left out is not read as left | `tests/test_controller.py::test_a_pull_request_left_out_and_closed_before_the_next_pass_is_read_as_left`, `controller/__main__.py`, mutant: "the oldest record's left out are read as left" |
