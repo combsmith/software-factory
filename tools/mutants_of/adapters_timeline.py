@@ -268,4 +268,11 @@ MUTANTS = [
      '        if state == "dismissed" and review.get("id") not in dismissals and timeline_whole is not True:\n            whole = False\n            continue\n        commit = review.get("commit_id")\n        if commit not in contents:\n            contents[commit] = _content(transport, repo, base_head, commit)\n',
      '        commit = review.get("commit_id")\n        if commit not in contents:\n            contents[commit] = _content(transport, repo, base_head, commit)\n        if state == "dismissed" and review.get("id") not in dismissals and timeline_whole is not True:\n            whole = False\n            continue\n',
      ('tests.test_adapters.Timeline.test_a_dismissed_review_the_timeline_does_not_explain_is_refused',)),
+    # Astra on part 2 of 4 of issue 1009: a review on a later page, and a reviews cut beside a dismissal left out.
+    ("a review past the first page of the reviews is dropped", 'adapters/timeline.py',
+     '    for review in listed:\n', '    for review in listed[:PAGE]:\n',
+     ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
+    ("a dismissal left out beside a reviews cut takes the cut back", 'adapters/timeline.py',
+     '            whole = False\n            continue\n', '            whole = cut = False\n            continue\n',
+     ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
 ]
