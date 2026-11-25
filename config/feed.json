@@ -511,7 +511,7 @@
     "run_unreadable": "A run's record could not be read or contradicts itself; a person checks why.",
     "runs_unnamed": "Too many recent jobs are not matched to their items; the Factory waits.",
     "thread_unreadable": "A review thread could not be read; a person checks why.",
-    "timeline_bounded": "It is commented past what the Factory reads; a person checks it.",
+    "timeline_bounded": "It is commented on or reviewed past what the Factory reads; a person checks it.",
     "too_large": "It is too large to review whole; a person splits it or closes it."
   }
 }
