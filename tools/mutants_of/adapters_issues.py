@@ -30,6 +30,8 @@ BASE_READ = ("tests.test_adapters.Issues.test_the_default_branchs_head_is_read_b
 F931_PORT = ("tests.test_adapters.Issues.test_the_controllers_tracking_issue_is_told_at_its_first_read_by_its_opener_and_its_body",)
 
 PORT_HANDS = ("tests.test_adapters.Branches.test_the_issues_port_hands_the_work_branchs_head_and_whether_it_was_told",)  # issue 1059
+HM_ISSUES = ("tests.test_adapters.Branches.test_a_work_branch_head_the_factory_never_pushed_is_not_its_own",)
+
 TARGETS = ("adapters/issues.py",)
 MUTANTS = [
     # Decision 0232: a pull request the Factory opened stands with its issue, held while a person holds or has closed it.
@@ -317,6 +319,10 @@ MUTANTS = [
     # The head match (the Solution Architect, 2026-11-25): a head no opening Run recorded pushing is told so.
     ("a head the Factory never pushed is told as pushed", 'adapters/issues.py',
      'pushed = branch_head in shas if pushed_whole else None', 'pushed = True if pushed_whole else None', ("tests.test_adapters.Branches.test_a_work_branch_head_the_factory_never_pushed_is_not_its_own",)),
+    ("a head the Factory pushed is told as not pushed", 'adapters/issues.py',
+     'pushed = branch_head in shas if pushed_whole else None', 'pushed = False if pushed_whole else None', HM_ISSUES),
+    ("pushes not read whole tell the head as not pushed", 'adapters/issues.py',
+     'pushed = branch_head in shas if pushed_whole else None', 'pushed = branch_head in shas', HM_ISSUES),
     ("pushes not read whole leave the branch told", 'adapters/issues.py',
      '        branch_head, branch_whole = (branch_head, branch_whole) if pushed_whole else (None, False)\n', '', ("tests.test_adapters.Branches.test_a_work_branch_head_the_factory_never_pushed_is_not_its_own",)),
     ("whether the head was pushed is not handed on", 'adapters/issues.py',

@@ -6901,7 +6901,8 @@ class Branches(unittest.TestCase):
         # A push refused or failed landed nothing; another Effect's key is no push. A Run of another Role, Intent,
         # issue, repo or item kind is not read at all.
         for kept in ((record("r_A1", self.SHA, state="refused"), True), (record("r_A1", self.SHA, state="failed"), True),
-                     (record("r_A1", self.SHA, kind="open_pull_request"), True), (None, True), (artifacts.EXPIRED, True)):
+                     (record("r_A1", self.SHA, kind="open_pull_request"), True), (record("r_A1", self.SHA, kind="comment"), True),
+                     (None, True), (artifacts.EXPIRED, True)):
             self.assertEqual(landed(listed(r1), {"r_A1": kept})[0], (set(), True), kept)
         self.assertEqual(landed(listed(r1), {"r_A1": (record("r_A1", self.SHA, state="already_applied"), True)})[0],
                          ({self.SHA}, True))
