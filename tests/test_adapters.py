@@ -4682,12 +4682,13 @@ class Snapshot(unittest.TestCase):
         seq = self.sequence(1)
         eleventh = paged(seq, 5, "/repos/%s/issues/26/timeline?per_page=100" % canary())
         seq.append(eleventh)
-        replay = github.Replay(seq)
+        replay, kept = github.Replay(seq), {}
         router = Router(replay, {"don-petry": "admin"})
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
-                                lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
+                                lambda: self.NOW, kept, recorded=NOTHING, opened=NOT_OPENED)
         self.assertIs(got["complete"]["timeline"], False)
         self.assertIs(got["timeline_bounded"], True)
+        self.assertIs(kept["events"][1], False)               # reconciliation reads it short too (Astra)
         self.assertIs(got["complete"]["reviews"], True)       # with no dismissal, the reviews stay whole (Carbon)
         self.assertEqual([asked[1] for asked, _ in replay._left], [eleventh["request"]["call"].split(" ", 1)[1]])
         # A review dismissed past the cut, whose dismissal the timeline read does not hold, leaves the reviews not
