@@ -1121,6 +1121,8 @@ ISSUE = [
      'and is_commit(head.get("sha")) and', 'and isinstance(head.get("sha"), str) and', WORK_TOLD),
     ("a draft head with no branch is read", ISSUE_PY, 'and work_branch_of(head.get("ref"), number)\n', '\n', WORK_TOLD),
     ("a draft's branch of another issue is read", ISSUE_PY, '    return issue == str(number) and all(', '    return all(', WORK_TOLD),
+    ("a draft's count of any letters is read", ISSUE_PY, ' and all(c in t.DIGITS for c in p) for p in (issue, count))',
+     ' for p in (issue, count))', WORK_TOLD),
     ("a draft's count with a leading zero is read", ISSUE_PY, 'p != "" and p[0] != "0" and all(', 'p != "" and all(', WORK_TOLD),
     ("a draft's branch with no count is read", ISSUE_PY, 'all(p != "" and p[0] != "0"', 'all(p == "" or p[0] != "0"', WORK_TOLD),
     ("a draft's branch of any prefix is read", ISSUE_PY,
