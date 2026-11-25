@@ -327,6 +327,9 @@ MUTANTS = [
      '        branch_head, branch_whole = (branch_head, branch_whole) if pushed_whole else (None, False)\n', '', ("tests.test_adapters.Branches.test_a_work_branch_head_the_factory_never_pushed_is_not_its_own",)),
     ("whether the head was pushed is not handed on", 'adapters/issues.py',
      '"branch_pushed": pushed,', '"branch_pushed": None,', ("tests.test_adapters.Branches.test_a_work_branch_head_the_factory_never_pushed_is_not_its_own",)),
+    ("the port asks of no branch whose head it read", 'adapters/issues.py',
+     'applied.landed(transport, repo, runs, role, number, branch)', 'applied.landed(transport, repo, runs, role, number, None)',
+     HM_ISSUES),
     ("pushes are asked where no branch stands", 'adapters/issues.py',
      '    if branch_head is not None:\n        shas, pushed_whole', '    if True:\n        shas, pushed_whole', ("tests.test_adapters.Branches.test_a_work_branch_head_the_factory_never_pushed_is_not_its_own",)),
 ]

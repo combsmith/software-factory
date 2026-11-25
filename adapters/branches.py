@@ -69,24 +69,25 @@ def opened_count(transport, repo: str, number: int, opener):
 
 
 def work_head(transport, repo: str, number: int, opener) -> tuple:
-    """`(head, whole)` of the branch the next opening Run on issue `number` would push to: `(sha, True)` where it stands,
-    `(None, True)` where GitHub says it does not, and `(None, False)` where neither can be told."""
+    """`(head, whole, branch)` of the branch the next opening Run on issue `number` would push to: `(sha, True, branch)`
+    where it stands, `(None, True, branch)` where GitHub says it does not, and `(None, False, None)` where neither can be
+    told. `branch` is the name read, which a push's record must name to vouch for its head (decision 1208)."""
     try:
         count = opened_count(transport, repo, number, opener)
         if count is None:
-            return None, False
+            return None, False, None
         branch = WORK % (number, count + 1)
         if not BRANCH.fullmatch(branch):
-            return None, False
+            return None, False, None
         answer = transport.send(request("GET", "/repos/%s/git/ref/heads/%s" % (repo, branch)))
     except Unanswered:
-        return None, False
+        return None, False, None
     if answer["status"] == 404:
-        return None, True
+        return None, True, branch
     ref = answer["body"] if answer["status"] == 200 and isinstance(answer["body"], dict) else {}
     head = ref.get("object") if isinstance(ref.get("object"), dict) else {}
     sha = head.get("sha")
     if ref.get("ref") != "refs/heads/" + branch or head.get("type") != "commit" \
             or not (isinstance(sha, str) and SHA.fullmatch(sha)):
-        return None, False
-    return sha, True
+        return None, False, None
+    return sha, True, branch

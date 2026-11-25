@@ -17,9 +17,9 @@ earlier than the closing references are read. `branch_head`, the head of the bra
 is read by `adapters/branches.py` after them: a commit, or null where that branch does not stand, and `complete.branch`
 true only where one of the two was read; false, with a null head, where it was not, the count of pull requests the
 Factory opened for the issue among it (decision 0242, issue 1059). Where a commit stands there, `branch_pushed` tells
-whether an earlier opening Run of the issue recorded pushing it, by `adapters/applied.py`'s `landed`, read only then:
-true or false, a record missing or past its retention false; where those records cannot be read whole, the branch is
-not told, and the head is null. Where no branch stands, it is null. `base_head`, the default branch's head, is read once for each repo in a pass
+whether an earlier opening Run of the issue recorded pushing it to that branch, by `adapters/applied.py`'s `landed`
+(decision 1208), read only then: true or false, a record missing or past its retention false; where those records
+cannot be read whole, the branch is not told, and the head is null. Where no branch stands, it is null. `base_head`, the default branch's head, is read once for each repo in a pass
 by `default_head`, and left out where it could not be read (decisions 0226 and 0242). `complete.runs` is true: the pass
 puts the records port's answer in its place (`controller/pass_.py`'s `asked`), and false here would leave every issue
 unreadable.
@@ -265,10 +265,10 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
     # Read whatever the timeline's bound did: a record not whole still opens a span for each keyword it read (0186).
     closing, closing_whole, linked_cut, broken = linked.read(transport, repo, number, edited["updated_at"],
                                                      lived["life_started_at"], identities, accounts, earlier, kernel)
-    branch_head, branch_whole = branches.work_head(transport, repo, number, opener)
+    branch_head, branch_whole, branch = branches.work_head(transport, repo, number, opener)
     pushed = None
     if branch_head is not None:
-        shas, pushed_whole = applied.landed(transport, repo, runs, role, number)
+        shas, pushed_whole = applied.landed(transport, repo, runs, role, number, branch)
         pushed = branch_head in shas if pushed_whole else None
         branch_head, branch_whole = (branch_head, branch_whole) if pushed_whole else (None, False)
     # A merge may have closed it since: read once more, as `adapters/pull.unchanged` does.
