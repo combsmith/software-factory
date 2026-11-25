@@ -920,16 +920,244 @@ class SeenPort(unittest.TestCase):
             github = Pages({ISSUE + "/timeline?per_page=100": [close], reviews: [[] for _ in range(count)]}, answers)
             self.assertIs(seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], whole, count)
             self.assertEqual(len([path for _, path in github.asked if "/reviews?" in path]), 10, count)
-        # So are the timelines the port reads itself: an issue's, and that of a pull request that left, whose close is
-        # on its last page (Muse).
-        events = ISSUE + "/timeline?per_page=100"
-        for count, whole in ((10, True), (11, False)):
-            github = Pages({events: [[] for _ in range(count)]})
-            self.assertIs(seen_.read(github, dict(ITEM, type="issue"), None, IDENTITIES, APPS, SINCE)[2], whole, count)
-            self.assertEqual(len([path for _, path in github.asked if "/timeline?" in path]), 10, count)
-            github = Pages({events: [[] for _ in range(count - 1)] + [close]}, LEFT_ANSWERS)
-            self.assertIs(seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], whole, count)
-            self.assertEqual(len([path for _, path in github.asked if "/timeline?" in path]), 10, count)
+
+    def test_a_long_timeline_is_read_from_its_end_back_to_since(self):  # issue 1009, decision 0234, P-43
+        # An item that left with a timeline of thirty pages: its close and the writes since `since` are on its last
+        # pages. The first page names the last; the last pages are read back until one reaches before `since`, and the
+        # last is read again: the close is found, and the pages between are never asked.
+        old = [{"event": "commented", "actor": PERSON, "created_at": EARLY}]
+        new = [{"event": "commented", "actor": PERSON, "created_at": AT}]
+        close = [{"event": "closed", "actor": CONTROLLER, "created_at": AT, "id": 9}]
+        timeline_ = [old] * 27 + [old + new, new, close]
+        github = Pages({ISSUE + "/timeline?per_page=100": timeline_}, LEFT_ANSWERS)
+        writes, merged, whole = seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)
+        self.assertIs(whole, True)
+        self.assertIn(("controller", "close", None), [(w["by"], w["kind"], w["key"]) for w in writes])
+        pages = [path for _, path in github.asked if "/timeline" in path]
+        self.assertEqual(pages, [ISSUE + "/timeline?per_page=100"] + [ISSUE + "/timeline?per_page=100&page=%d" % n
+                                                                      for n in (30, 29, 28, 30)])
+        # Never reaching `since` within the bound, nor the first page, is short; so is a last page GitHub does not name.
+        github = Pages({ISSUE + "/timeline?per_page=100": [new] * 29 + [close]}, LEFT_ANSWERS)
+        self.assertIs(seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], False)
+        self.assertLessEqual(len([p for _, p in github.asked if "/timeline" in p]), 10)
+        github = Pages({ISSUE + "/timeline?per_page=100": timeline_}, LEFT_ANSWERS, last=False)
+        self.assertIs(seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], False)
+        # A short timeline is read back to its first page, joined, each event once.
+        github = Pages({ISSUE + "/timeline?per_page=100": [new, close, close]}, LEFT_ANSWERS)
+        writes, _, whole = seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)
+        self.assertIs(whole, True)
+        self.assertEqual([w["kind"] for w in writes].count("close"), 1)
+        # Ids of different kinds are told apart: a label and a close of one id are both kept.
+        comment = [{"event": "labeled", "actor": CONTROLLER, "created_at": AT, "id": 9, "label": {"name": "factory:ready"}}]
+        github = Pages({ISSUE + "/timeline?per_page=100": [new, comment, close]}, LEFT_ANSWERS)
+        writes, _, _ = seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)
+        self.assertIn("close", [w["kind"] for w in writes])
+        self.assertTrue(any(w["kind"] != "close" and w["by"] == "controller" for w in writes))
+
+    def test_an_item_read_as_gone_is_read_back_to_its_close(self):  # issue 1009, the Claude read of part 4
+        # One read as gone is whole with its close of any age. Where events after the close, all before `since`, fill
+        # the pages after it, the read goes on back past `since`, within the bound, until it finds the close.
+        old = [{"event": "commented", "actor": PERSON, "created_at": EARLY}]
+        closed = [{"event": "closed", "actor": CONTROLLER, "created_at": EARLY, "id": 9}]
+        path = ISSUE + "/timeline?per_page=100"
+        for pages_ in ([old, closed, old], [old, old, closed, old], [old] * 5 + [closed] + [old] * 6):
+            github = Pages({path: pages_}, LEFT_ANSWERS)
+            self.assertIs(seen_.read(github, ITEM, seen_.GONE, IDENTITIES, APPS, SINCE)[2], True, len(pages_))
+            self.assertLessEqual(len([p for _, p in github.asked if "/timeline" in p]), 10)
+        # One that left is read back to `since` alone, its close in the window; and past the bound a close is short.
+        github = Pages({path: [old, closed, old]}, LEFT_ANSWERS)
+        self.assertIs(seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], False)
+        self.assertEqual([p for _, p in github.asked if "/timeline" in p][1:], [path + "&page=3", path + "&page=3"])
+        github = Pages({path: [old] * 3 + [closed] + [old] * 10}, LEFT_ANSWERS)
+        self.assertIs(seen_.read(github, ITEM, seen_.GONE, IDENTITIES, APPS, SINCE)[2], False)
+        # Its close on the eighth page from the end is past the bound too (Carbon).
+        github = Pages({path: [old] * 5 + [closed] + [old] * 7}, LEFT_ANSWERS)
+        self.assertIs(seen_.read(github, ITEM, seen_.GONE, IDENTITIES, APPS, SINCE)[2], False)
+        self.assertLessEqual(len([p for _, p in github.asked if "/timeline" in p]), 10)
+        # Its close found on the last page, the read still goes back to `since`: what was written before the close in
+        # the window is read too, and the read is whole (Carbon).
+        new = [{"event": "commented", "actor": PERSON, "created_at": AT}]
+        late = [{"event": "closed", "actor": CONTROLLER, "created_at": "2026-10-11T13:00:00Z", "id": 9}]
+        github = Pages({path: [old, new, late]}, LEFT_ANSWERS)
+        self.assertIs(seen_.read(github, ITEM, seen_.GONE, IDENTITIES, APPS, SINCE)[2], True)
+        self.assertIn(path + "&page=2", [p for _, p in github.asked])
+        # An issue's read back ends at its close alone, never at a merge before it (Carbon).
+        merged = [{"event": "merged", "actor": PERSON, "created_at": EARLY, "id": 8}]
+        github = Pages({path: [old, closed, merged, old]}, {**LEFT_ANSWERS, ("GET", ISSUE): {"number": 42, "state": "closed"}})
+        self.assertIs(seen_.read(github, dict(ITEM, type="issue"), seen_.GONE, IDENTITIES, APPS, SINCE)[2], True)
+        # A pull request's merge ends its read back, as a close does (Astra).
+        github = Pages({path: [old, old, merged]}, LEFT_ANSWERS)
+        self.assertIs(seen_.read(github, ITEM, seen_.GONE, IDENTITIES, APPS, SINCE)[2], True)
+        self.assertEqual([p for _, p in github.asked if "/timeline" in p][1:], [path + "&page=3", path + "&page=3"])
+        # An issue read as gone that REST reads open again has no close to find: it is read back to `since` alone (Carbon).
+        github = Pages({path: [old] * 27 + [old + new, new, new]}, {**LEFT_ANSWERS, ("GET", ISSUE): {"number": 42, "state": "open"}})
+        self.assertIs(seen_.read(github, dict(ITEM, type="issue"), seen_.GONE, IDENTITIES, APPS, SINCE)[2], True)
+        self.assertEqual(len([p for _, p in github.asked if "/timeline" in p]), 5)
+        # Items GitHub gives no id, as commits, are kept each, never told apart as one (Carbon).
+        commits = [{"event": "committed", "sha": "1" * 40}, {"event": "committed", "sha": "2" * 40}]
+        kept, whole = seen_._tail(Pages({path: [old, old, commits + new]}), path, SINCE)
+        self.assertEqual(([k.get("sha") for k in kept if k.get("event") == "committed"], whole), (["1" * 40, "2" * 40], True))
+
+    def test_a_read_from_the_end_is_short_on_what_it_cannot_tell(self):  # issue 1009, the readers of a1b28476
+        new = [{"event": "commented", "actor": PERSON, "created_at": AT}]
+        old = [{"event": "commented", "actor": PERSON, "created_at": EARLY}]
+        close = [{"event": "closed", "actor": CONTROLLER, "created_at": AT, "id": 9}]
+        path = ISSUE + "/timeline?per_page=100"
+
+        def left(github):
+            return seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)
+        # A moment that cannot be read never says the read reached `since`: the page before it is read, and its close.
+        writes, _, whole = left(Pages({path: [old, close, [{"event": "commented", "actor": PERSON, "created_at": ""}]]},
+                                      LEFT_ANSWERS))
+        self.assertEqual((whole, [w["kind"] for w in writes]), (True, ["close"]))
+        # A last page that answers empty, as one the list shrank from, is short.
+        self.assertIs(left(Pages({path: [old, close, []]}, LEFT_ANSWERS))[2], False)
+        # An id that cannot be a key leaves the read short, never refused.
+        self.assertIs(left(Pages({path: [new, [dict(close[0], id=[])], close]}, LEFT_ANSWERS))[2], False)
+        # A truth value is no id either, though Python counts it a number (Carbon).
+        self.assertIs(left(Pages({path: [new, [dict(close[0], id=True)], close]}, LEFT_ANSWERS))[2], False)
+        # A last page that named a next one when first read is short, though it names none when read again.
+        self.assertIs(left(Pages({path: [old] * 27 + [old + new, new, close]}, LEFT_ANSWERS, first_more={30}))[2], False)
+        # The bound is ten pages: the first, seven read back, the last again, and the first again where joined. A
+        # read back that reaches `since` on the seventh page back is whole; one that needs an eighth is short.
+        for reach, whole in ((24, True), (23, False)):
+            pages_ = [old] * (reach - 1) + [old + new] + [new] * (29 - reach) + [close]
+            github = Pages({path: pages_}, LEFT_ANSWERS)
+            self.assertIs(left(github)[2], whole, reach)
+            self.assertLessEqual(len([p for _, p in github.asked if "/timeline" in p]), 10, reach)
+        # A joined first page's writes are read too.
+        label = [{"event": "labeled", "actor": CONTROLLER, "created_at": AT, "id": 5, "label": {"name": "factory:ready"}}]
+        writes, _, whole = left(Pages({path: [label, new, close]}, LEFT_ANSWERS))
+        self.assertEqual((whole, sorted(w["kind"] for w in writes)), (True, ["close", "label"]))
+        # Joined at the bound: eight pages are read whole in ten requests, nine are not (Carbon).
+        for between, whole in ((6, True), (7, False)):
+            github = Pages({path: [label] + [new] * between + [close]}, LEFT_ANSWERS)
+            self.assertIs(left(github)[2], whole, between)
+            self.assertLessEqual(len([p for _, p in github.asked if "/timeline" in p]), 10, between)
+        # A steady timeline that ends with a commit, which carries no id and no moment, is whole (Carbon).
+        commit = {"event": "committed", "sha": "a" * 40}
+        self.assertIs(left(Pages({path: [old] * 27 + [old + new, new, close + [commit]]}, LEFT_ANSWERS))[2], True)
+        # An issue's timeline is read from its end too.
+        issue = dict(ITEM, type="issue")
+        github = Pages({path: [old] * 27 + [old + new, new, close]})
+        writes, _, whole = seen_.read(github, issue, None, IDENTITIES, APPS, SINCE)
+        self.assertEqual((whole, [w["kind"] for w in writes]), (True, ["close"]))
+
+    def test_a_read_from_the_end_holds_its_edges(self):  # issue 1009, the readers of 4a416a5f
+        new = [{"event": "commented", "actor": PERSON, "created_at": AT}]
+        old = [{"event": "commented", "actor": PERSON, "created_at": EARLY}]
+        close = [{"event": "closed", "actor": CONTROLLER, "created_at": AT, "id": 9}]
+        path = ISSUE + "/timeline?per_page=100"
+
+        def left(github):
+            return seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)
+        # A moment at `since` itself is not before it: the read goes on to the close behind it (Muse).
+        writes, _, whole = left(Pages({path: [old, close, [{"event": "commented", "actor": PERSON, "created_at": SINCE}]]},
+                                      LEFT_ANSWERS))
+        self.assertEqual((whole, [w["kind"] for w in writes]), (True, ["close"]))
+        # A review on the timeline is placed by when it was submitted, not when it was begun (Astra).
+        begun = [{"event": "reviewed", "user": PERSON, "created_at": EARLY, "submitted_at": AT, "id": 3}]
+        writes, _, whole = left(Pages({path: [old, close, begun]}, LEFT_ANSWERS))
+        self.assertEqual((whole, [w["kind"] for w in writes]), (True, ["close"]))
+        # A review submitted before `since` reaches it, by its submitted_at alone (Carbon).
+        sent = [{"event": "reviewed", "user": PERSON, "created_at": AT, "submitted_at": EARLY, "id": 4}]
+        self.assertIs(left(Pages({path: [new] * 23 + [sent] + [new] * 5 + [close]}, LEFT_ANSWERS))[2], True)
+        # One page that names a last page it does not lead to is short; one page alone is kept by kind and id, and an
+        # id that cannot be a key on it is short too (Astra).
+        one = Pages({path: [close + close]}, LEFT_ANSWERS)
+        writes, _, whole = left(one)
+        self.assertEqual((whole, [w["kind"] for w in writes]), (True, ["close"]))
+        self.assertIs(left(Pages({path: [[dict(close[0], id=[])]]}, LEFT_ANSWERS))[2], False)
+
+        class Lying(Pages):
+            def send(self, req):
+                answer = super().send(req)
+                if req["path"] == path:
+                    answer = dict(answer, headers={"link": '<https://api.github.com%s&page=4>; rel="last"' % path})
+                return answer
+        self.assertIs(left(Lying({path: [close]}, LEFT_ANSWERS))[2], False)
+        # An empty page before the end is no page GitHub gives: short (Astra).
+        self.assertIs(left(Pages({path: [old, old, [], close]}, LEFT_ANSWERS))[2], False)
+        # So is a first page that answers empty and names a next one, joined to the read or not (Muse).
+        self.assertIs(left(Pages({path: [[], close]}, LEFT_ANSWERS))[2], False)
+        self.assertIs(left(Pages({path: [[]] + [old] * 3 + [close]}, LEFT_ANSWERS))[2], False)
+        self.assertIs(left(Pages({path: [new, close]}, LEFT_ANSWERS))[2], True)
+        self.assertIs(left(Pages({path: [old] * 4 + [close]}, LEFT_ANSWERS))[2], True)
+        # Two commits on the last page are told apart by their sha, though they carry no id or time (Astra).
+        commit = lambda sha: {"event": "committed", "sha": sha}
+        github = Pages({path: [old] * 27 + [old + new, new, close + [commit("a" * 40)]]}, LEFT_ANSWERS,
+                       again={30: (close + [commit("b" * 40)], False)})
+        self.assertIs(left(github)[2], False)
+        self.assertIs(left(Pages({path: [old] * 27 + [old + new, new, close + [commit("a" * 40)]]}, LEFT_ANSWERS))[2], True)
+        # A moment past a first item that has none still reaches `since` (Astra).
+        self.assertIs(left(Pages({path: [old] * 23 + [[commit("c" * 40)] + old] + [new] * 5 + [close]}, LEFT_ANSWERS))[2], True)
+        # A joined first page is read again though the read reached `since` on the second (Kimi, Muse, Astra).
+        first = [{"event": "commented", "actor": PERSON, "created_at": EARLY, "id": 1}]
+        github = Pages({path: [first, old + close]}, LEFT_ANSWERS, again={1: (old, True)})
+        self.assertIs(left(github)[2], False)
+        self.assertIs(left(Pages({path: [first, old + close]}, LEFT_ANSWERS))[2], True)
+
+    def test_an_event_that_lands_while_the_end_is_read_leaves_it_short(self):  # issue 1009, the Builder's ruling
+        # An event that lands while the pages are read back moves the pages: one read could fall between them. So the
+        # last page is read again at the end, and one whose items or number changed leaves the read not whole.
+        new = [{"event": "commented", "actor": PERSON, "created_at": AT}]
+        old = [{"event": "commented", "actor": PERSON, "created_at": EARLY}]
+        close = [{"event": "closed", "actor": CONTROLLER, "created_at": AT, "id": 9}]
+        moved = close + [{"event": "commented", "actor": PERSON, "created_at": AT, "id": 10}]
+        swapped = [{"event": "commented", "actor": PERSON, "created_at": AT, "id": 10}]
+        for later, more in ((moved, False), (close, True), (swapped, False)):
+            github = Pages({ISSUE + "/timeline?per_page=100": [old] * 27 + [old + new, new, close]}, LEFT_ANSWERS,
+                           again={30: (later, more)})
+            self.assertIs(seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], False, (later, more))
+        steady = Pages({ISSUE + "/timeline?per_page=100": [old] * 27 + [old + new, new, close]}, LEFT_ANSWERS,
+                       again={30: (close, False)})
+        self.assertIs(seen_.read(steady, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], True)
+        # An item deleted from a joined first page moves the pages the other way: the first page, read again, must
+        # read the same (Claude); one that does not leaves the read short.
+        first = [{"event": "commented", "actor": PERSON, "created_at": AT, "id": 1}]
+        for later, whole in (([], False), (new, False), (first, True)):
+            github = Pages({ISSUE + "/timeline?per_page=100": [first, new, close]}, LEFT_ANSWERS, again={1: (later, True)})
+            self.assertIs(seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], whole, later)
+        # One that lands before the first page is read again names a new last page there: short too (Astra).
+
+        class Grown(Pages):
+            def send(self, req):
+                answer = super().send(req)
+                if req["path"] == ISSUE + "/timeline?per_page=100" and self.times[req["path"], 1] > 1:
+                    answer = dict(answer, headers={"link": answer["headers"]["link"].replace("page=3", "page=4")})
+                return answer
+        github = Grown({ISSUE + "/timeline?per_page=100": [first, new, close]}, LEFT_ANSWERS)
+        self.assertIs(seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], False)
+
+    def test_a_timeline_the_snapshot_cut_is_read_again_from_its_end(self):  # issue 1009, decision 0234
+        # An open pull request whose timeline the snapshot cut at its bound: the writes since `since` are at its end,
+        # so the seen port reads it again from there; one not cut is never read again.
+        old = [{"event": "commented", "actor": PERSON, "created_at": EARLY}]
+        review = [{"event": "reviewed", "user": APPROVER, "state": "approved", "id": 7, "submitted_at": AT,
+                   "node_id": "PRR_t"}]
+        label = [{"event": "labeled", "actor": CONTROLLER, "created_at": AT, "id": 5, "label": {"name": "factory:ready"}}]
+        github = Pages({ISSUE + "/timeline?per_page=100": [old] * 28 + [review + label]})
+        parts = kept(events=([], False))
+        parts["cut"] = {"events": True, "reviews": False}
+        writes, _, whole = seen_.read(github, ITEM, parts, IDENTITIES, APPS, SINCE)
+        self.assertIs(whole, True)
+        self.assertIn("label", [w["kind"] for w in writes])
+        path = ISSUE + "/timeline?per_page=100"
+        self.assertEqual([p for _, p in github.asked if "/timeline" in p],
+                         [path] + [path + "&page=%d" % n for n in (29, 28, 29)])
+        # A list whose first page names a next one but no last cannot be read from its end: short.
+        github = Pages({ISSUE + "/timeline?per_page=100": [old] * 28 + [review]}, last=False)
+        self.assertIs(seen_.read(github, ITEM, parts, IDENTITIES, APPS, SINCE)[2], False)
+        github = Pages({})
+        parts = kept(events=([], False))
+        parts["cut"] = {"events": False, "reviews": False}
+        self.assertIs(seen_.read(github, ITEM, parts, IDENTITIES, APPS, SINCE)[2], False)
+        self.assertEqual([p for _, p in github.asked if "/timeline" in p], [])
+        # A reviews list cut alone reads no timeline again, and what was seen stays short (Astra).
+        parts = kept(reviews=([], False))
+        parts["cut"] = {"events": False, "reviews": True}
+        self.assertIs(seen_.read(github, ITEM, parts, IDENTITIES, APPS, SINCE)[2], False)
+        self.assertEqual([p for _, p in github.asked if "/timeline" in p], [])
 
     def test_what_a_later_page_holds_is_seen_and_a_cut_snapshot_is_short(self):  # issue 1009, decision 0234 (Astra)
         # A write on the second page, past a first of a hundred, is seen.
