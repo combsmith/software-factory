@@ -738,7 +738,7 @@ that it has already happened.
 
 | Effect | Recovery key | Naturally idempotent |
 |---|---|---|
-| `push_commits` | The tree digest of the branch head, read back | Yes |
+| `push_commits` | The pushed commit's sha, read back | Yes |
 | `open_pull_request` | The head branch name | Yes |
 | `submit_review` | A review by this actor on this commit | Yes |
 | `resolve_thread` | The thread's resolved flag. The Controller's act, carried out by the queue App (decision 0086) | Yes |
