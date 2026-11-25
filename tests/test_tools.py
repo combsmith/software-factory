@@ -1507,14 +1507,21 @@ class Authority(unittest.TestCase):
     def test_a_role_named_to_open_pull_requests_waits_on_the_branch_read(self):  # issue 1059
         # No Role is named to open pull requests until the issues port reads the work branch's head: the file
         # adapters/branches.py exists and parses, and adapters/issues.py parses, imports it at its top and writes no
-        # head as None, read from the syntax. With none named it passes. This repo's port reads it, so one named passes
-        # this part; a repo whose port names a read that is not there, here a module of another name, refuses it.
+        # head as None, read from the syntax; and until trials/P-80.json reads as JSON recording trial P-80, and
+        # tests/test_adapters.py holds the test that tells a head the Factory pushed from one it never did: a method
+        # of that name, undecorated, directly in an undecorated class at the module's top. With none named it passes.
+        # This repo's port reads the branch, so one named passes that part; a repo whose port names a read that is not
+        # there, here a module of another name, refuses it for that. The trial is named before the test.
         config = json.loads((ROOT / "config" / "defaults.json").read_text())
         self.assertEqual(check_authority.branch_read_problems(config), [])
         named = copy.deepcopy(config)
         named["issues"]["intents"]["open-pull-request"] = {"role": "dev-lead", "app": "combsmith-sf-dev-lead"}
         waits = "name none until the port reads it (issue 1059)"
-        self.assertEqual(check_authority.branch_read_problems(named), [])
+        trial = "trials/P-80.json, the trial of that read under the App's token, is missing or cannot be read"
+        name = "test_a_work_branch_head_the_factory_never_pushed_is_not_its_own"
+        self.assertEqual(check_authority.HEAD_MATCH, ("tests/test_adapters.py", name))
+        self.assertEqual(check_authority.TRIAL, ("trials/P-80.json", "P-80"))
+        match = "tests/test_adapters.py holds no %s" % name
         self.assertFalse(caught(check_authority.run(config=named), waits))
         unbuilt = mock.patch.object(check_authority, "BRANCHES", "adapters/branches_unbuilt.py")
         with unbuilt:
@@ -1531,14 +1538,18 @@ class Authority(unittest.TestCase):
 
         helper = "def head(transport, repo, branch):\n    return None\n"
 
-        def tree(port, branches=helper):
+        held = "class Adapters:\n    def %s(self):\n        pass\n" % name
+        ran = '{"trial": "P-80"}\n'
+
+        def tree(port, branches=helper, fixture=ran, tests=held):
             folder = tempfile.TemporaryDirectory()
             self.addCleanup(folder.cleanup)
             root = pathlib.Path(folder.name)
-            (root / "adapters").mkdir()
-            for name, text in (("issues.py", port), ("branches.py", branches)):
+            for rel, text in (("adapters/issues.py", port), ("adapters/branches.py", branches),
+                              ("trials/P-80.json", fixture), ("tests/test_adapters.py", tests)):
                 if text is not None:
-                    (root / "adapters" / name).write_bytes(text if isinstance(text, bytes) else text.encode())
+                    (root / rel).parent.mkdir(exist_ok=True)
+                    (root / rel).write_bytes(text if isinstance(text, bytes) else text.encode())
             return root
 
         reads = "from adapters import branches\n"
@@ -1564,6 +1575,39 @@ class Authority(unittest.TestCase):
         for port, branches, said in refused:
             with self.subTest(port=port, branches=branches):
                 self.assertTrue(caught(check_authority.branch_read_problems(named, tree(port, branches)), said))
+        said = "the configuration names a Role to open pull requests, and "
+        self.assertEqual(check_authority.branch_read_problems(named, tree(reads, fixture=None, tests=None)),
+                         [said + trial + "; name none until it is run (issue 1075)"])
+        self.assertEqual(check_authority.branch_read_problems(named, tree(reads, tests=None)), [said + match + (
+            ", which tells a work branch's head the Factory pushed from one it never did; name none until it does "
+            "(issue 1059)")])
+        cased = "import unittest\n\n\nclass T(unittest.TestCase):\n    x = 1\n\n    def %s(self):\n        pass\n"
+        cased %= name
+        self.assertEqual(check_authority.branch_read_problems(named, tree(reads, tests=cased)), [])
+        wrapped = "class T:\n    %%sdef %s(self):\n        pass\n" % name
+        for fixture, tests, said in ((None, held, trial), ("{", held, trial), (b"\xff\n", held, trial),
+                                     ("[]", held, trial), ('{"trial": "P-1"}', held, trial),
+                                     ('{"trial": "P-8"}', held, trial), ('{"trial": "P-800"}', held, trial),
+                                     ('{"related": "P-80"}', held, trial),
+                                     ('{"trial": "P-1", "related": "P-80"}', held, trial),
+                                     (ran, "class T:\n    def test_x(self):\n        pass\n\n    @pending\n"
+                                      "    def %s(self):\n        pass\n" % name, match),
+                                     (ran, None, match), (ran, "def %s(:\n" % name, match), (ran, "", match),
+                                     (ran, held.replace(name, name + "_too"), match),
+                                     (ran, held.replace(name, "test_a_work_branch_head"), match),
+                                     (ran, "def %s():\n    pass\n" % name, match),
+                                     (ran, "def outer():\n    " + held.replace("\n", "\n    "), match),
+                                     (ran, "if True:\n    " + held.replace("\n", "\n    "), match),
+                                     (ran, "class T:\n    def test_x(self):\n        def %s():\n            pass\n"
+                                      % name, match),
+                                     (ran, wrapped % "@pending\n    ", match),
+                                     (ran, wrapped % "@unittest.skip('x')\n    ", match),
+                                     (ran, wrapped % "async ", match), (ran, "class %s:\n    pass\n" % name, match),
+                                     (ran, "@unittest.skip('x')\n" + held, match), (ran, "@pending\n" + held, match),
+                                     (ran, "# def %s():\n%s = 1\n" % (name, name), match)):
+            with self.subTest(fixture=fixture, tests=tests):
+                problems = check_authority.branch_read_problems(named, tree(reads, fixture=fixture, tests=tests))
+                self.assertTrue(caught(problems, said), problems)
 
     def test_a_value_held_twice_must_agree(self):
         self.table["max_rounds"] = 9
