@@ -692,6 +692,9 @@ class Patch(unittest.TestCase):
         away = b"diff --git a/run.sh b/r\nsimilarity index 100%\nrename from run.sh\nrename to r\n"
         self.assertEqual(landed(away + empty_new % (b"run.sh/x", b"run.sh/x"))[0]["written"],
                          {"r": ("100755", b"#!/bin/sh\n"), "run.sh/x": (FILE, b"")})
+        into = b"diff --git a/run.sh b/run.sh/x\nsimilarity index 100%\nrename from run.sh\nrename to run.sh/x\n"
+        self.assertEqual(landed(into)[0], {"written": {"run.sh/x": ("100755", b"#!/bin/sh\n")}, "removed": ["run.sh"],
+                                           "read": ["run.sh"]})      # and a file moved under its own old name
         # A directory that keeps one file, or a file that stays, is still in the way.
         for data, tree, held in ((empty_new % (b"d", b"d") + empty_gone % (b"d/x", b"d/x"), {"d/x": FILE, "d/y": FILE},
                                   {"d/x": b""}),
