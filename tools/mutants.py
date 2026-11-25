@@ -85,6 +85,7 @@ COVERAGE = "tests.test_coverage.Coverage."
 # An issue's State (kernel/issue.py, decision 0028), in a list of its own so that the pull request's work, which adds
 # to MUTANTS below, never touches the same lines. Each is run against tests.test_issue first.
 ISSUE_PY, ISSUE_TESTS = "kernel/issue.py", ("tests.test_issue",)
+WORK_TOLD = ("tests.test_issue.Opening.test_the_work_branch_is_read_as_a_commit_as_no_branch_or_not_told_and_only_no_branch_carries_a_base",)  # issue 1059
 MERGE_UNDER_STOP_TESTS = ("tests.test_issue.Done.test_a_merge_read_while_a_person_closed_or_held_the_issue_is_never_done",)
 PLATFORM_CLOSE_TESTS = ("tests.test_issue.Done.test_a_platform_close_keeps_the_state_a_person_set",)
 CLOSE_TIME_TESTS = ("tests.test_issue.Done.test_a_close_or_a_reopening_without_its_time_cannot_be_read",)
@@ -921,7 +922,7 @@ ISSUE = [
      'brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"], unreadable)',
      'brakes.implementing_rounds(_decision, facts, mine, config["limits"], unreadable)',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
-    ("the implementing Run is not told its draft", ISSUE_PY, '{"pull_request": draft["number"]}', '{}',
+    ("the implementing Run is not told its draft", ISSUE_PY, '{"pull_request": draft["number"], ', '{',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
     ("the first pull request linked is read as the draft", ISSUE_PY, 'if str(p["number"]) == evidence[0]]', 'if True]',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
@@ -964,8 +965,8 @@ ISSUE = [
      '    if draft["checks"] != "failing":\n        return _decision(facts, state, reason, evidence, t.NOTHING)\n',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
     ("the implementing rounds are not asked of the brakes", ISSUE_PY,
-     '    if held:\n        return held\n    return (config["author_role"], IMPLEMENT,',
-     '    return (config["author_role"], IMPLEMENT,', ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
+     '    if held:\n        return held\n    # The Run pushes to the draft',
+     '    # The Run pushes to the draft', ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
     ("Intents that cannot be read are trusted", ISSUE_PY,
      "    if not readable_intents(intents):\n", "    if False:\n", ISSUE_TESTS),
     ("an Intent left out of the Intents is read", ISSUE_PY,
@@ -1104,6 +1105,28 @@ ISSUE = [
     ("a branch not told defers every decision on the issue", ISSUE_PY,
      'ISSUE_READ_IN_FULL = ("linked", "runs", "timeline")', 'ISSUE_READ_IN_FULL = ("branch", "linked", "runs", "timeline")',
      ("tests.test_issue.Opening.test_the_work_branch_is_read_as_a_commit_as_no_branch_or_not_told_and_only_no_branch_carries_a_base",)),
+    # The implementing Run is admitted at its draft's own head, never the next opening's branch (issue 1059).
+    ("an implementing Run defers on the next opening's branch", ISSUE_PY,
+     '    if not draft_head(draft, facts["item"]["number"]):\n', '    if not readable_head(facts):\n', WORK_TOLD),
+    ("an implementing Run is admitted with the draft's head unread", ISSUE_PY,
+     '    if not draft_head(draft, facts["item"]["number"]):\n        return _decision(facts, state, "branch_unreadable", evidence, t.DEFER)\n    return (config["author_role"], IMPLEMENT, {"pull_request": draft["number"], "branch_head": draft["head"]["sha"]})',
+     '    return (config["author_role"], IMPLEMENT, {"pull_request": draft["number"], "branch_head": draft["head"].get("sha") if isinstance(draft.get("head"), dict) else None})',
+     WORK_TOLD),
+    ("a draft's head not told holds the implementing Run", ISSUE_PY,
+     '    if not draft_head(draft, facts["item"]["number"]):\n        return _decision(facts, state, "branch_unreadable", evidence, t.DEFER)\n',
+     '    if not draft_head(draft, facts["item"]["number"]):\n        return _decision(facts, state, "branch_unreadable", evidence, t.HOLD)\n', WORK_TOLD),
+    ("the implementing Run carries no head", ISSUE_PY, ', "branch_head": draft["head"]["sha"]})', '})',
+     ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
+    ("a draft head that is no whole sha is read", ISSUE_PY,
+     'and is_commit(head.get("sha")) and', 'and isinstance(head.get("sha"), str) and', WORK_TOLD),
+    ("a draft head with no branch is read", ISSUE_PY, 'and work_branch_of(head.get("ref"), number)\n', '\n', WORK_TOLD),
+    ("a draft's branch of another issue is read", ISSUE_PY, '    return issue == str(number) and all(', '    return all(', WORK_TOLD),
+    ("a draft's count of any letters is read", ISSUE_PY, ' and all(c in t.DIGITS for c in p) for p in (issue, count))',
+     ' for p in (issue, count))', WORK_TOLD),
+    ("a draft's count with a leading zero is read", ISSUE_PY, 'p != "" and p[0] != "0" and all(', 'p != "" and all(', WORK_TOLD),
+    ("a draft's branch with no count is read", ISSUE_PY, 'all(p != "" and p[0] != "0"', 'all(p == "" or p[0] != "0"', WORK_TOLD),
+    ("a draft's branch of any prefix is read", ISSUE_PY,
+     'if not (isinstance(ref, str) and ref.startswith(t.WORK_PREFIX)):', 'if not isinstance(ref, str):', WORK_TOLD),
     ("the opening Run is admitted for no branch head", ISSUE_PY,
      '{"branch_head": facts["branch_head"]}', "{}", ISSUE_TESTS),
     # Issue 838: where the branch does not exist, the opening Run is admitted for the commit it lands on.

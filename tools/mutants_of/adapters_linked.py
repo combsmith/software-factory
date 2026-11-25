@@ -17,8 +17,10 @@ MUTANTS = [
     # Decision 0217's row, issue 878: a linked draft the Factory opened carries its head's required checks.
     ("the linked entry hands the reader no configuration", 'adapters/linked.py',
      'made["checks"] = draft_checks.read(transport, read, kernel)', 'made["checks"] = draft_checks.read(transport, read, None)', ("tests.test_adapters.DraftChecks.test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read",)),
+    ("the linked read carries no draft head", 'adapters/linked.py',
+     '        made["head"] = draft_checks.head(read)\n', '', ("tests.test_adapters.DraftChecks.test_the_factorys_draft_carries_its_own_head_from_this_repo",)),
     ("the draft's checks are not carried", 'adapters/linked.py',
-     '    if draft_checks.asked(kernel, own):\n        made["checks"] = draft_checks.read(transport, read, kernel)\n', '', ("tests.test_adapters.DraftChecks.test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read",)),
+     '        made["checks"] = draft_checks.read(transport, read, kernel)\n', '', ("tests.test_adapters.DraftChecks.test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read",)),
     ("the linked listing hands its entries no configuration", 'adapters/linked.py',
      'entry(transport, got, identities, accounts, join, spans, kernel)', 'entry(transport, got, identities, accounts, join, spans, None)', ("tests.test_adapters.DraftChecks.test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read",)),
     ("the linked read hands its listing no configuration", 'adapters/linked.py',
