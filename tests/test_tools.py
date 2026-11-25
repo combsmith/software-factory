@@ -6944,6 +6944,15 @@ class Context(unittest.TestCase):
             self.assertIn(row, made)
         # Records stand in the order of their numbers as numbers.
         self.assertLess(made.index("| 2000 |"), made.index("| 10000 |"))
+        # Chains stand in the order of their live records' numbers as numbers too; with no record replaced, none is printed.
+        heads = tree({"docs/decisions/1999-g.md": "# 1999. G\n\nStatus: replaced by `docs/decisions/2000-f.md`." + body % "`tools/x.py`",
+                      "docs/decisions/9999-h.md": "# 9999. H\n\nStatus: replaced by `docs/decisions/10000-e.md`." + body % "`tools/x.py`",
+                      "docs/decisions/2000-f.md": files["docs/decisions/2000-f.md"],
+                      "docs/decisions/10000-e.md": files["docs/decisions/10000-e.md"], **dirs})
+        self.assertTrue(records.render(heads).endswith("|---|---|\n| 2000 | 1999 |\n| 10000 | 9999 |\n"), records.render(heads))
+        alone = records.render(tree({"docs/decisions/0004-d.md": files["docs/decisions/0004-d.md"], **dirs}))
+        self.assertNotIn("## Chains", alone)
+        self.assertTrue(alone.endswith("| 0004 | D | live | tools |\n"), alone)
         # A chain is read from its old end, through each record's "replaced by"; a live record that replaced none has none.
         self.assertTrue(made.endswith("| Live record | Replaced |\n|---|---|\n| 0003 | 0001, 0002 |\n"), made)
         self.assertEqual(check_context._cells("| 0003 | C \\| d | live | adapters, tools |"), ["0003", "C | d", "live", "adapters, tools"])
