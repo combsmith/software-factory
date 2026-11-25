@@ -4693,6 +4693,13 @@ class Snapshot(unittest.TestCase):
         self.assertIs(got["complete"]["timeline"], False)
         self.assertIs(got["timeline_bounded"], True)
         self.assertIs(kept["events"][1], False)               # reconciliation reads it short too (Astra)
+        # Given what the snapshot kept, the seen port reads that timeline again from its end (the Lens on #1152).
+        from adapters import seen
+        from tests.test_reconcile import APPS, IDENTITIES, Pages
+        path = "/repos/%s/issues/26/timeline?per_page=100" % canary()
+        pages = Pages({path: [[]] * 3})
+        seen.read(pages, {"repo": canary(), "type": "pull_request", "number": 26}, kept, IDENTITIES, APPS, self.NOW)
+        self.assertIn(path + "&page=3", [p for _, p in pages.asked])
         self.assertIs(got["complete"]["reviews"], True)       # with no dismissal, the reviews stay whole (Carbon)
         self.assertEqual([asked[1] for asked, _ in replay._left], [eleventh["request"]["call"].split(" ", 1)[1]])
         # A review dismissed past the cut, whose dismissal the timeline read does not hold, leaves the reviews not
