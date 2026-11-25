@@ -74,6 +74,8 @@ UNREAD = (MOVED, UNANSWERED)
 # read no issue at all (decision 0234). Neither is a fault of the facts: each has its own alert.
 BUDGET, UNLISTED = "issue_budget", "issue_list_unreadable"
 ISSUE_UNREAD = (BUDGET, UNLISTED)
+# The one entry of `left_out` a pass whose issue list was read short writes, naming no item.
+UNLISTED_ENTRY = {"item": None, "code": UNLISTED}
 
 
 # A repo's name as a pass record keeps one, which admits no space (issue 913).

@@ -35,6 +35,13 @@ MUTANTS = [
     # Issue 808: no Role is named to open pull requests until open_pull_request has its writer.
     ('a counter-example configuration is not held to the opening', "tools/check_examples.py",
      '            errors = check_authority.opening_problems(value, root)\n', '            errors = []\n', ("tests.test_tools.Authority.test_a_role_named_to_open_pull_requests_waits_on_its_writer",)),
+    # Issue 1059: then until the issues port reads the work branch's head, the first part missing named alone.
+    ("a counter-example configuration is not held to the branch read", "tools/check_examples.py",
+     '            errors = errors or check_authority.branch_read_problems(value, root)\n', '',
+     ("tests.test_tools.Authority.test_a_role_named_to_open_pull_requests_waits_on_the_branch_read",)),
+    ("a counter-example configuration is held to the writer and the branch read at once", "tools/check_examples.py",
+     'errors = errors or check_authority.branch_read_problems(value, root)', 'errors = errors + check_authority.branch_read_problems(value, root)',
+     ("tests.test_tools.Authority.test_a_role_named_to_open_pull_requests_waits_on_its_writer",)),
     # Decision 0038: a Result asks and names no one; what one Run carries holds codes.
     ("a free string in a Run's schema passes", "tools/check_examples.py",
      '    if strings and not ("enum" in schema or "const" in schema or _coded(schema.get("pattern"))):\n',

@@ -10,7 +10,7 @@
 <!-- What a reviewer should actually check, and what this PR does not cover. -->
 
 ## Record and protected edits
-<!-- Record NNNN, or "none". The protected-edit line if any protected path changes. -->
+<!-- The record this pull request adds, or "none". The protected-edit line if any protected path changes. -->
 
 <details><summary>Checks and readers</summary>
 

@@ -1,5 +1,7 @@
 """The mutants of `adapters/keyword_spans.py`: tools/mutants.py runs them."""
 
+from tools.mutants_of.common import F849_SPANS
+
 # Issue 734: the keyword spans' reader.
 K734 = "tests.test_adapters.KeywordSpans."
 K734_SEEN = (K734 + "test_a_keyword_is_seen_from_the_first_pass_record_that_listed_it_until_the_first_that_saw_it_gone",)
@@ -8,7 +10,6 @@ K734_NEWEST = (K734 + "test_the_spans_are_read_from_the_newest_record_that_holds
 K734_UNREAD = (K734 + "test_pass_records_that_could_not_be_read_give_no_time_and_are_not_whole",)
 K734_UNLISTED = (K734 + "test_a_pass_that_read_no_issue_is_passed_over_and_with_none_but_such_passes_the_chain_is_broken",)
 
-F849_SPANS = ("tests.test_adapters.KeywordSpans.test_a_record_that_left_the_issue_out_by_its_budget_is_passed_over_for_it_alone",)
 TARGETS = ("adapters/keyword_spans.py",)
 MUTANTS = [(name, 'adapters/keyword_spans.py', old, new, tests) for name, old, new, tests in [
     ("a keyword a pass record listed opens no span",

@@ -282,11 +282,13 @@ def listing(transport, repo: str, number: int, updated_at: str, began: str, iden
 
 def read(transport, repo: str, number: int, updated_at: str, began: str, identities: dict,
          accounts: timeline.Accounts, earlier, kernel=None) -> tuple:
-    """`(linked, whole, cut)`, as `listing` reads them with the spans the pass records `earlier` give: whole where the
-    list was read whole and the spans were too, or, where the records break the chain of spans, where they give no span
-    and nothing names the issue; and whether a listed pull request's timeline was cut at its bound.
+    """`(linked, whole, cut, broken)`, as `listing` reads them with the spans the pass records `earlier` give: whole
+    where the list was read whole and the spans were too, or, where the records break the chain of spans, where they
+    give no span and nothing names the issue; whether a listed pull request's timeline was cut at its bound; and whether
+    the records break the chain of spans while something names the issue, which no later pass mends (decision 0253).
     `earlier` is the pass records before this pass, oldest first, or None."""
     spans, read_whole = keyword_spans.read(earlier, {"repo": repo, "type": "issue", "number": number})
     linked, whole, named, cut = listing(transport, repo, number, updated_at, began,
                                         identities, accounts, spans, kernel)
-    return linked, whole and (read_whole is True or read_whole is None and not named and not spans), cut
+    broken = read_whole is None and named
+    return linked, whole and (read_whole is True or read_whole is None and not named and not spans), cut, broken

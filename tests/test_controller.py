@@ -272,6 +272,75 @@ class Record(unittest.TestCase):
         self.assertEqual(decisions({"record": full})[0]["reason"], "concurrency")
         replays(full)
 
+    def test_a_hand_approval_merged_between_passes_stays_information(self):
+        # decision 0241: information until the window passes its leaving; a reopened one keeps it.
+        from tests import test_decide
+        facts = test_decide.changing(changed_paths=["docs/notes.md", "harness/run.py"], **test_decide.DEPENDENCY)
+        facts["item"] = dict(support.ITEM, number=42)
+        head, url = "a" * 40, "https://github.com/%s/pull/42" % REPO
+        pull = {"facts": facts, "title": "t", "head": head}
+        first = passed(reads(pulls=[pull], runs=[run(number=42)]), now="2026-10-11T12:00:00Z")["record"]
+        approval = {"by": "approver", "kind": "approval", "item": dict(support.ITEM, number=42), "key": "PRR_h",
+                    "at": "2026-10-11T12:30:00Z", "commit": head}
+        seen = dict(SEEN, since="2026-10-11T00:00:00Z", writes=[approval])
+        entry = {"alert": "hand_approval", "by": "approver", "write": "approval", "item": url, "key": "PRR_h"}
+        records = [first]
+        for now in ("2026-10-11T13:00:00Z", "2026-10-11T14:00:00Z", "2026-10-12T06:00:00Z"):
+            r = dict(reads(pulls=[], seen=seen), gone=[42] if len(records) == 1 else [])
+            out = passed(r, now=now, previous=records[-2:])["record"]
+            self.assertEqual(shared.errors(out, "pass"), [], now)
+            self.assertIn(entry, out["reconciliation"], now)
+            self.assertNotIn("write_unmatched", out["alerts"], now)
+            self.assertEqual(out["reconciled"]["hand"], [{"key": "PRR_h", "item": url, "head": head, "at": approval["at"]}], now)
+            self.assertEqual(out["reconciled"]["left"], [{"number": 42, "at": "2026-10-11T13:00:00Z"}], now)
+            records.append(out)
+        # On another head it is unmatched, and its head alone is carried, as taken.
+        other = passed(reads(pulls=[], seen=dict(seen, writes=[dict(approval, commit="b" * 40)])), previous=[first])["record"]
+        self.assertEqual(("write_unmatched" in other["alerts"], "hand" in other["reconciled"], other["reconciled"]["taken"]),
+                         (True, False, [{"key": "PRR_h", "item": url, "head": "b" * 40}]))
+        # The pass whose window passes its leaving drops it; one that reads it open again keeps it.
+        window = dict(SEEN, since="2026-10-11T14:00:00Z")
+        gone = passed(reads(pulls=[], seen=window), now="2026-10-12T20:00:00Z", previous=records[-2:])["record"]
+        self.assertEqual(("hand" in gone["reconciled"], gone["reconciled"]["left"]), (False, []))
+        # Another repository's row of that number is not dropped by this one's leaving (issue 1190).
+        far = dict(records[-1]["reconciled"]["hand"][0], item=url.replace(REPO, REPO + "-elsewhere"))
+        theirs = dict(records[-1], reconciled=dict(records[-1]["reconciled"], hand=records[-1]["reconciled"]["hand"] + [far]))
+        kept = passed(reads(pulls=[], seen=window), now="2026-10-12T20:00:00Z", previous=[records[-2], theirs])["record"]
+        self.assertEqual(kept["reconciled"]["hand"], [far])
+        back = passed(reads(pulls=[pull], seen=window, runs=[run(number=42)]), now="2026-10-12T20:00:00Z",
+                      previous=records[-2:])["record"]
+        self.assertEqual((back["reconciled"]["hand"], back["reconciled"]["left"]), (records[-1]["reconciled"]["hand"], []))
+        # So does one it leaves out, read open though its facts could not be read.
+        moved = {"facts": {"item": dict(support.ITEM, number=42)}, "title": None, "unread": "facts_unanswered"}
+        out = passed(reads(pulls=[moved], seen=window), now="2026-10-12T20:00:00Z", previous=records[-2:])["record"]
+        self.assertEqual(out["reconciled"]["hand"], records[-1]["reconciled"]["hand"])
+        # Left, read open inside the window, approved, left out and closed: the old stamp drops nothing (issue 1191).
+        late = dict(approval, at="2026-10-11T14:30:00Z")
+        chain = [first]
+        for now, pulls, gone_, writes in (("2026-10-11T13:00:00Z", [], [42], []), ("2026-10-11T14:00:00Z", [pull], [], []),
+                                          ("2026-10-11T15:00:00Z", [moved], [], [late]), ("2026-10-12T20:00:00Z", [], [], []),
+                                          ("2026-10-12T21:00:00Z", [pull], [], [late])):
+            r = dict(reads(pulls=pulls, seen=dict(seen if now < "2026-10-12" else window, writes=writes),
+                           runs=[run(number=42)] if pulls == [pull] else []),
+                     gone=gone_)
+            chain.append(passed(r, now=now, previous=chain[-2:])["record"])
+        carried_ = [{"key": "PRR_h", "item": url, "head": head, "at": late["at"]}]
+        self.assertEqual((chain[1]["reconciled"]["left"], chain[2]["reconciled"]["left"]),
+                         ([{"number": 42, "at": "2026-10-11T13:00:00Z"}], []))
+        left_out = passed(reads(pulls=[moved], seen=seen), now="2026-10-11T14:00:00Z", previous=chain[:2])["record"]
+        self.assertEqual(left_out["reconciled"]["left"], [])
+        unseen = passed(reads(pulls=[pull], seen=None, runs=[run(number=42)]), now="2026-10-11T14:00:00Z", previous=chain[:2])
+        self.assertEqual(unseen["record"]["reconciled"]["left"], [])
+        # One decided and one left out in the same pass both drop their stamps; one newly left is stamped.
+        both = dict(chain[1], reconciled=dict(chain[1]["reconciled"], left=[{"number": n, "at": "2026-10-11T13:00:00Z"}
+                                                                            for n in (42, 43)]))
+        other_moved = {"facts": {"item": dict(support.ITEM, number=43)}, "title": None, "unread": "facts_unanswered"}
+        mixed = dict(reads(pulls=[pull, other_moved], seen=seen, runs=[run(number=42)]), gone=[44])
+        self.assertEqual(passed(mixed, now="2026-10-11T14:00:00Z", previous=[first, both])["record"]["reconciled"]["left"],
+                         [{"number": 44, "at": "2026-10-11T14:00:00Z"}])
+        self.assertEqual(chain[-2]["reconciled"].get("hand"), carried_)
+        self.assertEqual(("write_unmatched" in chain[-1]["alerts"], chain[-1]["reconciled"].get("hand")), (False, carried_))
+
     def test_an_issue_decision_replays_through_the_issues_kernel_configuration(self):  # decisions 0002, 0218
         # Replayed through `pass_.issue_config`, as the pass asked it, the Controller's factory:triage counts.
         from kernel import issue
@@ -1329,9 +1398,84 @@ class Issues(unittest.TestCase):
         unread = {"facts": {"item": {"repo": home, "type": "issue", "number": 10}}, "title": None, "unread": "facts_unanswered"}
         self.assertLessEqual({"facts_unreadable", "issue_budget_spent"}, set(passed(reads(issues=[budget(8), unread]))["alerts"]))
         self.assertNotIn("facts_unreadable", passed(reads(issues=[budget(8)]))["alerts"])
-        # That code is the issues' alone: a pull request's entry with it is facts that are not facts.
+        # The issues' codes are theirs alone: a pull request's entry with either is facts that are not facts.
         pull = {"facts": {"item": dict(support.ITEM, number=11)}, "title": None, "unread": "issue_budget"}
-        self.assertEqual(passed(reads(pulls=[pull]))["record"]["left_out"], [{"item": dict(support.ITEM, number=11), "code": "not_facts"}])
+        for code in ("issue_budget", "issue_list_unreadable"):
+            out = passed(reads(pulls=[dict(pull, unread=code)]))
+            self.assertEqual(out["record"]["left_out"], [{"item": dict(support.ITEM, number=11), "code": "not_facts"}], code)
+            self.assertIn("facts_unreadable", out["alerts"], code)
+            self.assertFalse({"issue_budget_spent", "issue_list_unreadable"} & set(out["alerts"]), code)
+
+    def test_an_issue_left_unread_by_the_budget_or_the_list_is_shown_as_the_pass_before_decided_it(self):  # decision 1167
+        # Issue 7 decided, then left out by the budget, then by a list read short, then read again. The view shows it as
+        # the record before decided it, one pass deep, and its time in its State passes over the passes that left it
+        # unread; a rebuild from the records shows the same.
+        cfg, mint, kept, written = config(), Mint(), [], []
+        home = support.ITEM["repo"]
+        budget = {"facts": {"item": {"repo": home, "type": "issue", "number": 7}}, "title": None, "unread": "issue_budget"}
+        unlisted = {"facts": {"item": None}, "title": None, "unread": "issue_list_unreadable"}
+        steps = [("2026-10-11T13:00:00Z", [an_issue(7)]), ("2026-10-11T13:05:00Z", [budget]),
+                 ("2026-10-11T13:10:00Z", [unlisted]), ("2026-10-11T13:15:00Z", [an_issue(7)])]
+        for now, issues in steps:
+            out = pass_.run(reads(issues=issues), cfg, now, list(kept), mint)
+            kept.append(out["record"])
+            written.append(out["view"]["items"])
+        shown = [[(i["reason"], i["age_hours"]) for i in w["items"] if i["item"]["type"] == "issue"] for w in written]
+        first = shown[0][0][0]
+        self.assertEqual(shown, [[(first, 0.0)], [(first, 0.08)], [], [(first, 0.25)]])
+        bare = lambda views: [[dict(i, untrusted=None) for i in v["items"]] for v in views]
+        self.assertEqual(bare(w["items"] for w in pass_.rebuild(list(kept), {}, cfg)), bare(written))
+        # A list read short carries every issue the pass before decided (Kimi).
+        first = pass_.run(reads(issues=[an_issue(7)]), cfg, "2026-10-11T14:00:00Z", [], mint)["record"]
+        short = pass_.run(reads(issues=[unlisted]), cfg, "2026-10-11T14:05:00Z", [first], mint)
+        self.assertEqual([(i["item"]["number"], i["age_hours"]) for i in short["view"]["items"]["items"]
+                          if i["item"]["type"] == "issue"], [(7, 0.08)])
+        self.assertEqual(bare(w["items"] for w in pass_.rebuild([first, short["record"]], {}, cfg))[-1],
+                         bare([short["view"]["items"]])[0])        # a rebuild carries it the same (Carbon)
+        # A carried issue's age walks back over every pass that read it in its State, not the last alone (Carbon).
+        again = pass_.run(reads(issues=[an_issue(7)]), cfg, "2026-10-11T14:05:00Z", [first], mint)["record"]
+        out = pass_.run(reads(issues=[budget]), cfg, "2026-10-11T14:10:00Z", [first, again], mint)
+        self.assertEqual([(i["item"]["number"], i["age_hours"]) for i in out["view"]["items"]["items"]
+                          if i["item"]["type"] == "issue"], [(7, 0.17)])
+        # An issue left out for any other reason is not carried.
+        moved = {"facts": {"item": {"repo": home, "type": "issue", "number": 7}}, "title": None, "unread": "facts_unanswered"}
+        out = pass_.run(reads(issues=[moved]), cfg, "2026-10-11T13:20:00Z", list(kept), mint)
+        self.assertEqual([i for i in out["view"]["items"]["items"] if i["item"]["type"] == "issue"], [])
+        # Only the issue the budget left out is carried: one beside it left out for another reason is not (Carbon).
+        both = pass_.run(reads(issues=[an_issue(7), an_issue(8)]), cfg, "2026-10-11T15:00:00Z", [], mint)["record"]
+        eight = dict(moved, facts={"item": dict(moved["facts"]["item"], number=8)})
+        out = pass_.run(reads(issues=[budget, eight]), cfg, "2026-10-11T15:05:00Z", [both], mint)
+        self.assertEqual([i["item"]["number"] for i in out["view"]["items"]["items"] if i["item"]["type"] == "issue"], [7])
+        # Each issue is carried on its own: one the pass decided, or left out by name, keeps no other out (Carbon).
+        # And one no longer listed, beside one the budget left out, is not carried: the list was read whole (Carbon).
+        for issues, shown in (([an_issue(8), budget], [8, 7]), ([an_issue(8), unlisted], [8, 7]), ([moved, unlisted], [8]),
+                              ([budget], [7])):
+            out = pass_.run(reads(issues=issues), cfg, "2026-10-11T15:05:00Z", [both], mint)
+            self.assertEqual([i["item"]["number"] for i in out["view"]["items"]["items"] if i["item"]["type"] == "issue"],
+                             shown)
+        # A pull request a pass missed beside a list read short starts its age again: the list is the issues' (Carbon).
+        out = pass_.run(reads(pulls=[], issues=[unlisted]), cfg, "2026-10-11T15:10:00Z", [both], mint)
+        missed = out["record"]
+        self.assertEqual(sorted((i["item"]["type"], i["item"]["number"]) for i in out["view"]["items"]["items"]),
+                         [("issue", 7), ("issue", 8)])     # both issues carried, no pull request (Astra)
+        again = pass_.run(reads(issues=[an_issue(7), an_issue(8)]), cfg, "2026-10-11T15:15:00Z", [both, missed], mint)
+        self.assertEqual([i["age_hours"] for i in again["view"]["items"]["items"] if i["item"]["type"] == "pull_request"],
+                         [0.0])
+        # A short list carries no issue the pass decided, or left out by name for another reason (Astra).
+        issues_of = lambda out: [(i["item"]["number"], i["age_hours"]) for i in out["view"]["items"]["items"]
+                                 if i["item"]["type"] == "issue"]
+        one = pass_.run(reads(issues=[an_issue(7)]), cfg, "2026-10-11T16:00:00Z", [], mint)["record"]
+        for issues, shown in (([moved, unlisted], []), ([an_issue(7), unlisted], [(7, 0.08)])):
+            self.assertEqual(issues_of(pass_.run(reads(issues=issues), cfg, "2026-10-11T16:05:00Z", [one], mint)), shown)
+        # An issue's age counts only passes that read it in its State: a short list before its first read, or a pass
+        # that left it out by name for another reason, starts it again (Astra).
+        gap = pass_.run(reads(issues=[unlisted]), cfg, "2026-10-11T15:55:00Z", [], mint)["record"]
+        self.assertEqual(issues_of(pass_.run(reads(issues=[an_issue(7)]), cfg, "2026-10-11T16:00:00Z", [gap], mint)),
+                         [(7, 0.0)])
+        for issues in ([moved], [moved, unlisted]):     # beside a short list too (Carbon)
+            gone = pass_.run(reads(issues=issues), cfg, "2026-10-11T16:05:00Z", [one], mint)["record"]
+            self.assertEqual(issues_of(pass_.run(reads(issues=[an_issue(7)]), cfg, "2026-10-11T16:10:00Z", [one, gone],
+                                                 mint)), [(7, 0.0)])
 
     def test_an_issue_list_read_short_raises_its_own_alert_and_no_other(self):  # decision 0252
         # The list read short names no item: it is kept in the record by its code, raises its alert once and no alert of
@@ -2016,8 +2160,9 @@ class Entry(unittest.TestCase):
     def test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is(self):  # S3
         # Listed from `issues.served_from`, each issue is read with the pull requests' account reader and dated as they
         # are; one not read is left out by its code, and a list read short stops the pass.
-        since, spied = "2026-10-01T00:00:00Z", {"listed": [], "read": [], "who": [], "identities": [], "controller": []}
-        real = entry.configuration
+        since, spied = "2026-10-01T00:00:00Z", {"listed": [], "read": [], "who": [], "identities": [], "controller": [],
+                                                "heads": [], "repo": []}
+        real, head = entry.configuration, "3b8e5d1c0a9f7e6d5c4b3a291807f6e5d4c3b2a1"
 
         def served(root, release):
             found = real(root, release)
@@ -2048,8 +2193,9 @@ class Entry(unittest.TestCase):
                     return listed_by_the_port(transport, repo, after, apart=apart)
             return open_issues
 
-        def read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller):
+        def read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head):
             spied["read"].append((repo, number, accounts))
+            spied["heads"].append(base_head)
             spied["identities"].append((identities, earlier))
             spied["controller"].append(controller)
             # Issue 3 is the Controller's tracking issue, as the port tells it by the App it is handed (decision 0233).
@@ -2063,7 +2209,7 @@ class Entry(unittest.TestCase):
             transport.send({"method": "GET", "path": "/repos/%s/issues/%d" % (repo, number)})
             return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "Issue five"
 
-        def entry_with(listed, whole=True, configured=served, recorded=True, tracked=True, previous=None):
+        def entry_with(listed, whole=True, configured=served, recorded=True, tracked=True, previous=None, based=False):
             for found in spied.values():
                 del found[:]
             # The passes before recorded their tracking issue's write under its number, 8, unless none is `tracked`.
@@ -2079,6 +2225,13 @@ class Entry(unittest.TestCase):
                     "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:30 GMT", "age": "2"}, "body": {}}
             table[("GET", "/repos/%s/issues/10" % self.HOME)] = {
                 "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:00 GMT", "age": "0"}, "body": {}}
+            if based:   # the default branch and its ref, as GitHub answers them; "repo", the branch's name alone
+                table[("GET", "/repos/%s" % self.HOME)] = {
+                    "status": 200, "headers": {"date": "Mon, 12 Oct 2026 11:59:40 GMT", "age": "5"}, "body": {"default_branch": "main"}}
+            if based is True:
+                table[("GET", "/repos/%s/git/ref/heads/main" % self.HOME)] = {
+                    "status": 200, "headers": {"date": "Mon, 12 Oct 2026 10:00:00 GMT", "age": "7200"},
+                    "body": {"ref": "refs/heads/main", "object": {"type": "commit", "sha": head}}}
             hub = Hub(table)
             with unittest.mock.patch.object(entry, "configuration", configured), \
                     unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
@@ -2088,6 +2241,7 @@ class Entry(unittest.TestCase):
                     unittest.mock.patch.object(entry.issues_, "read", read):
                 code, printed, files, _ = self.run_entry(hub)
             spied["graphql"] = [r for _, r in hub.sent if r["path"] == "/graphql"]
+            spied["repo"] = [r for _, r in hub.sent if r["path"] in ("/repos/%s" % self.HOME, "/repos/%s/git/ref/heads/main" % self.HOME)]
             return code, printed, files
 
         code, printed, files = entry_with([5, 6, 9])
@@ -2127,6 +2281,20 @@ class Entry(unittest.TestCase):
         self.assertEqual((code, [r for r in files["pass.json"]["reads"] if r["read"] == "facts"]),
                          (0, [{"read": "facts", "date": "2026-10-12T11:59:30Z", "age": 2},
                               {"read": "facts", "date": "2026-10-12T11:59:00Z", "age": 0}]))
+        # The default branch's head is read once for the pass and handed to each issue as its `base_head`, dated as a facts
+        # read; unread, each is handed none and no read of it is dated; with no issue to read it is not asked (0226, 0242).
+        code, _, files = entry_with([5, 10], based=True)
+        self.assertEqual((code, spied["heads"], len(spied["repo"])), (0, [head, head], 2))
+        self.assertEqual([r for r in files["pass.json"]["reads"] if r["read"] == "facts"][:2],      # the repo's and the ref's
+                         [{"read": "facts", "date": "2026-10-12T11:59:40Z", "age": 5},
+                          {"read": "facts", "date": "2026-10-12T10:00:00Z", "age": 7200}])
+        self.assertEqual((entry_with([5, 10])[0], spied["heads"], len(spied["repo"])), (0, [None, None], 1))
+        code, _, files = entry_with([5, 10], based="repo")        # the repo answered, its ref not: nothing is dated for it
+        self.assertEqual((code, spied["heads"], [r["date"] for r in files["pass.json"]["reads"] if r["read"] == "facts"]),
+                         (0, [None, None], ["2026-10-12T11:59:30Z", "2026-10-12T11:59:00Z"]))
+        for listed, whole, recorded in (([], True, True), ([5], False, True), ([5], True, False)):
+            entry_with(listed, whole, recorded=recorded, based=True)
+            self.assertEqual(spied["repo"], [], (listed, whole, recorded))
         # A list read short, or not answered, reads no issue; the pull requests are decided as ever, and the pass leaves
         # out one entry naming no item, by the list's code, with its alert and no other for it (decision 0252).
         for whole in (False, None):
@@ -2264,6 +2432,10 @@ class Entry(unittest.TestCase):
                                                            {"item": item(6), "code": "issue_budget"},
                                                            {"item": dict(item(2), type="pull_request"), "code": "issue_budget"},
                                                            {"item": item(5), "code": "issue_budget"}])])[0], [6, 5, 1])
+        # A last record whose list was read short is passed over: the queue is the newest one's that read the issues.
+        short = dict(record, now="2026-10-12T11:00:00Z", issues=[], left_out=[{"item": None, "code": "issue_list_unreadable"}])
+        self.assertEqual(run(1, 1, [owing([3, 1], "2026-10-12T10:00:00Z"), short], listed=(1, 2, 3))[0], [3])
+        self.assertEqual(run(1, 1, [short], listed=(1, 2, 3))[0], [1])
         # A number listed twice is read twice, owed or not, and both are left out as listed twice, never decided (Kimi).
         got, record = run(100, 1, [dict(record, left_out=[{"item": item(6), "code": "issue_budget"}])], listed=(5, 6, 6))
         self.assertEqual((got, [e["code"] for e in record["left_out"] if e["item"] == item(6)]), ([6, 6, 5], ["listed_twice"] * 2))
@@ -2347,7 +2519,7 @@ class Entry(unittest.TestCase):
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
-        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller):
+        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head):
             if number == 6:
                 raise entry.facts_.Moved("moved")
             # Issue 8 is the Controller's tracking issue, told at its own read: it is no served issue, and its writes
@@ -2766,7 +2938,7 @@ class Entry(unittest.TestCase):
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
-        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller):
+        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head):
             return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "An issue"
 
         def runs(*args, **kw):
@@ -2796,7 +2968,7 @@ class Entry(unittest.TestCase):
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
-        def moved(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller):
+        def moved(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head):
             raise entry.facts_.Moved("moved")
 
         def read(transport, item, kept, identities, apps, since, **_):
@@ -2887,7 +3059,8 @@ class Entry(unittest.TestCase):
         # The wait is timed as it was, the timer read once at each end of it: a second on.
         self.assertEqual(lines[stages.index("wait")]["seconds"], 1.0)
         # The pass times nothing itself: its carry's rebuild and record's check are in "decide", the carry's size beside.
-        carried = ("runs", "passes", "keys", "items", "dispatched", "owed", "left", "owed_issues", "left_issues", "hands")
+        carried = ("hand", "taken", "runs", "passes", "keys", "items", "dispatched", "owed", "left", "owed_issues",
+                   "left_issues", "hands")
         decided, held = lines[stages.index("decide")], files["pass.json"]["reconciled"]
         self.assertEqual({k: decided[k] for k in carried if k in decided}, {k: len(held[k]) for k in carried if k in held})
         # Each by its name, the issues' and the hands' among them.

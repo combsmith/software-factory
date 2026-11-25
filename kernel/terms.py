@@ -65,8 +65,9 @@ QUEUE_WAITS = ("mergeable_unreadable", "awaiting_checks", "awaiting_review", "re
 # holds the reasons only an issue's Decision gives, issue-decision/1's. Each reason the Kernel writes or compares is in
 # one, and each member is given by a Decision of its kind (tests/test_reasons.py). A new reason goes in one of them.
 REASONS = frozenset({
-    "acceptance_evidence_missing", "acceptance_failed", "acceptance_reporters_unreadable", "acceptance_unreadable",
-    "act_ceiling", "acts_unreadable", "approval_due", "approval_lost", "approved", "approver_is_author_or_last_pusher",
+    "acceptance_bounded", "acceptance_evidence_missing", "acceptance_failed", "acceptance_reporters_unreadable",
+    "acceptance_unreadable", "act_ceiling", "acts_unreadable", "approval_due", "approval_lost", "approved",
+    "approver_is_author_or_last_pusher",
     "attempts_exhausted", "awaiting_checks", "awaiting_human", "awaiting_review", "base_not_protected", "capacity",
     "capacity_unreadable", "check_failed", "check_unreadable", "closed", "concurrency", "conflict", "contract_changed",
     "contract_not_approved", "description_edited_after_approval", "description_unreadable", "draft", "empty_diff",
@@ -75,6 +76,7 @@ REASONS = frozenset({
     "last_pusher_unreadable", "max_rounds", "mergeable_unreadable", "merged", "model_lens_input_needs_person",
     "outside_not_admitted", "path_needs_person", "paths_unreadable", "pause_unreadable", "paused",
     "proposals_await_owner", "protected_paths_unreadable", "resolve_due", "review_unreadable", "run_ceiling",
+    "timeline_bounded",
     "run_unidentified", "run_unreadable", "runs_unnamed", "thread_unreadable", "too_large",
 })
 ISSUE_REASONS = frozenset({
@@ -84,7 +86,8 @@ ISSUE_REASONS = frozenset({
     "judged", "label_not_counted", "left_out", "life_unreadable", "limits_unreadable", "linked_draft", "linked_ready",
     "linked_twice", "linked_unreadable", "merge_closing", "merged_while_declined", "merged_while_hands_off",
     "merged_while_held", "no_statement", "not_accepted", "opening_run", "ready", "ready_removed", "reopened_by_other",
-    "state_unreadable", "timeline_bounded", "triage", "triage_removed", "triage_stands", "type_unreadable",
+    "spans_broken",
+    "state_unreadable", "triage", "triage_removed", "triage_stands", "type_unreadable",
     "unmerged_closes", "writer_unreadable",
 })
 

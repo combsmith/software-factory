@@ -141,10 +141,13 @@ the Maintainer sets the Pause before the enqueue and lifts it after the merge.
 
 **The hand approval** is the Maintainer's alone: he approves the head by hand as the machine user, in a browser
 signed in to that account, and his login enqueues it. It needs no Release, no Run and no stored token; `verify` on
-the merge group is still required. The next pass raises the alert `write_unmatched` for it, since no Effect records
-it (decision 0061), and its merge may read `merged_by_override`. He matches the alert's entry, which names the
-review, to the approval he gave: that match is what tells his own act from another's use of the login. It is one
-alert however many writes it holds, so every entry is read for as long as it stands. An entry that is not his
+the merge group is still required. The next pass reports it as the entry `hand_approval`, information that names
+the review, where the last pass before it read the pull request as waiting for a person at the head he approved, for
+the first approval of that head alone, by a pass whose reads are whole. Any other approval no Effect records
+raises the alert `write_unmatched` (decisions 0061 and 0241), and its merge may read `merged_by_override`. He
+matches each entry of either kind to the approval he gave: that match is what tells his own act from another's use
+of the login, since the login used on such a pull request reads as information too. The alert is one however many
+writes it holds, and each entry stands, so every entry is read for as long as it stands. An entry that is not his
 approval is another's use of the login, and asks for the token's rotation. The match clears nothing else: the design
 asks for that rotation on any reconciliation alert, his own entry's among them, and the rule stands until he says
 otherwise. No session rotates or revokes the token.

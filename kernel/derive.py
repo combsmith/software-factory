@@ -860,13 +860,19 @@ def standing_labels(facts: dict) -> dict:
     return out
 
 
+def timeline_short(facts: dict) -> bool:
+    """Whether the timeline was not read whole: its flag not exactly true, or the port says it cut it at its bound, or
+    says so in a form that is no truth value, whatever `complete.timeline` claims (decision 1149)."""
+    return "timeline" in incomplete(facts) or facts.get("timeline_bounded", False) is not False
+
+
 def hands_off(facts: dict, config: dict) -> bool:
     """Whether hands-off binds: a person placed it, and the Factory never acts on the item. Placed by anyone else, it
     is read as a Hold, so an App cannot freeze an item in the merge queue, and so is one removed in the same second
     (tied). It is read only from label events read in full and whole: the timeline is paged oldest first, so a read
-    cut short could drop a person's later removal.
+    cut short, or cut at its bound, could drop a person's later removal.
     """
-    if "timeline" in incomplete(facts) or unreadable_labels(facts, config):
+    if timeline_short(facts) or unreadable_labels(facts, config):
         return False
     placed = standing_labels(facts).get(t.LABEL_HANDS_OFF)
     return placed is not None and is_person(placed["by"]) and not tied(placed, facts)
@@ -1174,9 +1180,10 @@ def standing_approval(facts: dict, config: dict):
     it has write access, without which GitHub does not count it. A person's approval answers that person's request for
     changes, and approves no content. One submitted before the pull request was last reopened does not stand, though
     GitHub reads it approved again (trials/P-7.reopened.json, issue 378): it may have been given while the pull
-    request was closed. Whether it was is read from the timeline, so none stands on a timeline not read whole.
+    request was closed. Whether it was is read from the timeline, so none stands on a timeline not read whole, nor
+    on one cut at its bound (decision 1149).
     """
-    if facts["complete"]["timeline"] is not True:
+    if timeline_short(facts):
         return None
     for rv in facts["reviews"]:
         if (
@@ -1228,7 +1235,20 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     if facts["state"] == "closed":
         return {"state": t.CLOSED, "reason": "closed", "evidence": []}
     # A merged or closed item is read from no list. The list of Runs is read once a pass for every item.
+    # The timeline of an issue it closes, cut at the port's bound, defers on its own code, before any list read short,
+    # and calls a person: more comments never bring it back under the bound, and anyone can comment (decision 0234).
+    # Absent, as in facts read before it, it is not cut; present and no truth value, it cannot be read, and is a gap in
+    # acceptance however whole that read claims to be.
+    if facts.get("acceptance_bounded") is True:
+        return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}
+    # Its own timeline cut at the port's bound does the same: anyone can comment on a pull request (issue 1009).
+    if facts.get("timeline_bounded") is True:
+        return {"state": None, "reason": "timeline_bounded", "evidence": ["timeline"]}
     gaps = incomplete(facts)
+    if facts.get("acceptance_bounded", False) is not False and "acceptance" not in gaps:
+        gaps = ["acceptance"] + gaps
+    if facts.get("timeline_bounded", False) is not False and "timeline" not in gaps:
+        gaps = gaps + ["timeline"]
     if gaps:
         return {"state": None, "reason": "facts_incomplete", "evidence": gaps}
     if not readable_expired(facts):

@@ -338,6 +338,21 @@
       ]
     },
     {
+      "reason": "spans_broken",
+      "question": "spans_broken",
+      "choices": [
+        "close"
+      ]
+    },
+    {
+      "reason": "acceptance_bounded",
+      "question": "acceptance_bounded",
+      "choices": [
+        "fix_the_source",
+        "close"
+      ]
+    },
+    {
       "reason": "intents_unreadable",
       "question": "fact_unreadable",
       "choices": [
@@ -437,6 +452,7 @@
     }
   ],
   "sentences": {
+    "acceptance_bounded": "An issue it closes is commented past what the Factory reads; a person checks it.",
     "acceptance_evidence_missing": "Waiting for passing evidence on every acceptance criterion of this version.",
     "acceptance_failed": "An acceptance criterion failed on this version; the author fixes the change.",
     "acceptance_reporters_unreadable": "Who may report acceptance results could not be read; a person checks why.",
@@ -495,6 +511,7 @@
     "run_unreadable": "A run's record could not be read or contradicts itself; a person checks why.",
     "runs_unnamed": "Too many recent jobs are not matched to their items; the Factory waits.",
     "thread_unreadable": "A review thread could not be read; a person checks why.",
+    "timeline_bounded": "It is commented past what the Factory reads; a person checks it.",
     "too_large": "It is too large to review whole; a person splits it or closes it."
   }
 }

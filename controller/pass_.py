@@ -299,13 +299,17 @@ def issue_config(kernel: dict) -> dict:
 
 
 def issue_order(listed: list, before) -> list:
-    """The order the issues listed are read in: those the last pass record left out as `issue_budget` first, in the
-    order it left them out, then the rest in the listing's order. So the issues go round as a queue: with the list
+    """The order the issues listed are read in: those the newest pass record that read the issues left out as
+    `issue_budget` first, in the order it left them out, then the rest in the listing's order. So the issues go round as a queue: with the list
     unchanged each is read within as many passes as the budget's fit goes into it, which the listing's order among those
     left out would not give, since the last of them would be passed over for good. A last record that cannot be read,
     or holds no `left_out`, gives the listing's order. Derived from the record before alone, which a replay holds
     (decision 0234)."""
-    last = before[-1] if isinstance(before, list) and before else None
+    # The newest record whose pass read the issues: one that read none, its list read short, owes nothing and keeps
+    # nothing of the queue, so it is passed over (decision 0234, ruling B4).
+    read = [r for r in before if not (isinstance(r, dict) and isinstance(r.get("left_out"), list)
+                                      and reads_.UNLISTED_ENTRY in r["left_out"])] if isinstance(before, list) else []
+    last = read[-1] if read else None
     held = last.get("left_out") if isinstance(last, dict) else None
     if not isinstance(held, list):
         return list(listed)
@@ -400,6 +404,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
         + [i["number"] for i in map(reads_.item, also) if i is not None and i["type"] == "issue"]
     found = reconcile_.reconcile(reads.get("seen"), reads.get("effects"), runs if listed and whole else None, before,
                                  rules["accounts"])
+    # Read open, decided or left out: one reopened keeps what was carried (decision 0241).
+    opened = [key(i) for i in [e["facts"]["item"] for e in pulls] + [reads_.item(i) for i in left_out] if i is not None]
     record = {"schema": "pass/1", "pass": pass_id, "release": config["release"], "now": now,
               "started_by": started_by(reads.get("started"), rules["accounts"]), "context": context, "runs": runs,
               "reads": (copy.deepcopy(records["reads"]) if listed else [])
@@ -409,7 +415,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
               "reconciliation": reconcile_.entries(found),
               "reconciled": reconcile_.carried(before, reads.get("effects"), reads.get("seen"), now, reads.get("unread") or (),
                                                reads.get("gone") or (), reads.get("unread_issues") or (),
-                                               reads.get("gone_issues") or (), served)}
+                                               reads.get("gone_issues") or (), served, found["hand"], found["taken"],
+                                               opened, config["controller"]["home"]["repo"])}
     checked(record, "pass")
     entries = record["pull_requests"] + record["issues"]
     ids = [record["pass"]] + [e["run"] for e in entries if e["run"] is not None]
