@@ -6924,8 +6924,8 @@ class Branches(unittest.TestCase):
         for odd in (None, 7, "main", "factory-work/issue-41-0", "factory-work/issue-41-2x", "refs/heads/" + mine):
             self.assertEqual(landed(listed(r1), {"r_A1": (record("r_A1", self.SHA, branch=odd), True)})[0],
                              (set(), False), odd)
-        unnamed = record("r_A1", self.SHA)
-        del unnamed["effects"][0]["branch"]
+        unnamed = record("r_A1", self.SHA, other)
+        del unnamed["effects"][1]["branch"]     # after a push that matches, in the same record
         self.assertEqual(landed(listed(r1), {"r_A1": (unnamed, True)})[0], (set(), False))
         # A push refused names nothing it landed on, and is not read for it.
         self.assertEqual(landed(listed(r1), {"r_A1": (record("r_A1", None, state="refused", branch=None), True)})[0],
@@ -6955,6 +6955,7 @@ class Branches(unittest.TestCase):
                            (listed(r1), {"r_A1": (None, False)}), (listed(r1), {"r_A1": "unanswered"}),
                            (listed(r1), {"r_A1": (record("r_A1", self.SHA[:7]), True)}),
                            (listed(r1), {"r_A1": (record("r_A1", self.SHA + "x"), True)}),
+                           (listed(r1), {"r_A1": (record("r_A1", "g" * 40), True)}),
                            (listed(r1, r2), {"r_A1": (record("r_A1", self.SHA), True), "r_A2": (None, False)}),
                            (listed(r1, r2), {"r_A1": (record("r_A1", self.SHA), True), "r_A2": "unanswered"}),
                            (listed(r1), {"r_A1": (record("r_A1", None), True)}),

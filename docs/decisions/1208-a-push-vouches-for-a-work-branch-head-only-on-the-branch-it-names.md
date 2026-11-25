@@ -4,7 +4,7 @@ Status: accepted. 2026-11-25, the Solution Architect; issue 1059. Extends decisi
 
 ## Decision
 
-A landed `push_commits` in `applied/1` names the work branch it landed on, `branch`, beside its commit's sha in `key` (`schemas/applied.schema.json`). The issues port tells `branch_pushed` true only where an earlier opening Run recorded pushing the head to the very branch the next opening would push to: `adapters/branches.py`'s `work_head` names that branch, and `adapters/applied.py`'s `landed` matches branch and commit. A push to another slot vouches for none of this one. A landed push that names no work branch is read as a record not read whole, and the opening defers.
+A landed `push_commits` in `applied/1` names the work branch it landed on, `branch`, beside its commit's sha in `key` (`schemas/applied.schema.json`). The issues port tells `branch_pushed` true only where an earlier opening Run recorded pushing the head to the very branch the next opening would push to: `adapters/branches.py`'s `work_head` names that branch, and `adapters/applied.py`'s `landed` matches branch and commit. A push to another slot vouches for none of this one. A landed push read that names no work branch makes its record not whole, and the opening defers.
 
 This ends decision 1207's limit that a Run whose opening did not land vouches for its push on any later branch.
 

@@ -342,7 +342,7 @@ def landed(transport, repo: str, runs, role, number: int, branch: str) -> tuple:
     A Run counts as `opened` counts one: the records port names it of `role`, its Intent `open-pull-request`, its item
     this issue; but not one that recorded opening its pull request, whose push is on that pull request's branch. Whole
     only where the run list was read whole and lists no Run before its name, none of these Runs is still in flight, each
-    is named by one GitHub run, and each record was read whole and keys every push it landed by a whole sha and names a
+    is named by one GitHub run, and each record was read whole and keys every push it reads by a whole sha and names a
     work branch; anything else is not whole, never none. A record past its retention records no push, read whole: a
     commit it pushed is told as none the Factory pushed, and the Kernel holds the issue for a person. With no Role
     named, nothing is read, and nothing is whole. `apply`, asking again, leaves its own Run out of `runs` (I-38)."""

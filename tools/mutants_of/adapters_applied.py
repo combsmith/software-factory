@@ -263,4 +263,8 @@ MUTANTS = [
      ':', HEAD_MATCH),
     ("a push's branch is matched by its start", 'adapters/applied.py',
      'BRANCH.fullmatch(effect["branch"])', 'BRANCH.match(effect["branch"])', HEAD_MATCH),
+    ("a push keyed by forty characters of any kind is read", 'adapters/applied.py',
+     'SHA = re.compile(r"[0-9a-f]{40}")', 'SHA = re.compile(r".{40}")', HEAD_MATCH),
+    ("a record's pushes stop being read at the first that matches", 'adapters/applied.py',
+     '                    shas.add(effect["key"])\n', '                    shas.add(effect["key"])\n                    break\n', HEAD_MATCH),
 ]

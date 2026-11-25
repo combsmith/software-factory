@@ -18,7 +18,7 @@ is read by `adapters/branches.py` after them: a commit, or null where that branc
 true only where one of the two was read; false, with a null head, where it was not, the count of pull requests the
 Factory opened for the issue among it (decision 0242, issue 1059). Where a commit stands there, `branch_pushed` tells
 whether an earlier opening Run of the issue recorded pushing it to that branch, by `adapters/applied.py`'s `landed`
-(decision 1208), read only then: true or false, a record missing or past its retention false; where those records
+(decision 1208), read only then: true or false, a record past its retention, or none from a Run that did not succeed, false; where those records
 cannot be read whole, the branch is not told, and the head is null. Where no branch stands, it is null. `base_head`, the default branch's head, is read once for each repo in a pass
 by `default_head`, and left out where it could not be read (decisions 0226 and 0242). `complete.runs` is true: the pass
 puts the records port's answer in its place (`controller/pass_.py`'s `asked`), and false here would leave every issue

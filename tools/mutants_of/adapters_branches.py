@@ -77,4 +77,6 @@ MUTANTS = [
     ('a read not answered is read as no branch', 'adapters/branches.py',
      '    except Unanswered:\n        return None, False, None\n', '    except Unanswered:\n        return None, True, None\n',
      HEAD_READ),
+    ("the branch whose head stands is not named", 'adapters/branches.py', '    return sha, True, branch\n', '    return sha, True, None\n',
+     HEAD_READ),
 ]
