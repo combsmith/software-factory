@@ -841,8 +841,9 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
             annotated = (isinstance(node, ast.arg) and node.annotation is not None) or isinstance(node, ast.AnnAssign) \
                 or (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.returns is not None)
             if annotated and not textual:
-                problems.append("%s:%d annotates, and Python runs an annotation when the module is imported; a module "
-                                "that annotates starts with `from __future__ import annotations`" % (name, line))
+                problems.append("%s:%d annotates in a module without `from __future__ import annotations`; Python runs "
+                                "a function's or a module's annotation when the module is imported, unless that import "
+                                "keeps it as text" % (name, line))
             mods = []
             if isinstance(node, ast.Import):
                 mods = [alias.name for alias in node.names]

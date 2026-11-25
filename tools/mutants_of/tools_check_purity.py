@@ -537,4 +537,13 @@ MUTANTS = [
     ("a return's annotation is not read", 'tools/check_purity.py',
      '                or (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.returns is not None)\n',
      '                or False\n', ('tests.test_tools.Purity.test_a_module_that_annotates_starts_with_the_future_import',)),
+    ('an import of any module that binds annotations keeps them as text', 'tools/check_purity.py',
+     '        textual = any(isinstance(node, ast.ImportFrom) and node.module == "__future__" and not node.level\n',
+     '        textual = any(isinstance(node, ast.ImportFrom) and not node.level\n', ('tests.test_tools.Purity.test_a_module_that_annotates_starts_with_the_future_import',)),
+    ("an async function's return is not read", 'tools/check_purity.py',
+     '                or (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.returns is not None)\n',
+     '                or (isinstance(node, ast.FunctionDef) and node.returns is not None)\n', ('tests.test_tools.Purity.test_a_module_that_annotates_starts_with_the_future_import',)),
+    ('a declaration with no value is not read', 'tools/check_purity.py',
+     '            annotated = (isinstance(node, ast.arg) and node.annotation is not None) or isinstance(node, ast.AnnAssign) \\\n',
+     '            annotated = (isinstance(node, ast.arg) and node.annotation is not None) or (isinstance(node, ast.AnnAssign) and node.value is not None) \\\n', ('tests.test_tools.Purity.test_a_module_that_annotates_starts_with_the_future_import',)),
 ]
