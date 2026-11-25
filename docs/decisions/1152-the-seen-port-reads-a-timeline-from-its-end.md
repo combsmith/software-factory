@@ -6,7 +6,7 @@ Status: accepted. Extends decision 0234, as "adapters: bound a pull request's ti
 
 | What | Decided | Because |
 |---|---|---|
-| A timeline read from its end | The seen port reads an issue's timeline, an item's that left, and one the snapshot cut, from its end (`_tail` in `adapters/seen.py`; trials/P-43.json), back to `since` or its first page, in ten pages at most. The last page, and a joined first page, are read again; one that changed leaves the read short. One read as gone is read back to its close | A timeline's new writes, and an item's close, are at its end |
+| A timeline read from its end | The seen port reads an issue's timeline, an item's that left, and one the snapshot cut, from its end (`_tail` in `adapters/seen.py`; trials/P-43.json), back to `since` or its first page, in ten pages at most. The last page, and a joined first page, are read again; one that changed leaves the read short. One read as gone is read back to its close while it is still closed, and to `since` once it is open again | A timeline's new writes, and an item's close, are at its end |
 
 ## Why
 
