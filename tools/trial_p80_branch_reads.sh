@@ -1,7 +1,8 @@
 #!/bin/sh
-# Trial P-80, issue 1075: what the Controller App is answered, under the grant the issues port reads with, for the two
-# reads adapters/branches.py makes of a work branch: REST's pull request list filtered by head, which counts the pull
-# requests the Factory opened for an issue, and the branch's ref, which reads its head (decisions 0068 and 0242).
+# Trial P-80, issue 1075: what the Controller App is answered, under a token narrower than the pass's and enough for
+# them, for the two reads adapters/branches.py makes of a work branch: REST's pull request list filtered by head, which
+# counts the pull requests the Factory opened for an issue, and the branch's ref, which reads its head (decisions 0068
+# and 0242).
 #
 #   tools/trial_p80_branch_reads.sh OUT CONTROLLER_KEY REPO OPEN CLOSED MERGED BARE NEVER
 #
@@ -16,7 +17,8 @@
 #   OPEN    the App's one pull request on it, left open;
 #   CLOSED  the App's one pull request on it, closed unmerged, the branch kept;
 #   MERGED  the App's one pull request on it, merged, then the branch deleted;
-#   BARE    a branch that stands, with no pull request on it;
+#   BARE    a branch that stands, with no pull request on it: one commit the Maintainer pushes himself, as a plain git
+#           push of a new branch, since tools/trial_as_app.sh open always opens a pull request;
 #   NEVER   a name no branch of REPO ever had.
 # A pull request from a fork's branch of the same name is not asked: no account the Maintainer holds can fork REPO. The
 # trial's page states it as a limit, and the port takes the unfavourable answer, that the head filter lists such a pull
@@ -25,13 +27,14 @@
 # The pass condition, written before the run (docs/architecture/trials/P-80.md holds it whole):
 #   pass: under a token for the Controller's installation narrowed to contents: read and pull_requests: read, on REPO
 #   alone, the list of each of OPEN, CLOSED and MERGED is 200 with exactly one pull request: its head.ref the branch,
-#   its head.repo.full_name REPO, its user the trial-author App's bot account, of type Bot, in the state it was left
-#   in, and no link header naming a next page; the list of BARE and of NEVER is 200 and empty; the ref of OPEN and of
-#   BARE is 200, its ref refs/heads/ and the branch, its object of type commit with a whole sha; the ref of MERGED and
-#   of NEVER is 404.
+#   its head.repo.full_name REPO, its user.id the trial-author App's bot account's whole number and its user.type Bot,
+#   in the state it was left in, and no link header naming a next page; the list of BARE and of NEVER is 200 and empty;
+#   the ref of OPEN and of BARE is 200, its ref refs/heads/ and the branch, its object of type commit with a whole sha;
+#   the ref of MERGED and of NEVER is 404.
 #   fail otherwise.
-#   Recorded, deciding nothing: what a token narrowed to pull_requests: read alone is answered for BARE's ref. REPO is public, so a grant it lacks may not show
-#   there (decision 0068); a private repo is not asked here.
+#   Recorded, deciding nothing: CLOSED's ref, which the port never reads; and what a token narrowed to
+#   pull_requests: read alone is answered for BARE's ref. REPO is public, so a grant it lacks may not show there
+#   (decision 0068); a private repo is not asked here.
 #
 # Twice: once with a token narrowed to contents: read and pull_requests: read, which makes every branch's two reads,
 # the list then the ref, in the order above; and once with one narrowed to pull_requests: read, which reads BARE's ref
@@ -106,22 +109,6 @@ case "$repo" in
     *) echo "trial_p80_branch_reads: $repo is not owner/name" >&2; exit 2 ;;
 esac
 open=$4 closed=$5 merged=$6 bare=$7 never=$8
-# Each branch is a work branch's name, whole, as kernel/terms.py's WORK_BRANCH spells one, so it reaches the URL as
-# nothing else; and no two are one branch, since each stands in one state.
-shift 3
-if ! problem=$(python3 -I -c '
-import re, sys
-names = sys.argv[1:]
-for name in names:
-    if not re.fullmatch(r"factory-work/issue-[1-9][0-9]*-[1-9][0-9]*", name):
-        sys.exit("%r is not a work branch'"'"'s name, factory-work/issue-N-k" % name)
-twice = sorted({n for n in names if names.count(n) > 1})
-if twice:
-    sys.exit("%s is named twice; each branch stands in one state" % twice[0])
-' "$@" 2>&1); then
-    echo "trial_p80_branch_reads: ${problem:-the branches could not be read}" >&2
-    exit 2
-fi
 
 API=https://api.github.com
 VERSION="X-GitHub-Api-Version: 2022-11-28"
@@ -167,11 +154,32 @@ finish() {
         echo "trial_p80_branch_reads: stopped with a token live; revoking it returned $last" >&2
         [ "$last" = 204 ] || unrevoked "the token live when the script stopped" "$last"
         token=""
+    elif [ -n "${minting:-}" ]; then
+        # Stopped while the mint was asked: its answer never came back here, and GitHub may have minted one.
+        echo "trial_p80_branch_reads: stopped while a token was being minted; GitHub may have minted one, live for up to" \
+            "an hour, and the Maintainer must revoke it by hand." >&2
     fi
     rm -rf "$scratch"
 }
 trap finish EXIT
 trap 'exit 1' HUP INT TERM
+
+# Checked once the exit trap stands, after the scratch directory's refusal: python3 may write to TMPDIR as it starts.
+# Each branch is a work branch's name, whole, as kernel/terms.py's WORK_BRANCH spells one, so it reaches the URL as
+# nothing else; and no two are one branch, since each stands in one state.
+if ! problem=$(python3 -I -c '
+import re, sys
+names = sys.argv[1:]
+for name in names:
+    if not re.fullmatch(r"factory-work/issue-[1-9][0-9]*-[1-9][0-9]*", name):
+        sys.exit("%r is not a work branch'"'"'s name, factory-work/issue-N-k" % name)
+twice = sorted({n for n in names if names.count(n) > 1})
+if twice:
+    sys.exit("%s is named twice; each branch stands in one state" % twice[0])
+' "$open" "$closed" "$merged" "$bare" "$never" 2>&1); then
+    echo "trial_p80_branch_reads: ${problem:-the branches could not be read}" >&2
+    exit 2
+fi
 
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 
@@ -246,10 +254,11 @@ with_token() {   # NARROWED PERMISSIONS
     jwt="$header.$claims.$signature"
     # GitHub's answer and its status are held in a variable, never a file, since a minted token is in the answer.
     # curl's own exit code comes last: a transfer that failed is never trusted, however whole its answer reads.
+    minting=1
     minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
         -H "$VERSION" -d "{\"repositories\":[\"$name\"],\"permissions\":{$2}}" \
         "$API/app/installations/$installation/access_tokens" && printf '\n0' || printf '\n%s' "$?")
-    jwt=""
+    jwt="" minting=""
     minted_exit=$(printf '%s\n' "$minted" | tail -n 1)
     minted=$(printf '%s\n' "$minted" | sed '$d')
     minted_status=$(printf '%s\n' "$minted" | tail -n 1)

@@ -6817,6 +6817,9 @@ class Branches(unittest.TestCase):
                      [self.opened(1, by=(77, "User"))], [self.opened(1, by=(5, "Bot"))], twice, unread, unid, aside):
             self.assertEqual(self.head({self.pulls(1): (200, rows, {}), self.pulls(2): (200, [], {}),
                                         self.ref(1): self.branch(1), self.ref(2): self.branch(2)})[0], (None, False), rows)
+        # So it is where the stranger's fork alone holds the name and the repo holds no such branch: its ref is not asked.
+        self.assertEqual(self.head({self.pulls(1): (200, [stranger], {}), self.ref(1): (404, {}, {})}),
+                         ((None, False), [self.pulls(1)]))
         # A branch name not of the Kernel's shape, as for issue 0, is not told, and its ref is not asked.
         self.assertEqual(self.head({self.pulls(1, 0): (200, [], {})}, number=0), ((None, False), [self.pulls(1, 0)]))
         # Not told, and never read as no branch: no opener, or one untold, asks nothing.

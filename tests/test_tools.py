@@ -16169,6 +16169,9 @@ class BranchReadsTrial(IssueLookupTrial):
     if os.path.exists(os.path.join(here, "read.cut")):
         sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\n\\r\\n{\\"cut")
         sys.exit(0)
+    if grant == "pull_requests" and os.path.exists(os.path.join(here, "control.broke")):
+        sys.stdout.write("HTTP/2 200\\r\\n\\r\\n{")
+        sys.exit(18)
     import urllib.parse
     if "/pulls?" in url:
         branch = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)["head"][0].split(":", 1)[1]
@@ -16177,10 +16180,16 @@ class BranchReadsTrial(IssueLookupTrial):
     kind = ("open", "closed", "merged", "bare", "never")[int(branch.split("-")[-2]) - 8001]
     repo = url.split("/repos/", 1)[1].split("/pulls")[0].split("/git/")[0]
     if "/pulls?" in url:
-        row = {"number": 7, "state": "closed" if kind != "open" else "open", "merged_at": None,
+        row = {"number": 7, "state": "closed" if kind != "open" else "open",
+               "merged_at": "2026-11-25T12:00:00Z" if kind == "merged" else None,
                "head": {"ref": branch, "repo": {"full_name": repo}},
                "user": {"id": 9, "type": "Bot", "login": "combsmith-sf-trial-author[bot]"}}
         status, answer = 200, [row] if kind in ("open", "closed", "merged") else []
+        if kind == "open":
+            # A link header, which says whether a next page was named, is kept whole for the fixture to read.
+            sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\nlink: <https://api.github.com/x?page=1>; "
+                             "rel=\\"first\\"\\r\\n\\r\\n" + json.dumps(answer))
+            sys.exit(0)
     elif grant == "pull_requests" and not os.path.exists(os.path.join(here, "public")):
         status, answer = 404, {"message": "Not Found"}
     elif kind in ("open", "closed", "bare"):
@@ -16244,9 +16253,25 @@ elif "/issues/" in url:""", 1)
                 self.assertEqual([a for a in asked if "call" not in a], [{"revoked": both, "status": 204},
                                                                          {"revoked": alone, "status": 204}])
                 self.assertIn('"type": "Bot"', texts["clean-1"])
+                self.assertIn('link: <https://api.github.com/x?page=1>; rel="first"', texts["clean-1"])
+                # A merge is told from a close by its time, kept as it came: the merged branch's list holds one.
+                self.assertIn('"merged_at": null', texts["clean-3"])
+                self.assertIn('"merged_at": "2026-11-25T12:00:00Z"', texts["clean-5"])
                 self.assertIn('"sha": "%s"' % self.SHA, texts["clean-2"])
                 self.assertNotIn("gh" + "s_", "".join(texts.values()) + ran.stdout + ran.stderr)
                 self.assertTrue(all(texts["redacted-%d" % n].strip() for n in range(1, 12)))
+
+    def test_a_read_the_second_token_makes_that_fails_stops_the_run_and_its_token_is_revoked(self):
+        # The control token's one read broken: the first token was revoked already, the second is revoked as the run
+        # stops, and nothing of the run is handed over as whole.
+        (self.stand_in / "control.broke").write_text("")
+        ran = self.run_script()
+        self.assertNotEqual(ran.returncode, 0, ran.stdout)
+        self.assertIn("curl failed; nothing of it is kept", ran.stderr)
+        self.assertEqual([c["method"] for c in self.calls()], ["POST"] + ["GET"] * 10 + ["DELETE", "POST", "GET", "DELETE"])
+        self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+        self.assertFalse((self.out / "requests.json").exists())
+        self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
 
     def test_the_status_kept_is_the_last_heads(self):
         # A proxy's block comes first, 200, and GitHub's answer after it is the read's: the 404s stay 404s.
@@ -16274,6 +16299,10 @@ elif "/issues/" in url:""", 1)
                                  ((self.CANARY, "../" + branches[0]) + branches[1:], None, not_a_branch),
                                  ((self.CANARY, "none") + branches[1:], None, not_a_branch),
                                  ((self.CANARY,) + branches[:4] + (branches[0],), None, "is named twice"),
+                                 # Each place is held, not the first alone.
+                                 ((self.CANARY, branches[0], "x/../../refs") + branches[2:], None, not_a_branch),
+                                 ((self.CANARY,) + branches[:4] + ("main",), None, not_a_branch),
+                                 ((self.CANARY, branches[0], branches[1], branches[1]) + branches[3:], None, "is named twice"),
                                  ((self.CANARY,) + branches[:4], None, "usage:"),
                                  ((self.CANARY,) + branches + ("none",), None, "usage:")):
             ran = self.run_script(*given, out=out)
@@ -16282,6 +16311,7 @@ elif "/issues/" in url:""", 1)
             self.assertEqual(self.calls(), [], given)
         self.key.unlink()
         ran = self.run_script()
+        self.assertNotEqual(ran.returncode, 0)
         self.assertIn("cannot read the key file", ran.stderr)
         self.assertEqual(self.calls(), [])
 
