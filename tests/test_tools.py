@@ -2581,7 +2581,7 @@ class Purity(unittest.TestCase):
         for body in ("    return str(f)\n", "    return str(object=f)\n", "    return f'{f}'\n", "    return f'{f!r:>9}'\n",
                      "    return '%s' % f\n", "    return '%s %s' % (x, f)\n", "    return '%(a)s' % {'a': f}\n",
                      "    return str(terms.g)\n", "    return str(g)\n", "    return str(lambda: x)\n",
-                     "    return str(f if x else '')\n", "    return f'{x or g}'\n", "    s = '%s'\n    s %= f\n    return s\n",
+                     "    return str(f if x else '')\n", "    return str('' if x else f)\n", "    return str(x and f)\n", "    return f'{x or g}'\n", "    return str((k := f))\n", "    s = '%s'\n    s %= f\n    return s\n",
                      "    def k():\n        return x\n    return f'{k}'\n"):
             line = 14 if "def k" in body else 13 if "%=" in body else 12
             self.assertTrue(caught(run(body), "x.py:%d writes a function into text" % line), body)

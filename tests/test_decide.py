@@ -288,10 +288,16 @@ class Derived(unittest.TestCase):
                                      env=dict(os.environ, PYTHONHASHSEED=seed, PYTHONPATH=str(ROOT)))
                     for seed in ("1", "2", "3", "4")]
         made = []
-        for process in children:
-            out, err = process.communicate()
-            self.assertEqual(process.returncode, 0, err[-2000:])
-            made.append(out.split("\n"))
+        try:
+            for process in children:
+                out, err = process.communicate()
+                self.assertEqual(process.returncode, 0, err[-2000:])
+                made.append(out.split("\n"))
+        finally:
+            for process in children:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate()
         # Each world's calls are read, the issue's among them.
         self.assertEqual({json.loads(line)[0] for line in made[0]}, {"pull request", "issue"})
         for other in made[1:]:
