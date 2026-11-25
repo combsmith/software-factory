@@ -2,6 +2,7 @@
 byte for byte, or not at all."""
 from __future__ import annotations
 
+import unicodedata
 import unittest
 
 from guards import patch
@@ -635,6 +636,9 @@ class Patch(unittest.TestCase):
         # is the Factory's.
         self.assertEqual(landed(gone[:gone.index(b"--- ")], held={}), (None, patch.TREE_UNREAD))
         self.assertEqual(landed(gone[:gone.index(b"--- ")], held=dict(HELD, **{"tests/t.py": b""}))[0]["removed"], ["tests/t.py"])
+        # A file removed that the tree does not hold is not the tree's, with no hunk as with one.
+        self.assertEqual(landed(CHANGE + b"diff --git a/missing b/missing\ndeleted file mode 100644\nindex e69de29..0000000\n"),
+                         (None, patch.NOT_APPLIED))
         # Bytes read for a name the tree does not hold are no read of the tree: the Factory's.
         self.assertEqual(landed(section("docs/none.md", b"@@ -1 +1 @@\n-a\n+b\n"), held={"docs/none.md": b"a\n"}),
                          (None, patch.TREE_UNREAD))
@@ -746,6 +750,13 @@ class Patch(unittest.TestCase):
         moved = b"diff --git a/%s b/%s\nsimilarity index 100%%\nrename from %s\nrename to %s\n"
         copied = b"diff --git a/%s b/%s\nsimilarity index 100%%\ncopy from %s\ncopy to %s\n"
         self.assertEqual(landed(copied % ((b"docs/a.md", b"docs/A.md") * 2)), (None, patch.PATH_TWIN))
+        # A name in another canonical form is the same name: U+037E is a semicolon, U+1FEF a grave accent.
+        for name, other in ((b"a;", "a\u037e"), (b"x`", "x\u1fef"), (b"l;/x", "l\u037e")):
+            self.assertEqual(landed(EMPTY % (name, name), tree={other: FILE}, held={}), (None, patch.PATH_TWIN), other)
+        # A file changed or moved in beside a twin that stays is refused as a new one is.
+        self.assertEqual(landed(MODE, tree={"docs/a.md": FILE, "docs/A.md": FILE}, held={"docs/a.md": OLD}),
+                         (None, patch.PATH_TWIN))
+        self.assertEqual(landed(moved % ((b"run.sh", b"docs/A.md") * 2)), (None, patch.PATH_TWIN))
         # A file renamed to its own name in another case leaves its old name, and lands; so does a file whose name
         # differs from no other's, beside two the tree already holds in two cases that the patch does not touch.
         self.assertEqual(landed(moved % ((b"docs/a.md", b"docs/A.md") * 2))[0]["written"], {"docs/A.md": (FILE, OLD)})
@@ -829,6 +840,18 @@ class Patch(unittest.TestCase):
         for name, mode in (("link", b"120000"), ("vendored", b"160000")):
             hunks, extended = b"@@ -1 +1 @@\n-a\n+b\n", b"index 1111111..2222222 %s\n" % mode
             self.assertEqual(landed(section(name, hunks, extended=extended), held={}), (None, patch.NOT_A_FILE), name)
+
+    def test_a_name_is_folded_as_macos_folds_it_wherever_that_is_ascii(self):
+        # Every character, against the real fold: where either fold is ASCII, the two are the same. A name's fold is
+        # its characters' folds, so this holds for every name of NAME_CHARS and every name it is compared with.
+        for point in range(0x110000):
+            if 0xD800 <= point <= 0xDFFF:
+                continue
+            said = chr(point)
+            real = unicodedata.normalize("NFD", unicodedata.normalize("NFD", said).casefold())
+            if real.isascii() or patch._folded(said).isascii():
+                self.assertEqual(patch._folded(said), real, hex(point))
+        self.assertEqual(patch._folded("Docs/A\u037e\u1fefK\u212a"), "docs/a;`kk")
 
 
 if __name__ == "__main__":

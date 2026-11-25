@@ -14,7 +14,8 @@ It reads a narrower patch than `harness/bundle.py` does, on purpose, and what it
   names both files and every other line that names one must agree with it; and of no more parts than `DEEPEST` bounds;
 - a file is a file: a link, a submodule, a path under a file, and a mode other than a file's two are refused; where a
   file stands is asked of the tree the push leaves, so a file removed or moved away leaves its place;
-- no file is written where it, or a directory above it, differs by case alone from another path the push leaves;
+- no file is written where it, or a directory above it, differs by case or canonical form alone from another path
+  the push leaves, as macOS reads names (`_folded`);
 - no file is written twice or copied twice, and none is written where the tree holds one the patch does not say it
   changes;
 - a section's extended lines stand in the order git writes them, and a change of mode is a file's between its two
@@ -88,7 +89,7 @@ NUL = b"\x00"
 UNREADABLE = "bundle_unreadable"        # no patch this reads: the Role's, as decision 0188 has it
 NOT_APPLIED = "patch_does_not_apply"    # a patch, but not of the admitted commit's files
 NOT_A_FILE = "push_not_a_file"          # it writes what is no file, or through one
-PATH_TWIN = "push_path_collision"      # it writes a path another it leaves differs from by case alone
+PATH_TWIN = "push_path_collision"      # it writes a path another it leaves differs from by case or form alone
 TREE_UNREAD = "push_tree_unreadable"    # the port's reads are in no shape this reads: the Factory's, never the Role's
 
 
@@ -439,6 +440,21 @@ def content(old: bytes, hunks: list):
     return b"\n".join(out) + (b"" if open_end else b"\n")
 
 
+# The two characters whose canonical decomposition is one of `NAME_CHARS`, though case folding leaves them as they are.
+# No other character's decomposition, folded in case and decomposed again, is ASCII where its case folding is not.
+CANONICAL = (("\u037e", ";"), ("\u1fef", "`"))
+
+
+def _folded(name: str) -> str:
+    """`name` as a file system that ignores case and canonical form reads it, as macOS's does: decomposed, folded in
+    case, and decomposed again. guards/ imports nothing, so no table of decompositions is at hand. But every name a
+    patch writes, and each directory above it, is of `NAME_CHARS`, which are ASCII, and two names are one only where
+    both fold to it. So it is enough to fold each name exactly where its fold is ASCII: case folding, and the two
+    characters `CANONICAL` holds, do that. A test reads every character against the real fold."""
+    forms = dict(CANONICAL)
+    return "".join(forms.get(c, c) for c in name.casefold())
+
+
 def _above(path: str) -> list:
     """Each directory `path` stands under, the nearest last."""
     names = path.split("/")
@@ -538,16 +554,16 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
     for path in written:
         if not _placed(path, left, folders):
             return None, NOT_A_FILE
-    # Nor may a file written, or a directory above it, differ by case alone from another path or directory the push
-    # leaves: where case is not told apart, as on macOS's default file system, git checks both out as one. A file
-    # renamed to its own name in another case leaves its old name, and lands.
+    # Nor may a file written, or a directory above it, differ by case or canonical form alone from another path or
+    # directory the push leaves: where those are not told apart, as on macOS's default file system, git checks both
+    # out as one. A file renamed to its own name in another case leaves its old name, and lands.
     cases, twins = {}, {}
     for path in list(left) + list(written):
         for name in _above(path) + [path]:
-            if cases.get(name.casefold(), name) != name:
-                twins[name.casefold()] = True
-            cases[name.casefold()] = name
+            if cases.get(_folded(name), name) != name:
+                twins[_folded(name)] = True
+            cases[_folded(name)] = name
     for path in written:
-        if any(name.casefold() in twins for name in _above(path) + [path]):
+        if any(_folded(name) in twins for name in _above(path) + [path]):
             return None, PATH_TWIN
     return {"written": written, "removed": removed, "read": list(taken)}, None
