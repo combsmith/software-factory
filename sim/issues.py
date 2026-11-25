@@ -216,6 +216,8 @@ class IssueWorld:
             "last_writer_action_at": self.last_writer, "last_writer_comment_at": self.last_writer_comment,
             # GitHub: the_timeline_shows_each_act
             "acts_since_writer": self.acts, "branch_head": self.branch_head,
+            # The world's only pushes are its opening Runs', each recorded: a head that stands is one it pushed.
+            "branch_pushed": True if self.branch_head is not None else None,
             # The default branch moves as the world's clock does: no Run in flight is stopped by it (decision 0226).
             "base_head": "%040x" % (0xba5e0000 + self.minute),
             # The work branch is told at every read here: a short read of it is a short list, below (issue 1059).

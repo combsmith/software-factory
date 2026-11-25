@@ -85,6 +85,7 @@ COVERAGE = "tests.test_coverage.Coverage."
 # An issue's State (kernel/issue.py, decision 0028), in a list of its own so that the pull request's work, which adds
 # to MUTANTS below, never touches the same lines. Each is run against tests.test_issue first.
 ISSUE_PY, ISSUE_TESTS = "kernel/issue.py", ("tests.test_issue",)
+HEAD_MATCH = ("tests.test_issue.Opening.test_a_work_branch_head_no_opening_run_pushed_holds_the_issue_for_a_person",)
 WORK_TOLD = ("tests.test_issue.Opening.test_the_work_branch_is_read_as_a_commit_as_no_branch_or_not_told_and_only_no_branch_carries_a_base",)  # issue 1059
 MERGE_UNDER_STOP_TESTS = ("tests.test_issue.Done.test_a_merge_read_while_a_person_closed_or_held_the_issue_is_never_done",)
 PLATFORM_CLOSE_TESTS = ("tests.test_issue.Done.test_a_platform_close_keeps_the_state_a_person_set",)
@@ -1127,6 +1128,14 @@ ISSUE = [
     ("a draft's branch with no count is read", ISSUE_PY, 'all(p != "" and p[0] != "0"', 'all(p == "" or p[0] != "0"', WORK_TOLD),
     ("a draft's branch of any prefix is read", ISSUE_PY,
      'if not (isinstance(ref, str) and ref.startswith(t.WORK_PREFIX)):', 'if not isinstance(ref, str):', WORK_TOLD),
+    # A head no opening Run of the issue recorded pushing holds the issue for a person (the head match, 2026-11-25).
+    ("a head the Factory never pushed is opened from", ISSUE_PY,
+     '        if facts["branch_pushed"] is False:\n            return _decision(facts, t.HELD, "branch_not_pushed", [facts["branch_head"]], t.HOLD)\n',
+     '', HEAD_MATCH),
+    ("a head the Factory never pushed calls no one", ISSUE_PY,
+     '    "limits_unreadable",\n    "branch_not_pushed",\n', '    "limits_unreadable",\n', HEAD_MATCH),
+    ("a head is told without whether it was pushed", ISSUE_PY,
+     ' and type(facts.get("branch_pushed")) is bool)', ')', HEAD_MATCH),
     ("the opening Run is admitted for no branch head", ISSUE_PY,
      '{"branch_head": facts["branch_head"]}', "{}", ISSUE_TESTS),
     # Issue 838: where the branch does not exist, the opening Run is admitted for the commit it lands on.

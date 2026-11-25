@@ -131,6 +131,10 @@ def facts(**over) -> dict:
          "complete": {"timeline": True, "linked": True, "runs": True, "branch": True}, "timeline_bounded": False,
          "read_at": at(50)}
     f.update(over)
+    # A head the case gives is one an earlier opening Run recorded pushing, unless the case says whether it is: the
+    # issues port tells it beside the head, and with no branch standing there is nothing to tell.
+    if "branch_pushed" not in over:
+        f["branch_pushed"] = True if issue.is_commit(f.get("branch_head")) else None
     # The two times a close and a reopening carry, as GitHub holds them, unless the case gives them: a person's close
     # a minute after the opening, and a reopening at the start of the present life.
     if "reopened_last_at" not in over:
@@ -2587,6 +2591,37 @@ class Opening(unittest.TestCase):
         self.assertEqual(what(decide(f)), ("defer", "branch_unreadable", None))
         self.assertEqual(what(decide(facts(label_events=ACCEPTED, branch_head=1)))[2], INVESTIGATE)
 
+    def test_a_work_branch_head_no_opening_run_pushed_holds_the_issue_for_a_person(self):
+        # The Solution Architect's rulings of 2026-11-25: the issues port tells whether the next opening's branch stands
+        # at a commit an earlier opening Run of this issue recorded pushing, keyed by that commit's sha. Where it stands
+        # at one none recorded, a commit the Factory never wrote, the opening is held, one code, and a person is called;
+        # with a Run in flight too. A record missing or past its retention is told as no push, so it holds alike.
+        pushed = decide(facts(label_events=READIED_BY_A_PERSON, branch_head=BRANCH_HEAD, branch_pushed=True))
+        self.assertEqual((what(pushed), pushed["admit"]["branch_head"]), (("admit", "ready", OPEN), BRANCH_HEAD))
+        planted = facts(label_events=READIED_BY_A_PERSON, branch_head=BRANCH_HEAD, branch_pushed=False)
+        d = decide(planted)
+        self.assertEqual((d["state"], what(d), d["attention"], d["evidence"]),
+                         ("held", ("hold", "branch_not_pushed", None), "needs_you", [BRANCH_HEAD]))
+        self.assertEqual(what(decide(planted, [opening()]))[:2], ("hold", "branch_not_pushed"))
+        # Not told where the head is a commit: missing, null or no boolean, it defers as a branch not told does.
+        missing = object()
+        for value in (missing, None, 0, 1, "false", "true", [False]):
+            f = facts(label_events=READIED_BY_A_PERSON, branch_head=BRANCH_HEAD, branch_pushed=value)
+            if value is missing:
+                del f["branch_pushed"]
+            self.assertEqual(what(decide(f)), ("defer", "branch_unreadable", None), value)
+        # Where no branch stands nothing was pushed to tell: whatever it says, the first opening goes at the base.
+        for value in (missing, None, False, True, "x"):
+            f = facts(label_events=READIED_BY_A_PERSON, branch_pushed=value)
+            if value is missing:
+                del f["branch_pushed"]
+            d = decide(f)
+            self.assertEqual((what(d), d["admit"]["base_head"]), (("admit", "ready", OPEN), BASE), value)
+        # Nothing else on the issue waits on it: its State, its investigation and the acceptance act.
+        self.assertEqual(derive(planted)["state"], derive(facts(label_events=READIED_BY_A_PERSON))["state"])
+        self.assertEqual(what(decide(dict(planted, label_events=ACCEPTED)))[2], INVESTIGATE)
+        self.assertEqual(decide(dict(planted, label_events=[])).get("action"), "accept")
+
     def test_the_work_branch_is_read_as_a_commit_as_no_branch_or_not_told_and_only_no_branch_carries_a_base(self):
         # Issue 1059, decision 0242: the issues port tells three values apart. A commit admits the opening Run for it, a
         # branch read as not standing admits the first opening at the default branch's head, and a branch not told,
@@ -2843,7 +2878,7 @@ class Apply(unittest.TestCase):
         # But a default branch that cannot be read is no admission, and nothing is written.
         self.assertRefused(admitted, dict(f, base_head=None))
         # The branch made meanwhile, at any commit, is the head moved; so is everything else that stopped it before.
-        self.assertRefused(admitted, dict(f, branch_head="c0ffee1000000000000000000000000000000000"))
+        self.assertRefused(admitted, dict(f, branch_head="c0ffee1000000000000000000000000000000000", branch_pushed=True))
         self.assertRefused(admitted, dict(f, base_head="d00d1e5000000000000000000000000000000000", content_id=OTHER, content_changed_at=at(7)))
         self.assertRefused(admitted, dict(f, base_head="d00d1e5000000000000000000000000000000000", label_events=f["label_events"] + [labelled(HOLD, OTHER_APP, 7)]))
         # An admission that is no mapping is none, on either side, and never matches itself.
@@ -2864,13 +2899,14 @@ class Apply(unittest.TestCase):
         self.assertFalse(issue.still_admitted({"admit": own}, again))
         self.assertFalse(issue.still_admitted(admitted, {"admit": own}))
         # A base stands on both admissions or on neither: an admission of a branch that stands carries none.
-        standing = decide(dict(f, branch_head="c0ffee1000000000000000000000000000000000"))
+        standing = decide(dict(f, branch_head="c0ffee1000000000000000000000000000000000", branch_pushed=True))
         self.assertNotIn("base_head", standing["admit"])
         self.assertTrue(issue.still_admitted(standing, standing))
         for base in ("c0ffee1000000000000000000000000000000000", None):
             self.assertFalse(issue.still_admitted({"admit": dict(standing["admit"], base_head=base)}, standing), base)
         # And the branch head is compared on its own: a branch that stands and moved stops the Run.
-        self.assertFalse(issue.still_admitted(standing, decide(dict(f, branch_head="d00d1e5000000000000000000000000000000000"))))
+        self.assertFalse(issue.still_admitted(standing, decide(dict(f, branch_head="d00d1e5000000000000000000000000000000000",
+                                                                     branch_pushed=True))))
         # Only the base is left out: an admission that differs in it AND in a part more is another Run's.
         self.assertFalse(issue.still_admitted(admitted, dict(again, admit=dict(again["admit"], base_head="d00d1e5000000000000000000000000000000000", role="qa-lead"))))
         self.assertFalse(issue.still_admitted(admitted, dict(again, admit=dict(again["admit"], extra=1))))

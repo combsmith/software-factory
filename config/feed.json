@@ -152,6 +152,14 @@
       ]
     },
     {
+      "reason": "branch_not_pushed",
+      "question": "branch_not_pushed",
+      "choices": [
+        "fix_the_source",
+        "close"
+      ]
+    },
+    {
       "reason": "outside_not_admitted",
       "question": "admit_outside_work",
       "choices": [

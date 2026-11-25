@@ -113,6 +113,7 @@ NEEDS_YOU_REASONS = frozenset({
     "label_unreadable",
     "issues_unreadable",
     "limits_unreadable",
+    "branch_not_pushed",
     "intents_unreadable",
     "intents_share_a_role",
     "intents_share_an_app",
@@ -857,9 +858,11 @@ def branch_told(facts: dict) -> bool:
 
 def readable_head(facts: dict) -> bool:
     """The head of the branch the next opening Run would push to, told: a commit's whole sha, or null while that branch
-    does not exist. Where the port did not tell it, `complete.branch` not exactly true, a null is unread too (issue 1059)."""
+    does not exist. Where the port did not tell it, `complete.branch` not exactly true, a null is unread too (issue 1059).
+    A commit is told only with `branch_pushed`, whether an earlier opening Run of the issue recorded pushing it, exactly
+    true or false; with no branch there is nothing to tell."""
     return branch_told(facts) and "branch_head" in facts and (
-        facts["branch_head"] is None or is_commit(facts["branch_head"]))
+        facts["branch_head"] is None or is_commit(facts["branch_head"]) and type(facts.get("branch_pushed")) is bool)
 
 
 def draft_head(draft: dict, number) -> bool:
@@ -1051,6 +1054,9 @@ def _wanted(facts, state, reason, evidence, mine, intents):
     if not readable_head(facts):
         return _decision(facts, state, "branch_unreadable", evidence, t.DEFER)
     if facts["branch_head"] is not None:
+        # A commit no opening Run of the issue recorded pushing is none the Factory wrote: a person looks.
+        if facts["branch_pushed"] is False:
+            return _decision(facts, t.HELD, "branch_not_pushed", [facts["branch_head"]], t.HOLD)
         # An earlier Run's commit stands on the branch: this Run pushes none, and lands on nothing.
         return (who["role"], OPENING, {"branch_head": facts["branch_head"]})
     if not readable_base(facts):
