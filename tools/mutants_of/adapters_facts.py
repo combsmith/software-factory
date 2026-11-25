@@ -223,4 +223,6 @@ MUTANTS = [
      ', raw,\n                                                           timeline_whole)', ', raw)', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
     ("the snapshot says its own timeline was cut", 'adapters/facts.py',
      '"timeline_bounded": timeline_cut or reviews_cut,', '"timeline_bounded": True,', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
+    ("a snapshot's own cut flag is its acceptance read's", 'adapters/facts.py',
+     '"timeline_bounded": timeline_cut or reviews_cut,', '"timeline_bounded": contract_cut,', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut',)),
 ]

@@ -148,13 +148,18 @@ def dequeue_ceiling(_decision, facts: dict, since: list, limits: dict):
     return None
 
 
-def implementing_rounds(_decision, facts: dict, recent: list, limits: dict):
+def implementing_rounds(_decision, facts: dict, recent: list, limits: dict, unreadable: dict):
     """The Hold an issue's implementing rounds meet, or None (decision 0217, issue 874). Every implementing Run that
     completed since a person with write access acted is a round, whatever it concluded, since the checks it left failing
     are what admit the next: so a count of failed Runs alone, as the attempts are, would never stop the loop. At
-    `max_attempts` rounds or past them the issue is held, with those Runs as evidence. A Run in flight is no round."""
+    `max_implementing_rounds` rounds or past them the issue is held, with those Runs as evidence. That limit is the
+    rounds' own and read here alone (decision 0242, issue 1038): one missing, or no whole number of at least one, holds
+    the issue with the Hold it is handed, `unreadable` (an issue's reason), and is never read from another key. A Run in flight is no round."""
+    bound = limits.get("max_implementing_rounds")
+    if not (type(bound) is int and bound >= 1):
+        return unreadable
     rounds = [r for r in recent if r["intent"] == t.IMPLEMENT and r["status"] == "completed"]
-    if len(rounds) >= limits["max_attempts"]:
+    if len(rounds) >= bound:
         return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in rounds], t.HOLD)
     return None
 

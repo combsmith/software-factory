@@ -1180,9 +1180,10 @@ def standing_approval(facts: dict, config: dict):
     it has write access, without which GitHub does not count it. A person's approval answers that person's request for
     changes, and approves no content. One submitted before the pull request was last reopened does not stand, though
     GitHub reads it approved again (trials/P-7.reopened.json, issue 378): it may have been given while the pull
-    request was closed. Whether it was is read from the timeline, so none stands on a timeline not read whole.
+    request was closed. Whether it was is read from the timeline, so none stands on a timeline not read whole, nor
+    on one cut at its bound (decision 1149).
     """
-    if facts["complete"]["timeline"] is not True:
+    if timeline_short(facts):
         return None
     for rv in facts["reviews"]:
         if (
