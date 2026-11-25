@@ -2607,6 +2607,9 @@ class Opening(unittest.TestCase):
         # The port never tells false while an opening Run of the issue is in flight (adapters/applied.py's `landed`), so
         # a false told then is a head that Run did not push either, and holds.
         self.assertEqual(what(decide(planted, [opening()]))[:2], ("hold", "branch_not_pushed"))
+        # A branch not told is read first: a push told of it calls no one.
+        told = dict(planted["complete"], branch=False)
+        self.assertEqual(what(decide(dict(planted, complete=told))), ("defer", "branch_unreadable", None))
         # Not told where the head is a commit: missing, null or no boolean, it defers as a branch not told does.
         missing = object()
         for value in (missing, None, 0, 1, "false", "true", [False]):
