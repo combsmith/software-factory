@@ -28,7 +28,7 @@ BRANCH = re.compile(terms.WORK_BRANCH)
 MOST = 100            # branches of one issue read at most: more pull requests than any brake lets the Factory open
 PAGE = 100            # pull requests of one branch on its one page
 SHA = re.compile(r"[0-9a-f]{40}")
-NEXT = "next"           # anywhere in the link header: a next page, however its relation is written
+NEXT = "next"           # anywhere in the link header: a next page, quoted or not, as GitHub writes it, in lower case
 
 
 def _opened(transport, repo: str, branch: str, opener):
