@@ -2570,6 +2570,29 @@ class Purity(unittest.TestCase):
             found = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": "async def f(facts):\n" + body}))
             self.assertTrue(caught(found, "x.py:2 %s" % does), (does, found))
 
+    def test_a_module_that_annotates_starts_with_the_future_import(self):  # issue 1136
+        # Python runs a function's annotations, and a module's, when the module is imported, so a call there would run
+        # Kernel code at import; the future import keeps every annotation as text. Annotations anywhere ask for it.
+        future = "from __future__ import annotations\n\n\n"
+        note = "def _note(x):\n    return x\n\n\n"
+        for text, line in ((note + "def decide(facts: _note(1)):\n    return facts\n", 5),
+                           (note + "def decide(facts) -> _note(1):\n    return facts\n", 5),
+                           (note + "X: _note(1) = 'a'\n", 5),
+                           ("def decide(*, facts: dict, **rest: dict):\n    return facts\n", 1),
+                           ("def decide(facts):\n    seen: int = 0\n    return seen\n", 2)):
+            found = check_purity.run(planted({"kernel/x.py": text}))
+            self.assertTrue(caught(found, "x.py:%d annotates, and Python runs an annotation when the module is "
+                                          "imported" % line), (text, found))
+            self.assertEqual(check_purity.run(planted({"kernel/x.py": future + text})), [], text)
+            held = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": text}))
+            self.assertTrue(caught(held, "x.py:%d annotates" % line), (text, held))
+        # The import read is the future's, by its feature's name: one of another feature keeps nothing as text.
+        for head in ("from __future__ import division\n\n\n", "from __future__ import generator_stop, annotations\n\n\n"):
+            found = check_purity.run(planted({"kernel/x.py": head + "def decide(facts: dict):\n    return facts\n"}))
+            self.assertEqual(caught(found, "x.py:4 annotates"), "annotations" not in head, head)
+        # A module that annotates nothing, the Kernel's docstring-alone __init__.py among them, needs no import.
+        self.assertEqual(check_purity.run(planted({"kernel/x.py": '"""Codes."""\nA = "a"\n\n\ndef f(x):\n    return x\n'})), [])
+
     def test_the_kernel_is_the_package_python_imports_and_reads_nothing_off_a_value(self):  # issue 851
         # What the guards are held to (issue 838) is asked of the Kernel by the same lines. With no __init__.py Python
         # may import a kernel.py at the root in the package's place, which nothing reads.
