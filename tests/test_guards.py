@@ -681,6 +681,22 @@ class Patch(unittest.TestCase):
         for name in (b"a/b", b"a"):
             self.assertEqual(landed(new % (name, name, b"100644", name), tree=dict(TREE, **{"a/b/c": FILE})),
                              (None, patch.NOT_A_FILE), name)
+        # Where a file stands is asked of the tree the push leaves, as git writes it: a file removed or moved away
+        # leaves its place to a directory, and a directory whose every file is removed leaves its place to a file.
+        empty_gone = b"diff --git a/%s b/%s\ndeleted file mode 100644\nindex e69de29..0000000\n"
+        empty_new = b"diff --git a/%s b/%s\nnew file mode 100644\nindex 0000000..e69de29\n"
+        self.assertEqual(landed(empty_gone % (b"e", b"e") + empty_new % (b"e/x", b"e/x"), tree={"e": FILE}, held={"e": b""}),
+                         ({"written": {"e/x": (FILE, b"")}, "removed": ["e"], "read": []}, None))
+        self.assertEqual(landed(empty_new % (b"d", b"d") + empty_gone % (b"d/x", b"d/x"), tree={"d/x": FILE}, held={"d/x": b""}),
+                         ({"written": {"d": (FILE, b"")}, "removed": ["d/x"], "read": []}, None))
+        away = b"diff --git a/run.sh b/r\nsimilarity index 100%\nrename from run.sh\nrename to r\n"
+        self.assertEqual(landed(away + empty_new % (b"run.sh/x", b"run.sh/x"))[0]["written"],
+                         {"r": ("100755", b"#!/bin/sh\n"), "run.sh/x": (FILE, b"")})
+        # A directory that keeps one file, or a file that stays, is still in the way.
+        for data, tree, held in ((empty_new % (b"d", b"d") + empty_gone % (b"d/x", b"d/x"), {"d/x": FILE, "d/y": FILE},
+                                  {"d/x": b""}),
+                                 (empty_gone % (b"e", b"e") + empty_new % (b"f/x", b"f/x"), {"e": FILE, "f": FILE}, {"e": b""})):
+            self.assertEqual(landed(data, tree=tree, held=held), (None, patch.NOT_A_FILE), data)
 
 
 if __name__ == "__main__":

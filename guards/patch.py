@@ -12,7 +12,8 @@ refused.
 It reads a narrower patch than `harness/bundle.py` does, on purpose, and what it does not read it refuses:
 - a name is read one way only: unquoted, of the characters `NAME_CHARS` holds, with no space, so the header alone
   names both files and every other line that names one must agree with it; and of no more parts than `DEEPEST` bounds;
-- a file is a file: a link, a submodule, a path under a file, and a mode other than a file's two are refused;
+- a file is a file: a link, a submodule, a path under a file, and a mode other than a file's two are refused; where a
+  file stands is asked of the tree the push leaves, so a file removed or moved away leaves its place;
 - no file is written twice or copied twice, and none is written where the tree holds one the patch does not say it
   changes;
 - a section's extended lines stand in the order git writes them, and a change of mode is a file's between its two
@@ -453,10 +454,6 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
     sections = read(patch)
     if sections is None:
         return None, UNREADABLE
-    folders = {}
-    for path in tree:
-        for part in _above(path):
-            folders[part] = True
     written, removed, taken, copied = {}, [], {}, {}
     for section in sections:
         kind, old, new = section["kind"], section["old"], section["new"]
@@ -490,11 +487,20 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
             removed.append(old)
         if kind == "deleted":
             continue
-        if not _placed(new, tree, folders):
-            return None, NOT_A_FILE
         written[new] = (mode, after)
         if kind in ("rename", "copy"):
             taken[old] = True
         if kind == "copy":
             copied[old] = True
+    # Where a file may stand is asked of the tree the push leaves: a file removed or moved away leaves its place, as
+    # git writes a file made where one was removed, and a directory whose every file left is no directory.
+    gone = {path: True for path in removed}
+    left = {path: mode for path, mode in tree.items() if path not in gone}
+    folders = {}
+    for path in left:
+        for part in _above(path):
+            folders[part] = True
+    for path in written:
+        if not _placed(path, left, folders):
+            return None, NOT_A_FILE
     return {"written": written, "removed": removed, "read": list(taken)}, None

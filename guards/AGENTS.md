@@ -25,5 +25,5 @@ A guard binds the Role that writes this repo's code. So it lives here, never in 
 | A patch lands the bytes it says and no others, or nothing | `tests/test_guards.py::test_a_patch_lands_the_bytes_it_says_and_no_others` |
 | A new, a removed, a renamed and a copied file are each what the patch says; a copy reads the admitted commit's file | `tests/test_guards.py::test_a_new_a_removed_a_renamed_and_a_copied_file_are_each_what_the_patch_says` |
 | No file is written twice or copied twice, and none where the tree holds one the patch does not name | `tests/test_guards.py::test_a_file_is_written_once_and_only_where_the_patch_says_it_stands` |
-| What is no file is never written: a link, a submodule, a path under a file, or one where a directory stands | `tests/test_guards.py::test_what_is_no_file_is_never_written` |
+| What is no file is never written: a link, a submodule, a path under a file, or one where a directory stands, in the tree the push leaves | `tests/test_guards.py::test_what_is_no_file_is_never_written` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
