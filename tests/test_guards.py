@@ -605,6 +605,9 @@ class Patch(unittest.TestCase):
             # a rename and a copy of a file the tree has not
             moved.replace(b"docs/a.md", b"docs/none.md") % ((b"docs/b.md",) * 2),
             copied.replace(b"docs/a.md", b"docs/none.md") % ((b"docs/c.md",) * 2),
+            # a new file, a rename and a copy onto a link or a submodule, which the tree holds as it holds a file
+            new % ((b"link",) * 3), new % ((b"vendored",) * 3), moved % ((b"link",) * 2), moved % ((b"vendored",) * 2),
+            copied % ((b"link",) * 2), copied % ((b"vendored",) * 2),
         )
         for data in not_applied:
             with self.subTest(data=data):
