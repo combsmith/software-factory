@@ -21,11 +21,9 @@ and a section whose hashes differ but that has no hunk changes no bytes.
 
 `sources(patch)` names the files whose bytes a patch needs, and `content(old, hunks)` applies one file's hunks to its
 bytes. Nothing is searched for and nothing is guessed: a hunk's lines are the file's lines at the place the hunk names,
-or the hunks are not this file's. It is what `git apply --unidiff-zero` lands, which holds a hunk to the place its
-header names, but for one shape: removals alone that end at a last line with no newline, which git takes a line higher
-where the line above reads alike or differs only in white space at its end. Plain `git apply` parts from both where a
-hunk's last line is a change and the file goes on after it: git looks for such a hunk at the file's end, lands it
-there where the lines read alike, and refuses it otherwise. `git diff` writes no such hunk but with `-U0`.
+or the hunks are not this file's. `git apply` is looser, even with `--unidiff-zero`, and is no stand-in for this: where
+a hunk's lines are not at the place its header names, git searches up and down the file and lands them where they
+read alike; and it joins a new line with no newline at its end to the line that follows it. Here both are refused.
 """
 from __future__ import annotations
 
@@ -383,9 +381,10 @@ def content(old: bytes, hunks: list):
     there, byte for byte; `read` has held the hunks to their order and each new side to where the hunks before it put
     it. git's marker stands on the file's last line exactly where that line has no newline at its end, and on a new
     line only where nothing follows it: `read` gives a marker in a section's last hunk alone, and here no line of the
-    file follows that hunk's. An `old` that is no bytes is no file's content, an empty one's least of all: None.
+    file follows that hunk's. An `old` that is no bytes is no file's content, an empty one's least of all, and nor is
+    a subclass of bytes, whose own methods would be read: None.
     `hunks` are `read`'s own, and no other shape is asked for."""
-    if not isinstance(old, bytes):
+    if type(old) is not bytes:
         return None
     held = old.split(b"\n") if old else []
     bare = bool(held) and held[-1] != b""

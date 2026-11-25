@@ -401,6 +401,9 @@ class Patch(unittest.TestCase):
         self.assertEqual([patch.sources(data) for data in (COPIED, whole, MODE)], [["docs/a.md"], ["run.sh"], ["docs/a.md"]])
         self.assertEqual(patch.sources(CHANGE + COPIED + GONE), ["docs/a.md", "tests/t.py"])
         self.assertEqual(patch.sources(COPIED + CHANGE), ["docs/a.md"])      # by the name it reads, not the one it writes
+        # In the patch's order, not the names': and two files of one name in two directories are two files.
+        self.assertEqual(patch.sources(GONE + CHANGE), ["tests/t.py", "docs/a.md"])
+        self.assertEqual(patch.sources(CHANGE.replace(b"docs/a.md", b"tests/a.md") + CHANGE), ["tests/a.md", "docs/a.md"])
         # A new file reads none, and the files after it are named all the same.
         self.assertEqual(patch.sources(NEW + CHANGE + NEW.replace(b"n.md", b"m.md") + GONE), ["docs/a.md", "tests/t.py"])
 
@@ -411,6 +414,13 @@ class Patch(unittest.TestCase):
         # A hunk of no context: lines put in after line 3, and lines taken out with nothing put back.
         self.assertEqual(after(OLD, b"@@ -3,0 +4,2 @@\n+x\n+y\n"), b"a\nb\nc\nx\ny\nd\ne\nf\ng\nh\n")
         self.assertEqual(after(OLD, b"@@ -2,2 +1,0 @@\n-b\n-c\n"), b"a\nd\ne\nf\ng\nh\n")
+        # Lines put in after a hunk that grew the file stand by the old side's count, not the new side's.
+        self.assertEqual(after(b"a\nb\nc\n", b"@@ -0,0 +1 @@\n+x\n@@ -2,0 +4 @@\n+y\n"), b"x\na\nb\ny\nc\n")
+        # A file's bytes are bytes, not text: a line no hunk names is kept as it is, whatever it holds.
+        self.assertEqual(after(b"a\n\xff\xfe\n", b"@@ -1 +1 @@\n-a\n+A\n"), b"A\n\xff\xfe\n")
+        # An empty line is a line like another: one the file does not hold there is not this file's.
+        self.assertIsNone(after(b"keep\n", b"@@ -1 +0,0 @@\n-\n"))
+        self.assertEqual(after(b"\nkeep\n", b"@@ -1 +0,0 @@\n-\n"), b"keep\n")
         # A carriage return is a byte of its line, and stays one: at a line's end, or in the middle of it.
         self.assertEqual(after(b"a\r\nb\r\n", b"@@ -1,2 +1,2 @@\n-a\r\n+A\r\n b\r\n"), b"A\r\nb\r\n")
         self.assertEqual(after(b"a\rb\nc\x0cd\n", b"@@ -1 +1 @@\n-a\rb\n+A\rb\n"), b"A\rb\nc\x0cd\n")
@@ -484,6 +494,15 @@ class Patch(unittest.TestCase):
         for old in (None, "", 0, [], {}, "a\n", [b"a"]):
             self.assertIsNone(patch.content(old, gains), old)
             self.assertIsNone(patch.content(old, []), old)      # with no hunk to apply, all the same
+
+        # Nor is a subclass of bytes, whose own methods would be read where the file's lines are asked for.
+        class Said(bytes):
+            def split(self, *_):
+                return [b"a", b""]
+        changed = readable(section("docs/a.md", b"@@ -1 +1 @@\n-a\n+A\n"))[0]["hunks"]
+        self.assertEqual(patch.content(b"a\n", changed), b"A\n")
+        for hunks in (changed, []):
+            self.assertIsNone(patch.content(Said(b"zzz\n"), hunks))
 
 
 if __name__ == "__main__":
