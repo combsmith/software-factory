@@ -752,6 +752,9 @@ class Patch(unittest.TestCase):
                            # a path git holds in no tree: an empty one, one with an empty part, one with a NUL
                            ({**TREE, "": FILE}, HELD), ({**TREE, "docs//x": FILE}, HELD), ({**TREE, "x/": FILE}, HELD),
                            ({**TREE, "a\x00b": FILE}, HELD),
+                           # nor a `.` or `..` part, which would name another path: docs/./a.md is docs/a.md
+                           ({**TREE, "docs/./x": FILE}, HELD), ({**TREE, "docs/../x": FILE}, HELD),
+                           ({**TREE, "./x": FILE}, HELD), ({**TREE, "x/..": FILE}, HELD), ({**TREE, ".": FILE}, HELD),
                            (TREE, {**HELD, b"other": b""}), (TREE, {**HELD, "other": None}), (TREE, {**HELD, "other": "text"})):
             self.assertEqual(patch.applied(CHANGE, tree, held), (None, patch.TREE_UNREAD))
             self.assertEqual(patch.applied(b"no patch\n", tree, held), (None, patch.TREE_UNREAD))
@@ -769,6 +772,8 @@ class Patch(unittest.TestCase):
                            (TREE, {**HELD, "other": Said(b"")})):
             self.assertEqual(patch.applied(CHANGE, tree, held), (None, patch.TREE_UNREAD), (tree, held))
         # A path of more parts than DEEPEST has characters is in no tree a port gives; one of as many parts is.
+        # A part that begins or ends with dots is a name all the same.
+        self.assertIsNone(patch.applied(CHANGE, {**TREE, ".x/...": FILE, "..y": FILE}, HELD)[1])
         deepest = "/".join(["d"] * len(patch.DEEPEST))
         self.assertEqual(patch.applied(CHANGE, {**TREE, deepest + "/e": FILE}, HELD), (None, patch.TREE_UNREAD))
         self.assertIsNone(patch.applied(CHANGE, {**TREE, deepest: FILE}, HELD)[1])

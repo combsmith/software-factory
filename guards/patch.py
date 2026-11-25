@@ -453,7 +453,8 @@ def _placed(path: str, tree: dict, folders: dict) -> bool:
 
 def _handed(tree, contents) -> bool:
     """Whether `tree` and `contents` are in a shape a port gives. A tree is a mapping of paths, as text, to the modes
-    git writes of what is no directory; no path of it has an empty part or a NUL, which git holds in no name, or more
+    git writes of what is no directory; no path of it has an empty part, a `.` or `..` part or a NUL, which git holds
+    in no tree, as each would name another path or none, or more
     parts than `DEEPEST` has characters, as no name this reads has; and none is a directory to another. Contents are a
     mapping of paths, as text, to bytes. Each is of its type exactly: a subclass of `dict`, `str` or `bytes` would be
     read by its own methods."""
@@ -461,7 +462,8 @@ def _handed(tree, contents) -> bool:
         return False
     if not all(type(path) is str and type(tree[path]) is str and tree[path] in TREE_MODES for path in tree):
         return False
-    if not all(all(path.split("/")) and str(NUL, "ascii") not in path for path in tree):
+    if not all(all(part not in ("", ".", "..") for part in path.split("/")) and str(NUL, "ascii") not in path
+               for path in tree):
         return False
     # A bound on depth bounds what `_above` builds of each path below.
     if not all(path.count("/") < len(DEEPEST) for path in tree):
