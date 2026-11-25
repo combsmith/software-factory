@@ -6765,12 +6765,13 @@ class Branches(unittest.TestCase):
         stray = dict(self.opened(1), head={"ref": "factory-work/issue-41-9", "repo": {"full_name": "o/r"}})
         forked = dict(self.opened(1), head={"ref": "factory-work/issue-41-1", "repo": {"full_name": "p/r"}})
         flat = dict(self.opened(1), head={"ref": "factory-work/issue-41-1", "repo": "o/r"})
+        aside = [self.opened(1), dict(stray, user={"id": 5, "type": "User"})]  # a person's row off the branch, beside
         # Each half of the opener's account is read: the same id of another type, or another Bot, is not the opener. Two
         # of the opener's on one branch are no count of one, and a row whose author or branch cannot be read is no row.
         twice = [self.opened(1), dict(self.opened(1), number=108)]
         unread = [self.opened(1), dict(self.opened(1), user={"id": 77})]
         for rows in ([self.opened(1, by=(5, "User"))], [stray], [forked], [self.opened(1), forked], [flat],
-                     [self.opened(1, by=(77, "User"))], [self.opened(1, by=(5, "Bot"))], twice, unread):
+                     [self.opened(1, by=(77, "User"))], [self.opened(1, by=(5, "Bot"))], twice, unread, aside):
             self.assertEqual(self.head({self.pulls(1): (200, rows, {}), self.pulls(2): (200, [], {}),
                                         self.ref(1): self.branch(1), self.ref(2): self.branch(2)})[0], (None, False), rows)
         # A branch name not of the Kernel's shape, as for issue 0, is not told, and its ref is not asked.
