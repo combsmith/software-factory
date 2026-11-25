@@ -4753,6 +4753,29 @@ class Snapshot(unittest.TestCase):
         self.assertIs(got["complete"]["timeline"], False)
         self.assertIs(got["timeline_bounded"], False)
         self.assertIs(got["complete"]["reviews"], True)       # with no dismissal, the reviews stay whole (Carbon)
+        # A review submitted on a later page, past a first page of a hundred, reaches the snapshot (Astra).
+        approved = next(r for r in body("P-7", 22) if r["state"] == "APPROVED")
+        seq = self.sequence(1)
+        paged(seq, 6, "/repos/%s/pulls/26/reviews?per_page=100" % canary())
+        seq[6]["response"]["body"] = [{"id": n, "state": "PENDING"} for n in range(100)]
+        seq[7]["response"]["body"] = [approved]
+        seq[15]["response"]["headers"] = {"link": ""}
+        router = Router(github.Replay(seq), {"don-petry": "admin"}, {approved["commit_id"]: "diff --git a/x b/x\n"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
+        self.assertEqual([(r["state"], r["commit"]) for r in got["reviews"]], [("approved", approved["commit_id"])])
+        self.assertIs(got["complete"]["reviews"], True)
+        # Reviews cut beside a timeline read short, not cut, with a dismissal it cannot explain: the row is left out,
+        # and the reviews' cut is still said (Astra).
+        seq = self.sequence(1)
+        seq[5] = copy.deepcopy(seq[5])
+        seq[5]["response"]["body"] = {"message": "not a list"}
+        seq[6] = copy.deepcopy(seq[6])
+        seq[6]["response"]["body"] = [dismissed]
+        paged(seq, 6, "/repos/%s/pulls/26/reviews?per_page=100" % canary())
+        got = snap(seq)
+        self.assertEqual((got["complete"]["timeline"], got["complete"]["reviews"], got["timeline_bounded"], got["reviews"]),
+                         (False, False, True, []))
 
     def test_a_snapshot_reads_the_ask_of_the_openers_pull_request_by_its_branch(self):  # issue 295
         # Told that the App that opens pull requests is this one's author, the snapshot reads its branch, which is no

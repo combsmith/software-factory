@@ -923,6 +923,15 @@ class OnlyAPersonEnds(unittest.TestCase):
             d = go(f, REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("action")),
                              (None, reason, "act", "dequeue"), bounded)
+        # A malformed flag beside reviews read short, the timeline whole, is the deferral the Decision gives, before
+        # hands-off or anything else can act (the Solution Architect, 2026-11-25; Astra).
+        for bounded in (None, "true", 0):
+            f = facts(reviews=APPROVED, label_events=[labelled("factory:hands-off")], timeline_bounded=bounded)
+            f["complete"]["reviews"] = False
+            d = go(f, REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                             (None, "facts_incomplete", ["reviews"], "defer", "none"), bounded)
+            self.assertNotIn("action", d)
         # The other side: read in full, a person's hands-off leaves it where it is, whatever else was read short.
         f = facts(queue=True, reviews=APPROVED, label_events=[labelled("factory:hands-off")])
         f["complete"]["threads"] = False
