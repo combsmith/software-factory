@@ -618,8 +618,10 @@ class Patch(unittest.TestCase):
                          (None, patch.NOT_APPLIED))
         # A file the tree holds whose bytes were not handed over, or are no bytes, is not guessed at: with hunks or
         # with none, nothing lands.
+        class Said(bytes):      # nor a subclass of bytes, which would land as the file's bytes, its own methods and all
+            pass
         for data in (CHANGE, moved % ((b"docs/b.md",) * 2), copied % ((b"docs/c.md",) * 2), MODE):
-            for held in ({}, {"docs/a.md": OLD.decode()}):
+            for held in ({}, {"docs/a.md": OLD.decode()}, {"docs/a.md": Said(OLD)}):
                 self.assertEqual(landed(data, held=held), (None, patch.NOT_APPLIED), (data, held))
         away = b"diff --git a/tests/t.py b/x\nsimilarity index 100%\nrename from tests/t.py\nrename to x\n"
         twice = (CHANGE + CHANGE, CHANGE + moved % ((b"docs/b.md",) * 2), moved % ((b"docs/b.md",) * 2) + CHANGE,

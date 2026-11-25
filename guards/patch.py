@@ -473,7 +473,7 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
                 return None, NOT_APPLIED
             if mode not in FILE_MODES:
                 return None, NOT_A_FILE
-            if not isinstance(before, bytes):
+            if type(before) is not bytes:
                 return None, NOT_APPLIED
             if section["old_mode"] not in (None, mode) or section["index_mode"] not in (None, mode):
                 return None, NOT_APPLIED

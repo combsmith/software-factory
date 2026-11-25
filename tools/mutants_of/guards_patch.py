@@ -703,6 +703,9 @@ MUTANTS = [
      'contents.get(old),',
      'contents.get(old, b""),', PATCH_ONCE),
     ('what is no bytes lands where no hunk is applied', 'guards/patch.py',
-     'if not isinstance(before,',
-     'if section["hunks"] and not isinstance(before,', PATCH_ONCE),
+     'if type(before) is not',
+     'if section["hunks"] and type(before) is not', PATCH_ONCE),
+    ('a subclass of bytes lands as bytes', 'guards/patch.py',
+     'if type(before) is not bytes:',
+     'if not isinstance(before, bytes):', PATCH_ONCE),
 ]
