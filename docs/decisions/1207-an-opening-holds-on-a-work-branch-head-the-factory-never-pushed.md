@@ -10,7 +10,7 @@ Design section 3.6 now keys `push_commits` by the sha of the commit the Run itse
 
 The port reads the records only where a branch stands: one list and one download for each opening Run of the issue, with no second look. The last issue read a pass begins can then pass decision 0234's budget by 390 requests and two a Run: 410 at the Run ceiling of ten, derived, never counted.
 
-Limits: a record that expires before its branch does holds the issue, as does a push whose record never reached `applied/1`. Only a person moving or deleting the branch, or closing the issue, ends it. The Run ceiling counts Runs since a person acted, so the figure can pass 410. A Run that died before opening vouches for its push on any later branch too: a branch moved onto it reopens that work, which `max_unmerged_closes` bounds. A forged opening dispatch defers the issue.
+Limits: a record that expires before its branch does holds the issue, as does a push whose record never reached `applied/1`. Only a person moving or deleting the branch, or closing the issue, ends it. The Run ceiling counts Runs since a person acted, so the figure can pass 410. A Run whose opening did not land vouches for its push on any later branch too: a branch moved onto it reopens that work, which `max_unmerged_closes` bounds. A forged opening dispatch defers the issue.
 
 ## Why
 
