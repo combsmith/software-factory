@@ -34,6 +34,8 @@ NOW = support.NOW                       # 2026-10-11T13:00:00Z
 REPO = support.ITEM["repo"]
 OTHER_REPO = "combsmith/markets"
 CONTROLLER = json.loads((ROOT / "config" / "controller.json").read_text())
+# The account of the App that opens the Factory's pull requests, as a test hands it to the issues port (issue 1059).
+OPENS = (77, "Bot")
 # Each stored credential's dates, as a table would hold them with none near its limit at NOW (issue 305).
 CREDENTIALS = json.loads((ROOT / "examples" / "credential-ages.json").read_text())
 TOKEN = {"id": 41898282, "type": "Bot"}       # the workflow's own token's account, as a configuration would hold it
@@ -2193,8 +2195,9 @@ class Entry(unittest.TestCase):
                     return listed_by_the_port(transport, repo, after, apart=apart)
             return open_issues
 
-        def read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head):
+        def read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head, opener):
             spied["read"].append((repo, number, accounts))
+            spied.setdefault("openers", []).append(opener)
             spied["heads"].append(base_head)
             spied["identities"].append((identities, earlier))
             spied["controller"].append(controller)
@@ -2238,7 +2241,8 @@ class Entry(unittest.TestCase):
                     unittest.mock.patch.object(entry.items, "open_issues", listing(listed, whole)), \
                     unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: written), \
                     unittest.mock.patch.object(entry.passes, "records", held), \
-                    unittest.mock.patch.object(entry.issues_, "read", read):
+                    unittest.mock.patch.object(entry.issues_, "read", read), \
+                    unittest.mock.patch.object(entry, "opener", lambda *a: OPENS):
                 code, printed, files, _ = self.run_entry(hub)
             spied["graphql"] = [r for _, r in hub.sent if r["path"] == "/graphql"]
             spied["repo"] = [r for _, r in hub.sent if r["path"] in ("/repos/%s" % self.HOME, "/repos/%s/git/ref/heads/main" % self.HOME)]
@@ -2254,6 +2258,8 @@ class Entry(unittest.TestCase):
         # requests the issues' budget counts (decision 0234).
         self.assertTrue(all(who.answers is spied["who"][0].answers and vars(who).keys() == vars(spied["who"][0]).keys()
                             and isinstance(who.transport, entry.Counted) for _, _, who in spied["read"]))
+        # Each is handed the account of the App that opens the Factory's pull requests, which names its work branch (#1059).
+        self.assertEqual(spied["openers"], [OPENS] * 3)
         # Each is read with the pull requests' class accounts, and the pass records before this pass, here none.
         self.assertEqual(spied["identities"], [(entry.facts_.accounts_of(CONTROLLER)[0], [])] * 3)
         # And the Kernel's configuration, which says whether a draft's checks are read (decision 0217, issue 878).
@@ -2519,7 +2525,7 @@ class Entry(unittest.TestCase):
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
-        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head):
+        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head, opener):
             if number == 6:
                 raise entry.facts_.Moved("moved")
             # Issue 8 is the Controller's tracking issue, told at its own read: it is no served issue, and its writes
@@ -2938,7 +2944,7 @@ class Entry(unittest.TestCase):
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
-        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head):
+        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head, opener):
             return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "An issue"
 
         def runs(*args, **kw):
@@ -2968,7 +2974,7 @@ class Entry(unittest.TestCase):
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
-        def moved(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head):
+        def moved(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head, opener):
             raise entry.facts_.Moved("moved")
 
         def read(transport, item, kept, identities, apps, since, **_):

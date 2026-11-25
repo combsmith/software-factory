@@ -12,6 +12,8 @@ F849_BUDGET = ("tests.test_controller.Entry.test_the_issue_reads_stop_at_the_pas
 TARGETS = ("controller/__main__.py",)
 MUTANTS = [
     # The default branch's head, read once a pass and given to each issue (decisions 0226 and 0242).
+    ("the issues are read with no opener", 'controller/__main__.py',
+     'base_head=head, opener=opens,', 'base_head=head, opener=None,', S3_ENTRY),
     ("each issue is given no base head", 'controller/__main__.py',
      'kernel=config["kernel"], base_head=head,', 'kernel=config["kernel"], base_head=None,', S3_ENTRY),
     ("the base head's read is not dated", 'controller/__main__.py',

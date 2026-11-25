@@ -30,6 +30,8 @@ RAW = {
     "adapters.acceptance.closing": {"pull_requests": R, "issues": R},   # a pull request's closing issues
     "adapters.acceptance.labelled": {"issues": R},
     "adapters.artifacts._listed": {"actions": R}, "adapters.artifacts.read": {"actions": R},
+    # A work branch's pull requests, by the head filter, then the next opening's branch by its ref (issue 1059).
+    "adapters.branches._opened": {"pull_requests": R}, "adapters.branches.work_head": {"contents": R},
     # The head's rollup, with each check suite's App and workflow run, and the pull request's place in the queue.
     "adapters.checks._read": {"pull_requests": R, "checks": R, "actions": R},
     "adapters.edits.last_edited_at": {"pull_requests": R},
@@ -80,6 +82,8 @@ SITES = {
     "adapters.acceptance.labelled": 1,
     "adapters.artifacts._listed": 1,
     "adapters.artifacts.read": 1,
+    "adapters.branches._opened": 1,
+    "adapters.branches.work_head": 1,
     "adapters.checks._read": 1,
     "adapters.edits.last_edited_at": 1,
     "adapters.effects._check": 3,

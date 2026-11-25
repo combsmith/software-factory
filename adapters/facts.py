@@ -92,6 +92,8 @@ def _snapshot(transport, repo, number, identities, accounts, runs_whole, clock, 
     part[0] = "reviews"
     reviews, reviews_whole, reviews_cut = timeline.reviews(transport, first, events, accounts, branch["head"], raw,
                                                            timeline_whole)
+    # What was cut at its bound, for the seen port, which reads those lists again from their end (issue 1009).
+    raw["cut"] = {"events": timeline_cut, "reviews": reviews_cut}
     part[0] = "writer"
     writer = timeline.since_writer(events, accounts)
     part[0] = "labels"

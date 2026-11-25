@@ -21,7 +21,7 @@ import urllib.parse
 import zipfile
 from unittest import mock
 
-from adapters import acceptance, applied, artifacts, checks, draft_checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
+from adapters import acceptance, applied, artifacts, branches, checks, draft_checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
     passes, pull, push, records, pause, rules, texts, threads, timeline
 from controller import shared
 from harness import task
@@ -4588,7 +4588,9 @@ class Snapshot(unittest.TestCase):
         kept = {}
         facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                        lambda: self.NOW, kept, recorded=NOTHING, opened=NOT_OPENED)
-        self.assertEqual(sorted(kept), ["check_runs", "events", "reviews", "threads"])
+        self.assertEqual(sorted(kept), ["check_runs", "cut", "events", "reviews", "threads"])
+        # What was cut at its bound is kept too, for the seen port to read again from its end (issue 1009).
+        self.assertEqual(kept.pop("cut"), {"events": False, "reviews": False})
         self.assertTrue(all(isinstance(v[0], list) and v[1] is True for v in kept.values()))
         self.assertEqual(kept["events"][0], exchanges("P-28")[4]["response"]["body"])
         self.assertEqual(len(kept["check_runs"][0]), len([n for n in p26_checks_nodes(self.sequence(1)[7])]))
@@ -4686,9 +4688,18 @@ class Snapshot(unittest.TestCase):
         router = Router(replay, {"don-petry": "admin"})
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                                 lambda: self.NOW, kept, recorded=NOTHING, opened=NOT_OPENED)
+        # The cut is kept for the seen port, which reads that timeline again from its end (issue 1009).
+        self.assertEqual(kept["cut"], {"events": True, "reviews": False})
         self.assertIs(got["complete"]["timeline"], False)
         self.assertIs(got["timeline_bounded"], True)
         self.assertIs(kept["events"][1], False)               # reconciliation reads it short too (Astra)
+        # Given what the snapshot kept, the seen port reads that timeline again from its end (the Lens on #1152).
+        from adapters import seen
+        from tests.test_reconcile import APPS, IDENTITIES, Pages
+        path = "/repos/%s/issues/26/timeline?per_page=100" % canary()
+        pages = Pages({path: [[]] * 3})
+        seen.read(pages, {"repo": canary(), "type": "pull_request", "number": 26}, kept, IDENTITIES, APPS, self.NOW)
+        self.assertIn(path + "&page=3", [p for _, p in pages.asked])
         self.assertIs(got["complete"]["reviews"], True)       # with no dismissal, the reviews stay whole (Carbon)
         self.assertEqual([asked[1] for asked, _ in replay._left], [eleventh["request"]["call"].split(" ", 1)[1]])
         # A review dismissed past the cut, whose dismissal the timeline read does not hold, leaves the reviews not
@@ -4731,6 +4742,14 @@ class Snapshot(unittest.TestCase):
         paged(seq, 6, "/repos/%s/pulls/26/reviews?per_page=100" % canary())
         paged(seq, 5, "/repos/%s/issues/26/timeline?per_page=100" % canary())
         self.assertIs(snap(seq)["timeline_bounded"], True)
+        # A reviews list cut is kept as cut for the seen port too (Astra).
+        seq = self.sequence(1)
+        paged(seq, 6, "/repos/%s/pulls/26/reviews?per_page=100" % canary())
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        kept = {}
+        facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                       lambda: self.NOW, kept, recorded=NOTHING, opened=NOT_OPENED)
+        self.assertEqual(kept["cut"], {"events": False, "reviews": True})
         # A timeline read short within the bound and a review dismissed past what it read: the reviews are short too,
         # never the snapshot refused, and nothing is said cut (Astra).
         seq = self.sequence(1)
@@ -4739,20 +4758,24 @@ class Snapshot(unittest.TestCase):
         paged(seq, 5, "/repos/%s/issues/26/timeline?per_page=100" % canary())
         seq[6]["response"]["body"] = {"message": "not a list"}
         del seq[7:15]
-        router = Router(github.Replay(seq), {"don-petry": "admin"}, {dismissed["commit_id"]: "diff --git a/x b/x\n"})
+        router, kept = Router(github.Replay(seq), {"don-petry": "admin"}, {dismissed["commit_id"]: "diff --git a/x b/x\n"}), {}
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
-                                lambda: self.NOW, recorded=NOTHING, opened=NOT_OPENED)
+                                lambda: self.NOW, kept, recorded=NOTHING, opened=NOT_OPENED)
         self.assertEqual((got["complete"]["timeline"], got["complete"]["reviews"], got["timeline_bounded"], got["reviews"]),
                          (False, False, False, []))     # its diff readable, it is the dismissal that leaves it out (Carbon)
+        self.assertEqual(kept["cut"], {"events": False, "reviews": False})   # reviews short are not cut (Carbon)
         # A timeline read short within the bound, a page that is no list, is not cut: it defers as any read short.
         seq = self.sequence(1)
         paged(seq, 5, "/repos/%s/issues/26/timeline?per_page=100" % canary())
         seq[6]["response"]["body"] = {"message": "not a list"}
         del seq[7:15]
-        got = snap(seq)
+        router, kept = Router(github.Replay(seq), {"don-petry": "admin"}), {}
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW, kept, recorded=NOTHING, opened=NOT_OPENED)
         self.assertIs(got["complete"]["timeline"], False)
         self.assertIs(got["timeline_bounded"], False)
         self.assertIs(got["complete"]["reviews"], True)       # with no dismissal, the reviews stay whole (Carbon)
+        self.assertEqual(kept["cut"], {"events": False, "reviews": False})   # short is not cut, for the seen port (Carbon)
         # A review submitted on a later page, past a first page of a hundred, reaches the snapshot (Astra).
         approved = next(r for r in body("P-7", 22) if r["state"] == "APPROVED")
         seq = self.sequence(1)
@@ -6739,6 +6762,113 @@ def issue_read(events=(), more=False, last=None, types=(), edits=None, closing=N
         + [rest_answer("/repos/o/r/issues/41", issue)]
 
 
+class Branches(unittest.TestCase):
+    """The work branch's head (issue 1059, decision 0242): a commit, no branch, or not told, three values apart."""
+    OPENER = (77, "Bot")
+    SHA = "9f2c41d07a3be58e1c6d0b4a7e25f3c18d90ab6e"
+
+    @staticmethod
+    def pulls(k: int, number: int = 41) -> str:
+        query = urllib.parse.urlencode({"state": "all", "head": "o:factory-work/issue-%d-%d" % (number, k), "per_page": 100})
+        return "/repos/o/r/pulls?" + query
+
+    @staticmethod
+    def ref(k: int, number: int = 41) -> str:
+        return "/repos/o/r/git/ref/heads/factory-work/issue-%d-%d" % (number, k)
+
+    def opened(self, k: int, by=OPENER, number: int = 41) -> dict:
+        return {"number": 100 + k, "user": {"id": by[0], "type": by[1], "login": "x"},
+                "head": {"ref": "factory-work/issue-%d-%d" % (number, k), "repo": {"full_name": "o/r"}}}
+
+    def head(self, answers: dict, opener=OPENER, number: int = 41) -> tuple:
+        asked = []
+
+        class Answers:
+            def send(self, req):
+                asked.append(req["path"])
+                if req["path"] not in answers:
+                    raise github.Unanswered("not in the table")
+                status, body, headers = answers[req["path"]]
+                return {"status": status, "headers": headers, "body": body}
+        return branches.work_head(Answers(), "o/r", number, opener), asked
+
+    def branch(self, k: int, sha=SHA) -> tuple:
+        return 200, {"ref": "refs/heads/factory-work/issue-41-%d" % k, "object": {"type": "commit", "sha": sha}}, {}
+
+    def test_the_head_is_a_commit_no_branch_or_not_told_and_the_branch_is_named_from_the_factorys_pull_requests(self):
+        # No pull request the Factory opened: branch 1, which stands, or which GitHub says does not (trials/P-71.json).
+        none = (200, [], {})
+        self.assertEqual(self.head({self.pulls(1): none, self.ref(1): self.branch(1)}),
+                         ((self.SHA, True), [self.pulls(1), self.ref(1)]))
+        self.assertEqual(self.head({self.pulls(1): none, self.ref(1): (404, {"message": "Not Found"}, {})})[0],
+                         (None, True))
+        # Two the Factory opened, closed or merged, of any state, beside a person's: branch 3.
+        got = self.head({self.pulls(1): (200, [self.opened(1, by=(5, "User")), self.opened(1)], {}),
+                         self.pulls(2): (200, [self.opened(2)], {}), self.pulls(3): (200, [], {}), self.ref(3): self.branch(3)})
+        self.assertEqual(got, ((self.SHA, True), [self.pulls(1), self.pulls(2), self.pulls(3), self.ref(3)]))
+        # A branch whose pull requests are none of the opener's, a person's or one of the opener's on another branch
+        # than the one asked of, cannot be told the Factory's or not: not told. Nor can the opener's from another repo.
+        stray = dict(self.opened(1), head={"ref": "factory-work/issue-41-9", "repo": {"full_name": "o/r"}})
+        forked = dict(self.opened(1), head={"ref": "factory-work/issue-41-1", "repo": {"full_name": "p/r"}})
+        flat = dict(self.opened(1), head={"ref": "factory-work/issue-41-1", "repo": "o/r"})
+        aside = [self.opened(1), dict(stray, user={"id": 5, "type": "User"})]  # a person's row off the branch, beside
+        # Each half of the opener's account is read: the same id of another type, or another Bot, is not the opener. Two
+        # of the opener's on one branch are no count of one, and a row whose author or branch cannot be read is no row.
+        twice = [self.opened(1), dict(self.opened(1), number=108)]
+        unread = [self.opened(1), dict(self.opened(1), user={"id": 77})]
+        unid = [self.opened(1), dict(self.opened(1), user={"id": "77", "type": "Bot"})]
+        for rows in ([self.opened(1, by=(5, "User"))], [stray], [forked], [self.opened(1), forked], [flat],
+                     [self.opened(1, by=(77, "User"))], [self.opened(1, by=(5, "Bot"))], twice, unread, unid, aside):
+            self.assertEqual(self.head({self.pulls(1): (200, rows, {}), self.pulls(2): (200, [], {}),
+                                        self.ref(1): self.branch(1), self.ref(2): self.branch(2)})[0], (None, False), rows)
+        # A branch name not of the Kernel's shape, as for issue 0, is not told, and its ref is not asked.
+        self.assertEqual(self.head({self.pulls(1, 0): (200, [], {})}, number=0), ((None, False), [self.pulls(1, 0)]))
+        # Not told, and never read as no branch: no opener, or one untold, asks nothing.
+        for opener in (None, acceptance.UNTOLD):
+            self.assertEqual(self.head({}, opener=opener), ((None, False), []), opener)
+        # A count that cannot be read: a list not answered whole, one read short, one that is no list of pull requests.
+        for answer in ((500, [], {}), (206, [self.opened(1)], {}),
+                       (200, [self.opened(1)], {"link": '<https://api.github.com/x?page=2>; rel="next"'}),
+                       (200, [], {"link": '<https://api.github.com/x?page=2>; type="application/json"; rel="next"'}),
+                       (200, [], {"link": '<https://api.github.com/x?page=2>; rel=next'}),
+                       (200, {"message": "x"}, {}), (200, [{"user": None, "head": {}}], {}), (200, ["7"], {})):
+            self.assertEqual(self.head({self.pulls(1): answer, self.ref(1): self.branch(1)}),
+                             ((None, False), [self.pulls(1)]), answer)
+        self.assertEqual(self.head({self.ref(1): self.branch(1)})[0], (None, False))
+        # More branches than it reads: not told.
+        self.assertEqual(branches.MOST, 100)
+        many = {self.pulls(k): (200, [self.opened(k)], {}) for k in range(1, 102)}
+        many.update({self.ref(k): self.branch(k) for k in (100, 101)})
+        self.assertEqual(self.head(many), ((None, False), [self.pulls(k) for k in range(1, 101)]))
+        # The hundredth branch the first with none: read, and its head with it.
+        many[self.pulls(100)] = (200, [], {})
+        self.assertEqual(self.head(many), ((self.SHA, True), [self.pulls(k) for k in range(1, 101)] + [self.ref(100)]))
+        # A head that cannot be read: any answer but a commit of that very ref, or GitHub's 404.
+        good = self.branch(1)
+        for answer in ((500, {}, {}), (403, {}, {}), (206, good[1], {}), (201, good[1], {}), self.branch(1, sha=self.SHA[:12]),
+                       self.branch(1, sha=self.SHA.upper()), self.branch(1, sha=self.SHA + "0"), self.branch(1, sha="g" * 40),
+                       (200, {"ref": "refs/heads/factory-work/issue-41-10", "object": {"type": "commit", "sha": self.SHA}}, {}),
+                       (200, {"ref": "refs/heads/factory-work/issue-41-1", "object": {"type": "tag", "sha": self.SHA}}, {}),
+                       (200, [], {})):
+            self.assertEqual(self.head({self.pulls(1): none, self.ref(1): answer})[0], (None, False), answer)
+        self.assertEqual(self.head({self.pulls(1): none})[0], (None, False))
+
+    def test_the_issues_port_hands_the_work_branchs_head_and_whether_it_was_told(self):
+        told = []
+
+        def head(transport, repo, number, opener):
+            told.append((transport is router, repo, number, opener))
+            return answer
+        for answer in ((self.SHA, True), (None, True), (None, False)):
+            router = Router(github.Replay(issue_read()), {"don-petry": "admin", "stranger": "read"})
+            accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]})
+            with mock.patch.object(issues.branches, "work_head", head):
+                found, _ = issues.read(router, "o/r", 41, accounts, lambda: Issues.NOW, identities=IDENTITIES, earlier=[],
+                                       opener=self.OPENER)
+            self.assertEqual((found["branch_head"], found["complete"]["branch"]), answer)
+        self.assertEqual(told, [(True, "o/r", 41, self.OPENER)] * 3)
+
+
 class Issues(unittest.TestCase):
     NOW = "2026-10-11T12:00:00Z"
     HEAD = "3b8e5d1c0a9f7e6d5c4b3a291807f6e5d4c3b2a1"
@@ -7017,7 +7147,7 @@ class Issues(unittest.TestCase):
         self.assertEqual([found[k] for k in ("life_started_at", "reopened_last_by", "reopened_last_at", "closed_first_at")],
                          [at % "6:01", "writer", at % "6:01", None])
         self.assertEqual((found["state"], found["author"]["kind"], found["complete"]),
-                         ("open", "human", {"timeline": True, "linked": True, "runs": True}))
+                         ("open", "human", {"timeline": True, "linked": True, "runs": True, "branch": False}))
 
     def test_an_issue_whose_type_is_not_its_last_changes_is_refused_as_moved(self):  # P-72, issue 831
         # A change of type is timed seconds after the update it made, so a read between gives REST's type changed with
@@ -7273,7 +7403,9 @@ class Issues(unittest.TestCase):
         self.assertEqual(seen, [len(sent)])
         # No pull request names it: the list read is empty and whole (adapters/linked.py).
         self.assertEqual(sent[4]["body"]["query"], linked.QUERY)
-        self.assertEqual((f["linked"], f["branch_head"], f["complete"]), ([], None, {"timeline": True, "linked": True, "runs": True}))
+        # With no opener given, the work branch cannot be named: not told, never read as no branch (issue 1059).
+        self.assertEqual((f["linked"], f["branch_head"], f["complete"]),
+                         ([], None, {"timeline": True, "linked": True, "runs": True, "branch": False}))
         self.assertEqual((f["type"], f["label_names"], f["assignees"]), (None, ["kernel"], ["don-petry"]))
         self.assertEqual(f["type_events"], [{"from": None, "to": "Bug", "at": minute(-50)},
                                             {"from": "Bug", "to": "Task", "at": minute(-40)},
@@ -7293,7 +7425,8 @@ class Issues(unittest.TestCase):
         deferred = issue.derive(dict(f, complete=dict(f["complete"], linked=False)), [], CONFIG)
         self.assertEqual((deferred["state"], deferred["reason"], deferred["evidence"]), (None, "facts_incomplete", ["linked"]))
         # The port hands the linked read the pass records it was given: with those not read, they are not whole.
-        self.assertEqual(self.read(issue_read(), earlier=None)["complete"], {"timeline": True, "linked": False, "runs": True})
+        self.assertEqual(self.read(issue_read(), earlier=None)["complete"], {"timeline": True, "linked": False, "runs": True,
+                                                                                    "branch": False})
         with self.assertRaises(github.Unanswered):
             self.read(issue_read(), clock=lambda: "noon")
 
