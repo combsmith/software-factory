@@ -63,6 +63,8 @@ PLAIN_MODES = (b"100644", b"100755")
 FILE_MODES = ("100644", "100755")
 # The modes of what a tree holds that is no directory: a file's two, a link's and a submodule's.
 TREE_MODES = ("100644", "100755", "120000", "160000")
+# The first and the last surrogate: no text a name is decoded to holds one alone.
+SURROGATES = ("\ud800", "\udfff")
 # A submodule's mode: what it names is a commit of another repository, with no bytes here to read.
 SUBMODULE = "160000"
 DIGITS = b"0123456789"
@@ -488,6 +490,9 @@ def _handed(tree, contents) -> bool:
         return False
     if not all(all(part not in ("", ".", "..") and part.casefold() != GIT_OWN for part in path.split("/"))
                and str(NUL, "ascii") not in path for path in tree):
+        return False
+    # A surrogate, alone, is no character of a name git holds, as UTF-8 or as any other text a port decodes.
+    if any(SURROGATES[0] <= c <= SURROGATES[1] for path in tree for c in path):
         return False
     if not all(type(path) is str and type(said) is bytes for path, said in contents.items()):
         return False

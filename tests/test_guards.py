@@ -757,6 +757,9 @@ class Patch(unittest.TestCase):
         # Each file written is asked, the first and the last alike.
         for data in (EMPTY % (b"Docs/n", b"Docs/n") + EMPTY % (b"ok", b"ok"), EMPTY % (b"ok", b"ok") + EMPTY % (b"Docs/n", b"Docs/n")):
             self.assertEqual(landed(data), (None, patch.PATH_TWIN), data)
+        # A directory between is folded as a file is.
+        self.assertEqual(landed(EMPTY % (b"r/p;/two/new", b"r/p;/two/new"), tree={"r/p\u037e/one/old": FILE}, held={}),
+                         (None, patch.PATH_TWIN))
         # A file changed or moved in beside a twin that stays is refused as a new one is.
         self.assertEqual(landed(MODE, tree={"docs/a.md": FILE, "docs/A.md": FILE}, held={"docs/a.md": OLD}),
                          (None, patch.PATH_TWIN))
@@ -792,7 +795,11 @@ class Patch(unittest.TestCase):
                            (TREE, {"other": b"", **HELD}),
                            # git's own directory, in any case; and bytes for a submodule, which has none to read
                            ({**TREE, "d/.git/config": FILE}, HELD), ({**TREE, ".GIT": FILE}, HELD),
-                           (TREE, {**HELD, "vendored": b"x"}),
+                           ({**TREE, "src/.GiT/f": FILE}, HELD),
+                           (TREE, {**HELD, "vendored": b"x"}), (TREE, {**HELD, "vendored": b""}),
+                           # what stands under a file is in no tree, whatever it is; nor is a surrogate alone
+                           ({**TREE, "run.sh/sub": "160000"}, HELD), ({**TREE, "run.sh/l": "120000"}, HELD),
+                           ({**TREE, "bad\ud800": FILE}, HELD), ({**TREE, "bad\udfff/x": FILE}, HELD),
                            # nor a `.` or `..` part, which would name another path: docs/./a.md is docs/a.md
                            ({**TREE, "docs/./x": FILE}, HELD), ({**TREE, "docs/../x": FILE}, HELD),
                            ({**TREE, "./x": FILE}, HELD), ({**TREE, "x/..": FILE}, HELD), ({**TREE, ".": FILE}, HELD),
@@ -827,10 +834,13 @@ class Patch(unittest.TestCase):
             def __eq__(self, other):
                 Counted.calls.append("eq")
                 return str.__eq__(self, other)
-        for tree, held in (({**TREE, Counted("n"): FILE}, HELD), (TREE, {**HELD, Counted("n"): b""})):
+        for tree, held in (({**TREE, Counted("n"): FILE}, HELD), (TREE, {**HELD, Counted("n"): b""}),
+                           ({"d/x": FILE, Counted("d"): FILE}, {})):
             del Counted.calls[:]
             self.assertEqual(patch.applied(CHANGE, tree, held), (None, patch.TREE_UNREAD))
             self.assertEqual(Counted.calls, [])
+        # A character either side of the surrogates is a character of a name.
+        self.assertIsNone(patch.applied(CHANGE, {**TREE, "a\ud7ff": FILE, "b\ue000": FILE}, HELD)[1])
         # A part that begins or ends with dots is a name all the same.
         self.assertIsNone(patch.applied(CHANGE, {**TREE, ".x/...": FILE, "..y": FILE}, HELD)[1])
         deepest = "/".join(["d"] * len(patch.DEEPEST))
