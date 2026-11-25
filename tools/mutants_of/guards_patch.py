@@ -914,4 +914,10 @@ MUTANTS = [
     ('a patch that removes a file is not asked about twins', 'guards/patch.py',
      '        if any(_folded(name) in twins',
      '        if not removed and any(_folded(name) in twins', PATCH_CASE),
+    ("only a tree's last pair is asked of", 'guards/patch.py',
+     'for path, mode in tree.items())',
+     'for path, mode in list(tree.items())[-1:])', PATCH_PORT),
+    ("only the contents' last pair is asked of", 'guards/patch.py',
+     'for path, said in contents.items())',
+     'for path, said in list(contents.items())[-1:])', PATCH_PORT),
 ]

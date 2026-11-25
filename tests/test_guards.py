@@ -781,6 +781,9 @@ class Patch(unittest.TestCase):
                            # a path git holds in no tree: an empty one, one with an empty part, one with a NUL
                            ({**TREE, "": FILE}, HELD), ({**TREE, "docs//x": FILE}, HELD), ({**TREE, "x/": FILE}, HELD),
                            ({**TREE, "a\x00b": FILE}, HELD),
+                           # and a pair in no shape stands anywhere, the first as well as the last
+                           ({b"f": FILE, **TREE}, HELD), ({"lone": "040000", **TREE}, HELD), ({1: FILE, **TREE}, HELD),
+                           (TREE, {b"other": b"", **HELD}), (TREE, {"tests/t.py": None, "docs/a.md": OLD}),
                            # nor a `.` or `..` part, which would name another path: docs/./a.md is docs/a.md
                            ({**TREE, "docs/./x": FILE}, HELD), ({**TREE, "docs/../x": FILE}, HELD),
                            ({**TREE, "./x": FILE}, HELD), ({**TREE, "x/..": FILE}, HELD), ({**TREE, ".": FILE}, HELD),
