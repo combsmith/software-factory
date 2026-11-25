@@ -418,4 +418,18 @@ MUTANTS = [
     ("a reviews list the snapshot cut is seen whole", 'adapters/seen.py',
      'isinstance(got[0], list) and got[1] is True\n', 'isinstance(got[0], list) and (got[1] is True or name == "reviews")\n',
      ('tests.test_reconcile.SeenPort.test_what_a_later_page_holds_is_seen_and_a_cut_snapshot_is_short',)),
+    # Astra on part 5 of 5 of issue 1009.
+    ("a joined first page that names new pages when read again is whole", 'adapters/seen.py',
+     'steady and first_link == link and [', 'steady and [',
+     ('tests.test_reconcile.SeenPort.test_an_event_that_lands_while_the_end_is_read_leaves_it_short',)),
+    ("a reviews list cut reads the timeline again", 'adapters/seen.py',
+     'if cut.get("events") is True:', 'if any(cut.values()):',
+     ('tests.test_reconcile.SeenPort.test_a_timeline_the_snapshot_cut_is_read_again_from_its_end',)),
+    ("only a page's first item can reach since", 'adapters/seen.py',
+     '    for item in items:\n        one = _object(item)\n        at =', '    for item in items[:1]:\n        one = _object(item)\n        at =',
+     ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_holds_its_edges',)),
+    ("a merge does not end a pull request's read back", 'adapters/seen.py',
+     '    gone = ((("closed", "merged") if item["type"] == "pull_request" else ("closed",)) if kept == GONE and ending else ())',
+     '    gone = (("closed",) if kept == GONE and ending else ())',
+     ('tests.test_reconcile.SeenPort.test_an_item_read_as_gone_is_read_back_to_its_close',)),
 ]

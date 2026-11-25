@@ -151,8 +151,8 @@ def _tail(transport, path: str, since: str, ends=()) -> tuple:
             steady = (bool(items) and all(found) and [_mark(i) for i in again] == [_mark(i) for i in tail]
                       and not timeline.NEXT.search(again_link) and not timeline.NEXT.search(end_link))
             if joined:
-                first, _ = _page(transport, path, 1)
-                steady = steady and [_mark(i) for i in first] == [_mark(i) for i in items]
+                first, first_link = _page(transport, path, 1)
+                steady = steady and first_link == link and [_mark(i) for i in first] == [_mark(i) for i in items]
     except (Unanswered, KeyError, TypeError, ValueError):
         return [], False
     kept, seen = [], set()

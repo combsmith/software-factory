@@ -985,6 +985,10 @@ class SeenPort(unittest.TestCase):
         merged = [{"event": "merged", "actor": PERSON, "created_at": EARLY, "id": 8}]
         github = Pages({path: [old, closed, merged, old]}, {**LEFT_ANSWERS, ("GET", ISSUE): {"number": 42, "state": "closed"}})
         self.assertIs(seen_.read(github, dict(ITEM, type="issue"), seen_.GONE, IDENTITIES, APPS, SINCE)[2], True)
+        # A pull request's merge ends its read back, as a close does (Astra).
+        github = Pages({path: [old, old, merged]}, LEFT_ANSWERS)
+        self.assertIs(seen_.read(github, ITEM, seen_.GONE, IDENTITIES, APPS, SINCE)[2], True)
+        self.assertEqual([p for _, p in github.asked if "/timeline" in p][1:], [path + "&page=3", path + "&page=3"])
         # An issue read as gone that REST reads open again has no close to find: it is read back to `since` alone (Carbon).
         github = Pages({path: [old] * 27 + [old + new, new, new]}, {**LEFT_ANSWERS, ("GET", ISSUE): {"number": 42, "state": "open"}})
         self.assertIs(seen_.read(github, dict(ITEM, type="issue"), seen_.GONE, IDENTITIES, APPS, SINCE)[2], True)
@@ -1085,6 +1089,8 @@ class SeenPort(unittest.TestCase):
                        again={30: (close + [commit("b" * 40)], False)})
         self.assertIs(left(github)[2], False)
         self.assertIs(left(Pages({path: [old] * 27 + [old + new, new, close + [commit("a" * 40)]]}, LEFT_ANSWERS))[2], True)
+        # A moment past a first item that has none still reaches `since` (Astra).
+        self.assertIs(left(Pages({path: [old] * 23 + [[commit("c" * 40)] + old] + [new] * 5 + [close]}, LEFT_ANSWERS))[2], True)
         # A joined first page is read again though the read reached `since` on the second (Kimi, Muse, Astra).
         first = [{"event": "commented", "actor": PERSON, "created_at": EARLY, "id": 1}]
         github = Pages({path: [first, old + close]}, LEFT_ANSWERS, again={1: (old, True)})
@@ -1112,6 +1118,16 @@ class SeenPort(unittest.TestCase):
         for later, whole in (([], False), (new, False), (first, True)):
             github = Pages({ISSUE + "/timeline?per_page=100": [first, new, close]}, LEFT_ANSWERS, again={1: (later, True)})
             self.assertIs(seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], whole, later)
+        # One that lands before the first page is read again names a new last page there: short too (Astra).
+
+        class Grown(Pages):
+            def send(self, req):
+                answer = super().send(req)
+                if req["path"] == ISSUE + "/timeline?per_page=100" and self.times[req["path"], 1] > 1:
+                    answer = dict(answer, headers={"link": answer["headers"]["link"].replace("page=3", "page=4")})
+                return answer
+        github = Grown({ISSUE + "/timeline?per_page=100": [first, new, close]}, LEFT_ANSWERS)
+        self.assertIs(seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], False)
 
     def test_a_timeline_the_snapshot_cut_is_read_again_from_its_end(self):  # issue 1009, decision 0234
         # An open pull request whose timeline the snapshot cut at its bound: the writes since `since` are at its end,
@@ -1135,6 +1151,11 @@ class SeenPort(unittest.TestCase):
         github = Pages({})
         parts = kept(events=([], False))
         parts["cut"] = {"events": False, "reviews": False}
+        self.assertIs(seen_.read(github, ITEM, parts, IDENTITIES, APPS, SINCE)[2], False)
+        self.assertEqual([p for _, p in github.asked if "/timeline" in p], [])
+        # A reviews list cut alone reads no timeline again, and what was seen stays short (Astra).
+        parts = kept(reviews=([], False))
+        parts["cut"] = {"events": False, "reviews": True}
         self.assertIs(seen_.read(github, ITEM, parts, IDENTITIES, APPS, SINCE)[2], False)
         self.assertEqual([p for _, p in github.asked if "/timeline" in p], [])
 
