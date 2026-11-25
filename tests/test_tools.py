@@ -6974,9 +6974,9 @@ class Context(unittest.TestCase):
             self.assertEqual(records.main([], linked), 0)
         self.assertEqual(said.getvalue(), records.render(linked))
         self.assertFalse((linked / "docs/records.md").exists())
-        # A path is read in either column of a row, and only as a path to a real folder here, linked to none.
+        # A path is read in either column of a row, and only as a path to a real folder here, linked to none; a command is no path.
         odd = tree({"docs/decisions/0001-a.md": "# 0001. A\n\nStatus: accepted.\n\n## Decision\n\nX.\n\n## Why\n\nY.\n\n"
-                    "## Boundaries\n\n| Boundary | Check |\n|---|---|\n| b in `kernel/k.py` | `/etc/x`, `../x/y`, `./z/q`, `lent/x.py` |\n",
+                    "## Boundaries\n\n| Boundary | Check |\n|---|---|\n| b in `kernel/k.py` | `/etc/x`, `../x/y`, `./z/q`, `lent/x.py`, `adapters/a.py --all` |\n",
                     "elsewhere/x.py": "", **dirs})
         (odd / "lent").symlink_to(odd / "elsewhere")
         self.assertIn("| 0001 | A | live | kernel |\n", records.render(odd))
@@ -6990,6 +6990,16 @@ class Context(unittest.TestCase):
         other = tree({"docs/decisions/0001-a.md": "# 0001. A\n" + body % "`tools/x.py`",
                       "docs/decisions/notes.md": files["docs/decisions/0004-d.md"], **dirs})
         self.assertIn("| 0001 | A | unread |  |\n", records.render(other))
+        # A record not in UTF-8 is unread, as tools/check_decisions.py reads it; and a chain never ends at an unread record.
+        latin = tree({"docs/decisions/0001-a.md": "# 0001. A\n\nStatus: replaced by `docs/decisions/0002-b.md`." + body % "`tools/x.py`",
+                      "docs/decisions/0002-b.md": "", **dirs})
+        (latin / "docs/decisions/0002-b.md").write_bytes(("# 0002. Caf\xe9\n\nStatus: accepted." + body % "`tools/x.py`").encode("latin-1"))
+        self.assertIn("| 0002 | Caf\ufffd | unread |  |\n", records.render(latin))
+        self.assertNotIn("## Chains", records.render(latin))
+        # A title with no number loses only the mark before it; a path is read as the repo holds it, and one that leaves it names no area.
+        marked = tree({"docs/decisions/10000-e.md": "# #Tag title\n\nStatus: accepted."
+                    + body % "`tools/../kernel/k.py`, `tools/../../outside/x.py`, `adapters/..`", **dirs})
+        self.assertIn("| 10000 | #Tag title | live | kernel |\n", records.render(marked))
         self.assertNotIn("notes", records.render(other))
         above = tree({"elsewhere/decisions/0004-d.md": files["docs/decisions/0004-d.md"]})
         (above / "docs").symlink_to(above / "elsewhere")

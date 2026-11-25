@@ -43,10 +43,16 @@ def _order(rel: str) -> tuple:
 def _read(path: pathlib.Path, root: pathlib.Path) -> tuple:
     """(title, replaced by, area) of one record: the title after its number, the path of the record that replaced it,
     "" when none did or None when its Status cannot be read, and the top directories of this repo that the paths its Boundaries name are in."""
-    text = path.read_text(encoding="utf-8", errors="replace")
+    data = path.read_bytes()
+    text = data.decode("utf-8", errors="replace")
     first = text.split("\n", 1)[0]
     digits = path.name.split("-", 1)[0]
-    title = first[len("# %s. " % digits):] if first.startswith("# %s. " % digits) else first.lstrip("# ")
+    title = first[len("# %s. " % digits):] if first.startswith("# %s. " % digits) else first[2:] if first.startswith("# ") else first
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        # tools/check_decisions.py reads a record as UTF-8 alone, so one that is not cannot be read.
+        return title.strip(), None, []
     said = check_decisions.parse(text)
     if isinstance(said, str):
         return title.strip(), None, []
@@ -55,8 +61,9 @@ def _read(path: pathlib.Path, root: pathlib.Path) -> tuple:
     for cells, check in check_decisions.boundaries(text):
         for token in check_context.TOKEN.findall(" ".join(cells + (check,))):
             name = token.split("::")[0]
-            top = name.split("/")[0]
-            if "/" in name and check_context.PATHLIKE.match(name) and top not in (".", "..") \
+            # The top is read from the path as the repo holds it, so `tools/../kernel/k.py` is in kernel/ (as check_decisions reads one).
+            top = check_decisions._path(name).split("/")[0]
+            if "/" in name and check_context.PATHLIKE.match(name) and top not in ("", ".", "..") \
                     and (root / top).is_dir() and not (root / top).is_symlink():
                 tops.add(top)
     return title.strip(), replaced.group(1) if replaced else "", sorted(tops - SKIPPED)
@@ -86,7 +93,8 @@ def render(root: pathlib.Path = ROOT) -> str:
         while head in records and records[head][1] and records[head][1] not in seen:
             head = records[head][1]
             seen.add(head)
-        if head != rel:
+        # A chain's head is a record that is live, missing or in a loop, never one whose Status cannot be read.
+        if head != rel and (head not in records or records[head][1] is not None):
             heads.setdefault(head, []).append(rel)
     chains = ["| %s | %s |\n" % (_number(head), ", ".join(_number(rel) for rel in sorted(olds, key=_order)))
               for head, olds in sorted(heads.items(), key=lambda pair: _order(pair[0]))]
