@@ -581,7 +581,7 @@
       "type": "boolean"
     },
     "timeline_bounded": {
-      "description": "Whether the port cut the pull request's own timeline at its bound of ten pages, beside complete.timeline false. It stays so however long the pull request waits, and anyone can comment: the Kernel defers it on its own code and calls a person (decision 0234). Not required, as acceptance_bounded is not: the port gives it in every snapshot, and facts made before it read as not cut, which the read short defers all the same; a value that is no truth value is a gap in the timeline",
+      "description": "Whether the port cut the pull request's own timeline, or its reviews, at its bound of ten pages, beside complete.timeline or complete.reviews false. It stays so however long the pull request waits, and anyone can comment or review: the Kernel defers it on its own code, names the reads not whole, or both where each claims to be, and calls a person (decisions 0234 and 1150). Not required, as acceptance_bounded is not: the port gives it in every snapshot, and facts made before it read as not cut, which the read short defers all the same; a value that is no truth value is a gap in those reads",
       "type": "boolean"
     },
     "complete": {

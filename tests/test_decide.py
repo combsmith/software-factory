@@ -138,7 +138,8 @@ class Readability(unittest.TestCase):
                 d = go(facts(timeline_bounded=True, reviews=reviews, complete=dict(cut, **{s: False for s in short})),
                        REVIEWED)
                 self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
-                                 (None, "timeline_bounded", ["timeline"], "defer", "needs_you"), (reviews, short))
+                                 (None, "timeline_bounded", ["reviews", "timeline"] if "reviews" in short else ["timeline"],
+                                  "defer", "needs_you"), (reviews, short))
         self.assertEqual(go(facts(timeline_bounded=True), REVIEWED)["reason"], "timeline_bounded")
         d = go(facts(timeline_bounded=True, queue=True, reviews=[review()], complete=cut), REVIEWED)
         self.assertEqual((d["reason"], d["outcome"], d.get("action"), d["attention"]),
@@ -162,17 +163,41 @@ class Readability(unittest.TestCase):
             for complete in (facts()["complete"], cut):
                 d = go(facts(timeline_bounded=bounded, complete=complete, reviews=[review()]), REVIEWED)
                 self.assertEqual((d["reason"], d["attention"]), ("facts_incomplete", "none"), (bounded, complete))
-                self.assertEqual(d["evidence"], ["timeline"], (bounded, complete))        # once (Carbon)
+                self.assertEqual(d["evidence"], ["timeline"] if complete is cut else ["reviews", "timeline"],
+                                 (bounded, complete))        # once (Carbon); both reads where each claims whole (1150)
         # Beside another list read short, the gap is added to it, in the lists' order (Astra), whichever list (Carbon).
         for other in [name for name in facts()["complete"] if name != "timeline"]:
             d = go(facts(timeline_bounded=None, complete=dict(facts()["complete"], **{other: False})), REVIEWED)
-            self.assertEqual(d["evidence"], [name for name in facts()["complete"] if name in (other, "timeline")], other)
+            gap = ("reviews",) if other == "reviews" else (other, "reviews", "timeline")
+            self.assertEqual(d["evidence"], [name for name in derive.t.READ_IN_FULL if name in gap], other)
         # Both flags no truth value in one snapshot: both are gaps, the acceptance read's first (Astra).
         d = go(facts(acceptance_bounded=None, timeline_bounded=None), REVIEWED)
-        self.assertEqual((d["reason"], d["evidence"]), ("facts_incomplete", ["acceptance", "timeline"]))
+        self.assertEqual((d["reason"], d["evidence"]), ("facts_incomplete", ["acceptance", "reviews", "timeline"]))
         # A merged or closed pull request is what it is, cut or not.
         for state in ("merged", "closed"):
             self.assertEqual(go(facts(timeline_bounded=True, complete=cut, state=state), REVIEWED)["reason"], state)
+
+    def test_a_reviews_list_cut_at_its_bound_defers_as_a_cut_timeline_and_names_the_reviews(self):  # record 1150
+        # Anyone can review a pull request, so the port cuts its reviews at the bound too, and says so in the one flag.
+        # The cut defers on that code and calls a person; its evidence names the reads not whole, both where each claims
+        # to be (the Solution Architect, 2026-11-24).
+        whole = facts()["complete"]
+        for short, evidence in (({"reviews": False}, ["reviews"]), ({"timeline": False}, ["timeline"]),
+                                ({"reviews": False, "timeline": False}, ["reviews", "timeline"]),
+                                ({}, ["reviews", "timeline"]), ({"reviews": False, "threads": False}, ["reviews"])):
+            d = go(facts(timeline_bounded=True, reviews=[review()], complete=dict(whole, **short)), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                             (None, "timeline_bounded", evidence, "defer", "needs_you"), short)
+        d = go(facts(timeline_bounded=True, queue=True, reviews=[review()], complete=dict(whole, reviews=False)), REVIEWED)
+        self.assertEqual((d["reason"], d["evidence"], d.get("action")), ("timeline_bounded", ["reviews"], "dequeue"))
+        # The other side: reviews read short and not cut are any read short, calling no one.
+        d = go(facts(timeline_bounded=False, reviews=[review()], complete=dict(whole, reviews=False)), REVIEWED)
+        self.assertEqual((d["reason"], d["evidence"], d["attention"]), ("facts_incomplete", ["reviews"], "none"))
+        # A flag that is no truth value is a gap in the reads it stands for: those not whole, or both.
+        for short, evidence in (({"reviews": False}, ["reviews"]), ({}, ["reviews", "timeline"]),
+                                ({"threads": False}, ["reviews", "threads", "timeline"])):
+            d = go(facts(timeline_bounded="true", complete=dict(whole, **short)), REVIEWED)
+            self.assertEqual((d["reason"], d["evidence"], d["attention"]), ("facts_incomplete", evidence, "none"), short)
 
     def test_a_flag_that_is_not_exactly_true_is_incomplete(self):  # I-13, I-20
         # A fact read from outside is never given a default: a missing or malformed flag is not a whole list.

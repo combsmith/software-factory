@@ -19,7 +19,20 @@
     "truncated": false,
     "characters": 4800
   },
-  "changed_paths": [],
+  "changed_paths": [
+    {
+      "path": "kernel/derive.py",
+      "previous": "kernel/derive_old.py"
+    },
+    {
+      "path": "tests/test_decide.py",
+      "previous": null
+    },
+    {
+      "path": "docs/glossary.md",
+      "previous": null
+    }
+  ],
   "label_events": [],
   "last_push_at": "2026-10-11T12:00:00Z",
   "last_reopened_at": null,

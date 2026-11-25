@@ -866,6 +866,13 @@ def timeline_short(facts: dict) -> bool:
     return "timeline" in incomplete(facts) or facts.get("timeline_bounded", False) is not False
 
 
+def cut_reads(facts: dict) -> list:
+    """The reads `timeline_bounded` speaks for: the pull request's own timeline and its reviews, those of them not read
+    whole, or both where each claims to be, in the lists' order (decision 1150)."""
+    gaps = incomplete(facts)
+    return [name for name in ("reviews", "timeline") if name in gaps] or ["reviews", "timeline"]
+
+
 def hands_off(facts: dict, config: dict) -> bool:
     """Whether hands-off binds: a person placed it, and the Factory never acts on the item. Placed by anyone else, it
     is read as a Hold, so an App cannot freeze an item in the merge queue, and so is one removed in the same second
@@ -1241,14 +1248,16 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     # acceptance however whole that read claims to be.
     if facts.get("acceptance_bounded") is True:
         return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}
-    # Its own timeline cut at the port's bound does the same: anyone can comment on a pull request (issue 1009).
+    # Its own timeline, or its reviews, cut at the port's bound do the same: anyone can comment on or review a pull
+    # request (issue 1009). The evidence names the reads not whole, or both where each claims to be (decision 1150).
     if facts.get("timeline_bounded") is True:
-        return {"state": None, "reason": "timeline_bounded", "evidence": ["timeline"]}
+        return {"state": None, "reason": "timeline_bounded", "evidence": cut_reads(facts)}
     gaps = incomplete(facts)
     if facts.get("acceptance_bounded", False) is not False and "acceptance" not in gaps:
         gaps = ["acceptance"] + gaps
-    if facts.get("timeline_bounded", False) is not False and "timeline" not in gaps:
-        gaps = gaps + ["timeline"]
+    if facts.get("timeline_bounded", False) is not False:
+        cut = cut_reads(facts)
+        gaps = [name for name in t.READ_IN_FULL if name in gaps or name in cut]
     if gaps:
         return {"state": None, "reason": "facts_incomplete", "evidence": gaps}
     if not readable_expired(facts):
