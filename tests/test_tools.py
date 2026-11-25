@@ -2577,6 +2577,37 @@ class Purity(unittest.TestCase):
             found = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": "async def f(facts):\n" + body}))
             self.assertTrue(caught(found, "x.py:2 %s" % does), (does, found))
 
+    def test_a_module_that_annotates_starts_with_the_future_import(self):  # issue 1136
+        # Python runs a function's annotations, and a module's, when the module is imported, so a call there would run
+        # Kernel code at import; the future import keeps every annotation as text. Annotations anywhere ask for it.
+        future = "from __future__ import annotations\n\n\n"
+        note = "def _note(x):\n    return x\n\n\n"
+        for text, line in ((note + "def decide(facts: _note(1)):\n    return facts\n", 5),
+                           (note + "def decide(facts) -> _note(1):\n    return facts\n", 5),
+                           (note + "X: _note(1) = 'a'\n", 5),
+                           ("def decide(*, facts: dict):\n    return facts\n", 1),
+                           ("def decide(facts,\n           **rest: dict):\n    return facts\n", 2),
+                           ("def decide(facts,\n           *rest: dict):\n    return facts\n", 2),
+                           ("def decide(facts: dict, /):\n    return facts\n", 1),
+                           ("async def decide(facts) -> dict:\n    return facts\n", 1),
+                           ("def decide(facts):\n    seen: int\n    return facts\n", 2),
+                           ("def decide(facts):\n    seen: int = 0\n    return seen\n", 2)):
+            found = check_purity.run(planted({"kernel/x.py": text}))
+            self.assertTrue(caught(found, "x.py:%d annotates in a module without `from __future__ import "
+                                          "annotations`" % line), (text, found))
+            self.assertFalse(caught(check_purity.run(planted({"kernel/x.py": future + text})), "annotates"), text)
+            held = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": text}))
+            self.assertTrue(caught(held, "x.py:%d annotates" % line), (text, held))
+        # The import read is the future's, by its feature's name: one of another feature keeps nothing as text.
+        # A name `annotations` a module of the Kernel's binds is no future import (Claude's read).
+        for head in ("from __future__ import division\n\n\n", "from __future__ import generator_stop, annotations\n\n\n",
+                     "from kernel.codes import annotations\n\n\n"):
+            found = check_purity.run(planted({"kernel/codes.py": "annotations = 'a'\n",
+                                              "kernel/x.py": head + "def decide(facts: dict):\n    return facts\n"}))
+            self.assertEqual(caught(found, "x.py:4 annotates"), "__future__ import generator_stop" not in head, (head, found))
+        # A module that annotates nothing, the Kernel's docstring-alone __init__.py among them, needs no import.
+        self.assertEqual(check_purity.run(planted({"kernel/x.py": '"""Codes."""\nA = "a"\n\n\ndef f(x):\n    return x\n'})), [])
+
     def test_the_kernel_writes_no_function_into_text(self):  # issue 1137
         # A function's text is its address in memory, which a replay in another process gives otherwise. A good-faith
         # mark (decision 0215's limit row): a function the Kernel defines or imports, or a lambda, written by `str`, an
