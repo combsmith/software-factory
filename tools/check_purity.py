@@ -613,20 +613,28 @@ def _calls(name: str, tree, trees: dict, takers: dict, tops: dict) -> list:
                             "process's replay reads other text; the Kernel writes no function into text"
                             % (name, node.lineno))
         # So is a map, filter, zip or enumerate object or a generator expression, and a set is its elements in the hash
-        # seed's order, each written out where it is made (issue 1202): in a container, a set operation or a pick, too,
-        # and a set through `list`, `tuple` or `.join`, which keep its order (Claude, security, Astra, Muse, Carbon).
+        # seed's order, each written out where it is made (issue 1202). A container's or a comprehension's elements are
+        # written whole; what `list`, `tuple`, `.join`, `*` or a comprehension's `for` consumes keeps only its items'
+        # order, a set's among them (Claude, security, Astra, Muse, Carbon, Kimi).
         made = [(value, True) for value in shown]
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "join":
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "join" \
+                and not module(node.func.value, chain):
             made = [(value, False) for value in node.args]
         for value, whole in made:
-            made += [(part, whole) for part in (
+            made += [(part, True) for part in (
                 value.elts if isinstance(value, (ast.List, ast.Tuple)) else
                 [part for part in value.keys + value.values if part is not None] if isinstance(value, ast.Dict) else
+                [value.elt] if isinstance(value, (ast.ListComp, ast.GeneratorExp)) else
+                [value.key, value.value] if isinstance(value, ast.DictComp) else [])]
+            made += [(part, whole) for part in (
                 [value.left, value.right] if isinstance(value, ast.BinOp) and isinstance(value.op, SET_OPERATORS) else
                 [value.body, value.orelse] if isinstance(value, ast.IfExp) else value.values if isinstance(value, ast.BoolOp)
-                else [value.value] if isinstance(value, (ast.NamedExpr, ast.Starred)) else [])]
-            if builtin_call(value, ORDER_KEEPING_BUILTINS, chain):
-                made += [(part, False) for part in value.args]
+                else [value.value] if isinstance(value, ast.NamedExpr) else [])]
+            made += [(part, False) for part in (
+                value.args if builtin_call(value, ORDER_KEEPING_BUILTINS, chain) else
+                [value.value] if isinstance(value, ast.Starred) else
+                [taken.iter for taken in value.generators] if isinstance(value, (ast.ListComp, ast.GeneratorExp, ast.DictComp))
+                else [])]
         if any(isinstance(value, (ast.Set, ast.SetComp)) or builtin_call(value, SET_BUILTINS, chain) or whole and (
                 isinstance(value, ast.GeneratorExp) or builtin_call(value, ADDRESS_BUILTINS, chain)) for value, whole in made):
             problems.append("%s:%d writes an address or a set's order into text, which another process or hash seed "

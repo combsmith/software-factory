@@ -2598,7 +2598,8 @@ class Purity(unittest.TestCase):
         # A map, filter, zip or enumerate object, or a generator expression, is written as its address in memory, and a
         # set as its elements in the hash seed's order. The same good-faith mark as a function's (decision 0215's limit
         # row): such a value written out where it is made, by `str`, an f-string, `%` or `%=`, is refused, in a container,
-        # a set operation or a pick too, and a set through `list`, `tuple` or `.join`; one held by a name is for review.
+        # a set operation, a pick or a comprehension too, and a set through `list`, `tuple`, `.join` or `*`; one held by
+        # a name is for review.
         head = "from __future__ import annotations\n\n\ndef f(x):\n    return x\n\n\ndef h(x):\n"
         run = lambda body: check_purity.run(planted({"kernel/x.py": head + body}))
         for body in ("    return f'{map(f, x)}'\n", "    return str(filter(f, x))\n", "    return '%s' % (zip(x, x),)\n",
@@ -2610,16 +2611,27 @@ class Purity(unittest.TestCase):
                      "    return str({'a': set(x)})\n", "    return '%s' % {frozenset(x): 1}\n", "    return str([*set(x)])\n",
                      "    return str([set(x) if x else 1])\n", "    return str(list(set(x)))\n", "    return f'{tuple({x})}'\n",
                      "    return ', '.join(set(x))\n", "    return ''.join({i for i in x})\n",
+                     "    return str(x | {x})\n", "    return str([1 if x else zip(x, x)])\n", "    return str([x or zip(x, x)])\n",
+                     "    return str([(k := set(x))])\n", "    return str([zip(x, x) for i in x])\n",
+                     "    return str([i for i in set(x)])\n", "    return ''.join(i for i in set(x))\n",
+                     "    return str(list([map(f, x)]))\n", "    return str(list((zip(x, x),)))\n",
+                     "    return str(list(zip(x, x) for i in x))\n", "    return str({i: 1 for i in set(x)})\n",
+                     "    return str({i: zip(x, x) for i in x})\n",
                      "    s = '%s'\n    s %= (set(x),)\n    return s\n"):
             line = 10 if "%=" in body else 9
             self.assertTrue(caught(run(body), "x.py:%d writes an address or a set's order into text" % line), (body, run(body)))
             held = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": head + body}))
             self.assertTrue(caught(held, "x.py:%d writes an address or a set's order into text" % line), (body, held))
         # What is made of them in an order of its own is written as before: a map's or a zip's items through `list`,
-        # `tuple` or `.join`, a set sorted or counted. So is a function the Kernel binds by a builtin's name.
+        # `tuple`, `.join` or `*`, a set sorted or counted. So is a function the Kernel binds by a builtin's name.
         self.assertEqual(run("    return str(sorted(set(x))), f'{list(map(f, x))}', '%s' % (len(set(x)),), "
                              "str(tuple(zip(x, x))), f'{ {x: 1} }', str([i for i in x]), str(list(zip(x, x))), "
-                             "', '.join(map(f, x)), ''.join(i for i in x), ', '.join(sorted(set(x))), str(len(x) - 1)\n"), [])
+                             "', '.join(map(f, x)), ''.join(i for i in x), ', '.join(sorted(set(x))), str(len(x) - 1), "
+                             "str([*zip(x, x)]), ''.join(i for i in sorted(set(x)))\n"), [])
+        # A function a module of the Kernel's names join is no string's join (Astra).
+        self.assertEqual(check_purity.run(planted({"kernel/helpers.py": "def join(xs):\n    return len(xs)\n",
+                                                   "kernel/x.py": "from __future__ import annotations\n\nfrom kernel "
+                                                   "import helpers\n\n\ndef h(x):\n    return helpers.join(set(x))\n"})), [])
         self.assertEqual(check_purity.run(planted({"kernel/x.py": head.replace("def f(", "def zip(") +
                                                    "    return str(zip(x))\n"})), [])
 
