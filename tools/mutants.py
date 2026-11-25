@@ -85,7 +85,7 @@ COVERAGE = "tests.test_coverage.Coverage."
 # An issue's State (kernel/issue.py, decision 0028), in a list of its own so that the pull request's work, which adds
 # to MUTANTS below, never touches the same lines. Each is run against tests.test_issue first.
 ISSUE_PY, ISSUE_TESTS = "kernel/issue.py", ("tests.test_issue",)
-HEAD_MATCH = ("tests.test_issue.Opening.test_a_work_branch_head_no_opening_run_pushed_holds_the_issue_for_a_person",)
+HEAD_HOLD = ("tests.test_issue.Opening.test_a_work_branch_head_no_opening_run_pushed_holds_the_issue_for_a_person",)
 WORK_TOLD = ("tests.test_issue.Opening.test_the_work_branch_is_read_as_a_commit_as_no_branch_or_not_told_and_only_no_branch_carries_a_base",)  # issue 1059
 MERGE_UNDER_STOP_TESTS = ("tests.test_issue.Done.test_a_merge_read_while_a_person_closed_or_held_the_issue_is_never_done",)
 PLATFORM_CLOSE_TESTS = ("tests.test_issue.Done.test_a_platform_close_keeps_the_state_a_person_set",)
@@ -1089,8 +1089,8 @@ ISSUE = [
     ("an unreadable branch head is admitted", ISSUE_PY,
      "    if not readable_head(facts):\n", "    if False:\n", ISSUE_TESTS),
     ("a branch head that is no whole sha is read", ISSUE_PY,
-     'facts["branch_head"] is None or is_commit(facts["branch_head"]))',
-     'facts["branch_head"] is None or (isinstance(facts["branch_head"], str) and facts["branch_head"] != ""))',
+     '        or is_commit(facts["branch_head"]) and type(',
+     '        or isinstance(facts["branch_head"], str) and facts["branch_head"] != "" and type(',
      ("tests.test_issue.Opening.test_an_unreadable_branch_head_defers_the_opening_run_alone",)),
     ("a branch head not as long as a commit's name is read", ISSUE_PY,
      "isinstance(value, str) and len(value) == len(COMMIT_SHAPE) and all(", "isinstance(value, str) and all(", ISSUE_TESTS),
@@ -1131,11 +1131,13 @@ ISSUE = [
     # A head no opening Run of the issue recorded pushing holds the issue for a person (the head match, 2026-11-25).
     ("a head the Factory never pushed is opened from", ISSUE_PY,
      '        if facts["branch_pushed"] is False:\n            return _decision(facts, t.HELD, "branch_not_pushed", [facts["branch_head"]], t.HOLD)\n',
-     '', HEAD_MATCH),
+     '', HEAD_HOLD),
     ("a head the Factory never pushed calls no one", ISSUE_PY,
-     '    "limits_unreadable",\n    "branch_not_pushed",\n', '    "limits_unreadable",\n', HEAD_MATCH),
+     '    "limits_unreadable",\n    "branch_not_pushed",\n', '    "limits_unreadable",\n', HEAD_HOLD),
+    ("a push told of no branch is read", ISSUE_PY,
+     'facts["branch_head"] is None and facts.get("branch_pushed") is None\n', 'facts["branch_head"] is None\n', HEAD_HOLD),
     ("a head is told without whether it was pushed", ISSUE_PY,
-     ' and type(facts.get("branch_pushed")) is bool)', ')', HEAD_MATCH),
+     ' and type(facts.get("branch_pushed")) is bool)', ')', HEAD_HOLD),
     ("the opening Run is admitted for no branch head", ISSUE_PY,
      '{"branch_head": facts["branch_head"]}', "{}", ISSUE_TESTS),
     # Issue 838: where the branch does not exist, the opening Run is admitted for the commit it lands on.

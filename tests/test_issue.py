@@ -2583,9 +2583,11 @@ class Opening(unittest.TestCase):
             self.assertEqual(decide(f).get("action"), "accept", f.get("base_head", "left out"))
 
     def test_an_unreadable_branch_head_defers_the_opening_run_alone(self):
+        # Each as though an earlier opening Run recorded pushing it, or none did: the head itself is what is unread.
         for value in ("", 1, ["9f2c41d"], "9f2c41d", "main", BRANCH_HEAD.upper(), BRANCH_HEAD + "0", BRANCH_HEAD[:-1] + "g"):
-            self.assertEqual(what(decide(facts(label_events=READIED_BY_A_PERSON, branch_head=value))),
-                             ("defer", "branch_unreadable", None), value)
+            for pushed in (True, False):
+                self.assertEqual(what(decide(facts(label_events=READIED_BY_A_PERSON, branch_head=value, branch_pushed=pushed))),
+                                 ("defer", "branch_unreadable", None), (value, pushed))
         f = facts(label_events=READIED_BY_A_PERSON)
         del f["branch_head"]
         self.assertEqual(what(decide(f)), ("defer", "branch_unreadable", None))
@@ -2602,6 +2604,8 @@ class Opening(unittest.TestCase):
         d = decide(planted)
         self.assertEqual((d["state"], what(d), d["attention"], d["evidence"]),
                          ("held", ("hold", "branch_not_pushed", None), "needs_you", [BRANCH_HEAD]))
+        # The port never tells false while an opening Run of the issue is in flight (adapters/applied.py's `landed`), so
+        # a false told then is a head that Run did not push either, and holds.
         self.assertEqual(what(decide(planted, [opening()]))[:2], ("hold", "branch_not_pushed"))
         # Not told where the head is a commit: missing, null or no boolean, it defers as a branch not told does.
         missing = object()
@@ -2610,13 +2614,17 @@ class Opening(unittest.TestCase):
             if value is missing:
                 del f["branch_pushed"]
             self.assertEqual(what(decide(f)), ("defer", "branch_unreadable", None), value)
-        # Where no branch stands nothing was pushed to tell: whatever it says, the first opening goes at the base.
-        for value in (missing, None, False, True, "x"):
+        # Where no branch stands nothing was pushed to tell: left out or null, the first opening goes at the base; a push
+        # told of no branch contradicts it, and defers.
+        for value in (missing, None):
             f = facts(label_events=READIED_BY_A_PERSON, branch_pushed=value)
             if value is missing:
                 del f["branch_pushed"]
             d = decide(f)
             self.assertEqual((what(d), d["admit"]["base_head"]), (("admit", "ready", OPEN), BASE), value)
+        for value in (False, True, "x", 0):
+            self.assertEqual(what(decide(facts(label_events=READIED_BY_A_PERSON, branch_pushed=value))),
+                             ("defer", "branch_unreadable", None), value)
         # Nothing else on the issue waits on it: its State, its investigation and the acceptance act.
         self.assertEqual(derive(planted)["state"], derive(facts(label_events=READIED_BY_A_PERSON))["state"])
         self.assertEqual(what(decide(dict(planted, label_events=ACCEPTED)))[2], INVESTIGATE)
