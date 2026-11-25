@@ -16216,7 +16216,7 @@ elif "/issues/" in url:""", 1)
                     {"status": 404, "body": {}, "headers": {}}
         from adapters import branches
         number = int(branch.split("-")[-2])
-        self.assertEqual(branches.work_head(Transport(), self.CANARY, number, (9, "Bot")), (None, True))
+        self.assertEqual(branches.work_head(Transport(), self.CANARY, number, (9, "Bot")), (None, True, branch))
         return sent
 
     def test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept(self):
