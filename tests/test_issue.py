@@ -2583,8 +2583,9 @@ class Opening(unittest.TestCase):
             self.assertEqual(decide(f).get("action"), "accept", f.get("base_head", "left out"))
 
     def test_an_unreadable_branch_head_defers_the_opening_run_alone(self):
+        # Each as though an earlier opening Run recorded pushing it: the head itself is what is unread.
         for value in ("", 1, ["9f2c41d"], "9f2c41d", "main", BRANCH_HEAD.upper(), BRANCH_HEAD + "0", BRANCH_HEAD[:-1] + "g"):
-            self.assertEqual(what(decide(facts(label_events=READIED_BY_A_PERSON, branch_head=value))),
+            self.assertEqual(what(decide(facts(label_events=READIED_BY_A_PERSON, branch_head=value, branch_pushed=True))),
                              ("defer", "branch_unreadable", None), value)
         f = facts(label_events=READIED_BY_A_PERSON)
         del f["branch_head"]
