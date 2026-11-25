@@ -14,6 +14,7 @@ It reads a narrower patch than `harness/bundle.py` does, on purpose, and what it
   names both files and every other line that names one must agree with it; and of no more parts than `DEEPEST` bounds;
 - a file is a file: a link, a submodule, a path under a file, and a mode other than a file's two are refused; where a
   file stands is asked of the tree the push leaves, so a file removed or moved away leaves its place;
+- no file is written where it, or a directory above it, differs by case alone from another path the push leaves;
 - no file is written twice or copied twice, and none is written where the tree holds one the patch does not say it
   changes;
 - a section's extended lines stand in the order git writes them, and a change of mode is a file's between its two
@@ -85,6 +86,7 @@ NUL = b"\x00"
 UNREADABLE = "bundle_unreadable"        # no patch this reads: the Role's, as decision 0188 has it
 NOT_APPLIED = "patch_does_not_apply"    # a patch, but not of the admitted commit's files
 NOT_A_FILE = "push_not_a_file"          # it writes what is no file, or through one
+CASE_TWIN = "push_case_collision"      # it writes a path another it leaves differs from by case alone
 
 
 def _number(said):
@@ -503,4 +505,16 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
     for path in written:
         if not _placed(path, left, folders):
             return None, NOT_A_FILE
+    # Nor may a file written, or a directory above it, differ by case alone from another path or directory the push
+    # leaves: where case is not told apart, as on macOS's default file system, git checks both out as one. A file
+    # renamed to its own name in another case leaves its old name, and lands.
+    cases, twins = {}, {}
+    for path in list(left) + list(written):
+        for name in _above(path) + [path]:
+            if cases.get(name.casefold(), name) != name:
+                twins[name.casefold()] = True
+            cases[name.casefold()] = name
+    for path in written:
+        if any(name.casefold() in twins for name in _above(path) + [path]):
+            return None, CASE_TWIN
     return {"written": written, "removed": removed, "read": list(taken)}, None

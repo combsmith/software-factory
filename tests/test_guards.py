@@ -716,6 +716,28 @@ class Patch(unittest.TestCase):
                                  (empty_gone % (b"e", b"e") + empty_new % (b"f/x", b"f/x"), {"e": FILE, "f": FILE}, {"e": b""})):
             self.assertEqual(landed(data, tree=tree, held=held), (None, patch.NOT_A_FILE), data)
 
+    def test_no_file_lands_beside_another_that_differs_by_case_alone(self):
+        # Where case is not told apart, git checks out two paths that differ by case alone as one: the second lands
+        # over the first. So no file is written where it, or a directory above it, is another path the push leaves
+        # in another case: a file, a directory, or a file the same patch writes.
+        for name in (b"TESTS/t.py", b"Docs/A.md", b"DOCS", b"docs/A.md", b"Run.sh", b"tests/T.PY"):
+            self.assertEqual(landed(EMPTY % (name, name)), (None, patch.CASE_TWIN), name)
+        self.assertEqual(landed(EMPTY % (b"n", b"n") + EMPTY % (b"N", b"N")), (None, patch.CASE_TWIN))
+        self.assertEqual(landed(EMPTY % (b"d/n", b"d/n") + EMPTY % (b"D/m", b"D/m")), (None, patch.CASE_TWIN))
+        moved = b"diff --git a/%s b/%s\nsimilarity index 100%%\nrename from %s\nrename to %s\n"
+        copied = b"diff --git a/%s b/%s\nsimilarity index 100%%\ncopy from %s\ncopy to %s\n"
+        self.assertEqual(landed(copied % ((b"docs/a.md", b"docs/A.md") * 2)), (None, patch.CASE_TWIN))
+        # A file renamed to its own name in another case leaves its old name, and lands; so does a file whose name
+        # differs from no other's, beside two the tree already holds in two cases that the patch does not touch.
+        self.assertEqual(landed(moved % ((b"docs/a.md", b"docs/A.md") * 2))[0]["written"], {"docs/A.md": (FILE, OLD)})
+        self.assertEqual(landed(moved % ((b"docs/a.md", b"Docs/a.md") * 2))[0]["written"], {"Docs/a.md": (FILE, OLD)})
+        self.assertEqual(landed(EMPTY % (b"n", b"n"), tree=dict(TREE, **{"x": FILE, "X": FILE}))[0]["written"],
+                         {"n": (FILE, b"")})
+        self.assertEqual(landed(EMPTY % (b"docs/n", b"docs/n"))[0]["written"], {"docs/n": (FILE, b"")})
+        # The code is its own, by its letters, and no other's.
+        self.assertEqual(patch.CASE_TWIN, "push_case_collision")
+        self.assertNotIn(patch.CASE_TWIN, (patch.UNREADABLE, patch.NOT_APPLIED, patch.NOT_A_FILE))
+
 
 if __name__ == "__main__":
     unittest.main()

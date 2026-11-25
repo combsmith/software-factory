@@ -13,6 +13,7 @@ PATCH_LANDS = ('tests.test_guards.Patch.test_a_patch_lands_the_bytes_it_says_and
 PATCH_KINDS = ('tests.test_guards.Patch.test_a_new_a_removed_a_renamed_and_a_copied_file_are_each_what_the_patch_says',)
 PATCH_ONCE = ('tests.test_guards.Patch.test_a_file_is_written_once_and_only_where_the_patch_says_it_stands',)
 PATCH_NO_FILE = ('tests.test_guards.Patch.test_what_is_no_file_is_never_written',)
+PATCH_CASE = ('tests.test_guards.Patch.test_no_file_lands_beside_another_that_differs_by_case_alone',)
 
 TARGETS = ("guards/patch.py",)
 MUTANTS = [
@@ -726,4 +727,35 @@ MUTANTS = [
     ('a subclass of bytes lands as bytes', 'guards/patch.py',
      'if type(before) is not bytes:',
      'if not isinstance(before, bytes):', PATCH_ONCE),
+    # guards/patch.py writes no file beside another the push leaves that differs from it by case alone.
+    ('a file lands beside another that differs from it by case alone', 'guards/patch.py',
+     '            return None, CASE_TWIN\n',
+     '            pass\n', PATCH_CASE),
+    ('a directory above a file is not asked about its case', 'guards/patch.py',
+     'if any(name.casefold() in twins for name in _above(path) + [path]):',
+     'if any(name.casefold() in twins for name in [path]):', PATCH_CASE),
+    ('the directories above a file the push leaves are not named in case', 'guards/patch.py',
+     '        for name in _above(path) + [path]:\n            if cases.get',
+     '        for name in [path]:\n            if cases.get', PATCH_CASE),
+    ('the paths a patch writes are not named in case', 'guards/patch.py',
+     'for path in list(left) + list(written):\n        for name',
+     'for path in list(left):\n        for name', PATCH_CASE),
+    ('one name is a collision with itself', 'guards/patch.py',
+     'if cases.get(name.casefold(), name) != name:',
+     'if name.casefold() in cases:', PATCH_CASE),
+    ('a file renamed in case is held beside its old name', 'guards/patch.py',
+     'for path in list(left) + list(written):',
+     'for path in list(tree) + list(written):', PATCH_CASE),
+    ('two paths in case anywhere in the tree are a collision', 'guards/patch.py',
+     'if any(name.casefold() in twins for name in _above(path) + [path]):',
+     'if twins:', PATCH_CASE),
+    ('a name is told apart from others by its case', 'guards/patch.py',
+     'cases.get(name.casefold(), name) != name',
+     'cases.get(name, name) != name', PATCH_CASE),
+    ('a collision in case is no file', 'guards/patch.py',
+     '            return None, CASE_TWIN\n',
+     '            return None, NOT_A_FILE\n', PATCH_CASE),
+    ("the code of a collision in case is another's", 'guards/patch.py',
+     '"push_case_collision"',
+     '"push_not_a_file"', PATCH_CASE),
 ]
