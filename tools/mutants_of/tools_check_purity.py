@@ -549,4 +549,13 @@ MUTANTS = [
     ('a function defined inside another may be written into text', 'tools/check_purity.py',
      '               or (isinstance(value, ast.Name) and resolve(value.id, chain)[0] == "function") for value in shown):\n',
      '               or False for value in shown):\n', ('tests.test_tools.Purity.test_the_kernel_writes_no_function_into_text',)),
+    ('a function a conditional picks may be written into text', 'tools/check_purity.py',
+     '            shown += [value.body, value.orelse] if isinstance(value, ast.IfExp) else \\\n',
+     '            shown += [] if isinstance(value, ast.IfExp) else \\\n', ('tests.test_tools.Purity.test_the_kernel_writes_no_function_into_text',)),
+    ('a function an or picks may be written into text', 'tools/check_purity.py',
+     '                value.values if isinstance(value, ast.BoolOp) else []\n',
+     '                [] if isinstance(value, ast.BoolOp) else []\n', ('tests.test_tools.Purity.test_the_kernel_writes_no_function_into_text',)),
+    ('a function may be written into text by %=', 'tools/check_purity.py',
+     '        elif isinstance(node, (ast.BinOp, ast.AugAssign)) and isinstance(node.op, ast.Mod):\n',
+     '        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):\n', ('tests.test_tools.Purity.test_the_kernel_writes_no_function_into_text',)),
 ]

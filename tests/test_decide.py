@@ -5,8 +5,8 @@ import ast
 import copy
 import datetime
 import json
-import random
 import os
+import random
 import re
 import subprocess
 import sys
@@ -273,20 +273,30 @@ class Derived(unittest.TestCase):
 
     def test_the_same_inputs_give_the_same_decision_under_another_hash_seed(self):  # issue 1137
         # A replay runs in another process, under another hash seed, where a set of strings iterates in another order.
-        # So the decisions of both simulated worlds' fixed seeds are made twice, each in a process of its own, and
-        # must be the same, text for text.
-        child = ("import json, sys\nimport kernel.issue\nfrom sim import issues, world\nmade = []\n\n\n"
-                 "def kept(decide):\n    def call(*args):\n        decision = decide(*args)\n"
-                 "        made.append(json.dumps(decision))\n        return decision\n    return call\n\n\n"
-                 "world.decide, kernel.issue.decide = kept(world.decide), kept(kernel.issue.decide)\n"
+        # So both simulated worlds' fixed seeds are run in four processes, each under a hash seed of its own, and every
+        # call of the Kernel, its inputs' digest and its decision, must be the same, text for text.
+        child = ("import hashlib, json, sys\nimport kernel.issue\nfrom sim import issues, world\nmade = []\n\n\n"
+                 "def kept(decide, world):\n    def call(*args):\n"
+                 "        given = hashlib.sha256(json.dumps(args).encode()).hexdigest()\n        decision = decide(*args)\n"
+                 "        made.append(json.dumps([world, given, decision]))\n        return decision\n    return call\n\n\n"
+                 "world.decide = kept(world.decide, 'pull request')\nkernel.issue.decide = kept(kernel.issue.decide, 'issue')\n"
                  "for make in (world.World, issues.IssueWorld):\n    for seed in range(1, 21):\n"
                  "        w = make(seed)\n        for _ in range(250):\n            w.step()\n"
                  "sys.stdout.write('\\n'.join(made))\n")
-        made = [subprocess.run([sys.executable, "-B", "-c", child], cwd=str(ROOT), capture_output=True, text=True,
-                               env=dict(os.environ, PYTHONHASHSEED=seed), check=True).stdout.split("\n")
-                for seed in ("1", "2")]
-        self.assertGreater(len(made[0]), 1000)
-        self.assertEqual(made[0], made[1])
+        children = [subprocess.Popen([sys.executable, "-B", "-c", child], cwd=str(ROOT), stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE, text=True,
+                                     env=dict(os.environ, PYTHONHASHSEED=seed, PYTHONPATH=str(ROOT)))
+                    for seed in ("1", "2", "3", "4")]
+        made = []
+        for process in children:
+            out, err = process.communicate()
+            self.assertEqual(process.returncode, 0, err[-2000:])
+            made.append(out.split("\n"))
+        # Each world's calls are read, the issue's among them.
+        self.assertEqual({json.loads(line)[0] for line in made[0]}, {"pull request", "issue"})
+        for other in made[1:]:
+            apart = next((i for i, (one, two) in enumerate(zip(made[0], other)) if one != two), None)
+            self.assertEqual((len(other), apart), (len(made[0]), None), apart is not None and other[apart][:400])
 
     def test_admission_is_given_facts_and_never_an_event(self):
         code = decide.__code__

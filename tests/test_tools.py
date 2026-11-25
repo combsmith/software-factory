@@ -2581,15 +2581,16 @@ class Purity(unittest.TestCase):
         for body in ("    return str(f)\n", "    return str(object=f)\n", "    return f'{f}'\n", "    return f'{f!r:>9}'\n",
                      "    return '%s' % f\n", "    return '%s %s' % (x, f)\n", "    return '%(a)s' % {'a': f}\n",
                      "    return str(terms.g)\n", "    return str(g)\n", "    return str(lambda: x)\n",
+                     "    return str(f if x else '')\n", "    return f'{x or g}'\n", "    s = '%s'\n    s %= f\n    return s\n",
                      "    def k():\n        return x\n    return f'{k}'\n"):
-            line = 12 if "def k" not in body else 14
+            line = 14 if "def k" in body else 13 if "%=" in body else 12
             self.assertTrue(caught(run(body), "x.py:%d writes a function into text" % line), body)
             held = check_purity.guards(planted({"guards/__init__.py": "", "guards/codes.py": terms, "guards/x.py": (
                 head + body).replace("kernel", "guards").replace("terms", "codes")}))
             self.assertTrue(caught(held, "x.py:%d writes a function into text" % line), (body, held))
         # What a function gives, or any other value, is written as before; `repr`, `format` and a value's own `format`
         # are refused already, as no builtin or method the Kernel calls.
-        self.assertEqual(run("    return str(x), f'{x}', '%s' % x, str(f(x)), '%s' % (f(x),), f'{g(x)}'\n"), [])
+        self.assertEqual(run("    return str(x), f'{x}', '%s' % x, str(f(x)), '%s' % (f(x),), f'{g(x)}', str(f(x) if x else '')\n"), [])
         for body in ("    return repr(f)\n", "    return format(f)\n", "    return '{}'.format(f)\n"):
             self.assertNotEqual(run(body), [], body)
 

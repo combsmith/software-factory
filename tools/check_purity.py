@@ -587,10 +587,14 @@ def _calls(name: str, tree, trees: dict, takers: dict, tops: dict) -> list:
             shown = node.args + [k.value for k in node.keywords]
         elif isinstance(node, ast.FormattedValue):
             shown = [node.value]
-        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
-            right = node.right
+        elif isinstance(node, (ast.BinOp, ast.AugAssign)) and isinstance(node.op, ast.Mod):
+            right = node.right if isinstance(node, ast.BinOp) else node.value
             shown = [right] + (right.elts if isinstance(right, ast.Tuple) else right.values if isinstance(right, ast.Dict)
                                else [])
+        # What an expression picks is written as itself: either branch of `a if c else b`, each of `a or b` (Astra, Kimi).
+        for value in shown:
+            shown += [value.body, value.orelse] if isinstance(value, ast.IfExp) else \
+                value.values if isinstance(value, ast.BoolOp) else []
         if any(isinstance(value, ast.Lambda) or kernel_function(value, chain) is not None
                or (isinstance(value, ast.Name) and resolve(value.id, chain)[0] == "function") for value in shown):
             problems.append("%s:%d writes a function into text, which is its address in memory, and so another "
