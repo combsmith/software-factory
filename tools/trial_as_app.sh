@@ -16,8 +16,15 @@
 # so the first signal stops the run and no later one stops the clean-up (issue 481). It prints that directory first, then the pull request and its head.
 # Run it from anywhere in a checkout of this repo, with bash 3.2 or later, curl, openssl, gh, python3.
 set -euo pipefail
+# Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
+# (issue 1215).
+set +a
+unset CDPATH
 set +x
 unset GH_DEBUG DEBUG CURL_HOME
+# No credential's name is taken from the environment, where one exported would reach every child, and curl is
+# told of no file to write its TLS keys to (issue 1215).
+unset SSLKEYLOGFILE token jwt signature minted minting
 # gh sends GH_TOKEN to the host GH_HOST names, or its configured default: pin it to the host the curl calls use.
 export GH_HOST=github.com GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1
 
@@ -48,7 +55,7 @@ for tool in curl openssl gh python3; do
     command -v "$tool" >/dev/null || { echo "$tool is needed" >&2; exit 2; }
 done
 
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+root=$(CDPATH= cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 [ -f "$root/tools/redact_trial.py" ] || { echo "run the copy of this script in a checkout of software-factory" >&2; exit 2; }
 # Its own line: inside the cd, a failed mktemp would be read as the directory this stands in, which the clean-up removes.
 made=$(mktemp -d)
