@@ -1116,8 +1116,8 @@ class Parser(unittest.TestCase):
                              (None, None, None, None), state)
         # Nor does one that says it completed and holds an error beside that, in either API.
         for failed in (read(answered(said(), error={"code": "server_error"})), read(chatted(said(), error={"code": "x"}), KIMI)):
-            self.assertEqual((failed["usage"]["cost_usd"], failed["usage"]["answering_model"], failed["reason"]),
-                             (None, None, "transport"))
+            self.assertEqual((failed["usage"]["cost_usd"], failed["usage"]["answering_model"], failed["reason"],
+                              failed["usage"]["input_tokens"], failed["usage"]["output_tokens"]), (None, None, "transport", None, None))
         # An error Azure names is its code in either API, and never another model's fault.
         for error, reason in (("content_filter", "refused"), ("rate_limit_exceeded", "rate_limited")):
             for failed in (read(answered(said(), error={"code": error}, model=None)),
@@ -1239,6 +1239,11 @@ class Parser(unittest.TestCase):
                       {"input_tokens": 1, "output_tokens": 10 ** 400}):
             self.assertIsNone(read(answered(said(), usage=spent))["usage"]["cost_usd"], spent)
         self.assertEqual(read(answered(said(), usage={"input_tokens": 10 ** 9, "output_tokens": 1}))["usage"]["cost_usd"], 2500.00002)
+        self.assertEqual(read(answered(said(), usage={"input_tokens": 1, "output_tokens": 10 ** 9}))["usage"]["cost_usd"], 20000.000003)
+        # The model that answered is named only as advice/1 holds a model: a text of at most 128 characters.
+        for model in (123, ["astra-model"], "a" * 129):
+            self.assertIsNone(read(answered(said(), model=model))["usage"]["answering_model"], model)
+        self.assertEqual(read(answered(said(), model="a" * 128))["usage"]["answering_model"], "a" * 128)
         limited = read({"status": 429, "headers": {}, "body": {}})["usage"]
         self.assertEqual((limited["answering_model"], limited["input_tokens"], limited["cost_usd"]), (None, None, None))
         # No answer in hand: one of the reasons a step has for it, and no other.
@@ -1257,7 +1262,7 @@ class Parser(unittest.TestCase):
                 advice.read(dict(TOLD, **change), answered(said()), 1, 1, SCHEMAS)
             with self.assertRaises(ValueError, msg=change):
                 advice.unasked(dict(TOLD, **change), "budget", 0, 0, SCHEMAS)
-        for asks in (0, 3, None):     # an answer read was asked once or twice
+        for asks in (0, 3, None, True):     # an answer read was asked once or twice, and a truth value is no count
             with self.assertRaises(ValueError, msg=asks):
                 advice.read(TOLD, answered(said()), asks, 1, SCHEMAS)
 
