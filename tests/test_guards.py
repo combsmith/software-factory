@@ -1333,6 +1333,10 @@ class Push(unittest.TestCase):
         self.assertEqual(push.existing(changes, tree), (["config/x.json", "docs/a.md", "tests/t.py"], None))
         self.assertEqual(push.existing(dict(changes, removed=[]), tree), (["docs/a.md"], None))
         self.assertEqual(push.existing(dict(changes, removed=[], read=[]), {}), ([], None))
+        # A file written over, or a file removed, alone.
+        for said in ({"written": {"tests/t.py": (FILE, b"x")}, "removed": [], "read": []},
+                     {"written": {}, "removed": ["tests/t.py"], "read": []}):
+            self.assertEqual(push.existing(said, {"tests/t.py": FILE}), (["tests/t.py"], None), said)
         self.assertEqual(push.existing(dict(changes, removed=["tests/t.py"], read=["tests/t.py"]), {"tests/t.py": FILE}),
                          (["tests/t.py"], None))
         # A file removed or read that the tree holds as no file, a directory among them, and a file written over a link
@@ -1340,6 +1344,7 @@ class Push(unittest.TestCase):
         for said, tree_said in ((changes, {}), ({"written": {}, "removed": ["tests"], "read": []}, {"tests/t.py": FILE}),
                                 ({"written": {"b": (FILE, b"")}, "removed": [], "read": ["a"]}, {}),
                                 ({"written": {"m": (FILE, b"")}, "removed": [], "read": []}, {"m": "160000"}),
+                                ({"written": {"a": (FILE, b""), "m": (FILE, b"")}, "removed": [], "read": []}, {"m": "160000"}),
                                 ({"written": {"l": (FILE, b"")}, "removed": [], "read": []}, {"l": "120000"}),
                                 ({"written": {}, "removed": ["l"], "read": []}, {"l": "120000"}),
                                 ({"written": {"b": (FILE, b"")}, "removed": [], "read": ["l"]}, {"l": "120000"})):
@@ -1354,6 +1359,9 @@ class Push(unittest.TestCase):
                                  ({"tests/unit/x/y": (FILE, b"")}, {"tests/unit": FILE})):
             said = {"written": wrote, "removed": [], "read": []}
             self.assertEqual(push.existing(said, tree_said), NOT_PERMITTED, tree_said)
+        # A file kept still stands in the way, whatever else is removed.
+        self.assertEqual(push.existing({"written": {"d": (FILE, b"")}, "removed": ["d/drop"], "read": []},
+                                       {"d/drop": FILE, "d/keep": FILE}), NOT_PERMITTED)
         self.assertEqual(push.existing({"written": {"a/b": (FILE, b"")}, "removed": ["a"], "read": []}, {"a": FILE}),
                          (["a"], None))
         self.assertEqual(push.existing({"written": {"d": (FILE, b"")}, "removed": ["d/b"], "read": []},
@@ -1364,7 +1372,10 @@ class Push(unittest.TestCase):
                           # A file that is a directory to another, which no tree holds, at any depth
                           dict(tree, **{"docs": FILE}), dict(tree, **{"x/y": FILE, "x/y/z/w": FILE}),
                           # and a path deeper than any name read, before it is split
-                          dict(tree, **{"/".join("d" * (len(patch.DEEPEST) + 1)): FILE}), {"tests//t.py": FILE}, {"/a": FILE}):
+                          dict(tree, **{"/".join("d" * (len(patch.DEEPEST) + 1)): FILE}), {"tests//t.py": FILE}, {"/a": FILE},
+                          # and what the patch guard holds as no tree: a dotted part names another path, as does git's own
+                          {"tests/./t.py": FILE}, {"dir/": FILE}, {".GIT/x": FILE}, {"tests/t.py\0": FILE},
+                          {"tests/\ud800.py": FILE}, {"x": Raising(FILE)}):
             self.assertEqual(push.existing(changes, tree_said), (None, patch.TREE_UNREAD), tree_said)
         # What `applied` gave is what is asked about, as it gave it.
         got, reason = patch.applied(CHANGE + NEW + GONE + COPIED, TREE, HELD)
