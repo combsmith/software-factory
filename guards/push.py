@@ -34,7 +34,7 @@ admitted commit holds. One matcher reads the base's patterns (`tools/hooks/prote
 what is asked about is what lands.
 
 Every stop gives a code, never None alone, and each code is set here, so that one table can name whose each is
-(issue 838): `NOT_PERMITTED`, `BRANCH_MOVED`, `ANSWER_REFUSED` and `UNANSWERED`. Each input is held to its exact type, as the patch guard holds its own:
+(issue 838): `NOT_PERMITTED`, `BRANCH_MOVED`, `ANSWER_REFUSED`, `UNANSWERED` and `RATE_LIMITED`. Each input is held to its exact type, as the patch guard holds its own:
 a subclass says what `in`, `set` and `[]` on it do. The state holds a copy of what it was told.
 
 `apply` and a port give every argument; this reads nothing itself.
@@ -63,17 +63,21 @@ NOT_PERMITTED = "push_not_permitted"
 BRANCH_MOVED = "push_branch_moved"
 # GitHub answered, and not as a push may go on from: a refusal, or a read of another thing. A person's.
 ANSWER_REFUSED = "push_answer_refused"
-# No answer, or one read as none: the port's, an environment fault.
+# No answer, or one read as none, a write's 401 among them: the port's, an environment fault.
 UNANSWERED = "push_unanswered"
+# GitHub's limit on the token, a 429, as `send` also gives a rate limit's 403 (decision 1138): capacity, on a read or a
+# write, never the item's.
+RATE_LIMITED = "push_rate_limited"
 # GitHub's answers, as text, as the port gives them: a number here would be a limit, and these are a protocol's names.
 OK = "200"
 CREATED = "201"
 ABSENT = "404"
-# Besides GitHub's own failure, 500 and above, what a read takes as no answer, as the port reads its listing: a rate
-# limit, or a token expired or refused. The branch is read first; a 403 after it, by the same token, is GitHub refusing
-# that read, which comes again on every pass: a refusal, as the port reads a blob's (decision 1222).
-NO_ANSWER = ("401", "403", "429")
-NO_ANSWER_AFTER = ("401", "429")
+LIMITED = "429"
+# Besides GitHub's own failure, 500 and above, what is no answer, as the port reads its listing: a token expired or
+# refused. The branch is read first; a 403 after it, by the same token, is GitHub refusing that request, which comes
+# again on every pass: a refusal, as the port reads a blob's (decision 1222).
+NO_ANSWER = ("401", "403")
+NO_ANSWER_AFTER = ("401",)
 HEADS = "refs/heads/"
 COMMIT = "commit"
 RECURSIVE = "?recursive=1"
@@ -336,7 +340,7 @@ def seen(state, method, path, body, answer) -> tuple:
     """`(state, None)`, the state after GitHub's answer to a read, or `(None, code)`. `answer` is the port's: `send`'s,
     `{"status", "body"}` or None, and for the tree, `listed`'s listing. A request that may not leave as the state
     stands, an answer in no shape `send` gives, or a listing the port did not mark whole or read at another tree, is
-    `NOT_PERMITTED`; no answer, `UNANSWERED`; the branch not as the Decision admitted it, `BRANCH_MOVED`; any other
+    `NOT_PERMITTED`; no answer, `UNANSWERED`; a 429, `RATE_LIMITED`; the branch not as the Decision admitted it, `BRANCH_MOVED`; any other
     answer the push cannot go on from, `ANSWER_REFUSED`. A blob's bytes are the port's `read_whole`'s to judge: a
     blob given is only counted, so that it is not read again."""
     step = _step(state, method, path, body)
@@ -351,8 +355,11 @@ def seen(state, method, path, body, answer) -> tuple:
         return dict(state, before=before), None
     if answer is not None and not (_keyed(answer, ("status", "body")) and _status(answer["status"])):
         return None, NOT_PERMITTED
-    # A write's 4xx is GitHub refusing it; only no answer, or GitHub's own failure, is none (decision 1225).
-    if _unanswered(answer, NO_ANSWER if step == BRANCH_READ else () if step in (BLOB_MADE, TREE_MADE) else NO_ANSWER_AFTER):
+    if answer is not None and answer["status"] == LIMITED:
+        return None, RATE_LIMITED
+    # A write's 4xx is GitHub refusing it, but for a token expired; only no answer, or GitHub's own failure, is none
+    # (decisions 1225 and 9999).
+    if _unanswered(answer, NO_ANSWER if step == BRANCH_READ else NO_ANSWER_AFTER):
         return None, UNANSWERED
     status, got, push = answer["status"], answer["body"], state["push"]
     if step in (BLOB_MADE, TREE_MADE):

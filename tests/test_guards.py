@@ -1473,9 +1473,10 @@ class Push(unittest.TestCase):
             self.assertEqual(push.seen(committed, "GET", AT_TREE, None, listing), NOT_PERMITTED, said)
 
     def test_each_read_says_whose_a_stop_is(self):
-        self.assertEqual((push.BRANCH_MOVED, push.ANSWER_REFUSED, push.UNANSWERED),
-                         ("push_branch_moved", "push_answer_refused", "push_unanswered"))
+        self.assertEqual((push.BRANCH_MOVED, push.ANSWER_REFUSED, push.UNANSWERED, push.RATE_LIMITED),
+                         ("push_branch_moved", "push_answer_refused", "push_unanswered", "push_rate_limited"))
         moved, refused, unanswered = (None, push.BRANCH_MOVED), (None, push.ANSWER_REFUSED), (None, push.UNANSWERED)
+        limited = (None, push.RATE_LIMITED)
         for told, answer, why in (
                 # The branch as the Decision did not admit it: someone else wrote it.
                 (PUSH, ref(NEW_A), moved), (PUSH, ref(PARENT), moved), (MOVE, ABSENT, moved), (MOVE, ref(NEW_A), moved),
@@ -1492,7 +1493,7 @@ class Push(unittest.TestCase):
                 # No answer, or one read as none.
                 (PUSH, None, unanswered), (MOVE, {"status": "500", "body": {}}, unanswered),
                 (PUSH, {"status": "401", "body": {}}, unanswered),
-                (MOVE, {"status": "403", "body": {}}, unanswered), (PUSH, {"status": "429", "body": {}}, unanswered), (MOVE, {"status": "599", "body": {}}, unanswered),
+                (MOVE, {"status": "403", "body": {}}, unanswered), (PUSH, {"status": "429", "body": {}}, limited), (MOVE, {"status": "599", "body": {}}, unanswered),
                 # An answer in no shape `send` gives is the caller's to have checked.
                 (PUSH, {"status": 404, "body": {}}, NOT_PERMITTED), (PUSH, {"status": "404"}, NOT_PERMITTED),
                 (PUSH, Mapping(ABSENT), NOT_PERMITTED), (PUSH, {"status": "5oops", "body": {}}, NOT_PERMITTED),
@@ -1504,7 +1505,7 @@ class Push(unittest.TestCase):
             self.assertEqual(push.seen(push.began(told)[0], "GET", AT_BRANCH, None, answer), why, (told["head"], answer))
         first, _ = push.seen(push.began(PUSH)[0], "GET", AT_BRANCH, None, ABSENT)
         for answer, why in (({"status": "404", "body": {}}, refused), ({"status": "403", "body": {}}, refused),
-                            ({"status": "401", "body": {}}, unanswered), ({"status": "429", "body": {}}, unanswered), ({"status": "200", "body": {"sha": NEW_A, "tree": {"sha": ROOT_TREE}}}, refused),
+                            ({"status": "401", "body": {}}, unanswered), ({"status": "429", "body": {}}, limited), ({"status": "200", "body": {"sha": NEW_A, "tree": {"sha": ROOT_TREE}}}, refused),
                             ({"status": "200", "body": {"sha": PARENT, "tree": {"sha": "x"}}}, refused),
                             ({"status": "200", "body": {"sha": PARENT, "tree": ROOT_TREE}}, refused),
                             ({"status": "200", "body": {"sha": PARENT}}, refused), ({"status": "200", "body": None}, refused),
@@ -1672,8 +1673,9 @@ class Push(unittest.TestCase):
         made = self.made(state)
         for answer, why in (
                 # GitHub refused the write, or answered with what was not made.
-                ({"status": "422", "body": {}}, push.ANSWER_REFUSED), ({"status": "401", "body": {}}, push.ANSWER_REFUSED),
-                ({"status": "429", "body": {}}, push.ANSWER_REFUSED),
+                ({"status": "422", "body": {}}, push.ANSWER_REFUSED), ({"status": "403", "body": {}}, push.ANSWER_REFUSED),
+                # A token expired is the port's; GitHub's limit on it, capacity.
+                ({"status": "401", "body": {}}, push.UNANSWERED), ({"status": "429", "body": {}}, push.RATE_LIMITED),
                 ({"status": "200", "body": {"sha": MADE}}, push.ANSWER_REFUSED),
                 ({"status": "201", "body": {"sha": "x"}}, push.ANSWER_REFUSED), ({"status": "201", "body": None}, push.ANSWER_REFUSED),
                 ({"status": "201", "body": {"sha": Text(MADE)}}, push.ANSWER_REFUSED),
