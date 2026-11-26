@@ -16,6 +16,7 @@ PATCH_NO_FILE = ('tests.test_guards.Patch.test_what_is_no_file_is_never_written'
 PATCH_CASE = ('tests.test_guards.Patch.test_no_file_lands_beside_another_that_differs_by_case_alone',)
 PATCH_FOLD = ('tests.test_guards.Patch.test_a_name_is_folded_as_macos_folds_it_wherever_that_is_ascii',)
 PATCH_PORT = ('tests.test_guards.Patch.test_what_a_port_did_not_read_is_the_factorys_under_its_own_code',)
+PATCH_GIT = ('tests.test_guards.Patch.test_a_patch_as_git_writes_it_lands_what_git_would',)
 
 TARGETS = ("guards/patch.py",)
 MUTANTS = [
@@ -990,4 +991,8 @@ MUTANTS = [
     ("a tree's part that git reads as its own directory elsewhere is refused", 'guards/patch.py',
      'part.casefold() != GIT_OWN',
      'not _gits(part)', PATCH_PORT),
+    # guards/patch.py lands what git itself lands.
+    ('every file lands as a plain one, whatever its mode', 'guards/patch.py',
+     '= (mode, after)',
+     '= (FILE_MODES[0], after)', PATCH_GIT),
 ]

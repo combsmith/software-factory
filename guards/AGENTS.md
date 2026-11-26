@@ -29,4 +29,5 @@ A guard binds the Role that writes this repo's code. So it lives here, never in 
 | No file lands where it, or a directory above it, differs by case or canonical form alone from another path the push leaves | `tests/test_guards.py::test_no_file_lands_beside_another_that_differs_by_case_alone` |
 | A name is folded as macOS folds it, decomposed, folded in case and decomposed again, wherever that is ASCII | `tests/test_guards.py::test_a_name_is_folded_as_macos_folds_it_wherever_that_is_ascii` |
 | A tree in no shape a port gives, and a file's bytes it did not hand over, are the Factory's fault, under its own code | `tests/test_guards.py::test_what_a_port_did_not_read_is_the_factorys_under_its_own_code` |
+| What it lands is what git lands, on fixed seeds, of a patch as git writes it and of the same patch broken | `tests/test_guards.py::test_a_patch_as_git_writes_it_lands_what_git_would` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
