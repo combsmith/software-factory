@@ -80,7 +80,7 @@ MUTANTS = [
     # Issue 502: token_in reads its answer as bytes, so one cut inside a character still gives up its token.
     ("P-52 loses the token of a 201 cut inside a character", "tools/trial_p52_pause.sh", 'sys.stdin.buffer.read().decode("utf-8", "replace"))', 'sys.stdin.read())', ('tests.test_tools.ReachScript.test_a_mint_answer_cut_inside_a_character_still_gives_up_its_token',)),
     # Issue 1215: what the trials share, held by the tests that hold every trial to the same words.
-    ("P-52's clean-up stops at a second signal", "tools/trial_p52_pause.sh", "    trap '' HUP INT TERM\n", "",
+    ("P-52's clean-up stops at a second signal", "tools/trial_p52_pause.sh", "    trap '' HUP INT TERM QUIT PIPE\n", "",
      ("tests.test_tools.SignalTraps.test_every_token_script_is_deaf_in_its_clean_up_and_bounds_its_revocation",)),
     ("P-52's revocation may hang", "tools/trial_p52_pause.sh", "curl -q --max-time 30 -sS -o /dev/null", "curl -q -sS -o /dev/null",
      ("tests.test_tools.SignalTraps.test_every_token_script_is_deaf_in_its_clean_up_and_bounds_its_revocation",)),
@@ -90,6 +90,14 @@ MUTANTS = [
      ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
     ("P-52's root follows CDPATH", "tools/trial_p52_pause.sh", "root=$(CDPATH= cd -P -- ", "root=$(cd -P -- ", ("tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does",)),
     ("P-52's root is found logically", "tools/trial_p52_pause.sh", "root=$(CDPATH= cd -P -- ", "root=$(CDPATH= cd -- ", ("tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does",)),
+    ("P-52's clean-up stops at a failed write", "tools/trial_p52_pause.sh", "    trap '' HUP INT TERM QUIT PIPE\n    set +e\n",
+     "    trap '' HUP INT TERM QUIT PIPE\n", ("tests.test_tools.SignalTraps.test_every_token_script_is_deaf_in_its_clean_up_and_bounds_its_revocation",)),
+    ("P-52 hears a second signal before its clean-up", "tools/trial_p52_pause.sh",
+     "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM\n", "trap 'exit 1' HUP INT TERM\n", ("tests.test_tools.SignalTraps.test_every_script_turns_a_signal_into_its_exit",)),
+    ("P-52 exports what its environment says to", "tools/trial_p52_pause.sh", "set +a\nunset CDPATH\n", "unset CDPATH\n", ("tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment",)),
+    ("P-52 looks along CDPATH", "tools/trial_p52_pause.sh", "set +a\nunset CDPATH\n", "set +a\n", ("tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment",)),
     ("P-52 keeps its raw answers where TMPDIR says", "tools/trial_p52_pause.sh", 'mktemp -d "$parent/.trial-',
      'mktemp -d "${TMPDIR:-/tmp}/.trial-', ("tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_beside_out",)),
+    ("P-52 hands its helpers the TMPDIR it was given", "tools/trial_p52_pause.sh", 'export TMPDIR="$scratch"\n', "",
+     ("tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_beside_out",)),
 ]

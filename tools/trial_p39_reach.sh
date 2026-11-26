@@ -22,6 +22,10 @@
 # written nowhere, not even to scratch: its token is revoked if it can be found in the answer, and the Maintainer is
 # told it may be live if not; no reach is recorded for that App.
 set -eu
+# Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
+# (issue 1215).
+set +a
+unset CDPATH
 set +x
 
 if [ "$#" -lt 2 ]; then
@@ -118,8 +122,10 @@ unrevoked() {
 }
 
 finish() {
-    # Deaf from here on: a second signal, as a closed terminal sends, must not cut the revocation short (issue 1215).
-    trap '' HUP INT TERM
+    # Deaf from here on: a second signal, as a closed terminal sends, must not cut the revocation short, nor a reader
+    # of its output gone, nor a write that fails stop what is left (issue 1215).
+    trap '' HUP INT TERM QUIT PIPE
+    set +e
     if [ -z "$token" ] && [ -n "${minted:-}" ]; then
         token=$(token_in "$minted")
         minted=""
@@ -133,7 +139,7 @@ finish() {
     rm -rf "$scratch"
 }
 trap finish EXIT
-trap 'exit 1' HUP INT TERM
+trap "trap '' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM
 
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 

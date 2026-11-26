@@ -26,6 +26,10 @@
 # exit; a read's status, whatever it is, is the trial's answer and is kept. A token that may be live is told to the
 # Maintainer.
 set -eu
+# Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
+# (issue 1215).
+set +a
+unset CDPATH
 set +x
 unset CURL_HOME
 
@@ -119,8 +123,10 @@ print(found.group(1) if found else "")' 2>/dev/null || true
 }
 
 finish() {
-    # Deaf from here on: a second signal, as a closed terminal sends, must not cut the revocation short (issue 1215).
-    trap '' HUP INT TERM
+    # Deaf from here on: a second signal, as a closed terminal sends, must not cut the revocation short, nor a reader
+    # of its output gone, nor a write that fails stop what is left (issue 1215).
+    trap '' HUP INT TERM QUIT PIPE
+    set +e
     # A stop while the mint's answer is read leaves its token there alone (issue 424).
     if [ -z "$token" ] && [ -n "${minted:-}" ]; then
         token=$(token_in "$minted")
@@ -135,7 +141,7 @@ finish() {
     rm -rf "$scratch"
 }
 trap finish EXIT
-trap 'exit 1' HUP INT TERM
+trap "trap '' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM
 
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 

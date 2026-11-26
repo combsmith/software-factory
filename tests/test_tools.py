@@ -15572,6 +15572,10 @@ class SignalTraps(unittest.TestCase):
         # One script holds a live token through a clean-up a closed terminal can signal twice, so its line also makes it deaf
         # to the next signal (issue 481).
         own_line = {"trial_as_app.sh": "trap \"trap '' HUP INT TERM QUIT PIPE; trap - EXIT; finish 130\" HUP INT TERM QUIT PIPE"}
+        # Each sh script that mints is deaf from its first signal on, so a second finds the clean-up deaf at once (issue 1215).
+        own_line.update({script: "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM" for script in (
+            "trial_reader_reads.sh", "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh", "trial_p58_edits.sh",
+            "trial_p80_branch_reads.sh", "trial_p39_reach.sh", "trial_p4_narrow.sh", "trial_p52_pause.sh", "trial_p8_cost.sh")})
         scripts = sorted((ROOT / "tools").glob("*.sh"))
         self.assertGreaterEqual(len(scripts), 17)
         for script in scripts:
@@ -15592,9 +15596,10 @@ class SignalTraps(unittest.TestCase):
         for script in scripts:
             text = script.read_text()
             body = [line for line in text.split("\nfinish() {\n", 1)[1].splitlines() if not line.lstrip().startswith("#")]
-            self.assertEqual(body[0], "    trap '' HUP INT TERM", script.name)
+            self.assertEqual(body[:2], ["    trap '' HUP INT TERM QUIT PIPE", "    set +e"], script.name)
             revoke = text.split("\nrevoke() {\n", 1)[1].split("\n}\n", 1)[0]
             self.assertIn("| curl -q --max-time 30 ", revoke, script.name)
+            self.assertEqual(revoke.count("--max-time"), 1, script.name)
 
     def test_every_token_script_keeps_its_raw_answers_beside_out(self):  # issue 1215
         # TMPDIR is the environment's to choose, and a directory in it another user can write to would let them take the
@@ -15615,13 +15620,16 @@ class SignalTraps(unittest.TestCase):
     def test_every_trial_takes_nothing_of_the_maintainers_environment(self):  # issue 1215
         # A name a script holds a credential in, exported, reaches every child; SSLKEYLOGFILE has curl write the TLS keys
         # that read a token off the wire; a .curlrc can print the Authorization header. Each script that mints unsets the
-        # first two before its first curl, and every curl reads no .curlrc.
+        # first two before its first curl, and every curl reads no .curlrc. A curl is one that starts a command: on its
+        # line, after a pipe or in a substitution, wherever the line breaks.
         unset = "unset SSLKEYLOGFILE token jwt signature minted minting"
         minting = 0
         for script in sorted((ROOT / "tools").glob("trial_*.sh")):
             lines = script.read_text().splitlines()
-            calls = [n for n, line in enumerate(lines) if "| curl " in line]
-            self.assertTrue(all(lines[n].split("| curl ", 1)[1].startswith("-q ") for n in calls), script.name)
+            calls = [n for n, line in enumerate(lines) if not line.lstrip().startswith("#")
+                     and re.search(r"(?:^|\||\$\(|&&|;)\s*curl\s", line)]
+            self.assertTrue(all(re.findall(r"(?:^|\||\$\(|&&|;)\s*curl\s+(\S+)", lines[n]) == ["-q"] for n in calls),
+                            script.name)
             if any("access_tokens" in line for line in lines):
                 minting += 1
                 self.assertEqual(lines.count(unset), 1, script.name)
@@ -15640,6 +15648,14 @@ class SignalTraps(unittest.TestCase):
                 self.assertRegex(roots[0], r'^root=\$\(CDPATH= cd -P -- "\$\(dirname -- "\$(0|\{BASH_SOURCE\[0\]\})"\)/\.\." && pwd -P\)$',
                                  script.name)
         self.assertEqual(found, 15)
+
+    def test_every_trial_is_steered_by_nothing_of_the_shells_environment(self):  # issue 1215
+        # SHELLOPTS=allexport would export each credential as it is set, and CDPATH steer every other cd: each trial turns
+        # both off right after its first set.
+        for script in sorted((ROOT / "tools").glob("trial_*.sh")):
+            lines = script.read_text().splitlines()
+            first = next(n for n, line in enumerate(lines) if line.startswith("set -e"))
+            self.assertEqual(lines[first + 3:first + 5], ["set +a", "unset CDPATH"], script.name)
 
 
 class ReaderTrialScript(unittest.TestCase):
@@ -15907,7 +15923,8 @@ esac
 
     def test_a_second_signal_does_not_cut_the_revocation_short(self):  # issue 1215, cubic on pull request 1212
         # Stopped mid-read, the script revokes its live token on the way out. A second signal then, as a closed terminal
-        # sends, finds the clean-up deaf to it: the revocation ends and is told. Pipes, not a clock, order the two.
+        # sends to every process of the run, finds the clean-up deaf to it: the revocation ends and is told. Pipes, not a
+        # clock, order the two; a script that ends closes them, so nothing waits for ever.
         told_r, told_w = os.pipe()
         held_r, held_w = os.pipe()
         again_r, again_w = os.pipe()
@@ -15917,7 +15934,7 @@ esac
         env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C"}
         running = subprocess.Popen([SIGNAL_SHELL, str(self.SCRIPT), str(self.out), str(self.key), *self.GIVEN],
                                    cwd=SCRATCH.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
-                                   pass_fds=(told_w, held_r, again_w, freed_r))
+                                   pass_fds=(told_w, held_r, again_w, freed_r), start_new_session=True)
         for fd in (told_w, held_r, again_w, freed_r):
             os.close(fd)
         try:
@@ -15927,7 +15944,8 @@ esac
             os.close(held_w)
             held_w = None
             revoking = os.read(again_r, 1)
-            running.terminate()
+            # The second to the whole group, as a terminal's hangup comes: the revocation's curl gets it too.
+            os.killpg(running.pid, signal.SIGHUP)
         finally:
             for fd in (told_r, again_r, freed_w) + ((held_w,) if held_w is not None else ()):
                 os.close(fd)
@@ -15938,11 +15956,12 @@ esac
 
     def test_the_maintainers_environment_steers_nothing(self):  # issue 1215
         # Run by a path relative to the repo, under a CDPATH that holds a tools/ of its own, with SSLKEYLOGFILE and each
-        # name a credential is held in exported: the script finds its own root, and curl is handed none of them.
+        # name a credential is held in exported, and bash told to export every assignment: the script finds its own root,
+        # and curl is handed none of them.
         decoy = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         (decoy / "tools").mkdir()
         env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
-               "CDPATH": str(decoy), "SSLKEYLOGFILE": str(decoy / "keys"),
+               "CDPATH": str(decoy), "SSLKEYLOGFILE": str(decoy / "keys"), "SHELLOPTS": "allexport",
                **{name: self.TOKEN for name in ("token", "jwt", "signature", "minted", "minting")}}
         ran = subprocess.run(["sh", str(self.SCRIPT.relative_to(ROOT)), str(self.out), str(self.key), *self.GIVEN],
                              cwd=str(ROOT), capture_output=True, text=True, env=env, timeout=120)

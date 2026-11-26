@@ -35,6 +35,10 @@
 # gh's complaint redacted, and offered again before anything changes, until the Maintainer types q: a bad query is found
 # at step 1, and so is an issue or a pull request with more than a hundred of these events, which is neither new one. A session builds trials/P-61.json from OUT alone.
 set -euf
+# Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
+# (issue 1215).
+set +a
+unset CDPATH
 set +x
 
 if [ "$#" -ne 4 ]; then
