@@ -13,6 +13,8 @@ PUSH_SENDER = ('tests.test_adapters.Push.test_a_push_is_sent_by_its_own_sender_a
                'tests.test_adapters.Push.test_a_senders_binding_and_permits_are_its_own_and_a_request_is_one_request_builds')
 PUSH_LISTED = ('tests.test_adapters.Push.test_a_trees_listing_is_taken_whole_or_not_at_all',)
 PUSH_BOUND = ('tests.test_adapters.Push.test_a_push_reads_whole_within_its_bound_and_past_it_is_the_roles_attempt',)
+PUSH_403 = ('tests.test_adapters.Push.test_a_rate_limits_403_is_no_answer_and_a_blobs_other_403_is_a_persons',)
+PUSH_LIMIT = PUSH_BOUND + PUSH_403
 PUSH_WHOSE = ('tests.test_adapters.Push.test_every_code_of_the_patch_guard_and_the_port_names_whose_it_is',)
 
 TARGETS = ("adapters/push.py",)
@@ -230,7 +232,7 @@ MUTANTS = [
     ("a directory sorts by its bare name", PUSH_PY,
      'return entry[1].encode() + (b"/" if entry[0] == TREE_MODE else b"")', 'return entry[1].encode()', PUSH_LISTED),
     ("a file is asked for after one gave a code", PUSH_PY,
-     '            return None, TREE_UNFETCHED if _unanswered(answer) else patch.TREE_UNREAD\n',
+     '            return None, TREE_UNFETCHED if _unanswered(answer, BLOB_UNANSWERED) else patch.TREE_UNREAD\n',
      '            contents[path] = None\n            continue\n', PUSH_BOUND),
     ("one file more than the bound is read", PUSH_PY,
      'len(paths) > MOST_FILES', 'len(paths) > MOST_FILES + 1', PUSH_BOUND),
@@ -245,11 +247,32 @@ MUTANTS = [
     ("a link is read as a file is", PUSH_PY,
      'if tree.get(path) in FILE_MODES]', 'if path in blobs]', PUSH_BOUND),
     ("a refused blob is the port's", PUSH_PY,
-     'return None, TREE_UNFETCHED if _unanswered(answer) else patch.TREE_UNREAD\n        held', 'return None, TREE_UNFETCHED\n        held', PUSH_BOUND),
+     'return None, TREE_UNFETCHED if _unanswered(answer, BLOB_UNANSWERED) else patch.TREE_UNREAD\n        held', 'return None, TREE_UNFETCHED\n        held', PUSH_BOUND),
     ("a blob with no answer is a person's", PUSH_PY,
-     'return None, TREE_UNFETCHED if _unanswered(answer) else patch.TREE_UNREAD\n        held', 'return None, patch.TREE_UNREAD\n        held', PUSH_BOUND),
+     'return None, TREE_UNFETCHED if _unanswered(answer, BLOB_UNANSWERED) else patch.TREE_UNREAD\n        held', 'return None, patch.TREE_UNREAD\n        held', PUSH_BOUND),
     ("bytes past the bound, though the listing said fewer, are taken", PUSH_PY,
      '        if held > MOST_BYTES:\n', '        if False:\n', PUSH_BOUND),
+    ("a blob's 403 is the port's", PUSH_PY,
+     'BLOB_UNANSWERED = ("401", "429")', 'BLOB_UNANSWERED = ("401", "403", "429")', PUSH_LIMIT),
+    ("a blob's 401 is a person's", PUSH_PY,
+     'BLOB_UNANSWERED = ("401", "429")', 'BLOB_UNANSWERED = ("429",)', PUSH_LIMIT),
+    ("a blob's 429 is a person's", PUSH_PY,
+     'BLOB_UNANSWERED = ("401", "429")', 'BLOB_UNANSWERED = ("401",)', PUSH_LIMIT),
+    ("a blob is read as a listing is", PUSH_PY,
+     '_unanswered(answer, BLOB_UNANSWERED)', '_unanswered(answer)', PUSH_LIMIT),
+    ("a rate limit's 403 is an answer", PUSH_PY,
+     'or "body" not in answer or _rate_limited(answer):', 'or "body" not in answer:', PUSH_403),
+    ("a push's 403 with no request left is an answer", PUSH_PY,
+     '(str(headers.get("x-ratelimit-remaining")) == "0" or "retry-after" in headers)', '("retry-after" in headers)', PUSH_403),
+    ("a push's 403 with a time to wait is an answer", PUSH_PY,
+     '(str(headers.get("x-ratelimit-remaining")) == "0" or "retry-after" in headers)', '(str(headers.get("x-ratelimit-remaining")) == "0")', PUSH_403),
+    ("an answer of any status with a time to wait is a rate limit", PUSH_PY,
+     'return answer["status"] == 403 and (', 'return (', PUSH_403),
+    ("any 403 a push meets is no answer", PUSH_PY,
+     'return answer["status"] == 403 and (str(headers.get("x-ratelimit-remaining")) == "0" or "retry-after" in headers)',
+     'return answer["status"] == 403', PUSH_403),
+    ("a rate limit's headers of another kind are read", PUSH_PY,
+     'headers = answer.get("headers") if type(answer.get("headers")) is dict else {}', 'headers = answer.get("headers") or {}', PUSH_403),
     ("a read in no shape is the Role's attempt", PUSH_PY,
      'patch.TREE_UNREAD: PERSON,', 'patch.TREE_UNREAD: ROLE,', PUSH_WHOSE),
     ("a code of the guard is left out of the table", PUSH_PY,

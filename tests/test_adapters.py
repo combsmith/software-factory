@@ -9275,7 +9275,8 @@ class Push(unittest.TestCase):
             self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": gone, "b": wrong}.get), (None, push.TREE_UNFETCHED))
         self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": one}.get), (None, push.TREE_UNFETCHED))
         self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": one, "b": other}), (None, push.TREE_UNFETCHED))
-        for refused in ({"status": "404", "body": {}}, {"status": "422", "body": {"message": "not a blob"}}, wrong):
+        for refused in ({"status": "404", "body": {}}, {"status": "422", "body": {"message": "not a blob"}}, wrong,
+                        {"status": "403", "body": {"message": "Forbidden"}}):
             for answers in ({"a": one, "b": refused}, {"a": refused, "b": None}):
                 self.assertEqual(push.read_whole(listing, ["a", "b"], answers.get), (None, patch.TREE_UNREAD), answers)
         # Each file is asked for in order, and none after the first that gives a code.
@@ -9289,6 +9290,35 @@ class Push(unittest.TestCase):
             self.assertEqual(push.read_whole(fewer, ["a", "b"], {"a": one, "b": other}.get), (None, push.READS_TOO_LARGE))
         with mock.patch.object(push, "MOST_BYTES", 8):
             self.assertEqual(push.read_whole(fewer, ["a", "b"], {"a": one, "b": other}.get)[1], None)
+
+    def test_a_rate_limits_403_is_no_answer_and_a_blobs_other_403_is_a_persons(self):
+        class Answering:
+            """A transport that gives every request one answer."""
+            def __init__(self, status, headers):
+                self.answer = {"status": status, "headers": headers, "body": {"message": "limited"}}
+
+            def send(self, req):
+                return self.answer
+        blob = push.read_blob(PUSHED, NAMED)
+        # A 403 with no request left or a time to wait is a rate limit's, no answer (decision 1138); `send` gives none.
+        for headers in ({"x-ratelimit-remaining": "0"}, {"x-ratelimit-remaining": 0}, {"retry-after": "60"}):
+            self.assertIsNone(sent(Answering(403, headers), blob), headers)
+        # Any other 403, and another status with a time to wait, is an answer.
+        for status, headers in ((403, {}), (403, {"x-ratelimit-remaining": "5"}), (404, {"retry-after": "60"}),
+                                (200, {"retry-after": "60"}), (403, None), (403, ["retry-after"])):
+            self.assertEqual(sent(Answering(status, headers), blob), {"status": str(status), "body": {"message": "limited"}},
+                             (status, headers))
+        # A listing's 403 is the port's; a blob's, read after the listing by the same token, a person's; a blob's rate
+        # limit, no answer, the port's.
+        one, first = self.blob(b"one\n")
+        listing = ({"a": FILE_MODE}, {"a": (first, 4)})
+        answer, sha = self.listing()
+        refused = sent(Answering(403, {}), blob)
+        self.assertEqual(push.listed(dict(answer, status="403"), sha), (None, push.TREE_UNFETCHED))
+        self.assertEqual(push.read_whole(listing, ["a"], {"a": refused}.get), (None, patch.TREE_UNREAD))
+        limited = sent(Answering(403, {"retry-after": "60"}), blob)
+        self.assertEqual(push.read_whole(listing, ["a"], {"a": limited}.get), (None, push.TREE_UNFETCHED))
+        self.assertEqual((push.WHOSE[patch.TREE_UNREAD], push.WHOSE[push.TREE_UNFETCHED]), (push.PERSON, push.PORT))
 
     def test_every_code_of_the_patch_guard_and_the_port_names_whose_it_is(self):
         # Every code, of either module, is in the table, and nothing else: none is read with a default.
