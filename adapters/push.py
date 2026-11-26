@@ -28,6 +28,11 @@ sender would not send, an answer with no status from 100 to 599 or no body, or a
 `content` gives a blob's bytes from its read, the base64 GitHub wraps with newlines (P-71), decoded here, never in a
 guard, and held to the name asked, never the answer's own.
 
+`listed`, `to_read` and `read_whole` read the tree a patch lands on, as `guards/patch.py` takes it: its listing, then
+the bytes of each file the patch reads, whole or not at all, within `MOST_FILES` files and `MOST_BYTES` bytes. Each
+gives a code where it gives nothing, and `WHOSE` names whose each code of the guard and of this port is: the Role's,
+counted as its attempt; a person's, a Hold; or the port's, an environment fault, for no answer alone.
+
 `harness/push.py`, by hand, owes this port: every request sent by `transport`'s sender; its writers in
 `tools/check_writes.py`'s CALLERS; one request given unchanged to `permits` and `send`; `content` asked for the name
 the admitted tree's listing gives; and P-71 replayed through `send` into `seen`.
