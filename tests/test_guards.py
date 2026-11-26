@@ -1172,7 +1172,7 @@ class Said(bytes):
 class Push(unittest.TestCase):
     def test_a_push_is_told_whole_or_begins_nothing(self):
         for told in (PUSH, MOVE, READING, dict(PUSH, branch="factory-work/issue-1-10"),
-                     dict(READING, parent="0123456789abcdef" * 2 + "01234567")):
+                     dict(READING, parent="0123456789abcdef" * 2 + "01234567"), dict(PUSH, repo="Comb_smith9/.github-x")):
             self.assertEqual(push.began(told)[0]["push"], told)
             self.assertIsNone(push.began(told)[1])
         self.assertEqual(push.began(PUSH), ({
@@ -1193,6 +1193,7 @@ class Push(unittest.TestCase):
                 ("a work branch of issue 0", dict(PUSH, branch="factory-work/issue-0-1")),
                 ("a work branch never opened", dict(PUSH, branch="factory-work/issue-838")),
                 ("a work branch opened no times", dict(PUSH, branch="factory-work/issue-838-")),
+                ("a work branch of three numbers", dict(PUSH, branch="factory-work/issue-838-1-2")),
                 ("a work branch opened 0 times", dict(PUSH, branch="factory-work/issue-838-0")),
                 ("a branch under a work branch", dict(PUSH, branch=BRANCH + "/x")),
                 ("a branch that only ends as one", dict(PUSH, branch="x/" + BRANCH)),

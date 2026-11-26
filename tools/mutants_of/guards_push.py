@@ -246,4 +246,7 @@ MUTANTS = [
     ('only the top directory a path stands under is held', 'guards/push.py',
      'for n in range(1, len(names))]',
      'for n in range(1, min(2, len(names)))]', PUSH_CHANGES),
+    ("a repo's name may hold no capital, digit, dot or underscore", 'guards/push.py',
+     'REPO_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."',
+     'REPO_CHARS = "abcdefghijklmnopqrstuvwxyz-"', PUSH_TOLD),
 ]
