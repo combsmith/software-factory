@@ -2498,6 +2498,38 @@ class WhatARunWrites(unittest.TestCase):
             d = decide(TRIAGED, cfg=config(intents=shared))
             self.assertEqual((what(d), d["attention"]), (("defer", "intents_share_an_app", None), "needs_you"), name)
 
+    def test_an_issues_hold_is_read_before_an_uncounted_label_is_removed(self):  # issue 1216
+        # Another App's factory:triage does not count, and is removed. A Hold the Run wanted would place is read first:
+        # the issue stays held for a person, and the label waits for the release, as under a person's Hold.
+        uncounted = READIED_BY_A_PERSON + [labelled(TRIAGE, OTHER_APP, 3)]
+        tried = [failed(OPEN, minute, "f%d" % minute, role="dev-lead") for minute in (1, 2)]
+        for f, runs, why in (
+                (facts(label_events=uncounted, branch_head=BRANCH_HEAD, branch_pushed=False), [], "branch_not_pushed"),
+                (facts(label_events=uncounted), tried + [failed(OPEN, 3, "f3", role="dev-lead")], "attempts_exhausted"),
+                (facts(label_events=uncounted), [failed(OPEN, 2, "p1", outcome="person", role="dev-lead")],
+                 "run_needs_person"),
+                (facts(label_events=ACCEPTED + [labelled(READY, OTHER_APP, 4)]),
+                 [failed(INVESTIGATE, minute, "i%d" % minute) for minute in (1, 2, 3)], "attempts_exhausted")):
+            d = decide(f, runs)
+            self.assertEqual((d["state"], what(d), d["attention"]), ("held", ("hold", why, None), "needs_you"), why)
+        # The Run ceiling too, which a Run that ended for capacity spends, with attempts left.
+        one = config()
+        one["limits"] = dict(one["limits"], max_runs_per_item=1)
+        d = decide(facts(label_events=uncounted), [failed(OPEN, 2, "c1", outcome="capacity", role="dev-lead")], cfg=one)
+        self.assertEqual((d["state"], what(d)), ("held", ("hold", "run_ceiling", None)))
+        # And the ceiling on Runs that spent no model.
+        one["limits"] = dict(config()["limits"], max_environment_runs_per_item=1)
+        outside = dict(failed(OPEN, 2, "e1", outcome="environment", role="dev-lead"), engine_started=False)
+        d = decide(facts(label_events=uncounted), [outside], cfg=one)
+        self.assertEqual((d["state"], what(d)), ("held", ("hold", "environment_ceiling", None)))
+        # The other side of each: with no Hold, the label is removed.
+        for f, runs, why in (
+                (facts(label_events=uncounted, branch_head=BRANCH_HEAD, branch_pushed=True), [], "pushed"),
+                (facts(label_events=uncounted), tried, "an attempt left"),
+                (facts(label_events=uncounted), [failed(OPEN, 2, "i1", role="dev-lead")], "ended for the item")):
+            d = decide(f, runs)
+            self.assertEqual((what(d), d["label"]), (("act", "label_not_counted", "remove_label"), TRIAGE), why)
+
     def test_a_label_is_not_removed_while_acceptance_has_lapsed(self):
         events = [labelled(ADMIT), labelled(READY, READINESS, 2)]
         d = decide(outsiders(content_changed_at=at(9), label_events=events))

@@ -2,7 +2,9 @@
 # Trial P-4 (combsmith/software-factory#187, design section 6): can an installation token be minted with a subset of
 # the App's permissions and repos, and is it held to them?
 #
-#   tools/trial_p4_narrow.sh OUT KEY OWNER/REPO OTHER_OWNER/REPO
+#   tools/trial_p4_narrow.sh [--keep-raw] OUT KEY OWNER/REPO OTHER_OWNER/REPO
+#
+# --keep-raw keeps the raw answers in the run's own scratch directory, and says where; delete it once read.
 #
 # The Maintainer runs it at his own terminal, from anywhere; no session runs it, since it mints a credential. OUT is a
 # directory that does not exist yet, outside this repo. KEY is the path of the trial-author App's private key file,
@@ -33,8 +35,14 @@ unset CDPATH
 set +x
 unset CURL_HOME
 
+# --keep-raw, first, keeps the raw answers for a person to read; the clean-up says where (issue 1215).
+keep=""
+if [ "${1:-}" = --keep-raw ]; then
+    keep=1
+    shift
+fi
 if [ "$#" -ne 4 ]; then
-    echo "usage: tools/trial_p4_narrow.sh OUT KEY OWNER/REPO OTHER_OWNER/REPO" >&2
+    echo "usage: tools/trial_p4_narrow.sh [--keep-raw] OUT KEY OWNER/REPO OTHER_OWNER/REPO" >&2
     exit 2
 fi
 root=$(CDPATH= cd -P -- "$(dirname -- "$0")/.." && pwd -P)
@@ -96,10 +104,20 @@ API=https://api.github.com
 VERSION="X-GitHub-Api-Version: 2022-11-28"
 ACCEPT="Accept: application/vnd.github+json"
 JSON="Content-Type: application/json"
-# The raw answers are kept beside OUT, in a directory made in its parent, which the walk above holds to be this
-# user's, or sticky. TMPDIR, which the environment chooses, is not read, and each helper is handed this one (issue 1215).
-scratch=$(mktemp -d "$parent/.trial-p4.XXXXXX")
-export TMPDIR="$scratch"
+# The raw answers are kept in a directory of this run's own, which mktemp makes new and for this user alone, outside
+# the repo as OUT is: a TMPDIR inside it, or a link into it, is refused. The exit trap deletes it however the run
+# ends, unless --keep-raw asks to keep it; only the redacted copies reach OUT (issue 1215).
+# The template names TMPDIR itself: macOS's mktemp -d alone does not always read it.
+# Its own line: inside the cd, a failed mktemp would be read as the directory this stands in, which the clean-up removes.
+made=$(mktemp -d "${TMPDIR:-/tmp}/trial-p4.XXXXXX")
+scratch=$(cd "$made" && pwd -P)
+case "$scratch/" in "$root"/*)
+    rm -rf "$scratch"
+    echo "trial_p4_narrow: the scratch directory $scratch is inside the repo; set TMPDIR outside it" >&2
+    exit 2 ;;
+esac
+# A raw answer is deleted once it is redacted, unless --keep-raw asks to keep them all.
+drop() { [ -n "$keep" ] || rm -f -- "$@"; }
 # No credential's name is taken from the environment, where one exported would reach every child, and curl is
 # told of no file to write its TLS keys to (issue 1215).
 unset SSLKEYLOGFILE token jwt signature minted minting
@@ -143,7 +161,11 @@ finish() {
         echo "trial_p4_narrow: stopped while a token was being minted; GitHub may have minted one, live for up to" \
             "an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation." >&2
     fi
-    rm -rf "$scratch"
+    if [ -n "$keep" ]; then
+        echo "trial_p4_narrow: the raw answers are kept in $scratch, as --keep-raw asked; delete it once read" >&2
+    else
+        rm -rf "$scratch"
+    fi
 }
 trap finish EXIT
 trap "trap '' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM QUIT PIPE
@@ -183,12 +205,12 @@ with_token() {   # METHOD PATH [BODY_FILE]
     tr -d '\r' < "$scratch/crlf-$n" > "$scratch/raw-$n"
     rm -f "$scratch/crlf-$n"
     if [ "$read_ok" = 0 ]; then
-        rm -f "$scratch/raw-$n"
+        drop "$scratch/raw-$n"
         echo "trial_p4_narrow: read $n ($1 /$2) failed in curl; nothing of it is kept." >&2
         exit 1
     fi
     (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
-    rm -f "$scratch/raw-$n"
+    drop "$scratch/raw-$n"
     # The last head's status: a proxy's block, or an interim answer, comes first and is no answer to this read.
     status=$(awk 'BEGIN { head = 1 } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$out/clean-$n")
     body=null
@@ -207,7 +229,7 @@ n=1
 printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -i -H @- -H "$ACCEPT" -H "$VERSION" \
     "$API/repos/$repo/installation" | tr -d '\r' > "$scratch/raw-1"
 (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-1" > "$out/clean-1") 2> "$out/redacted-1"
-rm -f "$scratch/raw-1"
+drop "$scratch/raw-1"
 installation=$(sed -n '/^{/,$p' "$out/clean-1" | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["id"])')
 asked="{\"n\": 1, \"call\": \"GET /repos/$repo/installation\", \"body\": null, \"status\": \"$(awk 'BEGIN { head = 1 } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$out/clean-1")\"},"
 
@@ -235,7 +257,7 @@ with open(sys.argv[1], "w") as kept:
 sys.stdout.write(token)' "$scratch/raw-2" "${minted_status:-000}" 2>/dev/null || true)
 minted=""
 (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-2" > "$out/clean-2") 2> "$out/redacted-2"
-rm -f "$scratch/raw-2"
+drop "$scratch/raw-2"
 asked="$asked{\"n\": 2, \"call\": \"POST /app/installations/$installation/access_tokens\", \"body\": {\"repositories\": [\"${repo#*/}\"], \"permissions\": {\"contents\": \"read\"}}, \"status\": \"${minted_status:-none}\"},"
 if [ "$minted_status" != 201 ] || [ -z "$token" ]; then
     token=""

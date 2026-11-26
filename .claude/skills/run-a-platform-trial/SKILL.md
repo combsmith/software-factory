@@ -36,13 +36,14 @@ everything a trial leaves in it: its runs, logs and artifacts.
   What the trial-author App writes, the Maintainer runs as `tools/trial_as_app.sh`, with the App's
   key: it revokes its token, and leaves only redacted exchanges in a scratch directory, with `finish.log`
   where it says a token it left live. Read that first.
+  A token script deletes its raw answers on exit. Given `--keep-raw` first, it keeps them in its
+  own private scratch directory and prints that path; the Maintainer deletes it once read (issue 1215).
   A new script the Maintainer runs with a key copies `tools/trial_p54_issue_lookup.sh`: OUT made new
-  under a parent only he can write to, the raw answers beside it, nothing of his environment taken
-  but PATH, and a clean-up deaf to a second signal that tells him of any token it may have left live
-  (issue 1215). `tests/test_tools.py` holds every such script to the same words: add the new one to
-  the lists and counts there. Ask him for an OUT on a local disk nothing syncs or shares, since the
-  raw answers stand beside it until they are redacted, and a run killed outright leaves a `.trial-*`
-  directory there to delete.
+  under a parent only he can write to, the raw answers in a private scratch directory of its own,
+  nothing of his environment taken but PATH, and a clean-up deaf to a second signal that tells him of
+  any token it may have left live (issue 1215). `tests/test_tools.py` holds every such script to the
+  same words: add the new one to the lists and counts there. A run killed outright leaves its
+  `trial-*` directory where TMPDIR says, to delete.
   P-13 asks the vendor's CLI, not GitHub: `tools/trial_p13_cli.sh` runs it at the pinned version,
   on a configuration directory of its own logged in to the Maintainer's own subscription (decision
   0033), and leaves
