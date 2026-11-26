@@ -35,6 +35,10 @@
 # directory the home marker, and the CLI's environment the environment marker. The CLI's parent is `timeout`, given the
 # same environment. OUT receives only checked.json, which the workflow prints to its log for the fixture.
 set -euo pipefail
+# Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
+# (issue 1215).
+set +a
+unset CDPATH
 set +x
 export LC_ALL=C
 

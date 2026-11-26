@@ -34,6 +34,10 @@
 # only to ask whether each marker is in them, and counts them. OUT receives only checked-PHASE.json, which the workflow
 # prints to its log for the fixture.
 set -euo pipefail
+# Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
+# (issue 1215).
+set +a
+unset CDPATH
 set +x
 export LC_ALL=C
 

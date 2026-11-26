@@ -66,6 +66,10 @@
 # OUT receives only: ran_at, requests.json, clean-N (each redacted answer), redacted-N (where the redaction took
 # something, never what) and checked.json (each part of the pass, per configuration).
 set -euo pipefail
+# Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
+# (issue 1215).
+set +a
+unset CDPATH
 set +x
 export LC_ALL=C
 shopt -s nocasematch    # a path is compared without case: the file system may not tell .claude from .CLAUDE

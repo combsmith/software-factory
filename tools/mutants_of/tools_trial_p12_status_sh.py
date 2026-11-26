@@ -25,11 +25,14 @@ ACL_TESTS = ("tests.test_tools.OutputMadeAlone.test_every_script_reads_an_acl_wo
 TRIALS_DEAF = "tests.test_tools.SignalTraps.test_every_token_script_is_deaf_in_its_clean_up_and_bounds_its_revocation"
 TRIALS_ENV = "tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment"
 TRIALS_ROOT = "tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does"
+TRIALS_SHELL = "tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment"
+TRIALS_TRAP = "tests.test_tools.SignalTraps.test_every_script_turns_a_signal_into_its_exit"
 FAMILY_1215 = {"trial_reader_reads.sh": "ReaderTrialScript", "trial_p54_issue_lookup.sh": "IssueLookupTrial",
                "trial_p12_status.sh": "StatusTrial", "trial_p56_comments.sh": "CommentsReadTrial",
                "trial_p80_branch_reads.sh": "BranchReadsTrial", "trial_p58_edits.sh": "EditsReadTrial"}
 SCRIPTS_1215 = tuple(FAMILY_1215) + ("trial_p39_reach.sh", "trial_p4_narrow.sh", "trial_p8_cost.sh")
 ROOTS_1215 = SCRIPTS_1215 + ("trial_p13_cli.sh", "trial_p13_ended.sh", "trial_p26_sandbox.sh", "trial_p61_timeline.sh")
+EVERY_1215 = ROOTS_1215 + ("trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh", "trial_p59_read_confinement.sh")
 
 
 def run_1215(script, test):
@@ -71,7 +74,7 @@ MUTANTS = [
      'case "$scratch/" in "$root"/*)', 'case "$scratch/" in "/nowhere"/*)',
      ("tests.test_tools.ReaderTrialScript.test_a_scratch_directory_inside_the_repo_is_refused_before_anything_is_minted",)),
     ("a signal leaves the reader's token live", "tools/trial_reader_reads.sh",
-     "trap 'exit 1' HUP INT TERM\n", "\n",
+     "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM\n", "\n",
      ("tests.test_tools.ReaderTrialScript.test_a_signal_mid_read_revokes_the_live_token",)),
     ("a revocation that fails goes on", "tools/trial_reader_reads.sh",
      '    if [ "$revoked" != 204 ]; then\n', '    if false; then\n',
@@ -774,7 +777,7 @@ MUTANTS = [
     ("P-54 writes a refused mint's answer to scratch", "tools/trial_p54_issue_lookup.sh",
      '        if shown=$(printf \'%s\\n\' "$minted" | sed \'$d\' |',
      '        printf \'%s\\n\' "$minted" > "$scratch/mint"\n        if shown=$(printf \'%s\\n\' "$minted" | sed \'$d\' |', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
-    ("P-54 leaves its token live on a signal", "tools/trial_p54_issue_lookup.sh", "trap 'exit 1' HUP INT TERM\n", "", ("tests.test_tools.IssueLookupTrial.test_a_signal_mid_read_revokes_the_live_token",)),
+    ("P-54 leaves its token live on a signal", "tools/trial_p54_issue_lookup.sh", "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM\n", "", ("tests.test_tools.IssueLookupTrial.test_a_signal_mid_read_revokes_the_live_token",)),
     ("P-54 goes on past a revocation that fails", "tools/trial_p54_issue_lookup.sh", '    if [ "$revoked" != 204 ]; then\n', '    if false; then\n', ("tests.test_tools.IssueLookupTrial.test_a_refused_mint_or_revocation_stops_the_run_and_says_so",)),
     ("P-54 keeps a read curl failed", "tools/trial_p54_issue_lookup.sh", '    if [ "$read_ok" = 0 ] || [ -z "$status" ]; then\n', '    if false; then\n', ("tests.test_tools.IssueLookupTrial.test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked",)),
     ("P-54 reads on past a read curl failed", "tools/trial_p54_issue_lookup.sh", '        "$API/$2" > "$scratch/crlf-$n" || read_ok=0\n', '        "$API/$2" > "$scratch/crlf-$n" || true\n', ("tests.test_tools.IssueLookupTrial.test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked",)),
@@ -817,7 +820,7 @@ MUTANTS = [
     ("P-12 writes a refused mint's answer to scratch", "tools/trial_p12_status.sh",
      '        if shown=$(printf \'%s\\n\' "$minted" | sed \'$d\' |',
      '        printf \'%s\\n\' "$minted" > "$scratch/mint"\n        if shown=$(printf \'%s\\n\' "$minted" | sed \'$d\' |', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
-    ("P-12 leaves its token live on a signal", "tools/trial_p12_status.sh", "trap 'exit 1' HUP INT TERM\n", "", ("tests.test_tools.StatusTrial.test_a_signal_mid_read_revokes_the_live_token",)),
+    ("P-12 leaves its token live on a signal", "tools/trial_p12_status.sh", "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM\n", "", ("tests.test_tools.StatusTrial.test_a_signal_mid_read_revokes_the_live_token",)),
     ("P-12 goes on past a revocation that fails", "tools/trial_p12_status.sh", '    if [ "$revoked" != 204 ]; then\n', '    if false; then\n', ("tests.test_tools.StatusTrial.test_a_refused_mint_or_revocation_stops_the_run_and_says_so",)),
     ("P-12 keeps a read curl failed", "tools/trial_p12_status.sh", '    if [ "$call_ok" = 0 ] || [ -z "$status" ]; then\n', '    if false; then\n', ("tests.test_tools.StatusTrial.test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked",)),
     ("P-12 reads on past a read curl failed", "tools/trial_p12_status.sh", '"$API/$2" > "$scratch/crlf-$n" || call_ok=0\n', '"$API/$2" > "$scratch/crlf-$n" || true\n', ("tests.test_tools.StatusTrial.test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked",)),
@@ -929,7 +932,7 @@ MUTANTS = [
     ("P-4 loses the token of an answer cut inside a character when stopped", "tools/trial_p4_narrow.sh", 'sys.stdin.buffer.read().decode("utf-8", "replace"))', 'sys.stdin.read())', ('tests.test_tools.NarrowedToken.test_a_stop_while_an_answer_cut_inside_a_character_is_read_still_revokes_its_token',)),
     ('P-58 drops a token a refused mint held', "tools/trial_p58_edits.sh", '        minted=""\n        echo "trial_p58_edits: $slug: the mint answered', '        token=""\n        minted=""\n        echo "trial_p58_edits: $slug: the mint answered', ('tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused',)),
     ("P-58 writes a refused mint's answer to scratch", "tools/trial_p58_edits.sh", '        if shown=$(printf \'%s\\n\' "$minted" | sed \'$d\' |', '        printf \'%s\\n\' "$minted" > "$scratch/mint"\n        if shown=$(printf \'%s\\n\' "$minted" | sed \'$d\' |', ('tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused',)),
-    ('P-58 leaves its token live on a signal', "tools/trial_p58_edits.sh", "trap 'exit 1' HUP INT TERM\n", '', ('tests.test_tools.EditsReadTrial.test_a_signal_mid_read_revokes_the_live_token',)),
+    ('P-58 leaves its token live on a signal', "tools/trial_p58_edits.sh", "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM\n", '', ('tests.test_tools.EditsReadTrial.test_a_signal_mid_read_revokes_the_live_token',)),
     ('P-58 goes on past a revocation that fails', "tools/trial_p58_edits.sh", '    if [ "$revoked" != 204 ]; then\n', '    if false; then\n', ('tests.test_tools.EditsReadTrial.test_a_refused_mint_or_revocation_stops_the_run_and_says_so',)),
     ('P-58 keeps a read curl failed', "tools/trial_p58_edits.sh", '    if [ "$read_ok" = 0 ] || [ -z "$status" ]; then\n', '    if false; then\n', ('tests.test_tools.EditsReadTrial.test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked',)),
     ('P-58 goes on past a capture the redaction refused', "tools/trial_p58_edits.sh", '> "$out/clean-$n") 2> "$out/redacted-$n"\n', '> "$out/clean-$n") 2> "$out/redacted-$n" || true\n', ('tests.test_tools.EditsReadTrial.test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked',)),
@@ -964,7 +967,7 @@ MUTANTS = [
     ("P-56 writes a refused mint's answer to scratch", "tools/trial_p56_comments.sh",
      '        if shown=$(printf \'%s\\n\' "$minted" | sed \'$d\' |',
      '        printf \'%s\\n\' "$minted" > "$scratch/mint"\n        if shown=$(printf \'%s\\n\' "$minted" | sed \'$d\' |', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
-    ("P-56 leaves its token live on a signal", "tools/trial_p56_comments.sh", "trap 'exit 1' HUP INT TERM\n", "", ("tests.test_tools.CommentsReadTrial.test_a_signal_mid_read_revokes_the_live_token",)),
+    ("P-56 leaves its token live on a signal", "tools/trial_p56_comments.sh", "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM\n", "", ("tests.test_tools.CommentsReadTrial.test_a_signal_mid_read_revokes_the_live_token",)),
     ("P-56 goes on past a revocation that fails", "tools/trial_p56_comments.sh", '    if [ "$revoked" != 204 ]; then\n', '    if false; then\n', ("tests.test_tools.CommentsReadTrial.test_a_refused_mint_or_revocation_stops_the_run_and_says_so",)),
     ("P-56 keeps a read curl failed", "tools/trial_p56_comments.sh", '    if [ "$read_ok" = 0 ] || [ -z "$status" ]; then\n', '    if false; then\n', ("tests.test_tools.CommentsReadTrial.test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked",)),
     ("P-56 reads on past a read curl failed", "tools/trial_p56_comments.sh", '        "$API/$2" > "$scratch/crlf-$n" || read_ok=0\n', '        "$API/$2" > "$scratch/crlf-$n" || true\n', ("tests.test_tools.CommentsReadTrial.test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked",)),
@@ -1016,11 +1019,11 @@ MUTANTS = [
     ('the context eval starts naming no place a clone was', 'tools/context_eval.sh', '[ -n "${CONTEXT_EVAL_AWAY:-}" ] ||\n    refuse', 'true ||\n    refuse', ('tests.test_tools.ContextEvalScript.test_each_refusal_stops_before_anything_is_asked',)),
     # Issue 458: a signal becomes a script's exit, the same in each.
     ("a script's clean-up leaves a signal to its shell", 'tools/trial_p8_cost.sh',
-     "trap 'exit 1' HUP INT TERM\n", '', ('tests.test_tools.SignalTraps.test_every_script_turns_a_signal_into_its_exit',)),
+     "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM\n", '', ('tests.test_tools.SignalTraps.test_every_script_turns_a_signal_into_its_exit',)),
     ('a hangup is then ignored', 'tools/trial_p8_cost.sh',
-     "trap 'exit 1' HUP INT TERM\n", "trap 'exit 1' HUP INT TERM\ntrap '' HUP\n", ('tests.test_tools.SignalTraps.test_every_script_turns_a_signal_into_its_exit',)),
+     "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM\n", "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM\ntrap '' HUP\n", ('tests.test_tools.SignalTraps.test_every_script_turns_a_signal_into_its_exit',)),
     ('P-39 leaves its token live on a signal', 'tools/trial_p39_reach.sh',
-     "trap 'exit 1' HUP INT TERM\n", '', ('tests.test_tools.ReachScript.test_a_stop_with_a_token_live_revokes_it',)),
+     "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM\n", '', ('tests.test_tools.ReachScript.test_a_stop_with_a_token_live_revokes_it',)),
     # Astra and Kimi on #810: the watch keeps a call that gave no answer as one that did not succeed, the retry's ask holds
     # no part of the answer, the wait is read again at its bound, every attempt's seconds are summed, and the report and
     # the ledger hold the retries to RETRIES and a gate set's report its total.
@@ -1098,7 +1101,7 @@ MUTANTS = [
      '    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
      '    cp "$scratch/raw-$n" "$out/clean-$n"; : > "$out/redacted-$n"\n', ('tests.test_tools.BranchReadsTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept',)),
     ('P-80 leaves its token live on a signal', 'tools/trial_p80_branch_reads.sh',
-     "trap 'exit 1' HUP INT TERM\n",
+     "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM\n",
      '', ('tests.test_tools.BranchReadsTrial.test_a_signal_mid_read_revokes_the_live_token',)),
     ('P-80 goes on past a revocation that fails', 'tools/trial_p80_branch_reads.sh',
      '    if [ "$revoked" != 204 ]; then\n',
@@ -1158,7 +1161,7 @@ MUTANTS = [
     # Issue 1215: what the trials share. Each sh script that mints is deaf in its clean-up and bounds its revocation;
     # each script that mints takes no credential's name or key log from the environment; each finds its root with
     # CDPATH empty, physically. The tests that hold every script to the same words come first, then a family's run.
-    *[("%s's clean-up stops at a second signal" % script, "tools/" + script, "    trap '' HUP INT TERM\n", "",
+    *[("%s's clean-up stops at a second signal" % script, "tools/" + script, "    trap '' HUP INT TERM QUIT PIPE\n", "",
        (TRIALS_DEAF,) + run_1215(script, "test_a_second_signal_does_not_cut_the_revocation_short"))
       for script in SCRIPTS_1215],
     *[("%s's revocation may hang" % script, "tools/" + script, "curl -q --max-time 30 -sS -o /dev/null", "curl -q -sS -o /dev/null",
@@ -1170,6 +1173,17 @@ MUTANTS = [
        (TRIALS_ROOT,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in ROOTS_1215],
     *[("%s's root is found logically" % script, "tools/" + script, "root=$(CDPATH= cd -P -- ", "root=$(CDPATH= cd -- ",
        (TRIALS_ROOT,)) for script in ROOTS_1215],
+    *[("%s's clean-up stops at a reader gone" % script, "tools/" + script, "    trap '' HUP INT TERM QUIT PIPE\n",
+       "    trap '' HUP INT TERM\n", (TRIALS_DEAF,)) for script in SCRIPTS_1215],
+    *[("%s's clean-up stops at a failed write" % script, "tools/" + script, "    trap '' HUP INT TERM QUIT PIPE\n    set +e\n",
+       "    trap '' HUP INT TERM QUIT PIPE\n", (TRIALS_DEAF,)) for script in SCRIPTS_1215],
+    *[("%s hears a second signal before its clean-up" % script, "tools/" + script,
+       "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM\n", "trap 'exit 1' HUP INT TERM\n", (TRIALS_TRAP,))
+      for script in SCRIPTS_1215],
+    *[("%s exports what its environment says to" % script, "tools/" + script, "set +a\nunset CDPATH\n", "unset CDPATH\n",
+       (TRIALS_SHELL,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in EVERY_1215],
+    *[("%s looks along CDPATH" % script, "tools/" + script, "set +a\nunset CDPATH\n", "set +a\n", (TRIALS_SHELL,))
+      for script in EVERY_1215],
     ("P-39's mint reads a .curlrc", "tools/trial_p39_reach.sh", "| curl -q -sS -w '\\n%{http_code}' -X POST",
      "| curl -sS -w '\\n%{http_code}' -X POST", (TRIALS_ENV,)),
 ]

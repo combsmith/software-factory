@@ -16,6 +16,10 @@
 # so the first signal stops the run and no later one stops the clean-up (issue 481). It prints that directory first, then the pull request and its head.
 # Run it from anywhere in a checkout of this repo, with bash 3.2 or later, curl, openssl, gh, python3.
 set -euo pipefail
+# Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
+# (issue 1215).
+set +a
+unset CDPATH
 set +x
 unset GH_DEBUG DEBUG CURL_HOME
 # No credential's name is taken from the environment, where one exported would reach every child, and curl is
