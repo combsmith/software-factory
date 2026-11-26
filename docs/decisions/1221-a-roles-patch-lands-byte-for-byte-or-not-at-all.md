@@ -1,4 +1,4 @@
-# 0000. A Role's patch lands byte for byte or not at all
+# 1221. A Role's patch lands byte for byte or not at all
 
 Status: accepted. 2026-11-25, the Solution Architect; issue 838. Extends decision 0188's residual, "the push's write must land exactly that patch".
 
