@@ -1,4 +1,4 @@
-# 9999. An issue's Hold is read before an uncounted label is removed
+# 1244. An issue's Hold is read before an uncounted label is removed
 
 Status: accepted. 2026-11-26, the Solution Architect; issue 1216. Extends decisions 1207 and 1224, and the brakes' Holds of decision 0003.
 
