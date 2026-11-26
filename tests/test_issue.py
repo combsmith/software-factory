@@ -2278,6 +2278,50 @@ class Investigation(unittest.TestCase):
         self.assertEqual(what(decide(TRIAGED, outside + runs)), ("hold", "run_ceiling", None))
         self.assertEqual(what(decide(renewed, outside)), ("admit", "triage", INVESTIGATE))
 
+    def test_an_issues_run_that_ended_person_holds_the_issue_and_calls_a_person_and_spends_no_attempt(self):  # issue 838
+        # The twin of the pull request's rule: the Role's latest Run ended `person` holds the issue for a person, with that
+        # Run as evidence, under a Pause too; ended any other way, the next Run is admitted.
+        ended = failed(INVESTIGATE, 2, "p1", outcome="person")
+        for ctx in (None, context(paused=True), context(paused=None)):
+            d = decide(TRIAGED, [ended], ctx=ctx)
+            self.assertEqual((d["state"], what(d), d["attention"], d["evidence"]),
+                             ("held", ("hold", "run_needs_person", None), "needs_you", ["p1"]), ctx)
+        for kind in ("item", "environment", "capacity", "superseded", None):
+            self.assertEqual(what(decide(TRIAGED, [dict(ended, outcome=kind)])), ("admit", "triage", INVESTIGATE), kind)
+        # The Role's latest Run alone is read, and a writer's action releases the Hold, as it renews the attempts.
+        self.assertEqual(what(decide(TRIAGED, [ended, failed(INVESTIGATE, 3, "i3")])), ("admit", "triage", INVESTIGATE))
+        self.assertEqual(decide(TRIAGED, [failed(INVESTIGATE, 1, "i1"), ended])["evidence"], ["p1"])
+        renewed = facts(label_events=ACCEPTED, last_writer_action_at=at(2))
+        self.assertEqual(what(decide(renewed, [ended])), ("admit", "triage", INVESTIGATE))
+        self.assertEqual(what(decide(facts(label_events=ACCEPTED, last_writer_action_at=at(1)), [ended]))[1],
+                         "run_needs_person")
+        # Another Role's Run that ended `person` holds no Run of this Role.
+        self.assertEqual(what(decide(TRIAGED, [failed(JUDGE, 2, "p2", outcome="person", role="readiness")])),
+                         ("admit", "triage", INVESTIGATE))
+        # The implementing Run's too, read before the rounds' brake: one round, then a Run that ended `person`, at a
+        # bound of two rounds, holds for the person, not at the rounds.
+        failing = facts(linked=[agents(draft=True, checks="failing")])
+        cfg = dict(config(), author_role="dev-lead")
+        cfg["limits"] = dict(cfg["limits"], max_implementing_rounds=2)
+        round_ = run(intent=issue.IMPLEMENT, role="dev-lead", name="m0", minute=7)
+        person = dict(run(intent=issue.IMPLEMENT, role="dev-lead", name="p8", minute=8), conclusion="failure",
+                      outcome="person")
+        d = decide(failing, [round_, person], cfg=cfg)
+        self.assertEqual((d["state"], what(d), d["evidence"]), ("held", ("hold", "run_needs_person", None), ["p8"]))
+        d = decide(failing, [round_, dict(person, outcome="item")], cfg=cfg)
+        self.assertEqual((what(d)[:2], d["evidence"]), (("hold", "attempts_exhausted"), ["m0", "p8"]))
+        # A writer's action after it releases it here too, and a draft whose checks do not fail wants no Run to hold.
+        renewed = facts(linked=[agents(draft=True, checks="failing")], last_writer_action_at=at(8))
+        self.assertEqual(what(decide(renewed, [round_, person], cfg=cfg)), ("admit", "linked_draft", issue.IMPLEMENT))
+        for checks in ("pending", "passing"):
+            green = facts(linked=[agents(draft=True, checks=checks)])
+            self.assertEqual(what(decide(green, [round_, person], cfg=cfg)), ("nothing", "linked_draft", None), checks)
+        # It holds with a Run in flight, as the rounds' brake does: a Run waiting is none of the Role's completed Runs.
+        cfg["limits"] = dict(cfg["limits"], max_implementing_rounds=3)
+        flying = run(intent=issue.IMPLEMENT, status="in_progress", role="dev-lead", name="m9", minute=9)
+        d = decide(failing, [round_, person, flying], cfg=cfg)
+        self.assertEqual((what(d), d["evidence"]), (("hold", "run_needs_person", None), ["p8"]))
+
     def test_an_issues_run_that_ran_and_left_no_outcome_is_an_attempt(self):  # issue 286's ruling
         # An investigating Run that failed or timed out with no outcome is the item's; one cancelled with none is not.
         tries = LIMITS["max_attempts"]
