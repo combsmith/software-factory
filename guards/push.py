@@ -70,6 +70,7 @@ ABSENT = "404"
 NO_ANSWER = ("401", "403", "429")
 NO_ANSWER_AFTER = ("401", "429")
 HEADS = "refs/heads/"
+COMMIT = "commit"
 RECURSIVE = "?recursive=1"
 # What a state holds; and what the port's listing holds, which `listed` marks `whole` and names by the tree it read.
 STATE = ("push", "tree", "before", "branch_read", "blobs_read", "made", "new", "checked", "commit", "commit_back",
@@ -199,6 +200,11 @@ def _mapping(said) -> bool:
     return type(said) is dict and all(type(key) is str for key in said)
 
 
+def _status(said) -> bool:
+    """Whether `said` is a status as `send` gives it: three digits, from 100 to 599, as text."""
+    return type(said) is str and len(said) == len(OK) and all(c in DIGITS for c in said) and "1" <= said[0] <= "5"
+
+
 def _said(said, text) -> bool:
     return type(said) is str and said == text
 
@@ -260,28 +266,33 @@ def seen(state, method, path, body, answer) -> tuple:
     `{"status", "body"}` or None, and for the tree, `listed`'s listing. A request that may not leave as the state
     stands, an answer in no shape `send` gives, or a listing the port did not mark whole or read at another tree, is
     `NOT_PERMITTED`; no answer, `UNANSWERED`; the branch not as the Decision admitted it, `BRANCH_MOVED`; any other
-    answer the push cannot go on from, `ANSWER_REFUSED`. A blob's bytes are the port's `read_whole`'s to judge: its
-    read is only counted, so that it is not read again."""
+    answer the push cannot go on from, `ANSWER_REFUSED`. A blob's bytes are the port's `read_whole`'s to judge: a
+    blob given is only counted, so that it is not read again."""
     step = _step(state, method, path, body)
     if step is None:
         return None, NOT_PERMITTED
     if step == TREE_READ:
+        if answer is None:
+            return None, UNANSWERED
         if not _listing(answer, state["tree"]):
             return None, NOT_PERMITTED
         before = {"tree": dict(answer["tree"]), "blobs": dict(answer["blobs"]), "sha": answer["sha"], "whole": True}
         return dict(state, before=before), None
-    if answer is not None and not (_keyed(answer, ("status", "body")) and type(answer["status"]) is str):
+    if answer is not None and not (_keyed(answer, ("status", "body")) and _status(answer["status"])):
         return None, NOT_PERMITTED
-    if step == BLOB_READ:
-        return dict(state, blobs_read=state["blobs_read"] + (path[len(path) - len(SHA):],)), None
     if _unanswered(answer, NO_ANSWER if step == BRANCH_READ else NO_ANSWER_AFTER):
         return None, UNANSWERED
     status, got, push = answer["status"], answer["body"], state["push"]
+    if step == BLOB_READ:
+        # A blob refused is a refusal; its bytes, when given, are the port's to judge.
+        if status != OK:
+            return None, ANSWER_REFUSED
+        return dict(state, blobs_read=state["blobs_read"] + (path[len(path) - len(SHA):],)), None
     if step == BRANCH_READ:
         # Absent where the Decision admitted no head, and at that head where it admitted one; any other branch is
         # someone else's write.
         at = got["object"].get("sha") if _mapping(got) and _said(got.get("ref"), HEADS + push["branch"]) \
-            and _mapping(got.get("object")) else None
+            and _mapping(got.get("object")) and _said(got["object"].get("type"), COMMIT) else None
         if (status, push["head"]) == (ABSENT, None) or (status == OK and _sha(at) and at == push["head"]):
             return dict(state, branch_read=True), None
         return None, BRANCH_MOVED if status == ABSENT or (status == OK and _sha(at)) else ANSWER_REFUSED
