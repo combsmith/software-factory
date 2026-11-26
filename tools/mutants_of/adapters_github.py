@@ -165,7 +165,7 @@ MUTANTS = [
      '        if size > largest:\n',
      '        if False:\n', ('tests.test_adapters',)),
     ('a JSON answer is read as text', 'adapters/github.py',
-     '    if kept.get("content-type", "").split(";")[0].strip().endswith("json"):\n',
+     '    if "," not in kind and kind.split(";")[0].strip().endswith("json"):\n',
      '    if False:\n', ('tests.test_adapters',)),
     ('a replay answers a request twice', 'adapters/github.py',
      '== want:\n            asked, answer = self._left.pop(0)\n',
