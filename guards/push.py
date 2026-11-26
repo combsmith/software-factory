@@ -242,9 +242,11 @@ def _state(state) -> bool:
         return False
     if made and (before is None or changes is None or not set(made) <= set(changes["written"])):
         return False
-    # Files of one content share one blob.
-    if made and any(push_blobs[path] == push_blobs[one] and made.get(path) != made[one] for one in made
-                    for path in changes["written"]):
+    # One blob to each content, and one content to each blob: a content's files are all made, by one name, or none.
+    names = {push_blobs[path]: made[path] for path in made}
+    if made and (len(set(names.values())) != len(names)
+                 or any(push_blobs[path] in names and made.get(path) != names[push_blobs[path]]
+                        for path in changes["written"])):
         return False
     if new is not None and not (_sha(new) and new != tree and before is not None and changes is not None
                                 and set(made) == set(changes["written"])):
@@ -286,14 +288,14 @@ def _written(state, method, rest, body):
     listing were read; a blob of a written file's base64 that has none yet; then, once each has its blob, one tree."""
     push, made = state["push"], state["made"]
     changes = push["changes"]
-    if changes is None or state["before"] is None or state["branch_read"] is not True or method != "POST":
+    # Nothing is written of changes the admitted tree cannot hold, as `existing` reads them.
+    if (changes is None or state["before"] is None or state["branch_read"] is not True or method != "POST"
+            or existing(changes, state["before"]["tree"])[1] is not None):
         return None
     if rest == "blobs" and _keyed(body, BLOB_BODY) and _said(body["encoding"], BASE64) and type(body["content"]) is str:
         if any(push["blobs"][path] == body["content"] and path not in made for path in changes["written"]):
             return BLOB_MADE
-    # The tree lands only changes the admitted tree can hold, as `existing` reads them.
-    if (rest == "trees" and state["new"] is None and set(made) == set(changes["written"]) and _tree(body, state)
-            and existing(changes, state["before"]["tree"])[1] is None):
+    if rest == "trees" and state["new"] is None and set(made) == set(changes["written"]) and _tree(body, state):
         return TREE_MADE
     return None
 
@@ -355,9 +357,8 @@ def seen(state, method, path, body, answer) -> tuple:
     status, got, push = answer["status"], answer["body"], state["push"]
     if step in (BLOB_MADE, TREE_MADE):
         name = got["sha"] if status == CREATED and _mapping(got) and "sha" in got else None
-        # The admitted tree for the changes, or one name for two contents, is no name of what was made.
-        if (not _sha(name) or (step == TREE_MADE and name == state["tree"])
-                or (step == BLOB_MADE and name in state["made"].values())):
+        # A name already made, or the admitted tree for the changes, is no name of what this made.
+        if not _sha(name) or name in state["made"].values() or (step == TREE_MADE and name == state["tree"]):
             return None, ANSWER_REFUSED
         if step == TREE_MADE:
             return dict(state, new=name), None
