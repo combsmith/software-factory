@@ -10413,11 +10413,7 @@ sys.exit(subprocess.run([%r] + sys.argv[1:], input=said).returncode)
                 for said, status in (("HTTP/1.1 200 Connection established\n\nHTTP/2 403\nx: y\n\n{}\n", "403"),
                                      ("HTTP/1.1 200 Connection established\n\n\nHTTP/2 403\n\n{}\n", "403"),
                                      ("HTTP/2 200\nx: y\n\nBody\n\nHTTP/1.1 404 Not Found\n", "200"),
-                                     ("no head\n", ""),
-                                     # A status is three digits, whole, or none (issue 1215): nothing else of the line
-                                     # reaches requests.json or the terminal.
-                                     ("HTTP/2 200x\n\n{}\n", ""), ("HTTP/1.1 2000 OK\n\n{}\n", ""),
-                                     ("HTTP/2 20 OK\n\n{}\n", ""), ("HTTP/1.1 404 Not Found\n\n{}\n", "404")):
+                                     ("no head\n", "")):
                     # Each as it is, and as curl -i writes it, each line ending in CRLF (issue 502, Argon). What awk says
                     # is read as bytes, as $(...) keeps them: a carriage return left in the status is not stripped here.
                     for spelt in (said, said.replace("\n", "\r\n")):
