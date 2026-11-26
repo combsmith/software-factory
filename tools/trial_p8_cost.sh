@@ -332,7 +332,7 @@ json.dump({"query": sys.stdin.read(), "variables": json.loads(sys.argv[1])}, ope
     status=$(awk 'BEGIN { head = 1 } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$scratch/raw-$n")
     if [ "$read_ok" = 0 ] || [ "$status" != 200 ]; then
         drop "$scratch/raw-$n"
-        echo "trial_p8_cost: read $n ($3) failed (curl ok: $read_ok, status: ${status:-none}); nothing of it is kept." >&2
+        echo "trial_p8_cost: read $n ($3) failed (curl ok: $read_ok, status: ${status:-none}); nothing of it reaches OUT." >&2
         exit 1
     fi
     (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"

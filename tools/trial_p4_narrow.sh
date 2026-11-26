@@ -202,7 +202,7 @@ with_token() {   # METHOD PATH [BODY_FILE]
     rm -f "$scratch/crlf-$n"
     if [ "$read_ok" = 0 ]; then
         drop "$scratch/raw-$n"
-        echo "trial_p4_narrow: read $n ($1 /$2) failed in curl; nothing of it is kept." >&2
+        echo "trial_p4_narrow: read $n ($1 /$2) failed in curl; nothing of it reaches OUT." >&2
         exit 1
     fi
     (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"

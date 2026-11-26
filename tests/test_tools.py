@@ -16235,7 +16235,7 @@ elif "/activity" in url:''', 1)
                 self.assertNotIn("gh" + "s_", "".join(texts.values()) + ran.stdout + ran.stderr)
 
     def test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked(self):
-        for flag, said in (("read.broke", "curl failed; nothing of it is kept"), ("read.cut", "")):
+        for flag, said in (("read.broke", "curl failed; nothing of it reaches OUT"), ("read.cut", "")):
             with self.subTest(flag=flag):
                 self.setUp()
                 (self.stand_in / flag).write_text("")
@@ -16373,7 +16373,7 @@ elif "/collaborators/" in url:""", 1)
         self.assertIn('"message": "Validation Failed"', (self.out / "clean-1").read_text())
 
     def test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked(self):
-        for flag, said in (("read.broke", "curl failed; nothing of it is kept"), ("read.cut", "")):
+        for flag, said in (("read.broke", "curl failed; nothing of it reaches OUT"), ("read.cut", "")):
             with self.subTest(flag=flag):
                 self.setUp()
                 (self.stand_in / flag).write_text("")
@@ -16625,7 +16625,7 @@ elif "/issues/" in url:""", 1)
         (self.stand_in / "control.broke").write_text("")
         ran = self.run_script()
         self.assertNotEqual(ran.returncode, 0, ran.stdout)
-        self.assertIn("curl failed; nothing of it is kept", ran.stderr)
+        self.assertIn("curl failed; nothing of it reaches OUT", ran.stderr)
         self.assertEqual([c["method"] for c in self.calls()], ["POST"] + ["GET"] * 10 + ["DELETE", "POST", "GET", "DELETE"])
         self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
         self.assertFalse((self.out / "requests.json").exists())
@@ -16761,7 +16761,7 @@ elif "/issues/" in url:''', 1)
                 self.assertTrue(texts["redacted-1"].strip() and texts["redacted-2"].strip())
 
     def test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked(self):
-        for flag, said in (("read.broke", "curl failed; nothing of it is kept"), ("read.cut", "")):
+        for flag, said in (("read.broke", "curl failed; nothing of it reaches OUT"), ("read.cut", "")):
             with self.subTest(flag=flag):
                 self.setUp()
                 (self.stand_in / flag).write_text("")
