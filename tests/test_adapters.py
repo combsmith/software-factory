@@ -25,6 +25,7 @@ from adapters import acceptance, applied, artifacts, branches, checks, draft_che
     passes, pull, push, records, pause, rules, texts, threads, timeline
 from controller import shared
 from guards import patch
+from guards import push as guard
 from harness import task
 from kernel import brakes
 from tests.support import pending
@@ -9331,12 +9332,12 @@ class Push(unittest.TestCase):
     def test_every_code_of_the_patch_guard_and_the_port_names_whose_it_is(self):
         # Every code, of either module, is in the table, and nothing else: none is read with a default.
         coded = re.compile(r"(?:push|patch|bundle)_[a-z_]+")
-        codes = {value for module in (patch, push) for value in vars(module).values()
+        codes = {value for module in (patch, guard, push) for value in vars(module).values()
                  if type(value) is str and coded.fullmatch(value)}
         self.assertEqual(set(push.WHOSE), codes)
         # No code is written in place in either module, where the table would not see it.
         import ast
-        for module in (patch, push):
+        for module in (patch, guard, push):
             tree = ast.parse(pathlib.Path(module.__file__).read_text())
             written = {node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and type(node.value) is str
                        and coded.fullmatch(node.value)}
@@ -9345,7 +9346,8 @@ class Push(unittest.TestCase):
         # environment's fault, which is a read with no answer alone.
         self.assertEqual(push.WHOSE, {"bundle_unreadable": "role", "patch_does_not_apply": "role", "push_not_a_file": "role",
                                       "push_path_collision": "role", "push_reads_too_large": "role",
-                                      "push_tree_unreadable": "person", "push_tree_unfetched": "port"})
+                                      "push_tree_unreadable": "person", "push_tree_unfetched": "port",
+                                      "push_not_permitted": "person"})
         self.assertEqual((push.READS_TOO_LARGE, push.TREE_UNFETCHED), ("push_reads_too_large", "push_tree_unfetched"))
 
 if __name__ == "__main__":
