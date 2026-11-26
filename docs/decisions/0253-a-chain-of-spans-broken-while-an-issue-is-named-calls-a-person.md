@@ -1,6 +1,6 @@
 # 0253. A chain of spans broken while an issue is named calls a person
 
-Status: accepted 2026-11-19 by the Factory Builder (rulings B1 as C, B4), and 2026-11-21 and 2026-11-22 (d) by the Solution Architect; part 5 of decision 0234's issue; extends decision 0234.
+Status: replaced by `docs/decisions/1239-an-issues-reads-are-bounded-and-a-read-cut-short-calls-a-person.md`, which holds the rule in force.
 
 ## Decision
 

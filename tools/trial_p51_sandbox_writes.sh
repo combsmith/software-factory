@@ -27,6 +27,10 @@
 # the work directory itself, as a control. This script, outside the sandbox, asks whether each is there, then deletes it.
 # OUT receives only checked-ORDER.json, which the workflow prints to its log for the fixture.
 set -euo pipefail
+# Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
+# (issue 1215).
+set +a
+unset CDPATH
 set +x
 export LC_ALL=C
 

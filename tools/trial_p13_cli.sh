@@ -32,6 +32,10 @@
 # If the structured output does not validate, issue 15 says the metered key is tried and recorded. This
 # script does not do that: it is a second step, the Maintainer's, in the runbook.
 set -euo pipefail
+# Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
+# (issue 1215).
+set +a
+unset CDPATH
 set +x
 export LC_ALL=C
 shopt -s nocasematch    # a path is compared without case: the file system may not tell .claude from .CLAUDE
@@ -64,7 +68,7 @@ refuse() {
 [[ "$#" -eq 2 || "$#" -eq 3 ]] || usage
 command -v python3 >/dev/null || refuse "python3 is needed"
 
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+root=$(CDPATH= cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 [[ -f "$root/tools/redact_trial.py" && -f "$root/tools/jsonschema_lite.py" ]] ||
     refuse "run the copy of this script in a checkout of software-factory"
 

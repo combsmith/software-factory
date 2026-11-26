@@ -1,6 +1,6 @@
 # 0234. An issue's reads are bounded by pages and by a budget of requests a pass, and an issue past its bound calls a person
 
-Status: accepted. The Factory Builder's rulings of 2026-11-19 on "Once issues are served, each touched open issue is re-read every pass with no budget of its own, and a short list stops the whole pass" (issue 849): Q1 to Q6, with Q2 re-ruled (B), the bound widened to the issue's own timeline, and its deferral given its own code, (A). It is built in three parts: the fact and the Kernel's code first, then the port's bounds, then the budget, the order and the short list. Each decided row a later part builds is marked as waiting on that part, with the test that part adds to hold it; the part takes the mark away and adds its Boundaries rows.
+Status: replaced by `docs/decisions/1239-an-issues-reads-are-bounded-and-a-read-cut-short-calls-a-person.md`, which holds the rule in force.
 
 ## Decision
 

@@ -40,8 +40,9 @@ CALLERS = {
 }
 # The transport's own: each checks again a request `request` built, whatever its method, and builds none of its own.
 TRANSPORT = {(GITHUB, "Live.send"), (GITHUB, "Replay.send")}
-# Python outside adapters/ that may hold a write verb as a string: each reads a command to classify it, and sends none.
-VERB_HOLDERS = ("tools/hooks/identity.py", "tools/hooks/protected.py")
+# Python outside adapters/ that may hold a write verb as a string: each reads a command to classify or permit it, and
+# sends none.
+VERB_HOLDERS = ("guards/push.py", "tools/hooks/identity.py", "tools/hooks/protected.py")
 # Python that loads a module by a name it is given: tools/mutants.py loads a test under tests/, and checks it is one,
 # and each file of MUTANT_DATA by its name, as `areas` finds them.
 NAME_LOADERS = ("tools/mutants.py",)
