@@ -101,7 +101,7 @@ def _changes(changes) -> bool:
         return False
     if len(set(paths)) != len(paths) or len(set(read)) != len(read):
         return False
-    if any(above in side for side in (written, removed) for path in side for above in _above(path)):
+    if any(above in side for side in (written, set(removed)) for path in side for above in _above(path)):
         return False
     return all(type(to) is tuple and len(to) == len(WRITTEN) and type(to[0]) is str and to[0] in patch.FILE_MODES
                and type(to[1]) is bytes for to in written.values())
@@ -150,11 +150,17 @@ def touched(changes) -> tuple:
 def existing(changes, tree) -> tuple:
     """`(files, None)`: the files of the admitted commit, `tree`, that the push changes or removes, each once, in
     order: what FR-14's rule on a test is asked about. A file the push adds is none of them. `(None, NOT_PERMITTED)`
-    for changes in no shape `applied` gives, and `(None, patch.TREE_UNREAD)` for a tree that is no exact mapping of
-    text to a mode git holds, each held to its type before any is compared."""
+    for changes in no shape `applied` gives, or that the tree cannot hold, and `(None, patch.TREE_UNREAD)` for a tree
+    that is no exact mapping of text to a mode git holds, each held to its type before any is compared."""
     if not _changes(changes):
         return None, NOT_PERMITTED
     if type(tree) is not dict or not all(type(path) is str and type(mode) is str and mode in patch.TREE_MODES
                                          for path, mode in tree.items()):
         return None, patch.TREE_UNREAD
+    written, removed = changes["written"], set(changes["removed"])
+    # Changes the tree cannot hold were never `applied`'s: a file written over a directory the tree keeps, or under a
+    # file it keeps.
+    if (any(above in written for path in tree if path not in removed for above in _above(path))
+            or any(above in tree and above not in removed for path in written for above in _above(path))):
+        return None, NOT_PERMITTED
     return sorted(path for path in list(changes["written"]) + changes["removed"] if path in tree), None

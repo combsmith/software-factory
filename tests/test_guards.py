@@ -1171,7 +1171,8 @@ class Said(bytes):
 
 class Push(unittest.TestCase):
     def test_a_push_is_told_whole_or_begins_nothing(self):
-        for told in (PUSH, MOVE, READING, dict(PUSH, branch="factory-work/issue-1-10")):
+        for told in (PUSH, MOVE, READING, dict(PUSH, branch="factory-work/issue-1-10"),
+                     dict(READING, parent="0123456789abcdef" * 2 + "01234567")):
             self.assertEqual(push.began(told)[0]["push"], told)
             self.assertIsNone(push.began(told)[1])
         self.assertEqual(push.began(PUSH), ({
@@ -1199,6 +1200,7 @@ class Push(unittest.TestCase):
                 ("a branch as long as a work branch's head", dict(PUSH, branch="x" * len("factory-work/issue-") + "838-1")),
                 ("a parent that is a list of characters", dict(PUSH, parent=list(PARENT))),
                 ("a parent of a character more", dict(PUSH, parent=PARENT + "a")),
+                ("a parent of a letter that is no hex digit", dict(READING, parent="g" * 40)),
                 ("a work branch of an issue led by 0", dict(PUSH, branch="factory-work/issue-01-1")),
                 ("a work branch opened 01 times", dict(PUSH, branch="factory-work/issue-1-01")),
                 ("a work branch of a digit git's own are not", dict(PUSH, branch="factory-work/issue-\u0663-1")),
@@ -1213,6 +1215,7 @@ class Push(unittest.TestCase):
                 ("a written file with no blob", dict(PUSH, blobs={"docs/a.md": "QQo="})),
                 ("a blob of no written file", dict(PUSH, blobs=dict(BLOBS, x="QQo="))),
                 ("a blob that is bytes", dict(PUSH, blobs=dict(BLOBS, **{"docs/a.md": b"QQo="}))),
+                ("a second blob that is bytes", dict(PUSH, blobs=dict(BLOBS, **{"docs/n.md": b"eAo="}))),
                 ("blobs that are a list", dict(PUSH, blobs=list(BLOBS))),
                 ("a repo of another kind", dict(PUSH, repo=Text(REPO))), ("a branch of another kind", dict(PUSH, branch=Text(BRANCH))),
                 ("a parent of another kind", dict(PUSH, parent=Text(PARENT))), ("a head of another kind", dict(MOVE, head=Text(PARENT))),
@@ -1260,6 +1263,7 @@ class Push(unittest.TestCase):
                 ("a path that is no text", told(written={("docs/a.md",): (FILE, b"")})),
                 ("a removed path that is no text", told(removed=[["tests/t.py"]])),
                 ("a file written above a file written", told(written={"a": (FILE, b""), "a/b": (FILE, b"")})),
+                ("a file written two above a file written", told(written={"a": (FILE, b""), "a/b/c": (FILE, b"")})),
                 ("a file removed above a file removed", told(written={"x": (FILE, b"")}, removed=["a", "a/b"])),
                 ("a file written and removed", told(removed=["docs/a.md"])),
                 ("a file removed twice", told(removed=["tests/t.py", "tests/t.py"])),
@@ -1267,6 +1271,7 @@ class Push(unittest.TestCase):
                 ("a link written", told(written={"l": ("120000", b"x")})),
                 ("a submodule written", told(written={"m": ("160000", b"x")})),
                 ("a file of text", told(written={"docs/a.md": (FILE, "A\n")})),
+                ("a second file that is a link", told(written=dict(wrote, **{"docs/n.md": ("120000", b"x")}))),
                 ("a file that is a list", told(written={"docs/a.md": [FILE, b"A\n"]})),
                 ("a file with a thing more", told(written={"docs/a.md": (FILE, b"A\n", NEW_A)})),
                 ("a file of bytes alone", told(written={"docs/a.md": (b"A\n",)})),
@@ -1297,6 +1302,16 @@ class Push(unittest.TestCase):
         self.assertEqual(push.existing(dict(changes, removed=[]), tree), (["docs/a.md"], None))
         self.assertEqual(push.existing(changes, {}), ([], None))
         self.assertEqual(push.existing(changes, {"tests/t.py": FILE}), (["tests/t.py"], None))
+        # Changes that the tree they land on cannot hold were never `applied`'s: a file over a directory the tree keeps,
+        # at any depth, or under a file it keeps. Where the push removes what stood in the way, they land.
+        for wrote, tree_said in (({"tests": (FILE, b"x")}, {"tests/t.py": FILE}), ({"a/b": (FILE, b"")}, {"a": FILE}),
+                                 ({"a": (FILE, b"")}, {"a/b/c": FILE}), ({"a/b/c": (FILE, b"")}, {"a": FILE})):
+            said = {"written": wrote, "removed": [], "read": []}
+            self.assertEqual(push.existing(said, tree_said), NOT_PERMITTED, tree_said)
+        self.assertEqual(push.existing({"written": {"a/b": (FILE, b"")}, "removed": ["a"], "read": []}, {"a": FILE}),
+                         (["a"], None))
+        self.assertEqual(push.existing({"written": {"d": (FILE, b"")}, "removed": ["d/b"], "read": []},
+                                       {"d/b": FILE, "e": FILE}), (["d/b"], None))
         # A tree in no shape a port gives is the port's read that this cannot take: a person's, as the patch guard's.
         for tree_said in (list(tree), None, Mapping(tree), dict(tree, **{"tests/t.py": None}), {5: FILE},
                           {Unequal("tests/t.py"): FILE}, dict(tree, **{"tests/t.py": Text(FILE)}), {"x": "040000"}):
