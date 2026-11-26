@@ -159,10 +159,10 @@ b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 # TMPDIR as it starts.
 ids=$(cd "$root" && python3 -I -c '
 import json, sys
-app = json.load(open("config/apps.json"))["apps"]["pr-review"]
+app = json.load(open("config/apps.json", encoding="utf-8"))["apps"]["pr-review"]
 if sys.argv[1] not in app["installed_on"] or sys.argv[1] == "combsmith/software-factory":
     sys.exit("trial_p81_review_order: %s is not the canary the pr-review App is installed on" % sys.argv[1])
-fixture = json.load(open("trials/P-39.grants.json"))
+fixture = json.load(open("trials/P-39.grants.json", encoding="utf-8"))
 read = [e for e in fixture["exchanges"] if e["request"]["call"] == "GET /orgs/combsmith/installations"]
 found = {i["app_id"]: i["id"] for i in read[0]["response"]["body"]["installations"]}
 print(app["name"], app["app_id"], found[app["app_id"]], sys.argv[1].split("/")[1])
@@ -232,7 +232,7 @@ reads() {
 body_of() {   # N
     python3 -I -c '
 import json, sys
-text = open(sys.argv[1]).read()
+text = open(sys.argv[1], encoding="utf-8").read()
 while text.startswith("HTTP/"):    # each head, a proxy'"'"'s block among them, comes before the answer
     text = text.partition("\n\n")[2]
 print(json.dumps(json.loads(text)))' "$out/clean-$1" 2>/dev/null || true
@@ -242,7 +242,7 @@ print(json.dumps(json.loads(text)))' "$out/clean-$1" 2>/dev/null || true
 names_next() {   # N
     python3 -I -c '
 import re, sys
-sys.exit(0 if re.search(r"(?im)^link:.*rel=\"next\"", open(sys.argv[1]).read()) else 1)' "$out/clean-$1"
+sys.exit(0 if re.search(r"(?im)^link:.*rel=\"next\"", open(sys.argv[1], encoding="utf-8").read()) else 1)' "$out/clean-$1"
 }
 
 # The bodies, OUT's sent-NAME, trial text only, written once a token is minted.
