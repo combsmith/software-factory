@@ -248,6 +248,8 @@ MUTANTS = [
      (P26_TESTS + "test_the_cli_is_given_only_the_named_environment_and_one_command",)),
     ("P-26's fetch record keeps any name", P26, 'if found and found.group(1) in NAMES and found.group(1) not in fetches:',
      'if found and found.group(1) not in fetches:', (P26_TESTS + "test_no_marker_and_no_model_text_reaches_out",)),
+    ("P-26's ancestor record keeps any number of reads", P26, 'if len(reads) > 8:', 'if len(reads) > 80:',
+     (P26_TESTS + "test_no_marker_and_no_model_text_reaches_out",)),
     ("P-26's empty environment record is hidden", P26, 'recorded = part["probe_ran"] and (part["env"]["lines"] or 0) > 0',
      'recorded = part["probe_ran"]', (P26_TESTS + "test_each_configuration_is_judged_by_the_condition",)),
     ("P-26's snapshots are kept", P26, '        find "$cfg/shell-snapshots" -type f -newer "$scratch/started" -exec rm -f {} +\n', '',
