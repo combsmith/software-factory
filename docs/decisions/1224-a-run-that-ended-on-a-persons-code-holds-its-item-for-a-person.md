@@ -1,4 +1,4 @@
-# 9999. A Run that ended on a person's code holds its item for a person
+# 1224. A Run that ended on a person's code holds its item for a person
 
 Status: accepted. 2026-11-26, the Solution Architect; issue 838. Extends decisions 0003, 0188 and 0201, and the push port's `WHOSE` (pull request 1222).
 
