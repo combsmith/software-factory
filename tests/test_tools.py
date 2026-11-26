@@ -15709,6 +15709,10 @@ class SignalTraps(unittest.TestCase):
         # One script holds a live token through a clean-up a closed terminal can signal twice, so its line also makes it deaf
         # to the next signal (issue 481).
         own_line = {"trial_as_app.sh": "trap \"trap '' HUP INT TERM QUIT PIPE; trap - EXIT; finish 130\" HUP INT TERM QUIT PIPE"}
+        # Each sh script that mints is deaf from its first signal on, so a second finds the clean-up deaf at once (issue 1215).
+        own_line.update({script: "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM QUIT PIPE" for script in (
+            "trial_reader_reads.sh", "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh", "trial_p58_edits.sh",
+            "trial_p80_branch_reads.sh", "trial_p39_reach.sh", "trial_p4_narrow.sh", "trial_p52_pause.sh", "trial_p8_cost.sh")})
         scripts = sorted((ROOT / "tools").glob("*.sh"))
         self.assertGreaterEqual(len(scripts), 17)
         for script in scripts:
@@ -15718,6 +15722,21 @@ class SignalTraps(unittest.TestCase):
             self.assertRegex(traps[0], r"^trap \S.* EXIT$", script.name)
             self.assertEqual(traps[1], own_line.get(script.name, lines_of[lines[0]]), script.name)
             self.assertEqual(lines[lines.index(traps[0]) + 1], traps[1], script.name)
+
+    def test_every_token_script_is_deaf_in_its_clean_up_and_bounds_its_revocation(self):  # issue 1215
+        # A closed terminal can signal twice. Each sh script that mints stops at the first; its clean-up is deaf to the
+        # next, so the revocation is not cut short, and that revocation is bounded, so a hung one cannot hold it. The
+        # reader's tests run one such stop; this holds every script to the same words.
+        scripts = [s for s in sorted((ROOT / "tools").glob("trial_*.sh"))
+                   if "access_tokens" in s.read_text() and s.read_text().startswith("#!/bin/sh\n")]
+        self.assertEqual(len(scripts), 10)
+        for script in scripts:
+            text = script.read_text()
+            body = [line for line in text.split("\nfinish() {\n", 1)[1].splitlines() if not line.lstrip().startswith("#")]
+            self.assertEqual(body[:2], ["    trap '' HUP INT TERM QUIT PIPE", "    set +e"], script.name)
+            revoke = text.split("\nrevoke() {\n", 1)[1].split("\n}\n", 1)[0]
+            self.assertIn("| curl -q --max-time 30 ", revoke, script.name)
+            self.assertEqual((revoke.count("--max-time"), revoke.count(" -m ")), (1, 0), script.name)
 
 
 class ReaderTrialScript(unittest.TestCase):
@@ -15760,6 +15779,11 @@ if url.endswith("/access_tokens"):
     # A transfer that failed after the whole answer came, as curl's exit 18 says of a partial one.
     sys.exit(18 if os.path.exists(os.path.join(here, "broke")) else 0)
 if method == "DELETE":
+    if os.path.exists(os.path.join(here, "slow.revoke")):
+        # As a read is held below: say the revocation began, and wait until the test lets it end.
+        told, held = (int(n) for n in open(os.path.join(here, "slow.revoke")).read().split())
+        os.write(told, b"r")
+        os.read(held, 1)
     sys.stdout.write(open(os.path.join(here, "revoke.status")).read().strip())
     sys.exit(0)
 roles = json.load(open(os.path.join(here, "roles")))
@@ -15956,6 +15980,39 @@ esac
         self.assertEqual(begun, b"r", "the script reached no read: " + err)
         self.assertNotEqual(running.returncode, 0)
         self.assertIn("DELETE", [c["method"] for c in self.calls()])
+        self.assertIn("stopped with a token live; revoking it returned 204", err)
+        self.assertNotIn(self.TOKEN, out + err)
+
+    def test_a_second_signal_does_not_cut_the_revocation_short(self):  # issue 1215, cubic on pull request 1212
+        # Stopped mid-read, the script revokes its live token on the way out. A second signal then, as a closed terminal
+        # sends to every process of the run, finds the clean-up deaf to it: the revocation ends and is told. Pipes, not a
+        # clock, order the two; a script that ends closes them, so nothing waits for ever.
+        told_r, told_w = os.pipe()
+        held_r, held_w = os.pipe()
+        again_r, again_w = os.pipe()
+        freed_r, freed_w = os.pipe()
+        (self.stand_in / "slow").write_text("%d %d\n" % (told_w, held_r))
+        (self.stand_in / "slow.revoke").write_text("%d %d\n" % (again_w, freed_r))
+        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C"}
+        running = subprocess.Popen([SIGNAL_SHELL, str(self.SCRIPT), str(self.out), str(self.key), *self.GIVEN],
+                                   cwd=SCRATCH.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                                   pass_fds=(told_w, held_r, again_w, freed_r), start_new_session=True)
+        for fd in (told_w, held_r, again_w, freed_r):
+            os.close(fd)
+        try:
+            begun = os.read(told_r, 1)
+            (self.stand_in / "slow").unlink()
+            running.terminate()
+            os.close(held_w)
+            held_w = None
+            revoking = os.read(again_r, 1)
+            # The second to the whole group, as a terminal's hangup comes: the revocation's curl gets it too.
+            os.killpg(running.pid, signal.SIGHUP)
+        finally:
+            for fd in (told_r, again_r, freed_w) + ((held_w,) if held_w is not None else ()):
+                os.close(fd)
+        out, err = running.communicate(timeout=60)
+        self.assertEqual((begun, revoking), (b"r", b"r"), "the script reached no read, or no revocation: " + err)
         self.assertIn("stopped with a token live; revoking it returned 204", err)
         self.assertNotIn(self.TOKEN, out + err)
 
