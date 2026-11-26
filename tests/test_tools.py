@@ -38,7 +38,7 @@ from sim import world
 from adapters import github
 from tests import support
 from tools import (check_apps, check_authority, commits_are_the_maintainers, pr_title, check_context, check_decisions, check_examples, check_gate_sets, check_lifecycle, context_eval,
-                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, redact_trial,
+                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, records, redact_trial,
                    desk, environments_drift, machine_user_drift, rulesets_drift, verify, walk)
 from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
@@ -6917,6 +6917,9 @@ class Context(unittest.TestCase):
         self.assertEqual(self.budgeted("Status: " + "w " * 39 + "non-`None`-valued"), [])
         self.assertTrue(caught(self.budgeted("Status: " + "w " * 41), "the Status is 41 words"))
         self.assertTrue(caught(self.budgeted("Status: " + "w " * 41 + "\nmore"), "the Status is 42 words"))
+        # A section opened inside an example's fence opens none, so the Status runs on past it (issue 1174).
+        fenced = "Status: accepted.\n\n```\n## sample\n```\n\n" + "w " * 41
+        self.assertTrue(caught(self.budgeted(fenced), "the Status is 42 words"), self.budgeted(fenced))
         self.assertEqual(self.budgeted("Status: " + "w " * 41, before=1), [])
         self.assertTrue(caught(self.budgeted("Status: " + "w " * 41, before=-1), "the Status is 41 words"))
 
@@ -6938,6 +6941,18 @@ class Context(unittest.TestCase):
         # A Status wrapped onto a second line replaces as well, as tools/check_decisions.py reads it.
         wrapped = "Status: accepted.\nReplaces `docs/decisions/0001-x.md`."
         self.assertEqual(self.budgeted(wrapped, decision="w " * 400, why="w " * 50), [])
+        # A Replaces in a paragraph of its own is not the Status that tools/check_decisions.py reads, and replaces
+        # nothing, even after a line of spaces alone (issue 1174).
+        for blank in ("\n\n", "\n \t\n", "\r\r", "\u2028\u2028", "\x0c\x0c", "\r\n\r\n"):
+            split = "Status: accepted.%sReplaces `docs/decisions/0001-x.md`." % blank
+            self.assertTrue(caught(self.budgeted(split, decision="w " * 400, why="w " * 50), "are 450 words, and the most is 300"),
+                            repr(blank))
+        # Only the first paragraph replaces, though a later one says it as the first would; a line of spaces before it
+        # is no paragraph.
+        later = "Status: accepted.\n\nStatus: accepted. Replaces `docs/decisions/0001-x.md`."
+        self.assertTrue(caught(self.budgeted(later, decision="w " * 400, why="w " * 50), "the most is 300"))
+        spaced = " \t\nStatus: accepted. Replaces `docs/decisions/0001-x.md`."
+        self.assertEqual(self.budgeted(spaced, decision="w " * 400, why="w " * 50), [])
         # A section given twice is counted whole, and a letter outside ASCII makes a word.
         twice = self.budgeted(decision="w " * 200 + "\n\n## Decision\n\n" + "w " * 200)
         self.assertTrue(caught(twice, "are 401 words"), twice)
@@ -6947,6 +6962,24 @@ class Context(unittest.TestCase):
         # A table's pipes and a dash alone are no words: 2 + 8 + 289 and the Why's one make 300.
         self.assertEqual(self.budgeted(decision="| a | b |\n|---|---|\n" + "| w — | w |\n" * 4 + "w " * 289), [])
         self.assertEqual(self.budgeted(decision="w " * 301, before=1), [])
+
+    def test_a_new_records_one_heading_of_its_depth_is_its_title(self):
+        # Issue 1174: a heading of one # after the title would end the section above it unread, and its words would be
+        # counted by no budget: from the cutover it is refused, in the Status and in a section alike.
+        for at in ("decision", "why", "status"):
+            noted = {"decision": dict(decision="w " * 10 + "\n\n# Notes\n\n" + "w " * 400),
+                     "why": dict(why="Z.\n\n# Notes\n\n" + "w " * 400),
+                     "status": dict(status="Status: accepted.\n\n# Notes\n\nw")}[at]
+            problems = self.budgeted(**noted)
+            self.assertEqual(problems, ["docs/decisions/%04d-x.md: a heading '# Notes' after the title; a record's one "
+                                        "heading of one # is its title" % check_context.BUDGET_FROM], at)
+            self.assertEqual(self.budgeted(before=1, **noted), [], at)
+        # One in an example's fence is no heading, nor is a deeper one, which the section it is in counts; one after
+        # the fence closes is.
+        self.assertEqual(self.budgeted(decision="```\n# Notes\n```\n\nY."), [])
+        after = self.budgeted(decision="```\n# Example\n```\n\n# Notes\n\n" + "w " * 400)
+        self.assertEqual([problem.split("'")[1] for problem in after], ["# Notes"], after)
+        self.assertTrue(caught(self.budgeted(decision="w " * 10 + "\n\n### Notes\n\n" + "w " * 400), "are 412 words"))
 
     def test_a_new_records_decision_table_is_short(self):
         # Decision 1166: the Decision's tables have at most 8 rows together, and no cell over 40 words.
@@ -7069,6 +7102,93 @@ class Context(unittest.TestCase):
         for words in ("docs/lessons.md: names tools/gone.py", "0001-one-repo-and-a-kernel-that-does-no-io.md: no section",
                       "docs/standards/tests.md states no rule", "kernel/AGENTS.md: no table of rules"):
             self.assertTrue(caught(problems, words), words)
+
+
+    def test_the_records_index_is_made_from_the_records_alone(self):
+        # Decision 0009: tools/records.py prints an index of the records, made from them alone and never committed.
+        body = "\n\n## Decision\n\nX.\n\n## Why\n\nY.\n\n## Boundaries\n\n| Boundary | Check |\n|---|---|\n| b | %s |\n"
+        files = {
+            "docs/decisions/0001-a.md": "# 0001. A\n\nStatus: replaced by `docs/decisions/0002-b.md`." + body % "`tools/x.py`",
+            "docs/decisions/0002-b.md": "# 0002. B\n\nStatus: replaced by `docs/decisions/0003-c.md`, in force." + body % "`kernel/k.py`",
+            "docs/decisions/0003-c.md": "# 0003. C | d\n\nStatus: accepted. Replaces `docs/decisions/0002-b.md`."
+                                        + body % "`tests/test_x.py::test_y`, `adapters/a.py`, `make checks`, `tools/x.py`",
+            "docs/decisions/0004-d.md": "# 0004. D\n\nStatus: accepted." + body % "`tools/x.py`, `effect/1`, `kernel`",
+            "docs/decisions/2000-f.md": "# 2000. F\n\nStatus: accepted." + body % "`tools/x.py`",
+            "docs/decisions/10000-e.md": "# Ten thousand\n\nStatus: accepted." + body % "`kernel/k.py`"}
+        dirs = {"tools/x.py": "", "kernel/k.py": "", "adapters/a.py": "", "tests/test_x.py": ""}
+        made = records.render(tree({**files, **dirs}))
+        # A name with no folder, or whose top is no directory here, names no area; a title with no number before it is read whole.
+        for row in ("| 0001 | A | replaced by 0002 | tools |\n", "| 0002 | B | replaced by 0003 | kernel |\n",
+                    "| 0003 | C \\| d | live | adapters, tools |\n", "| 0004 | D | live | tools |\n",
+                    "| 10000 | Ten thousand | live | kernel |\n"):
+            self.assertIn(row, made)
+        # Records stand in the order of their numbers as numbers.
+        self.assertLess(made.index("| 2000 |"), made.index("| 10000 |"))
+        # Chains stand in the order of their live records' numbers as numbers too; with no record replaced, none is printed.
+        heads = tree({"docs/decisions/1999-g.md": "# 1999. G\n\nStatus: replaced by `docs/decisions/2000-f.md`." + body % "`tools/x.py`",
+                      "docs/decisions/9999-h.md": "# 9999. H\n\nStatus: replaced by `docs/decisions/10000-e.md`." + body % "`tools/x.py`",
+                      "docs/decisions/2000-f.md": files["docs/decisions/2000-f.md"],
+                      "docs/decisions/10000-e.md": files["docs/decisions/10000-e.md"], **dirs})
+        self.assertTrue(records.render(heads).endswith("|---|---|\n| 2000 | 1999 |\n| 10000 | 9999 |\n"), records.render(heads))
+        alone = records.render(tree({"docs/decisions/0004-d.md": files["docs/decisions/0004-d.md"], **dirs}))
+        self.assertNotIn("## Chains", alone)
+        self.assertTrue(alone.endswith("| 0004 | D | live | tools |\n"), alone)
+        # A chain is read from its old end, through each record's "replaced by"; a live record that replaced none has none.
+        self.assertTrue(made.endswith("| Live record | Replaced |\n|---|---|\n| 0003 | 0001, 0002 |\n"), made)
+        self.assertEqual(check_context._cells("| 0003 | C \\| d | live | adapters, tools |"), ["0003", "C | d", "live", "adapters, tools"])
+        # A backslash in a title is its own, and escapes no pipe after it.
+        slash = tree({"docs/decisions/0001-a.md": "# 0001. A \\| b\\\n\nStatus: accepted." + body % "`tools/x.py`", **dirs})
+        self.assertIn("| 0001 | A \\\\\\| b\\\\ | live | tools |\n", records.render(slash))
+        # A link is never followed: a linked record, or a linked folder of them, is not read.
+        linked = tree({"docs/decisions/0004-d.md": files["docs/decisions/0004-d.md"], "elsewhere/0001-a.md": files["docs/decisions/0001-a.md"],
+                       **dirs})
+        (linked / "docs/decisions/0001-a.md").symlink_to(linked / "elsewhere/0001-a.md")
+        self.assertNotIn("| 0001 |", records.render(linked))
+        self.assertIn("| 0004 | D | live | tools |\n", records.render(linked))
+        folder = tree({"elsewhere/0004-d.md": files["docs/decisions/0004-d.md"]})
+        (folder / "docs").mkdir()
+        (folder / "docs/decisions").symlink_to(folder / "elsewhere")
+        self.assertNotIn("| 0004 |", records.render(folder))
+        # It is printed, and nothing is written.
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            self.assertEqual(records.main([], linked), 0)
+        self.assertEqual(said.getvalue(), records.render(linked))
+        self.assertFalse((linked / "docs/records.md").exists())
+        # A path is read in either column of a row, and only as a path to a real folder here, linked to none; a command is no path.
+        odd = tree({"docs/decisions/0001-a.md": "# 0001. A\n\nStatus: accepted.\n\n## Decision\n\nX.\n\n## Why\n\nY.\n\n"
+                    "## Boundaries\n\n| Boundary | Check |\n|---|---|\n| b in `kernel/k.py` | `/etc/x`, `../x/y`, `./z/q`, `lent/x.py`, `adapters/a.py --all` |\n",
+                    "elsewhere/x.py": "", **dirs})
+        (odd / "lent").symlink_to(odd / "elsewhere")
+        self.assertIn("| 0001 | A | live | kernel |\n", records.render(odd))
+        # A record replaced by one that is not there heads its chain; a loop of records is followed once round.
+        loop = {"docs/decisions/0001-a.md": "# 0001. A\n\nStatus: replaced by `docs/decisions/0002-b.md`." + body % "`tools/x.py`",
+                "docs/decisions/0002-b.md": "# 0002. B\n\nStatus: replaced by `docs/decisions/0001-a.md`." + body % "`tools/x.py`",
+                "docs/decisions/0003-c.md": "# 0003. C\n\nStatus: replaced by `docs/decisions/0009-gone.md`." + body % "`tools/x.py`"}
+        self.assertTrue(records.render(tree({**loop, **dirs})).endswith("| 0001 | 0002 |\n| 0002 | 0001 |\n| 0009 | 0003 |\n"))
+        # A record whose Status cannot be read is unread, never live; a file not named by a number is no record; and
+        # a linked docs/ is not read.
+        other = tree({"docs/decisions/0001-a.md": "# 0001. A\n" + body % "`tools/x.py`",
+                      "docs/decisions/notes.md": files["docs/decisions/0004-d.md"], **dirs})
+        self.assertIn("| 0001 | A | unread |  |\n", records.render(other))
+        # A record not in UTF-8 is unread, as tools/check_decisions.py reads it; and a chain never ends at an unread record.
+        latin = tree({"docs/decisions/0001-a.md": "# 0001. A\n\nStatus: replaced by `docs/decisions/0002-b.md`." + body % "`tools/x.py`",
+                      "docs/decisions/0002-b.md": "", **dirs})
+        (latin / "docs/decisions/0002-b.md").write_bytes(("# 0002. Caf\xe9\n\nStatus: accepted." + body % "`tools/x.py`").encode("latin-1"))
+        self.assertIn("| 0002 | Caf\ufffd | unread |  |\n", records.render(latin))
+        self.assertNotIn("## Chains", records.render(latin))
+        # A title with no number loses only the mark before it; a path is read as the repo holds it, and one that leaves it names no area.
+        marked = tree({"docs/decisions/10000-e.md": "# #Tag title\n\nStatus: accepted."
+                    + body % "`tools/../kernel/k.py`, `tools/../../outside/x.py`, `adapters/..`", **dirs})
+        self.assertIn("| 10000 | #Tag title | live | kernel |\n", records.render(marked))
+        self.assertNotIn("notes", records.render(other))
+        above = tree({"elsewhere/decisions/0004-d.md": files["docs/decisions/0004-d.md"]})
+        (above / "docs").symlink_to(above / "elsewhere")
+        self.assertNotIn("| 0004 |", records.render(above))
+        # This repo's records all read, each to one row.
+        numbers = sorted(p.name.split("-", 1)[0] for p in (ROOT / "docs/decisions").glob("*.md"))
+        rows = records.render(ROOT).split("\n## Chains")[0].split("|---|---|---|---|\n")[1].splitlines()
+        self.assertEqual(sorted(row.split(" | ")[0][2:] for row in rows), numbers)
+        self.assertFalse(any(" | unread | " in row for row in rows))
 
 
 RECORD = ("# 0001. One thing\n\nStatus: accepted.\n\n## Decision\n\nWe do one thing.\nAnd only that.\n\n"
@@ -11696,6 +11816,18 @@ printf 'example.org.cdn.example.\\n192.0.2.7\\n'
     def written(self, out) -> str:
         return "".join(p.read_text() for p in pathlib.Path(out).iterdir())
 
+    # The read code the stand-in model forges, found as a number of its own: never inside a temporary directory's
+    # name, whose random part is letters, digits and "_" after "tmp", as /tmp/tmpf123qsjl-out was on one run (issue 1226).
+    FORGED = re.compile(r"(?<![0-9A-Za-z_])123(?![0-9A-Za-z_])")
+
+    def test_the_forged_code_is_found_as_a_number_and_never_in_a_temporary_name(self):  # issue 1226
+        for text in ("read=123", '"read_exits": [123, 123]', "codes 123\n", "[123]"):
+            self.assertRegex(text, self.FORGED, text)
+        for text in ("/tmp/tmpwtge_xan/tmpf123qsjl-out", "/tmp/tmp123abcd", "/tmp/tmpabcd123-out", "/tmp/tmp_123_x",
+                     "/tmp/tmpabcd_123-out", "/tmp/tmp123_abcd",
+                     "1234", "0123", "elapsed 41231 ms"):
+            self.assertNotRegex(text, self.FORGED, text)
+
     def checked(self, out) -> dict:
         return json.loads((pathlib.Path(out) / "checked.json").read_text())
 
@@ -11746,8 +11878,15 @@ printf 'example.org.cdn.example.\\n192.0.2.7\\n'
         ran = self.run_script(self.out, self.cfg, folder / "claude")
         self.assertEqual(ran.returncode, 1, ran.stderr)
         written = self.written(self.out) + ran.stdout + ran.stderr
-        for word in self.markers(folder) + list(self.PROSE.values()) + ["NEVER-SEEN", "the_model_wrote", "123"]:
+        for word in self.markers(folder) + list(self.PROSE.values()) + ["NEVER-SEEN", "the_model_wrote"]:
             self.assertNotIn(word, written)
+        # The forged code is looked for in each output alone, so that another's first letter never hides it, and past
+        # the temporary directory, whose name could hold it (Astra, Kimi).
+        root = tempfile.gettempdir()
+        for text in [p.read_text() for p in self.out.iterdir()] + [ran.stdout, ran.stderr]:
+            for where in (os.path.realpath(root), root):
+                text = text.replace(where, "")
+            self.assertNotRegex(text, self.FORGED)
         for part in self.checked(self.out)["configurations"]:
             self.assertEqual((part["env"]["seen"], part["ancestors"]["seen"]),
                              ({"parent": True, "listed": True}, {"parent": True, "listed": True}))
@@ -15654,8 +15793,9 @@ class SignalTraps(unittest.TestCase):
 
     def test_every_trial_is_steered_by_nothing_of_the_shells_environment(self):  # issue 1215
         # SHELLOPTS=allexport would export each credential as it is set, and CDPATH steer every other cd: each trial turns
-        # both off right after its first set.
-        for script in sorted((ROOT / "tools").glob("trial_*.sh")):
+        # both off right after its first set. All but P-59's runner, which trials/P-59.json holds to be the file the
+        # canary ran, byte for byte; it runs on a runner of the canary's, in an environment its workflow sets.
+        for script in sorted(set((ROOT / "tools").glob("trial_*.sh")) - {ROOT / "tools" / "trial_p59_read_confinement.sh"}):
             lines = script.read_text().splitlines()
             first = next(n for n, line in enumerate(lines) if line.startswith("set -e"))
             then = [line for line in lines[first + 1:] if line.strip() and not line.lstrip().startswith("#")]
