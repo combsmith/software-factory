@@ -30,6 +30,6 @@ A guard binds the Role that writes this repo's code. So it lives here, never in 
 | A name is folded as macOS folds it, decomposed, folded in case and decomposed again, wherever that is ASCII, and Unicode 13.0's ignorable characters dropped | `tests/test_guards.py::test_a_name_is_folded_as_macos_folds_it_wherever_that_is_ascii` |
 | A tree in no shape a port gives, and a file's bytes it did not hand over, are refused under a code of their own, never one of the Role's | `tests/test_guards.py::test_what_a_port_did_not_read_is_refused_under_its_own_code` |
 | What it lands is what git lands, on fixed seeds, of a patch as git writes it and of the same patch broken | `tests/test_guards.py::test_a_patch_as_git_writes_it_lands_what_git_would` |
-| A push is told whole or begins nothing; its changes are `applied`'s, path by path | `tests/test_guards.py::test_a_push_is_told_whole_or_begins_nothing`, `tests/test_guards.py::test_a_pushs_changes_are_what_applied_gives_path_by_path` |
+| A push is told whole, each part of its exact type, or begins nothing under a code | `tests/test_guards.py::test_a_push_is_told_whole_or_begins_nothing`, `tests/test_guards.py::test_a_pushs_changes_are_what_applied_gives_path_by_path` |
 | `apply` is asked about the paths that land | `tests/test_guards.py::test_the_paths_apply_is_asked_about_are_the_paths_that_land` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |

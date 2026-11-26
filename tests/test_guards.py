@@ -1138,15 +1138,35 @@ PUSH = {"repo": REPO, "branch": BRANCH, "parent": PARENT, "head": None, "message
         "changes": WROTE, "blobs": BLOBS}
 MOVE = dict(PUSH, head=PARENT)
 READING = dict(PUSH, changes=None, blobs=None)
+NOT_PERMITTED = (None, "push_not_permitted")
+
+
+class Mapping(dict):
+    """A mapping of another kind, with the right keys: what `in`, `set` and `[]` on it do is its own to say."""
+
+
+class Listed(list):
+    """A list of another kind, with the right things in it."""
+
+
+class Pair(tuple):
+    """A tuple of another kind, with the right two things in it."""
+
+
+class Said(bytes):
+    """Bytes of another kind, with the right bytes."""
 
 
 class Push(unittest.TestCase):
     def test_a_push_is_told_whole_or_begins_nothing(self):
         for told in (PUSH, MOVE, READING, dict(PUSH, branch="factory-work/issue-1-10")):
-            self.assertEqual(push.began(told)["push"], told)
-        self.assertEqual(push.began(PUSH), {
+            self.assertEqual(push.began(told)[0]["push"], told)
+            self.assertIsNone(push.began(told)[1])
+        self.assertEqual(push.began(PUSH), ({
             "push": PUSH, "tree": None, "before": None, "branch_read": False, "made": {}, "new": None, "checked": False,
-            "commit": None, "commit_back": False, "moved": False, "landed": False})
+            "commit": None, "commit_back": False, "moved": False, "landed": False}, None))
+        # A push told wrongly is the Factory's own fault in describing it, never the Role's: a person's (issue 838).
+        self.assertEqual(push.NOT_PERMITTED, "push_not_permitted")
         less = {k: v for k, v in PUSH.items() if k != "message"}
 
         class Text(str):
@@ -1188,8 +1208,9 @@ class Push(unittest.TestCase):
                 ("a repo of another kind", dict(PUSH, repo=Text(REPO))), ("a branch of another kind", dict(PUSH, branch=Text(BRANCH))),
                 ("a parent of another kind", dict(PUSH, parent=Text(PARENT))), ("a head of another kind", dict(MOVE, head=Text(PARENT))),
                 ("a message of another kind", dict(PUSH, message=Text(PUSH["message"]))),
-                ("a blob of another kind", dict(PUSH, blobs=dict(BLOBS, **{"docs/a.md": Text("QQo=")})))):
-            self.assertIsNone(push.began(told), said)
+                ("a blob of another kind", dict(PUSH, blobs=dict(BLOBS, **{"docs/a.md": Text("QQo=")}))),
+                ("a push of another kind", Mapping(PUSH)), ("blobs of another kind", dict(PUSH, blobs=Mapping(BLOBS)))):
+            self.assertEqual(push.began(told), NOT_PERMITTED, said)
 
     def test_a_pushs_changes_are_what_applied_gives_path_by_path(self):
         def told(**changed):
@@ -1198,8 +1219,9 @@ class Push(unittest.TestCase):
             return dict(PUSH, changes=changes, blobs=blobs)
         for good in (told(), told(removed=[]), told(written={}), told(read=["docs/a.md", "docs/z.md"]),
                      told(written={"a/b": (FILE, b"")}, removed=["a/c", "ab"])):
-            self.assertIsNotNone(push.began(good), good["changes"])
-            self.assertIsNotNone(push.touched(good["changes"]))
+            self.assertIsNotNone(push.began(good)[0], good["changes"])
+            self.assertIsNone(push.touched(good["changes"])[1])
+            self.assertIsNone(push.existing(good["changes"], {})[1])
         wrote = WROTE["written"]
         for said, bad in (
                 ("nothing written and nothing removed", told(written={}, removed=[])),
@@ -1229,29 +1251,36 @@ class Push(unittest.TestCase):
                 ("written as a list", told(written=list(wrote))),
                 ("a key more", dict(PUSH, changes=dict(WROTE, kept=[]))),
                 ("no read", dict(PUSH, changes={"written": wrote, "removed": []})),
-                ("no changes at all", dict(PUSH, changes=[], blobs={}))):
-            self.assertIsNone(push.began(bad), said)
-            self.assertIsNone(push.touched(bad["changes"]), said)
-            self.assertIsNone(push.existing(bad["changes"], {}), said)
+                ("no changes at all", dict(PUSH, changes=[], blobs={})),
+                ("changes of another kind", dict(PUSH, changes=Mapping(WROTE))),
+                ("written of another kind", told(written=Mapping(wrote))),
+                ("removed of another kind", told(removed=Listed(["tests/t.py"]))),
+                ("read of another kind", told(read=Listed())),
+                ("a file of another kind", told(written={"docs/a.md": Pair((FILE, b"A\n"))})),
+                ("a file's bytes of another kind", told(written={"docs/a.md": (FILE, Said(b"A\n"))}))):
+            self.assertEqual(push.began(bad), NOT_PERMITTED, said)
+            self.assertEqual(push.touched(bad["changes"]), NOT_PERMITTED, said)
+            self.assertEqual(push.existing(bad["changes"], {}), NOT_PERMITTED, said)
 
     def test_the_paths_apply_is_asked_about_are_the_paths_that_land(self):
         changes = {"written": {"docs/b.md": (FILE, b"x\n"), "docs/a.md": (FILE, b"A\n"), "tests/new.py": (FILE, b"")},
                    "removed": ["tests/t.py", "config/x.json"], "read": ["tests/t.py", "docs/a.md"]}
-        self.assertEqual(push.touched(changes), (["config/x.json", "docs/a.md", "docs/b.md", "tests/new.py", "tests/t.py"],
-                                                 ["tests/t.py", "docs/a.md"]))
+        self.assertEqual(push.touched(changes), ((["config/x.json", "docs/a.md", "docs/b.md", "tests/new.py", "tests/t.py"],
+                                                  ["tests/t.py", "docs/a.md"]), None))
         tree = {"docs/a.md": FILE, "tests/t.py": FILE, "config/x.json": FILE, "run.sh": "100755"}
-        self.assertEqual(push.existing(changes, tree), ["config/x.json", "docs/a.md", "tests/t.py"])
-        self.assertEqual(push.existing(dict(changes, removed=[]), tree), ["docs/a.md"])
-        self.assertEqual(push.existing(changes, {}), [])
-        self.assertEqual(push.existing(changes, {"tests/t.py": FILE}), ["tests/t.py"])
-        self.assertIsNone(push.existing(changes, list(tree)))
-        self.assertIsNone(push.existing(changes, None))
+        self.assertEqual(push.existing(changes, tree), (["config/x.json", "docs/a.md", "tests/t.py"], None))
+        self.assertEqual(push.existing(dict(changes, removed=[]), tree), (["docs/a.md"], None))
+        self.assertEqual(push.existing(changes, {}), ([], None))
+        self.assertEqual(push.existing(changes, {"tests/t.py": FILE}), (["tests/t.py"], None))
+        # A tree in no shape a port gives is the port's read that this cannot take: a person's, as the patch guard's.
+        for tree_said in (list(tree), None, Mapping(tree)):
+            self.assertEqual(push.existing(changes, tree_said), (None, patch.TREE_UNREAD), tree_said)
         # What `applied` gave is what is asked about, as it gave it.
         got, reason = patch.applied(CHANGE + NEW + GONE + COPIED, TREE, HELD)
         self.assertIsNone(reason)
-        self.assertEqual(push.touched(got), (["docs/a.md", "docs/c.md", "docs/n.md", "tests/t.py"], ["docs/a.md"]))
-        self.assertEqual(push.existing(got, TREE), ["docs/a.md", "tests/t.py"])
-        self.assertIsNotNone(push.began(dict(PUSH, changes=got, blobs={path: "" for path in got["written"]})))
+        self.assertEqual(push.touched(got), ((["docs/a.md", "docs/c.md", "docs/n.md", "tests/t.py"], ["docs/a.md"]), None))
+        self.assertEqual(push.existing(got, TREE), (["docs/a.md", "tests/t.py"], None))
+        self.assertIsNotNone(push.began(dict(PUSH, changes=got, blobs={path: "" for path in got["written"]}))[0])
 
 
 if __name__ == "__main__":

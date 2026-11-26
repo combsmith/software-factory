@@ -1,0 +1,32 @@
+# 9999. A stopped push names its code, and each code says whose it is
+
+Status: accepted. 2026-11-26, the Solution Architect; issue 838. Extends decision 1221 and the push port's `WHOSE` (pull request 1222).
+
+## Decision
+
+`guards/push.py` gives a code wherever it stops, never None alone, and sets each code itself. There is one code for each class of stop. This pull request sets the first; the later parts of the push guard set the rest.
+
+| Code | When | Whose |
+|---|---|---|
+| `push_not_permitted` | A push told wrongly, changes in no shape `applied` gives, or a request not permitted next | A person's: the Factory described its own push wrongly |
+| `push_branch_moved` | The work branch is not where the Decision admitted it, or a ref write is refused as moved | The fault `superseded`: the next pass derives afresh, with no attempt spent |
+| `push_answer_refused` | A write's 4xx, or a read-back that is not what was made | A person's |
+| `push_unanswered` | No answer to a write, or a 5xx | The port's, an environment fault |
+
+A tree in no shape is the port's read, `push_tree_unreadable`, a person's, as `guards/patch.py` has it. Each input is held to its exact type, as the patch guard holds its own.
+
+Once pull request 1222 is merged, `WHOSE` names each code here: this pull request adds its own if it merges second, else the follow-on that pins the push port's person code does. Push part 2's `seen` takes the port's accepted listing, refuses one not marked whole, and holds only the order, the commit and the branch.
+
+Limits: until `WHOSE` holds a code, no test reads its owner. The cost ceiling alone bounds a branch that keeps moving.
+
+## Why
+
+A stop with no code leaves the Harness to guess whose it is. A wrong guess spends the Role's attempts, or pauses the Factory, on what neither can mend. One code for each step, mapped in the Harness's hand pull request, was rejected: the guard alone knows which step stopped.
+
+## Boundaries
+
+| Boundary | Check |
+|---|---|
+| A push told wrongly begins nothing and gives `push_not_permitted` | `tests/test_guards.py::test_a_push_is_told_whole_or_begins_nothing`, `guards/push.py`, mutant: "a push told wrongly gives no code" |
+| Changes in no shape, or of a type that only looks right, give `push_not_permitted` | `tests/test_guards.py::test_a_pushs_changes_are_what_applied_gives_path_by_path`, `guards/push.py`, mutant: "changes may be a mapping of another kind" |
+| A tree in no shape is the port's read, a person's | `tests/test_guards.py::test_the_paths_apply_is_asked_about_are_the_paths_that_land`, `guards/push.py`, mutant: "a tree in no shape is a push told wrongly" |
