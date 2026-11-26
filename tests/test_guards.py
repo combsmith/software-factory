@@ -763,6 +763,8 @@ class Patch(unittest.TestCase):
         for other in ("a\u200c.py", "A.py\ufe0f", "\u00ada.py", "a.py\U000e0001", "a.\U000e0fffpy"):
             self.assertEqual(landed(EMPTY % (b"a.py", b"a.py"), tree={other: FILE}, held={}), (None, patch.PATH_TWIN), other)
         self.assertEqual(landed(EMPTY % (b"d/y", b"d/y"), tree={"d\u200d/x": FILE}, held={}), (None, patch.PATH_TWIN))
+        for other in ("a\u200c\u200c.py", "a\u200c.p\u200dy", "\u00ad\ufe0fa.py\U000e0001"):
+            self.assertEqual(landed(EMPTY % (b"a.py", b"a.py"), tree={other: FILE}, held={}), (None, patch.PATH_TWIN), other)
         # One alone is no twin: a tree that holds such a name takes a push beside it.
         self.assertEqual(landed(EMPTY % (b"a.py", b"a.py"), tree={"\u2764\ufe0f.md": FILE, "a\u200a.py": FILE}, held={})[0]["written"],
                          {"a.py": (FILE, b"")})
@@ -961,21 +963,22 @@ class Patch(unittest.TestCase):
                     said[below(rng, len(said))] = lines(rng, 1)[0]
             return b"\n".join(said) + (b"" if said[-1] and rng.random() < 0.3 else b"\n") if said else b""
 
-        def snapshot(tree, out="."):
+        def snapshot(tree):
+            # What git's index holds, each blob's bytes read from git itself, never from a checkout a filter may change.
             listed = [entry.split(b"\t") for entry in run(tree, "ls-files", "-s", "-z").stdout.split(b"\0") if entry]
-            return {name.decode(): (meta.split()[0].decode(), (tree / out / name.decode()).read_bytes()) for meta, name in listed}
+            return {name.decode(): (meta.split()[0].decode(), run(tree, "cat-file", "blob", meta.split()[1].decode()).stdout)
+                    for meta, name in listed}
 
-        def both(tree, first, wrong, tag):
+        def both(tree, first, wrong):
             # What each of git's two ways lands of `wrong` on the tree `first`: the files, or what git said in refusing.
             out = []
-            for form, way in enumerate((("--unidiff-zero",), ())):
+            for way in (("--unidiff-zero",), ()):
                 run(tree, "read-tree", first)
                 applied = run(tree, "apply", "--cached", *way, "-", data=wrong, check=False)
                 if applied.returncode:
                     out.append(applied.stderr)
                 else:
-                    run(tree, "checkout-index", "-a", "-f", "--prefix=../out-%s-%d/" % (tag, form))
-                    out.append(snapshot(tree, "../out-%s-%d" % (tag, form)))
+                    out.append(snapshot(tree))
             return out
 
         def parted(data):
@@ -1040,7 +1043,7 @@ class Patch(unittest.TestCase):
             with tempfile.TemporaryDirectory() as where:
                 tree = pathlib.Path(where) / "tree"
                 tree.mkdir()
-                run(tree, "init", "-q")
+                run(tree, "init", "-q", "--template=" + os.devnull)
                 names = ["a.py", "docs/b.md", "docs/deep/c.txt", "tests/d.py", "e", "run.sh", "one"]
                 for name in names:
                     (tree / name).parent.mkdir(parents=True, exist_ok=True)
@@ -1049,6 +1052,8 @@ class Patch(unittest.TestCase):
                 os.chmod(tree / "run.sh", 0o755)
                 run(tree, "add", "-A")
                 first, before = run(tree, "write-tree").stdout.decode().strip(), snapshot(tree)
+                # A file system that keeps no mode would make every file plain, and the modes below would test nothing.
+                self.assertEqual(before["run.sh"][0], "100755", "this file system keeps no executable bit")
                 for name in names:
                     draw = rng.random()
                     if draw < 0.5:
@@ -1101,7 +1106,7 @@ class Patch(unittest.TestCase):
                         lands += 1
                         got = {name: held for name, held in before.items() if name not in changes["removed"]}
                         got.update(changes["written"])
-                        self.assertIn(got, both(tree, first, wrong, turn))
+                        self.assertIn(got, both(tree, first, wrong))
         self.assertEqual(kinds, {"change", "new", "deleted", "rename", "copy"})
         # Enough broken patches still land for the comparison to say something: far fewer, and the breaking has lost its aim.
         self.assertTrue(copied_with_hunks and lands >= 30, (copied_with_hunks, lands))
@@ -1111,7 +1116,7 @@ class Patch(unittest.TestCase):
             with tempfile.TemporaryDirectory() as where:
                 tree = pathlib.Path(where) / "tree"
                 tree.mkdir()
-                run(tree, "init", "-q")
+                run(tree, "init", "-q", "--template=" + os.devnull)
                 (tree / "f").write_bytes(old)
                 run(tree, "add", "-A")
                 first = run(tree, "write-tree").stdout.decode().strip()
