@@ -624,4 +624,10 @@ MUTANTS = [
     ('a commit in a state may be a name given before it', 'guards/push.py',
      ' or commit in made.values() or commit in (tree, new, state["push"]["parent"])',
      '', PUSH_LANDS),
+    ('a branch is moved again after a 422', 'guards/push.py',
+     'and not state["moved"]\n                and not state["stale"] and',
+     'and not state["moved"]\n                and', PUSH_BACK_CODES),
+    ('a tree made in a state may be a name given before it', 'guards/push.py',
+     ' not in (tree, state["push"]["parent"]) and new not in made.values()',
+     ' != tree', PUSH_LANDS),
 ]

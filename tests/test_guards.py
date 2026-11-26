@@ -1749,7 +1749,7 @@ class Push(unittest.TestCase):
         # The commit is of the tree made, on the admitted commit, with the push's message, and nothing else.
         checked, commit = self.upto(PUSH, 2), self.landing()[2][2]
         for body in (dict(commit, message="Other"), dict(commit, tree=ROOT_TREE), dict(commit, parents=[PARENT, NEW_A]),
-                     dict(commit, parents=[NEW_A]), dict(commit, parents=(PARENT,)), dict(commit, message=Text(commit["message"])),
+                     dict(commit, parents=[NEW_A]), dict(commit, parents=(PARENT,)), dict(commit, parents=[]), dict(commit, message=Text(commit["message"])),
                      dict(commit, parents=[Text(PARENT)]), dict(commit, x=1), Mapping(commit)):
             self.assertFalse(push.permits(checked, "POST", GIT + "commits", body), body)
         # The branch is made where none was admitted and moved where one was, at the commit read back, never by force.
@@ -1774,6 +1774,9 @@ class Push(unittest.TestCase):
         # Nor one that says it made a commit named as what came before it.
         for name in (PARENT, NEW_TREE, MADE):
             self.assertFalse(push.permits(dict(made, commit=name), "POST", GIT + "refs", {"ref": "refs/heads/" + BRANCH, "sha": name}))
+        # Nor a tree made named as the admitted commit or a blob.
+        for name in (PARENT, MADE):
+            self.assertFalse(push.permits(dict(checked, new=name), "POST", GIT + "commits", dict(commit, tree=name)), name)
         self.assertFalse(push.permits(dict(self.upto(PUSH, 5), commit="x"), "GET", AT_BRANCH, None))
         # A read back is of what was made alone.
         self.assertFalse(push.permits(self.upto(PUSH, 1), "GET", AT_TREE, None))
@@ -1795,6 +1798,7 @@ class Push(unittest.TestCase):
                     (1, dict(after, tree=dict(after["tree"], **{"docs/c.md": FILE}), blobs=dict(blobs, **{"docs/c.md": (NEW_A, 2)})), refused),
                     (1, dict(after, tree={k: v for k, v in after["tree"].items() if k != "bin/x"},
                              blobs={k: v for k, v in blobs.items() if k != "bin/x"}), refused),
+                    (1, dict(after, tree=dict(after["tree"], **{"bin/x": FILE})), refused),
                     (1, dict(after, whole=False), NOT_PERMITTED), (1, dict(after, sha=ROOT_TREE), NOT_PERMITTED), (1, None, unanswered),
                     # A commit named as what was made before it is none made.
                     (2, {"status": "201", "body": {"sha": PARENT}}, refused), (2, {"status": "201", "body": {"sha": NEW_TREE}}, refused),
@@ -1805,7 +1809,8 @@ class Push(unittest.TestCase):
                     (3, dict(self.BACK, body=dict(self.BACK["body"], parents=[{"sha": PARENT}, {"sha": NEW_A}])), refused),
                     (3, dict(self.BACK, body=dict(self.BACK["body"], message="Other")), refused),
                     (3, dict(self.BACK, body=dict(self.BACK["body"], parents=[{"sha": NEW_A}])), refused),
-                    (3, dict(self.BACK, status="201"), refused),
+                    (3, dict(self.BACK, status="201"), refused), (3, dict(self.BACK, body=dict(self.BACK["body"], parents=[])), refused),
+                    (3, dict(self.BACK, body=dict(self.BACK["body"], parents=({"sha": PARENT},))), refused),
                     (3, dict(self.BACK, body=dict(self.BACK["body"], sha=NEW_A)), refused),
                     (3, gone, refused), (3, {"status": "403", "body": {}}, refused), (3, None, unanswered),
                     (3, {"status": "401", "body": {}}, unanswered), (3, {"status": "429", "body": {}}, limited),
@@ -1830,6 +1835,7 @@ class Push(unittest.TestCase):
             self.assertEqual((stale["stale"], stale["moved"], why), (True, False, None))
             self.assertFalse(push.permits(stale, *write))
             self.assertFalse(push.permits(dict(stale, stale=1), "GET", AT_BRANCH, None))
+            self.assertFalse(push.permits(dict(self.upto(told, 5), stale=True), "GET", AT_BRANCH, None))
             self.assertFalse(push.permits(stale, *self.landing(MOVE if told is PUSH else PUSH)[4][:3]))
             for answer, said in ((unmoved, refused), (gone, moved), (ref(COMMITTED), moved), (None, unanswered),
                                  ({"status": "500", "body": {}}, unanswered), ({"status": "401", "body": {}}, unanswered),

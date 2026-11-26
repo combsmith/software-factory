@@ -261,7 +261,8 @@ def _state(state) -> bool:
                  or any(push_blobs[path] in names and made.get(path) != names[push_blobs[path]]
                         for path in changes["written"])):
         return False
-    if new is not None and not (_sha(new) and new != tree and before is not None and changes is not None
+    if new is not None and not (_sha(new) and new not in (tree, state["push"]["parent"]) and new not in made.values()
+                                and before is not None and changes is not None
                                 and set(made) == set(changes["written"])):
         return False
     # Each step past the tree only once the one before it was taken.
@@ -380,7 +381,7 @@ def seen(state, method, path, body, answer) -> tuple:
     `{"status", "body"}` or None, and for a tree, `listed`'s listing. A request that may not leave as the state stands,
     an answer in no shape `send` gives, or a listing the port did not mark whole or read at another tree, is
     `NOT_PERMITTED`; no answer, `UNANSWERED`; a 429, `RATE_LIMITED`; the branch not as the Decision admitted it or as
-    this wrote it, or a branch write refused as overtaken, `BRANCH_MOVED`; any other answer the push cannot go on from,
+    this wrote it, or after a branch write refused with a 422, moved, `BRANCH_MOVED`; any other answer the push cannot go on from,
     a read back not of what was made among them, `ANSWER_REFUSED`. A blob's bytes are the port's `read_whole`'s to
     judge: a blob given is only counted, so that it is not read again."""
     step = _step(state, method, path, body)
