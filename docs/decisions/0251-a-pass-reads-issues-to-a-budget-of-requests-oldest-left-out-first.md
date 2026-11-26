@@ -1,6 +1,6 @@
 # 0251. A pass reads issues to a budget of requests, oldest left out first
 
-Status: accepted. Extends decision 0234 with its part 3 for "Once issues are served, each touched open issue is re-read every pass with no budget of its own, and a short list stops the whole pass" (issue 849): the budget and the order, as the Factory Builder ruled on 2026-11-19 and the Solution Architect on 2026-11-21. Decision 0234 gains only the Boundary rows that say which of its rows are held. The rows below restate 0234's where this part widens them
+Status: replaced by `docs/decisions/1239-an-issues-reads-are-bounded-and-a-read-cut-short-calls-a-person.md`, which holds the rule in force.
 
 ## Decision
 
