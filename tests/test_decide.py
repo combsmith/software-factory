@@ -4414,9 +4414,9 @@ class UnidentifiedRuns(unittest.TestCase):
 
 
 class GitHubsLimit(unittest.TestCase):
-    """A Role that pushes waits, in its App's installation alone, until GitHub's limit resets (decision 9999)."""
+    """A Role that pushes waits, in its App's installation alone, until GitHub's limit resets (issue 838)."""
 
-    def test_a_pushing_roles_run_waits_in_its_installation_until_the_reset(self):  # decision 9999
+    def test_a_pushing_roles_run_waits_in_its_installation_until_the_reset(self):  # issue 838
         pushing = dict(CONFIG, pushers=["pr-review"])
         def waits(*entries) -> dict:
             return context(github_deferred=list(entries))
@@ -4437,7 +4437,7 @@ class GitHubsLimit(unittest.TestCase):
         self.assertEqual(go(facts(), ctx=dict(waits(held), active_runs=None), cfg=pushing)["reason"],
                          "capacity_unreadable")
 
-    def test_a_wait_or_a_list_of_pushers_that_cannot_be_read_defers_a_pushing_role_alone(self):  # decision 9999
+    def test_a_wait_or_a_list_of_pushers_that_cannot_be_read_defers_a_pushing_role_alone(self):  # issue 838
         pushing = dict(CONFIG, pushers=["pr-review"])
         held = {"role": "pr-review", "owner": "combsmith", "until": "2026-10-11T13:00:01Z"}
         for bad in (None, "x", [None], [dict(held, until="soon")], [dict(held, role=7)], [dict(held, owner=None)],
@@ -4458,7 +4458,7 @@ class GitHubsLimit(unittest.TestCase):
         self.assertEqual(go(facts(), cfg=cfg)["reason"], "github_capacity_unreadable")
         self.assertEqual(go(facts(), cfg=pushing)["outcome"], "admit")
 
-    def test_a_run_github_limited_is_no_attempt(self):  # decision 9999
+    def test_a_run_github_limited_is_no_attempt(self):  # issue 838
         limited = [run(conclusion="failure", outcome="github_capacity", at="2026-10-11T12:1%d:00Z" % i, name="g%d" % i)
                    for i in range(LIMITS["max_attempts"])]
         self.assertEqual(go(facts(), limited)["outcome"], "admit")

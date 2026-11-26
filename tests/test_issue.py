@@ -2403,7 +2403,7 @@ class Investigation(unittest.TestCase):
         ctx = context()
         del ctx["model_deferred_until"]
         self.assertEqual(what(decide(TRIAGED, ctx=ctx)), ("defer", "capacity_unreadable", None))
-        # A Role that pushes waits for GitHub's reset in its installation, as on a pull request (decision 9999).
+        # A Role that pushes waits for GitHub's reset in its installation, as on a pull request (issue 838).
         held = context(github_deferred=[{"role": "business-analyst", "owner": "combsmith", "until": "2026-10-11T13:00:01Z"}])
         pushing = dict(config(), pushers=["business-analyst"])
         self.assertEqual(what(decide(TRIAGED, ctx=held, cfg=pushing)), ("defer", "github_capacity", None))

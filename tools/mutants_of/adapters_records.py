@@ -10,7 +10,7 @@ BOUNDED = ("tests.test_adapters.Records.test_the_asking_is_bounded_to_the_items_
 RESET = ("tests.test_adapters.Records.test_githubs_reset_is_read_with_the_outcome_and_kept_and_a_completed_run_says_when_it_ended",)
 TARGETS = ("adapters/records.py",)
 MUTANTS = [
-    # When GitHub's limit resets, and when a Run ended, from which the pass waits it out (decision 9999).
+    # When GitHub's limit resets, and when a Run ended, from which the pass waits it out (issue 838).
     ("a completed Run says no end", "adapters/records.py",
      '        record["ended_at"] = row["updated_at"]\n', "        pass\n", RESET),
     ("an end that cannot be read is kept", "adapters/records.py",
@@ -221,8 +221,8 @@ MUTANTS = [
      '        whole = type(context.get("active_runs")) is int\n',
      '        whole = True\n', ('tests.test_adapters.Records.test_an_outcome_is_read_once_and_kept_by_its_run_and_attempt',)),
     ("a person's fault is read again each pass", 'adapters/records.py',
-     'CONCLUDED = {"item", "capacity", "environment", "superseded", "person"}',
-     'CONCLUDED = {"item", "capacity", "environment", "superseded"}', ('tests.test_adapters.Records.test_an_outcome_is_read_once_and_kept_by_its_run_and_attempt',)),
+     'CONCLUDED = {"item", "capacity", "github_capacity", "environment", "superseded", "person"}',
+     'CONCLUDED = {"item", "capacity", "github_capacity", "environment", "superseded"}', ('tests.test_adapters.Records.test_an_outcome_is_read_once_and_kept_by_its_run_and_attempt',)),
     ('a fault no outcome names is kept', 'adapters/records.py',
      '(outcome in CONCLUDED if isinstance(outcome, str) else',
      '(True if isinstance(outcome, str) else', ('tests.test_adapters.Records.test_an_outcome_is_read_once_and_kept_by_its_run_and_attempt',)),
@@ -254,8 +254,8 @@ MUTANTS = [
      '                    key = (record["run"], record["started_at"])\n                    attempts[key] = attempts.get(key, 0) + 1\n                    ids.setdefault(record["run"], []).append(row["id"])\n                    if record["status"] == "completed" and record["conclusion"] != "success":\n                        failed.append((record, row["id"], bool(row.get("run_started_at"))))\n',
      '                    key = (record["run"], record["started_at"])\n                    ids.setdefault(record["run"], []).append(row["id"])\n                    if record["status"] == "completed" and record["conclusion"] != "success":\n                        attempts[key] = attempts.get(key, 0) + 1\n                        failed.append((record, row["id"], bool(row.get("run_started_at"))))\n', ('tests.test_adapters.Records.test_an_outcome_is_read_once_and_kept_by_its_run_and_attempt',)),
     ('an outcome read is not stamped', 'adapters/records.py',
-     '            lambda answer: reads.append(dict(read_at(answer), read="outcome")), told)',
-     '            lambda answer: None, told)', ('tests.test_adapters',)),
+     '            lambda answer: reads.append(dict(read_at(answer), read="outcome")), told, reset)',
+     '            lambda answer: None, told, reset)', ('tests.test_adapters',)),
     # Decision 0193: when a Run began is read from its jobs, under P-64's rule.
     ('a job that waits says when its Run began', 'adapters/records.py',
      'if j.get("status") == "in_progress"\n',
@@ -434,15 +434,15 @@ MUTANTS = [
      '        if told:\n            record["engine_started"] = told[0]\n',
      '        if False:\n            record["engine_started"] = told[0]\n', ('tests.test_adapters.Records.test_whether_the_engine_started_is_read_with_the_outcome_and_kept_by_its_run_and_attempt',)),
     ("a kept outcome keeps nothing of the Engine", 'adapters/records.py',
-     '            if (record["run"], record["started_at"]) in engines:\n',
-     '            if False:\n', ('tests.test_adapters.Records.test_whether_the_engine_started_is_read_with_the_outcome_and_kept_by_its_run_and_attempt',)),
+     '            record.update(engines.get((record["run"], record["started_at"]), {}))\n',
+     '            pass\n', ('tests.test_adapters.Records.test_whether_the_engine_started_is_read_with_the_outcome_and_kept_by_its_run_and_attempt',)),
     ("a kept outcome takes the Engine of another Run", 'adapters/records.py',
-     '            if (record["run"], record["started_at"]) in engines:\n                record["engine_started"] = engines[(record["run"], record["started_at"])]\n',
-     '            if engines:\n                record["engine_started"] = list(engines.values())[0]\n', ('tests.test_adapters.Records.test_whether_the_engine_started_is_read_with_the_outcome_and_kept_by_its_run_and_attempt',)),
+     '            record.update(engines.get((record["run"], record["started_at"]), {}))\n',
+     '            record.update(list(engines.values())[0] if engines else {})\n', ('tests.test_adapters.Records.test_whether_the_engine_started_is_read_with_the_outcome_and_kept_by_its_run_and_attempt',)),
     ("anything said of the Engine is kept", 'adapters/records.py',
-     '            if type(row.get("engine_started")) is bool:\n', '            if "engine_started" in row:\n', ('tests.test_adapters.Records.test_whether_the_engine_started_is_read_with_the_outcome_and_kept_by_its_run_and_attempt',)),
+     'if type(row.get(name)) is kind}', 'if name in row}', ('tests.test_adapters.Records.test_whether_the_engine_started_is_read_with_the_outcome_and_kept_by_its_run_and_attempt',)),
     ("what a record says of the Engine twice is kept", 'adapters/records.py',
-     'for key, started in said.items() if keys.count(key) == 1}', 'for key, started in said.items()}', ('tests.test_adapters.Records.test_whether_the_engine_started_is_read_with_the_outcome_and_kept_by_its_run_and_attempt',)),
+     'for key, told in said.items() if keys.count(key) == 1}', 'for key, told in said.items()}', ('tests.test_adapters.Records.test_whether_the_engine_started_is_read_with_the_outcome_and_kept_by_its_run_and_attempt',)),
     ("a key that is no Run or no start is kept for the Engine", 'adapters/records.py',
      '            if not (isinstance(key[0], str) and isinstance(key[1], str)):\n                continue\n', '', ('tests.test_adapters.Records.test_whether_the_engine_started_is_read_with_the_outcome_and_kept_by_its_run_and_attempt',)),
     ("the earlier record's word of the Engine is read", 'adapters/records.py',

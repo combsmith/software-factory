@@ -84,11 +84,11 @@
       ]
     },
     "ended_at": {
-      "description": "When a completed Run ended, as GitHub's updated_at gives it; absent where it gave none that can be read, and read then as started_at (decision 9999)",
+      "description": "When a completed Run ended, as GitHub's updated_at gives it; absent where it gave none that can be read, and read then as started_at (issue 838)",
       "$ref": "#/$defs/time"
     },
     "github_reset": {
-      "description": "Present where a Run that ended github_capacity said when GitHub's limit resets, as its outcome/1 gives it (decision 9999)",
+      "description": "Present where a Run that ended github_capacity said when GitHub's limit resets, as its outcome/1 gives it (issue 838)",
       "type": "integer"
     },
     "engine_started": {

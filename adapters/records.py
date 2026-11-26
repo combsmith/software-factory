@@ -178,7 +178,7 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
     # person's cancel and a concurrency group's say nothing here, so only this counts toward the automatic pause (0116).
     if status == "completed" and never_ran:
         record["never_ran"] = never_ran
-    # When it ended, from which GitHub's limit is waited out (decision 9999).
+    # When it ended, from which GitHub's limit is waited out (issue 838).
     if status == "completed" and _time(row.get("updated_at")):
         record["ended_at"] = row["updated_at"]
     # When it was dispatched, which a re-run keeps, and whether the pass job's own token re-ran it: reconciliation reads
@@ -306,8 +306,8 @@ def known(previous: list) -> dict:
 
 def engines(previous: list) -> dict:
     """What each Run's outcome said beside its fault, as the last pass record before this one read it, by its Run id
-    and when its attempt started: whether its Engine step started (issue 757), and when GitHub's limit resets (decision
-    9999), each a field of the run record. It is read only beside an outcome `known` keeps, and `known` keeps a fault
+    and when its attempt started: whether its Engine step started (issue 757), and when GitHub's limit resets (issue
+    838), each a field of the run record. It is read only beside an outcome `known` keeps, and `known` keeps a fault
     from the last record alone, so no earlier record's word is needed. Only a true or a false is kept of the one, and a
     whole number of the other: an outcome is written once, so what it said stands for its attempt. A key the record
     lists twice is not kept, and nothing is kept from what lists no runs."""
@@ -345,7 +345,7 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
 
     `engine_started`, where a failed Run's outcome says it, is whether its Engine step started, and `github_reset` when
     GitHub's limit resets; `engines` is what `engines` read of them from the pass records before, kept with an outcome
-    `kept` holds (issue 757, decision 9999). `ended_at` is when a completed Run ended, GitHub's `updated_at`.
+    `kept` holds (issues 757 and 838). `ended_at` is when a completed Run ended, GitHub's `updated_at`.
 
     `began` is what `begun` read from the pass records before, and None asks no job: no record then says when it
     began. Given, each Run in progress or completed has its jobs read for `began_at` (`_began`), but one `began`

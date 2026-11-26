@@ -3,7 +3,7 @@
 PUSHERS = ("tests.test_controller.Feed.test_the_kernel_is_given_the_roles_granted_the_push_from_their_manifests",)
 TARGETS = ("controller/configuration.py",)
 MUTANTS = [
-    # The Roles that push, from the grant in their manifests, given to the Kernel (decision 9999).
+    # The Roles that push, from the grant in their manifests, given to the Kernel (issue 838).
     ("the Kernel is given no Role that pushes", 'controller/configuration.py',
      '    held["pushers"] = pushers(root)\n', '    held["pushers"] = []\n', PUSHERS),
     ("a Role granted no push is given as one that pushes", 'controller/configuration.py',

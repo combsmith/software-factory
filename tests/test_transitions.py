@@ -296,7 +296,7 @@ STILL = {
     "pause_unreadable": dict(base([reviewed()]), context={"paused": None}),
     "capacity": dict(base(), context={"model_deferred_until": "2099-01-01T00:00:00Z"}),
     "capacity_unreadable": dict(base(), context={"active_runs": None}),
-    # A Role that pushes waits for GitHub's reset in its installation, or for a wait that can be read (decision 9999).
+    # A Role that pushes waits for GitHub's reset in its installation, or for a wait that can be read (issue 838).
     "github_capacity": dict(base(), context={"github_deferred": [{"role": "pr-review", "owner": "combsmith",
                                                                   "until": "2099-01-01T00:00:00Z"}]},
                             config=dict(CONFIG, pushers=["pr-review"])),

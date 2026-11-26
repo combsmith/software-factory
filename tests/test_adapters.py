@@ -1717,7 +1717,7 @@ class Records(unittest.TestCase):
         self.assertEqual((records.engines(None), records.engines({"runs": [run]}), records.engines([{"runs": None}]),
                           records.engines([{"runs": ["x"]}]), records.engines([])), ({}, {}, {}, {}, {}))
 
-    def test_githubs_reset_is_read_with_the_outcome_and_kept_and_a_completed_run_says_when_it_ended(self):  # 9999
+    def test_githubs_reset_is_read_with_the_outcome_and_kept_and_a_completed_run_says_when_it_ended(self):  # issue 838
         done = {"name": NAME, "status": "completed", "conclusion": "failure", "updated_at": "2026-10-11T12:09:00Z"}
         rows = listing("P-17", 3, rows=done)
         github_id = rows["response"]["body"]["workflow_runs"][0]["id"]
@@ -2195,7 +2195,7 @@ class Artifacts(unittest.TestCase):
         self.assertEqual(artifacts.outcome(github.Replay(stored("o/r", 7, outcome_zip(outcome_of(self.RUN, "item")))),
                                            "o/r", 7, self.RUN, started=told), ("item", True))
         self.assertEqual(told, [])
-        # When GitHub's limit resets is handed to `reset`, where it says, as a whole number (decision 9999).
+        # When GitHub's limit resets is handed to `reset`, where it says, as a whole number (issue 838).
         for said, want in ((1760187600, [1760187600]), (None, [])):
             told = []
             body = dict(outcome_of(self.RUN, "github_capacity"), **({} if said is None else {"github_reset": said}))

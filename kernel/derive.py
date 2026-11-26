@@ -667,7 +667,7 @@ def run_deferral(_decision, facts: dict, state, evidence: list, context: dict, n
     no moment, is unreadable. So is a count of active Runs that is no whole number, a bool among them, or is below zero.
     A Run listed before its run-name may be the Run in flight on this item, so no Run is admitted until it can be named,
     and a list that cannot be read defers too (I-46, decision 0036). Last, a Run of a Role that pushes waits while
-    GitHub's limit on its App holds (`github_waiting`, decision 9999)."""
+    GitHub's limit on its App holds (`github_waiting`, issue 838)."""
     until = context.get("model_deferred_until", "unreadable")
     if until is not None and not (is_time(until) and is_time(now)):
         return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
@@ -692,7 +692,7 @@ def run_deferral(_decision, facts: dict, state, evidence: list, context: dict, n
 
 
 def github_waiting(context: dict, item: dict, role, pushers, now: str):
-    """Whether a Run of `role` on `item` waits for GitHub's limit to reset (decision 9999): the Controller lists each
+    """Whether a Run of `role` on `item` waits for GitHub's limit to reset (issue 838): the Controller lists each
     Role and owner whose Run GitHub limited, until when, and the Run waits while its own is listed and `now` is before
     that. Each Role writes through its own App, and an App's installation is the owner's, so the two name what GitHub
     counts against. A Role that does not push never waits, whatever the list says; for one that does, a list, an entry

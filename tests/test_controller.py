@@ -1123,7 +1123,7 @@ class Feed(unittest.TestCase):
                 json.dumps({key: value for key, value in hooks.items() if key != "person_only"}))
             self.assertEqual(configuration.kernel(pathlib.Path(d))["person_only_paths"], [])
 
-    def test_the_kernel_is_given_the_roles_granted_the_push_from_their_manifests(self):  # decision 9999
+    def test_the_kernel_is_given_the_roles_granted_the_push_from_their_manifests(self):  # issue 838
         # One list: a Role whose Intent permits push_commits, the grant tools/check_authority.py holds; none yet.
         self.assertEqual((configuration.kernel(ROOT)["pushers"], support.CONFIG["pushers"]), ([], []))
         with unittest.mock.patch.object(configuration, "pushers", lambda root: ["dev-lead"] if root == ROOT else None):

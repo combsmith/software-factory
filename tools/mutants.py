@@ -90,7 +90,7 @@ ACT_BRAKES = ('    brake = brakes.on_act(_decision, facts, state, evidence, cont
 # The deferral for an unidentified Run in decide.py's _act, the first after the brakes it follows; and the call that
 # reads every deferral of a Run, the first after the brakes in decide.py's _decide and in issue.py's decide.
 UNIDENTIFIED_DEFERS = '        return _decision(facts, state, "run_unidentified", evidence, t.DEFER)\n'
-DEFERRAL_CALL = ("    stop = run_deferral(_decision, facts, state, evidence, context, now, limits)\n"
+DEFERRAL_CALL = ('    stop = run_deferral(_decision, facts, state, evidence, context, now, limits, role, config.get("pushers"))\n'
                  "    if stop:\n        return stop\n")
 COVERAGE = "tests.test_coverage.Coverage."
 
@@ -2417,7 +2417,7 @@ MUTANTS = ISSUE + OUTSIDE + [
      '    if unnamed_within(context, now, limits) != []:\n', '    if unnamed_within(context, now, limits):\n',
      (UNIDENTIFIED + "test_a_list_of_unidentified_runs_that_cannot_be_read_defers",
       "tests.test_issue.UnidentifiedRuns.test_an_unidentified_run_defers_an_issues_run")),
-    # A Role that pushes waits, in its App's installation alone, until GitHub's limit resets (decision 9999).
+    # A Role that pushes waits, in its App's installation alone, until GitHub's limit resets (issue 838).
     ("a Run GitHub limited does not wait", "kernel/derive.py",
      '    if waiting:\n        return _decision(facts, state, "github_capacity", evidence, t.DEFER)\n', "",
      (GITHUB + "test_a_pushing_roles_run_waits_in_its_installation_until_the_reset",) + ISSUE_TESTS),

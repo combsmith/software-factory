@@ -118,7 +118,7 @@ def outcome(transport, repo: str, github_id: int, run: str, seen=None, started=N
     """`(outcome, whole)` of the Run GitHub numbers `github_id` and the Factory names `run`: the fault its outcome
     names, None for a Run that left none, and whether it was read whole. `seen` is handed the list's answer,
     `started` whether the Run's Engine step started, where its outcome says (issue 757), and `reset` when GitHub's
-    limit resets, where it says (decision 9999)."""
+    limit resets, where it says (issue 838)."""
     held, whole = read(transport, repo, github_id, seen)
     if held is None:
         return None, whole

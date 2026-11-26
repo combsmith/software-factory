@@ -40,7 +40,7 @@ def kernel(root: pathlib.Path) -> dict:
 def pushers(root: pathlib.Path) -> list:
     """The Roles that push, by name: each manifest in `roles/` with an Intent that permits `push_commits`, the grant
     `tools/check_authority.py` holds to the Role's App. It is the one list: the Kernel defers these Roles' Runs alone
-    while GitHub's limit holds (decision 9999)."""
+    while GitHub's limit holds (issue 838)."""
     found = (_json(root, "roles", p.name) for p in sorted((root / "roles").glob("*.json")))
     return [m["name"] for m in found if any(PUSH in i["permitted_effects"] for i in m["intents"])]
 

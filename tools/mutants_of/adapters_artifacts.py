@@ -4,7 +4,7 @@ from tools.mutants_of.common import WIRE_AGAIN, WIRE_RUNS_AGAIN
 
 TARGETS = ("adapters/artifacts.py",)
 MUTANTS = [
-    # When GitHub's limit resets is handed on with the outcome (decision 9999).
+    # When GitHub's limit resets is handed on with the outcome (issue 838).
     ("GitHub's reset is handed to no caller", 'adapters/artifacts.py',
      '        reset.append(record["github_reset"])\n', "        pass\n",
      ("tests.test_adapters.Artifacts.test_a_runs_outcome_is_read_from_its_one_file_and_held_to_outcome_1",)),
