@@ -23,17 +23,16 @@ ACL_TESTS = ("tests.test_tools.OutputMadeAlone.test_every_script_reads_an_acl_wo
 
 # Issue 1215: the tests that hold every trial to the shared words, and each family's run of them, by the class that runs it.
 TRIALS_DEAF = "tests.test_tools.SignalTraps.test_every_token_script_is_deaf_in_its_clean_up_and_bounds_its_revocation"
-TRIALS_ENV = "tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment"
-TRIALS_ROOT = "tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does"
-TRIALS_SHELL = "tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment"
 TRIALS_TRAP = "tests.test_tools.SignalTraps.test_every_script_turns_a_signal_into_its_exit"
 FAMILY_1215 = {"trial_reader_reads.sh": "ReaderTrialScript", "trial_p54_issue_lookup.sh": "IssueLookupTrial",
                "trial_p12_status.sh": "StatusTrial", "trial_p56_comments.sh": "CommentsReadTrial",
                "trial_p80_branch_reads.sh": "BranchReadsTrial", "trial_p58_edits.sh": "EditsReadTrial"}
 SCRIPTS_1215 = tuple(FAMILY_1215) + ("trial_p39_reach.sh", "trial_p4_narrow.sh", "trial_p8_cost.sh")
+TRIALS_ENV = "tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment"
+TRIALS_ROOT = "tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does"
+TRIALS_SHELL = "tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment"
 ROOTS_1215 = SCRIPTS_1215 + ("trial_p13_cli.sh", "trial_p13_ended.sh", "trial_p26_sandbox.sh", "trial_p61_timeline.sh")
 EVERY_1215 = ROOTS_1215 + ("trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh", "trial_p59_read_confinement.sh")
-
 
 def run_1215(script, test):
     """`test` as the class of `script`'s family runs it, or nothing for a script of no family."""
@@ -1158,21 +1157,11 @@ MUTANTS = [
      ("tests.test_tools.BranchReadsTrial.test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live",)),
     ("P-80 takes a first attempt alone", 'tools/trial_p80_branch_reads.sh', 'factory-work/issue-[1-9][0-9]*-[1-9][0-9]*", name', 'factory-work/issue-[1-9][0-9]*-1", name',
      ("tests.test_tools.BranchReadsTrial.test_a_later_attempts_branch_is_taken_and_read",)),
-    # Issue 1215: what the trials share. Each sh script that mints is deaf in its clean-up and bounds its revocation;
-    # each script that mints takes no credential's name or key log from the environment; each finds its root with
-    # CDPATH empty, physically. The tests that hold every script to the same words come first, then a family's run.
+    # Issue 1215: what the trials share. Each sh script that mints stops at its first signal, and its clean-up is deaf to
+    # the next and bounds its revocation. The test that holds every script to the same words comes first, then a family's.
     *[("%s's clean-up stops at a second signal" % script, "tools/" + script, "    trap '' HUP INT TERM QUIT PIPE\n", "",
        (TRIALS_DEAF,) + run_1215(script, "test_a_second_signal_does_not_cut_the_revocation_short"))
       for script in SCRIPTS_1215],
-    *[("%s's revocation may hang" % script, "tools/" + script, "curl -q --max-time 30 -sS -o /dev/null", "curl -q -sS -o /dev/null",
-       (TRIALS_DEAF,)) for script in SCRIPTS_1215],
-    *[("%s takes credentials from the environment" % script, "tools/" + script,
-       "unset SSLKEYLOGFILE token jwt signature minted minting\n", "",
-       (TRIALS_ENV,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in SCRIPTS_1215],
-    *[("%s's root follows CDPATH" % script, "tools/" + script, "root=$(CDPATH= cd -P -- ", "root=$(cd -P -- ",
-       (TRIALS_ROOT,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in ROOTS_1215],
-    *[("%s's root is found logically" % script, "tools/" + script, "root=$(CDPATH= cd -P -- ", "root=$(CDPATH= cd -- ",
-       (TRIALS_ROOT,)) for script in ROOTS_1215],
     *[("%s's clean-up stops at a reader gone" % script, "tools/" + script, "    trap '' HUP INT TERM QUIT PIPE\n",
        "    trap '' HUP INT TERM\n", (TRIALS_DEAF,)) for script in SCRIPTS_1215],
     *[("%s's clean-up stops at a failed write" % script, "tools/" + script, "    trap '' HUP INT TERM QUIT PIPE\n    set +e\n",
@@ -1180,6 +1169,17 @@ MUTANTS = [
     *[("%s hears a second signal before its clean-up" % script, "tools/" + script,
        "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM\n", "trap 'exit 1' HUP INT TERM\n", (TRIALS_TRAP,))
       for script in SCRIPTS_1215],
+    *[("%s's revocation may hang" % script, "tools/" + script, "curl -q --max-time 30 -sS -o /dev/null", "curl -q -sS -o /dev/null",
+       (TRIALS_DEAF,)) for script in SCRIPTS_1215],
+    # Issue 1215: and each trial takes nothing of the Maintainer's environment: no credential's name, key log, export
+    # of every assignment, .curlrc or CDPATH, and its root is found physically.
+    *[("%s takes credentials from the environment" % script, "tools/" + script,
+       "unset SSLKEYLOGFILE token jwt signature minted minting\n", "",
+       (TRIALS_ENV,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in SCRIPTS_1215],
+    *[("%s's root follows CDPATH" % script, "tools/" + script, "root=$(CDPATH= cd -P -- ", "root=$(cd -P -- ",
+       (TRIALS_ROOT,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in ROOTS_1215],
+    *[("%s's root is found logically" % script, "tools/" + script, "root=$(CDPATH= cd -P -- ", "root=$(CDPATH= cd -- ",
+       (TRIALS_ROOT,)) for script in ROOTS_1215],
     *[("%s exports what its environment says to" % script, "tools/" + script, "set +a\nunset CDPATH\n", "unset CDPATH\n",
        (TRIALS_SHELL,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in EVERY_1215],
     *[("%s looks along CDPATH" % script, "tools/" + script, "set +a\nunset CDPATH\n", "set +a\n", (TRIALS_SHELL,))
