@@ -1,6 +1,6 @@
 """The mutants of `adapters/linked.py`: tools/mutants.py runs them."""
 
-from tools.mutants_of.common import F849_LINKED, S3_RIVAL
+from tools.mutants_of.common import F849_LINKED, F849_SAID, S3_RIVAL
 
 S3_BASE = ("tests.test_adapters.Linked.test_only_a_pull_request_to_the_default_branch_is_listed_as_linked",)
 S3_CLOSER = ("tests.test_adapters.Linked.test_a_closer_of_the_present_life_is_listed_whatever_its_references",)
@@ -17,8 +17,10 @@ MUTANTS = [
     # Decision 0217's row, issue 878: a linked draft the Factory opened carries its head's required checks.
     ("the linked entry hands the reader no configuration", 'adapters/linked.py',
      'made["checks"] = draft_checks.read(transport, read, kernel)', 'made["checks"] = draft_checks.read(transport, read, None)', ("tests.test_adapters.DraftChecks.test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read",)),
+    ("the linked read carries no draft head", 'adapters/linked.py',
+     '        made["head"] = draft_checks.head(read)\n', '', ("tests.test_adapters.DraftChecks.test_the_factorys_draft_carries_its_own_head_from_this_repo",)),
     ("the draft's checks are not carried", 'adapters/linked.py',
-     '    if draft_checks.asked(kernel, own):\n        made["checks"] = draft_checks.read(transport, read, kernel)\n', '', ("tests.test_adapters.DraftChecks.test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read",)),
+     '        made["checks"] = draft_checks.read(transport, read, kernel)\n', '', ("tests.test_adapters.DraftChecks.test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read",)),
     ("the linked listing hands its entries no configuration", 'adapters/linked.py',
      'entry(transport, got, identities, accounts, join, spans, kernel)', 'entry(transport, got, identities, accounts, join, spans, None)', ("tests.test_adapters.DraftChecks.test_only_the_factorys_open_draft_with_an_author_role_named_has_its_checks_read",)),
     ("the linked read hands its listing no configuration", 'adapters/linked.py',
@@ -56,6 +58,15 @@ MUTANTS = [
      'total > len(nodes) >= PAGE or', 'total > len(nodes) or', F849_LINKED),
     ("a timeline read short is a cut", 'adapters/linked.py',
      'or more and len(events) >= EVENTS}', 'or more}', F849_LINKED),
+    ("a broken chain names no break", 'adapters/linked.py',
+     '    broken = read_whole is None and named\n', '    broken = False\n', F849_SAID),
+    ("a broken chain is a break whatever names the issue", 'adapters/linked.py',
+     '    broken = read_whole is None and named\n', '    broken = read_whole is None\n', F849_SAID),
+    ("pass records not read are a broken chain", 'adapters/linked.py',
+     '    broken = read_whole is None and named\n', '    broken = not read_whole and named\n',
+     ("tests.test_adapters.Linked.test_a_merge_beside_a_rival_keyword_link_is_read_by_the_spans_the_pass_records_give",)),
+    ("a whole chain is a break while something names the issue", 'adapters/linked.py',
+     '    broken = read_whole is None and named\n', '    broken = bool(named)\n', F849_SAID),
 ] + [(name, 'adapters/linked.py', old, new, tests) for name, old, new, tests in [
     # Decision 0236: a pull request linked by hand now to another base leaves the issue's linked list not whole.
     ("a pull request linked by hand to another base leaves the list whole",
@@ -305,8 +316,8 @@ MUTANTS = [
      '"keyword_spans": spans.get(number, [])',
      '"keyword_spans": [span for found in spans.values() for span in found]', S3_KEPT),
     ("the linked pull requests are whole while the pass records are not read",
-     '    return linked, whole and (read_whole is True or read_whole is None and not named and not spans), cut\n',
-     '    return linked, whole, cut\n', S3_KEPT + S3_GATE + S3_RIVAL),
+     '    return linked, whole and (read_whole is True or read_whole is None and not named and not spans), cut, broken\n',
+     '    return linked, whole, cut, broken\n', S3_KEPT + S3_GATE + S3_RIVAL),
     ("a broken chain of pass records is whole where the records are not read",
      ' or read_whole is None and not named',
      ' or not named', S3_KEPT + S3_GATE),
@@ -316,8 +327,8 @@ MUTANTS = [
     ("an issue a pull request names is still not whole where the chain is whole",
      '(read_whole is True or read_whole is None', '(read_whole is True and not named or read_whole is None', S3_GATE),
     ("a list read short is whole where the chain is broken and nothing names the issue",
-     '    return linked, whole and (read_whole is True or read_whole is None and not named and not spans), cut\n',
-     '    return linked, whole and read_whole is True or read_whole is None and not named and not spans, cut\n', S3_GATE),
+     '    return linked, whole and (read_whole is True or read_whole is None and not named and not spans), cut, broken\n',
+     '    return linked, whole and read_whole is True or read_whole is None and not named and not spans, cut, broken\n', S3_GATE),
     ("a broken chain of pass records is whole whatever names the issue",
      ' or read_whole is None and not named and ',
      ' or read_whole is None and ', S3_GATE + S3_CHAIN),

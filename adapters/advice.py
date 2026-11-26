@@ -88,11 +88,42 @@ def _usage(told: dict, model, tokens: tuple, asks: int, seconds) -> dict:
             "cost_usd": cost, "seconds": seconds}
 
 
+def _status(reason) -> str:
+    return "completed" if reason is None else "failed" if reason in FAILED else "incomplete"
+
+
+def unsuited(result: dict) -> list:
+    """What advice/1's schema cannot say of a Result it holds, as `$.place: problem` lines: its status is the one its
+    reason gives, a read not completed holds no Finding, text or count, no more are told of than one answer holds, and
+    each Finding is of one content and its Lens's and its reader's own, keyed by its own id, which no other shares,
+    with one text of that id in its order. tools/check_examples.py holds every example to it, and the parser every
+    Result it builds."""
+    lens, found, problems = result["lens"], result["findings"], []
+    reader = "%s@%s" % (result["usage"]["deployment"], result["usage"]["model"])
+    if result["status"] != _status(result["reason"]):
+        problems.append("$.status: not the one its reason gives")
+    if result["status"] != "completed" and (found or result["texts"] or result["off_change"]):
+        problems.append("$.findings: a read not completed holds Findings, texts or a count off the change")
+    if len(found) + result["off_change"] > MOST:
+        problems.append("$.off_change: more Findings are told of than one answer holds")
+    for at, finding in enumerate(found):
+        if finding["surface"]["key"] != finding["id"] or finding["source"]["lens"] != lens \
+                or finding["id"].split(":")[0] != lens or finding["source"]["actor"] != reader:
+            problems.append("$.findings[%d]: not keyed by its own id, or not its Lens's or its reader's own" % at)
+    if len({finding["content_id"] for finding in found}) > 1:
+        problems.append("$.findings: of more than one content")
+    if len({finding["id"] for finding in found}) != len(found):
+        problems.append("$.findings: two share an id")
+    if [finding["id"] for finding in found] != [text["id"] for text in result["texts"]]:
+        problems.append("$.texts: not one for each Finding, by its id and in its order")
+    return problems
+
+
 def _result(told: dict, reason, findings: list, texts: list, off: int, usage: dict, schemas: dict) -> dict:
-    status = "completed" if reason is None else "failed" if reason in FAILED else "incomplete"
+    status = _status(reason)
     result = {"schema": "advice/1", "run": told["run"], "release": told["release"], "lens": told["lens"],
               "status": status, "reason": reason, "findings": findings, "texts": texts, "off_change": off, "usage": usage}
-    if validate(result, schemas["advice"], schemas=schemas):
+    if validate(result, schemas["advice"], schemas=schemas) or unsuited(result):
         raise ValueError("what the step was told builds no advice/1")
     return result
 
@@ -123,18 +154,23 @@ def _responses(body: dict) -> tuple:
         return ("refused" if filtered else "cut_short"), None
     if state != "completed" or body.get("error") is not None:
         return _fault(body) or "transport", None
-    output = body.get("output")
-    messages = [item for item in (output if isinstance(output, list) else [])
-                if isinstance(item, dict) and item.get("type") == "message"]
-    if any(item.get("status") == "incomplete" for item in messages):
-        return "cut_short", None
-    if any(item.get("status", "completed") != "completed" or item.get("role", "assistant") != "assistant"
-           or not isinstance(item.get("content"), list) for item in messages):
-        return "unparsed", None             # a message unfinished, unreadable or another speaker's is no answer
+    output = body.get("output") if isinstance(body.get("output"), list) else []
+    items = [item for item in output if isinstance(item, dict)]
+    messages = [item for item in items if item.get("type") == "message"]
+    if any(item.get("status") == "incomplete" for item in items):
+        return "cut_short", None            # a message cut short, or the reasoning beside it
+    if any(item.get("status", "completed") != "completed" for item in items) \
+            or any(item.get("role", "assistant") != "assistant" or not isinstance(item.get("content"), list)
+                   for item in messages):
+        return "unparsed", None             # an item unfinished, or a message unreadable or not the reader's, is none
     parts = [part for item in messages for part in item["content"]]
     if any(isinstance(part, dict) and part.get("type") == "refusal" for part in parts):
         return "refused", None
-    said = [part.get("text") for part in parts if isinstance(part, dict) and part.get("type") == "output_text"]
+    if len(items) != len(output) or any(item.get("type") not in ("message", "reasoning") for item in items):
+        return "unparsed", None             # an item of a kind not known here, a tool's call among them, is no answer
+    if any(not isinstance(part, dict) or part.get("type") != "output_text" for part in parts):
+        return "unparsed", None             # a part of a kind not known here is never passed over unread
+    said = [part.get("text") for part in parts]
     return (None, said[0]) if len(said) == 1 and type(said[0]) is str else ("unparsed", None)
 
 
@@ -151,8 +187,9 @@ def _chat(body: dict) -> tuple:
     if ended == "content_filter" or (isinstance(message, dict) and message.get("refusal") is not None):
         return "refused", None
     if ended != "stop" or not isinstance(message, dict) or message.get("role", "assistant") != "assistant" \
-            or type(message.get("content")) is not str:
-        return "unparsed", None
+            or type(message.get("content")) is not str or message.get("tool_calls") not in (None, []) \
+            or message.get("function_call") is not None or message.get("audio") is not None:
+        return "unparsed", None             # a call of a tool or a sound, neither offered a reader, is a shape not read
     return None, message["content"]
 
 

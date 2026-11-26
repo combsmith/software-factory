@@ -7,6 +7,8 @@ ENVELOPE_TESTS = ("tests.test_tools.Examples.test_a_schema_without_its_envelope_
 FEED_TESTS = ("tests.test_tools.Examples.test_every_reason_that_needs_a_person_says_what_is_asked",)
 SHAPE_TESTS = ("tests.test_tools.Examples.test_the_feeds_sentences_are_text_only_on_the_feed_and_in_their_shape",)
 
+AGREE_TESTS = ("tests.test_advisory.Schemas.test_an_advisory_results_status_findings_and_texts_agree_as_the_parser_builds_them",)
+
 TARGETS = ("tools/check_examples.py",)
 MUTANTS = [
     # Issue 226: the repos a fixture of the canary reads and is answered with, held in the check.
@@ -35,6 +37,13 @@ MUTANTS = [
     # Issue 808: no Role is named to open pull requests until open_pull_request has its writer.
     ('a counter-example configuration is not held to the opening', "tools/check_examples.py",
      '            errors = check_authority.opening_problems(value, root)\n', '            errors = []\n', ("tests.test_tools.Authority.test_a_role_named_to_open_pull_requests_waits_on_its_writer",)),
+    # Issue 1059: then until the issues port reads the work branch's head, the first part missing named alone.
+    ("a counter-example configuration is not held to the branch read", "tools/check_examples.py",
+     '            errors = errors or check_authority.branch_read_problems(value, root)\n', '',
+     ("tests.test_tools.Authority.test_a_role_named_to_open_pull_requests_waits_on_the_branch_read",)),
+    ("a counter-example configuration is held to the writer and the branch read at once", "tools/check_examples.py",
+     'errors = errors or check_authority.branch_read_problems(value, root)', 'errors = errors + check_authority.branch_read_problems(value, root)',
+     ("tests.test_tools.Authority.test_a_role_named_to_open_pull_requests_waits_on_its_writer",)),
     # Decision 0038: a Result asks and names no one; what one Run carries holds codes.
     ("a free string in a Run's schema passes", "tools/check_examples.py",
      '    if strings and not ("enum" in schema or "const" in schema or _coded(schema.get("pattern"))):\n',
@@ -221,4 +230,9 @@ MUTANTS = [
     ('a counter-example of the decision points is held to its schema alone', 'tools/check_examples.py',
      '            errors = check_release.point_problems(value, check_release.maintainer(root))',
      '            errors = []', POINT_FIRST),
+    # Issue 1175: an advisory Lens's Result, an example's or a counter-example's, is held to its parts agreeing.
+    ("an advisory example is held to its schema alone", 'tools/check_examples.py',
+     '        errors = errors or (_advice_unsuited(value) if kind == "advice" else [])\n', '', AGREE_TESTS),
+    ("an advisory counter-example is held to its schema alone", 'tools/check_examples.py',
+     '        if kind == "advice" and not errors:\n            errors = _advice_unsuited(value)\n', '', AGREE_TESTS),
 ]

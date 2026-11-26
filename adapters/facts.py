@@ -87,10 +87,13 @@ def _snapshot(transport, repo, number, identities, accounts, runs_whole, clock, 
     part[0] = "paths"
     paths = pull.changed_paths(transport, first, branch["head"])
     part[0] = "timeline"
-    events, timeline_whole = timeline.events(transport, first)
+    events, timeline_whole, timeline_cut = timeline.bounded(transport, first)
     raw["events"] = (events, timeline_whole)
     part[0] = "reviews"
-    reviews, reviews_whole = timeline.reviews(transport, first, events, accounts, branch["head"], raw)
+    reviews, reviews_whole, reviews_cut = timeline.reviews(transport, first, events, accounts, branch["head"], raw,
+                                                           timeline_whole)
+    # What was cut at its bound, for the seen port, which reads those lists again from their end (issue 1009).
+    raw["cut"] = {"events": timeline_cut, "reviews": reviews_cut}
     part[0] = "writer"
     writer = timeline.since_writer(events, accounts)
     part[0] = "labels"
@@ -98,7 +101,7 @@ def _snapshot(transport, repo, number, identities, accounts, runs_whole, clock, 
     part[0] = "checks"
     read = checks.read(transport, first, raw)
     part[0] = "acceptance"
-    contract, contract_whole = acceptance.read(transport, first, accounts, opener, opened)
+    contract, contract_whole, contract_cut = acceptance.bounded(transport, first, accounts, opener, opened)
     part[0] = "threads"
     found, threads_whole = applied.held(*threads.read(transport, first, accounts, raw), recorded, content["content_id"])
     part[0] = "edits"
@@ -134,6 +137,8 @@ def _snapshot(transport, repo, number, identities, accounts, runs_whole, clock, 
                                   if r.get("expired") is True),
         "acceptance": contract,
         "opened_for": acceptance.opened_for(first, opener, opened),
+        "acceptance_bounded": contract_cut,
+        "timeline_bounded": timeline_cut or reviews_cut,
         "complete": {"acceptance": contract_whole, "reviews": reviews_whole, "threads": threads_whole,
                      "checks": read["complete"], "diff": content["complete"],
                      "changed_paths": paths["complete"], "runs": runs_whole is True, "timeline": timeline_whole},

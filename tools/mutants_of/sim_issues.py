@@ -2,8 +2,15 @@
 
 F849_WORLD = ("tests.test_issue.Unreadable.test_the_issue_world_meets_a_timeline_past_the_bound_under_faults_and_calls_a_person",)
 
+F849_BROKEN_WORLD = ("tests.test_issue.Unreadable.test_the_issue_world_meets_a_broken_chain_of_spans_under_faults_and_calls_a_person",)
 TARGETS = ("sim/issues.py",)
 MUTANTS = [
+    # Issue 1216: a head is told pushed only where a listed opening Run recorded pushing it.
+    ("a planted branch is told as pushed", 'sim/issues.py',
+     '            "branch_pushed": None if self.branch_head is None else self.branch_head in {\n'
+     '                self.pushed.get(r["run"]) for r in self.records() if r["intent"] == issue.OPENING},\n',
+     '            "branch_pushed": None if self.branch_head is None else True,\n',
+     ("tests.test_issue_simulator.IssueSimulation.test_the_seeds_plant_a_branch_the_factory_never_pushed",)),
     # Issue 838: where the branch does not exist, the opening Run is admitted for the commit it lands on.
     ("the issue world serves no default branch's head", "sim/issues.py",
      '            "base_head": "%040x" % (0xba5e0000 + self.minute),\n', "",
@@ -43,4 +50,8 @@ MUTANTS = [
      'facts["timeline_bounded"] = short in ("linked", "timeline") and fault < 0.11', 'facts["timeline_bounded"] = short == "linked" and fault < 0.11', F849_WORLD),
     ("the issue world bounds a read it did not read short", 'sim/issues.py',
      'facts["timeline_bounded"] = short in ("linked", "timeline") and fault < 0.11', 'facts["timeline_bounded"] = short not in ("linked", "timeline") and fault < 0.11', F849_WORLD),
+    ("the issue world never breaks a chain of spans", 'sim/issues.py',
+     'facts["spans_broken"] = short == "linked" and 0.11 <= fault < 0.125', 'facts["spans_broken"] = False', F849_BROKEN_WORLD),
+    ("the issue world breaks a chain beside a list it read whole", 'sim/issues.py',
+     'facts["spans_broken"] = short == "linked" and 0.11 <= fault < 0.125', 'facts["spans_broken"] = short != "linked" and 0.11 <= fault < 0.125', F849_BROKEN_WORLD),
 ]

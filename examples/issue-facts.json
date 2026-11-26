@@ -68,7 +68,12 @@
       "link_events": [],
       "keyword": true,
       "keyword_spans": [],
-      "close_events": []
+      "close_events": [],
+      "checks": "failing",
+      "head": {
+        "sha": "4d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e",
+        "ref": "factory-work/issue-41-1"
+      }
     },
     {
       "number": 140,
@@ -124,11 +129,13 @@
   "last_writer_comment_at": null,
   "acts_since_writer": 1,
   "branch_head": "9f2c41d07a3be58e1c6d0b4a7e25f3c18d90ab6e",
+  "branch_pushed": true,
   "base_head": "b45e0f1d2c3a49586777a6b5c4d3e2f1a0b9c8d7",
   "complete": {
     "timeline": true,
     "linked": true,
-    "runs": true
+    "runs": true,
+    "branch": true
   },
   "timeline_bounded": false,
   "read_at": "2026-10-11T12:00:00Z"

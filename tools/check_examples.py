@@ -368,6 +368,13 @@ def _reason_unsuited(result: dict) -> list:
     return [] if engine.reason_given(result) else ["$.reason: not one its status may give"]
 
 
+def _advice_unsuited(result: dict) -> list:
+    """What no schema here can say of an advisory Lens's Result: that its status, its reason, its Findings and its
+    texts agree, as adapters/advice.py's parser builds them (issue 1175)."""
+    from adapters import advice
+    return advice.unsuited(result)
+
+
 def _held(found: dict) -> list:
     """A manifest's example as the eval job and the gate read it, `harness.eval.held`, and not by its schema alone: a
     gate set's groups, bars and least of a kind among it (the Claude review of issue 613)."""
@@ -443,6 +450,7 @@ def run(root: pathlib.Path = ROOT) -> list:
         if kind == "coverage" and not errors:
             errors = _uncovered(value, root)
         errors = errors or (_reason_unsuited(value) if kind == "result" else [])
+        errors = errors or (_advice_unsuited(value) if kind == "advice" else [])
         errors = errors or (_held(value) if kind == "eval-set" else [])
         errors = errors or (_unprotected(value) if kind == "consumer" else [])
         for err in errors:
@@ -474,11 +482,15 @@ def run(root: pathlib.Path = ROOT) -> list:
             errors = check_release.fixture_problems(value, "invalid/" + path.name)
         if kind == "result" and not errors:
             errors = _reason_unsuited(value)
+        if kind == "advice" and not errors:
+            errors = _advice_unsuited(value)
         if kind == "config" and not errors:
-            # A Role named to open pull requests before open_pull_request has its writer is tools/check_authority.py's
-            # to refuse (issue 808).
+            # A Role named to open pull requests before open_pull_request has its writer (issue 808), and then before
+            # the issues port reads the work branch's head (issue 1059), is tools/check_authority.py's to refuse: the
+            # first part missing is named, so a counter-example of either is wrong in one way.
             from tools import check_authority
             errors = check_authority.opening_problems(value, root)
+            errors = errors or check_authority.branch_read_problems(value, root)
         if kind == "consumer" and not errors:
             errors = _unprotected(value)
         if not errors:

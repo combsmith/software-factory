@@ -4,8 +4,13 @@ TARGETS = ("harness/approve.py",)
 MUTANTS = [
     # Issue 378: the approving act approves only a pull request open at the commit, and claims none closed under it.
     ('an approval is recovered on a timeline read short', 'harness/approve.py',
-     ' \\\n            and (facts.get("complete") or {}).get("timeline") is True:',
+     ' \\\n            and not timeline_short(facts):',
      ':', ("tests.test_approve",)),
+    # Muse on part 1 of 4 of issue 1009: nor past a timeline cut at its bound, whatever complete.timeline claims.
+    ('an approval is recovered on a timeline cut at its bound', 'harness/approve.py',
+     '            and not timeline_short(facts):',
+     '            and (facts.get("complete") or {}).get("timeline") is True:',
+     ("tests.test_approve.TheAct.test_no_approval_is_recovered_on_a_timeline_read_short",)),
     # Issue 526: the facts port reads the description's edits, and an absent edit time is unread, never none (0140).
     ('an approval from before a reopening is recovered', 'harness/approve.py',
      '            done = {"state": None}\n',

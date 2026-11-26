@@ -180,7 +180,8 @@
           "credential_due",
           "runs_never_started",
           "issue_apps_unreadable",
-          "issue_budget_spent"
+          "issue_budget_spent",
+          "issue_list_unreadable"
         ]
       }
     },
@@ -194,7 +195,7 @@
       }
     },
     "left_out": {
-      "description": "Each item the pass left out, in the order read, with why: a read that moved while it was read (`pull_moved`), one GitHub did not answer (`facts_unanswered`), facts that are not facts, an item listed twice, or an issue the pass's budget of issue requests left unread (`issue_budget`, decision 0234). The item is null where none can be named. The next pass reads it to tell a second move from a first (#658). Absent in a record written before it",
+      "description": "Each item the pass left out, in the order read, with why: a read that moved while it was read (`pull_moved`), one GitHub did not answer (`facts_unanswered`), facts that are not facts, an item listed twice, an issue the pass's budget of issue requests left unread (`issue_budget`), or, with no item, an issue list read short, when no issue was read (`issue_list_unreadable`, decision 0234). The item is null where none can be named. The next pass reads it to tell a second move from a first (#658). Absent in a record written before it",
       "type": "array",
       "items": {
         "type": "object",
@@ -212,12 +213,12 @@
               "number": {"type": "integer", "minimum": 1}
             }
           },
-          "code": {"enum": ["pull_moved", "facts_unanswered", "not_facts", "listed_twice", "issue_budget"]}
+          "code": {"enum": ["pull_moved", "facts_unanswered", "not_facts", "listed_twice", "issue_budget", "issue_list_unreadable"]}
         }
       }
     },
     "reconciliation": {
-      "description": "What reconciliation found, as the view says it, each once: each write a Factory identity made that no Effect recorded, each resolution by a hand unmatched or unjudged (decision 0223), each merge read as an Override, and each issue that left read whole by its 404 or 410 (decision 1145), ids and codes alone (decision 0061). Absent in a record written before reconciliation",
+      "description": "What reconciliation found, as the view says it, each once: each write a Factory identity made that no Effect recorded, each resolution by a hand unmatched or unjudged (decision 0223), each merge read as an Override, each hand approval (decision 0241), and each issue that left read whole by its 404 or 410 (decision 1145), ids and codes alone (decision 0061). Absent in a record written before reconciliation",
       "type": "array",
       "uniqueItems": true,
       "items": {
@@ -398,6 +399,35 @@
             "required": ["key", "at"],
             "properties": {
               "key": {"type": "string", "pattern": "^[A-Za-z0-9_=:-]{1,100}$"},
+              "at": {"type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"}
+            }
+          }
+        },
+        "taken": {
+          "description": "Each head an approval not read as the hand took, any account's: its review's key (null if unread), its pull request and the head, kept while that is open or its leaving is held, so a later approval of the head is a second (decision 0241). Absent if none.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "item", "head"],
+            "properties": {
+              "key": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9_=:-]{1,100}$"},
+              "item": {"type": "string", "pattern": "^https://github\\.com/[^/\\s]+/[^/\\s]+/pull/[1-9][0-9]*$"},
+              "head": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+            }
+          }
+        },
+        "hand": {
+          "description": "Each machine user approval read as the Maintainer's hand: its review's key, its pull request, the head and when given, kept while that is open or its leaving is held, so later passes read it as one and a second of that head is not (decision 0241). Absent if none.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "item", "head", "at"],
+            "properties": {
+              "key": {"type": "string", "pattern": "^[A-Za-z0-9_=:-]{1,100}$"},
+              "item": {"type": "string", "pattern": "^https://github\\.com/[^/\\s]+/[^/\\s]+/pull/[1-9][0-9]*$"},
+              "head": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
               "at": {"type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"}
             }
           }

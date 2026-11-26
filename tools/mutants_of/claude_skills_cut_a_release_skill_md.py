@@ -27,7 +27,7 @@ MUTANTS = [
      'is null, nothing carries that Decision out and no Pause is needed. Once it names an account,\nthe Maintainer sets the Pause before the enqueue and lifts it after the merge.',
      'is null or not, no Pause is needed.', CANNOT_APPROVE),
     ('the skill is silent on the alert a hand approval raises', '.claude/skills/cut-a-release/SKILL.md',
-     'The next pass raises the alert `write_unmatched` for it, since no Effect records\nit (decision 0061), and its merge',
+     'The next pass reports it as the entry `hand_approval`, information that names\nthe review, where the last pass before it read the pull request as waiting for a person at the head he approved, for\nthe first approval of that head alone, by a pass whose reads are whole. Any other approval no Effect records\nraises the alert `write_unmatched` (decisions 0061 and 0241), and its merge',
      'Its merge', CANNOT_APPROVE),
     ('the skill prints the approval as a command in backticks', '.claude/skills/cut-a-release/SKILL.md',
      'and his login enqueues it. It needs',

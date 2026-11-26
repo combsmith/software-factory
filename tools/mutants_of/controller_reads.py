@@ -1,6 +1,7 @@
 """The mutants of `controller/reads.py`: tools/mutants.py runs them."""
 
 F849_ALERTS = ("tests.test_controller.Issues.test_an_issue_left_unread_by_the_budget_raises_its_own_alert_and_no_other",)
+F849_UNLISTED = ("tests.test_controller.Issues.test_an_issue_list_read_short_raises_its_own_alert_and_no_other",)
 TARGETS = ("controller/reads.py",)
 MUTANTS = [
     # Asked once the issues are listed, as a pass that read their Runs would: `listed` exists only after the records are read.
@@ -65,4 +66,8 @@ MUTANTS = [
      'codes = UNREAD + (ISSUE_UNREAD if kind == "issue-facts" else ())', 'codes = UNREAD', F849_ALERTS),
     ("a pull request may be left out by the issues' codes", 'controller/reads.py',
      '(ISSUE_UNREAD if kind == "issue-facts" else ())', 'ISSUE_UNREAD', F849_ALERTS),
+    ("an issue list read short is a pull request's code too", 'controller/reads.py',
+     'UNREAD = (MOVED, UNANSWERED)\n', 'UNREAD = (MOVED, UNANSWERED, "issue_list_unreadable")\n', F849_ALERTS),
+    ("an issue list read short is facts that are not facts", 'controller/reads.py',
+     'ISSUE_UNREAD = (BUDGET, UNLISTED)\n', 'ISSUE_UNREAD = (BUDGET,)\n', F849_UNLISTED),
 ]

@@ -38,7 +38,7 @@ from sim import world
 from adapters import github
 from tests import support
 from tools import (check_apps, check_authority, commits_are_the_maintainers, pr_title, check_context, check_decisions, check_examples, check_gate_sets, check_lifecycle, context_eval,
-                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, redact_trial,
+                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, records, redact_trial,
                    desk, environments_drift, machine_user_drift, rulesets_drift, verify, walk)
 from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
@@ -1087,6 +1087,39 @@ class Lifecycle(unittest.TestCase):
         self.assertTrue(caught(problems, "lifecycle/issue.json: the bound max_unmerged_closes is not a limit"),
                         problems)
 
+    def test_the_implementing_rounds_are_held_at_or_below_the_run_ceiling_and_bound_no_transition(self):  # decision 0242
+        # Each round is a Run, so a limit past the Run ceiling would never be reached: the configuration holds it at or
+        # below. And the rounds bound a loop inside in_progress that no transition makes, so no transition may name them,
+        # neither the issue's opening retry nor any of the pull request's.
+        self.assertNotIn("max_implementing_rounds", check_lifecycle.PER_ITEM)
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        ceiling = config["limits"]["max_runs_per_item"]
+        self.assertLessEqual(config["limits"]["max_implementing_rounds"], ceiling)
+        self.assertEqual(check_lifecycle.run(), [])
+        words = "config/defaults.json: max_implementing_rounds is not a whole number at or below max_runs_per_item"
+        missing = object()
+        for value, wrong in ((ceiling, False), (1, False), (ceiling + 1, True), (0, True), (True, True),
+                             (3.0, True), ("3", True), (None, True), (missing, True)):
+            cfg = copy.deepcopy(config)
+            if value is missing:
+                del cfg["limits"]["max_implementing_rounds"]
+            else:
+                cfg["limits"]["max_implementing_rounds"] = value
+            problems = check_lifecycle.run(clone({"config/defaults.json": json.dumps(cfg)}))
+            self.assertEqual(caught(problems, words), wrong, (value, problems))
+        # A Run ceiling that is no whole number, a bool or a fraction above the rounds among them, holds nothing under it.
+        for ceiling, rounds in (("10", 1), (True, 1), (None, 1), (2.5, 2)):
+            cfg = copy.deepcopy(config)
+            cfg["limits"].update(max_runs_per_item=ceiling, max_implementing_rounds=rounds)
+            self.assertTrue(caught(check_lifecycle.run(clone({"config/defaults.json": json.dumps(cfg)})), words),
+                            ceiling)
+        words = "the bound max_implementing_rounds is not a limit the Kernel counts for each item"
+        for name, start, end in (("issue", "in_progress", "ready"), ("pull_request", "converged", "queued")):
+            lc = copy.deepcopy(check_lifecycle.load(name))
+            tr = next(tr for tr in lc["transitions"] if (tr["from"], tr["to"]) == (start, end) and tr["bound"] is not None)
+            tr["bound"] = "max_implementing_rounds"
+            self.assertTrue(caught(check_lifecycle.check(lc, config["limits"]), words), name)
+
     def test_the_act_ceiling_can_bound_a_transition(self):
         # An enqueue is an act, not a Run; a cycle through the merge queue is bounded by the act ceiling.
         lc = copy.deepcopy(check_lifecycle.load())
@@ -1213,8 +1246,13 @@ class Authority(unittest.TestCase):
         named = copy.deepcopy(config)
         named["issues"]["intents"]["open-pull-request"] = {"role": "dev-lead", "app": "combsmith-sf-dev-lead"}
         self.assertTrue(caught(check_authority.run(config=named), "no adapter sends a write to a repo's pulls"))
-        # Its counter-example is refused, for that alone.
+        # Its counter-example is refused, for that alone, where the port does not read the work branch's head, here a
+        # read module of another name, and so still where it does, as this repo's port does (issue 1059).
+        with mock.patch.object(check_authority, "BRANCHES", "adapters/branches_unbuilt.py"):
+            self.assertFalse(caught(check_examples.run(), "config.an-opening-role-with-no-writer.json"))
         self.assertFalse(caught(check_examples.run(), "config.an-opening-role-with-no-writer.json"))
+        with mock.patch.object(check_authority, "branch_read_problems", return_value=[]):
+            self.assertFalse(caught(check_examples.run(), "config.an-opening-role-with-no-writer.json"))
         opener = "adapters.opening:open_pull_request"
         step = "harness/open_step.py"
 
@@ -1465,6 +1503,111 @@ class Authority(unittest.TestCase):
             with self.subTest(adapter=adapter):
                 self.assertTrue(caught(check_authority.opening_problems(named, tree(adapter, records), callers),
                                        "no adapter sends a write"))
+
+    def test_a_role_named_to_open_pull_requests_waits_on_the_branch_read(self):  # issue 1059
+        # No Role is named to open pull requests until the issues port reads the work branch's head: the file
+        # adapters/branches.py exists and parses, and adapters/issues.py parses, imports it at its top and writes no
+        # head as None, read from the syntax; and until trials/P-80.json reads as JSON recording trial P-80, and
+        # tests/test_adapters.py holds the test that tells a head the Factory pushed from one it never did: a method
+        # of that name, undecorated, directly in an undecorated class at the module's top. With none named it passes.
+        # This repo's port reads the branch, so one named passes that part; a repo whose port names a read that is not
+        # there, here a module of another name, refuses it for that. The trial is named before the test.
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        self.assertEqual(check_authority.branch_read_problems(config), [])
+        named = copy.deepcopy(config)
+        named["issues"]["intents"]["open-pull-request"] = {"role": "dev-lead", "app": "combsmith-sf-dev-lead"}
+        waits = "name none until the port reads it (issue 1059)"
+        trial = "trials/P-80.json, the trial of that read under the App's token, is missing or cannot be read"
+        name = "test_a_work_branch_head_the_factory_never_pushed_is_not_its_own"
+        self.assertEqual(check_authority.HEAD_MATCH, ("tests/test_adapters.py", name))
+        self.assertEqual(check_authority.TRIAL, ("trials/P-80.json", "P-80"))
+        match = "tests/test_adapters.py holds no %s" % name
+        self.assertFalse(caught(check_authority.run(config=named), waits))
+        unbuilt = mock.patch.object(check_authority, "BRANCHES", "adapters/branches_unbuilt.py")
+        with unbuilt:
+            self.assertTrue(caught(check_authority.run(config=named), waits))
+            self.assertTrue(caught(check_authority.branch_read_problems(named), waits))
+        # Its counter-example, a port without the read, is refused for that alone once the writer stands: the writer's
+        # part, named first, refuses it today. Once both stand, the writer's change retires it with this case.
+        counter = ROOT / "examples" / "invalid" / "config.an-opening-role-with-no-branch-read.json"
+        counter = json.loads(counter.read_text())
+        with unbuilt, mock.patch.object(check_authority, "opening_problems", return_value=[]):
+            self.assertTrue(caught(check_authority.branch_read_problems(counter), waits))
+            problems = check_examples.run()
+        self.assertFalse(caught(problems, "config.an-opening-role-with-no-branch-read.json"), problems)
+
+        helper = "def head(transport, repo, branch):\n    return None\n"
+
+        held = "class Adapters:\n    def %s(self):\n        pass\n" % name
+        ran = '{"trial": "P-80"}\n'
+
+        def tree(port, branches=helper, fixture=ran, tests=held):
+            folder = tempfile.TemporaryDirectory()
+            self.addCleanup(folder.cleanup)
+            root = pathlib.Path(folder.name)
+            for rel, text in (("adapters/issues.py", port), ("adapters/branches.py", branches),
+                              ("trials/P-80.json", fixture), ("tests/test_adapters.py", tests)):
+                if text is not None:
+                    (root / rel).parent.mkdir(exist_ok=True)
+                    (root / rel).write_bytes(text if isinstance(text, bytes) else text.encode())
+            return root
+
+        reads = "from adapters import branches\n"
+        for port in (reads, "from adapters import facts, branches as b\n", "import adapters.branches\n",
+                     "import json, adapters.branches as b\n", "from adapters.branches import head\n",
+                     "from . import branches\n", "from .branches import head\n", '"""The port."""\n' + reads,
+                     reads + "def read(t):\n    return {'branch_head': branches.head(t), 'other': None}\n"):
+            with self.subTest(port=port):
+                self.assertEqual(check_authority.branch_read_problems(named, tree(port)), [])
+        self.assertEqual(check_authority.branch_read_problems(config, tree(None, None)), [])
+        missing, unread = "is missing or cannot be read", "cannot be read or does not import adapters/branches.py"
+        still = "still writes a work branch's head as None"
+        refused = [(reads, None, missing), (reads, "def head(:\n", missing), (reads, b"x = 1\n\xff\n", missing)]
+        refused += [(port, helper, unread) for port in (
+            None, "from adapters import branches\nx = (\n", "from adapters import facts\n", "import adapters\n",
+            "import branches\n", "from adapters import branches_old\n", "import adapters.branches_old\n",
+            "from adapters.branches2 import head\n", "from .. import branches\n", "from ..branches import head\n",
+            "from adapters.facts import branches\n", "from adapters import facts as branches\n",
+            "def read():\n    from adapters import branches\n", "if True:\n    import adapters.branches\n",
+            "# from adapters import branches\n", "'from adapters import branches'\n")]
+        refused += [(reads + more, helper, still) for more in (
+            "FACTS = {'branch_head': None}\n", "def read(t):\n    return {'n': 1, 'branch_head': None}\n")]
+        for port, branches, said in refused:
+            with self.subTest(port=port, branches=branches):
+                self.assertTrue(caught(check_authority.branch_read_problems(named, tree(port, branches)), said))
+        said = "the configuration names a Role to open pull requests, and "
+        self.assertEqual(check_authority.branch_read_problems(named, tree(reads, fixture=None, tests=None)),
+                         [said + trial + "; name none until it is run (issue 1075)"])
+        self.assertEqual(check_authority.branch_read_problems(named, tree(reads, tests=None)), [said + match + (
+            ", which tells a work branch's head the Factory pushed from one it never did; name none until it does "
+            "(issue 1059)")])
+        cased = "import unittest\n\n\nclass T(unittest.TestCase):\n    x = 1\n\n    def %s(self):\n        pass\n"
+        cased %= name
+        self.assertEqual(check_authority.branch_read_problems(named, tree(reads, tests=cased)), [])
+        wrapped = "class T:\n    %%sdef %s(self):\n        pass\n" % name
+        for fixture, tests, said in ((None, held, trial), ("{", held, trial), (b"\xff\n", held, trial),
+                                     ("[]", held, trial), ('{"trial": "P-1"}', held, trial),
+                                     ('{"trial": "P-8"}', held, trial), ('{"trial": "P-800"}', held, trial),
+                                     ('{"related": "P-80"}', held, trial),
+                                     ('{"trial": "P-1", "related": "P-80"}', held, trial),
+                                     (ran, "class T:\n    def test_x(self):\n        pass\n\n    @pending\n"
+                                      "    def %s(self):\n        pass\n" % name, match),
+                                     (ran, None, match), (ran, "def %s(:\n" % name, match), (ran, "", match),
+                                     (ran, held.replace(name, name + "_too"), match),
+                                     (ran, held.replace(name, "test_a_work_branch_head"), match),
+                                     (ran, "def %s():\n    pass\n" % name, match),
+                                     (ran, "def outer():\n    " + held.replace("\n", "\n    "), match),
+                                     (ran, "if True:\n    " + held.replace("\n", "\n    "), match),
+                                     (ran, "class T:\n    def test_x(self):\n        def %s():\n            pass\n"
+                                      % name, match),
+                                     (ran, wrapped % "@pending\n    ", match),
+                                     (ran, wrapped % "@unittest.skip('x')\n    ", match),
+                                     (ran, wrapped % "async ", match), (ran, "class %s:\n    pass\n" % name, match),
+                                     (ran, "@unittest.skip('x')\n" + held, match), (ran, "@pending\n" + held, match),
+                                     (ran, "# def %s():\n%s = 1\n" % (name, name), match)):
+            with self.subTest(fixture=fixture, tests=tests):
+                problems = check_authority.branch_read_problems(named, tree(reads, fixture=fixture, tests=tests))
+                self.assertTrue(caught(problems, said), problems)
 
     def test_a_value_held_twice_must_agree(self):
         self.table["max_rounds"] = 9
@@ -2477,6 +2620,102 @@ class Purity(unittest.TestCase):
             self.assertTrue(caught(run({"kernel/x.py": "async def f(facts):\n" + body}), "x.py:2 %s" % does), does)
             found = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": "async def f(facts):\n" + body}))
             self.assertTrue(caught(found, "x.py:2 %s" % does), (does, found))
+
+    def test_a_module_that_annotates_starts_with_the_future_import(self):  # issue 1136
+        # Python runs a function's annotations, and a module's, when the module is imported, so a call there would run
+        # Kernel code at import; the future import keeps every annotation as text. Annotations anywhere ask for it.
+        future = "from __future__ import annotations\n\n\n"
+        note = "def _note(x):\n    return x\n\n\n"
+        for text, line in ((note + "def decide(facts: _note(1)):\n    return facts\n", 5),
+                           (note + "def decide(facts) -> _note(1):\n    return facts\n", 5),
+                           (note + "X: _note(1) = 'a'\n", 5),
+                           ("def decide(*, facts: dict):\n    return facts\n", 1),
+                           ("def decide(facts,\n           **rest: dict):\n    return facts\n", 2),
+                           ("def decide(facts,\n           *rest: dict):\n    return facts\n", 2),
+                           ("def decide(facts: dict, /):\n    return facts\n", 1),
+                           ("async def decide(facts) -> dict:\n    return facts\n", 1),
+                           ("def decide(facts):\n    seen: int\n    return facts\n", 2),
+                           ("def decide(facts):\n    seen: int = 0\n    return seen\n", 2)):
+            found = check_purity.run(planted({"kernel/x.py": text}))
+            self.assertTrue(caught(found, "x.py:%d annotates in a module without `from __future__ import "
+                                          "annotations`" % line), (text, found))
+            self.assertFalse(caught(check_purity.run(planted({"kernel/x.py": future + text})), "annotates"), text)
+            held = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": text}))
+            self.assertTrue(caught(held, "x.py:%d annotates" % line), (text, held))
+        # The import read is the future's, by its feature's name: one of another feature keeps nothing as text.
+        # A name `annotations` a module of the Kernel's binds is no future import (Claude's read).
+        for head in ("from __future__ import division\n\n\n", "from __future__ import generator_stop, annotations\n\n\n",
+                     "from kernel.codes import annotations\n\n\n"):
+            found = check_purity.run(planted({"kernel/codes.py": "annotations = 'a'\n",
+                                              "kernel/x.py": head + "def decide(facts: dict):\n    return facts\n"}))
+            self.assertEqual(caught(found, "x.py:4 annotates"), "__future__ import generator_stop" not in head, (head, found))
+        # A module that annotates nothing, the Kernel's docstring-alone __init__.py among them, needs no import.
+        self.assertEqual(check_purity.run(planted({"kernel/x.py": '"""Codes."""\nA = "a"\n\n\ndef f(x):\n    return x\n'})), [])
+
+    def test_the_kernel_writes_no_function_into_text(self):  # issue 1137
+        # A function's text is its address in memory, which a replay in another process gives otherwise. A good-faith
+        # mark (decision 0215's limit row): a function the Kernel defines or imports, or a lambda, written by `str`, an
+        # f-string or `%`, is refused; one reached through another name is for review.
+        terms = "from __future__ import annotations\n\n\ndef g(x):\n    return x\n"
+        head = ("from __future__ import annotations\n\nfrom kernel import terms\nfrom kernel.terms import g\n\n\n"
+                "def f(x):\n    return x\n\n\ndef h(x):\n")
+        run = lambda body: check_purity.run(planted({"kernel/terms.py": terms, "kernel/x.py": head + body}))
+        for body in ("    return str(f)\n", "    return str(object=f)\n", "    return f'{f}'\n", "    return f'{f!r:>9}'\n",
+                     "    return '%s' % f\n", "    return '%s %s' % (x, f)\n", "    return '%(a)s' % {'a': f}\n",
+                     "    return str(terms.g)\n", "    return str(g)\n", "    return str(lambda: x)\n",
+                     "    return str(f if x else '')\n", "    return str('' if x else f)\n", "    return str(x and f)\n", "    return f'{x or g}'\n", "    return str((k := f))\n", "    s = '%s'\n    s %= f\n    return s\n",
+                     "    def k():\n        return x\n    return f'{k}'\n"):
+            line = 14 if "def k" in body else 13 if "%=" in body else 12
+            self.assertTrue(caught(run(body), "x.py:%d writes a function into text" % line), body)
+            held = check_purity.guards(planted({"guards/__init__.py": "", "guards/codes.py": terms, "guards/x.py": (
+                head + body).replace("kernel", "guards").replace("terms", "codes")}))
+            self.assertTrue(caught(held, "x.py:%d writes a function into text" % line), (body, held))
+        # What a function gives, or any other value, is written as before; `repr`, `format` and a value's own `format`
+        # are refused already, as no builtin or method the Kernel calls.
+        self.assertEqual(run("    return str(x), f'{x}', '%s' % x, str(f(x)), '%s' % (f(x),), f'{g(x)}', str(f(x) if x else '')\n"), [])
+        for body in ("    return repr(f)\n", "    return format(f)\n", "    return '{}'.format(f)\n"):
+            self.assertNotEqual(run(body), [], body)
+
+    def test_the_kernel_writes_no_address_or_sets_order_into_text(self):  # issue 1202
+        # A map, filter, zip or enumerate object, or a generator expression, is written as its address in memory, and a
+        # set as its elements in the hash seed's order. The same good-faith mark as a function's (decision 0215's limit
+        # row): such a value written out where it is made, by `str`, an f-string, `%` or `%=`, is refused, in a container,
+        # a set operation, a pick or a comprehension too, and a set through `list`, `tuple`, `.join` or `*`; one held by
+        # a name is for review.
+        head = "from __future__ import annotations\n\n\ndef f(x):\n    return x\n\n\ndef h(x):\n"
+        run = lambda body: check_purity.run(planted({"kernel/x.py": head + body}))
+        for body in ("    return f'{map(f, x)}'\n", "    return str(filter(f, x))\n", "    return '%s' % (zip(x, x),)\n",
+                     "    return f'{enumerate(x)}'\n", "    return str(i for i in x)\n", "    return str(set(x))\n",
+                     "    return str(frozenset(x))\n", "    return f'{ {x} }'\n", "    return '%s' % {i for i in x}\n",
+                     "    return '%(a)s' % {'a': set(x)}\n", "    return str(set(x) if x else '')\n",
+                     "    return str(set(x) | set(x))\n", "    return str({x} & set(x))\n", "    return str({x} - set(x))\n",
+                     "    return str(set(x) ^ {x})\n", "    return str([set(x)])\n", "    return f'{(map(f, x),)}'\n",
+                     "    return str({'a': set(x)})\n", "    return '%s' % {frozenset(x): 1}\n", "    return str([*set(x)])\n",
+                     "    return str([set(x) if x else 1])\n", "    return str(list(set(x)))\n", "    return f'{tuple({x})}'\n",
+                     "    return ', '.join(set(x))\n", "    return ''.join({i for i in x})\n",
+                     "    return str(x | {x})\n", "    return str([1 if x else zip(x, x)])\n", "    return str([x or zip(x, x)])\n",
+                     "    return str([(k := set(x))])\n", "    return str([zip(x, x) for i in x])\n",
+                     "    return str([i for i in set(x)])\n", "    return ''.join(i for i in set(x))\n",
+                     "    return str(list([map(f, x)]))\n", "    return str(list((zip(x, x),)))\n",
+                     "    return str(list(zip(x, x) for i in x))\n", "    return str({i: 1 for i in set(x)})\n",
+                     "    return str({i: zip(x, x) for i in x})\n",
+                     "    s = '%s'\n    s %= (set(x),)\n    return s\n"):
+            line = 10 if "%=" in body else 9
+            self.assertTrue(caught(run(body), "x.py:%d writes an address or a set's order into text" % line), (body, run(body)))
+            held = check_purity.guards(planted({"guards/__init__.py": "", "guards/x.py": head + body}))
+            self.assertTrue(caught(held, "x.py:%d writes an address or a set's order into text" % line), (body, held))
+        # What is made of them in an order of its own is written as before: a map's or a zip's items through `list`,
+        # `tuple`, `.join` or `*`, a set sorted or counted. So is a function the Kernel binds by a builtin's name.
+        self.assertEqual(run("    return str(sorted(set(x))), f'{list(map(f, x))}', '%s' % (len(set(x)),), "
+                             "str(tuple(zip(x, x))), f'{ {x: 1} }', str([i for i in x]), str(list(zip(x, x))), "
+                             "', '.join(map(f, x)), ''.join(i for i in x), ', '.join(sorted(set(x))), str(len(x) - 1), "
+                             "str([*zip(x, x)]), ''.join(i for i in sorted(set(x)))\n"), [])
+        # A function a module of the Kernel's names join is no string's join (Astra).
+        self.assertEqual(check_purity.run(planted({"kernel/helpers.py": "def join(xs):\n    return len(xs)\n",
+                                                   "kernel/x.py": "from __future__ import annotations\n\nfrom kernel "
+                                                   "import helpers\n\n\ndef h(x):\n    return helpers.join(set(x))\n"})), [])
+        self.assertEqual(check_purity.run(planted({"kernel/x.py": head.replace("def f(", "def zip(") +
+                                                   "    return str(zip(x))\n"})), [])
 
     def test_the_kernel_is_the_package_python_imports_and_reads_nothing_off_a_value(self):  # issue 851
         # What the guards are held to (issue 838) is asked of the Kernel by the same lines. With no __init__.py Python
@@ -6662,6 +6901,128 @@ class Context(unittest.TestCase):
                 self.assertTrue(caught(problems, said), problems)
                 self.assertEqual(len(problems), 1 if "shares" in said or "title" in said else 2, problems)
 
+    @staticmethod
+    def budgeted(status="Status: accepted.", decision="Y.", why="Z.", rows=("| b | `tools/x.py` |",), before=0):
+        """The problems `_decisions` finds in one record numbered at the budget's cutover, less `before`."""
+        number = check_context.BUDGET_FROM - before
+        text = "# %04d. X\n\n%s\n\n## Decision\n\n%s\n\n## Why\n\n%s\n\n## Boundaries\n\n| B | Check |\n|---|---|\n%s\n" % (
+            number, status, decision, why, "\n".join(rows))
+        return check_context._decisions(tree({"docs/decisions/%04d-x.md" % number: text, "tools/x.py": ""}))
+
+    def test_a_new_records_status_is_held_to_its_words(self):
+        # Decision 1166: from the cutover, a Status is at most 40 words; the label and words in backticks are not counted.
+        self.assertEqual((check_context.BUDGET_FROM, check_context.STATUS_WORDS), (1166, 40))
+        self.assertEqual(self.budgeted("Status: " + "w " * 40), [])
+        self.assertEqual(self.budgeted("Status: " + "w " * 40 + "`a b c` `d`"), [])
+        self.assertEqual(self.budgeted("Status: " + "w " * 39 + "non-`None`-valued"), [])
+        self.assertTrue(caught(self.budgeted("Status: " + "w " * 41), "the Status is 41 words"))
+        self.assertTrue(caught(self.budgeted("Status: " + "w " * 41 + "\nmore"), "the Status is 42 words"))
+        # A section opened inside an example's fence opens none, so the Status runs on past it (issue 1174).
+        fenced = "Status: accepted.\n\n```\n## sample\n```\n\n" + "w " * 41
+        self.assertTrue(caught(self.budgeted(fenced), "the Status is 42 words"), self.budgeted(fenced))
+        self.assertEqual(self.budgeted("Status: " + "w " * 41, before=1), [])
+        self.assertTrue(caught(self.budgeted("Status: " + "w " * 41, before=-1), "the Status is 41 words"))
+
+    def test_a_new_records_decision_and_why_are_held_to_their_words(self):
+        # Decision 1166: the Decision and the Why are at most 300 words together, or 450 for a record that replaces.
+        self.assertEqual(self.budgeted(decision="w " * 150, why="w " * 150), [])
+        self.assertTrue(caught(self.budgeted(decision="w " * 151, why="w " * 150), "are 301 words, and the most is 300"))
+        self.assertTrue(caught(self.budgeted(decision="w " * 300, why="w"), "are 301 words"))
+        replacing = "Status: accepted. Replaces `docs/decisions/0001-x.md`."
+        self.assertEqual(self.budgeted(replacing, decision="w " * 400, why="w " * 50), [])
+        self.assertTrue(caught(self.budgeted(replacing, decision="w " * 401, why="w " * 50), "are 451 words, and the most is 450"))
+        self.assertTrue(caught(self.budgeted("Status: accepted. It Replaces one.", decision="w " * 301), "the most is 300"))
+        self.assertTrue(caught(self.budgeted("Status: Replaces `docs/decisions/0001-x.md`.", decision="w " * 301), "the most is 300"))
+        self.assertTrue(caught(self.budgeted("Status: accepted. Replaces? No.", decision="w " * 301), "the most is 300"))
+        # Words in backticks count in the Decision; only the Status leaves them out. Only the Decision and Why count.
+        self.assertTrue(caught(self.budgeted(decision="`%s`" % ("w " * 300).strip()), "are 301 words"))
+        self.assertTrue(caught(self.budgeted(decision="w " * 301, why=""), "are 301 words"))
+        self.assertEqual(self.budgeted(decision="w " * 299, why="Z.", rows=("| %s| `tools/x.py` |" % ("w " * 20),)), [])
+        # A Status wrapped onto a second line replaces as well, as tools/check_decisions.py reads it.
+        wrapped = "Status: accepted.\nReplaces `docs/decisions/0001-x.md`."
+        self.assertEqual(self.budgeted(wrapped, decision="w " * 400, why="w " * 50), [])
+        # A Replaces in a paragraph of its own is not the Status that tools/check_decisions.py reads, and replaces
+        # nothing, even after a line of spaces alone (issue 1174).
+        for blank in ("\n\n", "\n \t\n", "\r\r", "\u2028\u2028", "\x0c\x0c", "\r\n\r\n"):
+            split = "Status: accepted.%sReplaces `docs/decisions/0001-x.md`." % blank
+            self.assertTrue(caught(self.budgeted(split, decision="w " * 400, why="w " * 50), "are 450 words, and the most is 300"),
+                            repr(blank))
+        # Only the first paragraph replaces, though a later one says it as the first would; a line of spaces before it
+        # is no paragraph.
+        later = "Status: accepted.\n\nStatus: accepted. Replaces `docs/decisions/0001-x.md`."
+        self.assertTrue(caught(self.budgeted(later, decision="w " * 400, why="w " * 50), "the most is 300"))
+        spaced = " \t\nStatus: accepted. Replaces `docs/decisions/0001-x.md`."
+        self.assertEqual(self.budgeted(spaced, decision="w " * 400, why="w " * 50), [])
+        # A section given twice is counted whole, and a letter outside ASCII makes a word.
+        twice = self.budgeted(decision="w " * 200 + "\n\n## Decision\n\n" + "w " * 200)
+        self.assertTrue(caught(twice, "are 401 words"), twice)
+        self.assertTrue(caught(self.budgeted(decision="\u00e9 " * 300), "are 301 words"))
+        self.assertEqual(self.budgeted(decision="w " * 299 + "\u00bd"), [])
+        self.assertTrue(caught(self.budgeted(decision="w " * 299 + "7"), "are 301 words"))
+        # A table's pipes and a dash alone are no words: 2 + 8 + 289 and the Why's one make 300.
+        self.assertEqual(self.budgeted(decision="| a | b |\n|---|---|\n" + "| w — | w |\n" * 4 + "w " * 289), [])
+        self.assertEqual(self.budgeted(decision="w " * 301, before=1), [])
+
+    def test_a_new_records_one_heading_of_its_depth_is_its_title(self):
+        # Issue 1174: a heading of one # after the title would end the section above it unread, and its words would be
+        # counted by no budget: from the cutover it is refused, in the Status and in a section alike.
+        for at in ("decision", "why", "status"):
+            noted = {"decision": dict(decision="w " * 10 + "\n\n# Notes\n\n" + "w " * 400),
+                     "why": dict(why="Z.\n\n# Notes\n\n" + "w " * 400),
+                     "status": dict(status="Status: accepted.\n\n# Notes\n\nw")}[at]
+            problems = self.budgeted(**noted)
+            self.assertEqual(problems, ["docs/decisions/%04d-x.md: a heading '# Notes' after the title; a record's one "
+                                        "heading of one # is its title" % check_context.BUDGET_FROM], at)
+            self.assertEqual(self.budgeted(before=1, **noted), [], at)
+        # One in an example's fence is no heading, nor is a deeper one, which the section it is in counts; one after
+        # the fence closes is.
+        self.assertEqual(self.budgeted(decision="```\n# Notes\n```\n\nY."), [])
+        after = self.budgeted(decision="```\n# Example\n```\n\n# Notes\n\n" + "w " * 400)
+        self.assertEqual([problem.split("'")[1] for problem in after], ["# Notes"], after)
+        self.assertTrue(caught(self.budgeted(decision="w " * 10 + "\n\n### Notes\n\n" + "w " * 400), "are 412 words"))
+
+    def test_a_new_records_decision_table_is_short(self):
+        # Decision 1166: the Decision's tables have at most 8 rows together, and no cell over 40 words.
+        head = "| What | Decided |\n|---|---|\n"
+        self.assertEqual(self.budgeted(decision=head + "| a | b |\n" * 5 + "\nThen:\n\n" + head + "| a | b |\n" * 3), [])
+        many = self.budgeted(decision=head + "| a | b |\n" * 5 + "\nThen:\n\n" + head + "| a | b |\n" * 4)
+        self.assertTrue(caught(many, "the Decision has 9 rows, and the most is 8"), many)
+        self.assertEqual(self.budgeted(decision=head + "| a | %s|\n" % ("w " * 40)), [])
+        self.assertTrue(caught(self.budgeted(decision=head + "| a | b |\n| a | %s|\n" % ("w " * 41)),
+                               "Decision row 2 has a cell over 40 words"))
+        self.assertTrue(caught(self.budgeted(decision=head + "| %s| b |\n" % ("w " * 41)), "row 1 has a cell over 40"))
+        self.assertEqual(self.budgeted(decision=head + "| a | b |\n" * 9, before=1), [])
+        # A header's cells are held to the same 40 words, and are not counted as a row.
+        self.assertEqual(self.budgeted(decision="| %s| b |\n|---|---|\n" % ("w " * 40) + "| a | b |\n" * 8), [])
+        self.assertTrue(caught(self.budgeted(decision="| b | %s|\n|---|---|\n| a | b |\n" % ("w " * 41)),
+                               "a Decision table's header has a cell over 40 words"))
+        second = head + "| a | b |\n\nThen:\n\n| %s| b |\n|---|---|\n| a | b |\n" % ("w " * 41)
+        self.assertTrue(caught(self.budgeted(decision=second), "a Decision table's header has a cell over 40 words"))
+
+    def test_a_new_records_boundary_rows_are_short_and_name_one_mutant(self):
+        # Decision 1166: a Boundary row's behaviour is at most 30 words, and its Check names one mutant at most.
+        one = '`tools/x.py`, mutant: "m"'
+        self.assertEqual(self.budgeted(rows=("| %s| %s |" % ("w " * 30, one),)), [])
+        self.assertTrue(caught(self.budgeted(rows=("| b | `tools/x.py` |", "| %s| %s |" % ("w " * 31, one))),
+                               "boundary 2: the behaviour is over 30 words"))
+        two = self.budgeted(rows=('| b | %s, mutant: "n" |' % one,))
+        self.assertTrue(caught(two, "boundary 1: the Check names more than one mutant"), two)
+        self.assertEqual(self.budgeted(rows=('| %s| %s, mutant: "n" |' % ("w " * 31, one),), before=1), [])
+
+    def test_from_the_cutover_a_record_may_give_an_issue_by_its_number(self):
+        # Decision 1166: a record from the cutover may give an issue or a pull request by its number alone; a bare #N
+        # is still refused, and a record before it, or any other page, still gives the title.
+        new, old = "docs/decisions/%04d-x.md" % check_context.BUDGET_FROM, "docs/decisions/%04d-x.md" % (check_context.BUDGET_FROM - 1)
+        page, later = "docs/%04d-x.md" % check_context.BUDGET_FROM, "docs/decisions/%04d-y.md" % (check_context.BUDGET_FROM + 1)
+        root = tree({new: "", old: "", page: "", later: "", "docs/decisions/sub/%04d-x.md" % check_context.BUDGET_FROM: ""})
+        for said in ("Asked in issue 12.\n", "Built by pull request 13.\n"):
+            self.assertEqual(check_context._references(root / new, said, root), [])
+            self.assertEqual(check_context._references(root / later, said, root), [])
+            for name in (old, page, "docs/decisions/sub/%04d-x.md" % check_context.BUDGET_FROM):
+                with self.subTest(name, said=said):
+                    self.assertTrue(caught(check_context._references(root / name, said, root), "numbered without its title"))
+        self.assertTrue(caught(check_context._references(root / new, "Asked in #12.\n", root), "a bare issue"))
+
     def test_a_lesson_with_no_check_is_caught(self):
         text = ("### L-01 A thing broke\n\n**Failure.** It broke.\n\n**Rule.** Do not.\n\n"
                 "## L-02 Another\n\n**Failure.** It broke.\n\n**Rule.** Do not.\n")
@@ -6741,6 +7102,93 @@ class Context(unittest.TestCase):
         for words in ("docs/lessons.md: names tools/gone.py", "0001-one-repo-and-a-kernel-that-does-no-io.md: no section",
                       "docs/standards/tests.md states no rule", "kernel/AGENTS.md: no table of rules"):
             self.assertTrue(caught(problems, words), words)
+
+
+    def test_the_records_index_is_made_from_the_records_alone(self):
+        # Decision 0009: tools/records.py prints an index of the records, made from them alone and never committed.
+        body = "\n\n## Decision\n\nX.\n\n## Why\n\nY.\n\n## Boundaries\n\n| Boundary | Check |\n|---|---|\n| b | %s |\n"
+        files = {
+            "docs/decisions/0001-a.md": "# 0001. A\n\nStatus: replaced by `docs/decisions/0002-b.md`." + body % "`tools/x.py`",
+            "docs/decisions/0002-b.md": "# 0002. B\n\nStatus: replaced by `docs/decisions/0003-c.md`, in force." + body % "`kernel/k.py`",
+            "docs/decisions/0003-c.md": "# 0003. C | d\n\nStatus: accepted. Replaces `docs/decisions/0002-b.md`."
+                                        + body % "`tests/test_x.py::test_y`, `adapters/a.py`, `make checks`, `tools/x.py`",
+            "docs/decisions/0004-d.md": "# 0004. D\n\nStatus: accepted." + body % "`tools/x.py`, `effect/1`, `kernel`",
+            "docs/decisions/2000-f.md": "# 2000. F\n\nStatus: accepted." + body % "`tools/x.py`",
+            "docs/decisions/10000-e.md": "# Ten thousand\n\nStatus: accepted." + body % "`kernel/k.py`"}
+        dirs = {"tools/x.py": "", "kernel/k.py": "", "adapters/a.py": "", "tests/test_x.py": ""}
+        made = records.render(tree({**files, **dirs}))
+        # A name with no folder, or whose top is no directory here, names no area; a title with no number before it is read whole.
+        for row in ("| 0001 | A | replaced by 0002 | tools |\n", "| 0002 | B | replaced by 0003 | kernel |\n",
+                    "| 0003 | C \\| d | live | adapters, tools |\n", "| 0004 | D | live | tools |\n",
+                    "| 10000 | Ten thousand | live | kernel |\n"):
+            self.assertIn(row, made)
+        # Records stand in the order of their numbers as numbers.
+        self.assertLess(made.index("| 2000 |"), made.index("| 10000 |"))
+        # Chains stand in the order of their live records' numbers as numbers too; with no record replaced, none is printed.
+        heads = tree({"docs/decisions/1999-g.md": "# 1999. G\n\nStatus: replaced by `docs/decisions/2000-f.md`." + body % "`tools/x.py`",
+                      "docs/decisions/9999-h.md": "# 9999. H\n\nStatus: replaced by `docs/decisions/10000-e.md`." + body % "`tools/x.py`",
+                      "docs/decisions/2000-f.md": files["docs/decisions/2000-f.md"],
+                      "docs/decisions/10000-e.md": files["docs/decisions/10000-e.md"], **dirs})
+        self.assertTrue(records.render(heads).endswith("|---|---|\n| 2000 | 1999 |\n| 10000 | 9999 |\n"), records.render(heads))
+        alone = records.render(tree({"docs/decisions/0004-d.md": files["docs/decisions/0004-d.md"], **dirs}))
+        self.assertNotIn("## Chains", alone)
+        self.assertTrue(alone.endswith("| 0004 | D | live | tools |\n"), alone)
+        # A chain is read from its old end, through each record's "replaced by"; a live record that replaced none has none.
+        self.assertTrue(made.endswith("| Live record | Replaced |\n|---|---|\n| 0003 | 0001, 0002 |\n"), made)
+        self.assertEqual(check_context._cells("| 0003 | C \\| d | live | adapters, tools |"), ["0003", "C | d", "live", "adapters, tools"])
+        # A backslash in a title is its own, and escapes no pipe after it.
+        slash = tree({"docs/decisions/0001-a.md": "# 0001. A \\| b\\\n\nStatus: accepted." + body % "`tools/x.py`", **dirs})
+        self.assertIn("| 0001 | A \\\\\\| b\\\\ | live | tools |\n", records.render(slash))
+        # A link is never followed: a linked record, or a linked folder of them, is not read.
+        linked = tree({"docs/decisions/0004-d.md": files["docs/decisions/0004-d.md"], "elsewhere/0001-a.md": files["docs/decisions/0001-a.md"],
+                       **dirs})
+        (linked / "docs/decisions/0001-a.md").symlink_to(linked / "elsewhere/0001-a.md")
+        self.assertNotIn("| 0001 |", records.render(linked))
+        self.assertIn("| 0004 | D | live | tools |\n", records.render(linked))
+        folder = tree({"elsewhere/0004-d.md": files["docs/decisions/0004-d.md"]})
+        (folder / "docs").mkdir()
+        (folder / "docs/decisions").symlink_to(folder / "elsewhere")
+        self.assertNotIn("| 0004 |", records.render(folder))
+        # It is printed, and nothing is written.
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            self.assertEqual(records.main([], linked), 0)
+        self.assertEqual(said.getvalue(), records.render(linked))
+        self.assertFalse((linked / "docs/records.md").exists())
+        # A path is read in either column of a row, and only as a path to a real folder here, linked to none; a command is no path.
+        odd = tree({"docs/decisions/0001-a.md": "# 0001. A\n\nStatus: accepted.\n\n## Decision\n\nX.\n\n## Why\n\nY.\n\n"
+                    "## Boundaries\n\n| Boundary | Check |\n|---|---|\n| b in `kernel/k.py` | `/etc/x`, `../x/y`, `./z/q`, `lent/x.py`, `adapters/a.py --all` |\n",
+                    "elsewhere/x.py": "", **dirs})
+        (odd / "lent").symlink_to(odd / "elsewhere")
+        self.assertIn("| 0001 | A | live | kernel |\n", records.render(odd))
+        # A record replaced by one that is not there heads its chain; a loop of records is followed once round.
+        loop = {"docs/decisions/0001-a.md": "# 0001. A\n\nStatus: replaced by `docs/decisions/0002-b.md`." + body % "`tools/x.py`",
+                "docs/decisions/0002-b.md": "# 0002. B\n\nStatus: replaced by `docs/decisions/0001-a.md`." + body % "`tools/x.py`",
+                "docs/decisions/0003-c.md": "# 0003. C\n\nStatus: replaced by `docs/decisions/0009-gone.md`." + body % "`tools/x.py`"}
+        self.assertTrue(records.render(tree({**loop, **dirs})).endswith("| 0001 | 0002 |\n| 0002 | 0001 |\n| 0009 | 0003 |\n"))
+        # A record whose Status cannot be read is unread, never live; a file not named by a number is no record; and
+        # a linked docs/ is not read.
+        other = tree({"docs/decisions/0001-a.md": "# 0001. A\n" + body % "`tools/x.py`",
+                      "docs/decisions/notes.md": files["docs/decisions/0004-d.md"], **dirs})
+        self.assertIn("| 0001 | A | unread |  |\n", records.render(other))
+        # A record not in UTF-8 is unread, as tools/check_decisions.py reads it; and a chain never ends at an unread record.
+        latin = tree({"docs/decisions/0001-a.md": "# 0001. A\n\nStatus: replaced by `docs/decisions/0002-b.md`." + body % "`tools/x.py`",
+                      "docs/decisions/0002-b.md": "", **dirs})
+        (latin / "docs/decisions/0002-b.md").write_bytes(("# 0002. Caf\xe9\n\nStatus: accepted." + body % "`tools/x.py`").encode("latin-1"))
+        self.assertIn("| 0002 | Caf\ufffd | unread |  |\n", records.render(latin))
+        self.assertNotIn("## Chains", records.render(latin))
+        # A title with no number loses only the mark before it; a path is read as the repo holds it, and one that leaves it names no area.
+        marked = tree({"docs/decisions/10000-e.md": "# #Tag title\n\nStatus: accepted."
+                    + body % "`tools/../kernel/k.py`, `tools/../../outside/x.py`, `adapters/..`", **dirs})
+        self.assertIn("| 10000 | #Tag title | live | kernel |\n", records.render(marked))
+        self.assertNotIn("notes", records.render(other))
+        above = tree({"elsewhere/decisions/0004-d.md": files["docs/decisions/0004-d.md"]})
+        (above / "docs").symlink_to(above / "elsewhere")
+        self.assertNotIn("| 0004 |", records.render(above))
+        # This repo's records all read, each to one row.
+        numbers = sorted(p.name.split("-", 1)[0] for p in (ROOT / "docs/decisions").glob("*.md"))
+        rows = records.render(ROOT).split("\n## Chains")[0].split("|---|---|---|---|\n")[1].splitlines()
+        self.assertEqual(sorted(row.split(" | ")[0][2:] for row in rows), numbers)
+        self.assertFalse(any(" | unread | " in row for row in rows))
 
 
 RECORD = ("# 0001. One thing\n\nStatus: accepted.\n\n## Decision\n\nWe do one thing.\nAnd only that.\n\n"
@@ -9358,7 +9806,8 @@ class OutputMadeAlone(unittest.TestCase):
                "trial_p54_issue_lookup.sh": ("KEY", CONTROLLER, "42"),
                "trial_p12_status.sh": ("KEY", CONTROLLER, "a" * 40),
                "trial_p56_comments.sh": ("KEY", CONTROLLER, "42"),
-               "trial_p58_edits.sh": ("KEY", READER, "96")}
+               "trial_p58_edits.sh": ("KEY", READER, "96"),
+               "trial_p80_branch_reads.sh": ("KEY", CONTROLLER) + tuple("factory-work/issue-%d-1" % (8001 + i) for i in range(5))}
     # These read more before they mint or ask, so OUT is not made here; the check on its parent comes first of all.
     OTHERS = {"trial_p13_cli.sh": ("config",), "trial_p13_ended.sh": ("config",), "trial_p26_sandbox.sh": ("config",),
               "context_eval.sh": ("config", "repo", "a" * 40, "sentence", "held")}
@@ -9679,7 +10128,7 @@ fi
         for script in ("context_eval.sh", "trial_as_app.sh", "trial_p13_cli.sh", "trial_p13_ended.sh", "trial_p26_sandbox.sh",
                        "trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh", "trial_p54_issue_lookup.sh",
                        "trial_p12_status.sh",
-                       "trial_p56_comments.sh", "trial_p58_edits.sh",
+                       "trial_p56_comments.sh", "trial_p58_edits.sh", "trial_p80_branch_reads.sh",
                        "trial_reader_reads.sh"):
             self.assertNotIn('cd "$(mktemp', (ROOT / "tools" / script).read_text(), script)
 
@@ -9954,7 +10403,8 @@ sys.exit(subprocess.run([%r] + sys.argv[1:], input=said).returncode)
         # Issue 424: each trial keeps the last head's status, since a proxy's block, or an interim answer, comes first.
         # A blank line in a body opens no head, and an HTTP line after it is the body's (Argon).
         for name in ("trial_reader_reads.sh", "trial_p39_reach.sh", "trial_p8_cost.sh", "trial_p52_pause.sh", "trial_p4_narrow.sh",
-                     "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh", "trial_p58_edits.sh"):
+                     "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh", "trial_p58_edits.sh",
+                     "trial_p80_branch_reads.sh"):
             text = (ROOT / "tools" / name).read_text()
             self.assertNotIn("sed -n '1s/^HTTP", text, name)
             programs = re.findall(r"awk '(BEGIN \{ head = 1 \}[^']+)'", text)
@@ -11364,6 +11814,18 @@ printf 'example.org.cdn.example.\\n192.0.2.7\\n'
     def written(self, out) -> str:
         return "".join(p.read_text() for p in pathlib.Path(out).iterdir())
 
+    # The read code the stand-in model forges, found as a number of its own: never inside a temporary directory's
+    # name, whose random part is letters, digits and "_" after "tmp", as /tmp/tmpf123qsjl-out was on one run (issue 1226).
+    FORGED = re.compile(r"(?<![0-9A-Za-z_])123(?![0-9A-Za-z_])")
+
+    def test_the_forged_code_is_found_as_a_number_and_never_in_a_temporary_name(self):  # issue 1226
+        for text in ("read=123", '"read_exits": [123, 123]', "codes 123\n", "[123]"):
+            self.assertRegex(text, self.FORGED, text)
+        for text in ("/tmp/tmpwtge_xan/tmpf123qsjl-out", "/tmp/tmp123abcd", "/tmp/tmpabcd123-out", "/tmp/tmp_123_x",
+                     "/tmp/tmpabcd_123-out", "/tmp/tmp123_abcd",
+                     "1234", "0123", "elapsed 41231 ms"):
+            self.assertNotRegex(text, self.FORGED, text)
+
     def checked(self, out) -> dict:
         return json.loads((pathlib.Path(out) / "checked.json").read_text())
 
@@ -11414,8 +11876,15 @@ printf 'example.org.cdn.example.\\n192.0.2.7\\n'
         ran = self.run_script(self.out, self.cfg, folder / "claude")
         self.assertEqual(ran.returncode, 1, ran.stderr)
         written = self.written(self.out) + ran.stdout + ran.stderr
-        for word in self.markers(folder) + list(self.PROSE.values()) + ["NEVER-SEEN", "the_model_wrote", "123"]:
+        for word in self.markers(folder) + list(self.PROSE.values()) + ["NEVER-SEEN", "the_model_wrote"]:
             self.assertNotIn(word, written)
+        # The forged code is looked for in each output alone, so that another's first letter never hides it, and past
+        # the temporary directory, whose name could hold it (Astra, Kimi).
+        root = tempfile.gettempdir()
+        for text in [p.read_text() for p in self.out.iterdir()] + [ran.stdout, ran.stderr]:
+            for where in (os.path.realpath(root), root):
+                text = text.replace(where, "")
+            self.assertNotRegex(text, self.FORGED)
         for part in self.checked(self.out)["configurations"]:
             self.assertEqual((part["env"]["seen"], part["ancestors"]["seen"]),
                              ({"parent": True, "listed": True}, {"parent": True, "listed": True}))
@@ -15240,6 +15709,10 @@ class SignalTraps(unittest.TestCase):
         # One script holds a live token through a clean-up a closed terminal can signal twice, so its line also makes it deaf
         # to the next signal (issue 481).
         own_line = {"trial_as_app.sh": "trap \"trap '' HUP INT TERM QUIT PIPE; trap - EXIT; finish 130\" HUP INT TERM QUIT PIPE"}
+        # Each sh script that mints is deaf from its first signal on, so a second finds the clean-up deaf at once (issue 1215).
+        own_line.update({script: "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM QUIT PIPE" for script in (
+            "trial_reader_reads.sh", "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh", "trial_p58_edits.sh",
+            "trial_p80_branch_reads.sh", "trial_p39_reach.sh", "trial_p4_narrow.sh", "trial_p52_pause.sh", "trial_p8_cost.sh")})
         scripts = sorted((ROOT / "tools").glob("*.sh"))
         self.assertGreaterEqual(len(scripts), 17)
         for script in scripts:
@@ -15249,6 +15722,21 @@ class SignalTraps(unittest.TestCase):
             self.assertRegex(traps[0], r"^trap \S.* EXIT$", script.name)
             self.assertEqual(traps[1], own_line.get(script.name, lines_of[lines[0]]), script.name)
             self.assertEqual(lines[lines.index(traps[0]) + 1], traps[1], script.name)
+
+    def test_every_token_script_is_deaf_in_its_clean_up_and_bounds_its_revocation(self):  # issue 1215
+        # A closed terminal can signal twice. Each sh script that mints stops at the first; its clean-up is deaf to the
+        # next, so the revocation is not cut short, and that revocation is bounded, so a hung one cannot hold it. The
+        # reader's tests run one such stop; this holds every script to the same words.
+        scripts = [s for s in sorted((ROOT / "tools").glob("trial_*.sh"))
+                   if "access_tokens" in s.read_text() and s.read_text().startswith("#!/bin/sh\n")]
+        self.assertEqual(len(scripts), 10)
+        for script in scripts:
+            text = script.read_text()
+            body = [line for line in text.split("\nfinish() {\n", 1)[1].splitlines() if not line.lstrip().startswith("#")]
+            self.assertEqual(body[:2], ["    trap '' HUP INT TERM QUIT PIPE", "    set +e"], script.name)
+            revoke = text.split("\nrevoke() {\n", 1)[1].split("\n}\n", 1)[0]
+            self.assertIn("| curl -q --max-time 30 ", revoke, script.name)
+            self.assertEqual((revoke.count("--max-time"), revoke.count(" -m ")), (1, 0), script.name)
 
 
 class ReaderTrialScript(unittest.TestCase):
@@ -15291,6 +15779,11 @@ if url.endswith("/access_tokens"):
     # A transfer that failed after the whole answer came, as curl's exit 18 says of a partial one.
     sys.exit(18 if os.path.exists(os.path.join(here, "broke")) else 0)
 if method == "DELETE":
+    if os.path.exists(os.path.join(here, "slow.revoke")):
+        # As a read is held below: say the revocation began, and wait until the test lets it end.
+        told, held = (int(n) for n in open(os.path.join(here, "slow.revoke")).read().split())
+        os.write(told, b"r")
+        os.read(held, 1)
     sys.stdout.write(open(os.path.join(here, "revoke.status")).read().strip())
     sys.exit(0)
 roles = json.load(open(os.path.join(here, "roles")))
@@ -15487,6 +15980,39 @@ esac
         self.assertEqual(begun, b"r", "the script reached no read: " + err)
         self.assertNotEqual(running.returncode, 0)
         self.assertIn("DELETE", [c["method"] for c in self.calls()])
+        self.assertIn("stopped with a token live; revoking it returned 204", err)
+        self.assertNotIn(self.TOKEN, out + err)
+
+    def test_a_second_signal_does_not_cut_the_revocation_short(self):  # issue 1215, cubic on pull request 1212
+        # Stopped mid-read, the script revokes its live token on the way out. A second signal then, as a closed terminal
+        # sends to every process of the run, finds the clean-up deaf to it: the revocation ends and is told. Pipes, not a
+        # clock, order the two; a script that ends closes them, so nothing waits for ever.
+        told_r, told_w = os.pipe()
+        held_r, held_w = os.pipe()
+        again_r, again_w = os.pipe()
+        freed_r, freed_w = os.pipe()
+        (self.stand_in / "slow").write_text("%d %d\n" % (told_w, held_r))
+        (self.stand_in / "slow.revoke").write_text("%d %d\n" % (again_w, freed_r))
+        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C"}
+        running = subprocess.Popen([SIGNAL_SHELL, str(self.SCRIPT), str(self.out), str(self.key), *self.GIVEN],
+                                   cwd=SCRATCH.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                                   pass_fds=(told_w, held_r, again_w, freed_r), start_new_session=True)
+        for fd in (told_w, held_r, again_w, freed_r):
+            os.close(fd)
+        try:
+            begun = os.read(told_r, 1)
+            (self.stand_in / "slow").unlink()
+            running.terminate()
+            os.close(held_w)
+            held_w = None
+            revoking = os.read(again_r, 1)
+            # The second to the whole group, as a terminal's hangup comes: the revocation's curl gets it too.
+            os.killpg(running.pid, signal.SIGHUP)
+        finally:
+            for fd in (told_r, again_r, freed_w) + ((held_w,) if held_w is not None else ()):
+                os.close(fd)
+        out, err = running.communicate(timeout=60)
+        self.assertEqual((begun, revoking), (b"r", b"r"), "the script reached no read, or no revocation: " + err)
         self.assertIn("stopped with a token live; revoking it returned 204", err)
         self.assertNotIn(self.TOKEN, out + err)
 
@@ -15814,6 +16340,223 @@ class CommentsReadTrial(IssueLookupTrial):
         '''status, answer = 200, {"number": int(url.rsplit("/", 1)[1]), "title": "A trial", "labels": [{"name": "question"}]}''',
         '''status, answer = 200, [{"id": 7, "user": {"id": 9, "type": "User"}, "leak": "gh" + "s_" + "L" * 36}]''', 1)
 
+
+
+class BranchReadsTrial(IssueLookupTrial):
+    """`tools/trial_p80_branch_reads.sh`, run against the same stand-ins and never GitHub (issue 1075). It is P-54's script
+    with a token narrowed to what `adapters/branches.py` reads with, each work branch's two reads, the port's own, and a
+    second token for one ref, so every test of that one that is not about what is asked runs over it too, by inheritance.
+    The stand-in tells each branch's state by its issue: 8001 open, 8002 closed, 8003 merged, 8004 bare, 8005 never.
+    No fork is asked: none can be made (issue 1075)."""
+
+    SCRIPT = ROOT / "tools" / "trial_p80_branch_reads.sh"
+    STATES = ("open", "closed", "merged", "bare", "never")
+    BRANCHES = tuple("factory-work/issue-%d-1" % (8001 + i) for i in range(5))
+    GIVEN = (IssueLookupTrial.CANARY,) + BRANCHES
+    FIRST = "contents: read and pull_requests: read"
+    SHA = "c" * 40
+    # The stand-in answers the list by the branch its head filter names and the ref by its path, each by that branch's
+    # issue, as the docstring says; the control token, narrowed to pull_requests alone, is answered 404 on a ref unless
+    # a file beside it says the repo is public.
+    CURL = IssueLookupTrial.CURL.replace('if url.endswith("/access_tokens"):\n', """if url.endswith("/access_tokens") and os.path.exists(os.path.join(here, "mint.slow")):
+    told, held = (int(n) for n in open(os.path.join(here, "mint.slow")).read().split())
+    os.write(told, b"m")
+    os.read(held, 1)
+    sys.exit(28)
+if url.endswith("/access_tokens"):
+""", 1).replace('elif "/issues/" in url:', """elif "/pulls?" in url or "/git/ref/heads/" in url:
+    if os.path.exists(os.path.join(here, "read.broke")):
+        sys.stdout.write("HTTP/2 200\\r\\n\\r\\n{")
+        sys.exit(18)
+    if os.path.exists(os.path.join(here, "read.cut")):
+        sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\n\\r\\n{\\"cut")
+        sys.exit(0)
+    if grant == "pull_requests" and os.path.exists(os.path.join(here, "control.broke")):
+        sys.stdout.write("HTTP/2 200\\r\\n\\r\\n{")
+        sys.exit(18)
+    import urllib.parse
+    if "/pulls?" in url:
+        branch = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)["head"][0].split(":", 1)[1]
+    else:
+        branch = url.split("/git/ref/heads/", 1)[1]
+    kind = ("open", "closed", "merged", "bare", "never")[int(branch.split("-")[-2]) - 8001]
+    repo = url.split("/repos/", 1)[1].split("/pulls")[0].split("/git/")[0]
+    if "/pulls?" in url:
+        row = {"number": 7, "state": "closed" if kind != "open" else "open",
+               "merged_at": "2026-11-25T12:00:00Z" if kind == "merged" else None,
+               "head": {"ref": branch, "repo": {"full_name": repo}},
+               "user": {"id": 9, "type": "Bot", "login": "combsmith-sf-trial-author[bot]"}}
+        status, answer = 200, [row] if kind in ("open", "closed", "merged") else []
+        if kind == "open":
+            # A link header, which says whether a next page was named, is kept whole for the fixture to read.
+            sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\nlink: <https://api.github.com/x?page=1>; "
+                             "rel=\\"first\\"\\r\\n\\r\\n" + json.dumps(answer))
+            sys.exit(0)
+    elif grant == "pull_requests" and not os.path.exists(os.path.join(here, "public")):
+        status, answer = 404, {"message": "Not Found"}
+    elif kind in ("open", "closed", "bare"):
+        status, answer = 200, {"ref": "refs/heads/" + branch, "object": {"type": "commit", "sha": "c" * 40}}
+    else:
+        status, answer = 404, {"message": "Not Found"}
+elif "/issues/" in url:""", 1)
+
+    def port_reads(self, branch: str) -> list:
+        """The two paths `adapters/branches.py` sends for `branch`, issue N's first work branch, taken from the port
+        itself: its list by the head filter, answered empty, then its ref."""
+        sent = []
+
+        class Transport:
+            def send(self, asked):
+                sent.append(asked["path"])
+                return {"status": 200, "body": [], "headers": {}} if "/pulls?" in asked["path"] else \
+                    {"status": 404, "body": {}, "headers": {}}
+        from adapters import branches
+        number = int(branch.split("-")[-2])
+        self.assertEqual(branches.work_head(Transport(), self.CANARY, number, (9, "Bot")), (None, True, branch))
+        return sent
+
+    def test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept(self):
+        grants = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
+        listed = [e for e in grants["exchanges"] if e["request"]["call"] == "GET /orgs/combsmith/installations"][0]
+        app = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["controller"]
+        installation = [i["id"] for i in listed["response"]["body"]["installations"] if i["app_id"] == app["app_id"]][0]
+        for public, control in ((False, 404), (True, 200)):
+            with self.subTest(public=public):
+                self.setUp()
+                if public:
+                    (self.stand_in / "public").write_text("")
+                ran = self.run_script()
+                self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
+                calls = self.calls()
+                self.assertEqual([c["method"] for c in calls], ["POST"] + ["GET"] * 10 + ["DELETE", "POST", "GET", "DELETE"])
+                mints = [c for c in calls if c["url"].endswith("/access_tokens")]
+                self.assertEqual([m["url"].split("/app/")[1] for m in mints],
+                                 ["installations/%d/access_tokens" % installation] * 2)
+                name = self.CANARY.split("/")[1]
+                self.assertEqual([json.loads(m["body"]) for m in mints],
+                                 [{"repositories": [name], "permissions": {"contents": "read", "pull_requests": "read"}},
+                                  {"repositories": [name], "permissions": {"pull_requests": "read"}}])
+                # Each branch's two reads are the port's own, byte for byte, in the order the states are given.
+                reads = [c["url"] for c in calls if c["method"] == "GET"]
+                self.assertEqual(reads, ["https://api.github.com" + path for b in self.BRANCHES for path in self.port_reads(b)]
+                                 + ["https://api.github.com" + self.port_reads(self.BRANCHES[3])[1]])
+                self.assertTrue(all(c["credential"] for c in calls), "every call carries its credential on stdin")
+                texts = {p.name: p.read_text() for p in self.out.iterdir()}
+                self.assertEqual(sorted(texts), sorted(["ran_at", "requests.json"] + ["%s-%d" % (kind, n) for n in range(1, 12)
+                                                                                      for kind in ("clean", "redacted")]))
+                asked = json.loads(texts["requests.json"])
+                both, alone = self.FIRST, "pull_requests: read"
+                self.assertEqual([(a["narrowed_to"], a["of"], a["branch"], a["call"].split("/")[-1].split("?")[0], a["status"])
+                                  for a in asked if "call" in a],
+                                 [(both, state, branch, read, status) for state, branch, ref in zip(self.STATES, self.BRANCHES,
+                                                                                                     (200, 200, 404, 200, 404))
+                                  for read, status in (("pulls", 200), (branch.split("/")[-1], ref))]
+                                 + [(alone, "bare", self.BRANCHES[3], self.BRANCHES[3].split("/")[-1], control)])
+                self.assertEqual([a for a in asked if "call" not in a], [{"revoked": both, "status": 204},
+                                                                         {"revoked": alone, "status": 204}])
+                self.assertTrue(all(a["call"] == "GET " + url.split("https://api.github.com", 1)[1]
+                                    for a, url in zip([a for a in asked if "call" in a], reads)), asked)
+                for kept in ('"type": "Bot"', '"id": 9', '"full_name": "%s"' % self.CANARY, '"ref": "%s"' % self.BRANCHES[0]):
+                    self.assertIn(kept, texts["clean-1"])
+                self.assertIn('link: <https://api.github.com/x?page=1>; rel="first"', texts["clean-1"])
+                # A merge is told from a close by its time, kept as it came: the merged branch's list holds one.
+                self.assertIn('"merged_at": null', texts["clean-3"])
+                self.assertIn('"merged_at": "2026-11-25T12:00:00Z"', texts["clean-5"])
+                self.assertIn('"sha": "%s"' % self.SHA, texts["clean-2"])
+                self.assertNotIn("gh" + "s_", "".join(texts.values()) + ran.stdout + ran.stderr)
+                self.assertTrue(all(texts["redacted-%d" % n].strip() for n in range(1, 12)))
+
+    def test_a_later_attempts_branch_is_taken_and_read(self):
+        # A work branch past an issue's first attempt is one the port reads too: its count of two digits is taken.
+        ran = self.run_script(*(self.GIVEN[:-1] + ("factory-work/issue-8005-12",)))
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        self.assertEqual(sum("issue-8005-12" in c["url"] for c in self.calls()), 2)
+
+    def test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live(self):
+        # Stopped while the mint is asked, the answer never comes back, and GitHub may have minted a token all the same.
+        told_r, told_w = os.pipe()
+        held_r, held_w = os.pipe()
+        (self.stand_in / "mint.slow").write_text("%d %d\n" % (told_w, held_r))
+        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C"}
+        running = subprocess.Popen([SIGNAL_SHELL, str(self.SCRIPT), str(self.out), str(self.key), *self.GIVEN],
+                                   cwd=SCRATCH.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                                   pass_fds=(told_w, held_r))
+        os.close(told_w)
+        os.close(held_r)
+        try:
+            begun = os.read(told_r, 1)
+            running.terminate()
+        finally:
+            os.close(told_r)
+            os.close(held_w)
+        out, err = running.communicate(timeout=60)
+        self.assertEqual(begun, b"m", err)
+        self.assertNotEqual(running.returncode, 0)
+        self.assertIn("stopped while a token was being minted", err)
+        self.assertNotIn("DELETE", [c["method"] for c in self.calls()])
+
+    def test_an_inherited_mint_answer_is_never_revoked(self):
+        # A token-shaped answer in the environment is no mint of this run's: a refusal sends nothing at all.
+        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
+               "minted": '{"token": "%s"}' % self.TOKEN, "token": self.TOKEN}
+        ran = subprocess.run(["sh", str(self.SCRIPT), str(self.out), str(self.key), self.CANARY, "main"] + list(self.BRANCHES[1:]),
+                             cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=60)
+        self.assertEqual(ran.returncode, 2, ran.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_read_the_second_token_makes_that_fails_stops_the_run_and_its_token_is_revoked(self):
+        # The control token's one read broken: the first token was revoked already, the second is revoked as the run
+        # stops, and nothing of the run is handed over as whole.
+        (self.stand_in / "control.broke").write_text("")
+        ran = self.run_script()
+        self.assertNotEqual(ran.returncode, 0, ran.stdout)
+        self.assertIn("curl failed; nothing of it is kept", ran.stderr)
+        self.assertEqual([c["method"] for c in self.calls()], ["POST"] + ["GET"] * 10 + ["DELETE", "POST", "GET", "DELETE"])
+        self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+        self.assertFalse((self.out / "requests.json").exists())
+        self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
+
+    def test_the_status_kept_is_the_last_heads(self):
+        # A proxy's block comes first, 200, and GitHub's answer after it is the read's: the 404s stay 404s.
+        (self.stand_in / "proxied").write_text("")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        asked = json.loads((self.out / "requests.json").read_text())
+        self.assertEqual([a["status"] for a in asked if "call" in a], [200, 200, 200, 200, 200, 404, 200, 200, 200, 404, 404])
+
+    def test_each_refusal_comes_before_anything_is_minted(self):
+        self.out.parent.mkdir(parents=True, exist_ok=True)
+        branches = self.BRANCHES
+        not_a_branch = "is not a work branch's name, factory-work/issue-N-k"
+        elsewhere = "is not the canary the Controller is installed on"
+        for given, out, said in (((self.CANARY,) + branches, self.out.parent, "exists"),
+                                 ((self.CANARY,) + branches, ROOT / self.INSIDE[0], "inside the repo"),
+                                 (("combsmith/software-factory",) + branches, None, elsewhere),
+                                 (("combsmith/elsewhere",) + branches, None, elsewhere),
+                                 (("combsmith",) + branches, None, "is not owner/name"),
+                                 ((self.CANARY, "main") + branches[1:], None, not_a_branch),
+                                 ((self.CANARY, "factory-work/issue-01-1") + branches[1:], None, not_a_branch),
+                                 ((self.CANARY, "factory-work/issue-1-0") + branches[1:], None, not_a_branch),
+                                 ((self.CANARY, branches[0] + "/x") + branches[1:], None, not_a_branch),
+                                 ((self.CANARY, branches[0] + "\n") + branches[1:], None, not_a_branch),
+                                 ((self.CANARY, "../" + branches[0]) + branches[1:], None, not_a_branch),
+                                 ((self.CANARY, "none") + branches[1:], None, not_a_branch),
+                                 ((self.CANARY,) + branches[:4] + (branches[0],), None, "is named twice"),
+                                 # Each place is held, not the first alone.
+                                 ((self.CANARY, branches[0], "x/../../refs") + branches[2:], None, not_a_branch),
+                                 ((self.CANARY,) + branches[:4] + ("main",), None, not_a_branch),
+                                 ((self.CANARY, branches[0], branches[1], branches[1]) + branches[3:], None, "is named twice"),
+                                 ((self.CANARY,) + branches[:4], None, "usage:"),
+                                 ((self.CANARY,) + branches + ("none",), None, "usage:")):
+            ran = self.run_script(*given, out=out)
+            self.assertNotEqual(ran.returncode, 0, given)
+            self.assertIn(said, ran.stderr, given)
+            self.assertEqual(self.calls(), [], given)
+        self.key.unlink()
+        ran = self.run_script()
+        self.assertNotEqual(ran.returncode, 0)
+        self.assertIn("cannot read the key file", ran.stderr)
+        self.assertEqual(self.calls(), [])
 
 class EditsReadTrial(IssueLookupTrial):
     """`tools/trial_p58_edits.sh`, run against the same stand-ins and never GitHub (issue 519). It is P-54's script held to

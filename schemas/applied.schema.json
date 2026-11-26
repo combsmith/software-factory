@@ -74,6 +74,11 @@
               "null"
             ],
             "pattern": "^[a-z_]+$"
+          },
+          "branch": {
+            "description": "Only a landed push_commits effect is to carry branch: the work branch it landed on, beside its commit in key. Readers use it for pushes alone; the schema cannot refuse it on another effect. adapters/applied.py's landed vouches for a head only on the branch its push names (decision 1208).",
+            "type": "string",
+            "pattern": "^factory-work/issue-[1-9][0-9]*-[1-9][0-9]*$"
           }
         }
       }

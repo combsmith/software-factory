@@ -5,12 +5,15 @@ import ast
 import copy
 import datetime
 import json
+import os
 import random
 import re
+import subprocess
+import sys
 import unittest
 
-from kernel import derive
-from kernel.decide import decide, left_alone, still_wanted, stuck_runs, unnamed_scope
+from kernel import brakes, derive
+from kernel.decide import _decision, decide, left_alone, still_wanted, stuck_runs, unnamed_scope
 from tests.support import (COMMIT, CONFIG, DIGEST, GREEN, LENS_OF, MAINTAINER, NOW, OTHER_APP, OTHER_WORKFLOW, QUEUE_APP,
                            REPORTER, ROOT,
                            changed, config, context, contract, evidence, facts, labelled, review, run, thread,
@@ -128,6 +131,71 @@ class Readability(unittest.TestCase):
                 self.assertEqual((d["outcome"], d["reason"], d["state"], d["evidence"]),
                                  ("defer", "facts_incomplete", None, [part]), part)
 
+    def test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person(self):  # issue 1009, record 0234
+        # Anyone can comment on a pull request, so its timeline is read to the port's bound; past it more comments never
+        # bring it back. The pull request defers on its own code, before any list read short and whatever
+        # `complete.timeline` claims, and calls a person; queued, it is taken out, as for any read short.
+        cut = dict(facts()["complete"], timeline=False)
+        for reviews in ([], [review()]):
+            for short in ((), ("threads",), ("reviews",)):
+                d = go(facts(timeline_bounded=True, reviews=reviews, complete=dict(cut, **{s: False for s in short})),
+                       REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                                 (None, "timeline_bounded", ["reviews", "timeline"] if "reviews" in short else ["timeline"],
+                                  "defer", "needs_you"), (reviews, short))
+        self.assertEqual(go(facts(timeline_bounded=True), REVIEWED)["reason"], "timeline_bounded")
+        d = go(facts(timeline_bounded=True, queue=True, reviews=[review()], complete=cut), REVIEWED)
+        self.assertEqual((d["reason"], d["outcome"], d.get("action"), d["attention"]),
+                         ("timeline_bounded", "act", "dequeue", "needs_you"))
+        # An acceptance read short beside it, not cut, is any read short: the cut timeline is said (Astra).
+        d = go(facts(timeline_bounded=True, acceptance_bounded=False, complete=dict(cut, acceptance=False)), REVIEWED)
+        self.assertEqual((d["reason"], d["evidence"]), ("timeline_bounded", ["timeline"]))
+        # A cut acceptance read beside it is said first: the issue it names is what a person can mend.
+        both = go(facts(timeline_bounded=True, acceptance_bounded=True, complete=dict(cut, acceptance=False)), REVIEWED)
+        self.assertEqual(both["reason"], "acceptance_bounded")
+        # The other side: not cut, its read short defers as facts_incomplete, needing no person, and read whole it
+        # converges; absent, as in facts read before the field, it is not cut.
+        self.assertEqual(go(facts(timeline_bounded=False, complete=cut), REVIEWED)["reason"], "facts_incomplete")
+        self.assertEqual(go(facts(timeline_bounded=False), REVIEWED)["reason"], "approval_due")
+        for complete, reason in ((facts()["complete"], "approval_due"), (cut, "facts_incomplete")):
+            f = facts(complete=complete)
+            del f["timeline_bounded"]
+            self.assertEqual(go(f, REVIEWED)["reason"], reason, complete)
+        # Present but no truth value, it cannot be read: a gap in the timeline, never a convergence.
+        for bounded in (None, "true", 1, 0, [], {}):
+            for complete in (facts()["complete"], cut):
+                d = go(facts(timeline_bounded=bounded, complete=complete, reviews=[review()]), REVIEWED)
+                self.assertEqual((d["reason"], d["attention"]), ("facts_incomplete", "none"), (bounded, complete))
+                self.assertEqual(d["evidence"], ["timeline"] if complete is cut else ["reviews", "timeline"],
+                                 (bounded, complete))        # once (Carbon); both reads where each claims whole (1150)
+        # Beside another list read short, the gap is added to it, in the lists' order (Astra), whichever list (Carbon).
+        for other in [name for name in facts()["complete"] if name != "timeline"]:
+            d = go(facts(timeline_bounded=None, complete=dict(facts()["complete"], **{other: False})), REVIEWED)
+            gap = ("reviews",) if other == "reviews" else (other, "reviews", "timeline")
+            self.assertEqual(d["evidence"], [name for name in derive.t.READ_IN_FULL if name in gap], other)
+        # Both flags no truth value in one snapshot: both are gaps, the acceptance read's first (Astra).
+        d = go(facts(acceptance_bounded=None, timeline_bounded=None), REVIEWED)
+        self.assertEqual((d["reason"], d["evidence"]), ("facts_incomplete", ["acceptance", "reviews", "timeline"]))
+        # A merged or closed pull request is what it is, cut or not.
+        for state in ("merged", "closed"):
+            self.assertEqual(go(facts(timeline_bounded=True, complete=cut, state=state), REVIEWED)["reason"], state)
+
+    def test_a_reviews_list_cut_at_its_bound_defers_as_a_cut_timeline_and_names_the_reviews(self):  # record 1150
+        # The port cuts the reviews at the bound too, in the one flag: the cut defers on that code and calls a person,
+        # naming the reads not whole, or both where each claims to be (the Solution Architect, 2026-11-24).
+        whole = facts()["complete"]
+        for short, evidence in (({"reviews": False}, ["reviews"]), ({"timeline": False}, ["timeline"]),
+                                ({"reviews": False, "timeline": False}, ["reviews", "timeline"]),
+                                ({}, ["reviews", "timeline"]), ({"reviews": False, "threads": False}, ["reviews"])):
+            d = go(facts(timeline_bounded=True, reviews=[review()], complete=dict(whole, **short)), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                             (None, "timeline_bounded", evidence, "defer", "needs_you"), short)
+        d = go(facts(timeline_bounded=True, queue=True, reviews=[review()], complete=dict(whole, reviews=False)), REVIEWED)
+        self.assertEqual((d["reason"], d["evidence"], d.get("action")), ("timeline_bounded", ["reviews"], "dequeue"))
+        # The other side: reviews read short and not cut are any read short, calling no one.
+        d = go(facts(timeline_bounded=False, reviews=[review()], complete=dict(whole, reviews=False)), REVIEWED)
+        self.assertEqual((d["reason"], d["evidence"], d["attention"]), ("facts_incomplete", ["reviews"], "none"))
+
     def test_a_flag_that_is_not_exactly_true_is_incomplete(self):  # I-13, I-20
         # A fact read from outside is never given a default: a missing or malformed flag is not a whole list.
         approved = [review()]
@@ -222,6 +290,39 @@ class Derived(unittest.TestCase):
         self.assertEqual(go(f, runs), first)
         self.assertEqual(json.dumps([f, runs], sort_keys=True), before)
 
+    def test_the_same_inputs_give_the_same_decision_under_another_hash_seed(self):  # issue 1137
+        # A replay runs in another process, under another hash seed, where a set of strings iterates in another order.
+        # So both simulated worlds' fixed seeds are run in four processes, each under a hash seed of its own, and every
+        # call of the Kernel, its inputs' digest and its decision, must be the same, text for text.
+        child = ("import hashlib, json, sys\nimport kernel.issue\nfrom sim import issues, world\nmade = []\n\n\n"
+                 "def kept(decide, world):\n    def call(*args):\n"
+                 "        given = hashlib.sha256(json.dumps(args).encode()).hexdigest()\n        decision = decide(*args)\n"
+                 "        made.append(json.dumps([world, given, decision]))\n        return decision\n    return call\n\n\n"
+                 "world.decide = kept(world.decide, 'pull request')\nkernel.issue.decide = kept(kernel.issue.decide, 'issue')\n"
+                 "for make in (world.World, issues.IssueWorld):\n    for seed in range(1, 21):\n"
+                 "        w = make(seed)\n        for _ in range(250):\n            w.step()\n"
+                 "sys.stdout.write('\\n'.join(made))\n")
+        children = [subprocess.Popen([sys.executable, "-B", "-c", child], cwd=str(ROOT), stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE, text=True,
+                                     env=dict(os.environ, PYTHONHASHSEED=seed, PYTHONPATH=str(ROOT)))
+                    for seed in ("1", "2", "3", "4")]
+        made = []
+        try:
+            for process in children:
+                out, err = process.communicate()
+                self.assertEqual(process.returncode, 0, err[-2000:])
+                made.append(out.split("\n"))
+        finally:
+            for process in children:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate()
+        # Each world's calls are read, the issue's among them.
+        self.assertEqual({json.loads(line)[0] for line in made[0]}, {"pull request", "issue"})
+        for other in made[1:]:
+            apart = next((i for i, (one, two) in enumerate(zip(made[0], other)) if one != two), None)
+            self.assertEqual((len(other), apart), (len(made[0]), None), apart is not None and other[apart][:400])
+
     def test_admission_is_given_facts_and_never_an_event(self):
         code = decide.__code__
         self.assertEqual(code.co_varnames[:code.co_argcount], ("facts", "runs", "context", "config", "now"))
@@ -236,6 +337,16 @@ class HumanControl(unittest.TestCase):
             self.assertTrue(left_alone(facts(label_events=[person], **over), CONFIG), over)
         # Labels that cannot be read: nothing says a person did not.
         self.assertTrue(left_alone(facts(complete=dict(whole, timeline=False)), CONFIG))
+        # So is a timeline the port cut, or says it cut in a form that is no truth value, whatever `complete.timeline`
+        # claims (decision 1149; Muse); not cut, it is read.
+        for bounded in (True, None, "true", 0):
+            self.assertTrue(left_alone(facts(timeline_bounded=bounded), CONFIG), bounded)
+        self.assertFalse(left_alone(facts(timeline_bounded=False), CONFIG))
+        # Absent, as in facts read before it, it is not cut: a person's hands-off is read, and none leaves it (Astra).
+        legacy, placed = facts(), facts(label_events=[person])
+        del legacy["timeline_bounded"], placed["timeline_bounded"]
+        self.assertFalse(left_alone(legacy, CONFIG))
+        self.assertTrue(derive.hands_off(placed, CONFIG))
         self.assertTrue(left_alone(facts(label_events=[dict(person, by=None)]), CONFIG))
         # The other side: none, a person's removal, one no person placed, another label, another list not read.
         for events in ([], [person, unlabelled("factory:hands-off", at="2026-10-11T12:05:00Z")],
@@ -840,11 +951,34 @@ class OnlyAPersonEnds(unittest.TestCase):
             d = go(f, REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("action")),
                              (None, "facts_incomplete", "act", "dequeue"), who)
+        # Nor from a timeline the port cut at its bound, or says it cut in a form that is no truth value, whatever
+        # `complete.timeline` claims (decision 1149; Muse).
+        for bounded, reason in ((True, "timeline_bounded"), (None, "facts_incomplete"), ("true", "facts_incomplete"),
+                                (0, "facts_incomplete")):
+            f = facts(queue=True, reviews=APPROVED, label_events=[labelled("factory:hands-off")], timeline_bounded=bounded)
+            d = go(f, REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("action")),
+                             (None, reason, "act", "dequeue"), bounded)
+        # A malformed flag beside reviews read short, the timeline whole, is the deferral the Decision gives, before
+        # hands-off or anything else can act (the Solution Architect, 2026-11-25; Astra).
+        for bounded in (None, "true", 0, 1):
+            f = facts(reviews=APPROVED, label_events=[labelled("factory:hands-off")], timeline_bounded=bounded)
+            f["complete"]["reviews"] = False
+            d = go(f, REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                             (None, "facts_incomplete", ["reviews"], "defer", "none"), bounded)
+            self.assertNotIn("action", d)
         # The other side: read in full, a person's hands-off leaves it where it is, whatever else was read short.
         f = facts(queue=True, reviews=APPROVED, label_events=[labelled("factory:hands-off")])
         f["complete"]["threads"] = False
         d = go(f, REVIEWED)
         self.assertEqual((d["reason"], d["outcome"]), ("facts_incomplete", "defer"))
+        self.assertNotIn("action", d)
+        # Nor is the flag absent, as in facts read before it, any cut: hands-off is read, and nothing dequeues (security).
+        f = facts(queue=True, reviews=APPROVED, label_events=[labelled("factory:hands-off")])
+        del f["timeline_bounded"]
+        d = go(f, REVIEWED)
+        self.assertEqual((d["reason"], d["outcome"]), ("hands_off", "hold"))
         self.assertNotIn("action", d)
 
     def test_a_person_whose_login_is_a_bots_is_unreadable(self):  # I-13, L-57
@@ -2081,6 +2215,10 @@ class Convergence(unittest.TestCase):
         f = facts(reviews=rv)
         f["complete"] = dict(f["complete"], timeline=False)
         self.assertIsNone(derive.standing_approval(f, CONFIG))
+        # Nor on one cut at its bound, or said cut in a form that is no truth value, whatever the flag claims (Muse).
+        for cut in (True, None, "true", 0):
+            self.assertIsNone(derive.standing_approval(facts(reviews=rv, timeline_bounded=cut), CONFIG), cut)
+        self.assertIsNotNone(derive.standing_approval(facts(reviews=rv, timeline_bounded=False), CONFIG))
 
     def test_a_description_edited_after_the_approval_holds_until_a_person_approves(self):  # issue 519, trials/P-58.json
         # P-58: every edit of the description moves its last editedAt, a reviewer App's too, and nothing else does. An
@@ -2541,6 +2679,41 @@ class Acceptance(unittest.TestCase):
             d = go(facts(acceptance=contract(["AC-1"], [evidence("AC-1")] + now)), REVIEWED)
             self.assertEqual((d["state"], d["reason"]), (None, "acceptance_unreadable"), now)
 
+    def test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person(self):  # issue 986, record 0234
+        # The issue a pull request closes was commented past the port's bound: more comments never bring it back, and an
+        # outsider can bring it about, so the pull request defers on its own code, before any list read short, and calls
+        # a person; queued, it is taken out, as for any read short.
+        cut = dict(facts()["complete"], acceptance=False)
+        for reviews in ([], APPROVED):
+            for short in ((), ("threads",), ("timeline",)):
+                d = go(facts(acceptance_bounded=True, reviews=reviews, complete=dict(cut, **{s: False for s in short})),
+                       REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                                 (None, "acceptance_bounded", ["acceptance"], "defer", "needs_you"), (reviews, short))
+        d = go(facts(acceptance_bounded=True, queue=True, reviews=APPROVED, complete=cut), REVIEWED)
+        self.assertEqual((d["reason"], d["outcome"], d.get("action"), d["attention"]),
+                         ("acceptance_bounded", "act", "dequeue", "needs_you"))
+        # The cut decides, whatever the completeness flag claims beside it.
+        self.assertEqual(go(facts(acceptance_bounded=True), REVIEWED)["reason"], "acceptance_bounded")
+        # The other side: not cut, its read short defers as facts_incomplete, needing no person, and read whole it
+        # converges.
+        self.assertEqual(go(facts(acceptance_bounded=False, complete=cut), REVIEWED)["reason"], "facts_incomplete")
+        self.assertEqual(go(facts(acceptance_bounded=False), REVIEWED)["reason"], "approval_due")
+        # Absent, as in facts read before the field, an eval set's among them, it is not cut (the one default).
+        for complete, reason in ((facts()["complete"], "approval_due"), (cut, "facts_incomplete")):
+            f = facts(complete=complete)
+            del f["acceptance_bounded"]
+            self.assertEqual(go(f, REVIEWED)["reason"], reason, complete)
+        # Present but no truth value, it cannot be read: a gap in acceptance, read short or whole, never a convergence.
+        for bounded in (None, "true", 1, 0, [], {}):
+            for complete in (facts()["complete"], cut):
+                d = go(facts(acceptance_bounded=bounded, complete=complete, reviews=APPROVED), REVIEWED)
+                self.assertEqual((d["reason"], d["evidence"], d["attention"]), ("facts_incomplete", ["acceptance"], "none"),
+                                 (bounded, complete))
+        # A merged or closed pull request is what it is, cut or not.
+        for state in ("merged", "closed"):
+            self.assertEqual(go(facts(acceptance_bounded=True, complete=cut, state=state), REVIEWED)["reason"], state)
+
     def test_a_contract_read_short_is_incomplete(self):  # I-13, I-20, the ruling on #17
         # Whether the contract, or that there is none, was read in full is `complete.acceptance`, read with the other
         # flags: a read short defers as facts_incomplete, a wait that needs no person. No contract read short is not
@@ -2961,6 +3134,68 @@ class Ceilings(unittest.TestCase):
             failures = [run(conclusion="failure", outcome=kind, at="2026-10-11T12:1%d:00Z" % i, name="f%d" % i) for i in range(3)]
             self.assertEqual(go(facts(), failures)["outcome"], "admit", kind)
 
+    def test_a_run_that_ended_person_holds_the_item_and_calls_a_person_and_spends_no_attempt(self):  # issue 838
+        # A Run that ended on a person's code, its fault `person`, fails the same way again on the same commit: the item
+        # is held for a person, with that Run as evidence, before any brake, a Pause among them, since a Hold is a reading.
+        ended = run(conclusion="failure", outcome="person", at=at(10), name="p1")
+        for ctx in (None, context(paused=True), context(paused=None)):
+            d = go(facts(), [ended], ctx=ctx)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"], d["evidence"]),
+                             ("held", "run_needs_person", "hold", "needs_you", ["p1"]), ctx)
+        # The same Run ended for the item, the environment, capacity or as superseded, or with no outcome, raises no
+        # such Hold: the next Run is admitted.
+        for kind in ("item", "environment", "capacity", "superseded", None):
+            self.assertEqual(go(facts(), [dict(ended, outcome=kind)])["admit"], REVIEW_IT, kind)
+        # The Role's latest Run alone is read: one after it that ended otherwise lets the next through; one before, not.
+        other = run(conclusion="failure", outcome="item", at=at(11), name="i1")
+        self.assertEqual(go(facts(), [ended, other])["admit"], REVIEW_IT)
+        d = go(facts(), [dict(other, started_at=at(9), began_at=at(9)), ended])
+        self.assertEqual((d["reason"], d["evidence"]), ("run_needs_person", ["p1"]))
+        d = go(facts(), [ended, dict(other, started_at=at(9), began_at=at(9))])
+        self.assertEqual((d["reason"], d["evidence"]), ("run_needs_person", ["p1"]))
+        # Another Role's Run that ended `person` holds no Run of this Role.
+        fixer = run(role=CONFIG["author_role"], intent="fix-findings", conclusion="failure", outcome="person", at=at(5),
+                    name="d1")
+        self.assertEqual(go(facts(), [fixer])["admit"], REVIEW_IT)
+        # A later Run of the Role superseded, or cancelled with no outcome, ran nothing on the commit: the Hold stands.
+        for gone in ({"outcome": "superseded", "conclusion": "failure"}, {"outcome": None, "conclusion": "cancelled"}):
+            d = go(facts(), [ended, dict(other, **gone)])
+            self.assertEqual((d["reason"], d["evidence"]), ("run_needs_person", ["p1"]), gone)
+        self.assertEqual(go(facts(), [ended, dict(other, outcome=None, conclusion="timed_out")])["reason"], "awaiting_review")
+        # A Run that reported `person` and was cancelled after holds as any that ended `person`.
+        self.assertEqual(go(facts(), [dict(ended, conclusion="cancelled")])["reason"], "run_needs_person")
+        # Two tied that ended `person` name the least id, whatever their order.
+        both = [dict(ended, run="p2"), ended]
+        for tied in (both, both[::-1]):
+            self.assertEqual(go(facts(), tied)["evidence"], ["p1"], [r["run"] for r in tied])
+        # Nor does another Role's later Run lift this Role's Hold.
+        d = go(facts(), [ended, dict(fixer, outcome="item", started_at=at(11), began_at=at(11))])
+        self.assertEqual((d["reason"], d["evidence"]), ("run_needs_person", ["p1"]))
+        # Two Runs of the Role started in one second are in no order: either that ended `person` holds the item.
+        for tied in ([ended, dict(other, started_at=at(10), began_at=at(10))],
+                     [dict(other, started_at=at(10), began_at=at(10)), ended]):
+            d = go(facts(), tied)
+            self.assertEqual((d["reason"], d["evidence"]), ("run_needs_person", ["p1"]), [r["run"] for r in tied])
+        # A writer's action releases it, as it releases attempts_exhausted: the Runs before it are not read.
+        self.assertEqual(go(facts(last_writer_action_at=at(10)), [ended])["admit"], REVIEW_IT)
+        self.assertEqual(go(facts(last_writer_action_at=at(9)), [ended])["reason"], "run_needs_person")
+        # The brakes count a Run that ended `person` as no attempt and, whatever it says of its Engine, no Run that spent
+        # no model; it reached a model, so it counts toward the Run ceiling, the cost ceiling (FR-39).
+        many = [dict(ended, run="p%d" % i, engine_started=False) for i in range(LIMITS["max_runs_per_item"])]
+        self.assertEqual((brakes._attempts(many, "review-change"), brakes._outside(many), brakes._spent(many)),
+                         ([], [], many))
+        self.assertIsNone(brakes.run_ceilings(_decision, facts(), [], "review-change", many[1:], LIMITS))
+        self.assertEqual(brakes.run_ceilings(_decision, facts(), [], "review-change", many, LIMITS)["reason"],
+                         "run_ceiling")
+        # A person is asked what attempts_exhausted asks.
+        rows = {row["reason"]: row for row in json.loads((ROOT / "config" / "feed.json").read_text())["decision_required"]}
+        self.assertEqual(dict(rows["run_needs_person"], reason=None), dict(rows["attempts_exhausted"], reason=None))
+        # So a later Run that lifts the Hold refunds no Run of the ceiling: with a ceiling of two, the next is refused.
+        two = config(limits=dict(LIMITS, max_runs_per_item=2))
+        self.assertEqual(go(facts(), [ended, other], cfg=two)["reason"], "run_ceiling")
+        self.assertEqual(go(facts(), [dict(ended, outcome="capacity"), other], cfg=two)["reason"], "run_ceiling")
+        self.assertEqual(go(facts(), [other], cfg=two)["admit"], REVIEW_IT)
+
     def test_a_writers_action_grants_a_fresh_allowance(self):  # I-28
         failures = [run(conclusion="failure", outcome="item", at="2026-10-11T12:1%d:00Z" % i, name="f%d" % i) for i in range(3)]
         d = go(facts(last_writer_action_at="2026-10-11T12:30:00Z"), failures)
@@ -3375,6 +3610,44 @@ class Ceilings(unittest.TestCase):
         self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "attempts_exhausted", [r["run"] for r in theirs]))
         self.assertEqual(go(facts(threads=accepted, acts_since_writer=0), REVIEWED + theirs[1:])["action"], "resolve_thread")
         self.assertEqual(go(facts(acts_since_writer=0), REVIEWED + theirs)["action"], "issue_approval")
+
+    def test_the_approval_and_queue_loops_are_held_at_max_attempts_never_at_the_rounds_key(self):  # decision 0242
+        # max_attempts and an issue's max_implementing_rounds set apart, each way: an approval's and an enqueue's jobs
+        # that failed by the item are held at max_attempts, and one fewer goes on, whatever the rounds' key says.
+        landed = run(intent="resolve-thread", role="pr-review", at=at(12), name="r_0RES001")
+        approved = facts(reviews=APPROVED, acts_since_writer=0)
+        for attempts, rounds in ((2, 5), (5, 2)):
+            cfg = copy.deepcopy(CONFIG)
+            cfg["limits"].update(max_attempts=attempts, max_implementing_rounds=rounds)
+            failed = approvals(attempts)
+            d = go(facts(), REVIEWED + failed, cfg=cfg)
+            self.assertEqual((d["outcome"], d["reason"]), ("hold", "attempts_exhausted"), (attempts, rounds))
+            self.assertEqual(go(facts(), REVIEWED + failed[1:], cfg=cfg).get("action"), "issue_approval", (attempts, rounds))
+            queue = [dict(landed, run="r_0EQ%03d" % i, intent="enqueue-merge", started_at=at(13 + i), conclusion="failure",
+                          outcome="item") for i in range(attempts)]
+            d = go(approved, REVIEWED + queue, cfg=cfg)
+            self.assertEqual((d["outcome"], d["reason"]), ("hold", "attempts_exhausted"), (attempts, rounds))
+            self.assertEqual(go(approved, REVIEWED + queue[1:], cfg=cfg).get("action"), "enqueue", (attempts, rounds))
+        # Nor does a rounds' key that cannot be read hold either loop: it is the implementing rounds' alone.
+        for bad in (None, "3", 0):
+            cfg = copy.deepcopy(CONFIG)
+            cfg["limits"].update(max_attempts=2, max_implementing_rounds=bad)
+            self.assertEqual(go(facts(), REVIEWED + approvals(1), cfg=cfg).get("action"), "issue_approval", bad)
+            queue = [dict(landed, run="r_0EQ001", intent="enqueue-merge", started_at=at(13), conclusion="failure", outcome="item")]
+            self.assertEqual(go(approved, REVIEWED + queue, cfg=cfg).get("action"), "enqueue", bad)
+            del cfg["limits"]["max_implementing_rounds"]
+            self.assertEqual(go(facts(), REVIEWED + approvals(1), cfg=cfg).get("action"), "issue_approval", bad)
+            self.assertEqual(go(approved, REVIEWED + queue, cfg=cfg).get("action"), "enqueue", bad)
+
+    def test_the_rulings_are_held_at_max_rounds_never_at_the_rounds_key(self):  # decision 0242
+        for rounds, other in ((2, 5), (5, 2)):  # the two keys set apart, each way
+            cfg = copy.deepcopy(CONFIG)
+            cfg["limits"].update(max_rounds=rounds, max_implementing_rounds=other, max_runs_per_item=20)
+            laps = [r for i in range(rounds) for r in (run(intent="adjudicate-findings", at=at(20 + 2 * i), name="o%d" % i),
+                                                       run(role="dev-lead", intent="fix-findings", at=at(21 + 2 * i), name="a%d" % i))]
+            self.assertEqual(go(facts(threads=[thread()]), REVIEWED + laps, cfg=cfg)["reason"], "max_rounds", rounds)
+            d = go(facts(threads=[thread()]), REVIEWED + laps[:-2], cfg=cfg)
+            self.assertEqual(d["admit"]["intent"], "adjudicate-findings", rounds)
 
     def test_a_queue_job_spends_no_run_when_it_lands_and_is_held_by_its_own_when_it_does_not(self):  # issue 381
         # The queue App's enqueue and dequeue are each a Run once the queue workflow is named. One that landed is on the

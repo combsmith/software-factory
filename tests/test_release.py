@@ -29,7 +29,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILL = ROOT / ".claude" / "skills" / "cut-a-release" / "SKILL.md"
 # The skill's section "When the Factory cannot approve", word for word (decision 0198): what it says of who approves,
 # and by what, changes only with this line.
-CANNOT_APPROVE_SHA256 = "29fcbc9374f77f49fc0bd45d81107ec13497b48320a5add6d8676918527b1fda"
+CANNOT_APPROVE_SHA256 = "88296669125a4df7c4d0e88087574860301f1651a99150535cc681a97b479b81"
 REPO = "combsmith/software-factory"
 A, B, C, D = ("a" * 40, "b" * 40, "c" * 40, "d" * 40)
 NEXT, STABLE = "factory/v0-next", "factory/v0-stable"
@@ -1051,15 +1051,15 @@ class Fixture(unittest.TestCase):
         self.assertLess(event["approval"]["at"], event["enqueued"]["at"])
         self.assertLess(event["enqueued"]["at"], steps[-1]["now"])
         self.assertLess(steps[-1]["now"], event["merged"]["at"])
-        # The status on the item, read back after the merge, is the last step's: its State and code, never a sentence.
+        # The status on the item, read back after the merge, is the last step's: its State and code.
         status = body("%s/commits/%s/check-runs?check_name=%s" % (api, event["head"], defaults["status_on_item"]))
         self.assertEqual(status["total_count"], 1)
         shown, = status["check_runs"]
         self.assertEqual((shown["name"], shown["app"]["slug"], shown["conclusion"], shown["head_sha"]),
                          (defaults["status_on_item"], apps["controller"]["name"], "neutral", event["head"]))
         # Word for word what the effects port writes for the last step's Decision under this pass and Release, who
-        # acts next among it, as `config/feed.json` gives it.
-        feed = json.loads((ROOT / "config" / "feed.json").read_text())
+        # acts next among it, as `config/feed.json` gives it. That Release's feed gave no sentences (decision 1123).
+        feed = {k: v for k, v in json.loads((ROOT / "config" / "feed.json").read_text()).items() if k != "sentences"}
         self.assertEqual(shown["output"], effects.status_output(dict(steps[-1], evidence=[]),
                                                                 {"pass": steps[-1]["pass"], "release": event["release"]}, feed))
 
@@ -1467,8 +1467,11 @@ class Skill(unittest.TestCase):
         # says when a Pause is needed for it, on either side of the day a queue account is named.
         self.assertIn("While `accounts.queue` in\n`config/controller.json` is null, nothing carries that Decision out", section)
         self.assertIn("Once it names an account,\nthe Maintainer sets the Pause before the enqueue", section)
-        # A hand approval alarms, the section says so, and every entry of the alert is read while it stands.
-        self.assertIn("The next pass raises the alert `write_unmatched` for it", section)
+        # A hand approval of a pull request waiting for a person is information, any other approval alarms, the section
+        # says so, and every entry is read while it stands (decision 0241).
+        self.assertIn("The next pass reports it as the entry `hand_approval`, information that names", section)
+        self.assertIn("the first approval of that head alone, by a pass whose reads are whole.", section)
+        self.assertIn("Any other approval no Effect records\nraises the alert `write_unmatched`", section)
         self.assertIn("so every entry is read for as long as it stands", section)
         self.assertIn("The match clears nothing else", section)
         self.assertIn("No session rotates or revokes the token.", section)

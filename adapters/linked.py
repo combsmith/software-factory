@@ -203,7 +203,7 @@ def entry(transport, read: dict, identities: dict, accounts: timeline.Accounts, 
     """`(the pull request as issue-facts/1 lists it, whether its timeline was whole, whether it was cut at its bound)`,
     from `read`, `join` and `spans`, each pull request's keyword spans as the pass records give them. Where the issue
     rule would act on it, with the Kernel's configuration `kernel` naming an author Role, the Factory's open draft
-    carries its head's `checks` too (`adapters/draft_checks.py`, decision 0217)."""
+    carries its head's `checks` too (`adapters/draft_checks.py`, decision 0217), and its own `head` (issue 1059)."""
     number = read["number"]
     own, _ = pull.own(read, identities)
     # Bounded as the issue's own is: past the bound not whole, and the issue's facts say a timeline was cut, so it
@@ -221,6 +221,7 @@ def entry(transport, read: dict, identities: dict, accounts: timeline.Accounts, 
             "keyword": number in join["refs"], "keyword_spans": spans.get(number, []), "close_events": closes(events, accounts)}
     if draft_checks.asked(kernel, own):
         made["checks"] = draft_checks.read(transport, read, kernel)
+        made["head"] = draft_checks.head(read)
     return made, whole, cut
 
 
@@ -282,11 +283,13 @@ def listing(transport, repo: str, number: int, updated_at: str, began: str, iden
 
 def read(transport, repo: str, number: int, updated_at: str, began: str, identities: dict,
          accounts: timeline.Accounts, earlier, kernel=None) -> tuple:
-    """`(linked, whole, cut)`, as `listing` reads them with the spans the pass records `earlier` give: whole where the
-    list was read whole and the spans were too, or, where the records break the chain of spans, where they give no span
-    and nothing names the issue; and whether a listed pull request's timeline was cut at its bound.
+    """`(linked, whole, cut, broken)`, as `listing` reads them with the spans the pass records `earlier` give: whole
+    where the list was read whole and the spans were too, or, where the records break the chain of spans, where they
+    give no span and nothing names the issue; whether a listed pull request's timeline was cut at its bound; and whether
+    the records break the chain of spans while something names the issue, which no later pass mends (decision 0253).
     `earlier` is the pass records before this pass, oldest first, or None."""
     spans, read_whole = keyword_spans.read(earlier, {"repo": repo, "type": "issue", "number": number})
     linked, whole, named, cut = listing(transport, repo, number, updated_at, began,
                                         identities, accounts, spans, kernel)
-    return linked, whole and (read_whole is True or read_whole is None and not named and not spans), cut
+    broken = read_whole is None and named
+    return linked, whole and (read_whole is True or read_whole is None and not named and not spans), cut, broken

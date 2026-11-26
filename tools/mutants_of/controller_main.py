@@ -7,9 +7,29 @@ AT_ONCE = ("tests.test_controller.Entry.test_the_open_pull_requests_are_read_fou
 RATE = ("tests.test_controller.Entry.test_a_rate_limit_is_a_429_or_a_403_with_no_request_left_or_a_time_to_wait",)
 STAGED = ("tests.test_controller.Entry.test_each_stage_of_a_pass_is_timed_in_the_log_alone_and_times_no_read_differently",)
 
+LEFT_OUT = ("tests.test_controller.Entry.test_a_pull_request_left_out_and_closed_before_the_next_pass_is_read_as_left",)
 F849_BUDGET = ("tests.test_controller.Entry.test_the_issue_reads_stop_at_the_passs_budget_and_those_left_out_by_it_are_read_first_by_the_next",)
 TARGETS = ("controller/__main__.py",)
 MUTANTS = [
+    # The default branch's head, read once a pass and given to each issue (decisions 0226 and 0242).
+    ("the issues are read with no opener", 'controller/__main__.py',
+     'base_head=head, opener=opens,', 'base_head=head, opener=None,', S3_ENTRY),
+    ("each issue is given no base head", 'controller/__main__.py',
+     'kernel=config["kernel"], base_head=head,', 'kernel=config["kernel"], base_head=None,', S3_ENTRY),
+    ("the base head's read is not dated", 'controller/__main__.py',
+     'facts_reads += [read for answer in asked.answers for read in dated(answer)] if head', 'facts_reads += [] if head', S3_ENTRY),
+    ("the base head's read is dated where it gave none", 'controller/__main__.py',
+     ' for read in dated(answer)] if head is not None else []', ' for read in dated(answer)]', S3_ENTRY),
+    ("the base head is dated by its first answer alone", 'controller/__main__.py',
+     '[read for answer in asked.answers for read in dated(answer)]', 'dated(asked.answers[0])', S3_ENTRY),
+    ("the base head is read with no issue listed", 'controller/__main__.py',
+     'if listed_whole and listed and apart is not None else None', 'if listed_whole and apart is not None else None', S3_ENTRY),
+    ("the base head is read from a list read short", 'controller/__main__.py',
+     'if listed_whole and listed and apart is not None else None', 'if listed and apart is not None else None', S3_ENTRY),
+    ("the base head is read where the tracking issue is unknown", 'controller/__main__.py',
+     'if listed_whole and listed and apart is not None else None', 'if listed_whole and listed else None', S3_ENTRY),
+    ("the base head's read spends the issues' budget", 'controller/__main__.py',
+     '    asked = Kept(transport)\n', '    asked = Kept(counted)\n', F849_BUDGET),
     # Issue 342: a pull request the Factory opens is bound to its issue by the Run that opened it, as well as its branch.
     ("the pass reads no Role's opening Runs", 'controller/__main__.py',
      'made = applied.opened(transport, home, runs, facts_.opener_role(config["kernel"]))',
@@ -44,6 +64,9 @@ MUTANTS = [
     ("any 403 is a rate limit", "controller/__main__.py", '(status == 403 and (str(', '(status == 403 or (str(', RATE),
     ("the carry's line counts no issue owed", "controller/__main__.py", '"left", "owed_issues", "left_issues", "hands")', '"left", "left_issues", "hands")', STAGED),
     ("the carry's line counts no issue left", "controller/__main__.py", '"owed_issues", "left_issues", "hands")', '"owed_issues", "hands")', STAGED),
+    ("the carry's line counts no hand approval or taken head", "controller/__main__.py", 'CARRIED = ("hand", "taken",\n', 'CARRIED = (\n', STAGED),
+    ("the carry's line counts no hand approval", "controller/__main__.py", 'CARRIED = ("hand", "taken",\n', 'CARRIED = ("taken",\n', STAGED),
+    ("the carry's line counts no taken head", "controller/__main__.py", 'CARRIED = ("hand", "taken",\n', 'CARRIED = ("hand",\n', STAGED),
     ("the carry's line counts no hand's thread", "controller/__main__.py", '"owed_issues", "left_issues", "hands")', '"owed_issues", "left_issues")', STAGED),
     ("the open pull requests' reads are not timed", "controller/__main__.py", '        stages.count(tally, "open_pull_requests", seconds)\n', '', STAGED),
     ("the carry's size is not said beside the pass", "controller/__main__.py", "        counts.update(stages.carried(out.get(\"record\")))\n", "", ('tests.test_controller.Entry.test_each_stage_of_a_pass_is_timed_in_the_log_alone_and_times_no_read_differently',)),
@@ -103,8 +126,8 @@ MUTANTS = [
      '', ('tests.test_controller.Entry.test_each_pull_request_opened_for_an_issue_is_told_how_its_issue_stands',)),
     # Asked once the issues are listed, as a pass that read their Runs would: `listed` exists only after the records are read.
     ("the entry asks the served issues' Runs when they began", 'controller/__main__.py',
-     '        raise Stop("issue_list_unreadable")\n',
-     '        raise Stop("issue_list_unreadable")\n'
+     '    issues = [] if listed_whole else [{"facts": {"item": None}, "title": None, "unread": reads_.UNLISTED}]\n',
+     '    issues = [] if listed_whole else [{"facts": {"item": None}, "title": None, "unread": reads_.UNLISTED}]\n'
      '    records.runs(transport, home, branch, run_files(controller), dispatcher(controller), kept=records.known(earlier), '
      'began=records.begun(earlier), engines=records.engines(earlier), sleep=sleep, '
      'of=[{"repo": home, "type": "issue", "number": number} for number in listed])\n',
@@ -129,7 +152,7 @@ MUTANTS = [
     ('the entry hands the seen port no read', 'controller/__main__.py', 'kept[number] = held\n', 'pass\n', WIRE_ENTRY),
     ('what a failed snapshot kept is handed on', 'controller/__main__.py', '            facts, title, head = facts_.snapshot(through, home, number, identities, who.through(own), runs_whole,\n', '            kept[number] = held\n            facts, title, head = facts_.snapshot(through, home, number, identities, who.through(own), runs_whole,\n', WIRE_ENTRY),
     ('an item that has left is not read', 'controller/__main__.py', '[(n, seen_.LEFT) for n in sorted(newly)]', '[]', WIRE_ENTRY),
-    ('every item the last record held has left', 'controller/__main__.py', '({e["facts"]["item"]["number"] for e in last} - set(numbers))', '({e["facts"]["item"]["number"] for e in last})', WIRE_ENTRY),
+    ('every item the last record held has left', 'controller/__main__.py', '(({e["facts"]["item"]["number"] for e in last} | left_out) - set(numbers))', '({e["facts"]["item"]["number"] for e in last} | left_out)', WIRE_ENTRY),
     ('the older record says what has left', 'controller/__main__.py', 'last = before[-1]["pull_requests"] if before else []', 'last = before[0]["pull_requests"] if before else []', WIRE_ENTRY),
     ('what is owed is not read by the entry', 'controller/__main__.py', ' | (set(reconcile.owed(before)) - set(numbers) - held)', '', WIRE_ENTRY),
     ('an unread part is not owed', 'controller/__main__.py', '        if part[-1] is not True:\n            unread.append(number)\n', '', WIRE_ENTRY),
@@ -153,6 +176,21 @@ MUTANTS = [
     ("a pull request that left is read once", 'controller/__main__.py', '\n                         + [(n, seen_.GONE) for n in sorted(gone)]', '', ("tests.test_controller.Entry.test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it",)),
     ("an owed pull request that left is read as newly left", 'controller/__main__.py',
      '(set(reconcile.owed(before)) - set(numbers) - held)', '(set(reconcile.owed(before)) - set(numbers))', ("tests.test_controller.Entry.test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it",)),
+    # Issue 1194: a pull request the last pass left out, and no longer open, has left, as one it decided.
+    ("a pull request left out is not read as left", 'controller/__main__.py',
+     ' | left_out) - set(numbers))', ') - set(numbers))', LEFT_OUT),
+    ("an issue left out is read as a pull request that left", 'controller/__main__.py',
+     ' and e["item"].get("type") == "pull_request"}', '}', LEFT_OUT),
+    ("one left out and listed open is read as left", 'controller/__main__.py',
+     '(({e["facts"]["item"]["number"] for e in last} | left_out) - set(numbers))',
+     '(({e["facts"]["item"]["number"] for e in last} - set(numbers)) | left_out)', LEFT_OUT),
+    ("the oldest record's left out are read as left", 'controller/__main__.py',
+     'left_out = {e["item"]["number"] for e in ((before[-1]', 'left_out = {e["item"]["number"] for e in ((before[0]', LEFT_OUT),
+    ("a pull request left out as not facts is not read as left", 'controller/__main__.py',
+     ' and e["item"].get("type") == "pull_request"}', ' and e["item"].get("type") == "pull_request" and e["code"] != "not_facts"}', LEFT_OUT),
+    ("an entry left out that names no item is read", 'controller/__main__.py',
+     '                if isinstance(e.get("item"), dict) and e["item"].get("type") == "pull_request"}',
+     '                if e["item"].get("type") == "pull_request"}', LEFT_OUT),
     ("the entry stamps none that left", 'controller/__main__.py', 'return seen_.seen(parts, since, told), unread, sorted(newly)',
      'return seen_.seen(parts, since, told), unread, []', ("tests.test_controller.Entry.test_the_entry_gathers_what_reconciliation_reads",)),
     # Issue 757: the run record says whether a Run's Engine step started, from the outcome apply writes.
@@ -165,8 +203,7 @@ MUTANTS = [
     # S3: the open issues are listed from `issues.served_from` and each read by the issues port, whose facts reach the
     # Kernel through the pass; an App is named by the id the configuration holds (the Factory Builder's ruling A).
     ('an open issue list read short is decided from', 'controller/__main__.py',
-     '    if not listed_whole:\n        raise Stop("issue_list_unreadable")\n',
-     '', S3_ENTRY),
+     'issue_order(listed if listed_whole else [], before)', 'issue_order(listed, before)', S3_ENTRY),
     ("an issue's linked pull requests not read are read as whole", 'controller/__main__.py',
      '            issues.append({"facts": facts, "title": title})\n',
      '            facts["complete"]["linked"] = True\n            issues.append({"facts": facts, "title": title})\n', S3_LINKED),
@@ -194,8 +231,8 @@ MUTANTS = [
     # Issues 963 and 965, the reader audits of #918 and #912: each issue's read dated by its own answer, the issues'
     # configuration left as written and its Apps named plain, and every account held to the names an App's id holds.
     ("each issue's facts read is dated by the first issue's answer", 'controller/__main__.py',
-     '    for number in pass_.issue_order(listed, before):\n        began, through = stages.now(), Dated(counted)\n',
-     '    through = Dated(counted)\n    for number in pass_.issue_order(listed, before):\n        began = stages.now()\n', S3_ENTRY),
+     '    for number in pass_.issue_order(listed if listed_whole else [], before):\n        began, through = stages.now(), Dated(counted)\n',
+     '    through = Dated(counted)\n    for number in pass_.issue_order(listed if listed_whole else [], before):\n        began = stages.now()\n', S3_ENTRY),
     # Issue 901: a Role's App held under `roles` alone comments as that Role and makes no counted act; the queue's or
     # a Lens's name declared an issue's App refuses the issues alone; the tracking issue is no Work item.
     ("the account reader is told no Role's account", 'controller/__main__.py',
@@ -316,7 +353,7 @@ MUTANTS = [
     ("an open issue read short is owed", 'controller/__main__.py',
      '        if parts[-1][-1] is not True and held is not None:\n', '        if parts[-1][-1] is not True:\n', ("tests.test_controller.Entry.test_an_issue_that_left_is_read_with_its_close_and_one_read_short_is_owed",)),
     ("the issues are read as listed whatever kept them from the listing", 'controller/__main__.py',
-     'listed=apart is not None and served is not None, ', 'listed=True, ', ("tests.test_controller.Entry.test_an_issue_that_left_is_read_with_its_close_and_one_read_short_is_owed",)),
+     'listed=apart is not None and served is not None and listed_whole, ', 'listed=True, ', ("tests.test_controller.Entry.test_an_issue_that_left_is_read_with_its_close_and_one_read_short_is_owed",)),
     ("issues owed for want of a listing leave reconciliation whole", 'controller/__main__.py',
      '        if unread_issues:\n            parts.append(([], [], False))\n', '', ("tests.test_controller.Entry.test_an_issue_that_left_is_read_with_its_close_and_one_read_short_is_owed",)),
     ("issues owed for want of a listing are owed with nothing to owe", 'controller/__main__.py',
@@ -413,20 +450,20 @@ MUTANTS = [
      'parts.append(seen_.read(transport, {"repo": home, "type": "issue", "number": number}, held, identities, apps,\n                                    since, **(dict(ended, told=told) if held is not None else {}))[:2] + (True,))',
      ('tests.test_controller.Entry.test_the_served_issues_writes_are_read_for_reconciliation',)),
     ("a served issue left out unread has no writes read", 'controller/__main__.py',
-     'for e in issues] if apart is not None else ()', 'for e in issues if "unread" not in e] if apart is not None else ()',
+     'if e["facts"]["item"] is not None]', 'if e["facts"]["item"] is not None and "unread" not in e]',
      ('tests.test_controller.Entry.test_the_served_issues_writes_are_read_for_reconciliation',)),
     ("the Runs' Effects are read before the writes are seen", 'controller/__main__.py',
      '    seen, unread, gone, unread_issues, gone_issues = writes_seen(\n'
      '        transport, config, numbers, kept, before, since, clock, owed, stages, served_issues,\n'
-     '        listed=apart is not None and served is not None, tracking=set(apart or ()) | told)\n'
+     '        listed=apart is not None and served is not None and listed_whole, tracking=set(apart or ()) | told)\n'
      '    effects = recorded_effects(transport, config, runs, before, since, from_passes, sleep, stages)\n',
      '    effects = recorded_effects(transport, config, runs, before, since, from_passes, sleep, stages)\n'
      '    seen, unread, gone, unread_issues, gone_issues = writes_seen(\n'
      '        transport, config, numbers, kept, before, since, clock, owed, stages, served_issues,\n'
-     '        listed=apart is not None and served is not None, tracking=set(apart or ()) | told)\n',
+     '        listed=apart is not None and served is not None and listed_whole, tracking=set(apart or ()) | told)\n',
      ('tests.test_controller.Entry.test_the_served_issues_writes_are_read_for_reconciliation',)),
     ("the issues' writes are read while the tracking issue's number is not", 'controller/__main__.py',
-     'for e in issues] if apart is not None else ()', 'for e in issues]',
+     'is not None] \\\n        if apart is not None else ()', 'is not None]',
      ('tests.test_controller.Entry.test_the_served_issues_writes_are_read_for_reconciliation',)),
     ("an issue not read takes the pull requests' debt with it", 'controller/__main__.py',
      'held is not None else {})))\n        except Unanswered:\n            parts.append(([], [], False))\n',
@@ -499,7 +536,7 @@ MUTANTS = [
     ("the issues' budget is spent a request late", 'controller/__main__.py',
      'counted.sent >= controller["max_issue_requests"]', 'counted.sent > controller["max_issue_requests"]', F849_BUDGET),
     ("the issues are read in the listing's order", 'controller/__main__.py',
-     'pass_.issue_order(listed, before)', 'list(listed)', F849_BUDGET),
+     'pass_.issue_order(listed if listed_whole else [], before)', '(listed if listed_whole else [])', F849_BUDGET),
     ("the issues' permission reads are not counted", 'controller/__main__.py',
      '    asking = who.through(counted)\n', '    asking = who\n', F849_BUDGET),
     ("the issue reads are not counted", 'controller/__main__.py',
@@ -507,4 +544,22 @@ MUTANTS = [
     ("an issue request that fails is not counted", 'controller/__main__.py',
      '        self.sent += 1\n        return self.transport.send(req)\n',
      '        answer = self.transport.send(req)\n        self.sent += 1\n        return answer\n', F849_BUDGET),
+    ("an issue list read short stops the pass", 'controller/__main__.py',
+     '    issues = [] if listed_whole else [{"facts": {"item": None}, "title": None, "unread": reads_.UNLISTED}]\n',
+     '    issues = []\n    if not listed_whole:\n        raise Stop("issue_list_unreadable")\n', S3_ENTRY),
+    ("a list read short serves its itemless entry", 'controller/__main__.py',
+     ' for e in issues if e["facts"]["item"] is not None]', ' for e in issues]',
+     ("tests.test_controller.Entry.test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is",)),
+    ("an issue list read short leaves nothing out", 'controller/__main__.py',
+     '    issues = [] if listed_whole else [{"facts": {"item": None}, "title": None, "unread": reads_.UNLISTED}]\n',
+     '    issues = []\n', S3_ENTRY),
+    ("a list read short tells the issues that left", 'controller/__main__.py',
+     'served is not None and listed_whole, ', 'served is not None, ', ("tests.test_controller.Entry.test_an_issue_that_left_is_read_with_its_close_and_one_read_short_is_owed",)),
+    ("an issue a list read short gave is told as the tracking issue", 'controller/__main__.py',
+     ' if apart is not None and listed_whole else set()\n', ' if apart is not None else set()\n', ("tests.test_controller.Entry.test_an_issue_that_left_is_read_with_its_close_and_one_read_short_is_owed",)),
+    # The head match: each issue is read with the pass's run list and the Role that opens pull requests.
+    ("the issues are read with no run list", 'controller/__main__.py',
+     'runs=runs, role=facts_.opener_role(config["kernel"]),', 'runs=None, role=facts_.opener_role(config["kernel"]),', ("tests.test_controller.Entry.test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is",)),
+    ("the issues are read with no opening Role", 'controller/__main__.py',
+     'runs=runs, role=facts_.opener_role(config["kernel"]),', 'runs=runs, role=None,', ("tests.test_controller.Entry.test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is",)),
 ]
