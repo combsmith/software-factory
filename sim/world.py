@@ -192,10 +192,10 @@ def held_for_a_person(runs: list, role: str, last_writer) -> bool:
     """Whether `role`'s last Run on the item, in either world, of those that ran since a writer acted, ended on a code
     only a person can mend: none of that Role's Runs may start until a person acts (issue 1223). A Run superseded, or
     cancelled with no outcome, ran nothing; of two started in one minute, either that ended so holds."""
-    ran = [r for r in runs if r["role"] == role and r["status"] == "completed" and r["outcome"] != "superseded"
-           and not (r["outcome"] is None and r["conclusion"] == "cancelled")
+    ran = [r for r in runs if r["role"] == role and r["status"] == "completed" and r.get("outcome") != "superseded"
+           and not (r.get("outcome") is None and r["conclusion"] == "cancelled")
            and (last_writer is None or r["started_at"] > last_writer)]
-    return any(r["outcome"] == t.ENDED_PERSON for r in ran if r["started_at"] == max(x["started_at"] for x in ran))
+    return any(r.get("outcome") == t.ENDED_PERSON for r in ran if r["started_at"] == max(x["started_at"] for x in ran))
 
 
 def spent_no_model(run: dict, count: int) -> None:
