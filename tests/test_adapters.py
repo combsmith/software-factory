@@ -1592,6 +1592,12 @@ class Records(unittest.TestCase):
         self.assertEqual(records.known([record(second), record(lost)]), records.known([record(lost)]))
         # A fault is kept from one record; none from one record alone, or after a fault, is not.
         self.assertIn(("r_000000Z", "2026-10-21T00:00:00Z"), records.known([record(lost)]))
+        # Every fault outcome/1 names is kept, a person's among them (issue 838), and no other.
+        faults = json.loads((ROOT / "schemas" / "outcome.schema.json").read_text())["properties"]["outcome"]["enum"]
+        self.assertEqual(records.CONCLUDED, set(faults) - {None})
+        for fault in faults[:-1]:
+            told = dict(record(first), runs=[dict(first["runs"][0], outcome=fault)])
+            self.assertEqual(records.known([told]), {("r_000000Z", "2026-10-21T00:00:00Z"): fault}, fault)
         faulted_then_none = dict(record(second), runs=[dict(second["runs"][2], outcome="item")])
         self.assertEqual(records.known([faulted_then_none, record(second)]), {
             ("r_000000Z", "2026-10-21T00:00:00Z"): "item", ("r_000001Z", "2026-10-21T01:00:00Z"): "item"})
@@ -2097,7 +2103,7 @@ class Artifacts(unittest.TestCase):
         return artifacts.outcome(github.Replay(stored("o/r", 7, zipped, **listed)), "o/r", 7, self.RUN)
 
     def test_a_runs_outcome_is_read_from_its_one_file_and_held_to_outcome_1(self):
-        for fault in ("item", "capacity", "environment", "superseded"):
+        for fault in ("item", "capacity", "environment", "superseded", "person"):
             self.assertEqual(self.read(outcome_zip(outcome_of(self.RUN, fault))), (fault, True), fault)
         # Whether its Engine step started is handed to `started`, where it says; an outcome that says it otherwise is no
         # outcome/1 (issue 757).

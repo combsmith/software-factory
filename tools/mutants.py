@@ -62,6 +62,9 @@ DEQUEUE = ('        return _decision(facts, state, reason, evidence, t.ACT, acti
 # Decision 0232's tests: a pull request stands with its issue, and how the issue stands.
 STOOD = ('tests.test_decide.OnlyAPersonEnds.test_a_pull_request_whose_issue_a_person_held_or_closed_is_held_and_leaves_the_queue',)
 STANDS_READ = ('tests.test_issue.Stands.test_an_issue_stands_open_held_or_closed_from_its_state_and_its_own_labels',)
+# Issue 838's tests: a Run that ended on a person's code holds the item, a pull request or an issue.
+PERSON_RUN = ('tests.test_decide.Ceilings.test_a_run_that_ended_person_holds_the_item_and_calls_a_person_and_spends_no_attempt',)
+ISSUE_PERSON_RUN = ('tests.test_issue.Investigation.test_an_issues_run_that_ended_person_holds_the_issue_and_calls_a_person_and_spends_no_attempt',)
 STANDS_UNREAD = ('tests.test_issue.Stands.test_what_cannot_be_read_gives_none',)
 F849_KERNEL = ("tests.test_issue.Unreadable.test_a_timeline_past_the_ports_bound_defers_on_its_own_code_and_calls_a_person",)
 STALE = "tests.test_decide.Staleness."
@@ -3334,6 +3337,55 @@ MUTANTS = ISSUE + OUTSIDE + [
      '    "path_needs_person",\n',
      '',
      ('tests.test_decide.TheFactorysOwnRules.test_a_change_to_a_path_only_a_person_decides_waits_for_a_person',)),
+    # Issue 838: a Run that ended on a code only a person can mend, its fault `person`, holds the item for a person.
+    ("a Run that ended person is run again", 'kernel/decide.py',
+     '    if ended:\n        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)\n', '',
+     PERSON_RUN),
+    ("an issue's Run that ended person is run again", 'kernel/issue.py',
+     '    if ended:\n        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)\n', '',
+     ISSUE_PERSON_RUN),
+    ("a Run that ended person is read before a writer acted", 'kernel/decide.py',
+     'ended = needs_person(since_writer(mine, facts), role)', 'ended = needs_person(mine, role)', PERSON_RUN),
+    ("an issue's Run that ended person is read before a writer acted", 'kernel/issue.py',
+     'ended = needs_person(since_writer(mine, facts), role)', 'ended = needs_person(mine, role)', ISSUE_PERSON_RUN),
+    ("a Run that ended person is read after the brakes", 'kernel/decide.py',
+     '    ended = needs_person(since_writer(mine, facts), role)\n    if ended:\n'
+     '        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)\n\n'
+     '    # The brakes on a Run, in kernel/brakes.py: the Pause, the loop counts and the Run ceiling. The Pause stops an act\n'
+     '    # above, too.\n    limits = config["limits"]\n'
+     '    brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since_writer(mine, facts), limits)\n'
+     '    if brake:\n        return brake\n',
+     '    limits = config["limits"]\n'
+     '    brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since_writer(mine, facts), limits)\n'
+     '    if brake:\n        return brake\n'
+     '    ended = needs_person(since_writer(mine, facts), role)\n    if ended:\n'
+     '        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)\n',
+     PERSON_RUN),
+    ("an issue's Run that ended person is read after the brakes", 'kernel/issue.py',
+     '    ended = needs_person(since_writer(mine, facts), role)\n    if ended:\n'
+     '        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)\n\n'
+     '    # The brakes on a Run (decision 0003): the Pause, the attempts and the Run ceiling.\n'
+     '    brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since_writer(mine, facts), limits)\n'
+     '    if brake:\n        return brake\n',
+     '    brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since_writer(mine, facts), limits)\n'
+     '    if brake:\n        return brake\n'
+     '    ended = needs_person(since_writer(mine, facts), role)\n    if ended:\n'
+     '        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)\n',
+     ISSUE_PERSON_RUN),
+    ("any Run of the Role that ended person holds the item", 'kernel/derive.py',
+     'return [done[-1]["run"]] if done and done[-1].get("outcome") == t.ENDED_PERSON else []',
+     'return [r["run"] for r in done if r.get("outcome") == t.ENDED_PERSON][:1]', PERSON_RUN + ISSUE_PERSON_RUN),
+    ("the Role's first Run is read in place of its latest", 'kernel/derive.py',
+     'return [done[-1]["run"]] if done and done[-1].get("outcome") == t.ENDED_PERSON else []',
+     'return [done[0]["run"]] if done and done[0].get("outcome") == t.ENDED_PERSON else []', PERSON_RUN + ISSUE_PERSON_RUN),
+    ("another Role's Run that ended person holds the item", 'kernel/derive.py',
+     'done = [r for r in runs if r["role"] == role and r["status"] == "completed"]',
+     'done = [r for r in runs if r["status"] == "completed"]', PERSON_RUN + ISSUE_PERSON_RUN),
+    ("a Run that ended for the item holds it for a person", 'kernel/terms.py',
+     'ENDED_PERSON = "person"', 'ENDED_PERSON = "item"', PERSON_RUN + ISSUE_PERSON_RUN),
+    ("a Run that ended person is nobody's to see", 'kernel/decide.py', '    "run_needs_person",\n', '', PERSON_RUN),
+    ("an issue's Run that ended person is nobody's to see", 'kernel/issue.py', '    "run_needs_person",\n', '',
+     ISSUE_PERSON_RUN),
     # Issue 749: the fake GitHub starts another run of a Lens on the head, as P-65 recorded, and the Kernel never lets a
     # stopped run pass a Lens a completed failure fails.
     ("the latest run alone is read", 'kernel/derive.py',
