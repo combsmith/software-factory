@@ -4,11 +4,11 @@ Status: accepted. 2026-11-26, the Solution Architect; issue 1251. Reverses one l
 
 ## Decision
 
-The act ceiling's Hold now stands over an uncounted label, as every other Hold on the Run wanted does. The removal waits for the release, and the label counts for nothing while it waits (`kernel/issue.py`, `_run_holds`).
+Where the issue Kernel reads the act ceiling, its Hold now stands over an uncounted label, as every other Hold on the Run wanted does. The removal waits for the release, and the label counts for nothing while it waits (`kernel/issue.py`, `_run_holds`).
 
 This reverses the line of decision 1244 that read: "The act ceiling is not such a Hold. It never stops an act that stops work, so the label is still removed at that ceiling."
 
-Limits: unmerged closes past their bound still place a Hold at the act ceiling. They are read before the label and before any Run wanted.
+Limits: the ceiling is read only where acceptance is due. In triage, in new under another App's `factory:triage`, or with the count unread, the removal still runs, so a label added again each pass is removed each pass. Unmerged closes still place a Hold at the ceiling. While held, the label stays on GitHub.
 
 ## Why
 

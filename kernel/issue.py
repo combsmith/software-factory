@@ -1002,8 +1002,9 @@ def stated(facts: dict, intents: dict, mine: list) -> bool:
 
 
 def _stop(facts, state, reason, evidence, context, action, **extra) -> dict:
-    """An act that stops work, or that takes back a label that lets none go. Only the Pause stops it (decision 0003):
-    it is never refused at the act ceiling, and placing a Hold is not delayed by a Run in flight."""
+    """An act that stops work, or that takes back a label that lets none go. Of the brakes only the Pause stops it
+    (decision 0003), and placing a Hold is not delayed by a Run in flight. `_decide` makes a label's removal wait under
+    a Hold the Run wanted places, the act ceiling's among them (issues 1216, 1251)."""
     pause = brakes.paused(_decision, facts, state, evidence, context)
     if pause:
         return pause
@@ -1203,8 +1204,8 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     # The acts that stop work, read first. Unmerged closes past their bound place a Hold (I-43); a label that stands
     # and does not count is removed, though not while a Run is in flight, whose own label may not count until it ends,
     # nor under a Hold the Run wanted places: it waits for the release, as under a person's Hold, so a label nobody
-    # counts never takes an issue out of held (issue 1216). The act ceiling's Hold is one too: a removal is an act, and
-    # none runs past that ceiling (issue 1251).
+    # counts never takes an issue out of held (issue 1216). The act ceiling's Hold is one too, where it is read: a
+    # removal is an act (issue 1251).
     closes = unmerged_closes(facts)
     if len(closes) > config["limits"]["max_unmerged_closes"]:
         return dict(_stop(facts, state, "unmerged_closes", closes, context, PLACE_HOLD), attention=t.NEEDS_YOU)
