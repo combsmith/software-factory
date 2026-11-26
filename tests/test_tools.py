@@ -15772,8 +15772,9 @@ class SignalTraps(unittest.TestCase):
 
     def test_every_trial_is_steered_by_nothing_of_the_shells_environment(self):  # issue 1215
         # SHELLOPTS=allexport would export each credential as it is set, and CDPATH steer every other cd: each trial turns
-        # both off right after its first set.
-        for script in sorted((ROOT / "tools").glob("trial_*.sh")):
+        # both off right after its first set. All but P-59's runner, which trials/P-59.json holds to be the file the
+        # canary ran, byte for byte; it runs on a runner of the canary's, in an environment its workflow sets.
+        for script in sorted(set((ROOT / "tools").glob("trial_*.sh")) - {ROOT / "tools" / "trial_p59_read_confinement.sh"}):
             lines = script.read_text().splitlines()
             first = next(n for n, line in enumerate(lines) if line.startswith("set -e"))
             then = [line for line in lines[first + 1:] if line.strip() and not line.lstrip().startswith("#")]
