@@ -284,4 +284,6 @@ MUTANTS = [
      'patch.TREE_UNREAD: PERSON,', 'patch.TREE_UNREAD: ROLE,', PUSH_WHOSE),
     ("a code of the guard is left out of the table", PUSH_PY,
      'patch.PATH_TWIN: ROLE,\n', '\n', PUSH_WHOSE),
+    ("a push told wrongly is the Role's attempt", PUSH_PY,
+     'guard.NOT_PERMITTED: PERSON}', 'guard.NOT_PERMITTED: ROLE}', PUSH_WHOSE),
 ]
