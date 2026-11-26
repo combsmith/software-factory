@@ -4,13 +4,13 @@ Status: accepted. 2026-11-26, the Solution Architect; issue 1251. Reverses one l
 
 ## Decision
 
-Removing another App's label that does not count, `factory:ready` or `factory:triage`, is braked as any act. While the act count is spent or cannot be read, the removal waits. The issue then reads as it will once the label is removed, so the label starts nothing (`kernel/issue.py`, `_decide`, `_removed`). The Pause stops the removal as before.
+Removing another App's label that does not count, `factory:ready` or `factory:triage`, is braked as any act. While the act count is spent or cannot be read, the removal waits. The issue then reads as it will once the label is removed, so the label starts nothing (`kernel/issue.py`, `_decide`, `_removed`). Under the Pause the removal is stopped as before, whether the count can be read or not.
 
 A removal that stops work still passes the ceiling, as decision 0003 says: unmerged closes past their bound place their Hold.
 
 This reverses the line of decision 1244 that read: "The act ceiling is not such a Hold. It never stops an act that stops work, so the label is still removed at that ceiling."
 
-Limits: while the removal waits, the label stays on GitHub, where a tool reading raw labels may take it as counted. A Run the issue admits once the label is gone is admitted beside it.
+Limits: while the removal waits, the label stays on GitHub, where a tool reading raw labels may take it as counted. A Run the issue admits once the label is gone is admitted beside it, even with the count unread. A readiness Run admitted so cannot add `factory:ready` while another App's stands.
 
 ## Why
 

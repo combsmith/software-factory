@@ -1237,9 +1237,9 @@ def _removed(facts: dict, label: str) -> dict:
 
 
 def _run_holds(d: dict) -> bool:
-    """Whether `d` holds the issue on the Run it wants: any Hold. The act ceiling's is the brakes' on the removal too
-    (issues 1216, 1251)."""
-    return d["state"] == t.HELD and d["outcome"] == t.HOLD
+    """Whether `d` holds the issue on the Run it wants: any Hold but the act ceiling's, which binds no act that stops
+    work (issue 1216)."""
+    return d["state"] == t.HELD and d["outcome"] == t.HOLD and d["reason"] != "act_ceiling"
 
 
 def _after_labels(facts: dict, runs: list, context: dict, config: dict, now: str, d: dict, mine: list) -> dict:
