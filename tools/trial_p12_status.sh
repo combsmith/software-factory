@@ -98,16 +98,9 @@ fi
 API=https://api.github.com
 VERSION="X-GitHub-Api-Version: 2022-11-28"
 ACCEPT="Accept: application/vnd.github+json"
-# The raw answers are kept outside the repo, as OUT is: a TMPDIR inside it, or a link into it, is refused.
-# The template names TMPDIR itself: macOS's mktemp -d alone does not always read it.
-# Its own line: inside the cd, a failed mktemp would be read as the directory this stands in, which the clean-up removes.
-made=$(mktemp -d "${TMPDIR:-/tmp}/trial-p12.XXXXXX")
-scratch=$(cd "$made" && pwd -P)
-case "$scratch/" in "$root"/*)
-    rm -rf "$scratch"
-    echo "trial_p12_status: the scratch directory $scratch is inside the repo; set TMPDIR outside it" >&2
-    exit 2 ;;
-esac
+# The raw answers are kept beside OUT, in a directory made in its parent, which the walk above holds to be this
+# user's alone; TMPDIR, which the environment chooses, is not read (issue 1215).
+scratch=$(mktemp -d "$parent/.trial-p12.XXXXXX")
 # No credential's name is taken from the environment, where one exported would reach every child, and curl is
 # told of no file to write its TLS keys to (issue 1215).
 unset SSLKEYLOGFILE token jwt signature minted minting

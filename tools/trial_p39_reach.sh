@@ -90,7 +90,9 @@ done
 API=https://api.github.com
 VERSION="X-GitHub-Api-Version: 2022-11-28"
 ACCEPT="Accept: application/vnd.github+json"
-scratch=$(mktemp -d)
+# The raw answers are kept beside OUT, in a directory made in its parent, which the walk above holds to be this
+# user's alone; TMPDIR, which the environment chooses, is not read (issue 1215).
+scratch=$(mktemp -d "$parent/.trial-p39.XXXXXX")
 # No credential's name is taken from the environment, where one exported would reach every child, and curl is
 # told of no file to write its TLS keys to (issue 1215).
 unset SSLKEYLOGFILE token jwt signature minted minting

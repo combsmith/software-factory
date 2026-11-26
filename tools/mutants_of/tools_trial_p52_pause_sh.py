@@ -90,4 +90,6 @@ MUTANTS = [
      ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
     ("P-52's root follows CDPATH", "tools/trial_p52_pause.sh", "root=$(CDPATH= cd -P -- ", "root=$(cd -P -- ", ("tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does",)),
     ("P-52's root is found logically", "tools/trial_p52_pause.sh", "root=$(CDPATH= cd -P -- ", "root=$(CDPATH= cd -- ", ("tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does",)),
+    ("P-52 keeps its raw answers where TMPDIR says", "tools/trial_p52_pause.sh", 'mktemp -d "$parent/.trial-',
+     'mktemp -d "${TMPDIR:-/tmp}/.trial-', ("tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_beside_out",)),
 ]

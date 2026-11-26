@@ -25,6 +25,7 @@ ACL_TESTS = ("tests.test_tools.OutputMadeAlone.test_every_script_reads_an_acl_wo
 TRIALS_DEAF = "tests.test_tools.SignalTraps.test_every_token_script_is_deaf_in_its_clean_up_and_bounds_its_revocation"
 TRIALS_ENV = "tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment"
 TRIALS_ROOT = "tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does"
+TRIALS_SCRATCH = "tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_beside_out"
 FAMILY_1215 = {"trial_reader_reads.sh": "ReaderTrialScript", "trial_p54_issue_lookup.sh": "IssueLookupTrial",
                "trial_p12_status.sh": "StatusTrial", "trial_p56_comments.sh": "CommentsReadTrial",
                "trial_p80_branch_reads.sh": "BranchReadsTrial", "trial_p58_edits.sh": "EditsReadTrial"}
@@ -67,9 +68,6 @@ MUTANTS = [
      '        token=$(token_in "$minted")\n        minted=""\n        if [ -n "$token" ]; then\n',
      '        token=""\n        minted=""\n        if [ -n "$token" ]; then\n',
      ("tests.test_tools.ReaderTrialScript.test_a_mint_answered_201_and_cut_short_is_revoked_and_told",)),
-    ("the reader's raw answers may be kept inside the repo", "tools/trial_reader_reads.sh",
-     'case "$scratch/" in "$root"/*)', 'case "$scratch/" in "/nowhere"/*)',
-     ("tests.test_tools.ReaderTrialScript.test_a_scratch_directory_inside_the_repo_is_refused_before_anything_is_minted",)),
     ("a signal leaves the reader's token live", "tools/trial_reader_reads.sh",
      "trap 'exit 1' HUP INT TERM\n", "\n",
      ("tests.test_tools.ReaderTrialScript.test_a_signal_mid_read_revokes_the_live_token",)),
@@ -784,11 +782,7 @@ MUTANTS = [
     ("P-54's curl reads the Maintainer's configuration", "tools/trial_p54_issue_lookup.sh", 'curl -q -sS -i -H @-', 'curl -sS -i -H @-', ("tests.test_tools.IssueLookupTrial.test_curl_reads_no_configuration_of_the_maintainers",)),
     ("P-54 may write OUT inside the repo", "tools/trial_p54_issue_lookup.sh", 'case "$out/" in "$root"/*)', 'case "$out/" in /nowhere/*)', ("tests.test_tools.IssueLookupTrial.test_each_refusal_comes_before_anything_is_minted",)),
     ("P-54's OUT is read without its links", "tools/trial_p54_issue_lookup.sh", '2>/dev/null && pwd -P); then', '2>/dev/null && pwd); then', ("tests.test_tools.IssueLookupTrial.test_an_output_folder_reached_through_a_link_into_the_repo_is_refused",)),
-    ("P-54's raw answers may be kept inside the repo", "tools/trial_p54_issue_lookup.sh", 'case "$scratch/" in "$root"/*)', 'case "$scratch/" in /nowhere/*)', ("tests.test_tools.IssueLookupTrial.test_a_scratch_directory_inside_the_repo_is_refused_before_anything_is_minted",)),
     ("P-54 keeps the first head's status", "tools/trial_p54_issue_lookup.sh", 'head && $0 != ""', 'NR == 1 && $0 != ""', ("tests.test_tools.IssueLookupTrial.test_the_status_kept_is_the_last_heads",)),
-    ("P-54 reads a failed mktemp as where it stands", "tools/trial_p54_issue_lookup.sh",
-     '''made=$(mktemp -d "${TMPDIR:-/tmp}/trial-p54.XXXXXX")\nscratch=$(cd "$made" && pwd -P)''', '''scratch=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/trial-p54.XXXXXX")" && pwd -P)''',
-     ("tests.test_tools.OutputMadeAlone.test_a_failed_mktemp_is_never_read_as_the_directory_the_run_stands_in",)),
     # Issue 454: the status write's trial, with P-54's script's rules.
     ("P-12's token is not narrowed", "tools/trial_p12_status.sh", '\\"permissions\\":{\\"checks\\":\\"write\\",\\"metadata\\":\\"read\\"}}', '\\"permissions\\":{}}', ("tests.test_tools.StatusTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-12's token reaches every repo", "tools/trial_p12_status.sh", '"{\\"repositories\\":[\\"$name\\"],', '"{', ("tests.test_tools.StatusTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
@@ -827,11 +821,7 @@ MUTANTS = [
     ("P-12's curl reads the Maintainer's configuration", "tools/trial_p12_status.sh", 'curl -q -sS -i -X "$1" -H @-', 'curl -sS -i -X "$1" -H @-', ("tests.test_tools.StatusTrial.test_curl_reads_no_configuration_of_the_maintainers",)),
     ("P-12 may write OUT inside the repo", "tools/trial_p12_status.sh", 'case "$out/" in "$root"/*)', 'case "$out/" in /nowhere/*)', ("tests.test_tools.StatusTrial.test_each_refusal_comes_before_anything_is_minted",)),
     ("P-12's OUT is read without its links", "tools/trial_p12_status.sh", '2>/dev/null && pwd -P); then', '2>/dev/null && pwd); then', ("tests.test_tools.StatusTrial.test_an_output_folder_reached_through_a_link_into_the_repo_is_refused",)),
-    ("P-12's raw answers may be kept inside the repo", "tools/trial_p12_status.sh", 'case "$scratch/" in "$root"/*)', 'case "$scratch/" in /nowhere/*)', ("tests.test_tools.StatusTrial.test_a_scratch_directory_inside_the_repo_is_refused_before_anything_is_minted",)),
     ("P-12 keeps the first head's status", "tools/trial_p12_status.sh", 'head && $0 != ""', 'NR == 1 && $0 != ""', ("tests.test_tools.StatusTrial.test_the_status_kept_is_the_last_heads",)),
-    ("P-12 reads a failed mktemp as where it stands", "tools/trial_p12_status.sh",
-     '''made=$(mktemp -d "${TMPDIR:-/tmp}/trial-p12.XXXXXX")\nscratch=$(cd "$made" && pwd -P)''', '''scratch=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/trial-p12.XXXXXX")" && pwd -P)''',
-     ("tests.test_tools.OutputMadeAlone.test_a_failed_mktemp_is_never_read_as_the_directory_the_run_stands_in",)),
     ("P-12 puts an id that is no number in the token's calls", "tools/trial_p12_status.sh", '        ""|*[!0-9]*)\n            echo "trial_p12_status: the first create', '        "")\n            echo "trial_p12_status: the first create', ("tests.test_tools.StatusTrial.test_an_id_that_is_no_number_reaches_no_address_the_token_calls",)),
     ("P-12 makes OUT for others to read", "tools/trial_p12_status.sh", 'if ! mkdir -m 700 "$out"; then', 'if ! mkdir "$out"; then', ("tests.test_tools.StatusTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-12's edit sends no output", "tools/trial_p12_status.sh", 'write("edit", external_id="d" + "b" * 32, output=output("The edited status", "Edited summary.", "Edited text."))', 'write("edit", external_id="d" + "b" * 32)', ("tests.test_tools.StatusTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
@@ -937,7 +927,6 @@ MUTANTS = [
     ('P-58 trusts a mint whose transfer failed', "tools/trial_p58_edits.sh", ' || [ "$minted_exit" != 0 ]', '', ('tests.test_tools.EditsReadTrial.test_a_mint_answered_whole_by_a_transfer_that_failed_is_revoked_and_told',)),
     ('P-58 may write OUT inside the repo', "tools/trial_p58_edits.sh", 'case "$out/" in "$root"/*)', 'case "$out/" in /nowhere/*)', ('tests.test_tools.EditsReadTrial.test_each_refusal_comes_before_anything_is_minted',)),
     ("P-58's OUT is read without its links", "tools/trial_p58_edits.sh", '2>/dev/null && pwd -P); then', '2>/dev/null && pwd); then', ('tests.test_tools.EditsReadTrial.test_an_output_folder_reached_through_a_link_into_the_repo_is_refused',)),
-    ("P-58's raw answers may be kept inside the repo", "tools/trial_p58_edits.sh", 'case "$scratch/" in "$root"/*)', 'case "$scratch/" in /nowhere/*)', ('tests.test_tools.EditsReadTrial.test_a_scratch_directory_inside_the_repo_is_refused_before_anything_is_minted',)),
     ("P-58 keeps the first head's status", "tools/trial_p58_edits.sh", 'head && $0 != ""', 'NR == 1 && $0 != ""', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-56 mints for another App's installation", "tools/trial_p56_comments.sh", '["apps"]["controller"]', '["apps"]["reader"]', ("tests.test_tools.CommentsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-56 keeps a read without its redaction", "tools/trial_p56_comments.sh",
@@ -974,14 +963,7 @@ MUTANTS = [
     ("P-56's curl reads the Maintainer's configuration", "tools/trial_p56_comments.sh", 'curl -q -sS -i -H @-', 'curl -sS -i -H @-', ("tests.test_tools.CommentsReadTrial.test_curl_reads_no_configuration_of_the_maintainers",)),
     ("P-56 may write OUT inside the repo", "tools/trial_p56_comments.sh", 'case "$out/" in "$root"/*)', 'case "$out/" in /nowhere/*)', ("tests.test_tools.CommentsReadTrial.test_each_refusal_comes_before_anything_is_minted",)),
     ("P-56's OUT is read without its links", "tools/trial_p56_comments.sh", '2>/dev/null && pwd -P); then', '2>/dev/null && pwd); then', ("tests.test_tools.CommentsReadTrial.test_an_output_folder_reached_through_a_link_into_the_repo_is_refused",)),
-    ("P-56's raw answers may be kept inside the repo", "tools/trial_p56_comments.sh", 'case "$scratch/" in "$root"/*)', 'case "$scratch/" in /nowhere/*)', ("tests.test_tools.CommentsReadTrial.test_a_scratch_directory_inside_the_repo_is_refused_before_anything_is_minted",)),
     ("P-56 keeps the first head's status", "tools/trial_p56_comments.sh", 'head && $0 != ""', 'NR == 1 && $0 != ""', ("tests.test_tools.CommentsReadTrial.test_the_status_kept_is_the_last_heads",)),
-    ("P-56 reads a failed mktemp as where it stands", "tools/trial_p56_comments.sh",
-     '''made=$(mktemp -d "${TMPDIR:-/tmp}/trial-p56.XXXXXX")\nscratch=$(cd "$made" && pwd -P)''', '''scratch=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/trial-p56.XXXXXX")" && pwd -P)''',
-     ("tests.test_tools.OutputMadeAlone.test_a_failed_mktemp_is_never_read_as_the_directory_the_run_stands_in",)),
-    ("the reader's trial reads a failed mktemp as where it stands", "tools/trial_reader_reads.sh",
-     '''made=$(mktemp -d "${TMPDIR:-/tmp}/trial-reader.XXXXXX")\nscratch=$(cd "$made" && pwd -P)''', '''scratch=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/trial-reader.XXXXXX")" && pwd -P)''',
-     ("tests.test_tools.OutputMadeAlone.test_a_failed_mktemp_is_never_read_as_the_directory_the_run_stands_in",)),
     ("P-51's runner reads a failed mktemp as where it stands", "tools/trial_p51_sandbox_writes.sh",
      '''made=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/p51.XXXXXX")\nscratch=$(cd "$made" && pwd -P)''', '''scratch=$(cd "$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/p51.XXXXXX")" && pwd -P)''',
      ("tests.test_tools.OutputMadeAlone.test_a_failed_mktemp_is_never_read_as_the_directory_the_run_stands_in",)),
@@ -1109,9 +1091,6 @@ MUTANTS = [
     ("P-80's OUT is read without its links", 'tools/trial_p80_branch_reads.sh',
      '2>/dev/null && pwd -P); then',
      '2>/dev/null && pwd); then', ('tests.test_tools.BranchReadsTrial.test_an_output_folder_reached_through_a_link_into_the_repo_is_refused',)),
-    ("P-80's raw answers may be kept inside the repo", 'tools/trial_p80_branch_reads.sh',
-     'case "$scratch/" in "$root"/*)',
-     'case "$scratch/" in /nowhere/*)', ('tests.test_tools.BranchReadsTrial.test_a_scratch_directory_inside_the_repo_is_refused_before_anything_is_minted',)),
     ("P-80's first token is not narrowed to both reads", 'tools/trial_p80_branch_reads.sh',
      'BOTH=\'"contents":"read","pull_requests":"read"\'',
      'BOTH=\'"contents":"read"\'', ('tests.test_tools.BranchReadsTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept',)),
@@ -1172,4 +1151,8 @@ MUTANTS = [
        (TRIALS_ROOT,)) for script in ROOTS_1215],
     ("P-39's mint reads a .curlrc", "tools/trial_p39_reach.sh", "| curl -q -sS -w '\\n%{http_code}' -X POST",
      "| curl -sS -w '\\n%{http_code}' -X POST", (TRIALS_ENV,)),
+    # Issue 1215: each keeps its raw answers beside OUT, in the parent its walk holds, and reads no TMPDIR.
+    *[("%s keeps its raw answers where TMPDIR says" % script, "tools/" + script, 'mktemp -d "$parent/.trial-',
+       'mktemp -d "${TMPDIR:-/tmp}/.trial-', (TRIALS_SCRATCH,) + run_1215(script, "test_the_raw_answers_are_kept_beside_out_whatever_tmpdir_says"))
+      for script in SCRIPTS_1215],
 ]
