@@ -30,9 +30,10 @@ UNMADE = {
     ("held", "new", "stranger"), ("in_progress", "new", "stranger"), ("in_review", "new", "stranger"),
     # The world places a Hold or hands-off while the issue carries neither, never one on top of the other.
     ("held", "not_served", "human"), ("not_served", "held", "human"),
-    # The brakes hold from in_progress or from new: the seeds reach the Run ceiling and the act ceiling in triage and
-    # from ready, and the unmerged closes that hold a new issue need two closes a writer makes in one life.
-    ("in_progress", "held", "factory"), ("new", "held", "factory"),
+    # The brakes hold from new: the seeds reach the Run ceiling and the act ceiling in triage and from ready, and the
+    # unmerged closes that hold a new issue need two closes a writer makes in one life. A head no listed opening Run
+    # pushed holds from in_progress, as one whose Run's record expired does (issue 1216).
+    ("new", "held", "factory"),
     # Another App's stray Hold lands while the issue is new, in triage, in progress or in review on the seeds, never
     # while ready.
     ("ready", "held", "platform"),
@@ -162,7 +163,7 @@ class IssueSimulation(unittest.TestCase):
 
     def test_the_seeds_reach_each_fault(self):
         worlds = {seed: run(seed) for seed in FIRST}
-        on = {n: [seed for seed, w in worlds.items() if n in w.reached] for n in range(1, 7)}
+        on = {n: [seed for seed, w in worlds.items() if n in w.reached] for n in range(1, 8)}
         chosen = {
             1: lambda s: s % issues.EDITS_EVERY == issues.EDITS,
             2: lambda s: s % issues.STRANGER_PR_EVERY == issues.STRANGER_PR,
@@ -170,6 +171,7 @@ class IssueSimulation(unittest.TestCase):
             4: lambda s: s % issues.REMOVES_EVERY == issues.REMOVES,
             5: lambda s: s % issues.EXPIRES_EVERY == issues.EXPIRES,
             6: lambda s: s % issues.LATE_EVERY == issues.LATE,
+            7: lambda s: s % issues.PLANTED_EVERY == issues.PLANTED,
         }
         for n, seeds in on.items():
             with self.subTest(fault=n):
@@ -253,6 +255,16 @@ class IssueSimulation(unittest.TestCase):
         # starts until a person acts or its record expires.
         for seed in (182, 202):
             self.assertGreater(run(seed).person_holds, 0, seed)
+
+    def test_the_seeds_plant_a_branch_the_factory_never_pushed(self):  # issue 1216, decision 1207
+        # On these seeds another App plants a branch at the next work branch's name: the opening is held for a person,
+        # and never opened from it, which the world checks at every pass and apply. On seed 290 an App's label nobody
+        # counts lands under the Hold, which stands until a person acts.
+        for seed in (224, 290):
+            w = run(seed)
+            self.assertTrue(7 in w.reached and w.not_pushed, seed)
+        trace = run(290).trace
+        self.assertTrue(after(trace, "another App added factory:triage", "pass: held / branch_not_pushed"), "\n".join(trace))
 
     def test_a_stale_wait_shows_by_the_worlds_own_count(self):  # I-1, issue 165's ruling 8
         # The Factory's draft waits for its author, and nobody else moves. The world counts the wait itself, from the

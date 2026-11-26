@@ -72,6 +72,7 @@ PERSON_RUN = ('tests.test_decide.Ceilings.test_a_run_that_ended_person_holds_the
 ISSUE_PERSON_RUN = ('tests.test_issue.Investigation.test_an_issues_run_that_ended_person_holds_the_issue_and_calls_a_person_and_spends_no_attempt',)
 PERSON_IN_FLIGHT = ('tests.test_decide.Ceilings.test_a_run_that_ended_person_holds_the_item_while_another_run_is_in_flight',)
 ISSUE_PERSON_IN_FLIGHT = ('tests.test_issue.Investigation.test_an_issues_run_that_ended_person_holds_the_issue_while_another_run_is_in_flight',)
+HOLD_BEFORE_LABEL = ('tests.test_issue.WhatARunWrites.test_an_issues_hold_is_read_before_an_uncounted_label_is_removed',)
 STANDS_UNREAD = ('tests.test_issue.Stands.test_what_cannot_be_read_gives_none',)
 F849_KERNEL = ("tests.test_issue.Unreadable.test_a_timeline_past_the_ports_bound_defers_on_its_own_code_and_calls_a_person",)
 STALE = "tests.test_decide.Staleness."
@@ -3409,6 +3410,13 @@ MUTANTS = ISSUE + OUTSIDE + [
      'brakes.run_ceilings(_decision, facts, evidence, wanted[1], [r for r in since_writer(mine, facts) '
      'if r["status"] == "completed"], limits) else []\n',
      ISSUE_PERSON_IN_FLIGHT),
+    # Issue 1216: a Hold the Run wanted places is read before an uncounted label's removal, which waits for the release.
+    ("an uncounted label is removed before an issue's Hold", 'kernel/issue.py',
+     '        if _run_holds(after):\n            return after\n', '', HOLD_BEFORE_LABEL),
+    ("the act ceiling keeps an uncounted label", 'kernel/issue.py',
+     '    return d["state"] == t.HELD and d["outcome"] == t.HOLD and d["reason"] != "act_ceiling"\n',
+     '    return d["state"] == t.HELD and d["outcome"] == t.HOLD\n',
+     ('tests.test_issue.RemoveLabel.test_removing_a_label_is_stopped_by_the_pause_and_waits_for_a_run_in_flight',)),
     ("any Run of the Role that ended person holds the item", 'kernel/derive.py',
      'return sorted(r["run"] for r in last if r.get("outcome") == t.ENDED_PERSON)[:1]',
      'return sorted(r["run"] for r in done if r.get("outcome") == t.ENDED_PERSON)[:1]', PERSON_RUN + ISSUE_PERSON_RUN),

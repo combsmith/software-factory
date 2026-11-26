@@ -10,6 +10,12 @@ MUTANTS = [
      '                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None, t.ENDED_PERSON]))\n',
      '                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None]))\n',
      ("tests.test_issue_simulator.IssueSimulation.test_the_seeds_end_a_run_on_a_persons_code",)),
+    # Issue 1216: a head is told pushed only where a listed opening Run recorded pushing it.
+    ("a planted branch is told as pushed", 'sim/issues.py',
+     '            "branch_pushed": None if self.branch_head is None else self.branch_head in {\n'
+     '                self.pushed.get(r["run"]) for r in self.records() if r["intent"] == issue.OPENING},\n',
+     '            "branch_pushed": None if self.branch_head is None else True,\n',
+     ("tests.test_issue_simulator.IssueSimulation.test_the_seeds_plant_a_branch_the_factory_never_pushed",)),
     # Issue 838: where the branch does not exist, the opening Run is admitted for the commit it lands on.
     ("the issue world serves no default branch's head", "sim/issues.py",
      '            "base_head": "%040x" % (0xba5e0000 + self.minute),\n', "",
