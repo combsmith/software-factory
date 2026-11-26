@@ -1,31 +1,25 @@
 #!/bin/sh
-# Trial P-81, issue 1219: where the issue timeline adapters/seen.py reads puts a review that was started, left pending
-# while the pull request got an issue comment, and submitted more than a minute later; and what submitted_at it carries.
+# Trial P-81, issue 1219: where the issue timeline adapters/seen.py reads puts a review started, left pending past an
+# issue comment and submitted a minute later, and what submitted_at it carries.
 #
 #   tools/trial_p81_review_order.sh OUT PR_REVIEW_KEY REPO PULL_REQUEST FILE
 #
-# The Maintainer runs it at his own terminal, from anywhere; no session runs it, since it mints a credential.
-# OUT is a directory that does not exist yet, outside this repo. PR_REVIEW_KEY is the path of the pr-review App's private
-# key file, which only openssl reads. REPO is the canary, owner/name, which the pr-review App must be installed on
-# (config/apps.json). PULL_REQUEST is an open pull request in it with no review, whose diff adds FILE, a path in REPO,
-# from its first line: tools/trial_as_app.sh open makes one. Needs curl, openssl and python3, and no other login.
+# The Maintainer runs it at his own terminal; no session runs it, since it mints a credential. OUT is a new directory
+# outside this repo. PR_REVIEW_KEY is the pr-review App's private key file, which only openssl reads. REPO is the canary,
+# which config/apps.json installs that App on. PULL_REQUEST is an open pull request in it with no review, whose diff adds
+# FILE from its first line, as tools/trial_as_app.sh open makes one. Needs curl, openssl and python3.
 #
-# The pass condition, written before the run, is the trial's page, docs/architecture/trials/P-81.md: on every read after
-# the submission, the review's `reviewed` event comes after the comment made while it was pending and before the one
-# made after, at a submitted_at between theirs, so the order check of adapters/seen.py reads the timeline whole.
+# The pass, written before the run, is the trial's page, docs/architecture/trials/P-81.md.
 #
-# One token for the pr-review App's installation that P-39 found, on REPO alone, narrowed to issues: read and
-# pull_requests: write, makes every call below in turn and is revoked at the end. After each write it reads the timeline
-# and the reviews list:
-#   1. as it is;   2. a review started, with its body and one line comment on FILE's first line, left pending;
-#   3. twenty seconds on, an issue comment;   4. a minute on, the review submitted as a comment;
-#   5. twenty seconds on, another issue comment;   6. the timeline page by page, two a page, and the review's comments.
-# A token or JWT lives in a shell variable only and reaches curl on its standard input. Each answer is redacted by
-# tools/redact_trial.py in a scratch directory outside the repo; OUT gets only the clean answers (clean-N), where the
-# redaction removed something (redacted-N), the bodies sent (sent.json), what was asked and when (requests.json) and
-# when the run began (ran_at). A refused mint, a failed call, a review started with no id or a revocation not answered
-# 204 stops the run, and a token that may be live is told to the Maintainer. A later write GitHub refuses is kept, and
-# the run goes on.
+# One token for the App's installation that P-39 found, on REPO alone, narrowed to issues: read and pull_requests: write,
+# makes each call in turn and is revoked. After each write it reads the timeline and the reviews list: 1. as it is;
+# 2. a review started with one line comment on FILE, left pending; 3. twenty seconds on, an issue comment; 4. a minute
+# on, the review submitted as a comment; 5. twenty seconds on, another comment; 6. the timeline two a page, and the
+# review's comments. The token lives in a shell variable and reaches curl on its standard input. Each answer is redacted
+# by tools/redact_trial.py in a scratch directory outside the repo; OUT gets the clean answers (clean-N), what the
+# redaction removed (redacted-N), the bodies sent (sent-NAME), each call with the time before it (requests.json) and
+# ran_at. A refused mint, a failed call, a reviews list not read as none before the first write, a review not started
+# pending, a later write refused or a revocation not answered 204 stops the run; a token that may be live is told.
 set -eu
 # Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
 # (issue 1215).
@@ -187,8 +181,8 @@ date -u +%Y-%m-%dT%H:%M:%SZ > "$out/ran_at"
 asked=""
 n=0
 
-# One call with the live token: the redacted answer goes to OUT as clean-N, and what was asked, with the time just
-# before it, to requests.json. A body is a file of this run's scratch directory, which holds no credential.
+# One call with the live token: its redacted answer to OUT as clean-N, what was asked and the time before it to
+# requests.json. A body is OUT's sent-BODY.
 ask() {   # METHOD PATH [BODY]
     n=$((n + 1))
     call_ok=1
@@ -196,7 +190,7 @@ ask() {   # METHOD PATH [BODY]
     # curl is the last command of the pipeline, so its exit is the pipeline's; nothing after it hides a failure.
     # shellcheck disable=SC2086  # the body's two words stand only when there is a body
     printf 'Authorization: Bearer %s\n' "$token" | curl -q -sS -i -X "$1" -H @- -H "$ACCEPT" -H "$VERSION" \
-        ${3:+-d} ${3:+"@$scratch/$3"} "$API/$2" > "$scratch/crlf-$n" || call_ok=0
+        ${3:+-d} ${3:+"@$out/sent-$3"} "$API/$2" > "$scratch/crlf-$n" || call_ok=0
     tr -d '\r' < "$scratch/crlf-$n" > "$scratch/raw-$n"
     rm -f "$scratch/crlf-$n"
     # The last head's status: a proxy's block, or an interim answer, comes first and is no answer to this call.
@@ -206,7 +200,7 @@ ask() {   # METHOD PATH [BODY]
         echo "trial_p81_review_order: $1 /$2: curl failed; nothing of it is kept" >&2
         exit 1
     fi
-    # Three digits or nothing: what reaches requests.json and the terminal unquoted is a number (the security read).
+    # Three digits, as requests.json and the terminal take it unquoted (the security read).
     case "$status" in
         [1-5][0-9][0-9]) ;;
         *) rm -f "$scratch/raw-$n"
@@ -218,12 +212,30 @@ ask() {   # METHOD PATH [BODY]
     asked="$asked{\"n\": $n, \"as\": \"${slug}[bot]\", \"call\": \"$1 /$2\", \"body\": \"${3:-}\", \"at\": \"$at\","
     asked="$asked \"status\": $status},"
     echo "$1 /$2: $status"
+    last_write="$1 /$2"
+}
+
+# The last write was answered STATUS, or the run stops: what follows a refused one could not answer the question.
+wrote() {   # STATUS
+    [ "$status" = "$1" ] && return 0
+    echo "trial_p81_review_order: $last_write: GitHub answered $status, not $1; nothing after it is asked" >&2
+    exit 1
 }
 
 # The timeline as the port reads it, one page of a hundred, and the reviews list.
 reads() {
     ask GET "repos/$repo/issues/$number/timeline?per_page=100"
     ask GET "repos/$repo/pulls/$number/reviews?per_page=100"
+}
+
+# The body of call N's clean answer, as JSON, read past every head; nothing where it cannot be read.
+body_of() {   # N
+    python3 -I -c '
+import json, sys
+text = open(sys.argv[1]).read()
+while text.startswith("HTTP/"):    # each head, a proxy'"'"'s block among them, comes before the answer
+    text = text.partition("\n\n")[2]
+print(json.dumps(json.loads(text)))' "$out/clean-$1" 2>/dev/null || true
 }
 
 # Whether the clean answer of call N names a next page: its link header, which the redaction keeps, says so.
@@ -233,22 +245,19 @@ import re, sys
 sys.exit(0 if re.search(r"(?im)^link:.*rel=\"next\"", open(sys.argv[1]).read()) else 1)' "$out/clean-$1"
 }
 
-# The bodies, each a file of the scratch directory and all of them in OUT's sent.json; trial text only. They are written
-# once a token is minted, so that a refused or unreadable mint writes nothing at all.
+# The bodies, OUT's sent-NAME, trial text only, written once a token is minted.
 bodies() {
-    python3 -I - "$scratch" "$out/sent.json" "$file" <<'BODIES'
+    python3 -I - "$out" "$file" <<'BODIES'
 import json, os, sys
-scratch, sent, path = sys.argv[1:]
+out, path = sys.argv[1:]
 said = {"start": {"body": "Trial P-81: a review started now and submitted later.",
                   "comments": [{"path": path, "line": 1, "side": "RIGHT", "body": "Trial P-81: a line comment drafted now."}]},
         "pending": {"body": "Trial P-81: an issue comment while the review is pending."},
-        "submit": {"event": "COMMENT"},
+        "submit": {"event": "COMMENT", "body": "Trial P-81: a review started now and submitted later."},
         "after": {"body": "Trial P-81: an issue comment after the review was submitted."}}
 for name, body in said.items():
-    with open(os.path.join(scratch, name), "w") as held:
+    with open(os.path.join(out, "sent-" + name), "w") as held:
         json.dump(body, held)
-with open(sent, "w") as held:
-    json.dump(said, held, indent=1)
 BODIES
 }
 
@@ -316,31 +325,39 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
     minted=""
     bodies
     reads
+    # The pull request holds no review, so the run's is the only one.
+    if [ "$status" != 200 ] || [ "$(body_of "$n")" != "[]" ]; then
+        echo "trial_p81_review_order: the pull request's reviews were not read as none, status $status; nothing is written" >&2
+        exit 1
+    fi
     ask POST "repos/$repo/pulls/$number/reviews" start
-    # The review's id, from its clean answer: every later step needs it, so none is asked without it.
-    review=$(python3 -I -c '
+    # The review's id, if GitHub left it pending: every later step needs it.
+    review=$(body_of "$n" | python3 -I -c '
 import json, sys
-text = open(sys.argv[1]).read()
-while text.startswith("HTTP/"):    # each head, a proxy'"'"'s block among them, comes before the answer
-    text = text.partition("\n\n")[2]
-print(json.loads(text).get("id", ""))' "$out/clean-$n" 2>/dev/null || true)
+held = json.load(sys.stdin)
+print(held["id"] if isinstance(held, dict) and held.get("state") == "PENDING" else "")' 2>/dev/null || true)
+    [ "$status" = 200 ] || review=""
     case "$review" in
         ""|0*|*[!0-9]*)
-            echo "trial_p81_review_order: the review's start gave no review's id, status $status; nothing else is asked" >&2
+            echo "trial_p81_review_order: the review's start gave no pending review's id, status $status; nothing else is" \
+                "asked" >&2
             exit 1 ;;
     esac
     reads
     # Twenty seconds between acts, so that no two share a second; a minute more while the review is pending.
     sleep 20
     ask POST "repos/$repo/issues/$number/comments" pending
+    wrote 201
     reads
     sleep 60
     ask POST "repos/$repo/pulls/$number/reviews/$review/events" submit
+    wrote 200
     reads
     sleep 20
     ask POST "repos/$repo/issues/$number/comments" after
+    wrote 201
     reads
-    # The timeline two a page, each page as the port asks for it, until one names no next page or the bound is met.
+    # The timeline two a page, as the port asks for each, until one names no next page or the bound is met.
     page=1
     while :; do
         if [ "$page" = 1 ]; then

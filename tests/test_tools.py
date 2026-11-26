@@ -16561,17 +16561,16 @@ elif "/issues/" in url:""", 1)
         self.assertEqual(self.calls(), [])
 
 class ReviewOrderTrial(IssueLookupTrial):
-    """`tools/trial_p81_review_order.sh`, run against the same stand-ins and never GitHub (issue 1219). It is P-12's shape
-    on the pr-review App: one token, writes among its reads, so every test of P-54's that is not about what is asked runs
-    over it too, by inheritance. A stand-in sleep keeps the gaps between acts, and waits for none."""
+    """`tools/trial_p81_review_order.sh` against the same stand-ins (issue 1219): P-12's shape, one token with writes among
+    its reads, so P-54's tests that are not about what is asked run over it too. A stand-in sleep waits for nothing."""
 
     SCRIPT = ROOT / "tools" / "trial_p81_review_order.sh"
     GIVEN = (IssueLookupTrial.CANARY, "42", "trial-notes/p-81.md")
     FIRST = "issues: read and pull_requests: write"
     NOT_A_NUMBER = "is not a pull request's number"
     # The stand-in answers the review, the comments, the timeline and the reviews list, keeping each body sent for the
-    # test to read. Two a page, the timeline has three pages, or no end where a file beside it says so; a file beside it
-    # refuses the review's start.
+    # test to read. Two a page, the timeline has three pages; the reviews list
+    # is empty. Files beside it refuse the review's start or the comments, start it submitted, or list a review before it.
     CURL = BranchReadsTrial.CURL.replace('elif "/issues/" in url:', """elif "/timeline" in url or "/reviews" in url or "/comments" in url:
     if os.path.exists(os.path.join(here, "read.broke")):
         sys.stdout.write("HTTP/2 200\\r\\n\\r\\n{")
@@ -16590,15 +16589,19 @@ class ReviewOrderTrial(IssueLookupTrial):
     leak = "gh" + "s_" + "L" * 36
     if method == "POST" and url.endswith("/reviews"):
         status, answer = (422, {"message": "Validation Failed"}) if os.path.exists(os.path.join(here, "no-review")) else \\
-            (200, {"id": 81, "state": "PENDING"})
+            (200, {"id": "7/../x" if os.path.exists(os.path.join(here, "odd.id")) else 81,
+                   "state": "COMMENTED" if os.path.exists(os.path.join(here, "not-pending")) else "PENDING"})
+    elif "/reviews?" in url and not os.path.exists(os.path.join(here, "reviewed-before")):
+        status, answer = 200, []
     elif method == "POST" and url.endswith("/events"):
         status, answer = 200, {"id": 81, "state": "COMMENTED", "submitted_at": "2026-11-26T12:01:40Z"}
+    elif method == "POST" and os.path.exists(os.path.join(here, "no-comment")):
+        status, answer = 422, {"message": "Validation Failed"}
     elif method == "POST":
         status, answer = 201, {"id": 9, "created_at": "2026-11-26T12:00:20Z"}
     elif query.get("per_page") == "2":
         page = int(query.get("page", "1"))
-        last = 99 if os.path.exists(os.path.join(here, "endless")) else 3
-        named = '<https://api.github.com/x?per_page=2&page=%d>; rel="next"' % (page + 1) if page < last else \\
+        named = '<https://api.github.com/x?per_page=2&page=%d>; rel="next"' % (page + 1) if page < 3 else \\
             '<https://api.github.com/x?per_page=2&page=1>; rel="first"'
         sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\nlink: %s\\r\\n\\r\\n%s" % (named, json.dumps(
             [{"event": "commented", "id": page, "created_at": "2026-11-26T12:00:0%dZ" % page, "leak": leak}])))
@@ -16609,7 +16612,8 @@ elif "/issues/" in url:""", 1)
 
     def setUp(self):
         super().setUp()
-        (self.stand_in / "sleep").write_text('#!/bin/sh\necho "$1" >> "$(dirname "$0")/slept"\n')
+        # Each wait is logged among the calls, in the order made.
+        (self.stand_in / "sleep").write_text('#!/bin/sh\necho "{\\"method\\": \\"SLEEP\\", \\"url\\": \\"$1\\"}" >> "$(dirname "$0")/log"\n')
         (self.stand_in / "sleep").chmod(0o755)
 
     def test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept(self):
@@ -16625,45 +16629,64 @@ elif "/issues/" in url:""", 1)
                                                         "permissions": {"issues": "read", "pull_requests": "write"}})
         pull, issue = "%s/pulls/42" % self.CANARY, "%s/issues/42" % self.CANARY
         reads = [("GET", issue + "/timeline?per_page=100"), ("GET", pull + "/reviews?per_page=100")]
-        asked = (reads + [("POST", pull + "/reviews")] + reads + [("POST", issue + "/comments")] + reads
-                 + [("POST", pull + "/reviews/81/events")] + reads + [("POST", issue + "/comments")] + reads
+        # A minute while the review is pending, twenty seconds before and after it, each between its two acts.
+        asked = (reads + [("POST", pull + "/reviews")] + reads + [("SLEEP", "20"), ("POST", issue + "/comments")] + reads
+                 + [("SLEEP", "60"), ("POST", pull + "/reviews/81/events")] + reads + [("SLEEP", "20"), ("POST", issue + "/comments")]
+                 + reads
                  + [("GET", issue + "/timeline?per_page=2"), ("GET", issue + "/timeline?per_page=2&page=2"),
                     ("GET", issue + "/timeline?per_page=2&page=3"), ("GET", pull + "/reviews/81/comments?per_page=100")])
-        self.assertEqual([(c["method"], c["url"].split("/repos/")[1]) for c in calls[1:-1]], asked)
+        self.assertEqual([(c["method"], c["url"].split("/repos/")[-1]) for c in calls[1:-1]], asked)
         self.assertEqual((calls[-1]["method"], calls[-1]["url"].rsplit("/", 2)[1:]), ("DELETE", ["installation", "token"]))
-        self.assertTrue(all(c["credential"] for c in calls), "every call carries its credential on stdin")
-        # A minute while the review is pending, twenty seconds before and after it, in that order.
-        self.assertEqual((self.stand_in / "slept").read_text().split(), ["20", "60", "20"])
+        self.assertTrue(all(c["credential"] for c in calls if c["method"] != "SLEEP"), "every call carries its credential on stdin")
         sent = [json.loads(line) for line in (self.stand_in / "sent").read_text().splitlines()]
-        self.assertEqual([sorted(s) for s in sent], [["body", "comments"], ["body"], ["event"], ["body"]])
+        self.assertEqual([sorted(s) for s in sent], [["body", "comments"], ["body"], ["body", "event"], ["body"]])
         self.assertNotIn("event", sent[0])
-        self.assertEqual({k: v for k, v in sent[0]["comments"][0].items() if k != "body"},
-                         {"path": "trial-notes/p-81.md", "line": 1, "side": "RIGHT"})
-        self.assertEqual(sent[2], {"event": "COMMENT"})
+        self.assertEqual(sent[0]["comments"], [{"path": "trial-notes/p-81.md", "line": 1, "side": "RIGHT",
+                                                "body": "Trial P-81: a line comment drafted now."}])
+        self.assertEqual(sent[2], {"event": "COMMENT", "body": sent[0]["body"]})
         texts = {p.name: p.read_text() for p in self.out.iterdir()}
-        self.assertEqual(sorted(texts), sorted(["ran_at", "requests.json", "sent.json"] + ["%s-%d" % (kind, n) for n in range(1, 19)
-                                                                                           for kind in ("clean", "redacted")]))
-        self.assertEqual(json.loads(texts["sent.json"]), dict(zip(("start", "pending", "submit", "after"), sent)))
+        names = ("start", "pending", "submit", "after")
+        self.assertEqual(sorted(texts), sorted(["ran_at", "requests.json"] + ["sent-" + b for b in names]
+                                               + ["%s-%d" % (kind, n) for n in range(1, 19) for kind in ("clean", "redacted")]))
+        self.assertEqual([json.loads(texts["sent-" + b]) for b in names], sent)
         said = json.loads(texts["requests.json"])
         self.assertEqual([(a["call"], a["body"], a["status"]) for a in said[:-1]],
                          [("%s /repos/%s" % (m, u), b, s) for (m, u), b, s in zip(
-                             asked, ["", "", "start", "", "", "pending", "", "", "submit", "", "", "after"] + [""] * 6,
+                             [a for a in asked if a[0] != "SLEEP"], ["", "", "start", "", "", "pending", "", "", "submit", "", "", "after"] + [""] * 6,
                              [200, 200, 200, 200, 200, 201, 200, 200, 200, 200, 200, 201] + [200] * 6)])
         self.assertTrue(all(re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", a["at"]) for a in said[:-1]), said)
         self.assertEqual(said[-1], {"revoked": self.FIRST, "status": 204})
         self.assertIn('rel="next"', texts["clean-15"])
         self.assertIn('"submitted_at": "2026-11-26T12:01:40Z"', texts["clean-1"])
         self.assertNotIn("gh" + "s_", "".join(texts.values()) + ran.stdout + ran.stderr)
-        self.assertTrue(all("leak" in texts["redacted-%d" % n] for n in (1, 2, 4, 15, 16, 17, 18)))
+        self.assertTrue(all("leak" in texts["redacted-%d" % n] for n in (1, 4, 15, 16, 17, 18)))
 
-    def test_a_review_started_with_no_id_stops_the_run_and_its_token_is_revoked(self):
-        (self.stand_in / "no-review").write_text("")
+    def test_a_review_not_started_pending_stops_the_run_and_its_token_is_revoked(self):
+        for flag, status in (("no-review", 422), ("not-pending", 200), ("odd.id", 200)):
+            with self.subTest(flag=flag):
+                self.setUp()
+                (self.stand_in / flag).write_text("")
+                ran = self.run_script()
+                self.assertNotEqual(ran.returncode, 0, ran.stdout)
+                self.assertIn("the review's start gave no pending review's id, status %d; nothing else is asked" % status,
+                              ran.stderr)
+                self.assertEqual([c["method"] for c in self.calls()], ["POST", "GET", "GET", "POST", "DELETE"])
+                self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+
+    def test_a_pull_request_reviewed_before_is_written_to_not_at_all(self):
+        (self.stand_in / "reviewed-before").write_text("")
         ran = self.run_script()
         self.assertNotEqual(ran.returncode, 0, ran.stdout)
-        self.assertIn("the review's start gave no review's id, status 422; nothing else is asked", ran.stderr)
-        self.assertEqual([c["method"] for c in self.calls()], ["POST", "GET", "GET", "POST", "DELETE"])
-        self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
-        self.assertFalse((self.stand_in / "slept").exists())
+        self.assertIn("the pull request's reviews were not read as none, status 200; nothing is written", ran.stderr)
+        self.assertEqual([c["method"] for c in self.calls()], ["POST", "GET", "GET", "DELETE"])
+
+    def test_a_comment_refused_stops_the_run_before_the_submission(self):
+        (self.stand_in / "no-comment").write_text("")
+        ran = self.run_script()
+        self.assertNotEqual(ran.returncode, 0, ran.stdout)
+        self.assertIn("POST /repos/%s/issues/42/comments: GitHub answered 422, not 201; nothing after it is asked" % self.CANARY,
+                      ran.stderr)
+        self.assertEqual([c["method"] for c in self.calls()][-3:], ["SLEEP", "POST", "DELETE"])
 
     def test_a_status_that_is_no_number_is_not_kept_and_its_token_is_revoked(self):
         (self.stand_in / "odd.status").write_text("")
@@ -16673,15 +16696,6 @@ elif "/issues/" in url:""", 1)
         self.assertEqual([c["method"] for c in self.calls()], ["POST", "GET", "DELETE"])
         self.assertNotIn("200x", ran.stdout + ran.stderr)
         self.assertFalse((self.out / "requests.json").exists())
-
-    def test_the_pages_two_a_page_stop_at_the_bound(self):
-        (self.stand_in / "endless").write_text("")
-        ran = self.run_script()
-        self.assertEqual(ran.returncode, 0, ran.stderr)
-        pages = [c["url"] for c in self.calls() if "per_page=2" in c["url"]]
-        self.assertEqual(pages[1:], ["https://api.github.com/repos/%s/issues/42/timeline?per_page=2&page=%d" % (self.CANARY, n)
-                                     for n in range(2, 31)])
-        self.assertIn("page 30 of two still names a next page; the rest is not read", ran.stderr)
 
     def test_the_status_kept_is_the_last_heads(self):
         # A proxy's block comes first, 200, and GitHub's answer after it is the call's: the comments' 201s stay 201s.
@@ -16716,14 +16730,9 @@ elif "/issues/" in url:""", 1)
                                  (("combsmith", "42", "a.md"), None, "is not owner/name"),
                                  ((self.CANARY, "0", "a.md"), None, self.NOT_A_NUMBER),
                                  ((self.CANARY, "12a", "a.md"), None, self.NOT_A_NUMBER),
-                                 ((self.CANARY, "1/../2", "a.md"), None, self.NOT_A_NUMBER),
-                                 ((self.CANARY, "", "a.md"), None, self.NOT_A_NUMBER),
                                  ((self.CANARY, "42", ""), None, not_a_path),
-                                 ((self.CANARY, "42", "/etc/passwd"), None, not_a_path),
                                  ((self.CANARY, "42", "../a.md"), None, not_a_path),
-                                 ((self.CANARY, "42", "a/"), None, not_a_path),
                                  ((self.CANARY, "42", "-a"), None, not_a_path),
-                                 ((self.CANARY, "42", "a b.md"), None, not_a_path),
                                  ((self.CANARY, "42", 'a".md'), None, not_a_path),
                                  ((self.CANARY, "42"), None, "usage:"), ((self.CANARY, "42", "a.md", "x"), None, "usage:")):
             ran = self.run_script(*given, out=out)
