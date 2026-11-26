@@ -8,7 +8,6 @@ import io
 import json
 import os
 import pathlib
-import shutil
 import tempfile
 import unittest
 from unittest import mock
@@ -842,8 +841,10 @@ class Schemas(unittest.TestCase):
         # The examples are held to it, and so is each counter-example, by tools/check_examples.py.
         self.assertEqual([problem for problem in check_examples.run() if "advice" in problem], [])
         with tempfile.TemporaryDirectory() as tmp:
-            for part in ("schemas", "examples"):
-                shutil.copytree(ROOT / part, pathlib.Path(tmp) / part)
+            for part in ("schemas", "examples", "examples/invalid"):       # the files of each, not a walk of the tree
+                (pathlib.Path(tmp) / part).mkdir()
+                for path in (ROOT / part).glob("*.json"):
+                    (pathlib.Path(tmp) / part / path.name).write_bytes(path.read_bytes())
             (pathlib.Path(tmp) / "examples" / "advice.json").write_text(json.dumps(dict(whole, reason="budget")))
             (pathlib.Path(tmp) / "examples" / "invalid" / "advice.a-text-of-another-finding.json").write_text(json.dumps(whole))
             problems = check_examples.run(pathlib.Path(tmp))
