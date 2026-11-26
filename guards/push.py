@@ -158,9 +158,11 @@ def existing(changes, tree) -> tuple:
                                          for path, mode in tree.items()):
         return None, patch.TREE_UNREAD
     written, removed = changes["written"], set(changes["removed"])
-    # Changes the tree cannot hold were never `applied`'s: a file written over a directory the tree keeps, or under a
-    # file it keeps.
-    if (any(above in written for path in tree if path not in removed for above in _above(path))
+    # Changes the tree cannot hold were never `applied`'s: a file removed or read that the tree holds as no file, a
+    # file written over a link or a submodule, over a directory the tree keeps, or under a file it keeps.
+    if (any(tree.get(path) not in patch.FILE_MODES for path in list(removed) + changes["read"])
+            or any(path in tree and tree[path] not in patch.FILE_MODES for path in written)
+            or any(above in written for path in tree if path not in removed for above in _above(path))
             or any(above in tree and above not in removed for path in written for above in _above(path))):
         return None, NOT_PERMITTED
     return sorted(path for path in list(changes["written"]) + changes["removed"] if path in tree), None

@@ -13,7 +13,7 @@ Status: accepted. 2026-11-26, the Solution Architect; issue 838. Extends decisio
 | `push_answer_refused` | A write's 4xx, or a read-back that is not what was made | A person's |
 | `push_unanswered` | No answer to a write, or a 5xx | The port's, an environment fault |
 
-A tree in no shape is the port's read, `push_tree_unreadable`, a person's. Each input and key is held to its exact type, as in the patch guard. The state keeps a copy of what it was told. A file may become a directory, or a directory a file, as `applied` allows.
+A tree not mapping exact text to git's modes is the port's read, `push_tree_unreadable`, a person's. Each input and key is held to its exact type, as in the patch guard. The state keeps a copy of what it was told. A file may become a directory, or a directory a file, as `applied` allows.
 
 Once pull request 1222 is merged, `WHOSE` names each code here: this pull request adds its own if it merges second, else the follow-on that pins the push port's person code does. Push part 2's `seen` takes the port's accepted listing, refuses one not marked whole, and holds only the order, the commit and the branch.
 

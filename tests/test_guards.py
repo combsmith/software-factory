@@ -1248,7 +1248,8 @@ class Push(unittest.TestCase):
                      told(written={"a/b": (FILE, b"")}, removed=["a"]), told(written={"d": (FILE, b"")}, removed=["d/b"])):
             self.assertIsNotNone(push.began(good)[0], good["changes"])
             self.assertIsNone(push.touched(good["changes"])[1])
-            self.assertIsNone(push.existing(good["changes"], {})[1])
+            held = {path: FILE for path in good["changes"]["removed"] + good["changes"]["read"]}
+            self.assertIsNone(push.existing(good["changes"], held)[1])
         wrote = WROTE["written"]
         for said, bad in (
                 ("nothing written and nothing removed", told(written={}, removed=[])),
@@ -1300,8 +1301,20 @@ class Push(unittest.TestCase):
         tree = {"docs/a.md": FILE, "tests/t.py": FILE, "config/x.json": FILE, "run.sh": "100755"}
         self.assertEqual(push.existing(changes, tree), (["config/x.json", "docs/a.md", "tests/t.py"], None))
         self.assertEqual(push.existing(dict(changes, removed=[]), tree), (["docs/a.md"], None))
-        self.assertEqual(push.existing(changes, {}), ([], None))
-        self.assertEqual(push.existing(changes, {"tests/t.py": FILE}), (["tests/t.py"], None))
+        self.assertEqual(push.existing(dict(changes, removed=[], read=[]), {}), ([], None))
+        self.assertEqual(push.existing(dict(changes, removed=["tests/t.py"], read=["tests/t.py"]), {"tests/t.py": FILE}),
+                         (["tests/t.py"], None))
+        # A file removed or read that the tree holds as no file, a directory among them, and a file written over a link
+        # or a submodule the tree holds, were never `applied`'s.
+        for said, tree_said in ((changes, {}), ({"written": {}, "removed": ["tests"], "read": []}, {"tests/t.py": FILE}),
+                                ({"written": {"b": (FILE, b"")}, "removed": [], "read": ["a"]}, {}),
+                                ({"written": {"m": (FILE, b"")}, "removed": [], "read": []}, {"m": "160000"}),
+                                ({"written": {"l": (FILE, b"")}, "removed": [], "read": []}, {"l": "120000"}),
+                                ({"written": {}, "removed": ["l"], "read": []}, {"l": "120000"}),
+                                ({"written": {"b": (FILE, b"")}, "removed": [], "read": ["l"]}, {"l": "120000"})):
+            self.assertEqual(push.existing(said, tree_said), NOT_PERMITTED, (said, tree_said))
+        self.assertEqual(push.existing({"written": {"r": ("100755", b"")}, "removed": ["x"], "read": ["x"]},
+                                       {"r": FILE, "x": "100755"}), (["r", "x"], None))
         # Changes that the tree they land on cannot hold were never `applied`'s: a file over a directory the tree keeps,
         # at any depth, or under a file it keeps. Where the push removes what stood in the way, they land.
         for wrote, tree_said in (({"tests": (FILE, b"x")}, {"tests/t.py": FILE}), ({"a/b": (FILE, b"")}, {"a": FILE}),
