@@ -315,16 +315,10 @@ def existing(changes, tree) -> tuple:
     """`(files, None)`: the files of the admitted commit, `tree`, that the push changes or removes, each once, in
     order: what FR-14's rule on a test is asked about. A file the push adds is none of them. `(None, NOT_PERMITTED)`
     for changes in no shape `applied` gives, or that the tree cannot hold, and `(None, patch.TREE_UNREAD)` for a tree
-    that is no exact mapping of text to a mode git holds, each held to its type before any is compared, or that no
-    tree is: a file under a file, or deeper than any name `patch.named` reads."""
+    in no shape a port gives, as the patch guard reads one (`patch.held`)."""
     if not _changes(changes):
         return None, NOT_PERMITTED
-    if type(tree) is not dict or not all(type(path) is str and type(mode) is str and mode in patch.TREE_MODES
-                                         for path, mode in tree.items()):
-        return None, patch.TREE_UNREAD
-    # A bound on depth, asked before a path is split, bounds what `_above` builds; no tree holds a file under a file.
-    if (not all(path.count("/") < len(patch.DEEPEST) and "" not in path.split("/") for path in tree)
-            or any(above in tree for path in tree for above in _above(path))):
+    if not patch.held(tree):
         return None, patch.TREE_UNREAD
     written, removed = changes["written"], set(changes["removed"])
     # Changes the tree cannot hold were never `applied`'s: a file removed or read that the tree holds as no file, a
